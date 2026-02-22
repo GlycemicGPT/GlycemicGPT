@@ -117,6 +117,22 @@ class AuthManagerTest {
         assertEquals(AuthState.Authenticated, manager.authState.value)
     }
 
+    @Test
+    fun `validateOnStartup sets Expired after retries exhausted on 500 with no token`() {
+        every { authTokenStore.getRefreshToken() } returns "valid-refresh"
+        every { authTokenStore.isRefreshTokenExpired() } returns false
+        every { authTokenStore.getToken() } returns null // Access token expired
+        every { authTokenStore.getRawToken() } returns null // No raw token either
+        every { refreshClientProvider.refreshClient } returns mockClientReturning(fakeResponse(500))
+
+        val manager = createManager()
+        manager.validateOnStartup(testScope)
+        testScope.testScheduler.advanceUntilIdle()
+
+        // After 3 attempts (0..2), should give up and set Expired
+        assertTrue(manager.authState.value is AuthState.Expired)
+    }
+
     // --- performRefresh (also covers the validateOnStartup->performRefresh delegation path) ---
 
     @Test
@@ -178,7 +194,7 @@ class AuthManagerTest {
     }
 
     @Test
-    fun `performRefresh sets Expired on HTTP error`() = runTest {
+    fun `performRefresh sets Expired on 401 HTTP error`() = runTest {
         every { authTokenStore.getRefreshToken() } returns "valid-refresh"
         every { authTokenStore.isRefreshTokenExpired() } returns false
         every { refreshClientProvider.refreshClient } returns mockClientReturning(fakeResponse(401))
@@ -188,6 +204,80 @@ class AuthManagerTest {
 
         assertTrue(manager.authState.value is AuthState.Expired)
         verify { authTokenStore.clearToken() }
+    }
+
+    @Test
+    fun `performRefresh sets Expired on 403 HTTP error`() = runTest {
+        every { authTokenStore.getRefreshToken() } returns "valid-refresh"
+        every { authTokenStore.isRefreshTokenExpired() } returns false
+        every { refreshClientProvider.refreshClient } returns mockClientReturning(fakeResponse(403))
+
+        val manager = createManager()
+        manager.performRefresh(testScope)
+
+        assertTrue(manager.authState.value is AuthState.Expired)
+        verify { authTokenStore.clearToken() }
+    }
+
+    @Test
+    fun `performRefresh preserves session on 500 with existing raw token`() = runTest {
+        every { authTokenStore.getRefreshToken() } returns "valid-refresh"
+        every { authTokenStore.isRefreshTokenExpired() } returns false
+        every { authTokenStore.getRawToken() } returns "existing-token"
+        every { authTokenStore.getTokenExpiresAtMs() } returns System.currentTimeMillis() + 3_600_000
+        every { refreshClientProvider.refreshClient } returns mockClientReturning(fakeResponse(500))
+
+        val manager = createManager()
+        manager.performRefresh(testScope)
+
+        // Should stay authenticated and schedule retry, NOT set Expired
+        assertEquals(AuthState.Authenticated, manager.authState.value)
+        verify(exactly = 0) { authTokenStore.clearToken() }
+    }
+
+    @Test
+    fun `performRefresh stays Refreshing on 500 without raw token`() = runTest {
+        every { authTokenStore.getRefreshToken() } returns "valid-refresh"
+        every { authTokenStore.isRefreshTokenExpired() } returns false
+        every { authTokenStore.getRawToken() } returns null
+        every { refreshClientProvider.refreshClient } returns mockClientReturning(fakeResponse(500))
+
+        val manager = createManager()
+        manager.performRefresh(testScope)
+
+        // No access token available -- should stay in Refreshing for retry
+        assertEquals(AuthState.Refreshing, manager.authState.value)
+        verify(exactly = 0) { authTokenStore.clearToken() }
+    }
+
+    @Test
+    fun `performRefresh preserves session on 502 gateway error`() = runTest {
+        every { authTokenStore.getRefreshToken() } returns "valid-refresh"
+        every { authTokenStore.isRefreshTokenExpired() } returns false
+        every { authTokenStore.getRawToken() } returns "existing-token"
+        every { authTokenStore.getTokenExpiresAtMs() } returns System.currentTimeMillis() + 3_600_000
+        every { refreshClientProvider.refreshClient } returns mockClientReturning(fakeResponse(502))
+
+        val manager = createManager()
+        manager.performRefresh(testScope)
+
+        assertEquals(AuthState.Authenticated, manager.authState.value)
+        verify(exactly = 0) { authTokenStore.clearToken() }
+    }
+
+    @Test
+    fun `performRefresh preserves session on 503 service unavailable`() = runTest {
+        every { authTokenStore.getRefreshToken() } returns "valid-refresh"
+        every { authTokenStore.isRefreshTokenExpired() } returns false
+        every { authTokenStore.getRawToken() } returns "existing-token"
+        every { authTokenStore.getTokenExpiresAtMs() } returns System.currentTimeMillis() + 3_600_000
+        every { refreshClientProvider.refreshClient } returns mockClientReturning(fakeResponse(503))
+
+        val manager = createManager()
+        manager.performRefresh(testScope)
+
+        assertEquals(AuthState.Authenticated, manager.authState.value)
+        verify(exactly = 0) { authTokenStore.clearToken() }
     }
 
     @Test

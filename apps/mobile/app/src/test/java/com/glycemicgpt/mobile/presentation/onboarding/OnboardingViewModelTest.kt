@@ -153,7 +153,7 @@ class OnboardingViewModelTest {
     }
 
     @Test
-    fun `login success sets onboardingComplete`() = runTest {
+    fun `login success requests notification permission before completing onboarding`() = runTest {
         every { authRepository.isValidUrl(any()) } returns true
         coEvery { authRepository.login(any(), any(), any(), any()) } returns LoginResult(
             success = true, email = "user@test.com",
@@ -165,11 +165,34 @@ class OnboardingViewModelTest {
 
         vm.login()
 
-        assertTrue(vm.uiState.value.onboardingComplete)
+        // After login, notification permission is requested but onboarding isn't complete yet
+        assertTrue(vm.uiState.value.requestNotificationPermission)
+        assertFalse(vm.uiState.value.onboardingComplete)
         assertFalse(vm.uiState.value.isLoggingIn)
         assertNull(vm.uiState.value.loginError)
         assertEquals("", vm.uiState.value.password)
         verify { appSettingsStore.onboardingComplete = true }
+    }
+
+    @Test
+    fun `onNotificationPermissionHandled completes onboarding`() = runTest {
+        every { authRepository.isValidUrl(any()) } returns true
+        coEvery { authRepository.login(any(), any(), any(), any()) } returns LoginResult(
+            success = true, email = "user@test.com",
+        )
+        val vm = createViewModel()
+        vm.updateBaseUrl("https://test.example.com")
+        vm.updateEmail("user@test.com")
+        vm.updatePassword("password123")
+
+        vm.login()
+        assertTrue(vm.uiState.value.requestNotificationPermission)
+        assertFalse(vm.uiState.value.onboardingComplete)
+
+        vm.onNotificationPermissionHandled()
+
+        assertFalse(vm.uiState.value.requestNotificationPermission)
+        assertTrue(vm.uiState.value.onboardingComplete)
     }
 
     @Test

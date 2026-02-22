@@ -1,5 +1,9 @@
 package com.glycemicgpt.mobile.presentation.settings
 
+import android.Manifest
+import android.content.Intent
+import android.os.Build
+import android.provider.Settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -19,6 +23,8 @@ import androidx.compose.material.icons.filled.BluetoothDisabled
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Storage
@@ -45,6 +51,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.core.content.ContextCompat
+import android.content.pm.PackageManager
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.compose.ui.Alignment
@@ -125,6 +133,12 @@ fun SettingsScreen(
             onBackendSyncToggle = settingsViewModel::setBackendSyncEnabled,
             onRetentionChange = settingsViewModel::setDataRetentionDays,
         )
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // -- Notifications Section --
+        SectionHeader(title = "Notifications")
+        NotificationsSection()
 
         Spacer(modifier = Modifier.height(20.dp))
 
@@ -209,6 +223,101 @@ private fun SectionHeader(title: String) {
         color = MaterialTheme.colorScheme.primary,
         modifier = Modifier.padding(bottom = 8.dp),
     )
+}
+
+@Composable
+private fun NotificationsSection() {
+    val context = LocalContext.current
+
+    fun permissionGranted() = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.POST_NOTIFICATIONS,
+        ) == PackageManager.PERMISSION_GRANTED
+    } else {
+        true // Pre-Android 13: no runtime permission needed
+    }
+    var isGranted by remember { mutableStateOf(permissionGranted()) }
+    // Re-check when returning from system settings
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        isGranted = permissionGranted()
+    }
+
+    NotificationStatusCard(
+        isGranted = isGranted,
+        onEnableClicked = {
+            try {
+                val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                    putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                }
+                context.startActivity(intent)
+            } catch (_: android.content.ActivityNotFoundException) {
+                Toast.makeText(
+                    context,
+                    "Please enable notifications for GlycemicGPT in your phone's Settings",
+                    Toast.LENGTH_LONG,
+                ).show()
+            } catch (_: SecurityException) {
+                Toast.makeText(
+                    context,
+                    "Please enable notifications for GlycemicGPT in your phone's Settings",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+        },
+    )
+}
+
+@Composable
+private fun NotificationStatusCard(
+    isGranted: Boolean,
+    onEnableClicked: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = if (isGranted) Icons.Default.Notifications else Icons.Default.NotificationsOff,
+                    contentDescription = null,
+                    tint = if (isGranted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(24.dp),
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text(
+                        text = "Push Notifications",
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    Text(
+                        text = if (isGranted) "Enabled" else "Disabled -- alerts will not appear on your phone",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (isGranted) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.error
+                        },
+                    )
+                }
+            }
+
+            if (!isGranted) {
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Button(
+                    onClick = onEnableClicked,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("enable_notifications_button"),
+                ) {
+                    Text("Enable Notifications")
+                }
+            }
+        }
+    }
 }
 
 @Composable

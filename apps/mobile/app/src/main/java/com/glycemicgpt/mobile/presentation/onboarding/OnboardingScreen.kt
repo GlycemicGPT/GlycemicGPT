@@ -1,5 +1,9 @@
 package com.glycemicgpt.mobile.presentation.onboarding
 
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -59,6 +63,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import kotlinx.coroutines.launch
+import timber.log.Timber
 
 private const val PAGE_COUNT = OnboardingPages.COUNT
 private const val PAGE_WELCOME = OnboardingPages.WELCOME
@@ -79,6 +84,24 @@ fun OnboardingScreen(
         pageCount = { PAGE_COUNT },
     )
     val coroutineScope = rememberCoroutineScope()
+
+    // Notification permission launcher (Android 13+)
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        Timber.d("POST_NOTIFICATIONS permission granted: $granted")
+        viewModel.onNotificationPermissionHandled()
+    }
+
+    // Request notification permission after successful login
+    LaunchedEffect(state.requestNotificationPermission) {
+        if (state.requestNotificationPermission && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else if (state.requestNotificationPermission) {
+            // Pre-Android 13: permission not needed at runtime
+            viewModel.onNotificationPermissionHandled()
+        }
+    }
 
     LaunchedEffect(state.onboardingComplete) {
         if (state.onboardingComplete) {
