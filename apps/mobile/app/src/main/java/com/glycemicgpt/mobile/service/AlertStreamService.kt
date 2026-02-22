@@ -162,7 +162,6 @@ class AlertStreamService : Service() {
                     System.currentTimeMillis()
                 }
 
-                // Only show notification for non-acknowledged alerts
                 if (!alertResponse.acknowledged) {
                     val entity = AlertEntity(
                         serverId = alertResponse.id,
@@ -177,9 +176,20 @@ class AlertStreamService : Service() {
                         acknowledged = alertResponse.acknowledged,
                         timestampMs = timestampMs,
                     )
-                    alertNotificationManager.showAlertNotification(entity)
+                    // Only show notification if we haven't already notified for this alert.
+                    // Prevents spam on SSE reconnects which resend all unacknowledged alerts.
+                    if (alertNotificationManager.shouldNotify(alertResponse.id)) {
+                        val notifId = alertNotificationManager.stableNotificationId(entity)
+                        alertNotificationManager.showAlertNotification(entity, notifId)
+                        Timber.d("Alert notified: %s (%s)", alertResponse.id, alertResponse.alertType)
+                    } else {
+                        Timber.d("Skipping duplicate notification for alert: %s", alertResponse.id)
+                    }
+                } else {
+                    // Alert was acknowledged server-side; clear from dedup set
+                    alertNotificationManager.markAcknowledged(alertResponse.id)
+                    Timber.d("Alert already acknowledged: %s", alertResponse.id)
                 }
-                Timber.d("Alert received and notified: %s", alertResponse.id)
             } catch (e: Exception) {
                 Timber.e(e, "Failed to process alert event")
             }

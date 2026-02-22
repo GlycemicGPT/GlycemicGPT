@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.glycemicgpt.mobile.data.local.entity.AlertEntity
 import com.glycemicgpt.mobile.data.repository.AlertRepository
+import com.glycemicgpt.mobile.service.AlertNotificationManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -22,6 +23,7 @@ data class AlertsUiState(
 @HiltViewModel
 class AlertsViewModel @Inject constructor(
     private val alertRepository: AlertRepository,
+    private val alertNotificationManager: AlertNotificationManager,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AlertsUiState())
@@ -55,6 +57,9 @@ class AlertsViewModel @Inject constructor(
     fun acknowledgeAlert(serverId: String) {
         viewModelScope.launch {
             alertRepository.acknowledgeAlert(serverId)
+                .onSuccess {
+                    alertNotificationManager.markAcknowledged(serverId)
+                }
                 .onFailure { e ->
                     Timber.w(e, "Failed to acknowledge alert")
                     _uiState.value = _uiState.value.copy(error = e.message)

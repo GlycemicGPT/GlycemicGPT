@@ -84,6 +84,11 @@
             </intent-filter>
         </receiver>
 
+        <!-- Notification action receiver for alert acknowledge -->
+        <receiver
+            android:name=".service.AlertActionReceiver"
+            android:exported="false" />
+
         <!-- Disable default WorkManager initializer; we use Configuration.Provider -->
         <provider
             android:name="androidx.startup.InitializationProvider"

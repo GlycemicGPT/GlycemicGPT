@@ -1,12 +1,13 @@
 package com.glycemicgpt.mobile.presentation.alerts
 
 import com.glycemicgpt.mobile.data.local.entity.AlertEntity
-import com.glycemicgpt.mobile.data.remote.dto.AlertResponse
 import com.glycemicgpt.mobile.data.repository.AlertRepository
+import com.glycemicgpt.mobile.service.AlertNotificationManager
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,6 +31,7 @@ class AlertsViewModelTest {
     private val testDispatcher = UnconfinedTestDispatcher()
     private val alertsFlow = MutableStateFlow<List<AlertEntity>>(emptyList())
     private lateinit var repository: AlertRepository
+    private lateinit var notificationManager: AlertNotificationManager
 
     @Before
     fun setUp() {
@@ -38,6 +40,7 @@ class AlertsViewModelTest {
             every { observeRecentAlerts() } returns alertsFlow
             coEvery { fetchPendingAlerts() } returns Result.success(emptyList())
         }
+        notificationManager = mockk(relaxed = true)
     }
 
     @After
@@ -45,7 +48,7 @@ class AlertsViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun createViewModel() = AlertsViewModel(repository)
+    private fun createViewModel() = AlertsViewModel(repository, notificationManager)
 
     private fun makeAlert(
         serverId: String = "alert-1",
@@ -127,6 +130,33 @@ class AlertsViewModelTest {
         advanceUntilIdle()
 
         coVerify { repository.acknowledgeAlert("alert-1") }
+    }
+
+    @Test
+    fun `acknowledgeAlert calls markAcknowledged on success`() = runTest {
+        coEvery { repository.acknowledgeAlert("alert-1") } returns Result.success(Unit)
+
+        val vm = createViewModel()
+        advanceUntilIdle()
+
+        vm.acknowledgeAlert("alert-1")
+        advanceUntilIdle()
+
+        verify { notificationManager.markAcknowledged("alert-1") }
+    }
+
+    @Test
+    fun `acknowledgeAlert does not call markAcknowledged on failure`() = runTest {
+        coEvery { repository.acknowledgeAlert("alert-1") } returns
+            Result.failure(RuntimeException("Forbidden"))
+
+        val vm = createViewModel()
+        advanceUntilIdle()
+
+        vm.acknowledgeAlert("alert-1")
+        advanceUntilIdle()
+
+        verify(exactly = 0) { notificationManager.markAcknowledged(any()) }
     }
 
     @Test
