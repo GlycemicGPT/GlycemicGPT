@@ -4,9 +4,11 @@ import android.content.Context
 import android.os.PowerManager
 import com.glycemicgpt.mobile.data.auth.AuthManager
 import com.glycemicgpt.mobile.data.auth.AuthState
+import com.glycemicgpt.mobile.data.local.AlertSoundStore
 import com.glycemicgpt.mobile.data.local.AppSettingsStore
 import com.glycemicgpt.mobile.data.local.GlucoseRangeStore
 import com.glycemicgpt.mobile.data.local.PumpCredentialStore
+import com.glycemicgpt.mobile.service.AlertNotificationManager
 import com.glycemicgpt.mobile.data.repository.AuthRepository
 import com.glycemicgpt.mobile.data.repository.LoginResult
 import com.glycemicgpt.mobile.data.update.AppUpdateChecker
@@ -66,6 +68,13 @@ class SettingsViewModelTest {
     private val authManager = mockk<AuthManager>(relaxed = true) {
         every { authState } returns MutableStateFlow(AuthState.Unauthenticated)
     }
+    private val alertSoundStore = mockk<AlertSoundStore>(relaxed = true) {
+        every { lowAlertSoundName } returns null
+        every { highAlertSoundName } returns null
+        every { aiNotificationSoundName } returns null
+        every { overrideSilentForLowAlerts } returns true
+    }
+    private val alertNotificationManager = mockk<AlertNotificationManager>(relaxed = true)
 
     @Before
     fun setup() {
@@ -78,7 +87,7 @@ class SettingsViewModelTest {
     }
 
     private fun createViewModel() =
-        SettingsViewModel(appContext, pumpCredentialStore, appSettingsStore, glucoseRangeStore, authRepository, appUpdateChecker, authManager)
+        SettingsViewModel(appContext, pumpCredentialStore, appSettingsStore, glucoseRangeStore, authRepository, appUpdateChecker, authManager, alertSoundStore, alertNotificationManager)
 
     @Test
     fun `loadState initializes from stores`() {

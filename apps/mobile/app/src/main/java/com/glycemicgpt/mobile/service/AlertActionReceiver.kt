@@ -49,6 +49,7 @@ class AlertActionReceiver : BroadcastReceiver() {
                     .onSuccess {
                         Timber.d("Alert acknowledged via notification: %s", serverId)
                         alertNotificationManager.markAcknowledged(serverId)
+                        alertNotificationManager.restoreAlarmVolume()
                         if (notificationId >= 0) {
                             alertNotificationManager.cancelNotification(notificationId)
                         }

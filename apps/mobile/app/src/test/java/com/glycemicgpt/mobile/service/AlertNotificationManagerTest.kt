@@ -25,42 +25,68 @@ class AlertNotificationManagerTest {
         patientName = patientName,
     )
 
-    // --- Channel selection tests ---
+    // --- Channel resolution tests ---
 
     @Test
-    fun `urgent channel selected for emergency severity`() {
-        val alert = makeAlert(severity = "emergency")
-        val isUrgent = alert.severity in listOf("urgent", "emergency")
-        val channelId = if (isUrgent) AlertNotificationManager.CHANNEL_URGENT
-            else AlertNotificationManager.CHANNEL_STANDARD
-        assertEquals(AlertNotificationManager.CHANNEL_URGENT, channelId)
+    fun `low alert resolves to low channel`() {
+        val alert = makeAlert(alertType = "low_urgent")
+        val channelId = resolveChannelId(alert, lowVersion = 3, highVersion = 1, aiVersion = 1)
+        assertEquals("low_alerts_v3", channelId)
     }
 
     @Test
-    fun `urgent channel selected for urgent severity`() {
-        val alert = makeAlert(severity = "urgent")
-        val isUrgent = alert.severity in listOf("urgent", "emergency")
-        val channelId = if (isUrgent) AlertNotificationManager.CHANNEL_URGENT
-            else AlertNotificationManager.CHANNEL_STANDARD
-        assertEquals(AlertNotificationManager.CHANNEL_URGENT, channelId)
+    fun `low warning resolves to low channel`() {
+        val alert = makeAlert(alertType = "low_warning")
+        val channelId = resolveChannelId(alert, lowVersion = 1, highVersion = 1, aiVersion = 1)
+        assertEquals("low_alerts_v1", channelId)
     }
 
     @Test
-    fun `standard channel selected for warning severity`() {
-        val alert = makeAlert(severity = "warning")
-        val isUrgent = alert.severity in listOf("urgent", "emergency")
-        val channelId = if (isUrgent) AlertNotificationManager.CHANNEL_URGENT
-            else AlertNotificationManager.CHANNEL_STANDARD
-        assertEquals(AlertNotificationManager.CHANNEL_STANDARD, channelId)
+    fun `high alert resolves to high channel`() {
+        val alert = makeAlert(alertType = "high_warning")
+        val channelId = resolveChannelId(alert, lowVersion = 1, highVersion = 2, aiVersion = 1)
+        assertEquals("high_alerts_v2", channelId)
     }
 
     @Test
-    fun `standard channel selected for info severity`() {
-        val alert = makeAlert(severity = "info")
-        val isUrgent = alert.severity in listOf("urgent", "emergency")
-        val channelId = if (isUrgent) AlertNotificationManager.CHANNEL_URGENT
-            else AlertNotificationManager.CHANNEL_STANDARD
-        assertEquals(AlertNotificationManager.CHANNEL_STANDARD, channelId)
+    fun `high urgent resolves to high channel`() {
+        val alert = makeAlert(alertType = "high_urgent")
+        val channelId = resolveChannelId(alert, lowVersion = 1, highVersion = 1, aiVersion = 1)
+        assertEquals("high_alerts_v1", channelId)
+    }
+
+    @Test
+    fun `iob warning resolves to ai channel`() {
+        val alert = makeAlert(alertType = "iob_warning")
+        val channelId = resolveChannelId(alert, lowVersion = 1, highVersion = 1, aiVersion = 5)
+        assertEquals("ai_notifications_v5", channelId)
+    }
+
+    @Test
+    fun `unknown alert type resolves to ai channel`() {
+        val alert = makeAlert(alertType = "some_other_type")
+        val channelId = resolveChannelId(alert, lowVersion = 1, highVersion = 1, aiVersion = 1)
+        assertEquals("ai_notifications_v1", channelId)
+    }
+
+    // --- Channel ID formatting tests ---
+
+    @Test
+    fun `lowChannelId formats correctly`() {
+        assertEquals("low_alerts_v1", AlertNotificationManager.lowChannelId(1))
+        assertEquals("low_alerts_v42", AlertNotificationManager.lowChannelId(42))
+    }
+
+    @Test
+    fun `highChannelId formats correctly`() {
+        assertEquals("high_alerts_v1", AlertNotificationManager.highChannelId(1))
+        assertEquals("high_alerts_v10", AlertNotificationManager.highChannelId(10))
+    }
+
+    @Test
+    fun `aiChannelId formats correctly`() {
+        assertEquals("ai_notifications_v1", AlertNotificationManager.aiChannelId(1))
+        assertEquals("ai_notifications_v7", AlertNotificationManager.aiChannelId(7))
     }
 
     // --- Title formatting tests ---
@@ -156,9 +182,6 @@ class AlertNotificationManagerTest {
     }
 
     // --- Dedup logic tests (shouldNotify / markAcknowledged) ---
-    // These test the same logic used in AlertNotificationManager but without
-    // needing Android Context (which requires Robolectric). The production
-    // code uses the exact same synchronized set + add/remove pattern.
 
     @Test
     fun `shouldNotify returns true for new serverId`() {
@@ -197,27 +220,21 @@ class AlertNotificationManagerTest {
         dedup.shouldNotify("a")
         dedup.shouldNotify("b")
         dedup.shouldNotify("c")
-        // Adding "d" should prune "a"
         dedup.shouldNotify("d")
-        // "a" was pruned, so it should be treated as new
         assertTrue(dedup.shouldNotify("a"))
-        // linkedSetOf preserves insertion order, so after pruning the set is {b, c, d}
-        // "d" should still be in the set
         assertFalse(dedup.shouldNotify("d"))
     }
 
     @Test
     fun `markAcknowledged is idempotent for unknown serverId`() {
         val dedup = DedupTracker()
-        // Should not throw
         dedup.markAcknowledged("nonexistent")
-        // Set should still be empty, new add should work
         assertTrue(dedup.shouldNotify("nonexistent"))
     }
 
     /**
      * Mirrors the production dedup logic in [AlertNotificationManager] for testing
-     * without Android dependencies. Uses the exact same synchronized pattern.
+     * without Android dependencies.
      */
     private class DedupTracker(private val maxIds: Int = 200) {
         private val ids = linkedSetOf<String>()
@@ -258,5 +275,24 @@ class AlertNotificationManagerTest {
     private fun stableNotificationId(alert: AlertEntity): Int {
         val key = "${alert.alertType}|${alert.patientName ?: ""}"
         return (key.hashCode() and 0x7FFFFFFF).coerceAtLeast(100)
+    }
+
+    /**
+     * Mirrors [AlertNotificationManager.resolveChannelId] for testing without
+     * Android context. Uses the same classification logic.
+     */
+    private fun resolveChannelId(
+        alert: AlertEntity,
+        lowVersion: Int,
+        highVersion: Int,
+        aiVersion: Int,
+    ): String {
+        val lowTypes = listOf("low_urgent", "low_warning")
+        val highTypes = listOf("high_warning", "high_urgent")
+        return when {
+            alert.alertType in lowTypes -> "low_alerts_v$lowVersion"
+            alert.alertType in highTypes -> "high_alerts_v$highVersion"
+            else -> "ai_notifications_v$aiVersion"
+        }
     }
 }

@@ -1,9 +1,14 @@
 package com.glycemicgpt.mobile.presentation.settings
 
 import android.Manifest
+import android.app.Activity
 import android.content.Intent
+import android.media.RingtoneManager
+import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -29,6 +34,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Watch
 import androidx.compose.material3.AlertDialog
@@ -65,6 +71,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.glycemicgpt.mobile.data.local.AlertSoundCategory
 import java.io.File
 import kotlin.math.roundToInt
 
@@ -138,7 +145,13 @@ fun SettingsScreen(
 
         // -- Notifications Section --
         SectionHeader(title = "Notifications")
-        NotificationsSection()
+        NotificationPermissionSection()
+        Spacer(modifier = Modifier.height(12.dp))
+        AlertSoundsSection(
+            state = state,
+            onSoundSelected = settingsViewModel::onSoundSelected,
+            onOverrideSilentToggle = settingsViewModel::setOverrideSilentForLow,
+        )
 
         Spacer(modifier = Modifier.height(20.dp))
 
@@ -226,7 +239,7 @@ private fun SectionHeader(title: String) {
 }
 
 @Composable
-private fun NotificationsSection() {
+private fun NotificationPermissionSection() {
     val context = LocalContext.current
 
     fun permissionGranted() = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -725,6 +738,176 @@ private fun SyncSection(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun AlertSoundsSection(
+    state: SettingsUiState,
+    onSoundSelected: (AlertSoundCategory, Uri?) -> Unit,
+    onOverrideSilentToggle: (Boolean) -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Notifications,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp),
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = "Alert Sounds",
+                    style = MaterialTheme.typography.titleSmall,
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            SoundPickerRow(
+                label = "Low Glucose Alert",
+                description = "Life-threatening -- aggressive alarm",
+                currentSoundName = state.lowAlertSoundName,
+                currentSoundUri = state.lowAlertSoundUri,
+                ringtoneType = RingtoneManager.TYPE_ALARM,
+                testTag = "low_alert_sound",
+                onSoundSelected = { uri -> onSoundSelected(AlertSoundCategory.LOW_ALERT, uri) },
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            SoundPickerRow(
+                label = "High Glucose Alert",
+                description = "High glucose and insulin warnings",
+                currentSoundName = state.highAlertSoundName,
+                currentSoundUri = state.highAlertSoundUri,
+                ringtoneType = RingtoneManager.TYPE_NOTIFICATION,
+                testTag = "high_alert_sound",
+                onSoundSelected = { uri -> onSoundSelected(AlertSoundCategory.HIGH_ALERT, uri) },
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            SoundPickerRow(
+                label = "AI Notification",
+                description = "AI analysis insights and daily briefs",
+                currentSoundName = state.aiNotificationSoundName,
+                currentSoundUri = state.aiNotificationSoundUri,
+                ringtoneType = RingtoneManager.TYPE_NOTIFICATION,
+                showSilent = true,
+                testTag = "ai_notification_sound",
+                onSoundSelected = { uri -> onSoundSelected(AlertSoundCategory.AI_NOTIFICATION, uri) },
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            // Volume boost toggle for low alerts
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.VolumeUp,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Text(
+                            text = "Boost Volume for Lows",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Text(
+                            text = "Raise alarm volume to max for low glucose alerts. Low and high alerts always bypass DND regardless of this setting.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                Switch(
+                    checked = state.overrideSilentForLow,
+                    onCheckedChange = onOverrideSilentToggle,
+                    modifier = Modifier.testTag("override_silent_toggle"),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SoundPickerRow(
+    label: String,
+    description: String,
+    currentSoundName: String,
+    currentSoundUri: String?,
+    ringtoneType: Int,
+    showSilent: Boolean = false,
+    testTag: String,
+    onSoundSelected: (Uri?) -> Unit,
+) {
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                result.data?.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI, Uri::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                result.data?.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
+            }
+            onSoundSelected(uri)
+        }
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = currentSoundName,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+        OutlinedButton(
+            onClick = {
+                val intent = android.content.Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+                    putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, ringtoneType)
+                    putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "Select $label Sound")
+                    putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, showSilent)
+                    putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+                    val existingUri = currentSoundUri?.let { Uri.parse(it) }
+                        ?: RingtoneManager.getDefaultUri(ringtoneType)
+                    putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, existingUri)
+                }
+                launcher.launch(intent)
+            },
+            modifier = Modifier.testTag(testTag),
+        ) {
+            Text("Change")
         }
     }
 }
