@@ -15,9 +15,9 @@ import com.glycemicgpt.mobile.ble.auth.TandemAuthenticator
 import com.glycemicgpt.mobile.ble.protocol.PacketAssembler
 import com.glycemicgpt.mobile.ble.protocol.Packetize
 import com.glycemicgpt.mobile.ble.protocol.TandemProtocol
-import com.glycemicgpt.mobile.data.local.BleDebugStore
-import com.glycemicgpt.mobile.data.local.PumpCredentialStore
-import com.glycemicgpt.mobile.data.local.toHexString
+import com.glycemicgpt.mobile.domain.pump.DebugLogger
+import com.glycemicgpt.mobile.domain.pump.PumpCredentialProvider
+import com.glycemicgpt.mobile.domain.pump.toSpacedHex
 import com.glycemicgpt.mobile.domain.model.ConnectionState
 import com.glycemicgpt.mobile.domain.pump.PumpConnectionManager
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -33,7 +33,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import timber.log.Timber
-import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -58,8 +57,8 @@ class BleConnectionManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val authenticator: TandemAuthenticator,
     private val jpakeAuthenticator: JpakeAuthenticator,
-    private val credentialStore: PumpCredentialStore,
-    private val debugStore: BleDebugStore,
+    private val credentialStore: PumpCredentialProvider,
+    private val debugLogger: DebugLogger,
 ) : PumpConnectionManager {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -377,15 +376,14 @@ class BleConnectionManager @Inject constructor(
         }
 
         Timber.d("BLE_RAW TX opcode=0x%02x txId=%d cargoLen=%d", opcode, id, cargo.size)
-        debugStore.add(BleDebugStore.Entry(
-            timestamp = Instant.now(),
-            direction = BleDebugStore.Direction.TX,
+        debugLogger.logPacket(
+            direction = DebugLogger.Direction.TX,
             opcode = opcode,
             opcodeName = TandemProtocol.opcodeName(opcode),
             txId = id,
-            cargoHex = cargo.toHexString(),
+            cargoHex = cargo.toSpacedHex(),
             cargoSize = cargo.size,
-        ))
+        )
 
         val chunks = Packetize.encode(opcode, id, cargo, TandemProtocol.CHUNK_SIZE_SHORT)
         enqueueWrite(TandemProtocol.CURRENT_STATUS_UUID, chunks)
@@ -437,15 +435,14 @@ class BleConnectionManager @Inject constructor(
 
         Timber.d("BLE_RAW TX opcode=0x%02x txId=%d cargoLen=%d (history log request)",
             TandemProtocol.OPCODE_HISTORY_LOG_REQ, id, cargo.size)
-        debugStore.add(BleDebugStore.Entry(
-            timestamp = Instant.now(),
-            direction = BleDebugStore.Direction.TX,
+        debugLogger.logPacket(
+            direction = DebugLogger.Direction.TX,
             opcode = TandemProtocol.OPCODE_HISTORY_LOG_REQ,
             opcodeName = TandemProtocol.opcodeName(TandemProtocol.OPCODE_HISTORY_LOG_REQ),
             txId = id,
-            cargoHex = cargo.toHexString(),
+            cargoHex = cargo.toSpacedHex(),
             cargoSize = cargo.size,
-        ))
+        )
 
         val chunks = Packetize.encode(
             TandemProtocol.OPCODE_HISTORY_LOG_REQ, id, cargo,
@@ -951,32 +948,30 @@ class BleConnectionManager @Inject constructor(
         val parsed = Packetize.parseHeader(raw) ?: run {
             Timber.e("Failed to parse status notification txId=%d len=%d",
                 chunkTxId, raw.size)
-            debugStore.add(BleDebugStore.Entry(
-                timestamp = Instant.now(),
-                direction = BleDebugStore.Direction.RX,
+            debugLogger.logPacket(
+                direction = DebugLogger.Direction.RX,
                 opcode = if (raw.isNotEmpty()) raw[0].toInt() and 0xFF else -1,
                 opcodeName = "PARSE_FAIL",
                 txId = chunkTxId,
-                cargoHex = raw.toHexString(),
+                cargoHex = raw.toSpacedHex(),
                 cargoSize = raw.size,
                 error = "CRC or header parse failed",
-            ))
+            )
             return
         }
 
         val (opcode, responseTxId, cargo) = parsed
-        val cargoHex = cargo.toHexString()
+        val cargoHex = cargo.toSpacedHex()
         Timber.d("BLE_RAW RX opcode=0x%02x txId=%d cargoLen=%d hex=%s",
             opcode, responseTxId, cargo.size, cargoHex)
-        debugStore.add(BleDebugStore.Entry(
-            timestamp = Instant.now(),
-            direction = BleDebugStore.Direction.RX,
+        debugLogger.logPacket(
+            direction = DebugLogger.Direction.RX,
             opcode = opcode,
             opcodeName = TandemProtocol.opcodeName(opcode),
             txId = responseTxId,
             cargoHex = cargoHex,
             cargoSize = cargo.size,
-        ))
+        )
 
         val deferred = pendingRequests.remove(responseTxId)
         if (deferred != null) {
@@ -996,7 +991,7 @@ class BleConnectionManager @Inject constructor(
      * [historyLogDeferred] when a full message arrives.
      */
     private fun handleHistoryLogNotification(data: ByteArray) {
-        Timber.d("BLE_RAW RX_HIST len=%d hex=%s", data.size, data.toHexString())
+        Timber.d("BLE_RAW RX_HIST len=%d hex=%s", data.size, data.toSpacedHex())
 
         val deferred = historyLogDeferred ?: return
 
@@ -1128,8 +1123,8 @@ class BleConnectionManager @Inject constructor(
         val nonce = jpakeAuthenticator.getServerNonce()
         if (secret != null && nonce != null) {
             credentialStore.saveJpakeCredentials(
-                derivedSecretHex = secret.joinToString("") { "%02x".format(it) },
-                serverNonceHex = nonce.joinToString("") { "%02x".format(it) },
+                derivedSecretHex = secret.joinToString("") { "%02x".format(it.toInt() and 0xFF) },
+                serverNonceHex = nonce.joinToString("") { "%02x".format(it.toInt() and 0xFF) },
             )
             Timber.d("JPAKE credentials saved for confirmation mode reconnect")
         }
@@ -1185,31 +1180,29 @@ class BleConnectionManager @Inject constructor(
 
         val parsed = Packetize.parseHeader(raw) ?: run {
             Timber.e("Failed to parse auth notification len=%d", raw.size)
-            debugStore.add(BleDebugStore.Entry(
-                timestamp = Instant.now(),
-                direction = BleDebugStore.Direction.RX,
+            debugLogger.logPacket(
+                direction = DebugLogger.Direction.RX,
                 opcode = if (raw.isNotEmpty()) raw[0].toInt() and 0xFF else -1,
                 opcodeName = "AUTH_PARSE_FAIL",
                 txId = -1,
-                cargoHex = raw.toHexString(),
+                cargoHex = raw.toSpacedHex(),
                 cargoSize = raw.size,
                 error = "Auth CRC or header parse failed",
-            ))
+            )
             return
         }
 
         val (opcode, authTxId, cargo) = parsed
         Timber.d("BLE_RAW AUTH opcode=0x%02x txId=%d cargoLen=%d",
             opcode, authTxId, cargo.size)
-        debugStore.add(BleDebugStore.Entry(
-            timestamp = Instant.now(),
-            direction = BleDebugStore.Direction.RX,
+        debugLogger.logPacket(
+            direction = DebugLogger.Direction.RX,
             opcode = opcode,
             opcodeName = TandemProtocol.opcodeName(opcode),
             txId = authTxId,
-            cargoHex = cargo.toHexString(),
+            cargoHex = cargo.toSpacedHex(),
             cargoSize = cargo.size,
-        ))
+        )
 
         when (opcode) {
             // -- V1 authentication opcodes --

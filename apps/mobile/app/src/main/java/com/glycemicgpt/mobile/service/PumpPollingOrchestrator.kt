@@ -8,6 +8,7 @@ import com.glycemicgpt.mobile.data.repository.SyncQueueEnqueuer
 import com.glycemicgpt.mobile.domain.model.ConnectionState
 import com.glycemicgpt.mobile.domain.pump.HistoryLogParser
 import com.glycemicgpt.mobile.domain.pump.PumpDriver
+import com.glycemicgpt.mobile.domain.pump.SafetyLimits
 import com.glycemicgpt.mobile.wear.WearDataSender
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -283,6 +284,9 @@ class PumpPollingOrchestrator @Inject constructor(
     }
 
     companion object {
+        /** Default safety limits for data validity (sensor range 20-500 mg/dL). */
+        private val DATA_VALIDITY_LIMITS = SafetyLimits()
+
         const val INTERVAL_FAST_MS = 15_000L       // IoB + basal + CGM (keep-alive: pump drops idle connections at ~30s)
         const val INTERVAL_MEDIUM_MS = 300_000L     // bolus history (5 min)
         const val INTERVAL_SLOW_MS = 300_000L       // battery + reservoir (5 min)
@@ -373,15 +377,21 @@ class PumpPollingOrchestrator @Inject constructor(
                     backendSyncManager?.triggerSync()
                     Timber.d("Saved %d raw history log records", records.size)
 
+                    // Use default SafetyLimits for data validity (sensor range 20-500 mg/dL).
+                    // Do NOT use alert thresholds (urgentLow/urgentHigh) here -- those are
+                    // user alert preferences (e.g., urgentHigh=250), not sensor validity
+                    // bounds. Using them would silently drop real readings above 250 mg/dL.
+                    val limits = DATA_VALIDITY_LIMITS
+
                     // Extract CGM readings from history logs to fill chart gaps
-                    val cgmReadings = historyLogParser.extractCgmFromHistoryLogs(records)
+                    val cgmReadings = historyLogParser.extractCgmFromHistoryLogs(records, limits)
                     if (cgmReadings.isNotEmpty()) {
                         repository.saveCgmBatch(cgmReadings)
                         Timber.d("Backfilled %d CGM readings from history logs", cgmReadings.size)
                     }
 
                     // Extract bolus events from history logs
-                    val bolusEvents = historyLogParser.extractBolusesFromHistoryLogs(records)
+                    val bolusEvents = historyLogParser.extractBolusesFromHistoryLogs(records, limits)
                     if (bolusEvents.isNotEmpty()) {
                         repository.saveBoluses(bolusEvents)
                         syncEnqueuer.enqueueBoluses(bolusEvents)
@@ -389,7 +399,7 @@ class PumpPollingOrchestrator @Inject constructor(
                     }
 
                     // Extract basal delivery events from history logs
-                    val basalReadings = historyLogParser.extractBasalFromHistoryLogs(records)
+                    val basalReadings = historyLogParser.extractBasalFromHistoryLogs(records, limits)
                     if (basalReadings.isNotEmpty()) {
                         repository.saveBasalBatch(basalReadings)
                         syncEnqueuer.enqueueBasalBatch(basalReadings)

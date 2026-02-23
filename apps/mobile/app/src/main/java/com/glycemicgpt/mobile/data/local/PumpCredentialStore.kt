@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKeys
+import com.glycemicgpt.mobile.domain.pump.PumpCredentialProvider
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -14,7 +15,7 @@ import javax.inject.Singleton
 @Singleton
 class PumpCredentialStore @Inject constructor(
     @ApplicationContext context: Context,
-) {
+) : PumpCredentialProvider {
 
     private val prefs: SharedPreferences
 
@@ -31,7 +32,7 @@ class PumpCredentialStore @Inject constructor(
     }
 
     /** Save the paired pump address and pairing code. */
-    fun savePairing(address: String, pairingCode: String) {
+    override fun savePairing(address: String, pairingCode: String) {
         prefs.edit()
             .putString(KEY_ADDRESS, address)
             .putString(KEY_PAIRING_CODE, pairingCode)
@@ -40,20 +41,20 @@ class PumpCredentialStore @Inject constructor(
     }
 
     /** Get the saved pump Bluetooth address, or null if not paired. */
-    fun getPairedAddress(): String? = prefs.getString(KEY_ADDRESS, null)
+    override fun getPairedAddress(): String? = prefs.getString(KEY_ADDRESS, null)
 
     /** Get the saved pairing code, or null if not paired. */
-    fun getPairingCode(): String? = prefs.getString(KEY_PAIRING_CODE, null)
+    override fun getPairingCode(): String? = prefs.getString(KEY_PAIRING_CODE, null)
 
     /** Whether a pump is currently paired. */
-    fun isPaired(): Boolean = getPairedAddress() != null
+    override fun isPaired(): Boolean = getPairedAddress() != null
 
     /**
      * Save JPAKE-derived credentials for confirmation mode reconnect.
      * These are persisted after a successful bootstrap JPAKE handshake and
      * allow subsequent connections to skip rounds 1-2.
      */
-    fun saveJpakeCredentials(derivedSecretHex: String, serverNonceHex: String) {
+    override fun saveJpakeCredentials(derivedSecretHex: String, serverNonceHex: String) {
         prefs.edit()
             .putString(KEY_JPAKE_DERIVED_SECRET, derivedSecretHex)
             .putString(KEY_JPAKE_SERVER_NONCE, serverNonceHex)
@@ -61,13 +62,13 @@ class PumpCredentialStore @Inject constructor(
     }
 
     /** Get the saved JPAKE derived secret (hex string), or null if not available. */
-    fun getJpakeDerivedSecret(): String? = prefs.getString(KEY_JPAKE_DERIVED_SECRET, null)
+    override fun getJpakeDerivedSecret(): String? = prefs.getString(KEY_JPAKE_DERIVED_SECRET, null)
 
     /** Get the saved JPAKE server nonce (hex string), or null if not available. */
-    fun getJpakeServerNonce(): String? = prefs.getString(KEY_JPAKE_SERVER_NONCE, null)
+    override fun getJpakeServerNonce(): String? = prefs.getString(KEY_JPAKE_SERVER_NONCE, null)
 
     /** Clear JPAKE credentials only (e.g., on confirmation mode failure). */
-    fun clearJpakeCredentials() {
+    override fun clearJpakeCredentials() {
         prefs.edit()
             .remove(KEY_JPAKE_DERIVED_SECRET)
             .remove(KEY_JPAKE_SERVER_NONCE)
@@ -75,7 +76,7 @@ class PumpCredentialStore @Inject constructor(
     }
 
     /** Clear all pairing data (unpair). */
-    fun clearPairing() {
+    override fun clearPairing() {
         prefs.edit().clear().apply()
     }
 

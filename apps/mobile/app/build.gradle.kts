@@ -93,6 +93,10 @@ ksp {
 }
 
 dependencies {
+    // Pump driver modules
+    implementation(project(":pump-driver-api"))
+    implementation(project(":tandem-pump-driver"))
+
     // AndroidX Core
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime)
@@ -139,7 +143,6 @@ dependencies {
 
     // Security
     implementation(libs.security.crypto)
-    implementation(libs.bouncycastle)
 
     // Background work
     implementation(libs.work.runtime)

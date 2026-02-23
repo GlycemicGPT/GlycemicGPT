@@ -13,6 +13,7 @@ import com.glycemicgpt.mobile.domain.model.IoBReading
 import com.glycemicgpt.mobile.domain.model.PumpHardwareInfo
 import com.glycemicgpt.mobile.domain.model.PumpSettings
 import com.glycemicgpt.mobile.domain.model.ReservoirReading
+import com.glycemicgpt.mobile.domain.pump.SafetyLimits
 import timber.log.Timber
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -28,7 +29,7 @@ import java.time.ZoneOffset
  * Byte layouts verified against jwoglom/pumpX2 (MIT) source and test vectors.
  * All parsers return null on malformed cargo instead of throwing.
  */
-object StatusResponseParser {
+internal object StatusResponseParser {
 
     /** Unix timestamp of January 1, 2008 00:00:00 UTC.
      *  Used as a base offset for pump timestamps. The pump counts seconds
@@ -174,7 +175,7 @@ object StatusResponseParser {
      *
      * Trend arrow icons come from HomeScreenMirrorResponse (opcode 57) byte 0.
      */
-    fun parseCgmEgvResponse(cargo: ByteArray): CgmReading? {
+    fun parseCgmEgvResponse(cargo: ByteArray, limits: SafetyLimits = SafetyLimits()): CgmReading? {
         if (cargo.size < 8) return null
         val buf = ByteBuffer.wrap(cargo).order(ByteOrder.LITTLE_ENDIAN)
         val pumpTimeSec = buf.int.toLong() and 0xFFFFFFFFL
@@ -184,9 +185,8 @@ object StatusResponseParser {
         // Accept VALID (1), LOW (2), and HIGH (3) readings -- all carry a glucose value.
         // Reject INVALID (0) and UNAVAILABLE (4+) which have no usable glucose data.
         if (egvStatus !in 1..3) return null
-        // Reject physiologically impossible values: glucose below 20 mg/dL is
-        // incompatible with consciousness and likely sensor noise or error codes.
-        if (glucoseMgDl < 20 || glucoseMgDl > 500) return null
+        // Reject values outside the user's configured safety range.
+        if (glucoseMgDl < limits.minGlucoseMgDl || glucoseMgDl > limits.maxGlucoseMgDl) return null
 
         val timestamp = pumpTimeToInstant(pumpTimeSec)
 
@@ -585,9 +585,6 @@ object StatusResponseParser {
     /** Set of event type IDs that carry CGM glucose data. */
     private val CGM_EVENT_TYPES = setOf(EVENT_TYPE_BG_METER_READING, EVENT_TYPE_CGM_DATA_G7)
 
-    /** Maximum sane basal rate in milliunits/hr (25 units/hr). */
-    private const val MAX_BASAL_RATE_MILLIUNITS = 25_000
-
     /** Basal rate sources that indicate automated (non-manual) delivery. */
     private val AUTOMATED_BASAL_SOURCES = setOf(0, 3, 4)
 
@@ -602,11 +599,11 @@ object StatusResponseParser {
      * @param pumpTimeSec raw pump timestamp (seconds since Tandem epoch)
      * @return CgmReading or null if the glucose value is invalid
      */
-    fun parseCgmEventPayload(payload: ByteArray, pumpTimeSec: Long): CgmReading? {
+    fun parseCgmEventPayload(payload: ByteArray, pumpTimeSec: Long, limits: SafetyLimits = SafetyLimits()): CgmReading? {
         if (payload.size < 2) return null
         val buf = ByteBuffer.wrap(payload, 0, 2).order(ByteOrder.LITTLE_ENDIAN)
         val glucoseMgDl = buf.short.toInt() and 0xFFFF
-        if (glucoseMgDl < 20 || glucoseMgDl > 500) return null
+        if (glucoseMgDl < limits.minGlucoseMgDl || glucoseMgDl > limits.maxGlucoseMgDl) return null
         val timestamp = pumpTimeToInstant(pumpTimeSec)
         return CgmReading(
             glucoseMgDl = glucoseMgDl,
@@ -631,7 +628,7 @@ object StatusResponseParser {
      * @param pumpTimeSec raw pump timestamp (seconds since Tandem epoch)
      * @return CgmReading or null if the glucose value is invalid
      */
-    fun parseCgmG7EventPayload(payload: ByteArray, pumpTimeSec: Long): CgmReading? {
+    fun parseCgmG7EventPayload(payload: ByteArray, pumpTimeSec: Long, limits: SafetyLimits = SafetyLimits()): CgmReading? {
         if (payload.size < 8) return null
         // Status byte at offset 2: 0x01 = valid reading. Reject others
         // (calibrating, sensor error, etc.) to avoid garbage glucose values.
@@ -639,7 +636,7 @@ object StatusResponseParser {
         if (status != 1) return null
         val buf = ByteBuffer.wrap(payload, 6, 2).order(ByteOrder.LITTLE_ENDIAN)
         val glucoseMgDl = buf.short.toInt() and 0xFFFF
-        if (glucoseMgDl < 20 || glucoseMgDl > 500) return null
+        if (glucoseMgDl < limits.minGlucoseMgDl || glucoseMgDl > limits.maxGlucoseMgDl) return null
         val timestamp = pumpTimeToInstant(pumpTimeSec)
         return CgmReading(
             glucoseMgDl = glucoseMgDl,
@@ -658,7 +655,7 @@ object StatusResponseParser {
      * @param records list of history log records (any event types)
      * @return list of CgmReadings sorted by timestamp, empty if none found
      */
-    fun extractCgmFromHistoryLogs(records: List<HistoryLogRecord>): List<CgmReading> {
+    fun extractCgmFromHistoryLogs(records: List<HistoryLogRecord>, limits: SafetyLimits = SafetyLimits()): List<CgmReading> {
         return records
             .filter { it.eventTypeId in CGM_EVENT_TYPES }
             .mapNotNull { record ->
@@ -677,8 +674,8 @@ object StatusResponseParser {
                 }
                 // Dispatch to the correct payload parser based on event type
                 when (record.eventTypeId) {
-                    EVENT_TYPE_CGM_DATA_G7 -> parseCgmG7EventPayload(payload, pumpTimeSec)
-                    else -> parseCgmEventPayload(payload, pumpTimeSec)
+                    EVENT_TYPE_CGM_DATA_G7 -> parseCgmG7EventPayload(payload, pumpTimeSec, limits)
+                    else -> parseCgmEventPayload(payload, pumpTimeSec, limits)
                 }
             }
             .sortedBy { it.timestamp }
@@ -706,7 +703,7 @@ object StatusResponseParser {
      * @param pumpTimeSec raw pump timestamp (seconds since Tandem epoch)
      * @return BolusEvent or null if status is not Completed or data is invalid
      */
-    fun parseBolusDeliveryPayload(data: ByteArray, pumpTimeSec: Long): BolusEvent? {
+    fun parseBolusDeliveryPayload(data: ByteArray, pumpTimeSec: Long, limits: SafetyLimits = SafetyLimits()): BolusEvent? {
         if (data.size < 16) return null
 
         val deliveryStatus = data[2].toInt() and 0xFF
@@ -714,7 +711,8 @@ object StatusResponseParser {
 
         val buf = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN)
         val deliveredTotalMu = buf.getShort(14).toInt() and 0xFFFF
-        if (deliveredTotalMu == 0) return null // uint16 field; max 65535mu = 65.5u, always within pump limits
+        if (deliveredTotalMu == 0) return null
+        if (deliveredTotalMu > limits.maxBolusDoseMilliunits) return null
 
         val bolusTypeRaw = data[3].toInt() and 0xFF
         val bolusSourceRaw = data[4].toInt() and 0xFF
@@ -741,14 +739,14 @@ object StatusResponseParser {
      * @param records list of history log records (any event types)
      * @return list of BolusEvents sorted by timestamp, empty if none found
      */
-    fun extractBolusesFromHistoryLogs(records: List<HistoryLogRecord>): List<BolusEvent> {
+    fun extractBolusesFromHistoryLogs(records: List<HistoryLogRecord>, limits: SafetyLimits = SafetyLimits()): List<BolusEvent> {
         return records
             .filter { it.eventTypeId == EVENT_TYPE_BOLUS_DELIVERY }
             .mapNotNull { record ->
                 val rawBytes = Base64.decode(record.rawBytesB64, Base64.NO_WRAP)
                 if (rawBytes.size < STREAM_RECORD_SIZE) return@mapNotNull null
                 val payload = rawBytes.copyOfRange(10, 26)
-                parseBolusDeliveryPayload(payload, record.pumpTimeSeconds)
+                parseBolusDeliveryPayload(payload, record.pumpTimeSeconds, limits)
             }
             .sortedBy { it.timestamp }
     }
@@ -772,7 +770,7 @@ object StatusResponseParser {
      * @param pumpTimeSec raw pump timestamp (seconds since Tandem epoch)
      * @return BasalReading or null if data is invalid
      */
-    fun parseBasalDeliveryPayload(data: ByteArray, pumpTimeSec: Long): BasalReading? {
+    fun parseBasalDeliveryPayload(data: ByteArray, pumpTimeSec: Long, limits: SafetyLimits = SafetyLimits()): BasalReading? {
         if (data.size < 8) return null
 
         val buf = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN)
@@ -784,7 +782,7 @@ object StatusResponseParser {
         val commandedRateMu = buf.getShort(6).toInt() and 0xFFFF
 
         // Suspended basal (source=0) has rate=0 -- this is valid, don't reject.
-        if (commandedRateMu > MAX_BASAL_RATE_MILLIUNITS) return null
+        if (commandedRateMu > limits.maxBasalRateMilliunits) return null
 
         // Sources 0 (Suspended), 3 (Algorithm), 4 (Temp+Algorithm) are automated
         val isAutomated = sourceRaw in AUTOMATED_BASAL_SOURCES
@@ -807,14 +805,14 @@ object StatusResponseParser {
      * @param records list of history log records (any event types)
      * @return list of BasalReadings sorted by timestamp, empty if none found
      */
-    fun extractBasalFromHistoryLogs(records: List<HistoryLogRecord>): List<BasalReading> {
+    fun extractBasalFromHistoryLogs(records: List<HistoryLogRecord>, limits: SafetyLimits = SafetyLimits()): List<BasalReading> {
         return records
             .filter { it.eventTypeId == EVENT_TYPE_BASAL_DELIVERY }
             .mapNotNull { record ->
                 val rawBytes = Base64.decode(record.rawBytesB64, Base64.NO_WRAP)
                 if (rawBytes.size < STREAM_RECORD_SIZE) return@mapNotNull null
                 val payload = rawBytes.copyOfRange(10, 26)
-                parseBasalDeliveryPayload(payload, record.pumpTimeSeconds)
+                parseBasalDeliveryPayload(payload, record.pumpTimeSeconds, limits)
             }
             .sortedBy { it.timestamp }
     }
@@ -839,7 +837,7 @@ object StatusResponseParser {
 /**
  * Parsed data from HomeScreenMirrorResponse for trend arrow and CIQ state.
  */
-data class HomeScreenMirrorData(
+internal data class HomeScreenMirrorData(
     val trendArrow: CgmTrend,
     val basalStatusIconId: Int,
     val apControlStateIconId: Int,

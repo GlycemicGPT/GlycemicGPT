@@ -456,9 +456,9 @@ class PumpPollingOrchestratorTest {
             ),
         )
         coEvery { pumpDriver.getHistoryLogs(any()) } returns Result.success(fakeRecords)
-        every { historyLogParser.extractCgmFromHistoryLogs(any()) } returns emptyList()
-        every { historyLogParser.extractBolusesFromHistoryLogs(any()) } returns emptyList()
-        every { historyLogParser.extractBasalFromHistoryLogs(any()) } returns emptyList()
+        every { historyLogParser.extractCgmFromHistoryLogs(any(), any()) } returns emptyList()
+        every { historyLogParser.extractBolusesFromHistoryLogs(any(), any()) } returns emptyList()
+        every { historyLogParser.extractBasalFromHistoryLogs(any(), any()) } returns emptyList()
 
         val orchestrator = createOrchestrator()
         orchestrator.start(this)
@@ -468,9 +468,9 @@ class PumpPollingOrchestratorTest {
         advanceTimeBy(ALL_SETTLE_MS)
 
         // Verify historyLogParser was called with the records from the driver
-        verify(atLeast = 1) { historyLogParser.extractCgmFromHistoryLogs(fakeRecords) }
-        verify(atLeast = 1) { historyLogParser.extractBolusesFromHistoryLogs(fakeRecords) }
-        verify(atLeast = 1) { historyLogParser.extractBasalFromHistoryLogs(fakeRecords) }
+        verify(atLeast = 1) { historyLogParser.extractCgmFromHistoryLogs(fakeRecords, any()) }
+        verify(atLeast = 1) { historyLogParser.extractBolusesFromHistoryLogs(fakeRecords, any()) }
+        verify(atLeast = 1) { historyLogParser.extractBasalFromHistoryLogs(fakeRecords, any()) }
         orchestrator.stop()
     }
 }

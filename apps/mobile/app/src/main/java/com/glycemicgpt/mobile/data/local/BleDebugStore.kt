@@ -69,7 +69,3 @@ class BleDebugStore @Inject constructor() {
         _entries.value = emptyList()
     }
 }
-
-/** Format a ByteArray as a space-separated hex string. */
-internal fun ByteArray.toHexString(): String =
-    joinToString(" ") { "%02x".format(it) }

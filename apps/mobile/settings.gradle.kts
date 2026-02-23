@@ -29,3 +29,5 @@ dependencyResolutionManagement {
 rootProject.name = "GlycemicGPT"
 include(":app")
 include(":wear")
+include(":pump-driver-api")
+include(":tandem-pump-driver")

@@ -2,7 +2,7 @@ package com.glycemicgpt.mobile.ble.connection
 
 import com.glycemicgpt.mobile.ble.messages.StatusResponseParser
 import com.glycemicgpt.mobile.ble.protocol.TandemProtocol
-import com.glycemicgpt.mobile.data.local.BleDebugStore
+import com.glycemicgpt.mobile.domain.pump.DebugLogger
 import com.glycemicgpt.mobile.domain.model.BasalReading
 import com.glycemicgpt.mobile.domain.model.BatteryStatus
 import com.glycemicgpt.mobile.domain.model.BolusEvent
@@ -36,7 +36,7 @@ import javax.inject.Singleton
 @Singleton
 class TandemBleDriver @Inject constructor(
     private val connectionManager: BleConnectionManager,
-    private val debugStore: BleDebugStore,
+    private val debugLogger: DebugLogger,
 ) : PumpDriver {
 
     /** Progressive scan position for history log fetching (pump record INDEX).
@@ -288,11 +288,11 @@ class TandemBleDriver @Inject constructor(
             val result = parser(responseCargo)
             val parsedStr = result.toString()
             Timber.d("BLE_RAW PARSED opcode=0x%02x result=%s", opcode, parsedStr)
-            debugStore.updateLast(opcode, BleDebugStore.Direction.RX, parsedValue = parsedStr)
+            debugLogger.updateLastPacket(opcode, direction = DebugLogger.Direction.RX, parsedValue = parsedStr)
             Result.success(result)
         } catch (e: Exception) {
             Timber.e(e, "BLE_RAW PARSE_ERROR opcode=0x%02x", opcode)
-            debugStore.updateLast(opcode, BleDebugStore.Direction.RX, error = e.message ?: e.javaClass.simpleName)
+            debugLogger.updateLastPacket(opcode, direction = DebugLogger.Direction.RX, error = e.message ?: e.javaClass.simpleName)
             Result.failure(e)
         }
     }

@@ -3,9 +3,9 @@ package com.glycemicgpt.mobile
 import com.glycemicgpt.mobile.ble.connection.BleConnectionManager
 import com.glycemicgpt.mobile.ble.connection.TandemBleDriver
 import com.glycemicgpt.mobile.ble.protocol.TandemProtocol
-import com.glycemicgpt.mobile.data.local.BleDebugStore
 import com.glycemicgpt.mobile.domain.model.CgmTrend
 import com.glycemicgpt.mobile.domain.model.ConnectionState
+import com.glycemicgpt.mobile.domain.pump.DebugLogger
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -26,11 +26,11 @@ import java.util.concurrent.TimeoutException
 class TandemBleDriverTest {
 
     private val connectionStateFlow = MutableStateFlow(ConnectionState.DISCONNECTED)
-    private val bleDebugStore = BleDebugStore()
+    private val debugLogger = mockk<DebugLogger>(relaxed = true)
     private val connectionManager = mockk<BleConnectionManager>(relaxed = true) {
         every { connectionState } returns connectionStateFlow
     }
-    private val driver = TandemBleDriver(connectionManager, bleDebugStore)
+    private val driver = TandemBleDriver(connectionManager, debugLogger)
 
     @Test
     fun `initial connection state is disconnected`() = runTest {

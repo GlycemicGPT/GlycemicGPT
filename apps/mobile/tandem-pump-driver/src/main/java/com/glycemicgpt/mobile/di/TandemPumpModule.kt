@@ -16,7 +16,7 @@ import javax.inject.Singleton
 
 @Module
 @InstallIn(SingletonComponent::class)
-abstract class PumpModule {
+abstract class TandemPumpModule {
 
     @Binds
     @Singleton

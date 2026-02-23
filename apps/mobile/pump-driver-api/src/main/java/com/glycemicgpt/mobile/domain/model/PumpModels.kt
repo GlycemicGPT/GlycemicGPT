@@ -94,13 +94,6 @@ data class PumpHardwareInfo(
     val pumpFeatures: Map<String, Boolean>,
 )
 
-data class TimeInRangeData(
-    val lowPercent: Float,
-    val inRangePercent: Float,
-    val highPercent: Float,
-    val totalReadings: Int,
-)
-
 enum class ConnectionState {
     DISCONNECTED,
     SCANNING,
