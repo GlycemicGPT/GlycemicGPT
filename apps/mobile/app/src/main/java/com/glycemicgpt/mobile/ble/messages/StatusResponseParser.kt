@@ -184,7 +184,9 @@ object StatusResponseParser {
         // Accept VALID (1), LOW (2), and HIGH (3) readings -- all carry a glucose value.
         // Reject INVALID (0) and UNAVAILABLE (4+) which have no usable glucose data.
         if (egvStatus !in 1..3) return null
-        if (glucoseMgDl == 0 || glucoseMgDl > 500) return null
+        // Reject physiologically impossible values: glucose below 20 mg/dL is
+        // incompatible with consciousness and likely sensor noise or error codes.
+        if (glucoseMgDl < 20 || glucoseMgDl > 500) return null
 
         val timestamp = pumpTimeToInstant(pumpTimeSec)
 
@@ -604,7 +606,7 @@ object StatusResponseParser {
         if (payload.size < 2) return null
         val buf = ByteBuffer.wrap(payload, 0, 2).order(ByteOrder.LITTLE_ENDIAN)
         val glucoseMgDl = buf.short.toInt() and 0xFFFF
-        if (glucoseMgDl == 0 || glucoseMgDl > 500) return null
+        if (glucoseMgDl < 20 || glucoseMgDl > 500) return null
         val timestamp = pumpTimeToInstant(pumpTimeSec)
         return CgmReading(
             glucoseMgDl = glucoseMgDl,
@@ -637,7 +639,7 @@ object StatusResponseParser {
         if (status != 1) return null
         val buf = ByteBuffer.wrap(payload, 6, 2).order(ByteOrder.LITTLE_ENDIAN)
         val glucoseMgDl = buf.short.toInt() and 0xFFFF
-        if (glucoseMgDl == 0 || glucoseMgDl > 500) return null
+        if (glucoseMgDl < 20 || glucoseMgDl > 500) return null
         val timestamp = pumpTimeToInstant(pumpTimeSec)
         return CgmReading(
             glucoseMgDl = glucoseMgDl,

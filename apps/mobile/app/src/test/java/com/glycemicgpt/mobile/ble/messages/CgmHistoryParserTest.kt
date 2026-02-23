@@ -131,11 +131,18 @@ class CgmHistoryParserTest {
     }
 
     @Test
-    fun `parseCgmEventPayload returns reading for boundary glucose 1`() {
-        val payload = buildCgmPayload(1)
+    fun `parseCgmEventPayload returns null for glucose below 20`() {
+        val payload = buildCgmPayload(19)
+        val result = StatusResponseParser.parseCgmEventPayload(payload, 500_000_000L)
+        assertNull(result)
+    }
+
+    @Test
+    fun `parseCgmEventPayload returns reading for boundary glucose 20`() {
+        val payload = buildCgmPayload(20)
         val result = StatusResponseParser.parseCgmEventPayload(payload, 500_000_000L)
         assertNotNull(result)
-        assertEquals(1, result!!.glucoseMgDl)
+        assertEquals(20, result!!.glucoseMgDl)
     }
 
     @Test
@@ -276,11 +283,18 @@ class CgmHistoryParserTest {
     }
 
     @Test
-    fun `parseCgmG7EventPayload returns reading for boundary glucose 1`() {
-        val payload = buildCgmG7Data16(1).copyOfRange(0, 8)
+    fun `parseCgmG7EventPayload returns null for glucose below 20`() {
+        val payload = buildCgmG7Data16(19).copyOfRange(0, 8)
+        val result = StatusResponseParser.parseCgmG7EventPayload(payload, 500_000_000L)
+        assertNull(result)
+    }
+
+    @Test
+    fun `parseCgmG7EventPayload returns reading for boundary glucose 20`() {
+        val payload = buildCgmG7Data16(20).copyOfRange(0, 8)
         val result = StatusResponseParser.parseCgmG7EventPayload(payload, 500_000_000L)
         assertNotNull(result)
-        assertEquals(1, result!!.glucoseMgDl)
+        assertEquals(20, result!!.glucoseMgDl)
     }
 
     @Test

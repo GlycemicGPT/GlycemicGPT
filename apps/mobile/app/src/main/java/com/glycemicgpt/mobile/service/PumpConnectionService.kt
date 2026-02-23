@@ -15,8 +15,8 @@ import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.glycemicgpt.mobile.R
-import com.glycemicgpt.mobile.ble.connection.BleConnectionManager
 import com.glycemicgpt.mobile.domain.model.ConnectionState
+import com.glycemicgpt.mobile.domain.pump.PumpConnectionManager
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -73,7 +73,7 @@ class PumpConnectionService : Service() {
     lateinit var backendSyncManager: BackendSyncManager
 
     @Inject
-    lateinit var connectionManager: BleConnectionManager
+    lateinit var connectionManager: PumpConnectionManager
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var batteryReceiverRegistered = false

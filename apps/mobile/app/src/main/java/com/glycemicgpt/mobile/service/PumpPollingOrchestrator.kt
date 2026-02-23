@@ -1,12 +1,12 @@
 package com.glycemicgpt.mobile.service
 
-import com.glycemicgpt.mobile.ble.messages.StatusResponseParser
 import com.glycemicgpt.mobile.data.local.GlucoseRangeStore
 import com.glycemicgpt.mobile.data.local.dao.RawHistoryLogDao
 import com.glycemicgpt.mobile.data.local.entity.RawHistoryLogEntity
 import com.glycemicgpt.mobile.data.repository.PumpDataRepository
 import com.glycemicgpt.mobile.data.repository.SyncQueueEnqueuer
 import com.glycemicgpt.mobile.domain.model.ConnectionState
+import com.glycemicgpt.mobile.domain.pump.HistoryLogParser
 import com.glycemicgpt.mobile.domain.pump.PumpDriver
 import com.glycemicgpt.mobile.wear.WearDataSender
 import kotlinx.coroutines.CoroutineScope
@@ -39,6 +39,7 @@ class PumpPollingOrchestrator @Inject constructor(
     private val rawHistoryLogDao: RawHistoryLogDao,
     private val wearDataSender: WearDataSender,
     private val glucoseRangeStore: GlucoseRangeStore,
+    private val historyLogParser: HistoryLogParser,
 ) {
 
     /** Set by PumpConnectionService to trigger immediate sync after enqueue. */
@@ -373,14 +374,14 @@ class PumpPollingOrchestrator @Inject constructor(
                     Timber.d("Saved %d raw history log records", records.size)
 
                     // Extract CGM readings from history logs to fill chart gaps
-                    val cgmReadings = StatusResponseParser.extractCgmFromHistoryLogs(records)
+                    val cgmReadings = historyLogParser.extractCgmFromHistoryLogs(records)
                     if (cgmReadings.isNotEmpty()) {
                         repository.saveCgmBatch(cgmReadings)
                         Timber.d("Backfilled %d CGM readings from history logs", cgmReadings.size)
                     }
 
                     // Extract bolus events from history logs
-                    val bolusEvents = StatusResponseParser.extractBolusesFromHistoryLogs(records)
+                    val bolusEvents = historyLogParser.extractBolusesFromHistoryLogs(records)
                     if (bolusEvents.isNotEmpty()) {
                         repository.saveBoluses(bolusEvents)
                         syncEnqueuer.enqueueBoluses(bolusEvents)
@@ -388,7 +389,7 @@ class PumpPollingOrchestrator @Inject constructor(
                     }
 
                     // Extract basal delivery events from history logs
-                    val basalReadings = StatusResponseParser.extractBasalFromHistoryLogs(records)
+                    val basalReadings = historyLogParser.extractBasalFromHistoryLogs(records)
                     if (basalReadings.isNotEmpty()) {
                         repository.saveBasalBatch(basalReadings)
                         syncEnqueuer.enqueueBasalBatch(basalReadings)

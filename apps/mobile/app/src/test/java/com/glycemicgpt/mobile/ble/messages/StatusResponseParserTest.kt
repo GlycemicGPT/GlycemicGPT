@@ -266,6 +266,29 @@ class StatusResponseParserTest {
     }
 
     @Test
+    fun `parseCgmEgvResponse with glucose below 20 returns null`() {
+        // Glucose values 1-19 are physiologically impossible and likely sensor noise
+        val buf = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN)
+        buf.putInt(471039176) // timestamp
+        buf.putShort(19)      // 19 mg/dL (below minimum threshold)
+        buf.put(1)            // VALID
+        buf.put(0)            // trendRate
+        assertNull(StatusResponseParser.parseCgmEgvResponse(buf.array()))
+    }
+
+    @Test
+    fun `parseCgmEgvResponse accepts glucose at threshold 20`() {
+        val buf = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN)
+        buf.putInt(471039176) // timestamp
+        buf.putShort(20)      // 20 mg/dL (minimum accepted value)
+        buf.put(1)            // VALID
+        buf.put(0)            // trendRate
+        val result = StatusResponseParser.parseCgmEgvResponse(buf.array())
+        assertNotNull(result)
+        assertEquals(20, result!!.glucoseMgDl)
+    }
+
+    @Test
     fun `parseCgmEgvResponse with glucose over 500 returns null`() {
         // 501 = 0x01F5
         val buf = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN)

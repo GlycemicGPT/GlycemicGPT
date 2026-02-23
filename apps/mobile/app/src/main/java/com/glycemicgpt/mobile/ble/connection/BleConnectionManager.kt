@@ -19,6 +19,7 @@ import com.glycemicgpt.mobile.data.local.BleDebugStore
 import com.glycemicgpt.mobile.data.local.PumpCredentialStore
 import com.glycemicgpt.mobile.data.local.toHexString
 import com.glycemicgpt.mobile.domain.model.ConnectionState
+import com.glycemicgpt.mobile.domain.pump.PumpConnectionManager
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -59,14 +60,14 @@ class BleConnectionManager @Inject constructor(
     private val jpakeAuthenticator: JpakeAuthenticator,
     private val credentialStore: PumpCredentialStore,
     private val debugStore: BleDebugStore,
-) {
+) : PumpConnectionManager {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val bluetoothManager: BluetoothManager? =
         context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
 
     private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
-    val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
+    override val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
     private var gatt: BluetoothGatt? = null
     private val gattLock = Any()
@@ -169,11 +170,21 @@ class BleConnectionManager @Inject constructor(
     /**
      * Connect to the pump at [address].
      *
-     * @param resetCounters If true (default), resets reconnect attempt and error counters.
-     *   Set to false when called from [scheduleReconnect] to preserve exponential backoff.
+     * Resets reconnect attempt and error counters so the connection starts fresh.
+     */
+    override fun connect(address: String, pairingCode: String?) {
+        connectInternal(address, pairingCode, resetCounters = true)
+    }
+
+    /**
+     * Internal connect implementation.
+     *
+     * @param resetCounters If true, resets reconnect attempt and error counters.
+     *   Set to false when called from [scheduleReconnect] or the passive autoConnect
+     *   GATT callback to preserve exponential backoff across reconnection cycles.
      */
     @SuppressLint("MissingPermission")
-    fun connect(address: String, pairingCode: String? = null, resetCounters: Boolean = true) {
+    private fun connectInternal(address: String, pairingCode: String?, resetCounters: Boolean) {
         val adapter = bluetoothManager?.adapter ?: run {
             Timber.e("BluetoothAdapter not available")
             return
@@ -226,7 +237,7 @@ class BleConnectionManager @Inject constructor(
 
     /** Disconnect from the pump. */
     @SuppressLint("MissingPermission")
-    fun disconnect() {
+    override fun disconnect() {
         autoReconnect = false
         hadSuccessfulSession = false
         reconnectJob?.cancel()
@@ -276,7 +287,7 @@ class BleConnectionManager @Inject constructor(
 
     /** Unpair: clear credentials, remove BLE bond, and disconnect. */
     @SuppressLint("MissingPermission")
-    fun unpair() {
+    override fun unpair() {
         val address = credentialStore.getPairedAddress()
         disconnect()
         credentialStore.clearPairing()
@@ -323,7 +334,7 @@ class BleConnectionManager @Inject constructor(
     }
 
     /** Attempt auto-reconnect to the previously paired pump. */
-    fun autoReconnectIfPaired() {
+    override fun autoReconnectIfPaired() {
         val address = credentialStore.getPairedAddress() ?: return
         // Fresh reconnect: reset to fast phase (called from BT state receiver,
         // service startup, etc. -- these are all "new" reconnection attempts).
@@ -602,7 +613,7 @@ class BleConnectionManager @Inject constructor(
         reconnectJob = scope.launch {
             delay(delayMs)
             if (autoReconnect && _connectionState.value == ConnectionState.RECONNECTING) {
-                connect(address, pairingCode = null, resetCounters = false)
+                connectInternal(address, pairingCode = null, resetCounters = false)
             } else if (_connectionState.value == ConnectionState.RECONNECTING) {
                 _connectionState.value = ConnectionState.DISCONNECTED
             }
@@ -653,7 +664,7 @@ class BleConnectionManager @Inject constructor(
                 scope.launch {
                     reconnectJob?.cancel()
                     val address = credentialStore.getPairedAddress() ?: return@launch
-                    connect(address, pairingCode = null, resetCounters = false)
+                    connectInternal(address, pairingCode = null, resetCounters = false)
                 }
             } else if (newState == BluetoothProfile.STATE_CONNECTED) {
                 // Connected but with non-success status -- close and let autoConnect retry
@@ -1298,32 +1309,32 @@ class BleConnectionManager @Inject constructor(
          *  time to process initialization before we send status requests.
          *  Keep short to avoid idle-timeout disconnects from the pump.
          */
-        const val POST_AUTH_SETTLE_MS = 500L
+        private const val POST_AUTH_SETTLE_MS = 500L
 
         /** Auth handshake timeout. JPAKE has 5 round trips; 30s is generous. */
-        const val AUTH_TIMEOUT_MS = 30_000L
+        private const val AUTH_TIMEOUT_MS = 30_000L
 
         /** Max consecutive rapid disconnections before declaring bond lost. */
-        const val MAX_RAPID_DISCONNECTS = 3
+        private const val MAX_RAPID_DISCONNECTS = 3
 
         /** Max connections with zero pump responses before giving up. */
-        const val MAX_ZERO_RESPONSE_CONNECTIONS = 3
+        private const val MAX_ZERO_RESPONSE_CONNECTIONS = 3
 
         /** Max consecutive INSUFFICIENT_ENCRYPTION disconnects (during active sessions
          *  or reconnection after a prior successful session) before treating the bond
          *  as genuinely stale and removing it. */
-        const val MAX_ENCRYPTION_FAILURES = 3
+        private const val MAX_ENCRYPTION_FAILURES = 3
 
         /** Max attempts in the fast reconnection phase before transitioning to
          *  slow (patient) reconnection. With 32s max backoff, 10 attempts takes
          *  ~5 minutes. After this, reconnection continues indefinitely at a
          *  slower rate (every 2 minutes) with autoConnect=true as a supplement. */
-        const val MAX_FAST_RECONNECT_ATTEMPTS = 10
+        private const val MAX_FAST_RECONNECT_ATTEMPTS = 10
 
         /** Interval for slow-phase periodic reconnection attempts (2 minutes).
          *  Runs alongside a passive autoConnect=true GATT. The periodic timer
          *  is a fallback for devices with buggy autoConnect implementations. */
-        const val SLOW_RECONNECT_INTERVAL_MS = 120_000L
+        private const val SLOW_RECONNECT_INTERVAL_MS = 120_000L
 
         /** Cap for [consecutiveReconnectFailures] to prevent unbounded growth.
          *  Only used for logging; the slow phase reconnects indefinitely. */

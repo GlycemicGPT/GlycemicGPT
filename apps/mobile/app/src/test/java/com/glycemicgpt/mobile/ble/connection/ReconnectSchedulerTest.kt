@@ -1,15 +1,18 @@
 package com.glycemicgpt.mobile.ble.connection
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Tests for the reconnection scheduling constants and backoff logic
- * defined in [BleConnectionManager].
+ * Tests for the reconnection scheduling backoff logic
+ * used in [BleConnectionManager].
  *
  * These verify that the tiered reconnection strategy (fast exponential
  * backoff -> slow periodic) behaves correctly.
+ *
+ * Implementation constants (thresholds, intervals) are private to
+ * BleConnectionManager; these tests verify the mathematical properties
+ * of the backoff formula rather than asserting constant values.
  */
 class ReconnectSchedulerTest {
 
@@ -46,17 +49,7 @@ class ReconnectSchedulerTest {
     }
 
     @Test
-    fun `fast phase transition happens at MAX_FAST_RECONNECT_ATTEMPTS`() {
-        assertEquals(10, BleConnectionManager.MAX_FAST_RECONNECT_ATTEMPTS)
-    }
-
-    @Test
-    fun `slow phase interval is 2 minutes`() {
-        assertEquals(120_000L, BleConnectionManager.SLOW_RECONNECT_INTERVAL_MS)
-    }
-
-    @Test
-    fun `total fast phase duration is approximately 5 minutes`() {
+    fun `total fast phase delay is approximately 222 seconds`() {
         // Sum of all fast-phase delays for attempts 1..10
         var total = 0L
         for (attempt in 1..10) {
@@ -64,14 +57,7 @@ class ReconnectSchedulerTest {
         }
         // Should be: 2 + 4 + 8 + 16 + 32 + 32 + 32 + 32 + 32 + 32 = 222 seconds
         // Plus connection + auth time per attempt (~2-5s each)
-        // Should be approximately 4-6 minutes
-        assertTrue("Fast phase total should be ~222s, was ${total / 1000}s", total in 200_000..250_000)
-    }
-
-    @Test
-    fun `bond loss thresholds are preserved`() {
-        assertEquals(3, BleConnectionManager.MAX_RAPID_DISCONNECTS)
-        assertEquals(3, BleConnectionManager.MAX_ZERO_RESPONSE_CONNECTIONS)
-        assertEquals(3, BleConnectionManager.MAX_ENCRYPTION_FAILURES)
+        // Should be approximately 4-5 minutes total wall clock
+        assertEquals("Fast phase total should be 222s", 222_000L, total)
     }
 }

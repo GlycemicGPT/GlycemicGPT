@@ -9,6 +9,7 @@ import android.bluetooth.le.ScanSettings
 import android.content.Context
 import com.glycemicgpt.mobile.ble.protocol.TandemProtocol
 import com.glycemicgpt.mobile.domain.model.DiscoveredPump
+import com.glycemicgpt.mobile.domain.pump.PumpScanner
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -24,7 +25,7 @@ import javax.inject.Inject
  */
 class BleScanner @Inject constructor(
     @ApplicationContext private val context: Context,
-) {
+) : PumpScanner {
 
     private val bluetoothManager: BluetoothManager? =
         context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
@@ -34,7 +35,7 @@ class BleScanner @Inject constructor(
      * Scanning continues until the flow collector cancels.
      */
     @SuppressLint("MissingPermission")
-    fun scan(): Flow<DiscoveredPump> = callbackFlow {
+    override fun scan(): Flow<DiscoveredPump> = callbackFlow {
         val adapter = bluetoothManager?.adapter
         val scanner = adapter?.bluetoothLeScanner
 

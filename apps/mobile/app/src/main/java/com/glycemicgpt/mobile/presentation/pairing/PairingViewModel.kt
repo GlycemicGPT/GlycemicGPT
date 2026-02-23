@@ -3,11 +3,11 @@ package com.glycemicgpt.mobile.presentation.pairing
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.glycemicgpt.mobile.ble.connection.BleConnectionManager
-import com.glycemicgpt.mobile.ble.connection.BleScanner
 import com.glycemicgpt.mobile.data.local.PumpCredentialStore
 import com.glycemicgpt.mobile.domain.model.ConnectionState
 import com.glycemicgpt.mobile.domain.model.DiscoveredPump
+import com.glycemicgpt.mobile.domain.pump.PumpConnectionManager
+import com.glycemicgpt.mobile.domain.pump.PumpScanner
 import com.glycemicgpt.mobile.service.PumpConnectionService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -15,13 +15,14 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
 class PairingViewModel @Inject constructor(
-    private val bleScanner: BleScanner,
-    private val connectionManager: BleConnectionManager,
+    private val pumpScanner: PumpScanner,
+    private val connectionManager: PumpConnectionManager,
     private val credentialStore: PumpCredentialStore,
     @ApplicationContext private val appContext: Context,
 ) : ViewModel() {
@@ -52,8 +53,8 @@ class PairingViewModel @Inject constructor(
 
         scanJob = viewModelScope.launch {
             try {
-                bleScanner.scan().collect { pump ->
-                    _discoveredPumps.value = _discoveredPumps.value + pump
+                pumpScanner.scan().collect { pump ->
+                    _discoveredPumps.update { it + pump }
                 }
             } finally {
                 _isScanning.value = false
