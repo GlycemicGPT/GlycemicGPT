@@ -38,6 +38,11 @@ from src.schemas.insulin_config import (
     InsulinConfigResponse,
     InsulinConfigUpdate,
 )
+from src.schemas.safety_limits import (
+    SafetyLimitsDefaults,
+    SafetyLimitsResponse,
+    SafetyLimitsUpdate,
+)
 from src.schemas.settings_export import (
     ExportType,
     SettingsExportRequest,
@@ -68,6 +73,10 @@ from src.services.insulin_config import (
     get_or_create_config as get_or_create_insulin_config,
 )
 from src.services.insulin_config import update_config as update_insulin_config
+from src.services.safety_limits import (
+    get_or_create_safety_limits,
+    update_safety_limits,
+)
 from src.services.settings_export import export_user_data
 from src.services.target_glucose_range import get_or_create_range, update_range
 
@@ -417,6 +426,65 @@ async def get_data_retention_usage(
 ) -> StorageUsageResponse:
     """Get the current user's storage usage (record counts by category)."""
     return await get_storage_usage(user.id, db)
+
+
+# ── Safety limits endpoints (Phase 3) ──
+
+
+@router.get(
+    "/safety-limits",
+    response_model=SafetyLimitsResponse,
+    dependencies=[Depends(require_diabetic_or_admin)],
+)
+async def get_safety_limits(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> SafetyLimitsResponse:
+    """Get the current user's safety limits.
+
+    Returns glucose validity bounds and maximum insulin delivery rates.
+    Creates defaults if no limits have been configured yet.
+    """
+    limits = await get_or_create_safety_limits(user.id, db)
+    return SafetyLimitsResponse.model_validate(limits)
+
+
+@router.patch(
+    "/safety-limits",
+    response_model=SafetyLimitsResponse,
+    dependencies=[Depends(require_diabetic_or_admin)],
+)
+async def patch_safety_limits(
+    body: SafetyLimitsUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> SafetyLimitsResponse:
+    """Update the current user's safety limits.
+
+    Only provided fields are updated. Validates that
+    min_glucose_mgdl < max_glucose_mgdl after merge with existing values.
+    """
+    try:
+        limits = await update_safety_limits(user.id, body, db)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        ) from e
+
+    return SafetyLimitsResponse.model_validate(limits)
+
+
+@router.get(
+    "/safety-limits/defaults",
+    response_model=SafetyLimitsDefaults,
+)
+async def get_safety_limits_defaults() -> SafetyLimitsDefaults:
+    """Get the default safety limits values for reference.
+
+    This endpoint does not require authentication.
+    """
+    return SafetyLimitsDefaults()
 
 
 # ── Data purge endpoint (Story 9.4) ──

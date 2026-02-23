@@ -8,7 +8,7 @@
  */
 
 import Link from "next/link";
-import { Settings, User, Bell, Database, Link2, Users, Radio, UserPlus, Target, Clock, Brain, Syringe } from "lucide-react";
+import { Settings, User, Bell, Database, Link2, Users, Radio, UserPlus, Target, Clock, Brain, Syringe, ShieldCheck } from "lucide-react";
 import { useUserContext } from "@/providers";
 
 interface SettingsSection {
@@ -50,6 +50,12 @@ const settingsSections: SettingsSection[] = [
     description: "Configure your insulin type for IoB calculations",
     icon: Syringe,
     href: "/dashboard/settings/insulin",
+  },
+  {
+    title: "Safety Limits",
+    description: "Platform-enforced bounds for data validation and delivery rates",
+    icon: ShieldCheck,
+    href: "/dashboard/settings/safety-limits",
   },
   {
     title: "Daily Briefs",

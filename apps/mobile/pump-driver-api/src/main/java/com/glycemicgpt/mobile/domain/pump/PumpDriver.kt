@@ -29,7 +29,7 @@ interface PumpDriver {
     suspend fun disconnect(): Result<Unit>
     suspend fun getIoB(): Result<IoBReading>
     suspend fun getBasalRate(): Result<BasalReading>
-    suspend fun getBolusHistory(since: Instant): Result<List<BolusEvent>>
+    suspend fun getBolusHistory(since: Instant, limits: SafetyLimits = SafetyLimits()): Result<List<BolusEvent>>
     suspend fun getPumpSettings(): Result<PumpSettings>
     suspend fun getBatteryStatus(): Result<BatteryStatus>
     suspend fun getReservoirLevel(): Result<ReservoirReading>

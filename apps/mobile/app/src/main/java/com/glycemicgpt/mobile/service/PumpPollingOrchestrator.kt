@@ -1,6 +1,7 @@
 package com.glycemicgpt.mobile.service
 
 import com.glycemicgpt.mobile.data.local.GlucoseRangeStore
+import com.glycemicgpt.mobile.data.local.SafetyLimitsStore
 import com.glycemicgpt.mobile.data.local.dao.RawHistoryLogDao
 import com.glycemicgpt.mobile.data.local.entity.RawHistoryLogEntity
 import com.glycemicgpt.mobile.data.repository.PumpDataRepository
@@ -8,7 +9,6 @@ import com.glycemicgpt.mobile.data.repository.SyncQueueEnqueuer
 import com.glycemicgpt.mobile.domain.model.ConnectionState
 import com.glycemicgpt.mobile.domain.pump.HistoryLogParser
 import com.glycemicgpt.mobile.domain.pump.PumpDriver
-import com.glycemicgpt.mobile.domain.pump.SafetyLimits
 import com.glycemicgpt.mobile.wear.WearDataSender
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -40,6 +40,7 @@ class PumpPollingOrchestrator @Inject constructor(
     private val rawHistoryLogDao: RawHistoryLogDao,
     private val wearDataSender: WearDataSender,
     private val glucoseRangeStore: GlucoseRangeStore,
+    private val safetyLimitsStore: SafetyLimitsStore,
     private val historyLogParser: HistoryLogParser,
 ) {
 
@@ -227,7 +228,8 @@ class PumpPollingOrchestrator @Inject constructor(
     private suspend fun pollBolusHistory() {
         val since = repository.getLatestBolusTimestamp()
             ?: Instant.now().minus(7, ChronoUnit.DAYS)
-        pumpDriver.getBolusHistory(since)
+        val limits = safetyLimitsStore.toSafetyLimits()
+        pumpDriver.getBolusHistory(since, limits)
             .onSuccess { events ->
                 if (events.isNotEmpty()) {
                     repository.saveBoluses(events)
@@ -284,9 +286,6 @@ class PumpPollingOrchestrator @Inject constructor(
     }
 
     companion object {
-        /** Default safety limits for data validity (sensor range 20-500 mg/dL). */
-        private val DATA_VALIDITY_LIMITS = SafetyLimits()
-
         const val INTERVAL_FAST_MS = 15_000L       // IoB + basal + CGM (keep-alive: pump drops idle connections at ~30s)
         const val INTERVAL_MEDIUM_MS = 300_000L     // bolus history (5 min)
         const val INTERVAL_SLOW_MS = 300_000L       // battery + reservoir (5 min)
@@ -377,11 +376,14 @@ class PumpPollingOrchestrator @Inject constructor(
                     backendSyncManager?.triggerSync()
                     Timber.d("Saved %d raw history log records", records.size)
 
-                    // Use default SafetyLimits for data validity (sensor range 20-500 mg/dL).
+                    // Use backend-synced safety limits for data validity.
                     // Do NOT use alert thresholds (urgentLow/urgentHigh) here -- those are
                     // user alert preferences (e.g., urgentHigh=250), not sensor validity
                     // bounds. Using them would silently drop real readings above 250 mg/dL.
-                    val limits = DATA_VALIDITY_LIMITS
+                    if (safetyLimitsStore.isStale()) {
+                        Timber.w("Safety limits are stale (>%d ms old), using cached values", SafetyLimitsStore.STALE_THRESHOLD_MS)
+                    }
+                    val limits = safetyLimitsStore.toSafetyLimits()
 
                     // Extract CGM readings from history logs to fill chart gaps
                     val cgmReadings = historyLogParser.extractCgmFromHistoryLogs(records, limits)

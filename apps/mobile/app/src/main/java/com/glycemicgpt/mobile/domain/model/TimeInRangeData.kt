@@ -7,6 +7,7 @@ data class TimeInRangeData(
     val inRangePercent: Float,
     /** Percentage of readings above target range [0..100]. */
     val highPercent: Float,
+    /** Total number of CGM readings included in the time-in-range calculation. */
     val totalReadings: Int,
 ) {
     init {

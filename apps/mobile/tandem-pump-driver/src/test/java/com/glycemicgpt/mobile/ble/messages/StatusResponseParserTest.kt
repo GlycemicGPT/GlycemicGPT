@@ -604,6 +604,30 @@ class StatusResponseParserTest {
     }
 
     @Test
+    fun `parseLastBolusStatusResponse rejects dose exceeding safety limits`() {
+        val savedTz = TimeZone.getDefault()
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("America/Chicago"))
+            val tenMinAgoLocal = LocalDateTime.now().minusMinutes(10)
+            val recentPumpTime = (tenMinAgoLocal.toEpochSecond(ZoneOffset.UTC) - 1199145600L).toInt()
+            val buf = ByteBuffer.allocate(17).order(ByteOrder.LITTLE_ENDIAN)
+            buf.putInt(99)             // bolusId
+            buf.putInt(recentPumpTime) // timestamp
+            buf.putInt(30000)          // deliveredVolume = 30u (exceeds 25u default max)
+            buf.put(3)                 // bolusStatusId = COMPLETED
+            buf.put(0)                 // bolusSourceId = GUI
+            buf.put(1)                 // bolusTypeBitmask = STANDARD
+            buf.putShort(0)
+
+            val since = Instant.now().minusSeconds(3600)
+            val events = StatusResponseParser.parseLastBolusStatusResponse(buf.array(), since)
+            assertTrue(events.isEmpty())
+        } finally {
+            TimeZone.setDefault(savedTz)
+        }
+    }
+
+    @Test
     fun `parseLastBolusStatusResponse returns empty for short cargo`() {
         assertTrue(
             StatusResponseParser.parseLastBolusStatusResponse(byteArrayOf(0x01, 0x02), Instant.now()).isEmpty(),

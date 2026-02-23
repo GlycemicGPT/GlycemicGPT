@@ -8,6 +8,7 @@ import com.glycemicgpt.mobile.data.remote.dto.ChatResponse
 import com.glycemicgpt.mobile.data.remote.dto.DeviceRegistrationRequest
 import com.glycemicgpt.mobile.data.remote.dto.DeviceRegistrationResponse
 import com.glycemicgpt.mobile.data.remote.dto.GlucoseRangeResponse
+import com.glycemicgpt.mobile.data.remote.dto.SafetyLimitsResponse
 import com.glycemicgpt.mobile.data.remote.dto.HealthResponse
 import com.glycemicgpt.mobile.data.remote.dto.LoginRequest
 import com.glycemicgpt.mobile.data.remote.dto.LoginResponse
@@ -61,4 +62,8 @@ interface GlycemicGptApi {
     // Glucose range settings
     @GET("/api/settings/target-glucose-range")
     suspend fun getGlucoseRange(): Response<GlucoseRangeResponse>
+
+    // Safety limits settings
+    @GET("/api/settings/safety-limits")
+    suspend fun getSafetyLimits(): Response<SafetyLimitsResponse>
 }
