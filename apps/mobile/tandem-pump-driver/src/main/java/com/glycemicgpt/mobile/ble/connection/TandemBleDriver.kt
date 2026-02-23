@@ -15,6 +15,7 @@ import com.glycemicgpt.mobile.domain.model.PumpHardwareInfo
 import com.glycemicgpt.mobile.domain.model.PumpSettings
 import com.glycemicgpt.mobile.domain.model.ReservoirReading
 import com.glycemicgpt.mobile.domain.pump.PumpDriver
+import com.glycemicgpt.mobile.domain.pump.SafetyLimits
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import timber.log.Timber
@@ -77,10 +78,10 @@ class TandemBleDriver @Inject constructor(
             ?: throw IllegalStateException("Failed to parse basal status response")
     }
 
-    override suspend fun getBolusHistory(since: Instant): Result<List<BolusEvent>> = runStatusRequest(
+    override suspend fun getBolusHistory(since: Instant, limits: SafetyLimits): Result<List<BolusEvent>> = runStatusRequest(
         opcode = TandemProtocol.OPCODE_LAST_BOLUS_STATUS_REQ,
     ) { cargo ->
-        StatusResponseParser.parseLastBolusStatusResponse(cargo, since)
+        StatusResponseParser.parseLastBolusStatusResponse(cargo, since, limits)
     }
 
     override suspend fun getPumpSettings(): Result<PumpSettings> = runStatusRequest(

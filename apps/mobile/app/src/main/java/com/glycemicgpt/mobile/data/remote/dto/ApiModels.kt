@@ -112,3 +112,12 @@ data class GlucoseRangeResponse(
     @Json(name = "high_target") val highTarget: Float,
     @Json(name = "urgent_high") val urgentHigh: Float,
 )
+
+@JsonClass(generateAdapter = true)
+data class SafetyLimitsResponse(
+    @Json(name = "min_glucose_mgdl") val minGlucoseMgDl: Int,
+    @Json(name = "max_glucose_mgdl") val maxGlucoseMgDl: Int,
+    @Json(name = "max_basal_rate_milliunits") val maxBasalRateMilliunits: Int,
+    @Json(name = "max_bolus_dose_milliunits") val maxBolusDoseMilliunits: Int,
+    @Json(name = "updated_at") val updatedAt: String,
+)

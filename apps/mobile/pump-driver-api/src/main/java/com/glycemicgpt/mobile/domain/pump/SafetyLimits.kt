@@ -50,8 +50,8 @@ data class SafetyLimits(
         // CGM sensors are unreliable below ~20 mg/dL and above ~500 mg/dL.
         const val ABSOLUTE_MIN_GLUCOSE = DEFAULT_MIN_GLUCOSE   // 20 mg/dL
         const val ABSOLUTE_MAX_GLUCOSE = DEFAULT_MAX_GLUCOSE   // 500 mg/dL
-        const val ABSOLUTE_MAX_BASAL_MILLIUNITS = 15_000 // 15 u/hr (Tandem hardware max)
-        const val ABSOLUTE_MAX_BOLUS_MILLIUNITS = 25_000 // 25 u single dose (Tandem hardware max)
+        const val ABSOLUTE_MAX_BASAL_MILLIUNITS = DEFAULT_MAX_BASAL_MILLIUNITS
+        const val ABSOLUTE_MAX_BOLUS_MILLIUNITS = DEFAULT_MAX_BOLUS_MILLIUNITS
 
         /**
          * Safe factory that clamps values to absolute bounds instead of throwing.

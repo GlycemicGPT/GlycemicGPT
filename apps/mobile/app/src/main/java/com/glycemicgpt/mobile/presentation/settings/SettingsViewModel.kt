@@ -15,6 +15,7 @@ import com.glycemicgpt.mobile.data.local.AlertSoundStore
 import com.glycemicgpt.mobile.data.local.AppSettingsStore
 import com.glycemicgpt.mobile.data.local.GlucoseRangeStore
 import com.glycemicgpt.mobile.data.local.PumpCredentialStore
+import com.glycemicgpt.mobile.data.local.SafetyLimitsStore
 import com.glycemicgpt.mobile.data.repository.AuthRepository
 import com.glycemicgpt.mobile.data.update.AppUpdateChecker
 import com.glycemicgpt.mobile.service.AlertNotificationManager
@@ -107,6 +108,7 @@ class SettingsViewModel @Inject constructor(
     private val pumpCredentialStore: PumpCredentialStore,
     private val appSettingsStore: AppSettingsStore,
     private val glucoseRangeStore: GlucoseRangeStore,
+    private val safetyLimitsStore: SafetyLimitsStore,
     private val authRepository: AuthRepository,
     private val appUpdateChecker: AppUpdateChecker,
     private val authManager: AuthManager,
@@ -164,6 +166,9 @@ class SettingsViewModel @Inject constructor(
             viewModelScope.launch { authRepository.reRegisterDevice() }
             if (glucoseRangeStore.isStale()) {
                 viewModelScope.launch { authRepository.refreshGlucoseRange() }
+            }
+            if (safetyLimitsStore.isStale()) {
+                viewModelScope.launch { authRepository.refreshSafetyLimits() }
             }
         }
         if (pumpCredentialStore.isPaired()) {

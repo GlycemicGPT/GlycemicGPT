@@ -30,6 +30,7 @@ from src.models.pump_data import PumpEvent, PumpEventType
 from src.models.pump_hardware_info import PumpHardwareInfo
 from src.models.pump_profile import PumpProfile
 from src.models.pump_raw_event import PumpRawEvent
+from src.models.safety_limits import SafetyLimits
 from src.models.safety_log import SafetyLog
 from src.models.suggestion_response import SuggestionResponse
 from src.models.tandem_upload_state import TandemUploadState
@@ -73,6 +74,7 @@ __all__ = [
     "PumpHardwareInfo",
     "PumpProfile",
     "PumpRawEvent",
+    "SafetyLimits",
     "SafetyLog",
     "SuggestionResponse",
     "TandemUploadState",

@@ -1,7 +1,9 @@
 package com.glycemicgpt.mobile.presentation.home
 
 import com.glycemicgpt.mobile.data.local.GlucoseRangeStore
+import com.glycemicgpt.mobile.data.local.SafetyLimitsStore
 import com.glycemicgpt.mobile.data.remote.GlycemicGptApi
+import com.glycemicgpt.mobile.data.repository.AuthRepository
 import com.glycemicgpt.mobile.data.remote.dto.GlucoseRangeResponse
 import com.glycemicgpt.mobile.data.repository.PumpDataRepository
 import com.glycemicgpt.mobile.domain.model.BasalReading
@@ -98,6 +100,12 @@ class HomeViewModelTest {
         every { isStale(any()) } returns false
     }
 
+    private val safetyLimitsStore = mockk<SafetyLimitsStore>(relaxed = true) {
+        every { isStale(any()) } returns false
+    }
+
+    private val authRepository = mockk<AuthRepository>(relaxed = true)
+
     private val api = mockk<GlycemicGptApi>(relaxed = true)
 
     @Before
@@ -110,7 +118,7 @@ class HomeViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun createViewModel() = HomeViewModel(pumpDriver, repository, backendSyncManager, glucoseRangeStore, api)
+    private fun createViewModel() = HomeViewModel(pumpDriver, repository, backendSyncManager, glucoseRangeStore, safetyLimitsStore, authRepository, api)
 
     @Test
     fun `initial state has null readings and not refreshing`() = runTest {
@@ -393,5 +401,13 @@ class HomeViewModelTest {
 
         coVerify(atLeast = 1) { api.getGlucoseRange() }
         verify { glucoseRangeStore.updateAll(urgentLow = 60, low = 85, high = 190, urgentHigh = 290) }
+    }
+
+    @Test
+    fun `init refreshes safety limits when store is stale`() = runTest {
+        every { safetyLimitsStore.isStale(any()) } returns true
+        createViewModel()
+        advanceUntilIdle()
+        coVerify(atLeast = 1) { authRepository.refreshSafetyLimits() }
     }
 }

@@ -6,7 +6,10 @@ plugins {
 android {
     namespace = "com.glycemicgpt.mobile.pump.api"
     compileSdk = 35
-    defaultConfig { minSdk = 30 }
+    defaultConfig {
+        minSdk = 30
+        consumerProguardFiles("consumer-rules.pro")
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

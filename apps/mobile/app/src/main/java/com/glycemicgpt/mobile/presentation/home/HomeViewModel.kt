@@ -3,7 +3,9 @@ package com.glycemicgpt.mobile.presentation.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.glycemicgpt.mobile.data.local.GlucoseRangeStore
+import com.glycemicgpt.mobile.data.local.SafetyLimitsStore
 import com.glycemicgpt.mobile.data.remote.GlycemicGptApi
+import com.glycemicgpt.mobile.data.repository.AuthRepository
 import com.glycemicgpt.mobile.data.repository.PumpDataRepository
 import com.glycemicgpt.mobile.domain.model.BasalReading
 import com.glycemicgpt.mobile.domain.model.BatteryStatus
@@ -39,6 +41,8 @@ class HomeViewModel @Inject constructor(
     private val repository: PumpDataRepository,
     private val backendSyncManager: BackendSyncManager,
     private val glucoseRangeStore: GlucoseRangeStore,
+    private val safetyLimitsStore: SafetyLimitsStore,
+    private val authRepository: AuthRepository,
     private val api: GlycemicGptApi,
 ) : ViewModel() {
 
@@ -70,6 +74,10 @@ class HomeViewModel @Inject constructor(
         // Refresh glucose range from backend on screen load if stale (15 min)
         if (glucoseRangeStore.isStale(maxAgeMs = RANGE_REFRESH_INTERVAL_MS)) {
             viewModelScope.launch { refreshGlucoseRange() }
+        }
+        // Refresh safety limits from backend if stale (1 hour)
+        if (safetyLimitsStore.isStale()) {
+            viewModelScope.launch { authRepository.refreshSafetyLimits() }
         }
     }
 

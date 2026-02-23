@@ -286,7 +286,11 @@ internal object StatusResponseParser {
      * Returns a single-element list with the last bolus (if completed and
      * newer than [since]), or an empty list otherwise.
      */
-    fun parseLastBolusStatusResponse(cargo: ByteArray, since: Instant): List<BolusEvent> {
+    fun parseLastBolusStatusResponse(
+        cargo: ByteArray,
+        since: Instant,
+        limits: SafetyLimits = SafetyLimits(),
+    ): List<BolusEvent> {
         // V1 (exactly 17 bytes): fields start at offset 0.
         // Extended (20+ bytes): 1-byte status prefix, fields start at offset 1.
         // Sizes 18-19 are neither valid V1 nor V2 -- reject them.
@@ -323,6 +327,9 @@ internal object StatusResponseParser {
 
         // Only report completed boluses (status 3)
         if (bolusStatusId != 3) return emptyList()
+
+        // Reject implausibly large doses (matches parseBolusDeliveryPayload pattern)
+        if (deliveredMilliUnits > limits.maxBolusDoseMilliunits) return emptyList()
 
         val timestamp = pumpTimeToInstant(pumpTimeSec)
         if (timestamp.isBefore(since)) return emptyList()

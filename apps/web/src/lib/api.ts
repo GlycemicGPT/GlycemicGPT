@@ -2305,6 +2305,97 @@ export async function getPumpStatus(): Promise<PumpStatusResponse> {
 }
 
 // ============================================================================
+// Safety Limits (Phase 3)
+// ============================================================================
+
+/**
+ * Safety Limits API types (Phase 3)
+ */
+export interface SafetyLimitsResponse {
+  id: string;
+  min_glucose_mgdl: number;
+  max_glucose_mgdl: number;
+  max_basal_rate_milliunits: number;
+  max_bolus_dose_milliunits: number;
+  updated_at: string;
+}
+
+export interface SafetyLimitsUpdate {
+  min_glucose_mgdl?: number;
+  max_glucose_mgdl?: number;
+  max_basal_rate_milliunits?: number;
+  max_bolus_dose_milliunits?: number;
+}
+
+export interface SafetyLimitsDefaults {
+  min_glucose_mgdl: number;
+  max_glucose_mgdl: number;
+  max_basal_rate_milliunits: number;
+  max_bolus_dose_milliunits: number;
+}
+
+/**
+ * Fetch current safety limits
+ */
+export async function getSafetyLimits(): Promise<SafetyLimitsResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/settings/safety-limits`
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to fetch safety limits: ${response.status}`
+    );
+  }
+
+  return response.json();
+}
+
+/**
+ * Update safety limits
+ */
+export async function updateSafetyLimits(
+  updates: SafetyLimitsUpdate
+): Promise<SafetyLimitsResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/settings/safety-limits`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updates),
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to update safety limits: ${response.status}`
+    );
+  }
+
+  return response.json();
+}
+
+/**
+ * Fetch safety limits defaults
+ */
+export async function getSafetyLimitsDefaults(): Promise<SafetyLimitsDefaults> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/settings/safety-limits/defaults`
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to fetch safety limits defaults: ${response.status}`
+    );
+  }
+
+  return response.json();
+}
+
+// ============================================================================
 // Time in Range Statistics
 // ============================================================================
 
