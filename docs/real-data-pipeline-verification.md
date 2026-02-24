@@ -1,7 +1,5 @@
 # Real Data Pipeline Verification
 
-Story 13.3: Real Data Pipeline Verification
-
 ## Overview
 
 This document describes how to verify the complete GlycemicGPT data pipeline with real Dexcom G7 and Tandem t:connect data. The verification script exercises every stage from credential configuration through data ingestion, dashboard display, and AI analysis.

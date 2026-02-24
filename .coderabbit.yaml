@@ -51,6 +51,12 @@ reviews:
       instructions: >
         Apply when PR modifies Bluetooth Low Energy code under
         apps/mobile/**/ble/**
+    - label: "plugin-api"
+      instructions: >
+        Apply when PR modifies files under apps/mobile/pump-driver-api/
+    - label: "plugin-driver"
+      instructions: >
+        Apply when PR modifies files under apps/mobile/tandem-pump-driver/
 
   path_filters:
     - "!**/*.png"
@@ -141,6 +147,37 @@ reviews:
         - Medical safety: glucose values must be validated (range 20-500 mg/dL),
           insulin doses must have hard caps, no auto-bolus without explicit user
           confirmation.
+
+    - path: "apps/mobile/pump-driver-api/**/*.kt"
+      instructions: |
+        Plugin API module defining interfaces and domain models for all plugins.
+
+        Critical review points:
+        - Interface stability: changes here affect all plugins. Avoid breaking changes.
+        - No implementation leakage: this module must not import from :app or any
+          plugin module. Only stdlib, AndroidX, and kotlinx dependencies allowed.
+        - API version compatibility: if interfaces change, PLUGIN_API_VERSION must
+          be incremented in PluginMetadata.kt.
+        - Safety contract KDoc: all capability methods that accept SafetyLimits
+          must document the filtering/rejection behavior in KDoc.
+        - PluginCapabilityInterface marker: all new capability interfaces must
+          extend this marker.
+
+    - path: "apps/mobile/tandem-pump-driver/**/*.kt"
+      instructions: |
+        Tandem t:slim X2 plugin implementation (reference plugin for the architecture).
+
+        Critical review points:
+        - Delegation patterns: capability classes (TandemGlucoseSource, TandemInsulinSource,
+          TandemPumpStatus) should be thin wrappers delegating to BLE components.
+        - No :app imports: this module depends on :pump-driver-api and the BLE layer.
+          Allowed import namespaces: .domain., .ble., .plugin. (its own classes).
+          Any import from .data., .ui., .service., or other :app namespaces is a violation.
+        - Safety limit passing: all methods receiving SafetyLimits must forward them
+          to the underlying BLE driver/parser. Never use default SafetyLimits().
+        - Lifecycle implementation: onActivated() should auto-reconnect, onDeactivated()
+          should disconnect, shutdown() should fully release resources.
+        - Plugin metadata: apiVersion must match PLUGIN_API_VERSION.
 
     - path: "apps/mobile/**/ble/**"
       instructions: |
@@ -322,6 +359,7 @@ knowledge_base:
     filePatterns:
       - "CLAUDE.md"
       - "docs/branching-strategy.md"
+      - "docs/plugin-architecture.md"
   learnings:
     scope: "local"
   issues:

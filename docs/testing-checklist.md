@@ -1,7 +1,5 @@
 # GlycemicGPT Local Dev Server Testing Checklist
 
-Story 13.1: Local Dev Server Testing Checklist
-
 ## Prerequisites
 
 1. **Docker and Docker Compose** installed
@@ -221,6 +219,6 @@ For each settings page with a Save button:
 - Run migrations on the test database first
 
 ### Settings Save button stays disabled
-- This was fixed in Story 10.1 / 12.4
+- This was fixed in a previous release
 - If it persists, check browser console for API errors
 - Verify the backend endpoint returns expected schema

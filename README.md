@@ -59,7 +59,7 @@ GlycemicGPT bridges the gap between diabetes device data and actionable AI-power
 | Dexcom G7 | CGM | Cloud API |
 | Tandem t:slim X2 | Insulin Pump | BLE (direct) + Cloud API |
 
-> Support for additional pumps and CGMs is planned for future releases. The architecture is designed to be extensible -- see [CONTRIBUTING.md](CONTRIBUTING.md) if you'd like to help add support for your device.
+> Support for additional pumps and CGMs is planned for future releases. The mobile app uses a [capability-based plugin architecture](docs/plugin-architecture.md) designed for extensibility -- see [CONTRIBUTING.md](CONTRIBUTING.md) if you'd like to help add support for your device.
 
 **What it does:**
 
@@ -105,6 +105,7 @@ Services will be available at:
 | Backend | FastAPI, Python 3.12 |
 | Mobile | Kotlin, Jetpack Compose, BLE |
 | Wear OS | Kotlin, Wear Compose, Watch Face |
+| Plugin System | Extensible device support via [plugin architecture](docs/plugin-architecture.md) |
 | AI Sidecar | TypeScript, Express, multi-provider proxy |
 | Database | PostgreSQL 16, SQLAlchemy 2.0 |
 | Cache | Redis 7 |
@@ -139,6 +140,8 @@ This project is licensed under the **GNU General Public License v3.0 (GPL-3.0)**
 ---
 
 ## Disclaimer
+
+> See [MEDICAL-DISCLAIMER.md](MEDICAL-DISCLAIMER.md) for the complete medical and regulatory disclaimer.
 
 > **USE AT YOUR OWN RISK**
 

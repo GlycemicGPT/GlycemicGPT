@@ -1,8 +1,5 @@
 # GlycemicGPT Kubernetes Deployment
 
-Story 1.4: Kubernetes Deployment Manifests
-Story 1.5: Structured Logging & Backup Configuration
-
 This directory contains Kubernetes manifests for deploying GlycemicGPT to a Kubernetes cluster.
 
 ## Prerequisites
@@ -26,7 +23,7 @@ k8s/
 │   ├── api.yaml             # FastAPI backend
 │   ├── web.yaml             # Next.js frontend
 │   ├── ingress.yaml         # Ingress for external access
-│   ├── backup-cronjob.yaml  # Database backup CronJob (Story 1.5)
+│   ├── backup-cronjob.yaml  # Database backup CronJob
 │   └── nodeport-services.yaml # Alternative: NodePort access
 └── overlays/
     ├── dev/                 # Development overlay
@@ -189,7 +186,7 @@ annotations:
   cert-manager.io/cluster-issuer: letsencrypt-prod
 ```
 
-## Structured Logging (Story 1.5)
+## Structured Logging
 
 GlycemicGPT uses structured JSON logging with correlation IDs for request tracing.
 
@@ -229,7 +226,7 @@ kubectl logs -n glycemicgpt -l app.kubernetes.io/component=api | jq .
 kubectl logs -n glycemicgpt -l app.kubernetes.io/component=api | jq 'select(.correlation_id == "your-id")'
 ```
 
-## Database Backups (Story 1.5)
+## Database Backups
 
 Automated PostgreSQL backups run via Kubernetes CronJob.
 

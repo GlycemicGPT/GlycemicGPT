@@ -1,7 +1,5 @@
 # Docker Integration Testing
 
-Story 13.2: Docker Container Integration Testing
-
 ## Overview
 
 The Docker integration test verifies the full GlycemicGPT stack works correctly when deployed as Docker containers. It builds all services, waits for health checks, exercises the full API through the container network, and validates cross-service connectivity.

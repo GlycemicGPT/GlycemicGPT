@@ -15,22 +15,51 @@ Before writing any code, please understand these non-negotiable rules:
 - 🏷️ **All** AI-generated outputs must be clearly labeled as **suggestions, not medical advice**
 - 💉 Insulin dosing recommendations must **always** include safety disclaimers
 - 🧪 Test thoroughly -- a wrong number on a glucose chart is not just a UI bug, it's a safety issue
+- 🔒 Safety limits (glucose range, max bolus, max basal) are enforced by the platform via `SafetyLimits` (backend-synced, user-configurable). Plugins must respect these as read-only constraints -- see the [Plugin Architecture Guide](docs/plugin-architecture.md).
 - 🚫 **No unsupervised device control** -- see below
 
-### Device Control & AI-Assisted Corrections
+### Device Control Plugins
 
-Currently, GlycemicGPT is **read-only** with respect to medical devices -- it reads data from pumps and CGMs but does not send commands to them. Do not add code that directly controls or modifies device settings.
+GlycemicGPT is a **monitoring-only platform** in all pre-built releases. It reads data from pumps and CGMs but does not send commands to them. No pre-built APK distributed via GitHub Releases will ever include a plugin capable of insulin delivery.
 
-**Future direction:** As the project matures, we plan to introduce AI-assisted correction suggestions through a rigorous multi-stage safety pipeline. The architecture looks like this:
+That said, we recognize that some pumps -- like the Tandem Mobi and Omnipod -- have no physical screen and **require** an app to deliver insulin. A monitoring-only platform cannot fully support these devices. We welcome contributions that help the community use GlycemicGPT with screenless pumps, but there is a hard line between what we ship and what users build for themselves.
 
-1. **AI detection** -- AI monitors processed glucose data and identifies actionable patterns (e.g., persistent highs, missed corrections)
-2. **Correction plan** -- AI proposes a specific action (e.g., a correction bolus) and passes it to the safety system
-3. **Safety validation** -- The safety module independently validates the plan against the user's insulin-on-board, configured ratios, correction factors, and physiological limits. It can approve or reject.
-4. **User consent** -- If the safety system approves, the user receives an alert with full transparency: the suggestion, the ratios it was calculated against, and all the math. The user must explicitly accept **and** confirm via biometric authentication (fingerprint or face ID).
-5. **Final safety check** -- After user consent, the request passes through a second safety validation to re-verify all calculations before any action is taken
-6. **Delivery or rejection** -- If the final check passes, the command goes to the delivery module. If it fails at any stage, the user is informed with a clear explanation of why.
+**How we handle this -- two contribution tiers:**
 
-This feature will **not** be enabled by default. Users must explicitly opt in on the backend. Any code contributing to this pipeline will undergo extraordinary scrutiny during review.
+| Tier | What | Shipped in releases? | Example |
+|------|------|---------------------|---------|
+| **Monitoring plugins** | Read data from devices (glucose, pump status, history) | Yes -- compiled by CI, included in APKs | Tandem t:slim reader, Dexcom G7 |
+| **Reference implementations** | Source code demonstrating pump control patterns | **Never** -- not compiled, not in any build artifact | Tandem Mobi delivery example |
+
+**Monitoring plugins** follow the standard contribution flow: submit a PR with a new Gradle module, it gets reviewed, merged, and shipped in the next release.
+
+**Pump control reference implementations** are different. They live in the repo as source code (under `plugins/reference/`) but are **not** Gradle modules, **not** in `settings.gradle.kts`, and **never** compiled by our CI/CD pipeline. They exist purely as working examples that demonstrate how to build a pump control plugin against the plugin SDK (`:pump-driver-api`).
+
+**If a user wants to use a pump control plugin, they must build it themselves:**
+
+1. Study the reference implementation source code in the repo
+2. Create their own project, depending on the published plugin SDK
+3. Compile the plugin in their own development environment (Android Studio on their machine)
+4. Load the resulting plugin into GlycemicGPT via the app's custom plugin loader
+
+By building and loading a pump control plugin, the user accepts full responsibility as the "manufacturer" of their personal build. This is the same model used by AndroidAPS, Loop, and other open-source diabetes projects. See [MEDICAL-DISCLAIMER.md](MEDICAL-DISCLAIMER.md) for the complete legal framework.
+
+**The platform protects users regardless.** Whether a plugin is shipped or user-built, the platform enforces safety limits that cannot be bypassed:
+
+- Maximum single bolus cap and maximum daily insulin cap
+- Glucose range validation (values outside bounds are rejected)
+- Maximum basal rate limits
+- Explicit user confirmation required for every delivery command
+- Biometric authentication (fingerprint or face ID) before any insulin action
+
+AI-powered features (analysis, suggestions, pattern recognition) can integrate with pump control plugins -- the platform's safety layer applies equally to AI-informed and manual workflows. The guardrails are in the platform, not in blanket prohibitions.
+
+**Non-negotiable rules for pump control reference implementations:**
+
+- Must use the platform's `SafetyLimits` -- hardcoded bypass of safety limits will not be merged
+- Must require explicit user confirmation for every delivery command
+- Must never be wired into the app's build system (no Gradle module, no CI compilation)
+- Must include clear documentation that the user assumes manufacturer responsibility
 
 PRs that violate these safety principles will not be merged regardless of code quality.
 
@@ -48,6 +77,7 @@ PRs that violate these safety principles will not be merged regardless of code q
 - [Code Style](#code-style)
 - [AI-Assisted Development & Attribution Policy](#ai-assisted-development--attribution-policy)
 - [Project Structure](#project-structure)
+- [Plugin Development](#plugin-development)
 - [Release Channels](#release-channels)
 - [License](#license)
 - [Questions?](#questions)
@@ -308,6 +338,36 @@ curl localhost:3456/health       # Should return {"status": "ok"}
 docker compose down
 ```
 
+### Pre-Review with CodeRabbit CLI (Optional but Recommended)
+
+This project uses [CodeRabbit](https://www.coderabbit.ai) for automated AI code review on every PR. You can catch the same issues locally **before** pushing by using the CodeRabbit CLI with a free account. This saves time -- you'll fix problems before the PR review instead of after.
+
+**One-time setup:**
+
+1. Sign up free at [app.coderabbit.ai](https://app.coderabbit.ai) via your GitHub account (no credit card required -- open-source repos get free reviews)
+2. Install the CLI:
+   ```bash
+   curl -fsSL https://cli.coderabbit.ai/install.sh | sh
+   ```
+3. Authenticate:
+   ```bash
+   coderabbit auth login
+   ```
+
+**Before pushing, review your changes:**
+
+```bash
+# Review uncommitted changes (staged + unstaged)
+coderabbit review --plain --type uncommitted
+
+# Review your committed changes against develop
+coderabbit review --plain --type committed --base develop
+```
+
+The CLI auto-detects the project's `.coderabbit.yaml` configuration, so your local reviews use the same rules (medical safety checks, security scanning, path-specific review focus) as the automated PR reviews. Your CLI instance is independent -- it doesn't connect to our CodeRabbit account -- but it uses the same analysis engine.
+
+> **Rate limits:** Free accounts get 2 CLI reviews per hour. Open-source (public) repos get free reviews forever.
+
 ### Final Checks
 
 - [ ] All tests pass for the component(s) you changed
@@ -331,9 +391,10 @@ docker compose down
 ### What Happens Next
 
 1. **CI runs automatically** -- all required checks must pass (see below)
-2. **Code owner review** -- a maintainer will review your PR
-3. **Feedback** -- you may be asked to make changes; push new commits to the same branch
-4. **Merge** -- once approved and CI passes, a maintainer will squash-merge your PR
+2. **CodeRabbit review** -- an AI-powered code review runs automatically on every PR, checking for bugs, security issues, medical safety concerns, and code quality. It posts comments directly on your PR with findings and suggestions. This is the same engine you can run locally with the [CodeRabbit CLI](#pre-review-with-coderabbit-cli-optional-but-recommended).
+3. **Code owner review** -- a maintainer will review your PR
+4. **Feedback** -- you may be asked to make changes; push new commits to the same branch
+5. **Merge** -- once approved and CI passes, a maintainer will squash-merge your PR
 
 ### Required CI Checks
 
@@ -413,6 +474,12 @@ We have a CI check (**Attribution Check**) that automatically catches common AI 
 
 Why? Because attribution to a tool that can't be held accountable for code quality is meaningless noise. The _contributor_ is the author. Own it.
 
+### CodeRabbit -- AI Code Review
+
+We use [CodeRabbit](https://www.coderabbit.ai) for automated AI code review on all PRs. It's configured via [`.coderabbit.yaml`](.coderabbit.yaml) with project-specific rules including medical safety checks, security scanning, and path-specific review guidelines.
+
+CodeRabbit runs automatically when you open a PR -- no setup needed on your end. It posts a summary and inline comments with findings. If you want to catch these issues before your PR, you can install the CLI locally for free. See [Pre-Review with CodeRabbit CLI](#pre-review-with-coderabbit-cli-optional-but-recommended) in the "Before You Submit" section.
+
 ---
 
 ## 📁 Project Structure
@@ -427,8 +494,10 @@ GlycemicGPT/
 │   │   ├── src/        # Source code (App Router)
 │   │   └── __tests__/  # Jest tests
 │   └── mobile/         # Android app (Kotlin)
-│       ├── app/        # Phone app module
-│       └── wear/       # Wear OS module
+│       ├── app/                 # Platform app module
+│       ├── pump-driver-api/    # Plugin API interfaces & domain models
+│       ├── tandem-pump-driver/ # Tandem t:slim X2 plugin implementation
+│       └── wear/               # Wear OS module
 ├── sidecar/            # AI provider proxy (TypeScript/Express)
 │   ├── src/            # Source code
 │   └── tests/          # Vitest tests
@@ -439,6 +508,17 @@ GlycemicGPT/
 │   └── ISSUE_TEMPLATE/ # Issue templates
 └── docs/               # Project documentation
 ```
+
+### Plugin Development
+
+The mobile app uses a capability-based plugin architecture. New device support (pumps, CGMs, BGMs) is added as plugin modules. See the [Plugin Architecture Guide](docs/plugin-architecture.md) for:
+
+- How to create a new plugin module
+- Capability interfaces and mutual-exclusion rules
+- Declarative UI descriptors for settings and dashboard cards
+- Event bus for cross-plugin communication
+- Hilt DI registration pattern
+- The Tandem plugin as a reference implementation
 
 ---
 
