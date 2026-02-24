@@ -16,6 +16,10 @@ import com.glycemicgpt.mobile.data.update.AppUpdateChecker
 import com.glycemicgpt.mobile.data.update.DownloadResult
 import com.glycemicgpt.mobile.data.update.UpdateCheckResult
 import com.glycemicgpt.mobile.data.update.UpdateInfo
+import com.glycemicgpt.mobile.domain.plugin.DevicePlugin
+import com.glycemicgpt.mobile.domain.plugin.Plugin
+import com.glycemicgpt.mobile.domain.plugin.PluginMetadata
+import com.glycemicgpt.mobile.plugin.PluginRegistry
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -79,6 +83,11 @@ class SettingsViewModelTest {
         every { overrideSilentForLowAlerts } returns true
     }
     private val alertNotificationManager = mockk<AlertNotificationManager>(relaxed = true)
+    private val pluginRegistry = mockk<PluginRegistry>(relaxed = true) {
+        every { availablePlugins } returns MutableStateFlow<List<PluginMetadata>>(emptyList())
+        every { activePumpPlugin } returns MutableStateFlow<DevicePlugin?>(null)
+        every { allActivePlugins } returns MutableStateFlow<List<Plugin>>(emptyList())
+    }
 
     @Before
     fun setup() {
@@ -91,7 +100,7 @@ class SettingsViewModelTest {
     }
 
     private fun createViewModel() =
-        SettingsViewModel(appContext, pumpCredentialStore, appSettingsStore, glucoseRangeStore, safetyLimitsStore, authRepository, appUpdateChecker, authManager, alertSoundStore, alertNotificationManager)
+        SettingsViewModel(appContext, pumpCredentialStore, appSettingsStore, glucoseRangeStore, safetyLimitsStore, authRepository, appUpdateChecker, authManager, alertSoundStore, alertNotificationManager, pluginRegistry)
 
     @Test
     fun `loadState initializes from stores`() {

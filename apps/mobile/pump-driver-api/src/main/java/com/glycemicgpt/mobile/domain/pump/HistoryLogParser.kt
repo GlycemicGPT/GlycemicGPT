@@ -16,6 +16,7 @@ import com.glycemicgpt.mobile.domain.model.HistoryLogRecord
  * settings. Implementations must use these limits to reject out-of-range
  * values rather than relying on hardcoded constants.
  */
+@Deprecated("Use PumpStatus capability for history log parsing. This interface will be removed in a future version.", ReplaceWith("PumpStatus"))
 interface HistoryLogParser {
 
     /**

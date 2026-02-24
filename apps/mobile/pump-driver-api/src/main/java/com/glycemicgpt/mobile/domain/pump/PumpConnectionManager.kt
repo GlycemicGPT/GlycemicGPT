@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.StateFlow
  * manage the connection UI (pairing screens, debug views, foreground services)
  * should depend on this interface.
  */
+@Deprecated("Use DevicePlugin for connection management. This interface will be removed in a future version.", ReplaceWith("DevicePlugin"))
 interface PumpConnectionManager {
 
     /** Observable connection state. */

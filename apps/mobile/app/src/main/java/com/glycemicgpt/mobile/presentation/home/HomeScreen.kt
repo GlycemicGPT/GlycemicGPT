@@ -38,6 +38,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.glycemicgpt.mobile.domain.model.ConnectionState
+import com.glycemicgpt.mobile.domain.plugin.ui.DashboardCardDescriptor
+import com.glycemicgpt.mobile.presentation.plugin.PluginDashboardCardRenderer
 import com.glycemicgpt.mobile.presentation.theme.GlucoseColors
 import com.glycemicgpt.mobile.service.SyncStatus
 import kotlinx.coroutines.delay
@@ -64,6 +66,7 @@ fun HomeScreen(
     val selectedTirPeriod by viewModel.selectedTirPeriod.collectAsState()
     val timeInRange by viewModel.timeInRange.collectAsState()
     val thresholds by viewModel.glucoseThresholds.collectAsState()
+    val pluginCards by viewModel.pluginCards.collectAsState()
 
     PullToRefreshBox(
         isRefreshing = isRefreshing,
@@ -114,6 +117,16 @@ fun HomeScreen(
                 onPeriodSelected = { viewModel.onTirPeriodSelected(it) },
                 thresholds = thresholds,
             )
+
+            // Plugin-contributed cards (sorted by priority, memoized)
+            val sortedCards = remember(pluginCards) { pluginCards.sortedBy { it.priority } }
+            if (sortedCards.isNotEmpty()) {
+                sortedCards.forEach { card ->
+                    Spacer(modifier = Modifier.height(12.dp))
+                    PluginDashboardCardRenderer(card = card)
+                }
+            }
+
 
             Spacer(modifier = Modifier.height(24.dp))
 

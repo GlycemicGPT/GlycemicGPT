@@ -24,6 +24,7 @@ import java.time.Instant
  * - [com.glycemicgpt.mobile.ble.connection.TandemBleDriver] for Tandem t:slim X2
  * - Future: OmnipodDriver, MedtronicDriver, etc.
  */
+@Deprecated("Use Plugin/DevicePlugin with capabilities. This interface will be removed in a future version.", ReplaceWith("DevicePlugin"))
 interface PumpDriver {
     suspend fun connect(deviceAddress: String): Result<Unit>
     suspend fun disconnect(): Result<Unit>

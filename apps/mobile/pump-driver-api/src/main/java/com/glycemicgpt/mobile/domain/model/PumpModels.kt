@@ -25,7 +25,19 @@ data class BolusEvent(
     val isAutomated: Boolean,
     val isCorrection: Boolean,
     val timestamp: Instant,
-)
+) {
+    init {
+        require(units >= 0f) { "BolusEvent units must be non-negative, was $units" }
+        require(units <= MAX_BOLUS_UNITS) {
+            "BolusEvent units ($units) exceeds hard safety cap of $MAX_BOLUS_UNITS U"
+        }
+    }
+
+    companion object {
+        /** Hard safety cap: no single bolus can exceed 25 units (Tandem t:slim max is 25U). */
+        const val MAX_BOLUS_UNITS: Float = 25f
+    }
+}
 
 data class PumpSettings(
     val firmwareVersion: String,
@@ -48,7 +60,13 @@ data class CgmReading(
     val glucoseMgDl: Int,
     val trendArrow: CgmTrend,
     val timestamp: Instant,
-)
+) {
+    init {
+        require(glucoseMgDl in 20..500) {
+            "glucoseMgDl must be in 20..500, was $glucoseMgDl"
+        }
+    }
+}
 
 enum class CgmTrend {
     DOUBLE_UP,

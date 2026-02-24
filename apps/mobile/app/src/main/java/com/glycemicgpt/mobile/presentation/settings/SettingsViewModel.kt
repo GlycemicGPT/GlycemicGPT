@@ -13,6 +13,8 @@ import com.glycemicgpt.mobile.data.auth.AuthState
 import com.glycemicgpt.mobile.data.local.AlertSoundCategory
 import com.glycemicgpt.mobile.data.local.AlertSoundStore
 import com.glycemicgpt.mobile.data.local.AppSettingsStore
+import com.glycemicgpt.mobile.domain.plugin.PluginMetadata
+import com.glycemicgpt.mobile.plugin.PluginRegistry
 import com.glycemicgpt.mobile.data.local.GlucoseRangeStore
 import com.glycemicgpt.mobile.data.local.PumpCredentialStore
 import com.glycemicgpt.mobile.data.local.SafetyLimitsStore
@@ -70,6 +72,10 @@ data class SettingsUiState(
     // Pump
     val isPumpPaired: Boolean = false,
     val pairedPumpAddress: String? = null,
+    // Plugins
+    val availablePlugins: List<PluginMetadata> = emptyList(),
+    val activePumpPluginId: String? = null,
+    val activePluginIds: Set<String> = emptySet(),
     // Sync
     val backendSyncEnabled: Boolean = true,
     val dataRetentionDays: Int = 7,
@@ -85,6 +91,8 @@ data class SettingsUiState(
     // Confirmation dialogs
     val showLogoutConfirm: Boolean = false,
     val showUnpairConfirm: Boolean = false,
+    val showDeactivateConfirm: Boolean = false,
+    val pendingDeactivatePluginId: String? = null,
     // App update
     val updateState: UpdateUiState = UpdateUiState.Idle,
     // Watch
@@ -114,6 +122,7 @@ class SettingsViewModel @Inject constructor(
     private val authManager: AuthManager,
     private val alertSoundStore: AlertSoundStore,
     private val alertNotificationManager: AlertNotificationManager,
+    private val pluginRegistry: PluginRegistry,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SettingsUiState())
@@ -156,6 +165,9 @@ class SettingsViewModel @Inject constructor(
             aiNotificationSoundName = alertSoundStore.aiNotificationSoundName ?: DEFAULT_NOTIFICATION_NAME,
             aiNotificationSoundUri = alertSoundStore.aiNotificationSoundUri,
             overrideSilentForLow = alertSoundStore.overrideSilentForLowAlerts,
+            availablePlugins = pluginRegistry.availablePlugins.value,
+            activePumpPluginId = pluginRegistry.activePumpPlugin.value?.metadata?.id,
+            activePluginIds = pluginRegistry.allActivePlugins.value.map { it.metadata.id }.toSet(),
         )
 
         checkBatteryOptimization()
@@ -287,6 +299,50 @@ class SettingsViewModel @Inject constructor(
             pairedPumpAddress = null,
             showUnpairConfirm = false,
         )
+    }
+
+    fun activatePlugin(pluginId: String) {
+        val result = pluginRegistry.activatePlugin(pluginId)
+        if (result.isFailure) {
+            Timber.e(result.exceptionOrNull(), "Failed to activate plugin %s", pluginId)
+        }
+        _uiState.value = _uiState.value.copy(
+            activePumpPluginId = pluginRegistry.activePumpPlugin.value?.metadata?.id,
+            activePluginIds = pluginRegistry.allActivePlugins.value.map { it.metadata.id }.toSet(),
+        )
+    }
+
+    fun showDeactivateConfirm(pluginId: String) {
+        _uiState.value = _uiState.value.copy(
+            showDeactivateConfirm = true,
+            pendingDeactivatePluginId = pluginId,
+        )
+    }
+
+    fun dismissDeactivateConfirm() {
+        _uiState.value = _uiState.value.copy(
+            showDeactivateConfirm = false,
+            pendingDeactivatePluginId = null,
+        )
+    }
+
+    fun confirmDeactivatePlugin() {
+        val pluginId = _uiState.value.pendingDeactivatePluginId ?: return
+        val result = pluginRegistry.deactivatePlugin(pluginId)
+        if (result.isFailure) {
+            Timber.e(result.exceptionOrNull(), "Failed to deactivate plugin %s", pluginId)
+        }
+        _uiState.value = _uiState.value.copy(
+            activePumpPluginId = pluginRegistry.activePumpPlugin.value?.metadata?.id,
+            activePluginIds = pluginRegistry.allActivePlugins.value.map { it.metadata.id }.toSet(),
+            showDeactivateConfirm = false,
+            pendingDeactivatePluginId = null,
+        )
+    }
+
+    @Deprecated("Use showDeactivateConfirm for safety", ReplaceWith("showDeactivateConfirm(pluginId)"))
+    fun deactivatePlugin(pluginId: String) {
+        showDeactivateConfirm(pluginId)
     }
 
     fun setBackendSyncEnabled(enabled: Boolean) {

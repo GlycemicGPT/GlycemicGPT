@@ -9,6 +9,7 @@ import androidx.work.WorkManager
 import com.glycemicgpt.mobile.data.auth.AuthManager
 import com.glycemicgpt.mobile.data.local.PumpCredentialStore
 import com.glycemicgpt.mobile.logging.ReleaseTree
+import com.glycemicgpt.mobile.plugin.PluginRegistry
 import com.glycemicgpt.mobile.service.DataRetentionWorker
 import com.glycemicgpt.mobile.service.PumpConnectionService
 import dagger.hilt.android.HiltAndroidApp
@@ -31,6 +32,9 @@ class GlycemicGptApp : Application(), Configuration.Provider {
     @Inject
     lateinit var authManager: AuthManager
 
+    @Inject
+    lateinit var pluginRegistry: PluginRegistry
+
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     override val workManagerConfiguration: Configuration
@@ -46,6 +50,9 @@ class GlycemicGptApp : Application(), Configuration.Provider {
             Timber.plant(ReleaseTree())
         }
         scheduleDataRetention()
+
+        // Initialize the plugin system (discovers and creates all registered plugins)
+        pluginRegistry.initialize()
 
         // Validate auth tokens on startup and schedule proactive refresh
         authManager.validateOnStartup(appScope)

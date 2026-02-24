@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.Flow
  * allowing consumers to depend on this interface rather than
  * concrete scanner classes.
  */
+@Deprecated("Use DevicePlugin.scan() for device discovery. This interface will be removed in a future version.", ReplaceWith("DevicePlugin"))
 interface PumpScanner {
 
     /**
