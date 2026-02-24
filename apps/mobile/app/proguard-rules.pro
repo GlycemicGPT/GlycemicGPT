@@ -36,6 +36,11 @@
 # Compose Markdown (JitPack library uses reflection for text span handling)
 -keep class dev.jeziellago.compose.markdowntext.** { *; }
 
+# Plugin API interfaces and domain models (needed for capability reflection)
+-keep class com.glycemicgpt.mobile.domain.plugin.** { *; }
+-keep class com.glycemicgpt.mobile.domain.pump.** { *; }
+-keep class com.glycemicgpt.mobile.domain.model.** { *; }
+
 # Strip debug logs in release builds
 -assumenosideeffects class timber.log.Timber {
     public static void d(...);

@@ -15,7 +15,9 @@ import com.glycemicgpt.mobile.domain.model.ConnectionState
 import com.glycemicgpt.mobile.domain.model.IoBReading
 import com.glycemicgpt.mobile.domain.model.ReservoirReading
 import com.glycemicgpt.mobile.domain.model.TimeInRangeData
+import com.glycemicgpt.mobile.domain.plugin.ui.DashboardCardDescriptor
 import com.glycemicgpt.mobile.domain.pump.PumpDriver
+import com.glycemicgpt.mobile.plugin.PluginRegistry
 import com.glycemicgpt.mobile.service.BackendSyncManager
 import com.glycemicgpt.mobile.service.PumpPollingOrchestrator
 import com.glycemicgpt.mobile.service.SyncStatus
@@ -28,6 +30,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import timber.log.Timber
@@ -44,6 +47,7 @@ class HomeViewModel @Inject constructor(
     private val safetyLimitsStore: SafetyLimitsStore,
     private val authRepository: AuthRepository,
     private val api: GlycemicGptApi,
+    private val pluginRegistry: PluginRegistry,
 ) : ViewModel() {
 
     val connectionState: StateFlow<ConnectionState> = pumpDriver.observeConnectionState()
@@ -66,6 +70,18 @@ class HomeViewModel @Inject constructor(
 
     val syncStatus: StateFlow<SyncStatus> = backendSyncManager.syncStatus
 
+    /** Dashboard cards contributed by active plugins. */
+    val pluginCards: StateFlow<List<DashboardCardDescriptor>> =
+        pluginRegistry.allActivePlugins.flatMapLatest { plugins ->
+            if (plugins.isEmpty()) {
+                flowOf(emptyList())
+            } else {
+                combine(plugins.map { it.observeDashboardCards() }) { arrays ->
+                    arrays.flatMap { it.toList() }.sortedBy { it.priority }
+                }
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     /** Dynamic glucose thresholds from backend settings (reactive). */
     private val _glucoseThresholds = MutableStateFlow(thresholdsFromStore())
     val glucoseThresholds: StateFlow<GlucoseThresholds> = _glucoseThresholds.asStateFlow()
@@ -77,7 +93,10 @@ class HomeViewModel @Inject constructor(
         }
         // Refresh safety limits from backend if stale (1 hour)
         if (safetyLimitsStore.isStale()) {
-            viewModelScope.launch { authRepository.refreshSafetyLimits() }
+            viewModelScope.launch {
+                authRepository.refreshSafetyLimits()
+                pluginRegistry.refreshSafetyLimits()
+            }
         }
     }
 
@@ -159,8 +178,14 @@ class HomeViewModel @Inject constructor(
         if (!_isRefreshing.compareAndSet(expect = false, update = true)) return
         viewModelScope.launch {
             try {
-                // Refresh glucose range concurrently -- don't block BLE reads
+                // Refresh glucose range + safety limits concurrently -- don't block BLE reads
                 launch { refreshGlucoseRange() }
+                // If backend call fails, refreshSafetyLimits re-reads the store's
+                // last-known-good values -- harmless no-op, plugins keep safe limits.
+                launch {
+                    authRepository.refreshSafetyLimits()
+                    pluginRegistry.refreshSafetyLimits()
+                }
 
                 pumpDriver.getIoB().onSuccess { repository.saveIoB(it) }
                 delay(PumpPollingOrchestrator.REQUEST_STAGGER_MS)

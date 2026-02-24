@@ -15,7 +15,9 @@ import com.glycemicgpt.mobile.domain.model.ControlIqMode
 import com.glycemicgpt.mobile.domain.model.IoBReading
 import com.glycemicgpt.mobile.domain.model.ReservoirReading
 import com.glycemicgpt.mobile.domain.model.TimeInRangeData
+import com.glycemicgpt.mobile.domain.plugin.Plugin
 import com.glycemicgpt.mobile.domain.pump.PumpDriver
+import com.glycemicgpt.mobile.plugin.PluginRegistry
 import com.glycemicgpt.mobile.service.BackendSyncManager
 import com.glycemicgpt.mobile.service.SyncStatus
 import io.mockk.coEvery
@@ -107,6 +109,9 @@ class HomeViewModelTest {
     private val authRepository = mockk<AuthRepository>(relaxed = true)
 
     private val api = mockk<GlycemicGptApi>(relaxed = true)
+    private val pluginRegistry = mockk<PluginRegistry>(relaxed = true) {
+        every { allActivePlugins } returns MutableStateFlow<List<Plugin>>(emptyList())
+    }
 
     @Before
     fun setUp() {
@@ -118,7 +123,7 @@ class HomeViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun createViewModel() = HomeViewModel(pumpDriver, repository, backendSyncManager, glucoseRangeStore, safetyLimitsStore, authRepository, api)
+    private fun createViewModel() = HomeViewModel(pumpDriver, repository, backendSyncManager, glucoseRangeStore, safetyLimitsStore, authRepository, api, pluginRegistry)
 
     @Test
     fun `initial state has null readings and not refreshing`() = runTest {
