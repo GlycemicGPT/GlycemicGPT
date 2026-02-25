@@ -32,6 +32,9 @@
     "**/venv/**",
     "**/.venv/**"
   ],
+  // False positive: Renovate parses buildConfigField("int", "DEV_BUILD_NUMBER", "0")
+  // as a Maven dependency int:DEV_BUILD_NUMBER. Ignore it.
+  "ignoreDeps": ["int:DEV_BUILD_NUMBER"],
   // Timezone for scheduling
   "timezone": "America/Chicago",
   // Schedule for updates (weekdays during work hours)
