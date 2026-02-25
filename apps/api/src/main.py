@@ -33,6 +33,7 @@ from src.routers import (
     safety,
     system,
     telegram,
+    treatment,
 )
 from src.routers import (
     settings as settings_router,
@@ -115,6 +116,7 @@ app.include_router(caregivers.router)
 app.include_router(device_registration.router)
 app.include_router(alert_stream.router)
 app.include_router(alert_api.router)
+app.include_router(treatment.router)
 
 
 @app.get("/")

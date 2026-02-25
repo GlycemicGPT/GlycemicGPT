@@ -16,6 +16,7 @@ class SafetyLimitsResponse(BaseModel):
     max_glucose_mgdl: int
     max_basal_rate_milliunits: int
     max_bolus_dose_milliunits: int
+    max_daily_bolus_milliunits: int
     updated_at: datetime
 
 
@@ -51,6 +52,14 @@ class SafetyLimitsUpdate(BaseModel):
         le=25000,
         description="Maximum single bolus dose in milliunits. Range: 1-25000.",
     )
+    # 200 U/day ceiling accommodates severe insulin-resistant T2D patients
+    # who may require 150-200 U/day total.  Default is 100 U (100000 mU).
+    max_daily_bolus_milliunits: int | None = Field(
+        default=None,
+        ge=1,
+        le=200000,
+        description="Maximum daily bolus total in milliunits. Range: 1-200000.",
+    )
 
     @model_validator(mode="after")
     def validate_glucose_ordering(self) -> "SafetyLimitsUpdate":
@@ -72,3 +81,4 @@ class SafetyLimitsDefaults(BaseModel):
     max_glucose_mgdl: int = 500
     max_basal_rate_milliunits: int = 15000
     max_bolus_dose_milliunits: int = 25000
+    max_daily_bolus_milliunits: int = 100000

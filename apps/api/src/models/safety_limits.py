@@ -60,6 +60,12 @@ class SafetyLimits(Base, TimestampMixin):
         default=25000,
     )
 
+    max_daily_bolus_milliunits: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=100000,
+    )
+
     user = relationship("User", back_populates="safety_limits")
 
     def __repr__(self) -> str:
@@ -67,5 +73,6 @@ class SafetyLimits(Base, TimestampMixin):
             f"<SafetyLimits(user_id={self.user_id}, "
             f"glucose={self.min_glucose_mgdl}-{self.max_glucose_mgdl}, "
             f"basal_max={self.max_basal_rate_milliunits}, "
-            f"bolus_max={self.max_bolus_dose_milliunits})>"
+            f"bolus_max={self.max_bolus_dose_milliunits}, "
+            f"daily_max={self.max_daily_bolus_milliunits})>"
         )
