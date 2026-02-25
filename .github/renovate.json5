@@ -52,7 +52,7 @@
       "matchUpdateTypes": ["patch", "minor"],
       "automerge": true,
       "automergeType": "pr",
-      "matchPackagePatterns": ["*"]
+      "matchPackageNames": ["*"]
     },
     // Auto-merge digest updates (container images)
     {
@@ -84,20 +84,84 @@
     // Group Node.js dependencies
     {
       "description": "Group Node.js type definitions",
-      "matchPackagePatterns": ["@types/*"],
+      "matchPackageNames": ["@types/*"],
       "groupName": "TypeScript type definitions"
     },
     // Group ESLint
     {
       "description": "Group ESLint dependencies",
-      "matchPackagePatterns": ["eslint", "@eslint/*", "eslint-*"],
+      "matchPackageNames": ["eslint", "@eslint/*", "eslint-*"],
       "groupName": "ESLint"
     },
     // Group testing libraries
     {
       "description": "Group testing libraries",
-      "matchPackagePatterns": ["jest", "@jest/*", "vitest", "@vitest/*", "testing-library", "@testing-library/*"],
+      "matchPackageNames": ["jest", "@jest/*", "vitest", "@vitest/*", "testing-library", "@testing-library/*"],
       "groupName": "Testing libraries"
+    },
+    // Group Android Gradle Plugin with Gradle wrapper -- AGP major/minor
+    // bumps almost always require a matching Gradle wrapper upgrade.
+    // Two rules with the same groupName: Renovate AND-combines matchers
+    // within a rule, so AGP (gradle manager) and the wrapper
+    // (gradle-wrapper manager) must be matched separately.
+    {
+      "description": "Group AGP plugins (gradle manager)",
+      "matchManagers": ["gradle"],
+      "matchDepNames": ["com.android.application", "com.android.library"],
+      "groupName": "Android Gradle Plugin + Wrapper"
+    },
+    {
+      "description": "Group Gradle wrapper with AGP",
+      "matchManagers": ["gradle-wrapper"],
+      "groupName": "Android Gradle Plugin + Wrapper"
+    },
+    // Group androidx.hilt work + compiler (must be co-versioned).
+    {
+      "description": "Group androidx.hilt work + compiler (must be co-versioned)",
+      "matchPackageNames": [
+        "androidx.hilt:hilt-work",
+        "androidx.hilt:hilt-compiler"
+      ],
+      "groupName": "AndroidX Hilt Work"
+    },
+    // TODO: Remove this pin when AGP is upgraded to >= 8.13.
+    // Pin hilt-navigation-compose to 1.2.0 until AGP is upgraded to
+    // 8.13+. Version 1.3.0 pulls in lifecycle-lint that crashes AGP
+    // 8.7.3's lint engine (IncompatibleClassChangeError).
+    {
+      "description": "Pin hilt-navigation-compose until AGP >= 8.13 upgrade",
+      "matchPackageNames": ["androidx.hilt:hilt-navigation-compose"],
+      "allowedVersions": "<=1.2.0"
+    },
+    // Group AndroidX libraries that share compileSdk requirements.
+    // When one AndroidX lib bumps its compileSdk floor, the others
+    // in the same release wave usually do too.
+    {
+      "description": "Group AndroidX core libraries (shared compileSdk)",
+      "matchPackageNames": [
+        "androidx.core:*",
+        "androidx.activity:*",
+        "androidx.lifecycle:*",
+        "androidx.navigation:*",
+        "androidx.compose:*",
+        "androidx.compose.*:*"
+      ],
+      "groupName": "AndroidX Core + Compose"
+    },
+    // Group Room artifacts -- runtime, ktx, and compiler must match.
+    {
+      "description": "Group Room database artifacts",
+      "matchPackageNames": ["androidx.room:*"],
+      "groupName": "AndroidX Room"
+    },
+    // Group Wear OS artifacts
+    {
+      "description": "Group Wear OS artifacts",
+      "matchPackageNames": [
+        "androidx.wear:*",
+        "androidx.wear.*:*"
+      ],
+      "groupName": "AndroidX Wear OS"
     }
   ]
 }
