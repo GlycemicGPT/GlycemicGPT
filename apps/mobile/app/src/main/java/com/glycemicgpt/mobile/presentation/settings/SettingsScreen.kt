@@ -34,13 +34,14 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Sync
-import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Watch
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -73,6 +74,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.glycemicgpt.mobile.data.local.AlertSoundCategory
 import com.glycemicgpt.mobile.domain.plugin.PluginMetadata
+import com.glycemicgpt.mobile.plugin.RuntimePluginInfo
 import java.io.File
 import kotlin.math.roundToInt
 
@@ -124,6 +126,9 @@ fun SettingsScreen(
             onShowUnpair = settingsViewModel::showUnpairConfirm,
             onActivatePlugin = settingsViewModel::activatePlugin,
             onDeactivatePlugin = settingsViewModel::showDeactivateConfirm,
+            onInstallPlugin = settingsViewModel::installPlugin,
+            onShowRemovePlugin = settingsViewModel::showRemovePluginConfirm,
+            onClearPluginInstallError = settingsViewModel::clearPluginInstallError,
         )
 
         // Battery optimization warning (between Pump and Sync)
@@ -242,6 +247,24 @@ fun SettingsScreen(
             },
             dismissButton = {
                 TextButton(onClick = settingsViewModel::dismissDeactivateConfirm) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+
+    if (state.showRemovePluginConfirm) {
+        AlertDialog(
+            onDismissRequest = settingsViewModel::dismissRemovePluginConfirm,
+            title = { Text("Remove Plugin") },
+            text = { Text("This will permanently remove the plugin and delete its settings. This cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = settingsViewModel::confirmRemovePlugin) {
+                    Text("Remove", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = settingsViewModel::dismissRemovePluginConfirm) {
                     Text("Cancel")
                 }
             },
@@ -588,13 +611,19 @@ private fun PluginsSection(
     onShowUnpair: () -> Unit,
     onActivatePlugin: (String) -> Unit,
     onDeactivatePlugin: (String) -> Unit,
+    onInstallPlugin: (Uri) -> Unit,
+    onShowRemovePlugin: (String) -> Unit,
+    onClearPluginInstallError: () -> Unit,
 ) {
-    // Active pump plugin card (uses existing PumpSection layout)
-    PumpSection(
-        state = state,
-        onNavigateToPairing = onNavigateToPairing,
-        onShowUnpair = onShowUnpair,
-    )
+    // Only show pump pairing card when the Tandem plugin is active.
+    // Uses literal ID to avoid importing TandemDevicePlugin into the UI layer.
+    if ("com.glycemicgpt.tandem" in state.activePluginIds) {
+        PumpSection(
+            state = state,
+            onNavigateToPairing = onNavigateToPairing,
+            onShowUnpair = onShowUnpair,
+        )
+    }
 
     // Available plugins list
     if (state.availablePlugins.isNotEmpty()) {
@@ -650,12 +679,173 @@ private fun PluginsSection(
                         }
                     }
                 }
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "Community plugins coming soon. Currently only built-in plugins are available.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+            }
+        }
+    }
+
+    // Custom (runtime) plugins section
+    Spacer(modifier = Modifier.height(8.dp))
+    CustomPluginsSection(
+        runtimePlugins = state.runtimePlugins,
+        activePluginIds = state.activePluginIds,
+        pluginInstallError = state.pluginInstallError,
+        onInstallPlugin = onInstallPlugin,
+        onActivatePlugin = onActivatePlugin,
+        onDeactivatePlugin = onDeactivatePlugin,
+        onShowRemovePlugin = onShowRemovePlugin,
+        onClearPluginInstallError = onClearPluginInstallError,
+    )
+}
+
+@Composable
+private fun CustomPluginsSection(
+    runtimePlugins: List<RuntimePluginInfo>,
+    activePluginIds: Set<String>,
+    pluginInstallError: String?,
+    onInstallPlugin: (Uri) -> Unit,
+    onActivatePlugin: (String) -> Unit,
+    onDeactivatePlugin: (String) -> Unit,
+    onShowRemovePlugin: (String) -> Unit,
+    onClearPluginInstallError: () -> Unit,
+) {
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent(),
+    ) { uri: Uri? ->
+        if (uri != null) {
+            onInstallPlugin(uri)
+        }
+    }
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+        ) {
+            Text(
+                text = "Custom Plugins",
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Warning,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.error,
                 )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "Custom plugins are not verified by GlycemicGPT. Only install plugins from sources you trust.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.testTag("plugin_trust_warning"),
+                )
+            }
+
+            // Error banner
+            if (pluginInstallError != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Error,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(20.dp),
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = pluginInstallError,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = onClearPluginInstallError) {
+                            Text("Dismiss")
+                        }
+                    }
+                }
+            }
+
+            // Runtime plugin list
+            if (runtimePlugins.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                runtimePlugins.forEach { rtp ->
+                    val isActive = rtp.metadata.id in activePluginIds
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = rtp.metadata.name,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Text(
+                                text = buildString {
+                                    append("v${rtp.metadata.version}")
+                                    if (rtp.metadata.author.isNotBlank()) {
+                                        append(" by ${rtp.metadata.author}")
+                                    }
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        if (isActive) {
+                            OutlinedButton(
+                                onClick = { onDeactivatePlugin(rtp.metadata.id) },
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    contentColor = MaterialTheme.colorScheme.error,
+                                ),
+                                modifier = Modifier.testTag("deactivate_plugin_${rtp.metadata.id}"),
+                            ) {
+                                Text("Deactivate")
+                            }
+                        } else {
+                            Button(
+                                onClick = { onActivatePlugin(rtp.metadata.id) },
+                                modifier = Modifier.testTag("activate_plugin_${rtp.metadata.id}"),
+                            ) {
+                                Text("Activate")
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(4.dp))
+                        OutlinedButton(
+                            onClick = { onShowRemovePlugin(rtp.metadata.id) },
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = MaterialTheme.colorScheme.error,
+                            ),
+                            modifier = Modifier.testTag("remove_plugin_${rtp.metadata.id}"),
+                        ) {
+                            Text("Remove")
+                        }
+                    }
+                }
+            }
+
+            // Add Plugin button
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = { filePickerLauncher.launch("application/java-archive") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("add_plugin_button"),
+            ) {
+                Text("Add Plugin")
             }
         }
     }

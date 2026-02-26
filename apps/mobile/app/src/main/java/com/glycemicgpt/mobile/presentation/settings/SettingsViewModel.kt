@@ -15,6 +15,7 @@ import com.glycemicgpt.mobile.data.local.AlertSoundStore
 import com.glycemicgpt.mobile.data.local.AppSettingsStore
 import com.glycemicgpt.mobile.domain.plugin.PluginMetadata
 import com.glycemicgpt.mobile.plugin.PluginRegistry
+import com.glycemicgpt.mobile.plugin.RuntimePluginInfo
 import com.glycemicgpt.mobile.data.local.GlucoseRangeStore
 import com.glycemicgpt.mobile.data.local.PumpCredentialStore
 import com.glycemicgpt.mobile.data.local.SafetyLimitsStore
@@ -93,6 +94,11 @@ data class SettingsUiState(
     val showUnpairConfirm: Boolean = false,
     val showDeactivateConfirm: Boolean = false,
     val pendingDeactivatePluginId: String? = null,
+    // Runtime plugins
+    val runtimePlugins: List<RuntimePluginInfo> = emptyList(),
+    val pluginInstallError: String? = null,
+    val showRemovePluginConfirm: Boolean = false,
+    val pendingRemovePluginId: String? = null,
     // App update
     val updateState: UpdateUiState = UpdateUiState.Idle,
     // Watch
@@ -168,6 +174,7 @@ class SettingsViewModel @Inject constructor(
             availablePlugins = pluginRegistry.availablePlugins.value,
             activePumpPluginId = pluginRegistry.activePumpPlugin.value?.metadata?.id,
             activePluginIds = pluginRegistry.allActivePlugins.value.map { it.metadata.id }.toSet(),
+            runtimePlugins = pluginRegistry.runtimePlugins.value,
         )
 
         checkBatteryOptimization()
@@ -343,6 +350,68 @@ class SettingsViewModel @Inject constructor(
     @Deprecated("Use showDeactivateConfirm for safety", ReplaceWith("showDeactivateConfirm(pluginId)"))
     fun deactivatePlugin(pluginId: String) {
         showDeactivateConfirm(pluginId)
+    }
+
+    fun installPlugin(uri: Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = pluginRegistry.installRuntimePlugin(uri)
+            withContext(Dispatchers.Main) {
+                result.onSuccess {
+                    _uiState.value = _uiState.value.copy(
+                        availablePlugins = pluginRegistry.availablePlugins.value,
+                        activePluginIds = pluginRegistry.allActivePlugins.value.map { it.metadata.id }.toSet(),
+                        runtimePlugins = pluginRegistry.runtimePlugins.value,
+                        pluginInstallError = null,
+                    )
+                }.onFailure { e ->
+                    _uiState.value = _uiState.value.copy(
+                        pluginInstallError = e.message ?: "Failed to install plugin",
+                    )
+                }
+            }
+        }
+    }
+
+    fun showRemovePluginConfirm(pluginId: String) {
+        _uiState.value = _uiState.value.copy(
+            showRemovePluginConfirm = true,
+            pendingRemovePluginId = pluginId,
+        )
+    }
+
+    fun dismissRemovePluginConfirm() {
+        _uiState.value = _uiState.value.copy(
+            showRemovePluginConfirm = false,
+            pendingRemovePluginId = null,
+        )
+    }
+
+    fun confirmRemovePlugin() {
+        val pluginId = _uiState.value.pendingRemovePluginId ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = pluginRegistry.removeRuntimePlugin(pluginId)
+            withContext(Dispatchers.Main) {
+                val errorMsg = if (result.isFailure) {
+                    Timber.e(result.exceptionOrNull(), "Failed to remove plugin %s", pluginId)
+                    result.exceptionOrNull()?.message ?: "Failed to remove plugin"
+                } else {
+                    null
+                }
+                _uiState.value = _uiState.value.copy(
+                    availablePlugins = pluginRegistry.availablePlugins.value,
+                    activePumpPluginId = pluginRegistry.activePumpPlugin.value?.metadata?.id,
+                    activePluginIds = pluginRegistry.allActivePlugins.value.map { it.metadata.id }.toSet(),
+                    runtimePlugins = pluginRegistry.runtimePlugins.value,
+                    pluginInstallError = errorMsg,
+                    showRemovePluginConfirm = false,
+                    pendingRemovePluginId = null,
+                )
+            }
+        }
+    }
+
+    fun clearPluginInstallError() {
+        _uiState.value = _uiState.value.copy(pluginInstallError = null)
     }
 
     fun setBackendSyncEnabled(enabled: Boolean) {

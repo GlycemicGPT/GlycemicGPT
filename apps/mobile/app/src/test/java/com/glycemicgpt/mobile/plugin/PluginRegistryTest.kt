@@ -19,6 +19,7 @@ import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -27,7 +28,10 @@ import org.junit.Test
 
 class PluginRegistryTest {
 
-    private val context: Context = mockk(relaxed = true)
+    @get:org.junit.Rule
+    val tempFolder = org.junit.rules.TemporaryFolder()
+
+    private lateinit var context: Context
     private val preferences: PluginPreferences = mockk(relaxed = true)
     private val eventBus: PluginEventBusImpl = mockk(relaxed = true)
     private val credentialProvider: PumpCredentialProvider = mockk(relaxed = true)
@@ -73,6 +77,10 @@ class PluginRegistryTest {
 
     @Before
     fun setUp() {
+        context = mockk(relaxed = true) {
+            every { filesDir } returns tempFolder.newFolder("files")
+            every { codeCacheDir } returns tempFolder.newFolder("code_cache")
+        }
         // Default: no previously active plugins
         every { preferences.getActivePluginId(any()) } returns null
         every { preferences.getActivePluginIds(any()) } returns emptySet()
@@ -271,5 +279,56 @@ class PluginRegistryTest {
             e
         }
         assertNotNull(thrown)
+    }
+
+    // --- Runtime Plugin Tests ---
+
+    @Test
+    fun `isRuntimePlugin returns false for compile-time plugins`() {
+        val plugin = createPlugin("test.compile.plugin")
+        val factory = createFactory(plugin)
+        val registry = createRegistry(setOf(factory))
+        registry.initialize()
+
+        assertFalse(registry.isRuntimePlugin("test.compile.plugin"))
+    }
+
+    @Test
+    fun `isRuntimePlugin returns false for unknown plugins`() {
+        val registry = createRegistry(emptySet())
+        registry.initialize()
+
+        assertFalse(registry.isRuntimePlugin("nonexistent.plugin"))
+    }
+
+    @Test
+    fun `runtimePlugins flow starts empty`() {
+        val registry = createRegistry(emptySet())
+        registry.initialize()
+
+        assertTrue(registry.runtimePlugins.value.isEmpty())
+    }
+
+    @Test
+    fun `removeRuntimePlugin fails for compile-time plugin`() {
+        val plugin = createPlugin("test.compile.plugin")
+        val factory = createFactory(plugin)
+        val registry = createRegistry(setOf(factory))
+        registry.initialize()
+
+        val result = registry.removeRuntimePlugin("test.compile.plugin")
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull()!!.message!!.contains("not a runtime plugin"))
+    }
+
+    @Test
+    fun `removeRuntimePlugin fails for unknown plugin`() {
+        val registry = createRegistry(emptySet())
+        registry.initialize()
+
+        val result = registry.removeRuntimePlugin("nonexistent")
+
+        assertTrue(result.isFailure)
     }
 }

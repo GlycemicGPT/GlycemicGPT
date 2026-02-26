@@ -31,11 +31,15 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import java.time.Instant
 import javax.inject.Inject
+
+/** A dashboard card paired with the plugin that produced it. */
+data class PluginCard(val pluginId: String, val card: DashboardCardDescriptor)
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
@@ -70,14 +74,18 @@ class HomeViewModel @Inject constructor(
 
     val syncStatus: StateFlow<SyncStatus> = backendSyncManager.syncStatus
 
-    /** Dashboard cards contributed by active plugins. */
-    val pluginCards: StateFlow<List<DashboardCardDescriptor>> =
+    /** Dashboard cards contributed by active plugins, paired with their plugin ID. */
+    val pluginCards: StateFlow<List<PluginCard>> =
         pluginRegistry.allActivePlugins.flatMapLatest { plugins ->
             if (plugins.isEmpty()) {
                 flowOf(emptyList())
             } else {
-                combine(plugins.map { it.observeDashboardCards() }) { arrays ->
-                    arrays.flatMap { it.toList() }.sortedBy { it.priority }
+                combine(plugins.map { plugin ->
+                    plugin.observeDashboardCards().map { cards ->
+                        cards.map { card -> PluginCard(plugin.metadata.id, card) }
+                    }
+                }) { arrays ->
+                    arrays.flatMap { it.toList() }.sortedBy { it.card.priority }
                 }
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())

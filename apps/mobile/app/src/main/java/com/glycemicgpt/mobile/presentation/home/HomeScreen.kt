@@ -38,7 +38,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.glycemicgpt.mobile.domain.model.ConnectionState
-import com.glycemicgpt.mobile.domain.plugin.ui.DashboardCardDescriptor
 import com.glycemicgpt.mobile.presentation.plugin.PluginDashboardCardRenderer
 import com.glycemicgpt.mobile.presentation.theme.GlucoseColors
 import com.glycemicgpt.mobile.service.SyncStatus
@@ -49,6 +48,7 @@ import java.time.Instant
 @Composable
 fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel(),
+    onPluginCardTap: (pluginId: String, cardId: String) -> Unit = { _, _ -> },
 ) {
     val connectionState by viewModel.connectionState.collectAsState()
     val cgm by viewModel.cgm.collectAsState()
@@ -119,11 +119,18 @@ fun HomeScreen(
             )
 
             // Plugin-contributed cards (sorted by priority, memoized)
-            val sortedCards = remember(pluginCards) { pluginCards.sortedBy { it.priority } }
+            val sortedCards = remember(pluginCards) { pluginCards.sortedBy { it.card.priority } }
             if (sortedCards.isNotEmpty()) {
-                sortedCards.forEach { card ->
+                sortedCards.forEach { pluginCard ->
                     Spacer(modifier = Modifier.height(12.dp))
-                    PluginDashboardCardRenderer(card = card)
+                    PluginDashboardCardRenderer(
+                        card = pluginCard.card,
+                        onClick = if (pluginCard.card.hasDetail) {
+                            { onPluginCardTap(pluginCard.pluginId, pluginCard.card.id) }
+                        } else {
+                            null
+                        },
+                    )
                 }
             }
 

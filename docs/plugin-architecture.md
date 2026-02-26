@@ -16,6 +16,7 @@ Developer guide for building GlycemicGPT mobile plugins.
 - [Safety Invariants](#safety-invariants)
 - [Reference Implementation](#reference-implementation)
 - [API Versioning](#api-versioning)
+- [Runtime Plugin Loading](#runtime-plugin-loading)
 - [ProGuard Rules](#proguard-rules)
 
 ---
@@ -48,7 +49,7 @@ GlycemicGPT's mobile app uses a three-layer plugin architecture:
 
 - **Capability-based**: Plugins declare what they can do (`GLUCOSE_SOURCE`, `INSULIN_SOURCE`, etc.), not what they are. The platform routes data and enforces mutual exclusion based on capabilities.
 - **Safety-first**: Safety limits are owned by the platform, synced from the backend, and passed to plugins as read-only constraints. Plugins cannot override or bypass them.
-- **Compile-time discovery**: Plugins are discovered via Hilt `@IntoSet` multibindings. No reflection, no classpath scanning, no runtime loading (yet).
+- **Dual discovery**: Compile-time plugins are discovered via Hilt `@IntoSet` multibindings. Runtime plugins are loaded from sideloaded JAR files via `DexClassLoader`.
 - **Declarative UI**: Plugins describe their settings and dashboard cards using descriptor types. The platform renders them using Material 3 components.
 
 ---
@@ -685,6 +686,102 @@ Increment `PLUGIN_API_VERSION` when making breaking changes to:
 - `SettingDescriptor` or `CardElement` sealed class variants
 
 Non-breaking additions (new optional fields, new event types) do not require a version bump.
+
+---
+
+## Runtime Plugin Loading
+
+In addition to compile-time plugins (discovered via Hilt multibindings), GlycemicGPT supports **runtime plugin loading** -- community-developed plugins can be sideloaded as JAR files without recompiling the app.
+
+### How It Works
+
+1. **JAR files** containing DEX bytecode are placed in the app's plugins directory (`files/plugins/`)
+2. At startup, `PluginRegistry` scans this directory using `DexPluginLoader`
+3. Each JAR is loaded via Android's `DexClassLoader` with the app's ClassLoader as parent (providing `pump-driver-api` classes)
+4. The loader reads `META-INF/plugin.json` from the JAR to discover the factory class, plugin ID, and API version
+5. The factory is instantiated via reflection (no-arg constructor required)
+6. The plugin receives a **restricted** `PluginContext` (see Security below)
+
+Users can also install plugins at runtime via Settings > Plugins > Custom Plugins > Add Plugin.
+
+### Plugin Manifest Format
+
+Every runtime plugin JAR must contain `META-INF/plugin.json`:
+
+```json
+{
+  "factoryClass": "com.example.MyPluginFactory",
+  "apiVersion": 1,
+  "id": "com.example.my-plugin",
+  "name": "My Plugin",
+  "version": "1.0.0",
+  "author": "Author Name",
+  "description": "Short description"
+}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `factoryClass` | Yes | Fully-qualified class name of the `PluginFactory` implementation |
+| `apiVersion` | Yes | Must match the host app's `PLUGIN_API_VERSION` (currently `1`) |
+| `id` | Yes | Reverse-domain plugin ID (pattern: `^[a-zA-Z][a-zA-Z0-9._-]{1,127}$`) |
+| `name` | Yes | Human-readable display name |
+| `version` | Yes | Semantic version string |
+| `author` | No | Author name (shown in Settings UI) |
+| `description` | No | Short description |
+
+### Security Restrictions
+
+Runtime plugins receive a `RestrictedPluginContext` that blocks app-scope escape vectors while allowing hardware/system access needed for BLE pump and CGM drivers.
+
+**Design philosophy:** Safety enforcement comes from `SafetyLimits` (synced from the backend), not from blanket Context restrictions. Plugins need `getSystemService()` to access hardware services for device communication, but non-hardware services are blocked to prevent data exfiltration.
+
+| Operation | Status | Notes |
+|-----------|--------|-------|
+| `startActivity()` | Blocked | `SecurityException` -- prevents launching arbitrary UI |
+| `startService()` / `startForegroundService()` / `bindService()` | Blocked | `SecurityException` -- prevents starting Android services |
+| `sendBroadcast()` / `sendOrderedBroadcast()` | Blocked | `SecurityException` -- prevents sending system broadcasts |
+| `registerReceiver()` | Blocked | `SecurityException` -- prevents intercepting system broadcasts |
+| `getContentResolver()` | Blocked | `SecurityException` -- prevents accessing other apps' data |
+| `createPackageContext()` | Blocked | `SecurityException` -- prevents accessing other apps |
+| `getBaseContext()` | Blocked | `SecurityException` -- prevents escaping the sandbox |
+| `getApplicationContext()` | Returns restricted self | Trapped -- prevents escape |
+| `getSystemService()` | **Allowlisted** | Hardware services only: `BluetoothManager`, `LocationManager`, `PowerManager`, `AlarmManager`, `SensorManager`, `UsbManager`, `WifiManager`. All others throw `SecurityException`. |
+| `getSharedPreferences()` | Blocked | `SecurityException` -- prevents cross-plugin credential access |
+| `credentialProvider.*` | **Per-plugin scoped** | Isolated `SharedPreferences` namespaced by plugin ID |
+| `settingsStore` | Allowed | Full access (per-plugin namespace) |
+| `debugLogger` | Allowed | Full access |
+| `eventBus` | Allowed | Full access (platform-only events still blocked) |
+| `safetyLimits` | Allowed | Read-only `StateFlow` |
+| `filesDir` / `cacheDir` | Allowed | Full access |
+
+Compile-time plugins (like Tandem) receive the full, unrestricted `PluginContext`.
+
+**Known limitation:** Runtime plugins are loaded in-process via `DexClassLoader` with the app's classloader as parent. This means plugins can theoretically load and reflect over host app classes beyond the `pump-driver-api` interfaces. Full process-level isolation would require running plugins in a separate Android process, which adds significant complexity. The current approach relies on the trust model (users explicitly install plugins with a security warning) and is appropriate for community-developed monitoring plugins.
+
+### Building a Runtime Plugin
+
+See `plugins/example/` for a complete reference project. The general steps are:
+
+1. Create a Kotlin/Java project that depends on `pump-driver-api` (compile-only)
+2. Implement `PluginFactory` (no-arg constructor) and `Plugin`
+3. Add `META-INF/plugin.json` manifest
+4. Compile to `.class` files, then convert to DEX with `d8`
+5. Package manifest into the DEX JAR
+6. Install via the app's UI or `adb push`
+
+### Compile-Time vs Runtime Comparison
+
+| Feature | Compile-Time | Runtime |
+|---------|-------------|---------|
+| Discovery | Hilt `@IntoSet` multibindings | `DexClassLoader` + manifest |
+| Android Context | Full `Context` | `RestrictedContext` |
+| Credential Access | Full `PumpCredentialProvider` | Per-plugin scoped (`ScopedCredentialProvider`) |
+| Safety Limits | Read-only `StateFlow` | Read-only `StateFlow` |
+| Event Bus | Full (platform events blocked) | Full (platform events blocked) |
+| Settings Store | Per-plugin `SharedPreferences` | Per-plugin `SharedPreferences` |
+| Can be removed? | No (built into APK) | Yes (via Settings UI) |
+| Shipped in APK | Yes | No (user installs manually) |
 
 ---
 

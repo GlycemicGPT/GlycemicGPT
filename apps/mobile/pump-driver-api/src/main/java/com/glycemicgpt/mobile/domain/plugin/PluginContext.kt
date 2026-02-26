@@ -11,10 +11,11 @@ import kotlinx.coroutines.flow.StateFlow
  * Context provided by the platform to each plugin during initialization.
  * Gives plugins access to platform services without coupling to app internals.
  *
- * **Security note:** [androidContext] exposes the full application [Context].
- * This is acceptable for compile-time plugins living in the monorepo, but
- * MUST be replaced with a restricted interface before any runtime-loaded
- * (third-party) plugin support is introduced. See Phase 4c in the plan.
+ * **Security note:** For compile-time plugins, [androidContext] exposes the full
+ * application [Context]. For runtime-loaded plugins, [androidContext] is a
+ * restricted wrapper that blocks app-scope escape vectors (startActivity,
+ * startService, sendBroadcast, getSharedPreferences, etc.) while allowing
+ * hardware access via an allowlisted [Context.getSystemService] set.
  */
 class PluginContext(
     val androidContext: Context,

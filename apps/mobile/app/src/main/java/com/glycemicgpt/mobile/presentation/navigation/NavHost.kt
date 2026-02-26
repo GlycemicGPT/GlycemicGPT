@@ -1,5 +1,6 @@
 package com.glycemicgpt.mobile.presentation.navigation
 
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -36,9 +37,11 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
+import androidx.navigation.NavType
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.glycemicgpt.mobile.data.auth.AuthState
 import com.glycemicgpt.mobile.data.local.AppSettingsStore
 import com.glycemicgpt.mobile.presentation.alerts.AlertsScreen
@@ -48,6 +51,7 @@ import com.glycemicgpt.mobile.BuildConfig
 import com.glycemicgpt.mobile.presentation.debug.BleDebugScreen
 import com.glycemicgpt.mobile.presentation.onboarding.OnboardingScreen
 import com.glycemicgpt.mobile.presentation.pairing.PairingScreen
+import com.glycemicgpt.mobile.presentation.plugin.PluginDetailScreen
 import com.glycemicgpt.mobile.presentation.settings.SettingsScreen
 import com.glycemicgpt.mobile.presentation.settings.SettingsViewModel
 
@@ -59,6 +63,7 @@ sealed class Screen(val route: String, val label: String, val icon: ImageVector)
     data object Pairing : Screen("pairing", "Pairing", Icons.Default.Bluetooth)
     data object BleDebug : Screen("ble_debug", "BLE Debug", Icons.Default.BugReport)
     data object Onboarding : Screen("onboarding", "Onboarding", Icons.Default.Home)
+    data object PluginDetail : Screen("plugin_detail/{pluginId}/{cardId}", "Plugin Detail", Icons.Default.Settings)
 }
 
 private val bottomNavItems = listOf(Screen.Home, Screen.AiChat, Screen.Alerts, Screen.Settings)
@@ -145,7 +150,15 @@ fun GlycemicGptNavHost(appSettingsStore: AppSettingsStore) {
                         },
                     )
                 }
-                composable(Screen.Home.route) { HomeScreen() }
+                composable(Screen.Home.route) {
+                    HomeScreen(
+                        onPluginCardTap = { pluginId, cardId ->
+                            navController.navigate(
+                                "plugin_detail/${Uri.encode(pluginId)}/${Uri.encode(cardId)}",
+                            )
+                        },
+                    )
+                }
                 composable(Screen.AiChat.route) { AiChatScreen() }
                 composable(Screen.Alerts.route) { AlertsScreen() }
                 composable(Screen.Settings.route) {
@@ -170,6 +183,21 @@ fun GlycemicGptNavHost(appSettingsStore: AppSettingsStore) {
                     composable(Screen.BleDebug.route) {
                         BleDebugScreen()
                     }
+                }
+                composable(
+                    route = Screen.PluginDetail.route,
+                    arguments = listOf(
+                        navArgument("pluginId") { type = NavType.StringType },
+                        navArgument("cardId") { type = NavType.StringType },
+                    ),
+                ) { backStackEntry ->
+                    val pluginId = backStackEntry.arguments?.getString("pluginId") ?: return@composable
+                    val cardId = backStackEntry.arguments?.getString("cardId") ?: return@composable
+                    PluginDetailScreen(
+                        pluginId = pluginId,
+                        cardId = cardId,
+                        onBack = { navController.popBackStack() },
+                    )
                 }
             }
         }

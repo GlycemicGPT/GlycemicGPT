@@ -48,6 +48,26 @@ class PluginPreferences @Inject constructor(
         prefs.edit().putStringSet(multiKeyFor(capability), current).apply()
     }
 
+    /** Get the set of installed runtime plugin IDs. */
+    fun getInstalledRuntimePluginIds(): Set<String> =
+        prefs.getStringSet(KEY_RUNTIME_PLUGINS, emptySet())?.toSet() ?: emptySet()
+
+    /** Add a runtime plugin ID to the installed set. */
+    @Synchronized
+    fun addInstalledRuntimePlugin(pluginId: String) {
+        val current = getInstalledRuntimePluginIds().toMutableSet()
+        current.add(pluginId)
+        prefs.edit().putStringSet(KEY_RUNTIME_PLUGINS, current).apply()
+    }
+
+    /** Remove a runtime plugin ID from the installed set. */
+    @Synchronized
+    fun removeInstalledRuntimePlugin(pluginId: String) {
+        val current = getInstalledRuntimePluginIds().toMutableSet()
+        current.remove(pluginId)
+        prefs.edit().putStringSet(KEY_RUNTIME_PLUGINS, current).apply()
+    }
+
     @Synchronized
     fun clear() {
         prefs.edit().clear().apply()
@@ -58,4 +78,8 @@ class PluginPreferences @Inject constructor(
 
     private fun multiKeyFor(capability: PluginCapability): String =
         "active_multi_${capability.name.lowercase(Locale.ROOT)}"
+
+    companion object {
+        private const val KEY_RUNTIME_PLUGINS = "installed_runtime_plugins"
+    }
 }

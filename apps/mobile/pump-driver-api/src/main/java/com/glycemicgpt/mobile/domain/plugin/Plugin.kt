@@ -6,6 +6,7 @@ import com.glycemicgpt.mobile.domain.plugin.capabilities.GlucoseSource
 import com.glycemicgpt.mobile.domain.plugin.capabilities.InsulinSource
 import com.glycemicgpt.mobile.domain.plugin.capabilities.PumpStatus
 import com.glycemicgpt.mobile.domain.plugin.ui.DashboardCardDescriptor
+import com.glycemicgpt.mobile.domain.plugin.ui.DetailScreenDescriptor
 import com.glycemicgpt.mobile.domain.plugin.ui.PluginSettingsDescriptor
 import kotlinx.coroutines.flow.Flow
 import kotlin.reflect.KClass
@@ -41,6 +42,22 @@ interface Plugin {
 
     /** Get a typed capability interface, or null if this plugin doesn't support it. */
     fun <T : PluginCapabilityInterface> getCapability(type: KClass<T>): T?
+
+    /**
+     * Returns a Flow of detail screen content for the given card, or null if
+     * the card has no detail view. Only called when the user taps a card with
+     * [DashboardCardDescriptor.hasDetail] set to true.
+     *
+     * Default returns null (no detail screen). Override to provide interactive
+     * detail views for specific cards.
+     */
+    fun observeDetailScreen(cardId: String): Flow<DetailScreenDescriptor>? = null
+
+    /**
+     * Called when the user triggers an action on the detail screen
+     * (e.g., tapping an ActionButton). Same pattern as settings onAction.
+     */
+    fun onDetailAction(cardId: String, actionKey: String) { }
 }
 
 /** Convenience: get this plugin's [GlucoseSource] capability, if available. */

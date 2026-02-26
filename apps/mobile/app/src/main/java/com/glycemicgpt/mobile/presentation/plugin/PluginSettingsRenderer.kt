@@ -68,7 +68,7 @@ fun PluginSettingsRenderer(
 }
 
 @Composable
-private fun SettingItem(
+internal fun SettingItem(
     descriptor: SettingDescriptor,
     store: PluginSettingsStore,
     onAction: (String) -> Unit,

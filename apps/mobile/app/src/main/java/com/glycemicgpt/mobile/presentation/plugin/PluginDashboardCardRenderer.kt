@@ -1,6 +1,8 @@
 package com.glycemicgpt.mobile.presentation.plugin
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,6 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Battery5Bar
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Check
@@ -49,24 +52,47 @@ import com.glycemicgpt.mobile.domain.plugin.ui.UiColor
 /**
  * Renders a [DashboardCardDescriptor] as a Material 3 card.
  */
-private const val MAX_NESTING_DEPTH = 5
+internal const val MAX_NESTING_DEPTH = 5
 
 @Composable
-fun PluginDashboardCardRenderer(card: DashboardCardDescriptor) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("plugin_card_${card.id}"),
-    ) {
+fun PluginDashboardCardRenderer(
+    card: DashboardCardDescriptor,
+    onClick: (() -> Unit)? = null,
+) {
+    val cardModifier = Modifier
+        .fillMaxWidth()
+        .testTag("plugin_card_${card.id}")
+        .let { mod ->
+            if (onClick != null) {
+                mod.clickable(role = Role.Button, onClick = onClick)
+            } else {
+                mod
+            }
+        }
+    Card(modifier = cardModifier) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
         ) {
-            Text(
-                text = card.title,
-                style = MaterialTheme.typography.titleSmall,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = card.title,
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.weight(1f),
+                )
+                if (onClick != null) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = "View details",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
             Spacer(modifier = Modifier.height(8.dp))
             card.elements.forEach { element ->
                 RenderElement(element, depth = 0)
@@ -76,7 +102,7 @@ fun PluginDashboardCardRenderer(card: DashboardCardDescriptor) {
 }
 
 @Composable
-private fun RenderElement(element: CardElement, depth: Int = 0) {
+internal fun RenderElement(element: CardElement, depth: Int = 0) {
     if (depth > MAX_NESTING_DEPTH) return
     when (element) {
         is CardElement.LargeValue -> LargeValueElement(element)

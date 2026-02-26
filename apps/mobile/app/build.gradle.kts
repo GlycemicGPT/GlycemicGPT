@@ -185,6 +185,7 @@ dependencies {
     testImplementation(libs.mockwebserver)
     testImplementation(libs.coroutines.test)
     testImplementation(libs.turbine)
+    testImplementation("org.json:json:20240303")
 
     // Android tests
     androidTestImplementation(libs.junit.ext)

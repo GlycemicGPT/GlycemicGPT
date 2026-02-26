@@ -16,6 +16,8 @@ import com.glycemicgpt.mobile.domain.model.IoBReading
 import com.glycemicgpt.mobile.domain.model.ReservoirReading
 import com.glycemicgpt.mobile.domain.model.TimeInRangeData
 import com.glycemicgpt.mobile.domain.plugin.Plugin
+import com.glycemicgpt.mobile.domain.plugin.PluginMetadata
+import com.glycemicgpt.mobile.domain.plugin.ui.DashboardCardDescriptor
 import com.glycemicgpt.mobile.domain.pump.PumpDriver
 import com.glycemicgpt.mobile.plugin.PluginRegistry
 import com.glycemicgpt.mobile.service.BackendSyncManager
@@ -414,5 +416,41 @@ class HomeViewModelTest {
         createViewModel()
         advanceUntilIdle()
         coVerify(atLeast = 1) { authRepository.refreshSafetyLimits() }
+    }
+
+    // -- Plugin cards ----------------------------------------------------------
+
+    @Test
+    fun `pluginCards wraps cards with plugin ID`() = runTest {
+        val testCard = DashboardCardDescriptor(
+            id = "test-card",
+            title = "Test Card",
+            elements = emptyList(),
+        )
+        val testPlugin = mockk<Plugin>(relaxed = true) {
+            every { metadata } returns PluginMetadata(
+                id = "test.plugin",
+                name = "Test Plugin",
+                version = "1.0.0",
+                apiVersion = 1,
+                description = "Test",
+                author = "Test",
+            )
+            every { observeDashboardCards() } returns flowOf(listOf(testCard))
+        }
+        every { pluginRegistry.allActivePlugins } returns MutableStateFlow(listOf(testPlugin))
+
+        val vm = createViewModel()
+        val job = backgroundScope.launch(testDispatcher) {
+            vm.pluginCards.collect {}
+        }
+        advanceUntilIdle()
+
+        val cards = vm.pluginCards.value
+        assertEquals(1, cards.size)
+        assertEquals("test.plugin", cards[0].pluginId)
+        assertEquals("test-card", cards[0].card.id)
+
+        job.cancel()
     }
 }

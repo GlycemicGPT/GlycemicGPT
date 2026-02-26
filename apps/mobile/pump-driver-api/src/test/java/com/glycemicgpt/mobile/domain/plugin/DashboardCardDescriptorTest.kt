@@ -79,4 +79,25 @@ class DashboardCardDescriptorTest {
             elements = emptyList(),
         )
     }
+
+    @Test
+    fun `hasDetail defaults to false`() {
+        val card = DashboardCardDescriptor(
+            id = "test",
+            title = "Test",
+            elements = emptyList(),
+        )
+        assertEquals(false, card.hasDetail)
+    }
+
+    @Test
+    fun `hasDetail can be set to true`() {
+        val card = DashboardCardDescriptor(
+            id = "test",
+            title = "Test",
+            elements = emptyList(),
+            hasDetail = true,
+        )
+        assertEquals(true, card.hasDetail)
+    }
 }

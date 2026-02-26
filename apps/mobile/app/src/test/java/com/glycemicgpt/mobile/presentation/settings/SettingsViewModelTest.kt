@@ -20,6 +20,7 @@ import com.glycemicgpt.mobile.domain.plugin.DevicePlugin
 import com.glycemicgpt.mobile.domain.plugin.Plugin
 import com.glycemicgpt.mobile.domain.plugin.PluginMetadata
 import com.glycemicgpt.mobile.plugin.PluginRegistry
+import com.glycemicgpt.mobile.plugin.RuntimePluginInfo
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -87,6 +88,7 @@ class SettingsViewModelTest {
         every { availablePlugins } returns MutableStateFlow<List<PluginMetadata>>(emptyList())
         every { activePumpPlugin } returns MutableStateFlow<DevicePlugin?>(null)
         every { allActivePlugins } returns MutableStateFlow<List<Plugin>>(emptyList())
+        every { runtimePlugins } returns MutableStateFlow<List<RuntimePluginInfo>>(emptyList())
     }
 
     @Before
