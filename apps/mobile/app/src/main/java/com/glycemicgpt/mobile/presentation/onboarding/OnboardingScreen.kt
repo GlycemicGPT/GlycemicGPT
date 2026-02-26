@@ -338,7 +338,7 @@ private fun FeaturesPage() {
         FeatureCard(
             icon = Icons.Default.Bluetooth,
             title = "Direct Pump Connection",
-            description = "Connect directly to your Tandem t:slim via BLE for real-time basal, bolus, IoB, reservoir, and battery data.",
+            description = "Connect directly to your Tandem pump via BLE for real-time basal, bolus, IoB, reservoir, and battery data.",
         )
 
         Spacer(modifier = Modifier.height(12.dp))

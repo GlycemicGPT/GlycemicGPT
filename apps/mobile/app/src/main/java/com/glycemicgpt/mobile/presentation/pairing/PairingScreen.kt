@@ -51,6 +51,7 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.glycemicgpt.mobile.domain.model.ConnectionState
 import com.glycemicgpt.mobile.domain.model.DiscoveredPump
+import com.glycemicgpt.mobile.domain.model.TandemPumpModel
 
 @Composable
 fun PairingScreen(
@@ -202,7 +203,7 @@ private fun AuthFailedCard(onRetry: () -> Unit) {
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = "The pump rejected the pairing attempt. Please verify the " +
-                    "code matches what is displayed on your pump screen and try again.",
+                    "code and try again.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onErrorContainer,
             )
@@ -243,6 +244,17 @@ private fun PairingCodeInput(
     onPair: () -> Unit,
     onCancel: () -> Unit,
 ) {
+    val pumpModel = remember(pump.name) { TandemPumpModel.fromAdvertisedName(pump.name) }
+    val instructionText = when (pumpModel.hasScreen) {
+        true -> "Check your pump screen for the pairing code. " +
+            "You must confirm pairing on the pump."
+        false -> "Put your Mobi on the charging pad and double-press the " +
+            "pump button to enter pairing mode. Then enter the 6-digit PIN " +
+            "printed behind the cartridge well on your pump body."
+        null -> "Enter the pairing code from your pump. Check your pump " +
+            "screen or documentation for the code."
+    }
+
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
@@ -251,8 +263,7 @@ private fun PairingCodeInput(
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "Check your pump screen for the pairing code. " +
-                    "You must confirm pairing on the pump.",
+                text = instructionText,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

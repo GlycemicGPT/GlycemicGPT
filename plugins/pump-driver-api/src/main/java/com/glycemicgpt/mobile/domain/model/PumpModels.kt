@@ -34,7 +34,7 @@ data class BolusEvent(
     }
 
     companion object {
-        /** Hard safety cap: no single bolus can exceed 25 units (Tandem t:slim max is 25U). */
+        /** Hard safety cap: no single bolus can exceed 25 units (Tandem hardware max is 25U). */
         const val MAX_BOLUS_UNITS: Float = 25f
     }
 }

@@ -21,7 +21,7 @@ import java.time.Instant
  * strictly read-only status queries.
  *
  * Implementations:
- * - [com.glycemicgpt.mobile.ble.connection.TandemBleDriver] for Tandem t:slim X2
+ * - [com.glycemicgpt.mobile.ble.connection.TandemBleDriver] for Tandem pumps (t:slim X2, Mobi)
  * - Future: OmnipodDriver, MedtronicDriver, etc.
  */
 @Deprecated("Use Plugin/DevicePlugin with capabilities. This interface will be removed in a future version.", ReplaceWith("DevicePlugin"))

@@ -28,7 +28,7 @@ That said, we recognize that some pumps -- like the Tandem Mobi and Omnipod -- h
 
 | Tier | What | Shipped in releases? | Example |
 |------|------|---------------------|---------|
-| **Monitoring plugins** | Read data from devices (glucose, pump status, history) | Yes -- compiled by CI, included in APKs | Tandem t:slim reader, Dexcom G7 |
+| **Monitoring plugins** | Read data from devices (glucose, pump status, history) | Yes -- compiled by CI, included in APKs | Tandem reader, Dexcom G7 |
 | **Reference implementations** | Source code demonstrating pump control patterns | **Never** -- not compiled, not in any build artifact | Tandem Mobi delivery example |
 
 **Monitoring plugins** follow the standard contribution flow: submit a PR with a new Gradle module, it gets reviewed, merged, and shipped in the next release.
@@ -499,7 +499,7 @@ GlycemicGPT/
 ├── plugins/            # Plugin ecosystem
 │   ├── pump-driver-api/       # Plugin SDK (interfaces & domain models)
 │   ├── shipped/               # Built-in plugins (compiled into APK)
-│   │   └── tandem/            # Tandem t:slim X2 plugin implementation
+│   │   └── tandem/            # Tandem plugin (t:slim X2 + Mobi)
 │   └── example/               # Example runtime plugins (NOT compiled into APK)
 ├── sidecar/            # AI provider proxy (TypeScript/Express)
 │   ├── src/            # Source code

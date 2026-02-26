@@ -6,7 +6,7 @@ import kotlinx.coroutines.flow.Flow
 
 /**
  * Capability for plugins that provide continuous glucose readings.
- * Examples: standalone CGMs (Dexcom G7), pumps that stream CGM data (Tandem t:slim X2).
+ * Examples: standalone CGMs (Dexcom G7), pumps that stream CGM data (Tandem pumps).
  */
 interface GlucoseSource : PluginCapabilityInterface {
     /** Observable stream of glucose readings as they arrive. */

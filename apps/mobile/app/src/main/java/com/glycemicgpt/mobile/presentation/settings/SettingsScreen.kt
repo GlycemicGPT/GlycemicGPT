@@ -873,7 +873,7 @@ private fun PumpSection(
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(
-                        text = "Tandem t:slim X2",
+                        text = state.activePumpPluginName ?: "Insulin Pump",
                         style = MaterialTheme.typography.titleSmall,
                     )
                     Text(
@@ -1237,7 +1237,7 @@ private fun AboutSection(
 
             InfoRow(label = "Version", value = state.appVersion)
             InfoRow(label = "Build", value = state.buildType)
-            InfoRow(label = "BLE Protocol", value = "pumpX2 v1.0")
+            InfoRow(label = "BLE Protocol", value = state.activePumpProtocolDisplay ?: "None")
 
             Spacer(modifier = Modifier.height(8.dp))
 

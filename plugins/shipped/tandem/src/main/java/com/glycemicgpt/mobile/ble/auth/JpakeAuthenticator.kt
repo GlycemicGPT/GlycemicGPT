@@ -16,7 +16,7 @@ import javax.inject.Singleton
 /**
  * EC-JPAKE authenticator for Tandem pumps with firmware v7.7+.
  *
- * The 6-digit pairing code displayed on the pump is used as the shared secret
+ * The 6-digit pairing code obtained from the pump is used as the shared secret
  * for the JPAKE (Password Authenticated Key Exchange by Juggling) protocol.
  *
  * The JPAKE handshake consists of 5 request/response pairs:

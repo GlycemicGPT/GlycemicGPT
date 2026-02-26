@@ -1076,7 +1076,7 @@ class BleConnectionManager @Inject constructor(
                 enqueueWrite(TandemProtocol.AUTHORIZATION_UUID, chunks)
             } else {
                 // BOOTSTRAP mode: full 5-round-trip handshake.
-                // Pump must be in pairing mode (showing code on screen).
+                // Pump must be in pairing mode (code from pump screen or body).
                 Timber.d("Starting JPAKE BOOTSTRAP mode (initial pair, code length=%d)", code.length)
                 val chunks = jpakeAuthenticator.buildJpake1aRequest(code, nextTxId())
                 enqueueWrite(TandemProtocol.AUTHORIZATION_UUID, chunks)

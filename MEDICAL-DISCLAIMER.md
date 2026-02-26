@@ -59,6 +59,17 @@ Pump control capabilities (insulin delivery commands) are not included in pre-bu
 - They will be subject to additional safety validation pipelines
 - Users who build from source assume full responsibility as the "manufacturer" of their personal build
 
+## Untested Device Compatibility
+
+This software may declare protocol compatibility with devices that have **not been tested against physical hardware**. Protocol compatibility (shared BLE protocol, authentication mechanism, and data formats) does not guarantee correct operation. Specifically:
+
+- Data displayed from untested devices may be inaccurate, delayed, or missing
+- BLE connection behavior, reconnection stability, and pairing flows may differ
+- Safety-critical values (insulin on board, glucose readings, basal rates) must always be verified against the device manufacturer's official companion app
+- Users who choose to use this software with untested device hardware accept all associated risk
+
+No contributor, maintainer, or entity associated with this project is liable for any adverse outcome resulting from use with untested or partially-tested device hardware. If in doubt, use only the device manufacturer's official software.
+
 ## LIMITATION OF LIABILITY
 
 THE AUTHORS, CONTRIBUTORS, AND MAINTAINERS OF THIS SOFTWARE PROVIDE IT "AS IS" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.

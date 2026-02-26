@@ -33,14 +33,7 @@ class TandemDevicePlugin(
     private val historyParser: TandemHistoryLogParser,
 ) : DevicePlugin {
 
-    override val metadata = PluginMetadata(
-        id = PLUGIN_ID,
-        name = "Tandem t:slim X2",
-        version = "1.0.0",
-        apiVersion = PLUGIN_API_VERSION,
-        description = "Tandem t:slim X2 insulin pump with Dexcom G7 CGM",
-        author = "GlycemicGPT",
-    )
+    override val metadata = METADATA
 
     override val capabilities: Set<PluginCapability> = setOf(
         PluginCapability.GLUCOSE_SOURCE,
@@ -122,5 +115,16 @@ class TandemDevicePlugin(
 
     companion object {
         const val PLUGIN_ID = "com.glycemicgpt.tandem"
+
+        /** Shared metadata -- used by both [TandemDevicePlugin] and [TandemPluginFactory]. */
+        val METADATA = PluginMetadata(
+            id = PLUGIN_ID,
+            name = "Tandem Insulin Pump",
+            version = "1.0.0",
+            apiVersion = PLUGIN_API_VERSION,
+            description = "Tandem insulin pumps (t:slim X2, Mobi) with Dexcom CGM",
+            author = "GlycemicGPT",
+            protocolName = "Tandem",
+        )
     }
 }

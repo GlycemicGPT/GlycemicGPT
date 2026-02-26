@@ -50,21 +50,24 @@
 
 ## Overview
 
-GlycemicGPT bridges the gap between diabetes device data and actionable AI-powered insights. It connects to your Dexcom G7 CGM and Tandem t:slim insulin pump via BLE, displays real-time glucose trends, and provides AI-generated analysis of your diabetes data.
+GlycemicGPT bridges the gap between diabetes device data and actionable AI-powered insights. It connects to your Dexcom G7 CGM and Tandem insulin pump via BLE, displays real-time glucose trends, and provides AI-generated analysis of your diabetes data.
 
 **Currently supported devices:**
 
-| Device | Type | Connection |
-|--------|------|------------|
-| Dexcom G7 | CGM | Cloud API |
-| Tandem t:slim X2 | Insulin Pump | BLE (direct) + Cloud API |
+| Device | Type | Connection | Status |
+|--------|------|------------|--------|
+| Dexcom G7 | CGM | Cloud API | Verified |
+| Tandem t:slim X2 | Insulin Pump | BLE (direct) + Cloud API | Verified |
+| Tandem Mobi | Insulin Pump | BLE (direct) + Cloud API | Protocol-compatible (see note) |
 
-> Support for additional pumps and CGMs is planned for future releases. The mobile app uses a [capability-based plugin architecture](docs/plugin-architecture.md) designed for extensibility -- see [CONTRIBUTING.md](CONTRIBUTING.md) if you'd like to help add support for your device.
+> **Tandem Mobi note:** The Mobi uses the same BLE protocol, authentication, and data formats as the t:slim X2. Our Tandem plugin is protocol-compatible with both models, but **Mobi support has not been verified against physical hardware**. Protocol compatibility does not guarantee correct operation on untested devices. Use with Mobi hardware is entirely at your own risk -- see [MEDICAL-DISCLAIMER.md](MEDICAL-DISCLAIMER.md) for full liability terms. Insulin delivery (bolus/control) requires a user-built plugin compiled from source (see [CONTRIBUTING.md](CONTRIBUTING.md#device-control-plugins)). If you have a Mobi and can help validate, please open an issue.
+
+Support for additional pumps and CGMs is planned for future releases. The mobile app uses a [capability-based plugin architecture](docs/plugin-architecture.md) designed for extensibility -- see [CONTRIBUTING.md](CONTRIBUTING.md) if you'd like to help add support for your device.
 
 **What it does:**
 
 - Real-time glucose monitoring with trend charts and Time in Range tracking
-- BLE connectivity to Tandem t:slim pumps (basal, bolus, IoB, reservoir, battery)
+- BLE connectivity to Tandem pumps (basal, bolus, IoB, reservoir, battery)
 - AI-powered daily briefs, meal analysis, and pattern recognition (BYOAI -- bring your own AI key)
 - Configurable alerts with Telegram delivery and caregiver escalation
 - Android phone app + Wear OS companion with watch face complications

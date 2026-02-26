@@ -26,7 +26,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Tandem t:slim X2 BLE driver implementing the PumpDriver interface.
+ * Tandem BLE driver implementing the PumpDriver interface.
  *
  * Delegates connection lifecycle to [BleConnectionManager] and uses
  * [StatusResponseParser] to decode pump responses into domain models.

@@ -102,6 +102,7 @@ body:
       options:
         - Not applicable
         - Tandem t:slim X2
+        - Tandem Mobi
         - Other (not currently supported)
 
   - type: textarea

@@ -24,7 +24,8 @@ import javax.inject.Inject
  *    - bytes 0-1: appInstanceId echo
  *    - byte 2: 1=success, 0=failure
  *
- * The pairing code is the 6-digit code displayed on the pump screen.
+ * The pairing code is the 6-digit code displayed on the pump screen (X2)
+ * or printed on the pump body (Mobi).
  */
 class TandemAuthenticator @Inject constructor() {
 

@@ -41,7 +41,7 @@ MEAL_PERIODS = {
 
 SYSTEM_PROMPT = """\
 You are a diabetes management assistant analyzing post-meal glucose patterns \
-for a person with Type 1 diabetes using a Tandem t:slim X2 pump with Control-IQ \
+for a person with Type 1 diabetes using a Tandem insulin pump with Control-IQ \
 and a Dexcom G7 CGM.
 
 You are reviewing meal pattern data organized by meal period. For each meal \

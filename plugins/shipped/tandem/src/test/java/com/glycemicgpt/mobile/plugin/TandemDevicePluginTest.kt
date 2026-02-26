@@ -72,6 +72,7 @@ class TandemDevicePluginTest {
     fun `metadata has correct plugin id`() {
         assertEquals("com.glycemicgpt.tandem", plugin.metadata.id)
         assertEquals(PLUGIN_API_VERSION, plugin.metadata.apiVersion)
-        assertEquals("Tandem t:slim X2", plugin.metadata.name)
+        assertEquals("Tandem Insulin Pump", plugin.metadata.name)
+        assertEquals("Tandem", plugin.metadata.protocolName)
     }
 }

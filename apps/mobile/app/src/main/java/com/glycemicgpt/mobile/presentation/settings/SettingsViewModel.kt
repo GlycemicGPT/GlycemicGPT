@@ -77,6 +77,8 @@ data class SettingsUiState(
     val availablePlugins: List<PluginMetadata> = emptyList(),
     val activePumpPluginId: String? = null,
     val activePluginIds: Set<String> = emptySet(),
+    val activePumpPluginName: String? = null,
+    val activePumpProtocolDisplay: String? = null,
     // Sync
     val backendSyncEnabled: Boolean = true,
     val dataRetentionDays: Int = 7,
@@ -134,6 +136,18 @@ class SettingsViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(SettingsUiState())
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
+    /** Copy active pump plugin display fields from the registry into the state. */
+    private fun SettingsUiState.withActivePumpFields(): SettingsUiState {
+        val meta = pluginRegistry.activePumpPlugin.value?.metadata
+        return copy(
+            activePumpPluginId = meta?.id,
+            activePumpPluginName = meta?.name,
+            activePumpProtocolDisplay = meta?.let { m ->
+                m.protocolName?.let { "$it v${m.version}" }
+            },
+        )
+    }
+
     /** Observable auth state for UI-level session expiry handling. */
     val authState: StateFlow<AuthState> = authManager.authState
 
@@ -172,10 +186,9 @@ class SettingsViewModel @Inject constructor(
             aiNotificationSoundUri = alertSoundStore.aiNotificationSoundUri,
             overrideSilentForLow = alertSoundStore.overrideSilentForLowAlerts,
             availablePlugins = pluginRegistry.availablePlugins.value,
-            activePumpPluginId = pluginRegistry.activePumpPlugin.value?.metadata?.id,
             activePluginIds = pluginRegistry.allActivePlugins.value.map { it.metadata.id }.toSet(),
             runtimePlugins = pluginRegistry.runtimePlugins.value,
-        )
+        ).withActivePumpFields()
 
         checkBatteryOptimization()
 
@@ -314,9 +327,8 @@ class SettingsViewModel @Inject constructor(
             Timber.e(result.exceptionOrNull(), "Failed to activate plugin %s", pluginId)
         }
         _uiState.value = _uiState.value.copy(
-            activePumpPluginId = pluginRegistry.activePumpPlugin.value?.metadata?.id,
             activePluginIds = pluginRegistry.allActivePlugins.value.map { it.metadata.id }.toSet(),
-        )
+        ).withActivePumpFields()
     }
 
     fun showDeactivateConfirm(pluginId: String) {
@@ -340,11 +352,10 @@ class SettingsViewModel @Inject constructor(
             Timber.e(result.exceptionOrNull(), "Failed to deactivate plugin %s", pluginId)
         }
         _uiState.value = _uiState.value.copy(
-            activePumpPluginId = pluginRegistry.activePumpPlugin.value?.metadata?.id,
             activePluginIds = pluginRegistry.allActivePlugins.value.map { it.metadata.id }.toSet(),
             showDeactivateConfirm = false,
             pendingDeactivatePluginId = null,
-        )
+        ).withActivePumpFields()
     }
 
     @Deprecated("Use showDeactivateConfirm for safety", ReplaceWith("showDeactivateConfirm(pluginId)"))
@@ -399,13 +410,12 @@ class SettingsViewModel @Inject constructor(
                 }
                 _uiState.value = _uiState.value.copy(
                     availablePlugins = pluginRegistry.availablePlugins.value,
-                    activePumpPluginId = pluginRegistry.activePumpPlugin.value?.metadata?.id,
                     activePluginIds = pluginRegistry.allActivePlugins.value.map { it.metadata.id }.toSet(),
                     runtimePlugins = pluginRegistry.runtimePlugins.value,
                     pluginInstallError = errorMsg,
                     showRemovePluginConfirm = false,
                     pendingRemovePluginId = null,
-                )
+                ).withActivePumpFields()
             }
         }
     }

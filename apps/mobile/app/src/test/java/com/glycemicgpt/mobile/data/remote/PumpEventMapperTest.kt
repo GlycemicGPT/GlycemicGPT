@@ -1,10 +1,12 @@
 package com.glycemicgpt.mobile.data.remote
 
 import com.glycemicgpt.mobile.domain.model.BasalReading
+import com.glycemicgpt.mobile.domain.model.BatteryStatus
 import com.glycemicgpt.mobile.domain.model.BolusEvent
 import com.glycemicgpt.mobile.domain.model.ControlIqMode
 import com.glycemicgpt.mobile.domain.model.IoBReading
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Test
 import java.time.Instant
@@ -56,5 +58,20 @@ class PumpEventMapperTest {
         assertEquals("correction", dto.eventType)
         assertEquals(1.2f, dto.units)
         assertEquals(true, dto.isAutomated)
+    }
+
+    @Test
+    fun `fromBattery sets isAutomated false regardless of charging state`() {
+        val charging = PumpEventMapper.fromBattery(
+            BatteryStatus(percentage = 85, isCharging = true, timestamp = now),
+        )
+        assertEquals("battery", charging.eventType)
+        assertEquals(85f, charging.units)
+        assertFalse(charging.isAutomated ?: true)
+
+        val notCharging = PumpEventMapper.fromBattery(
+            BatteryStatus(percentage = 50, isCharging = false, timestamp = now),
+        )
+        assertFalse(notCharging.isAutomated ?: true)
     }
 }

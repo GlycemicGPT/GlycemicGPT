@@ -45,7 +45,7 @@ TIME_PERIODS = {
 
 SYSTEM_PROMPT = """\
 You are a diabetes management assistant analyzing correction bolus outcomes \
-for a person with Type 1 diabetes using a Tandem t:slim X2 pump with Control-IQ \
+for a person with Type 1 diabetes using a Tandem insulin pump with Control-IQ \
 and a Dexcom G7 CGM.
 
 You are reviewing correction factor (insulin sensitivity factor / ISF) data \

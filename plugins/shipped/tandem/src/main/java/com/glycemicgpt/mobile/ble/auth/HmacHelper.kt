@@ -26,7 +26,7 @@ object HmacHelper {
     /**
      * Build the HMAC response for the Tandem auth challenge.
      *
-     * @param pairingCode Pairing code from pump screen (ASCII bytes used as HMAC key)
+     * @param pairingCode Pairing code from the pump (ASCII bytes used as HMAC key)
      * @param challengeKey 8-byte HMAC key from bytes 22-29 of CentralChallengeResponse
      */
     fun buildChallengeResponse(pairingCode: String, challengeKey: ByteArray): ByteArray {

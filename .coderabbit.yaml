@@ -165,7 +165,7 @@ reviews:
 
     - path: "plugins/shipped/tandem/**/*.kt"
       instructions: |
-        Tandem t:slim X2 plugin implementation (reference plugin for the architecture).
+        Tandem plugin implementation (t:slim X2 + Mobi, reference plugin for the architecture).
 
         Critical review points:
         - Delegation patterns: capability classes (TandemGlucoseSource, TandemInsulinSource,
@@ -181,7 +181,7 @@ reviews:
 
     - path: "{apps/mobile,plugins/shipped}/**/ble/**"
       instructions: |
-        BLE code communicates with Tandem t:slim X2 insulin pumps.
+        BLE code communicates with Tandem insulin pumps (t:slim X2 and Mobi).
 
         Critical review points:
         - GATT operations must be serialized (one at a time).

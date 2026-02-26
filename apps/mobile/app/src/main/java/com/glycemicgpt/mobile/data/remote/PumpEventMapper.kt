@@ -43,7 +43,7 @@ object PumpEventMapper {
             eventType = "battery",
             eventTimestamp = status.timestamp,
             units = status.percentage.toFloat(),
-            isAutomated = status.isCharging,
+            isAutomated = false,
         )
 
     fun fromReservoir(reading: ReservoirReading): PumpEventDto =

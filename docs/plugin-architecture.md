@@ -185,14 +185,17 @@ interface PluginFactory {
 ```kotlin
 data class PluginMetadata(
     val id: String,           // Reverse-domain unique ID, e.g. "com.glycemicgpt.tandem"
-    val name: String,         // Human-readable, e.g. "Tandem t:slim X2"
+    val name: String,         // Human-readable, e.g. "Tandem Insulin Pump"
     val version: String,      // Semantic version, e.g. "1.0.0"
     val apiVersion: Int,      // Must match PLUGIN_API_VERSION
     val description: String,  // Short description
     val author: String,       // Author name
     val iconResName: String?, // Optional drawable resource name
+    val protocolName: String?, // BLE/communication protocol family, e.g. "Tandem"
 )
 ```
+
+**Protocol versioning convention:** `protocolName` combined with `version` is displayed as the protocol identifier (e.g., "Tandem v1.0.0"). The plugin `version` field doubles as the protocol version -- bump it when the plugin's BLE protocol handling changes. There is no separate protocol versioning infrastructure.
 
 Plugin IDs must match the pattern `^[a-zA-Z][a-zA-Z0-9._-]{1,127}$` (reverse-domain style).
 
@@ -543,7 +546,7 @@ Safety limits are defined by `SafetyLimits` with absolute bounds that cannot be 
 | `maxBasalRateMilliunits` | 15,000 (15 u/hr) | 15,000 | Current hardware max (Tandem) |
 | `maxBolusDoseMilliunits` | 25,000 (25 u) | 25,000 | Current hardware max (Tandem) |
 
-> **Note:** The absolute bounds are currently based on Tandem t:slim X2 hardware limits. Future plugins for other pump hardware (OmniPod, Medtronic) may require revisiting these constants if those devices have different physical limits.
+> **Note:** The absolute bounds are currently based on Tandem hardware limits (shared across t:slim X2 and Mobi). Future plugins for other pump hardware (OmniPod, Medtronic) may require revisiting these constants if those devices have different physical limits.
 
 User-configured limits (from the backend) narrow these ranges but can never widen them. The `SafetyLimits.safeOf()` factory clamps values to absolute bounds instead of throwing.
 

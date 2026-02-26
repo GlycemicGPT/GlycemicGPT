@@ -31,7 +31,7 @@ MIN_READINGS = 12
 SYSTEM_PROMPT = """\
 You are a diabetes management assistant analyzing glucose and insulin data. \
 Provide a concise, supportive daily brief for a person with Type 1 diabetes \
-using a Tandem t:slim X2 pump with Control-IQ and a Dexcom G7 CGM.
+using a Tandem insulin pump with Control-IQ and a Dexcom G7 CGM.
 
 Guidelines:
 - Be concise but informative (3-5 paragraphs)
