@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
 from src.core.security import TokenData, decode_access_token
+from src.core.token_blacklist import is_token_blacklisted
 from src.database import get_db
 from src.logging_config import get_logger
 from src.models.user import User, UserRole
@@ -62,6 +63,10 @@ async def get_current_user(
     try:
         token_data = TokenData(payload)
     except (KeyError, ValueError):
+        raise credentials_exception
+
+    # Check token blacklist (Story 28.3)
+    if token_data.jti and await is_token_blacklisted(token_data.jti):
         raise credentials_exception
 
     # Fetch the user from the database

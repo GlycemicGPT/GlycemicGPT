@@ -34,19 +34,50 @@ const AUTH_ENDPOINTS = [
 ];
 
 /**
- * Authenticated fetch wrapper with automatic 401 handling.
+ * Read a cookie value by name (client-side only).
+ */
+function getCookie(name: string): string | undefined {
+  if (typeof document === "undefined") return undefined;
+  const match = document.cookie.match(
+    new RegExp("(?:^|; )" + name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "=([^;]*)")
+  );
+  if (!match) return undefined;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Authenticated fetch wrapper with automatic 401 handling and CSRF protection.
  *
  * Defaults credentials to "include" and redirects to /login?expired=true
  * when a 401 response is received from non-auth endpoints. Returns a
  * never-resolving promise after redirect to prevent callers from
  * processing the stale response.
+ *
+ * For state-changing requests (POST, PATCH, PUT, DELETE), automatically
+ * reads the csrf_token cookie and sends it as X-CSRF-Token header.
  */
 export async function apiFetch(
   url: string,
   options?: RequestInit
 ): Promise<Response> {
+  const headers = new Headers(options?.headers);
+  const method = (options?.method || "GET").toUpperCase();
+
+  // Add CSRF token for state-changing requests (Story 28.4)
+  if (["POST", "PATCH", "PUT", "DELETE"].includes(method)) {
+    const csrfToken = getCookie("csrf_token");
+    if (csrfToken && !headers.has("X-CSRF-Token")) {
+      headers.set("X-CSRF-Token", csrfToken);
+    }
+  }
+
   const response = await fetch(url, {
     ...options,
+    headers,
     credentials: "include",
   });
 

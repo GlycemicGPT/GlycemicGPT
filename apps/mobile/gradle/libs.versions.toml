@@ -27,6 +27,8 @@ wear-compose = "1.4.0"
 wear-watchface = "1.2.1"
 play-services-wearable = "18.2.0"
 bouncycastle = "1.78.1"
+sqlcipher = "4.13.0"
+sqlite = "2.4.0"
 compose-markdown = "0.5.8"
 
 [libraries]
@@ -104,6 +106,10 @@ compose-markdown = { group = "com.github.jeziellago", name = "compose-markdown",
 
 # Cryptography
 bouncycastle = { group = "org.bouncycastle", name = "bcprov-jdk18on", version.ref = "bouncycastle" }
+
+# Database encryption
+sqlcipher = { group = "net.zetetic", name = "sqlcipher-android", version.ref = "sqlcipher" }
+sqlite = { group = "androidx.sqlite", name = "sqlite", version.ref = "sqlite" }
 
 # Testing
 junit = { group = "junit", name = "junit", version.ref = "junit" }

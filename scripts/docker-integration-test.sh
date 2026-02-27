@@ -53,9 +53,14 @@ pass() { PASS=$((PASS+1)); echo "  [PASS] $1"; }
 fail() { FAIL=$((FAIL+1)); echo "  [FAIL] $1"; }
 skip() { SKIP=$((SKIP+1)); echo "  [SKIP] $1"; }
 
+get_csrf_token() {
+  # Extract csrf_token from the cookie jar (Netscape format: domain\tflags\tpath\tsecure\texpiry\tname\tvalue)
+  grep "csrf_token" "$COOKIE_JAR" 2>/dev/null | awk '{print $NF}' | tail -1
+}
+
 api_get() {
   curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 \
-    -b "$COOKIE_JAR" "$API_URL$1" 2>/dev/null || echo "000"
+    -b "$COOKIE_JAR" -c "$COOKIE_JAR" "$API_URL$1" 2>/dev/null || echo "000"
 }
 
 api_get_body() {
@@ -64,21 +69,28 @@ api_get_body() {
 }
 
 api_post() {
+  local csrf; csrf=$(get_csrf_token)
   curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 \
     -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
-    -X POST -H "Content-Type: application/json" -d "$2" "$API_URL$1" 2>/dev/null || echo "000"
+    -X POST -H "Content-Type: application/json" ${csrf:+-H "X-CSRF-Token: $csrf"} \
+    -d "$2" "$API_URL$1" 2>/dev/null || echo "000"
 }
 
+# shellcheck disable=SC2329  # kept for completeness alongside api_post/api_patch
 api_put() {
+  local csrf; csrf=$(get_csrf_token)
   curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 \
     -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
-    -X PUT -H "Content-Type: application/json" -d "$2" "$API_URL$1" 2>/dev/null || echo "000"
+    -X PUT -H "Content-Type: application/json" ${csrf:+-H "X-CSRF-Token: $csrf"} \
+    -d "$2" "$API_URL$1" 2>/dev/null || echo "000"
 }
 
 api_patch() {
+  local csrf; csrf=$(get_csrf_token)
   curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 \
     -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
-    -X PATCH -H "Content-Type: application/json" -d "$2" "$API_URL$1" 2>/dev/null || echo "000"
+    -X PATCH -H "Content-Type: application/json" ${csrf:+-H "X-CSRF-Token: $csrf"} \
+    -d "$2" "$API_URL$1" 2>/dev/null || echo "000"
 }
 
 cleanup() {
