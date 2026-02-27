@@ -18,6 +18,7 @@ from src.schemas.ai_response import AIMessage
 from src.schemas.daily_brief import DailyBriefMetrics
 from src.services.ai_client import get_ai_client
 from src.services.brief_notifier import notify_user_of_brief
+from src.services.safety_validation import log_safety_validation, validate_ai_suggestion
 
 logger = get_logger(__name__)
 
@@ -210,7 +211,10 @@ async def generate_daily_brief(
         system_prompt=SYSTEM_PROMPT,
     )
 
-    # Store the brief
+    # Safety validation (Story 5.6)
+    safety_result = validate_ai_suggestion(ai_response.content, "daily_brief")
+
+    # Store the brief with sanitized text
     brief = DailyBrief(
         user_id=user.id,
         period_start=period_start,
@@ -222,7 +226,7 @@ async def generate_daily_brief(
         readings_count=metrics.readings_count,
         correction_count=metrics.correction_count,
         total_insulin=metrics.total_insulin,
-        ai_summary=ai_response.content,
+        ai_summary=safety_result.sanitized_text,
         ai_model=ai_response.model,
         ai_provider=ai_response.provider.value,
         input_tokens=ai_response.usage.input_tokens,
@@ -230,6 +234,11 @@ async def generate_daily_brief(
     )
 
     db.add(brief)
+    await db.flush()
+
+    # Log safety validation for audit
+    await log_safety_validation(user.id, "daily_brief", brief.id, safety_result, db)
+
     await db.commit()
     await db.refresh(brief)
 

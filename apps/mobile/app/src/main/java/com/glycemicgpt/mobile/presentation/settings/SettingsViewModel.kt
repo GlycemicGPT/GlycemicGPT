@@ -167,7 +167,7 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun loadState() {
-        val loggedIn = authRepository.isLoggedIn()
+        val loggedIn = authRepository.hasActiveSession()
         _uiState.value = _uiState.value.copy(
             baseUrl = authRepository.getBaseUrl() ?: "",
             isLoggedIn = loggedIn,

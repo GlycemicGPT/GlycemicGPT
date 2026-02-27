@@ -43,6 +43,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.glycemicgpt.mobile.data.auth.AuthState
+import com.glycemicgpt.mobile.data.local.AuthTokenStore
 import com.glycemicgpt.mobile.data.local.AppSettingsStore
 import com.glycemicgpt.mobile.presentation.alerts.AlertsScreen
 import com.glycemicgpt.mobile.presentation.chat.AiChatScreen
@@ -69,15 +70,18 @@ sealed class Screen(val route: String, val label: String, val icon: ImageVector)
 private val bottomNavItems = listOf(Screen.Home, Screen.AiChat, Screen.Alerts, Screen.Settings)
 
 @Composable
-fun GlycemicGptNavHost(appSettingsStore: AppSettingsStore) {
+fun GlycemicGptNavHost(appSettingsStore: AppSettingsStore, authTokenStore: AuthTokenStore) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
     val settingsViewModel: SettingsViewModel = hiltViewModel()
     val authState by settingsViewModel.authState.collectAsState()
 
+    // Use hasActiveSession() (checks refresh token) instead of isLoggedIn() (checks access token).
+    // This prevents routing to onboarding when the access token is expired but a valid
+    // refresh token exists -- the AuthManager will refresh it asynchronously.
     val startDestination = remember {
-        if (appSettingsStore.onboardingComplete && settingsViewModel.uiState.value.isLoggedIn) {
+        if (appSettingsStore.onboardingComplete && authTokenStore.hasActiveSession()) {
             Screen.Home.route
         } else {
             Screen.Onboarding.route
@@ -91,6 +95,17 @@ fun GlycemicGptNavHost(appSettingsStore: AppSettingsStore) {
         settingsViewModel.navigateToOnboarding.collect {
             navController.navigate(Screen.Onboarding.route) {
                 popUpTo(0) { inclusive = true }
+            }
+        }
+    }
+
+    // Navigate back to Home when auth state transitions to Authenticated while on onboarding.
+    // This handles the case where the user was briefly shown onboarding due to a stale
+    // start destination, but the async token refresh succeeded.
+    LaunchedEffect(authState, isOnboarding) {
+        if (isOnboarding && authState is AuthState.Authenticated && appSettingsStore.onboardingComplete) {
+            navController.navigate(Screen.Home.route) {
+                popUpTo(Screen.Onboarding.route) { inclusive = true }
             }
         }
     }

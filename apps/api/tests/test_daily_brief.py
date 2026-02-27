@@ -275,12 +275,14 @@ class TestGenerateDailyBrief:
         assert brief.low_count == 1
         assert brief.high_count == 8
         assert brief.readings_count == 288
-        assert brief.ai_summary == "Your glucose was well controlled."
+        assert "Your glucose was well controlled." in brief.ai_summary
+        assert "Safety Notice" in brief.ai_summary
         assert brief.ai_model == "claude-sonnet-4-5-20250929"
         assert brief.ai_provider == "claude"
         assert brief.input_tokens == 100
         assert brief.output_tokens == 50
-        mock_db.add.assert_called_once()
+        assert mock_db.add.call_count == 2  # brief + safety log
+        mock_db.flush.assert_called_once()
         mock_db.commit.assert_called_once()
 
     @patch("src.services.daily_brief.calculate_metrics")
@@ -487,7 +489,8 @@ class TestBriefsEndpoints:
         data = response.json()
         assert data["time_in_range_pct"] == 75.0
         assert data["average_glucose"] == 140.0
-        assert data["ai_summary"] == "Good day overall with some highs."
+        assert "Good day overall with some highs." in data["ai_summary"]
+        assert "Safety Notice" in data["ai_summary"]
         assert data["ai_model"] == "claude-sonnet-4-5-20250929"
         assert "id" in data
         assert "created_at" in data
@@ -627,7 +630,8 @@ class TestBriefsEndpoints:
             )
             assert get_response.status_code == 200
             assert get_response.json()["id"] == brief_id
-            assert get_response.json()["ai_summary"] == "Great control today!"
+            assert "Great control today!" in get_response.json()["ai_summary"]
+            assert "Safety Notice" in get_response.json()["ai_summary"]
 
     async def test_generate_brief_invalid_hours(self):
         """Test POST /api/ai/briefs/generate rejects invalid hours."""

@@ -665,7 +665,7 @@ abstract class TandemPumpModule {
 
 ### PLUGIN_API_VERSION
 
-The constant `PLUGIN_API_VERSION` (currently `1`) is declared in `PluginMetadata.kt`. Each `PluginMetadata` includes the `apiVersion` the plugin was built against.
+The constant `PLUGIN_API_VERSION` (currently `2`) is declared in `PluginMetadata.kt`. Each `PluginMetadata` includes the `apiVersion` the plugin was built against.
 
 ### Version Check Behavior
 
@@ -727,7 +727,7 @@ Every runtime plugin JAR must contain `META-INF/plugin.json`:
 | Field | Required | Description |
 |-------|----------|-------------|
 | `factoryClass` | Yes | Fully-qualified class name of the `PluginFactory` implementation |
-| `apiVersion` | Yes | Must match the host app's `PLUGIN_API_VERSION` (currently `1`) |
+| `apiVersion` | Yes | Must match the host app's `PLUGIN_API_VERSION` (currently `2`) |
 | `id` | Yes | Reverse-domain plugin ID (pattern: `^[a-zA-Z][a-zA-Z0-9._-]{1,127}$`) |
 | `name` | Yes | Human-readable display name |
 | `version` | Yes | Semantic version string |

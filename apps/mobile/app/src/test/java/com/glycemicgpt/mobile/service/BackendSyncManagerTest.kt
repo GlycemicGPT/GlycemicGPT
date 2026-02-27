@@ -44,7 +44,7 @@ class BackendSyncManagerTest {
 
     @Test
     fun `processQueue sends batch to API and deletes on success`() = runTest {
-        every { authTokenStore.isLoggedIn() } returns true
+        every { authTokenStore.hasActiveSession() } returns true
         coEvery { syncDao.getPendingBatch(any(), any(), any()) } returns listOf(sampleEntity())
         coEvery { api.pushPumpEvents(any()) } returns Response.success(
             PumpPushResponse(accepted = 1, duplicates = 0),
@@ -58,7 +58,7 @@ class BackendSyncManagerTest {
 
     @Test
     fun `processQueue skips when not logged in`() = runTest {
-        every { authTokenStore.isLoggedIn() } returns false
+        every { authTokenStore.hasActiveSession() } returns false
 
         manager.processQueue()
 
@@ -71,13 +71,13 @@ class BackendSyncManagerTest {
 
         manager.processQueue()
 
-        coVerify(exactly = 0) { authTokenStore.isLoggedIn() }
+        coVerify(exactly = 0) { authTokenStore.hasActiveSession() }
         coVerify(exactly = 0) { syncDao.getPendingBatch(any(), any(), any()) }
     }
 
     @Test
     fun `processQueue marks failed on network error`() = runTest {
-        every { authTokenStore.isLoggedIn() } returns true
+        every { authTokenStore.hasActiveSession() } returns true
         coEvery { syncDao.getPendingBatch(any(), any(), any()) } returns listOf(sampleEntity())
         coEvery { api.pushPumpEvents(any()) } throws java.io.IOException("No connection")
 
@@ -89,7 +89,7 @@ class BackendSyncManagerTest {
 
     @Test
     fun `processQueue marks failed on HTTP error`() = runTest {
-        every { authTokenStore.isLoggedIn() } returns true
+        every { authTokenStore.hasActiveSession() } returns true
         coEvery { syncDao.getPendingBatch(any(), any(), any()) } returns listOf(sampleEntity())
         coEvery { api.pushPumpEvents(any()) } returns Response.error(
             500,
@@ -103,7 +103,7 @@ class BackendSyncManagerTest {
 
     @Test
     fun `processQueue marks unparseable items as failed separately`() = runTest {
-        every { authTokenStore.isLoggedIn() } returns true
+        every { authTokenStore.hasActiveSession() } returns true
         val badEntity = SyncQueueEntity(
             id = 2L,
             eventType = "basal",

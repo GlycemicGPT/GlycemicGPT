@@ -10,8 +10,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-const SSE_ENDPOINT = `${API_BASE_URL}/api/v1/glucose/stream`;
+import { getApiBaseUrl } from "@/lib/api";
 
 /**
  * Backend trend direction values.
@@ -148,6 +147,10 @@ export interface GlucoseStreamState {
   disconnect: () => void;
 }
 
+/** Physiological glucose bounds (mg/dL) for input validation */
+const GLUCOSE_MIN = 20;
+const GLUCOSE_MAX = 500;
+
 /** Reconnection configuration */
 const RECONNECT_CONFIG = {
   /** Initial delay before first reconnect attempt (ms) */
@@ -162,8 +165,12 @@ const RECONNECT_CONFIG = {
 
 /**
  * Transform raw backend glucose data to frontend-friendly format.
+ * Returns null if the glucose value is outside physiological bounds (20-500 mg/dL).
  */
-function transformGlucoseData(raw: RawGlucoseData): GlucoseData {
+function transformGlucoseData(raw: RawGlucoseData): GlucoseData | null {
+  if (raw.value < GLUCOSE_MIN || raw.value > GLUCOSE_MAX) {
+    return null;
+  }
   return {
     ...raw,
     trend: mapBackendTrendToFrontend(raw.trend),
@@ -237,10 +244,9 @@ export function useGlucoseStream(
     setError(null);
 
     try {
-      // Create EventSource with credentials for cookie-based auth
-      const eventSource = new EventSource(SSE_ENDPOINT, {
-        withCredentials: true,
-      });
+      // Same-origin request via Next.js rewrite proxy (see next.config.ts)
+      const sseEndpoint = `${getApiBaseUrl()}/api/v1/glucose/stream`;
+      const eventSource = new EventSource(sseEndpoint);
 
       eventSource.onopen = () => {
         if (!isMountedRef.current) return;
@@ -254,8 +260,10 @@ export function useGlucoseStream(
         try {
           const rawData: RawGlucoseData = JSON.parse(event.data);
           const glucoseData = transformGlucoseData(rawData);
-          setData(glucoseData);
-          setLastUpdated(new Date());
+          if (glucoseData) {
+            setData(glucoseData);
+            setLastUpdated(new Date());
+          }
           setConnectionState("connected");
         } catch {
           // Issue 8 fix: Remove console.log, silently handle parse errors

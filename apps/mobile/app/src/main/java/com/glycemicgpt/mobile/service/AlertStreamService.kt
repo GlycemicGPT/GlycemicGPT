@@ -98,7 +98,11 @@ class AlertStreamService : Service() {
         eventSource?.cancel()
 
         val baseUrl = authTokenStore.getBaseUrl() ?: return
-        val token = authTokenStore.getToken() ?: return
+        // Use getRawToken() to avoid early-return when the access token is merely
+        // expired.  The SSE client has no TokenRefreshInterceptor, so an expired
+        // token will produce a 401 → onFailure → scheduleReconnect.  By that time
+        // AuthManager should have refreshed the token in the background.
+        val token = authTokenStore.getRawToken() ?: return
 
         val request = Request.Builder()
             .url("$baseUrl/api/v1/alerts/stream")
@@ -206,10 +210,10 @@ class AlertStreamService : Service() {
         serviceScope.launch {
             Timber.d("Reconnecting alert stream in %d ms", backoffMs)
             delay(backoffMs)
-            if (authTokenStore.isLoggedIn()) {
+            if (authTokenStore.hasActiveSession()) {
                 connectToStream()
             } else {
-                Timber.d("Not logged in, stopping alert stream service")
+                Timber.d("No active session, stopping alert stream service")
                 stopSelf()
             }
         }

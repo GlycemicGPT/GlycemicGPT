@@ -25,14 +25,19 @@ enum class TandemPumpModel(
          * Detect the pump model from the BLE advertised name.
          *
          * X2 advertises as "tslim X2 ..." and Mobi as "Tandem Mobi ...".
-         * Matching is case-insensitive to handle variant capitalisation in
-         * BLE advertisements.
+         * Matching is case-insensitive and whitespace-normalized to handle
+         * variant capitalisation and extra/non-breaking spaces in BLE
+         * advertisements. Also accepts the "t:slim X2" variant (with colon).
          */
-        fun fromAdvertisedName(name: String?): TandemPumpModel = when {
-            name == null -> UNKNOWN
-            name.startsWith("tslim X2", ignoreCase = true) -> TSLIM_X2
-            name.startsWith("Tandem Mobi", ignoreCase = true) -> MOBI
-            else -> UNKNOWN
+        fun fromAdvertisedName(name: String?): TandemPumpModel {
+            if (name == null) return UNKNOWN
+            val normalized = name.trim().replace(Regex("\\s+"), " ")
+            return when {
+                normalized.startsWith("tslim X2", ignoreCase = true) -> TSLIM_X2
+                normalized.startsWith("t:slim X2", ignoreCase = true) -> TSLIM_X2
+                normalized.startsWith("Tandem Mobi", ignoreCase = true) -> MOBI
+                else -> UNKNOWN
+            }
         }
     }
 }

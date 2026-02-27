@@ -29,8 +29,10 @@ spec:
             - containerPort: 3000
               name: http
           env:
-            # API URL for server-side rendering
-            - name: NEXT_PUBLIC_API_URL
+            # API URL for server-side rendering (rewrites baked at build time default to http://api:8000).
+            # TODO: Externalize into a ConfigMap or kustomize overlay so the value
+            # is not hardcoded in the base manifest.
+            - name: API_URL
               value: "http://glycemicgpt-api:8000"
             # Disable Next.js telemetry
             - name: NEXT_TELEMETRY_DISABLED

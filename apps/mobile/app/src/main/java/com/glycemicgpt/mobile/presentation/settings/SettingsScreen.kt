@@ -86,9 +86,11 @@ fun SettingsScreen(
 ) {
     val state by settingsViewModel.uiState.collectAsState()
 
-    // Re-check battery optimization when returning from system settings
+    // Reload all settings state when the screen resumes (e.g., returning from
+    // pairing screen, system settings, or after process death). This ensures
+    // pump pairing state, plugin activation, and battery optimization are fresh.
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
-        settingsViewModel.checkBatteryOptimization()
+        settingsViewModel.loadState()
     }
 
     Column(

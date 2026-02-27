@@ -6,7 +6,24 @@
  * Story 15.4: Global 401 handling via apiFetch wrapper
  */
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+/**
+ * Resolve the API base URL.
+ *
+ * Client-side: returns "" (empty string) so all /api/* requests hit the same
+ * origin. Next.js rewrites proxy them to the backend (see next.config.ts).
+ * This eliminates CORS and works behind any reverse proxy.
+ *
+ * Server-side (SSR): uses API_URL env var for container-to-container calls.
+ * Defaults to http://localhost:8000 for local dev outside Docker.
+ */
+export function getApiBaseUrl(): string {
+  if (typeof window !== "undefined") {
+    return "";
+  }
+  return process.env.API_URL || "http://localhost:8000";
+}
+
+const API_BASE_URL = getApiBaseUrl();
 
 // Auth endpoints that legitimately return 401 (should NOT trigger redirect)
 const AUTH_ENDPOINTS = [
@@ -34,7 +51,7 @@ export async function apiFetch(
   });
 
   if (response.status === 401 && typeof window !== "undefined") {
-    const urlPath = new URL(url).pathname;
+    const urlPath = new URL(url, window.location.origin).pathname;
     if (!AUTH_ENDPOINTS.some((ep) => urlPath === ep)) {
       window.location.href = "/login?expired=true";
       return new Promise<Response>(() => {});

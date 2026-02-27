@@ -29,10 +29,6 @@ COPY . .
 
 ENV NEXT_TELEMETRY_DISABLED=1
 
-# Baked into the client JS bundle at build time (cannot be changed at runtime)
-ARG NEXT_PUBLIC_API_URL=http://localhost:8000
-ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
-
 RUN npm run build
 
 # Production image, copy all the files and run next

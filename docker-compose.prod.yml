@@ -84,7 +84,6 @@ services:
     ports:
       - "${WEB_PORT:-3000}:3000"
     environment:
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
       API_URL: http://api:8000
     depends_on:
       api:

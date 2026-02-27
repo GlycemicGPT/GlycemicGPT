@@ -210,8 +210,8 @@ For each settings page with a Save button:
 
 ### Frontend shows "Failed to fetch" everywhere
 - Backend API must be running on port 8000
-- Check CORS settings allow localhost:3000
-- Verify NEXT_PUBLIC_API_URL in frontend environment
+- Check that the web container can reach the API (API_URL env var, default http://api:8000)
+- Browser requests are proxied through the web server via Next.js rewrites -- no direct API access needed
 
 ### Tests fail with database errors
 - Ensure a test database exists

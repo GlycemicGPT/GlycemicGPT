@@ -65,6 +65,7 @@ class SettingsViewModelTest {
     private val authRepository = mockk<AuthRepository>(relaxed = true) {
         every { getBaseUrl() } returns "https://test.example.com"
         every { isLoggedIn() } returns false
+        every { hasActiveSession() } returns false
         every { getUserEmail() } returns null
     }
     private val glucoseRangeStore = mockk<GlucoseRangeStore>(relaxed = true) {
@@ -118,7 +119,7 @@ class SettingsViewModelTest {
 
     @Test
     fun `loadState restores user email when logged in`() {
-        every { authRepository.isLoggedIn() } returns true
+        every { authRepository.hasActiveSession() } returns true
         every { authRepository.getUserEmail() } returns "saved@test.com"
         val vm = createViewModel()
 
@@ -241,7 +242,7 @@ class SettingsViewModelTest {
 
     @Test
     fun `logout delegates to AuthRepository and resets onboarding`() {
-        every { authRepository.isLoggedIn() } returns true
+        every { authRepository.hasActiveSession() } returns true
         val vm = createViewModel()
 
         vm.logout()
@@ -254,7 +255,7 @@ class SettingsViewModelTest {
 
     @Test
     fun `logout emits navigateToOnboarding event`() = runTest {
-        every { authRepository.isLoggedIn() } returns true
+        every { authRepository.hasActiveSession() } returns true
         val vm = createViewModel()
 
         vm.logout()

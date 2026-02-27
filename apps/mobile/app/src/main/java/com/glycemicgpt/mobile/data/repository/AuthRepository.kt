@@ -135,7 +135,20 @@ class AuthRepository @Inject constructor(
 
     fun getBaseUrl(): String? = authTokenStore.getBaseUrl()
 
+    /**
+     * Returns true only if the access token is present AND not expired.
+     * Prefer [hasActiveSession] for navigation/UI decisions -- this method
+     * returns false when the access token is expired even if a valid refresh
+     * token exists and the session can be restored.
+     */
     fun isLoggedIn(): Boolean = authTokenStore.isLoggedIn()
+
+    /**
+     * Returns true if the user has an active session (valid refresh token),
+     * regardless of whether the current access token has expired.
+     * Use for navigation and UI state decisions.
+     */
+    fun hasActiveSession(): Boolean = authTokenStore.hasActiveSession()
 
     fun getUserEmail(): String? = authTokenStore.getUserEmail()
 

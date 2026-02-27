@@ -123,7 +123,7 @@ class BackendSyncManager @Inject constructor(
 
     internal suspend fun processQueue() {
         if (!appSettingsStore.backendSyncEnabled) return
-        if (!authTokenStore.isLoggedIn()) return
+        if (!authTokenStore.hasActiveSession()) return
 
         // Reset orphaned 'sending' items that got stuck after a crash or cancellation
         syncDao.resetStaleSending(System.currentTimeMillis() - STALE_SENDING_TIMEOUT_MS)
