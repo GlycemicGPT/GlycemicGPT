@@ -112,6 +112,7 @@ def create_access_token(
         "exp": expire,
         "iat": datetime.now(UTC),
         "type": "access",
+        "jti": str(uuid.uuid4()),
     }
 
     return jwt.encode(
@@ -176,6 +177,7 @@ def create_refresh_token(
         "exp": expire,
         "iat": datetime.now(UTC),
         "type": "refresh",
+        "jti": str(uuid.uuid4()),
     }
 
     return jwt.encode(
@@ -218,3 +220,4 @@ class TokenData:
         self.email: str = payload["email"]
         self.role: str = payload["role"]
         self.exp: datetime = datetime.fromtimestamp(payload["exp"], tz=UTC)
+        self.jti: str | None = payload.get("jti")

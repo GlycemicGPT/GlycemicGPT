@@ -7,10 +7,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi.errors import RateLimitExceeded
 
-from src.config import settings
+from src.config import settings, validate_secret_key
 from src.database import close_database
 from src.logging_config import get_logger, setup_logging
 from src.middleware import CorrelationIdMiddleware
+from src.middleware.csrf import CSRFMiddleware
 from src.middleware.rate_limit import limiter, rate_limit_exceeded_handler
 from src.routers import (
     ai,
@@ -53,6 +54,7 @@ logger = get_logger(__name__)
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
     # Startup
+    validate_secret_key()
     # Note: Migrations are run by scripts/start.sh before uvicorn starts
     logger.info("GlycemicGPT API started")
 
@@ -73,7 +75,6 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="GlycemicGPT API",
     description="AI-powered diabetes management API",
-    version="0.1.0",
     lifespan=lifespan,
 )
 
@@ -81,18 +82,28 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
-# Middleware (order matters: first added = last executed)
-# Add CORS middleware
+# Middleware (order matters: last added = first executed on incoming requests)
+# Add correlation ID middleware for request tracing (Story 1.5)
+app.add_middleware(CorrelationIdMiddleware)
+
+# Add CSRF protection middleware (Story 28.4)
+app.add_middleware(CSRFMiddleware)
+
+# Add CORS middleware as outermost (added last) so all responses carry CORS
+# headers -- including CSRF 403 rejections that short-circuit inner middleware.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "Accept",
+        "X-CSRF-Token",
+        "X-Correlation-ID",
+    ],
 )
-
-# Add correlation ID middleware for request tracing (Story 1.5)
-app.add_middleware(CorrelationIdMiddleware)
 
 # Include routers
 app.include_router(health.router)
@@ -124,6 +135,5 @@ async def root() -> dict[str, Any]:
     """Root endpoint."""
     return {
         "name": "GlycemicGPT API",
-        "version": "0.1.0",
         "docs": "/docs",
     }

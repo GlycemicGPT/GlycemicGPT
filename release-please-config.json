@@ -7,7 +7,6 @@
       "release-type": "simple",
       "package-name": "glycemicgpt",
       "bump-minor-pre-major": true,
-      "bump-patch-for-minor-pre-major": true,
       "draft": false,
       "prerelease": false,
       "changelog-path": "CHANGELOG.md",

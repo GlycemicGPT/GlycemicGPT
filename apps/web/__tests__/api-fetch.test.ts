@@ -134,10 +134,13 @@ describe("apiFetch", () => {
       expect.objectContaining({
         method: "POST",
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: "test" }),
       })
     );
+    // Headers are converted to a Headers instance by apiFetch (Story 28.4 CSRF support)
+    const actualHeaders = mockFetch.mock.calls[0][1].headers;
+    expect(actualHeaders).toBeInstanceOf(Headers);
+    expect(actualHeaders.get("Content-Type")).toBe("application/json");
   });
 
   it("uses exact pathname match (not substring) for auth endpoint exclusion", async () => {

@@ -163,6 +163,10 @@ dependencies {
     // Security
     implementation(libs.security.crypto)
 
+    // Database encryption (SQLCipher)
+    implementation(libs.sqlcipher)
+    implementation(libs.sqlite)
+
     // Background work
     implementation(libs.work.runtime)
     implementation(libs.hilt.work)
