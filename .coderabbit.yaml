@@ -209,6 +209,14 @@ reviews:
         - Network isolation between services.
         - Volume mounts do not expose host system files.
 
+    - path: "scripts/security/**"
+      instructions: |
+        Security testing scripts for CI DAST pipeline.
+        - test-auth-flows.py: verify tests use unique emails, clean sessions, specific assertions
+        - fuzz-api.py: must remain self-adapting via /openapi.json
+        - No hardcoded secrets, production URLs, or real credentials
+        - run-dast.sh: nuclei wrapper, must skip gracefully when not installed
+
     - path: ".github/workflows/**"
       instructions: |
         Review GitHub Actions workflows for:

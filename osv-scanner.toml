@@ -1,0 +1,53 @@
+# OSV-Scanner configuration
+# https://google.github.io/osv-scanner/configuration/
+
+# Suppress known false positives or accepted risks here.
+# Each entry requires a reason explaining why it's safe to ignore.
+# Review suppressions quarterly.
+
+# cryptography 46.0.4 -- fix available in 46.0.5. Renovate will
+# propose the upgrade. Suppressing temporarily so CI is not blocked.
+# TODO: Remove this suppression after upgrading cryptography to >=46.0.5
+[[IgnoredVulns]]
+id = "GHSA-r6ph-v2qm-q3c2"
+reason = "Fix available in 46.0.5; Renovate PR pending; suppress temporarily"
+
+# ecdsa 0.19.1 -- no fix available. Used transitively by python-jose
+# for JWT signing. We use HMAC (HS256), not ECDSA, so the Minerva
+# timing attack is not exploitable in our usage.
+[[IgnoredVulns]]
+id = "GHSA-wj6h-64fc-37mp"
+reason = "No fix available; not exploitable -- we use HMAC signing, not ECDSA"
+
+# minimatch 3.1.2 / 9.0.5 -- dev-only transitive dependency (eslint/jest).
+# Not included in production builds. ReDoS in glob patterns.
+[[IgnoredVulns]]
+id = "GHSA-23c5-xmqv-rm74"
+reason = "Dev-only dependency (eslint/jest toolchain), not in production"
+
+[[IgnoredVulns]]
+id = "GHSA-3ppc-4f35-3m26"
+reason = "Dev-only dependency (eslint/jest toolchain), not in production"
+
+[[IgnoredVulns]]
+id = "GHSA-7r86-cg39-jmmj"
+reason = "Dev-only dependency (eslint/jest toolchain), not in production"
+
+# ajv 6.12.6 -- dev-only transitive dependency. Prototype pollution
+# via crafted JSON schema, not exploitable in our build tooling.
+[[IgnoredVulns]]
+id = "GHSA-2g4f-4pwh-qvx6"
+reason = "Dev-only dependency, not in production; prototype pollution not exploitable in build tooling"
+
+# next 15.5.12 -- fix only in canary (15.6.0-canary.61). Waiting for
+# stable release. SSRF via Server Actions; mitigated by our CSP and
+# SSRF prevention on backend.
+[[IgnoredVulns]]
+id = "GHSA-5f7q-jpqc-wp7h"
+reason = "Fix only in canary channel; mitigated by CSP and backend SSRF prevention; will upgrade when stable"
+
+# rollup 4.57.1 -- dev-only dependency (Vite/build tooling in sidecar).
+# DOM clobbering vulnerability, not exploitable in Node.js server context.
+[[IgnoredVulns]]
+id = "GHSA-mw96-cpmx-2vgc"
+reason = "Dev-only sidecar build dependency; DOM clobbering not exploitable in Node.js"

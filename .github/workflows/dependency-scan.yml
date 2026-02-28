@@ -1,0 +1,113 @@
+name: Dependency Vulnerability Scan
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    - cron: '0 6 * * 1'  # Weekly Monday 6am UTC -- catches newly disclosed CVEs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: dep-scan-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  detect-changes:
+    name: Detect Dependency Changes
+    runs-on: ubuntu-latest
+    outputs:
+      should_scan: ${{ steps.filter.outputs.deps }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            deps:
+              - 'apps/api/pyproject.toml'
+              - 'apps/api/uv.lock'
+              - 'apps/web/package.json'
+              - 'apps/web/package-lock.json'
+              - 'sidecar/package.json'
+              - 'sidecar/package-lock.json'
+              - 'apps/mobile/**/build.gradle.kts'
+              - 'apps/mobile/gradle/libs.versions.toml'
+              - 'plugins/**/build.gradle.kts'
+              - 'scripts/security/requirements.txt'
+              - '.github/workflows/dependency-scan.yml'
+              - 'osv-scanner.toml'
+
+  scan:
+    name: OSV-Scanner
+    needs: detect-changes
+    if: |
+      needs.detect-changes.outputs.should_scan == 'true' ||
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install OSV-Scanner
+        run: |
+          go install github.com/google/osv-scanner/v2/cmd/osv-scanner@v2.3.3
+          echo "$HOME/go/bin" >> "$GITHUB_PATH"
+
+      - name: Run OSV-Scanner
+        run: |
+          osv-scanner scan \
+            --lockfile=apps/api/uv.lock \
+            --lockfile=apps/web/package-lock.json \
+            --lockfile=sidecar/package-lock.json \
+            --lockfile=scripts/security/requirements.txt \
+            --recursive \
+            --config=osv-scanner.toml \
+            .
+
+  dep-scan-gate:
+    name: Dependency Scan Gate
+    runs-on: ubuntu-latest
+    needs: [detect-changes, scan]
+    if: always()
+    steps:
+      - name: Evaluate result
+        env:
+          DETECT_RESULT: ${{ needs.detect-changes.result }}
+          SHOULD_SCAN: ${{ needs.detect-changes.outputs.should_scan }}
+          SCAN_RESULT: ${{ needs.scan.result }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$DETECT_RESULT" != "success" ]; then
+            echo "detect-changes failed (result: $DETECT_RESULT)"
+            exit 1
+          fi
+
+          # Scheduled/manual runs always require scan success
+          if [ "$EVENT_NAME" = "schedule" ] || [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            if [ "$SCAN_RESULT" = "success" ]; then
+              echo "Dependency scan passed (triggered by $EVENT_NAME)"
+              exit 0
+            fi
+            echo "Dependency scan failed (result: $SCAN_RESULT)"
+            exit 1
+          fi
+
+          # Push/PR: skip if no dependency changes
+          if [ "$SHOULD_SCAN" != "true" ]; then
+            echo "No dependency changes -- skipped"
+            exit 0
+          fi
+
+          if [ "$SCAN_RESULT" = "success" ]; then
+            echo "Dependency scan passed"
+            exit 0
+          fi
+          echo "Dependency scan failed or was cancelled (result: $SCAN_RESULT)"
+          exit 1

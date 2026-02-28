@@ -3,36 +3,46 @@ name: Security Scan (DAST)
 on:
   push:
     branches: [main, develop]
-    paths:
-      - 'apps/api/**'
-      - 'apps/web/**'
-      - 'sidecar/**'
-      - 'docker-compose.yml'
-      - 'docker-compose.test.yml'
-      - 'scripts/security/**'
-      - '.github/workflows/security-scan.yml'
   pull_request:
     branches: [main, develop]
-    paths:
-      - 'apps/api/**'
-      - 'apps/web/**'
-      - 'sidecar/**'
-      - 'docker-compose.yml'
-      - 'docker-compose.test.yml'
-      - 'scripts/security/**'
-      - '.github/workflows/security-scan.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: security-scan-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  detect-changes:
+    name: Detect Security-Relevant Changes
+    runs-on: ubuntu-latest
+    outputs:
+      should_scan: ${{ steps.filter.outputs.security }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            security:
+              - 'apps/api/**'
+              - 'apps/web/**'
+              - 'sidecar/**'
+              - 'docker-compose.yml'
+              - 'docker-compose.test.yml'
+              - '**/Dockerfile*'
+              - 'scripts/security/**'
+              - '.github/workflows/security-scan.yml'
+
   security-scan:
     name: DAST & Auth Penetration Tests
+    needs: detect-changes
+    if: |
+      needs.detect-changes.outputs.should_scan == 'true' ||
+      github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -149,3 +159,42 @@ jobs:
           COMPOSE_PROJECT_NAME: glycemicgpt-test
         run: |
           docker compose -f docker-compose.yml -f docker-compose.test.yml down -v --remove-orphans
+
+  security-scan-gate:
+    name: Security Scan Gate
+    runs-on: ubuntu-latest
+    needs: [detect-changes, security-scan]
+    if: always()
+    steps:
+      - name: Evaluate result
+        env:
+          DETECT_RESULT: ${{ needs.detect-changes.result }}
+          SHOULD_SCAN: ${{ needs.detect-changes.outputs.should_scan }}
+          SCAN_RESULT: ${{ needs.security-scan.result }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$DETECT_RESULT" != "success" ]; then
+            echo "detect-changes failed (result: $DETECT_RESULT)"
+            exit 1
+          fi
+
+          # workflow_dispatch always requires scan success
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            if [ "$SCAN_RESULT" = "success" ]; then
+              echo "Security scan passed (manual dispatch)"
+              exit 0
+            fi
+            echo "Security scan failed (result: $SCAN_RESULT)"
+            exit 1
+          fi
+
+          if [ "$SHOULD_SCAN" != "true" ]; then
+            echo "No security-relevant changes -- skipped"
+            exit 0
+          fi
+          if [ "$SCAN_RESULT" = "success" ]; then
+            echo "Security scan passed"
+            exit 0
+          fi
+          echo "Security scan failed or was cancelled (result: $SCAN_RESULT)"
+          exit 1
