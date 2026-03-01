@@ -2,6 +2,7 @@
 
 import sys
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _INSECURE_DEFAULT_SECRET = "change-me-in-production"
@@ -94,6 +95,11 @@ class Settings(BaseSettings):
     # AI Sidecar (Story 15.2)
     ai_sidecar_url: str = "http://ai-sidecar:3456"
     ai_sidecar_api_key: str = ""  # SIDECAR_API_KEY for inter-service auth
+
+    # Device & API key limits (Story 28.7)
+    max_devices_per_user: int = Field(default=10, ge=1)
+    debug_device_limit: int = Field(default=50, ge=1)
+    debug_rate_limit_multiplier: int = Field(default=5, ge=1)
 
     # SSRF Prevention (Story 28.9)
     # Default True: this is a homelab-first app where AI providers (Ollama, etc.)

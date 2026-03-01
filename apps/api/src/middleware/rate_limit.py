@@ -1,6 +1,7 @@
-"""Story 16.12: Rate limiting middleware using slowapi.
+"""Rate limiting middleware using slowapi.
 
 Protects auth and data push endpoints from abuse.
+Debug builds get relaxed limits via configuration.
 """
 
 from slowapi import Limiter
@@ -41,6 +42,20 @@ limiter = Limiter(
 # Refresh endpoint: 30/minute
 # Device registration: 10/minute
 # Pump push: 60/minute
+# API key creation: 5/minute
+
+
+def is_debug_build(request: Request) -> bool:
+    """Check if the current request came from a debug build.
+
+    Inspects request.state for build_type set during auth (API key or
+    device registration context).
+    """
+    key_scopes = getattr(request.state, "_api_key_scopes", None)
+    if key_scopes is not None:
+        # API key auth -- check key's build_type stored on state
+        return getattr(request.state, "_api_key_build_type", None) == "debug"
+    return False
 
 
 async def rate_limit_exceeded_handler(

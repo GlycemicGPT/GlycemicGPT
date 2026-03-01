@@ -2,6 +2,7 @@
 from src.models.ai_provider import AIProviderConfig, AIProviderStatus, AIProviderType
 from src.models.alert import Alert, AlertSeverity, AlertType
 from src.models.alert_threshold import AlertThreshold
+from src.models.api_key import ApiKey
 from src.models.base import Base, TimestampMixin
 from src.models.brief_delivery_config import BriefDeliveryConfig
 from src.models.caregiver_invitation import CaregiverInvitation, InvitationStatus
@@ -32,6 +33,7 @@ from src.models.pump_profile import PumpProfile
 from src.models.pump_raw_event import PumpRawEvent
 from src.models.safety_limits import SafetyLimits
 from src.models.safety_log import SafetyLog
+from src.models.security_audit_log import SecurityAuditLog
 from src.models.suggestion_response import SuggestionResponse
 from src.models.tandem_upload_state import TandemUploadState
 from src.models.target_glucose_range import TargetGlucoseRange
@@ -47,6 +49,7 @@ __all__ = [
     "AlertSeverity",
     "AlertThreshold",
     "AlertType",
+    "ApiKey",
     "Base",
     "BriefDeliveryConfig",
     "CaregiverInvitation",
@@ -76,6 +79,7 @@ __all__ = [
     "PumpRawEvent",
     "SafetyLimits",
     "SafetyLog",
+    "SecurityAuditLog",
     "SuggestionResponse",
     "TandemUploadState",
     "TargetGlucoseRange",

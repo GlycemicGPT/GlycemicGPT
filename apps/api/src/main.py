@@ -13,11 +13,13 @@ from src.logging_config import get_logger, setup_logging
 from src.middleware import CorrelationIdMiddleware
 from src.middleware.csrf import CSRFMiddleware
 from src.middleware.rate_limit import limiter, rate_limit_exceeded_handler
+from src.middleware.security_headers import SecurityHeadersMiddleware
 from src.routers import (
     ai,
     alert_api,
     alert_stream,
     alerts,
+    api_keys,
     auth,
     briefs,
     caregivers,
@@ -83,6 +85,9 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 # Middleware (order matters: last added = first executed on incoming requests)
+# Add security response headers (Story 28.13)
+app.add_middleware(SecurityHeadersMiddleware)
+
 # Add correlation ID middleware for request tracing (Story 1.5)
 app.add_middleware(CorrelationIdMiddleware)
 
@@ -102,6 +107,7 @@ app.add_middleware(
         "Accept",
         "X-CSRF-Token",
         "X-Correlation-ID",
+        "X-API-Key",
     ],
 )
 
@@ -125,6 +131,7 @@ app.include_router(escalation.router)
 app.include_router(telegram.router)
 app.include_router(caregivers.router)
 app.include_router(device_registration.router)
+app.include_router(api_keys.router)
 app.include_router(alert_stream.router)
 app.include_router(alert_api.router)
 app.include_router(treatment.router)

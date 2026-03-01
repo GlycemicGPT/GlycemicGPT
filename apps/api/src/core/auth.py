@@ -1,7 +1,9 @@
-"""Story 2.2 & 2.4: Authentication and authorization dependencies.
+"""Authentication, authorization, and scope-checking dependencies.
 
-FastAPI dependencies for extracting and validating user authentication,
-and role-based access control.
+Supports three auth paths:
+1. httpOnly session cookie (web)
+2. Authorization Bearer JWT (mobile)
+3. X-API-Key header (third-party integrations)
 """
 
 from typing import Annotated
@@ -19,27 +21,32 @@ from src.models.user import User, UserRole
 
 logger = get_logger(__name__)
 
+# Key set on request.state when auth came via API key
+_API_KEY_SCOPES_ATTR = "_api_key_scopes"
+
+
+def is_api_key_auth(request: Request) -> bool:
+    """Return True if the current request was authenticated via an API key."""
+    return hasattr(request.state, _API_KEY_SCOPES_ATTR)
+
 
 async def get_current_user(
     request: Request,
     session_token: Annotated[str | None, Cookie(alias=settings.jwt_cookie_name)] = None,
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    """Extract and validate the current user from a session cookie or Bearer token.
+    """Extract and validate the current user.
 
-    Checks the httpOnly cookie first, then falls back to an Authorization
-    Bearer header (used by mobile clients).
-
-    Args:
-        request: The HTTP request (for reading Authorization header)
-        session_token: JWT token from the session cookie
-        db: Database session
+    Auth paths (checked in order):
+    1. httpOnly session cookie
+    2. Authorization Bearer JWT
+    3. X-API-Key header
 
     Returns:
         The authenticated User object
 
     Raises:
-        HTTPException 401: If no token, invalid token, or user not found
+        HTTPException 401: If no valid credentials are found
     """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -47,42 +54,75 @@ async def get_current_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
 
+    # --- Path 1 & 2: Cookie / Bearer JWT ---
     if not session_token:
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
             session_token = auth_header[7:]
-        if not session_token:
+
+    if session_token:
+        payload = decode_access_token(session_token)
+        if payload is None:
             raise credentials_exception
 
-    # Decode and validate the token
-    payload = decode_access_token(session_token)
-    if payload is None:
-        raise credentials_exception
+        try:
+            token_data = TokenData(payload)
+        except (KeyError, ValueError):
+            raise credentials_exception
 
-    # Extract user ID from token
-    try:
-        token_data = TokenData(payload)
-    except (KeyError, ValueError):
-        raise credentials_exception
+        if token_data.jti and await is_token_blacklisted(token_data.jti):
+            raise credentials_exception
 
-    # Check token blacklist (Story 28.3)
-    if token_data.jti and await is_token_blacklisted(token_data.jti):
-        raise credentials_exception
+        result = await db.execute(select(User).where(User.id == token_data.user_id))
+        user = result.scalar_one_or_none()
+        if user is None:
+            raise credentials_exception
+        if not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User account is disabled",
+            )
+        return user
 
-    # Fetch the user from the database
-    result = await db.execute(select(User).where(User.id == token_data.user_id))
-    user = result.scalar_one_or_none()
+    # --- Path 3: X-API-Key header ---
+    api_key_header = request.headers.get("X-API-Key")
+    if api_key_header:
+        from src.services.api_key_service import validate_api_key
 
-    if user is None:
-        raise credentials_exception
+        pair = await validate_api_key(db, api_key_header)
+        if pair is None:
+            from src.services.audit_service import log_event
 
-    if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User account is disabled",
-        )
+            ip = request.client.host if request.client else None
+            await log_event(
+                db,
+                event_type="api_key.auth_failed",
+                detail={
+                    "prefix": api_key_header[:12]
+                    if len(api_key_header) >= 12
+                    else "short"
+                },
+                ip_address=ip,
+            )
+            try:
+                await db.commit()
+            except Exception:
+                logger.exception("Failed to commit audit log for failed API key auth")
+            raise credentials_exception
+        api_key_obj, user = pair
+        if not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User account is disabled",
+            )
+        # Stash scopes and build_type on request.state for downstream checks
+        request.state._api_key_scopes = {
+            s.strip() for s in api_key_obj.scopes.split(",") if s.strip()
+        }
+        request.state._api_key_build_type = api_key_obj.build_type
+        return user
 
-    return user
+    raise credentials_exception
 
 
 async def get_current_active_user(
@@ -107,7 +147,45 @@ CurrentUser = Annotated[User, Depends(get_current_user)]
 
 
 # ============================================================================
-# Story 2.4: Role-Based Access Control
+# Scope-based access control (API keys)
+# ============================================================================
+
+
+class ScopeChecker:
+    """Dependency that enforces required scopes for API-key-authenticated requests.
+
+    JWT/cookie requests are treated as first-party and granted all scopes.
+    API-key requests must have every required scope in their key's scope list.
+
+    Usage:
+        @router.get("/glucose")
+        async def get_glucose(
+            user: CurrentUser,
+            _: bool = Depends(ScopeChecker(["read:glucose"])),
+        ):
+            ...
+    """
+
+    def __init__(self, required_scopes: list[str]):
+        self.required_scopes = set(required_scopes)
+
+    async def __call__(self, request: Request, _user: CurrentUser) -> bool:
+        key_scopes: set[str] | None = getattr(request.state, _API_KEY_SCOPES_ATTR, None)
+        # First-party auth (JWT/cookie) -- all scopes granted
+        if key_scopes is None:
+            return True
+
+        missing = self.required_scopes - key_scopes
+        if missing:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Missing required scopes: {', '.join(sorted(missing))}",
+            )
+        return True
+
+
+# ============================================================================
+# Role-Based Access Control
 # ============================================================================
 
 

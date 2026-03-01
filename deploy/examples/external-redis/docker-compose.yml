@@ -1,13 +1,14 @@
-# Production docker-compose using pre-built images from GitHub Container Registry
-# Usage: docker compose -f docker-compose.prod.yml up -d
+# GlycemicGPT -- Production with External Redis/Valkey
 #
-# Pull latest images:
-#   docker pull ghcr.io/jlengelbrecht/glycemicgpt-api:latest
-#   docker pull ghcr.io/jlengelbrecht/glycemicgpt-web:latest
-#   docker pull ghcr.io/jlengelbrecht/glycemicgpt-sidecar:latest
+# Usage:
+#   1. Copy .env.example to .env and fill in all values
+#   2. Point REDIS_URL at your external Redis or Valkey instance
+#   3. Add your own reverse proxy (Caddy, Nginx, etc.) or
+#      combine with the cloudflare-tunnel example
+#   4. docker compose up -d
 #
-# Or use a specific version:
-#   IMAGE_TAG=0.1.2 docker compose -f docker-compose.prod.yml up -d
+# This example omits the bundled Redis container entirely.
+# Compatible with: Redis 7+, Valkey 7+, AWS ElastiCache, etc.
 
 services:
   db:
@@ -21,21 +22,6 @@ services:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-glycemicgpt}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    command: >
-      sh -c '[ -n "$$REDIS_PASSWORD" ] && exec redis-server --requirepass "$$REDIS_PASSWORD" || exec redis-server'
-    environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD-SHELL", "REDISCLI_AUTH=$$REDIS_PASSWORD redis-cli ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -59,21 +45,21 @@ services:
   api:
     image: ghcr.io/jlengelbrecht/glycemicgpt-api:${IMAGE_TAG:-latest}
     restart: unless-stopped
+    # WARNING: Ports exposed directly. Add a reverse proxy (Caddy, Nginx,
+    # Cloudflare Tunnel) for TLS in production -- see other examples.
     ports:
       - "${API_PORT:-8000}:8000"
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-glycemicgpt}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-glycemicgpt}
-      # When REDIS_PASSWORD is set, override REDIS_URL in .env:
-      # REDIS_URL=redis://:<your-redis-password>@redis:6379/0
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      REDIS_URL: ${REDIS_URL:?REDIS_URL is required for external Redis}
       LOG_FORMAT: ${LOG_FORMAT:-json}
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
       AI_SIDECAR_URL: http://ai-sidecar:3456
       AI_SIDECAR_API_KEY: ${SIDECAR_API_KEY:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-[]}
+      ALLOW_PRIVATE_AI_URLS: "false"
     depends_on:
       db:
-        condition: service_healthy
-      redis:
         condition: service_healthy
       ai-sidecar:
         condition: service_healthy
@@ -87,6 +73,7 @@ services:
   web:
     image: ghcr.io/jlengelbrecht/glycemicgpt-web:${IMAGE_TAG:-latest}
     restart: unless-stopped
+    # WARNING: Ports exposed directly. See note on api service above.
     ports:
       - "${WEB_PORT:-3000}:3000"
     environment:
@@ -97,6 +84,5 @@ services:
 
 volumes:
   postgres_data:
-  redis_data:
   sidecar_auth:
   sidecar_codex:
