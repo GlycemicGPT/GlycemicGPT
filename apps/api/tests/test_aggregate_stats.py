@@ -316,11 +316,13 @@ class TestGlucosePercentiles:
         assert resp.status_code == 200
         data = resp.json()
         assert data["readings_count"] == 52  # 50 + 2 boundary values
-        # At least one bucket should have p10 <= 40 or p90 >= 400
+        # Boundary values should influence percentile extremes
         all_p10 = [b["p10"] for b in data["buckets"] if b["count"] > 0]
         all_p90 = [b["p90"] for b in data["buckets"] if b["count"] > 0]
-        assert min(all_p10) <= 80  # 40 or normal low end
-        assert max(all_p90) >= 180  # 400 or normal high end
+        assert len(all_p10) > 0, "Expected at least one bucket with data"
+        assert len(all_p90) > 0, "Expected at least one bucket with data"
+        assert min(all_p10) < 80  # pulled down by 40 mg/dL boundary
+        assert max(all_p90) > 200  # pulled up by 400 mg/dL boundary
 
     async def test_percentiles_with_timezone(self):
         """Verify tz parameter is accepted and produces valid results."""

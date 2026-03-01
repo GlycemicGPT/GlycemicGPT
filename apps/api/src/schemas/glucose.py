@@ -93,6 +93,10 @@ class GlucosePercentilesResponse(BaseModel):
     )
     period_days: int = Field(..., ge=1, description="Number of days analyzed")
     readings_count: int = Field(..., ge=0, description="Total readings used")
+    is_truncated: bool = Field(
+        False,
+        description="True if readings were capped by server row limit; percentiles may be approximate",
+    )
 
 
 class SyncResponse(BaseModel):

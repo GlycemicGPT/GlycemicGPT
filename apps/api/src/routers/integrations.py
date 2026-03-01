@@ -1479,6 +1479,8 @@ async def trigger_tandem_upload(
 
 # Maximum rows to load into memory for percentile calculation
 _AGP_MAX_ROWS = 50_000
+# Hard safety cap for insulin units (Tandem X2/Mobi max single bolus = 25U)
+_MAX_BOLUS_UNITS = 25
 
 
 def _compute_percentile(data: list[float], pct: float) -> float:
@@ -1658,6 +1660,7 @@ async def get_glucose_percentiles(
         buckets=buckets,
         period_days=days,
         readings_count=len(rows),
+        is_truncated=len(rows) >= _AGP_MAX_ROWS,
     )
 
 
@@ -1703,7 +1706,7 @@ async def get_insulin_summary(
             PumpEvent.event_timestamp >= cutoff,
             PumpEvent.units.is_not(None),
             PumpEvent.units >= 0,
-            PumpEvent.units <= 25,
+            PumpEvent.units <= _MAX_BOLUS_UNITS,
             PumpEvent.event_type.in_(
                 [
                     PumpEventType.BASAL,
@@ -1788,7 +1791,7 @@ async def get_bolus_review(
             PumpEvent.event_timestamp >= cutoff,
             PumpEvent.units.is_not(None),
             PumpEvent.units >= 0,
-            PumpEvent.units <= 25,
+            PumpEvent.units <= _MAX_BOLUS_UNITS,
             PumpEvent.event_type.in_(
                 [
                     PumpEventType.BOLUS,
@@ -1807,7 +1810,7 @@ async def get_bolus_review(
             PumpEvent.event_timestamp >= cutoff,
             PumpEvent.units.is_not(None),
             PumpEvent.units >= 0,
-            PumpEvent.units <= 25,
+            PumpEvent.units <= _MAX_BOLUS_UNITS,
             PumpEvent.event_type.in_(
                 [
                     PumpEventType.BOLUS,
