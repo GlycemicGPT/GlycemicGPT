@@ -1,3 +1,5 @@
+"use client";
+
 /**
  * CGM Summary Stats Panel
  *
@@ -6,6 +8,7 @@
  * readings count. Period-selectable.
  */
 
+import { useRef } from "react";
 import { AlertCircle, BarChart3, TrendingUp, Percent, Heart, Radio, Hash } from "lucide-react";
 import type { GlucoseStats } from "@/lib/api";
 import type { StatsPeriod } from "@/hooks/use-glucose-stats";
@@ -94,6 +97,28 @@ export function CgmSummaryStats({
   const cvAssessment = stats && Number.isFinite(stats.cv_pct) ? getCvAssessment(stats.cv_pct) : null;
   const cgmAssessment = stats && Number.isFinite(stats.cgm_active_pct) ? getCgmActiveAssessment(stats.cgm_active_pct) : null;
   const periodLabel = PERIOD_LABELS[period] ?? period;
+  const buttonsRef = useRef<(HTMLButtonElement | null)[]>([]);
+
+  const handlePeriodKeyDown = (e: React.KeyboardEvent, index: number) => {
+    let newIndex = index;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+      e.preventDefault();
+      newIndex = (index + 1) % PERIOD_OPTIONS.length;
+    } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+      e.preventDefault();
+      newIndex = (index - 1 + PERIOD_OPTIONS.length) % PERIOD_OPTIONS.length;
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      newIndex = 0;
+    } else if (e.key === "End") {
+      e.preventDefault();
+      newIndex = PERIOD_OPTIONS.length - 1;
+    } else {
+      return;
+    }
+    onPeriodChange(PERIOD_OPTIONS[newIndex].value);
+    buttonsRef.current[newIndex]?.focus();
+  };
 
   return (
     <section
@@ -116,12 +141,15 @@ export function CgmSummaryStats({
         </div>
 
         <div className="flex gap-1" role="radiogroup" aria-label="Statistics time period">
-          {PERIOD_OPTIONS.map((opt) => (
+          {PERIOD_OPTIONS.map((opt, i) => (
             <button
               key={opt.value}
+              ref={(el) => { buttonsRef.current[i] = el; }}
               role="radio"
               aria-checked={period === opt.value}
+              tabIndex={period === opt.value ? 0 : -1}
               onClick={() => onPeriodChange(opt.value)}
+              onKeyDown={(e) => handlePeriodKeyDown(e, i)}
               className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
                 period === opt.value
                   ? "bg-blue-600 text-white"
