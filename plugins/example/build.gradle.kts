@@ -47,7 +47,7 @@ dependencies {
     // Alternatively, when building within the monorepo for testing:
     // compileOnly(project(":pump-driver-api"))
 
-    compileOnly("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
+    compileOnly("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
 }
 
 tasks.jar {
