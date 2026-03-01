@@ -3,7 +3,7 @@ ARG VERSION=0.0.0
 ARG BUILD_DATE=unknown
 ARG GIT_SHA=unknown
 
-FROM python:3.14-slim
+FROM python:3.13-slim
 
 # Labels
 LABEL org.opencontainers.image.title="GlycemicGPT API"
