@@ -2182,10 +2182,10 @@ async def get_bolus_review(
     offset: int = Query(default=0, ge=0, description="Pagination offset"),
 ) -> BolusReviewResponse:
     """Get paginated list of bolus events for review."""
-    cutoff = datetime.now(UTC) - timedelta(days=days)
+    now = datetime.now(UTC)
+    cutoff = now - timedelta(days=days)
 
     # Determine best source to avoid cross-source duplicates.
-    now = datetime.now(UTC)
     review_source = await _best_source(
         db,
         current_user.id,
