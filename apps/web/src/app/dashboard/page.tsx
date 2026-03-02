@@ -27,10 +27,10 @@ import {
   ConnectionStatusBanner,
   GlucoseTrendChart,
   CgmSummaryStats,
+  PERIOD_LABELS,
 } from "@/components/dashboard";
-import { PERIOD_LABELS } from "@/components/dashboard/time-in-range-bar";
 import { useGlucoseStreamContext, useUserContext } from "@/providers";
-import { useTimeInRangeStats } from "@/hooks/use-time-in-range-stats";
+import { useTimeInRangeDetailStats } from "@/hooks/use-time-in-range-stats";
 import { useGlucoseStats } from "@/hooks/use-glucose-stats";
 import { useGlucoseRange } from "@/hooks/use-glucose-range";
 import { usePumpStatus } from "@/hooks/use-pump-status";
@@ -76,13 +76,14 @@ export default function DashboardPage() {
     }
   }, [user, router]);
 
-  // Story 18.6: Fetch time-in-range stats from API
+  // Story 30.4 consolidated: single hook for 5-bucket TIR detail stats
   const {
     stats: tirStats,
     isLoading: tirLoading,
+    error: tirError,
     period: tirPeriod,
     setPeriod: setTirPeriod,
-  } = useTimeInRangeStats("24h");
+  } = useTimeInRangeDetailStats("24h");
 
   // Story 30.3: Fetch CGM summary stats from API
   const {
@@ -119,6 +120,11 @@ export default function DashboardPage() {
     if (isStale) return "Data is stale";
     return "Data is fresh";
   };
+
+  // Derive in-range pct from detail stats for the metrics card
+  const inRangePct = tirStats?.buckets?.find(
+    (b) => b.label === "in_range"
+  )?.pct;
 
   return (
     <main id="main-content" className="space-y-6">
@@ -172,8 +178,8 @@ export default function DashboardPage() {
               </div>
               <h3 className="text-slate-400 text-sm">Time in Range ({PERIOD_LABELS[tirPeriod]})</h3>
             </div>
-            <p className="text-3xl font-bold text-green-400" aria-label={`Time in range: ${tirStats && tirStats.readings_count > 0 ? Math.round(tirStats.in_range_pct) : "--"} percent`}>
-              {tirStats && tirStats.readings_count > 0 ? `${Math.round(tirStats.in_range_pct)}%` : "--"}
+            <p className="text-3xl font-bold text-green-400" aria-label={`Time in range: ${inRangePct != null && tirStats && tirStats.readings_count > 0 ? Math.round(inRangePct) : "--"} percent`}>
+              {inRangePct != null && tirStats && tirStats.readings_count > 0 ? `${Math.round(inRangePct)}%` : "--"}
             </p>
             <p className="text-slate-500 text-xs mt-1">Target: {targetRange}</p>
           </article>
@@ -194,9 +200,13 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {/* Time in Range bar - Story 4.4, 18.6 */}
+      {/* Time in Range bar - consolidated 5-bucket display */}
       <TimeInRangeBar
-        data={tirStats ? { low: tirStats.low_pct, inRange: tirStats.in_range_pct, high: tirStats.high_pct } : { low: 0, inRange: 0, high: 0 }}
+        buckets={tirStats?.buckets ?? null}
+        readingsCount={tirStats?.readings_count ?? 0}
+        previousBuckets={tirStats?.previous_buckets ?? null}
+        previousReadingsCount={tirStats?.previous_readings_count ?? null}
+        error={tirError}
         period={tirPeriod}
         onPeriodChange={setTirPeriod}
         targetRange={targetRange}

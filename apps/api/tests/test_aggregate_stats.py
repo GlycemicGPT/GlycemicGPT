@@ -546,6 +546,8 @@ class TestCrossUserIsolation:
                 cookies={settings.jwt_cookie_name: cookie_b},
             )
 
+        assert resp_a.status_code == 200
+        assert resp_b.status_code == 200
         assert resp_a.json()["readings_count"] == 50
         assert resp_b.json()["readings_count"] == 0
 
@@ -569,6 +571,8 @@ class TestCrossUserIsolation:
                 cookies={settings.jwt_cookie_name: cookie_b},
             )
 
+        assert resp_a.status_code == 200
+        assert resp_b.status_code == 200
         assert resp_a.json()["tdd"] > 0
         assert resp_b.json()["tdd"] == 0.0
 
@@ -592,6 +596,238 @@ class TestCrossUserIsolation:
                 cookies={settings.jwt_cookie_name: cookie_b},
             )
 
+        assert resp_a.status_code == 200
+        assert resp_b.status_code == 200
         assert resp_a.json()["total_count"] == 35
         assert resp_b.json()["total_count"] == 0
         assert resp_b.json()["boluses"] == []
+
+    async def test_tir_detail_isolation(self):
+        """Verify include_details=true path isolates user data."""
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie_a, user_a = await register_and_login(client)
+            cookie_b, _ = await register_and_login(client)
+
+            async for db in get_db():
+                await seed_glucose(db, user_a, count=50)
+                break
+
+            resp_a = await client.get(
+                "/api/integrations/glucose/time-in-range"
+                "?minutes=1440&include_details=true",
+                cookies={settings.jwt_cookie_name: cookie_a},
+            )
+            resp_b = await client.get(
+                "/api/integrations/glucose/time-in-range"
+                "?minutes=1440&include_details=true",
+                cookies={settings.jwt_cookie_name: cookie_b},
+            )
+
+        assert resp_a.status_code == 200
+        assert resp_b.status_code == 200
+        assert resp_a.json()["readings_count"] == 50
+        assert resp_b.json()["readings_count"] == 0
+
+
+async def seed_5_bucket_glucose(
+    db: AsyncSession,
+    user_id: str,
+    minutes_ago_start: int = 0,
+):
+    """Insert glucose readings spanning all 5 TIR buckets.
+
+    Defaults: urgent_low=55, low=70, high=180, urgent_high=250.
+    Inserts readings at: 40 (urgent_low), 60 (low), 65 (low),
+    100 (in_range), 120 (in_range), 150 (in_range), 160 (in_range),
+    200 (high), 220 (high), 280 (urgent_high).
+    """
+    now = datetime.now(UTC)
+    uid = uuid.UUID(user_id)
+    values = [40, 60, 65, 100, 120, 150, 160, 200, 220, 280]
+    for i, val in enumerate(values):
+        ts = now - timedelta(minutes=minutes_ago_start + i * 5)
+        db.add(
+            GlucoseReading(
+                user_id=uid,
+                value=val,
+                reading_timestamp=ts,
+                trend=TrendDirection.FLAT,
+                trend_rate=0.0,
+                received_at=ts,
+                source="test",
+            )
+        )
+    await db.commit()
+
+
+@pytest.mark.asyncio
+class TestTirDetail:
+    async def test_tir_5_bucket_detail(self):
+        """Verify 5 buckets with known glucose values spanning all ranges."""
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie, user_id = await register_and_login(client)
+
+            async for db in get_db():
+                await seed_5_bucket_glucose(db, user_id)
+                break
+
+            resp = await client.get(
+                "/api/integrations/glucose/time-in-range"
+                "?minutes=1440&include_details=true",
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["buckets"]) == 5
+        labels = [b["label"] for b in data["buckets"]]
+        assert labels == [
+            "urgent_low",
+            "low",
+            "in_range",
+            "high",
+            "urgent_high",
+        ]
+        # 1 urgent_low (40), 2 low (60,65), 4 in_range (100,120,150,160),
+        # 2 high (200,220), 1 urgent_high (280)
+        readings = {b["label"]: b["readings"] for b in data["buckets"]}
+        assert readings["urgent_low"] == 1
+        assert readings["low"] == 2
+        assert readings["in_range"] == 4
+        assert readings["high"] == 2
+        assert readings["urgent_high"] == 1
+        assert data["readings_count"] == 10
+
+    async def test_tir_previous_period(self):
+        """Verify previous_buckets is populated when previous period has data."""
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie, user_id = await register_and_login(client)
+
+            async for db in get_db():
+                # Current period: last 60 min
+                await seed_5_bucket_glucose(db, user_id, minutes_ago_start=0)
+                # Previous period: 60-120 min ago (10 readings)
+                await seed_5_bucket_glucose(db, user_id, minutes_ago_start=60)
+                break
+
+            resp = await client.get(
+                "/api/integrations/glucose/time-in-range"
+                "?minutes=60&include_details=true",
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["previous_buckets"] is not None
+        assert len(data["previous_buckets"]) == 5
+        assert data["previous_readings_count"] == 10
+
+    async def test_tir_previous_period_insufficient_data(self):
+        """Verify previous_buckets=null when < 10 readings in prev period."""
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie, user_id = await register_and_login(client)
+
+            async for db in get_db():
+                # Only current period data, no previous period readings
+                await seed_5_bucket_glucose(db, user_id, minutes_ago_start=0)
+                break
+
+            resp = await client.get(
+                "/api/integrations/glucose/time-in-range"
+                "?minutes=1440&include_details=true",
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["previous_buckets"] is None
+        assert data["previous_readings_count"] is None
+
+    async def test_tir_previous_period_boundary_9_readings(self):
+        """Verify previous_buckets=null when exactly 9 readings (below 10 threshold)."""
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie, user_id = await register_and_login(client)
+
+            async for db in get_db():
+                # Current period: last 60 min (10 readings)
+                await seed_5_bucket_glucose(db, user_id, minutes_ago_start=0)
+                # Previous period: 60-120 min ago -- only 9 readings
+                now = datetime.now(UTC)
+                uid = uuid.UUID(user_id)
+                for i in range(9):
+                    ts = now - timedelta(minutes=60 + i * 5)
+                    db.add(
+                        GlucoseReading(
+                            user_id=uid,
+                            value=120,
+                            reading_timestamp=ts,
+                            trend=TrendDirection.FLAT,
+                            trend_rate=0.0,
+                            received_at=ts,
+                            source="test",
+                        )
+                    )
+                await db.commit()
+                break
+
+            resp = await client.get(
+                "/api/integrations/glucose/time-in-range"
+                "?minutes=60&include_details=true",
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["previous_buckets"] is None
+        assert data["previous_readings_count"] is None
+
+    async def test_tir_detail_bucket_sum(self):
+        """Verify all bucket percentages sum to 100.0."""
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie, user_id = await register_and_login(client)
+
+            async for db in get_db():
+                await seed_5_bucket_glucose(db, user_id)
+                break
+
+            resp = await client.get(
+                "/api/integrations/glucose/time-in-range"
+                "?minutes=1440&include_details=true",
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        total_pct = sum(b["pct"] for b in data["buckets"])
+        assert abs(total_pct - 100.0) < 0.01
+
+    async def test_tir_detail_backward_compat(self):
+        """Verify include_details=false returns old 3-bucket schema."""
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie, user_id = await register_and_login(client)
+
+            async for db in get_db():
+                await seed_5_bucket_glucose(db, user_id)
+                break
+
+            resp = await client.get(
+                "/api/integrations/glucose/time-in-range?minutes=1440",
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        # Old schema has low_pct, in_range_pct, high_pct
+        assert "low_pct" in data
+        assert "in_range_pct" in data
+        assert "high_pct" in data
+        # Should NOT have 5-bucket fields
+        assert "buckets" not in data
