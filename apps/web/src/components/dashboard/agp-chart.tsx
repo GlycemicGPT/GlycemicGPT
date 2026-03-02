@@ -8,7 +8,7 @@
  * percentile bands, rendered as stacked areas with a median line overlay.
  */
 
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -143,21 +143,49 @@ function PeriodSelector({
   period: AgpPeriod;
   onPeriodChange: (p: AgpPeriod) => void;
 }) {
+  const buttonsRef = useRef<(HTMLButtonElement | null)[]>([]);
+  const len = AGP_PERIODS.length;
+
+  const handleKeyDown = (e: React.KeyboardEvent, index: number) => {
+    let newIndex: number | null = null;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+      e.preventDefault();
+      newIndex = (index + 1) % len;
+    } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+      e.preventDefault();
+      newIndex = (index - 1 + len) % len;
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      newIndex = 0;
+    } else if (e.key === "End") {
+      e.preventDefault();
+      newIndex = len - 1;
+    }
+    if (newIndex != null) {
+      onPeriodChange(AGP_PERIODS[newIndex].value);
+      buttonsRef.current[newIndex]?.focus();
+    }
+  };
+
   return (
     <div
       role="radiogroup"
       aria-label="AGP time period"
       className="flex gap-1"
     >
-      {AGP_PERIODS.map((p) => (
+      {AGP_PERIODS.map((p, index) => (
         <button
           key={p.value}
+          ref={(el) => { buttonsRef.current[index] = el; }}
+          type="button"
           role="radio"
           aria-checked={period === p.value}
           aria-label={AGP_PERIOD_LABELS[p.value]}
+          tabIndex={period === p.value ? 0 : -1}
           onClick={() => onPeriodChange(p.value)}
+          onKeyDown={(e) => handleKeyDown(e, index)}
           className={clsx(
-            "px-3 py-1 text-xs font-medium rounded-md transition-colors",
+            "px-3 py-1 text-xs font-medium rounded-md transition-colors outline-none focus-visible:ring-2 focus-visible:ring-teal-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900",
             period === p.value
               ? "bg-teal-500/20 text-teal-400 border border-teal-500/40"
               : "text-slate-400 hover:text-slate-300 border border-transparent"
@@ -248,8 +276,9 @@ export function AgpChart({ className, thresholds }: AgpChartProps) {
           <p className="text-red-400 mb-2">Unable to load AGP data</p>
           <p className="text-slate-500 text-xs mb-2">{error}</p>
           <button
+            type="button"
             onClick={refetch}
-            className="text-teal-400 hover:text-teal-300 text-sm underline"
+            className="text-teal-400 hover:text-teal-300 text-sm underline outline-none focus-visible:ring-2 focus-visible:ring-teal-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 rounded"
           >
             Retry
           </button>

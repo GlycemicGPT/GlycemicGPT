@@ -28,6 +28,8 @@ import {
   GlucoseTrendChart,
   CgmSummaryStats,
   AgpChart,
+  InsulinSummaryStats,
+  BolusReviewTable,
   PERIOD_LABELS,
 } from "@/components/dashboard";
 import { useGlucoseStreamContext, useUserContext } from "@/providers";
@@ -169,6 +171,10 @@ export default function DashboardPage() {
 
       {/* AGP Percentile Band Chart - Story 30.5 */}
       <AgpChart thresholds={glucoseThresholds} />
+
+      {/* Insulin Summary & Bolus Review - Story 30.7 */}
+      <InsulinSummaryStats />
+      <BolusReviewTable />
 
       {/* Metrics grid with proper heading hierarchy */}
       <section aria-labelledby="metrics-heading">

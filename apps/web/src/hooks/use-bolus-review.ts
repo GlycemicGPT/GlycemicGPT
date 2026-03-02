@@ -1,68 +1,70 @@
 "use client";
 
 /**
- * useGlucosePercentiles Hook
+ * useBolusReview Hook
  *
- * Story 30.5: Fetches AGP percentile band data from the API.
+ * Story 30.7: Fetches paginated bolus review data from the API.
  * Manages time period selection and data refreshing with
  * generation counter for race-condition safety.
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
-  getGlucosePercentiles,
-  type GlucosePercentilesResponse,
+  getBolusReview,
+  type BolusReviewResponse,
 } from "@/lib/api";
 
-export type AgpPeriod = "7d" | "14d" | "30d" | "90d";
+export type BolusReviewPeriod = "24h" | "3d" | "7d" | "14d" | "30d";
 
-const PERIOD_TO_DAYS: Record<AgpPeriod, number> = {
+const PERIOD_TO_DAYS: Record<BolusReviewPeriod, number> = {
+  "24h": 1,
+  "3d": 3,
   "7d": 7,
   "14d": 14,
   "30d": 30,
-  "90d": 90,
 };
 
-export const AGP_PERIOD_LABELS: Record<AgpPeriod, string> = {
+export const BOLUS_PERIOD_LABELS: Record<BolusReviewPeriod, string> = {
+  "24h": "24 Hours",
+  "3d": "3 Days",
   "7d": "7 Days",
   "14d": "14 Days",
   "30d": "30 Days",
-  "90d": "90 Days",
 };
 
-export interface UseGlucosePercentilesReturn {
-  data: GlucosePercentilesResponse | null;
+export interface UseBolusReviewReturn {
+  data: BolusReviewResponse | null;
   isLoading: boolean;
   error: string | null;
-  period: AgpPeriod;
-  setPeriod: (p: AgpPeriod) => void;
+  period: BolusReviewPeriod;
+  setPeriod: (p: BolusReviewPeriod) => void;
   refetch: () => void;
 }
 
-export function useGlucosePercentiles(
-  initialPeriod: AgpPeriod = "14d"
-): UseGlucosePercentilesReturn {
-  const [data, setData] = useState<GlucosePercentilesResponse | null>(null);
+export function useBolusReview(
+  initialPeriod: BolusReviewPeriod = "7d"
+): UseBolusReviewReturn {
+  const [data, setData] = useState<BolusReviewResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [period, setPeriod] = useState<AgpPeriod>(initialPeriod);
+  const [period, setPeriod] = useState<BolusReviewPeriod>(initialPeriod);
   const fetchGenRef = useRef(0);
 
   const fetchData = useCallback(async () => {
     const gen = ++fetchGenRef.current;
     setIsLoading(true);
     setError(null);
-    setData(null); // Clear stale data to avoid showing wrong period's values
+    setData(null);
     try {
       const days = PERIOD_TO_DAYS[period];
-      const result = await getGlucosePercentiles(days);
+      const result = await getBolusReview(days, 100, 0);
       if (gen === fetchGenRef.current) {
         setData(result);
       }
     } catch (err) {
       if (gen === fetchGenRef.current) {
         setError(
-          err instanceof Error ? err.message : "Failed to load AGP data"
+          err instanceof Error ? err.message : "Failed to load bolus review"
         );
       }
     } finally {

@@ -73,3 +73,13 @@ export {
   formatHour,
 } from "./agp-chart";
 
+export {
+  InsulinSummaryStats,
+  type InsulinSummaryStatsProps,
+} from "./insulin-summary-stats";
+
+export {
+  BolusReviewTable,
+  type BolusReviewTableProps,
+} from "./bolus-review-table";
+
