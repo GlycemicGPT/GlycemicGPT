@@ -618,6 +618,57 @@ class TestInsulinSummary:
         # Total should be very close to 0.
         assert data["basal_units"] < 0.5
 
+    async def test_basal_carry_over_from_before_cutoff(self):
+        """A basal rate started before the query window should carry into it."""
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie, user_id = await register_and_login(client)
+
+            async for db in get_db():
+                now = datetime.now(UTC)
+                uid = uuid.UUID(user_id)
+                # Record BEFORE the 1-day cutoff (25 hours ago) at 1.0 U/hr
+                db.add(
+                    PumpEvent(
+                        user_id=uid,
+                        event_type=PumpEventType.BASAL,
+                        event_timestamp=now - timedelta(hours=25),
+                        units=1.0,
+                        is_automated=True,
+                        received_at=now,
+                        source="test",
+                    )
+                )
+                # Record INSIDE the window (1 hour ago)
+                db.add(
+                    PumpEvent(
+                        user_id=uid,
+                        event_type=PumpEventType.BASAL,
+                        event_timestamp=now - timedelta(hours=1),
+                        units=0.5,
+                        is_automated=True,
+                        received_at=now,
+                        source="test",
+                    )
+                )
+                await db.commit()
+                break
+
+            resp = await client.get(
+                "/api/integrations/insulin/summary?days=1",
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        # The pre-cutoff record at 1.0 U/hr should carry over, contributing
+        # delivery from cutoff until the in-window record (gap capped at 2h).
+        # Then the in-window record at 0.5 U/hr contributes ~0.5 U for ~1h.
+        # Without carry-over, only the second record contributes ~0.5 U.
+        assert data["basal_units"] > 1.0, (
+            f"Carry-over missing: {data['basal_units']} U (expected >1.0)"
+        )
+
 
 @pytest.mark.asyncio
 class TestBolusReview:

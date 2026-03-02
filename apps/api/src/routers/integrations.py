@@ -1982,30 +1982,53 @@ async def get_insulin_summary(
     _table = PumpEvent.__tablename__
     _basal_val = PumpEventType.BASAL.value
     basal_query = text(f"""
-        WITH basal_ordered AS (
-            SELECT
-                event_timestamp,
-                units,
-                LEAD(event_timestamp) OVER (
-                    PARTITION BY user_id ORDER BY event_timestamp
-                ) AS next_ts
+        WITH prior AS (
+            SELECT event_timestamp, units
             FROM {_table}
             WHERE user_id = :user_id
-              AND event_timestamp >= :cutoff
               AND event_type = :event_type
               AND units IS NOT NULL
               AND units >= 0
               AND units <= :max_rate
+              AND event_timestamp < :cutoff
+            ORDER BY event_timestamp DESC
+            LIMIT 1
+        ),
+        in_window AS (
+            SELECT event_timestamp, units
+            FROM {_table}
+            WHERE user_id = :user_id
+              AND event_type = :event_type
+              AND units IS NOT NULL
+              AND units >= 0
+              AND units <= :max_rate
+              AND event_timestamp >= :cutoff
+              AND event_timestamp <= :now
+        ),
+        basal_source AS (
+            SELECT * FROM prior
+            UNION ALL
+            SELECT * FROM in_window
+        ),
+        basal_ordered AS (
+            SELECT
+                event_timestamp,
+                units,
+                LEAD(event_timestamp) OVER (ORDER BY event_timestamp) AS next_ts
+            FROM basal_source
         )
         SELECT COALESCE(SUM(
             units * LEAST(
-                EXTRACT(EPOCH FROM (COALESCE(next_ts, :now) - event_timestamp))
-                    / 3600.0,
+                EXTRACT(EPOCH FROM (
+                    LEAST(COALESCE(next_ts, :now), :now)
+                    - GREATEST(event_timestamp, :cutoff)
+                )) / 3600.0,
                 :max_gap
             )
         ), 0) AS total_basal
         FROM basal_ordered
-        WHERE COALESCE(next_ts, :now) > event_timestamp
+        WHERE LEAST(COALESCE(next_ts, :now), :now)
+            > GREATEST(event_timestamp, :cutoff)
     """)
     basal_result = await db.execute(
         basal_query,
