@@ -875,6 +875,60 @@ class TestNormalizePumpEvent:
         assert result["type"] == "basal"
         assert "iob" not in result
 
+    def test_event_279_populates_units_from_rate(self):
+        """Event 279 (LidBasalDelivery) should store rate as units for aggregation."""
+        import arrow
+
+        event = self._make_event(
+            {
+                "id": "279",
+                "eventTimestamp": arrow.now(),
+                "commandedRate": "800",  # 800 milliunits/hr = 0.8 U/hr
+                "profileBasalRate": "750",
+            }
+        )
+        result = _normalize_pump_event(event)
+        assert result is not None
+        assert result["type"] == "basal"
+        assert result["actualRate"] == 0.8
+        assert result["units"] == 0.8
+        assert result["profileRate"] == 0.75
+
+    def test_event_3_populates_units_from_rate(self):
+        """Event 3 (basal rate change) should store rate as units for aggregation."""
+        import arrow
+
+        event = self._make_event(
+            {
+                "id": "3",
+                "eventTimestamp": arrow.now(),
+                "commandedbasalrate": "1.2",
+                "basebasalrate": "0.9",
+            }
+        )
+        result = _normalize_pump_event(event)
+        assert result is not None
+        assert result["type"] == "basal"
+        assert result["actualRate"] == 1.2
+        assert result["units"] == 1.2
+        assert result["profileRate"] == 0.9
+
+    def test_event_279_no_rate_no_units(self):
+        """Event 279 without commandedRate should not set units."""
+        import arrow
+
+        event = self._make_event(
+            {
+                "id": "279",
+                "eventTimestamp": arrow.now(),
+                "profileBasalRate": "750",
+            }
+        )
+        result = _normalize_pump_event(event)
+        assert result is not None
+        assert result["type"] == "basal"
+        assert "units" not in result
+
 
 class TestControlIQActivityEndpoint:
     """Tests for the Control-IQ activity endpoint (Story 3.5)."""

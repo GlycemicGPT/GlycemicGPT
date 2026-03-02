@@ -419,7 +419,9 @@ class TestInsulinSummary:
             )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["tdd"] > 0
+        # Expected: basal ~19.1 U/day (0.8 U/hr * 24h), bolus 13.5 + correction 2.4
+        # = TDD ~35 U/day
+        assert 25 < data["tdd"] < 45, f"TDD out of range: {data['tdd']}"
         assert data["basal_units"] > 0
         assert data["bolus_units"] > 0
         assert data["bolus_count"] == 21  # 3/day * 7 days
@@ -444,6 +446,177 @@ class TestInsulinSummary:
         ) as client:
             resp = await client.get("/api/integrations/insulin/summary")
         assert resp.status_code == 401
+
+    async def test_basal_rapid_polling_not_overcounted(self):
+        """Mobile BLE polling stores rate every ~15s; SUM would massively overcount."""
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie, user_id = await register_and_login(client)
+
+            async for db in get_db():
+                now = datetime.now(UTC)
+                uid = uuid.UUID(user_id)
+                # 240 records over 1 hour (every 15 seconds) at 0.8 U/hr
+                for i in range(240):
+                    ts = now - timedelta(seconds=i * 15)
+                    db.add(
+                        PumpEvent(
+                            user_id=uid,
+                            event_type=PumpEventType.BASAL,
+                            event_timestamp=ts,
+                            units=0.8,
+                            is_automated=True,
+                            received_at=ts,
+                            source="mobile",
+                        )
+                    )
+                await db.commit()
+                break
+
+            resp = await client.get(
+                "/api/integrations/insulin/summary?days=1",
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        # Time-weighted: 0.8 U/hr * 1 hour = ~0.8 U (not 240 * 0.8 = 192)
+        assert 0.5 < data["basal_units"] < 1.2, (
+            f"Basal overcounted: {data['basal_units']} U (expected ~0.8)"
+        )
+
+    async def test_basal_gap_capped(self):
+        """Gaps longer than max gap should be capped to prevent phantom insulin."""
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie, user_id = await register_and_login(client)
+
+            async for db in get_db():
+                now = datetime.now(UTC)
+                uid = uuid.UUID(user_id)
+                # Two records 6 hours apart at 0.8 U/hr
+                db.add(
+                    PumpEvent(
+                        user_id=uid,
+                        event_type=PumpEventType.BASAL,
+                        event_timestamp=now - timedelta(hours=6),
+                        units=0.8,
+                        is_automated=True,
+                        received_at=now,
+                        source="test",
+                    )
+                )
+                db.add(
+                    PumpEvent(
+                        user_id=uid,
+                        event_type=PumpEventType.BASAL,
+                        event_timestamp=now,
+                        units=0.8,
+                        is_automated=True,
+                        received_at=now,
+                        source="test",
+                    )
+                )
+                await db.commit()
+                break
+
+            resp = await client.get(
+                "/api/integrations/insulin/summary?days=1",
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        # Gap of 6h should be capped at 2h: 0.8 * 2.0 = 1.6 U max from first
+        # record. Second record has ~0 gap to now. Total < 2.0 U.
+        assert data["basal_units"] < 2.0, (
+            f"Gap not capped: {data['basal_units']} U (expected ~1.6)"
+        )
+        assert data["basal_units"] > 1.0
+
+    async def test_basal_only_no_boluses(self):
+        """Basal-only data (zero boluses) should produce 100% basal split."""
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie, user_id = await register_and_login(client)
+
+            async for db in get_db():
+                now = datetime.now(UTC)
+                uid = uuid.UUID(user_id)
+                # 24 hourly basal records at 1.0 U/hr, no boluses
+                for h in range(24):
+                    ts = now - timedelta(hours=h)
+                    db.add(
+                        PumpEvent(
+                            user_id=uid,
+                            event_type=PumpEventType.BASAL,
+                            event_timestamp=ts,
+                            units=1.0,
+                            is_automated=True,
+                            received_at=ts,
+                            source="test",
+                        )
+                    )
+                await db.commit()
+                break
+
+            resp = await client.get(
+                "/api/integrations/insulin/summary?days=1",
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["basal_pct"] == 100.0
+        assert data["bolus_pct"] == 0.0
+        assert data["bolus_count"] == 0
+        assert data["basal_units"] > 0
+
+    async def test_basal_suspended_zero_rate(self):
+        """Suspended pump (rate=0) should contribute 0 to basal total."""
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie, user_id = await register_and_login(client)
+
+            async for db in get_db():
+                now = datetime.now(UTC)
+                uid = uuid.UUID(user_id)
+                # Suspended record (rate = 0) followed by a normal record
+                db.add(
+                    PumpEvent(
+                        user_id=uid,
+                        event_type=PumpEventType.BASAL,
+                        event_timestamp=now - timedelta(hours=1),
+                        units=0.0,
+                        is_automated=True,
+                        received_at=now,
+                        source="test",
+                    )
+                )
+                db.add(
+                    PumpEvent(
+                        user_id=uid,
+                        event_type=PumpEventType.BASAL,
+                        event_timestamp=now,
+                        units=0.8,
+                        is_automated=True,
+                        received_at=now,
+                        source="test",
+                    )
+                )
+                await db.commit()
+                break
+
+            resp = await client.get(
+                "/api/integrations/insulin/summary?days=1",
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        # Suspended hour contributes 0. Second record has ~0 gap to now.
+        # Total should be very close to 0.
+        assert data["basal_units"] < 0.5
 
 
 @pytest.mark.asyncio

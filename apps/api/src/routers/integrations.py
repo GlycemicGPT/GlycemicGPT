@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydexcom import Dexcom
 from pydexcom import errors as dexcom_errors
-from sqlalchemy import and_, case, func, select
+from sqlalchemy import and_, case, func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from tconnectsync.api.common import ApiException
@@ -1734,6 +1734,13 @@ async def trigger_tandem_upload(
 _AGP_MAX_ROWS = 50_000
 # Hard safety cap for insulin units (Tandem X2/Mobi max single bolus = 25U)
 _MAX_BOLUS_UNITS = 25
+# Maximum basal rate (Tandem X2/Mobi max = 15 U/hr)
+_MAX_BASAL_RATE = 15.0
+# Maximum gap between basal records before capping (handles disconnections).
+# 2 hours covers typical gaps: site changes (~30 min), sensor restarts (~2 hr
+# for Dexcom G6/G7), showers (~15 min). Longer gaps indicate true disconnection
+# and should not accumulate phantom insulin.
+_BASAL_MAX_GAP_HOURS = 2.0
 
 
 def _compute_percentile(data: list[float], pct: float) -> float:
@@ -1944,10 +1951,11 @@ async def get_insulin_summary(
     daily averages over the requested period. Counts (bolus_count,
     correction_count) are totals for the full period.
     """
-    cutoff = datetime.now(UTC) - timedelta(days=days)
+    now = datetime.now(UTC)
+    cutoff = now - timedelta(days=days)
 
-    # Aggregate insulin by event type in SQL
-    result = await db.execute(
+    # Bolus/correction: simple SUM (these are actual delivery amounts)
+    bolus_result = await db.execute(
         select(
             PumpEvent.event_type,
             PumpEvent.is_automated,
@@ -1961,28 +1969,64 @@ async def get_insulin_summary(
             PumpEvent.units >= 0,
             PumpEvent.units <= _MAX_BOLUS_UNITS,
             PumpEvent.event_type.in_(
-                [
-                    PumpEventType.BASAL,
-                    PumpEventType.BOLUS,
-                    PumpEventType.CORRECTION,
-                ]
+                [PumpEventType.BOLUS, PumpEventType.CORRECTION]
             ),
         )
         .group_by(PumpEvent.event_type, PumpEvent.is_automated)
     )
-    rows = result.all()
+    bolus_rows = bolus_result.all()
 
-    basal_units = 0.0
+    # Basal: time-weighted rate integration using SQL LEAD() window function.
+    # Each basal record stores units = rate in U/hr (not delivered amount).
+    # We compute actual delivery as rate * time_until_next_record, capped at
+    # _BASAL_MAX_GAP_HOURS to handle pump disconnections/gaps.
+    # Uses PostgreSQL EXTRACT(EPOCH) and LEAST() -- not portable to SQLite.
+    basal_query = text("""
+        WITH basal_ordered AS (
+            SELECT
+                event_timestamp,
+                units,
+                LEAD(event_timestamp) OVER (
+                    PARTITION BY user_id ORDER BY event_timestamp
+                ) AS next_ts
+            FROM pump_events
+            WHERE user_id = :user_id
+              AND event_timestamp >= :cutoff
+              AND event_type = 'basal'
+              AND units IS NOT NULL
+              AND units >= 0
+              AND units <= :max_rate
+        )
+        SELECT COALESCE(SUM(
+            units * LEAST(
+                EXTRACT(EPOCH FROM (COALESCE(next_ts, :now) - event_timestamp))
+                    / 3600.0,
+                :max_gap
+            )
+        ), 0) AS total_basal
+        FROM basal_ordered
+        WHERE COALESCE(next_ts, :now) > event_timestamp
+    """)
+    basal_result = await db.execute(
+        basal_query,
+        {
+            "user_id": str(current_user.id),
+            "cutoff": cutoff,
+            "now": now,
+            "max_rate": float(_MAX_BASAL_RATE),
+            "max_gap": float(_BASAL_MAX_GAP_HOURS),
+        },
+    )
+    basal_units = float(basal_result.scalar() or 0.0)
+
     bolus_units = 0.0
     correction_units = 0.0
     bolus_count = 0
     correction_count = 0
 
-    for row in rows:
+    for row in bolus_rows:
         units = float(row.total_units)
-        if row.event_type == PumpEventType.BASAL:
-            basal_units += units
-        elif row.event_type == PumpEventType.BOLUS:
+        if row.event_type == PumpEventType.BOLUS:
             bolus_units += units
             bolus_count += int(row.event_count)
         elif row.event_type == PumpEventType.CORRECTION:
@@ -1990,18 +2034,21 @@ async def get_insulin_summary(
             correction_count += int(row.event_count)
 
     tdd_total = basal_units + bolus_units + correction_units
-    # Average per day
-    tdd = round(tdd_total / max(days, 1), 1)
-    basal_avg = round(basal_units / max(days, 1), 1)
-    bolus_avg = round((bolus_units + correction_units) / max(days, 1), 1)
-    correction_avg = round(correction_units / max(days, 1), 1)
-
-    if tdd > 0:
-        basal_pct = round((basal_avg / tdd) * 100, 1)
+    # Compute percentages from raw totals before rounding to avoid
+    # compounding rounding error.
+    if tdd_total > 0:
+        basal_pct = round((basal_units / tdd_total) * 100, 1)
         bolus_pct = round(100 - basal_pct, 1)
     else:
         basal_pct = 0.0
         bolus_pct = 0.0
+
+    # Average per day (round only at the final output step)
+    d = max(days, 1)
+    tdd = round(tdd_total / d, 1)
+    basal_avg = round(basal_units / d, 1)
+    bolus_avg = round((bolus_units + correction_units) / d, 1)
+    correction_avg = round(correction_units / d, 1)
 
     return InsulinSummaryResponse(
         tdd=tdd,
