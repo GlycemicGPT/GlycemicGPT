@@ -1968,9 +1968,7 @@ async def get_insulin_summary(
             PumpEvent.units.is_not(None),
             PumpEvent.units >= 0,
             PumpEvent.units <= _MAX_BOLUS_UNITS,
-            PumpEvent.event_type.in_(
-                [PumpEventType.BOLUS, PumpEventType.CORRECTION]
-            ),
+            PumpEvent.event_type.in_([PumpEventType.BOLUS, PumpEventType.CORRECTION]),
         )
         .group_by(PumpEvent.event_type, PumpEvent.is_automated)
     )
