@@ -66,3 +66,10 @@ export {
   type CgmSummaryStatsProps,
 } from "./cgm-summary-stats";
 
+export {
+  AgpChart,
+  type AgpChartProps,
+  transformBuckets,
+  formatHour,
+} from "./agp-chart";
+

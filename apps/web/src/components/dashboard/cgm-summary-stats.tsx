@@ -47,6 +47,11 @@ function isReasonableGlucose(value: number): boolean {
   return Number.isFinite(value) && value >= 20 && value <= 500;
 }
 
+/** Check if a standard deviation value is valid (finite and non-negative). */
+function isValidStdDev(value: number): boolean {
+  return Number.isFinite(value) && value >= 0;
+}
+
 /** Safely format a number, returning "--" for NaN/Infinity. */
 function safeRound(value: number): string {
   if (!Number.isFinite(value)) return "--";
@@ -214,9 +219,9 @@ export function CgmSummaryStats({
           <StatCard
             icon={<BarChart3 className="h-4 w-4 text-purple-400" aria-hidden="true" />}
             label="Std Dev"
-            value={isReasonableGlucose(stats.std_dev) ? safeRound(stats.std_dev) : "--"}
+            value={isValidStdDev(stats.std_dev) ? safeRound(stats.std_dev) : "--"}
             subtitle="mg/dL"
-            ariaLabel={`Standard deviation: ${isReasonableGlucose(stats.std_dev) ? `${safeRound(stats.std_dev)} mg/dL` : "unavailable"}`}
+            ariaLabel={`Standard deviation: ${isValidStdDev(stats.std_dev) ? `${safeRound(stats.std_dev)} mg/dL` : "unavailable"}`}
           />
 
           <StatCard

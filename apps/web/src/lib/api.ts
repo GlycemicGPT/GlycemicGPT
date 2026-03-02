@@ -2506,3 +2506,43 @@ export async function getGlucoseStats(
   }
   return response.json();
 }
+
+// ============================================================================
+// AGP Glucose Percentiles (Story 30.5)
+// ============================================================================
+
+export interface AGPBucket {
+  hour: number;
+  p10: number;
+  p25: number;
+  p50: number;
+  p75: number;
+  p90: number;
+  count: number;
+}
+
+export interface GlucosePercentilesResponse {
+  buckets: AGPBucket[];
+  period_days: number;
+  readings_count: number;
+  is_truncated: boolean;
+}
+
+export async function getGlucosePercentiles(
+  days: number = 14,
+  tz?: string
+): Promise<GlucosePercentilesResponse> {
+  const safeDays = Number.isFinite(days) ? days : 14;
+  const clampedDays = Math.max(7, Math.min(90, Math.round(safeDays)));
+  const timezone = tz ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/glucose/percentiles?days=${clampedDays}&tz=${encodeURIComponent(timezone)}`
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to fetch glucose percentiles: ${response.status}`
+    );
+  }
+  return response.json();
+}
