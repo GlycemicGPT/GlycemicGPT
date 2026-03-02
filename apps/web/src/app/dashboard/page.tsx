@@ -98,6 +98,7 @@ export default function DashboardPage() {
   const {
     stats: tirDetailStats,
     isLoading: tirDetailLoading,
+    error: tirDetailError,
     period: tirDetailPeriod,
     setPeriod: setTirDetailPeriod,
   } = useTimeInRangeDetailStats("24h");
@@ -219,6 +220,7 @@ export default function DashboardPage() {
         previousBuckets={tirDetailStats?.previous_buckets ?? null}
         previousReadingsCount={tirDetailStats?.previous_readings_count ?? null}
         isLoading={tirDetailLoading}
+        error={tirDetailError}
         period={tirDetailPeriod}
         onPeriodChange={setTirDetailPeriod}
       />

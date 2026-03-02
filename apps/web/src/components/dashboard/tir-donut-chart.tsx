@@ -21,6 +21,7 @@ export interface TirDonutChartProps {
   previousBuckets: TirBucket[] | null;
   previousReadingsCount: number | null;
   isLoading?: boolean;
+  error?: string | null;
   period?: TimePeriod;
   onPeriodChange?: (period: TimePeriod) => void;
   className?: string;
@@ -74,6 +75,7 @@ export function TirDonutChart({
   previousBuckets,
   previousReadingsCount,
   isLoading = false,
+  error = null,
   period = "24h",
   onPeriodChange,
   className,
@@ -107,6 +109,34 @@ export function TirDonutChart({
     );
   }
 
+  // Error state
+  if (error) {
+    return (
+      <div
+        className={clsx(
+          "bg-slate-900 rounded-xl p-6 border border-slate-800",
+          className
+        )}
+        data-testid="tir-donut-chart"
+        role="region"
+        aria-label="Time in range donut chart"
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold">Time in Range</h2>
+          {onPeriodChange && (
+            <PeriodSelector
+              period={period}
+              onPeriodChange={onPeriodChange}
+            />
+          )}
+        </div>
+        <p className="text-red-400 text-center py-12" data-testid="error-message" role="alert">
+          {error}
+        </p>
+      </div>
+    );
+  }
+
   // No data state
   if (!buckets || readingsCount === 0) {
     return (
@@ -116,6 +146,8 @@ export function TirDonutChart({
           className
         )}
         data-testid="tir-donut-chart"
+        role="region"
+        aria-label="Time in range donut chart"
       >
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold">Time in Range</h2>
@@ -294,7 +326,7 @@ function TirDonutChartInner({
         data-testid="tir-legend"
       >
         {buckets.map((b) => (
-          <div key={b.label} className="flex items-center gap-1.5">
+          <div key={b.label} className="flex items-center gap-1.5" data-testid="tir-legend-item">
             <div
               className="w-2.5 h-2.5 rounded-full flex-shrink-0"
               style={{ backgroundColor: BUCKET_COLORS[b.label] }}

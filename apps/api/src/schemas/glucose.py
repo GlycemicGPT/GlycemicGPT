@@ -68,22 +68,26 @@ class TirBucket(BaseModel):
     pct: float = Field(
         ..., ge=0, le=100, description="Percentage of readings in this bucket"
     )
-    readings: int = Field(..., description="Number of readings in this bucket")
+    readings: int = Field(..., ge=0, description="Number of readings in this bucket")
     threshold_low: float | None = Field(
-        None, description="Lower bound (None for urgent_low)"
+        None, ge=0, le=600, description="Lower bound in mg/dL (None for urgent_low)"
     )
     threshold_high: float | None = Field(
-        None, description="Upper bound (None for urgent_high)"
+        None, ge=0, le=600, description="Upper bound in mg/dL (None for urgent_high)"
     )
 
 
 class TirThresholds(BaseModel):
     """Threshold values used for TIR bucket boundaries."""
 
-    urgent_low: float = Field(..., description="Urgent low threshold (mg/dL)")
-    low: float = Field(..., description="Low threshold (mg/dL)")
-    high: float = Field(..., description="High threshold (mg/dL)")
-    urgent_high: float = Field(..., description="Urgent high threshold (mg/dL)")
+    urgent_low: float = Field(
+        ..., ge=0, le=600, description="Urgent low threshold (mg/dL)"
+    )
+    low: float = Field(..., ge=0, le=600, description="Low threshold (mg/dL)")
+    high: float = Field(..., ge=0, le=600, description="High threshold (mg/dL)")
+    urgent_high: float = Field(
+        ..., ge=0, le=600, description="Urgent high threshold (mg/dL)"
+    )
 
 
 class TimeInRangeDetailResponse(BaseModel):
@@ -92,12 +96,14 @@ class TimeInRangeDetailResponse(BaseModel):
     buckets: list[TirBucket] = Field(
         ..., description="5 buckets ordered urgent_low -> urgent_high"
     )
-    readings_count: int = Field(..., description="Total readings in current period")
+    readings_count: int = Field(
+        ..., ge=0, description="Total readings in current period"
+    )
     previous_buckets: list[TirBucket] | None = Field(
         None, description="Previous period buckets (null if insufficient data)"
     )
     previous_readings_count: int | None = Field(
-        None, description="Total readings in previous period"
+        None, ge=0, description="Total readings in previous period"
     )
     thresholds: TirThresholds = Field(
         ...,

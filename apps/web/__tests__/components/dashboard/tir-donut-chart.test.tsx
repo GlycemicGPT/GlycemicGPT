@@ -74,8 +74,7 @@ describe("TirDonutChart", () => {
     const legend = screen.getByTestId("tir-legend");
     expect(legend).toBeInTheDocument();
     expect(screen.getByText("Urgent Low")).toBeInTheDocument();
-    // "Low" and "In Range" appear multiple times (legend + center), so check within legend
-    const legendItems = legend.querySelectorAll(".flex.items-center");
+    const legendItems = screen.getAllByTestId("tir-legend-item");
     expect(legendItems).toHaveLength(5);
     expect(screen.getByText("High")).toBeInTheDocument();
     expect(screen.getByText("Urgent High")).toBeInTheDocument();
@@ -87,6 +86,18 @@ describe("TirDonutChart", () => {
     expect(chart).toHaveAttribute("aria-busy", "true");
     // Legend should NOT be present while loading
     expect(screen.queryByTestId("tir-legend")).not.toBeInTheDocument();
+  });
+
+  it("shows error message when error prop is set", () => {
+    render(
+      <TirDonutChart
+        {...defaultProps}
+        error="Failed to load TIR detail"
+      />
+    );
+    const errorMsg = screen.getByTestId("error-message");
+    expect(errorMsg).toHaveTextContent("Failed to load TIR detail");
+    expect(errorMsg).toHaveAttribute("role", "alert");
   });
 
   it("shows no-data message when stats are null", () => {

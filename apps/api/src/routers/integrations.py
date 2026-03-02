@@ -4,6 +4,7 @@ API endpoints for managing third-party integrations (Dexcom, Tandem) and data sy
 """
 
 import math
+import uuid
 import zoneinfo
 from datetime import UTC, datetime, timedelta
 
@@ -926,7 +927,7 @@ async def get_time_in_range(
 
 async def _query_5_buckets(
     db: AsyncSession,
-    user_id,
+    user_id: uuid.UUID,
     start: datetime,
     end: datetime,
     urgent_low: float,
