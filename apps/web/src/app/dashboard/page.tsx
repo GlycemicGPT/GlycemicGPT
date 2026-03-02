@@ -27,6 +27,7 @@ import {
   ConnectionStatusBanner,
   GlucoseTrendChart,
   CgmSummaryStats,
+  AgpChart,
   PERIOD_LABELS,
 } from "@/components/dashboard";
 import { useGlucoseStreamContext, useUserContext } from "@/providers";
@@ -165,6 +166,9 @@ export default function DashboardPage() {
         period={cgmPeriod}
         onPeriodChange={setCgmPeriod}
       />
+
+      {/* AGP Percentile Band Chart - Story 30.5 */}
+      <AgpChart thresholds={glucoseThresholds} />
 
       {/* Metrics grid with proper heading hierarchy */}
       <section aria-labelledby="metrics-heading">

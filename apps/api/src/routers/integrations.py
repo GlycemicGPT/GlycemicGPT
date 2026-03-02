@@ -854,7 +854,7 @@ async def get_time_in_range(
 
         low_pct = round((low_count / count) * 100, 1)
         high_pct = round((high_count / count) * 100, 1)
-        in_range_pct = round(100 - low_pct - high_pct, 1)
+        in_range_pct = max(0.0, round(100 - low_pct - high_pct, 1))
 
         return TimeInRangeResponse(
             low_pct=low_pct,
