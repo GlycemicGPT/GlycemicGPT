@@ -2607,8 +2607,8 @@ export async function getBolusReview(
 ): Promise<BolusReviewResponse> {
   const safeDays = Number.isFinite(days) ? days : 7;
   const clampedDays = Math.max(1, Math.min(30, Math.round(safeDays)));
-  const safeLimit = Math.max(1, Math.min(500, Math.round(limit)));
-  const safeOffset = Math.max(0, Math.round(offset));
+  const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(500, Math.round(limit))) : 100;
+  const safeOffset = Number.isFinite(offset) ? Math.max(0, Math.round(offset)) : 0;
   const response = await apiFetch(
     `${API_BASE_URL}/api/integrations/bolus/review?days=${clampedDays}&limit=${safeLimit}&offset=${safeOffset}`
   );

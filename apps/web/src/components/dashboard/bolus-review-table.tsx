@@ -76,7 +76,7 @@ function BolusRow({ bolus }: { bolus: BolusReviewItem }) {
   return (
     <tr
       className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors"
-      aria-label={`Bolus at ${formatDateTime(bolus.event_timestamp)}, ${Number.isFinite(bolus.units) ? `${bolus.units.toFixed(2)} units` : "unknown"}, ${bolus.is_automated ? "automated" : "manual"}`}
+      aria-label={`Bolus at ${formatDateTime(bolus.event_timestamp)}, ${formatUnits(bolus.units, 2)}, ${bolus.is_automated ? "automated" : "manual"}`}
     >
       <td className="px-4 py-3 text-sm text-slate-300 whitespace-nowrap">
         {formatDateTime(bolus.event_timestamp)}
