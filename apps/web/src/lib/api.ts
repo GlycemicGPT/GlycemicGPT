@@ -2470,3 +2470,32 @@ export async function getTimeInRangeStats(
   }
   return response.json();
 }
+
+// ============================================================================
+// CGM Summary Statistics (Story 30.3)
+// ============================================================================
+
+export interface GlucoseStats {
+  mean_glucose: number;
+  std_dev: number;
+  cv_pct: number;
+  gmi: number;
+  cgm_active_pct: number;
+  readings_count: number;
+  period_minutes: number;
+}
+
+export async function getGlucoseStats(
+  minutes: number = 1440
+): Promise<GlucoseStats> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/glucose/stats?minutes=${minutes}`
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to fetch glucose stats: ${response.status}`
+    );
+  }
+  return response.json();
+}
