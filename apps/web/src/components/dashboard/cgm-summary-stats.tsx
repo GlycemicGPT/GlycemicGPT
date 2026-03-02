@@ -59,6 +59,24 @@ function safeFixed1(value: number): string {
   return value.toFixed(1);
 }
 
+/** Safely format a percentage with 1 decimal, returning "--" for NaN/Infinity. */
+function safePercent1(value: number): string {
+  if (!Number.isFinite(value)) return "--";
+  return `${value.toFixed(1)}%`;
+}
+
+/** Safely format a percentage (rounded), returning "--" for NaN/Infinity. */
+function safePercent0(value: number): string {
+  if (!Number.isFinite(value)) return "--";
+  return `${Math.round(value)}%`;
+}
+
+/** Safely format a count, returning "--" for NaN/Infinity/negative. */
+function safeCount(value: number): string {
+  if (!Number.isFinite(value) || value < 0) return "--";
+  return Math.round(value).toLocaleString();
+}
+
 function StatSkeleton() {
   return (
     <div className="animate-pulse space-y-2">
@@ -98,7 +116,7 @@ export function CgmSummaryStats({
   period,
   onPeriodChange,
 }: CgmSummaryStatsProps) {
-  const noData = !stats || stats.readings_count === 0;
+  const noData = !stats || !Number.isFinite(stats.readings_count) || stats.readings_count <= 0;
   const cvAssessment = stats && Number.isFinite(stats.cv_pct) ? getCvAssessment(stats.cv_pct) : null;
   const cgmAssessment = stats && Number.isFinite(stats.cgm_active_pct) ? getCgmActiveAssessment(stats.cgm_active_pct) : null;
   const periodLabel = PERIOD_LABELS[period] ?? period;
@@ -204,7 +222,7 @@ export function CgmSummaryStats({
           <StatCard
             icon={<Percent className="h-4 w-4 text-amber-400" aria-hidden="true" />}
             label="CV%"
-            value={`${safeFixed1(stats.cv_pct)}%`}
+            value={safePercent1(stats.cv_pct)}
             subtitle={cvAssessment ? `Target <36% | ${cvAssessment.label}` : "Target <36%"}
             subtitleColor={cvAssessment?.color ?? "text-slate-500"}
             ariaLabel={`Coefficient of variation: ${safeFixed1(stats.cv_pct)} percent. ${cvAssessment?.label ?? ""}`}
@@ -213,7 +231,7 @@ export function CgmSummaryStats({
           <StatCard
             icon={<Heart className="h-4 w-4 text-rose-400" aria-hidden="true" />}
             label="GMI (est. A1C)"
-            value={`${safeFixed1(stats.gmi)}%`}
+            value={safePercent1(stats.gmi)}
             subtitle="Glucose Management Indicator"
             ariaLabel={`Glucose Management Indicator: ${safeFixed1(stats.gmi)} percent estimated A1C`}
           />
@@ -221,7 +239,7 @@ export function CgmSummaryStats({
           <StatCard
             icon={<Radio className="h-4 w-4 text-emerald-400" aria-hidden="true" />}
             label="CGM Active"
-            value={`${safeRound(stats.cgm_active_pct)}%`}
+            value={safePercent0(stats.cgm_active_pct)}
             subtitle={cgmAssessment ? `Target >70% | ${cgmAssessment.label}` : "Target >70%"}
             subtitleColor={cgmAssessment?.color ?? "text-slate-500"}
             ariaLabel={`CGM active time: ${safeRound(stats.cgm_active_pct)} percent. ${cgmAssessment?.label ?? ""}`}
@@ -230,9 +248,9 @@ export function CgmSummaryStats({
           <StatCard
             icon={<Hash className="h-4 w-4 text-slate-400" aria-hidden="true" />}
             label="Readings"
-            value={stats.readings_count.toLocaleString()}
+            value={safeCount(stats.readings_count)}
             subtitle={`in ${periodLabel.toLowerCase()}`}
-            ariaLabel={`${stats.readings_count} readings in ${periodLabel.toLowerCase()}`}
+            ariaLabel={`${safeCount(stats.readings_count)} readings in ${periodLabel.toLowerCase()}`}
           />
         </div>
       )}
