@@ -1,0 +1,244 @@
+"use client";
+
+/**
+ * Bolus Review Table
+ *
+ * Story 30.7: Displays a scrollable table of recent bolus events with
+ * type badges, BG/IoB context, and Control-IQ reason. Period-selectable.
+ */
+
+import { useRef } from "react";
+import { AlertCircle, ListOrdered } from "lucide-react";
+import {
+  useBolusReview,
+  type BolusReviewPeriod,
+  BOLUS_PERIOD_LABELS,
+} from "@/hooks/use-bolus-review";
+import type { BolusReviewItem } from "@/lib/api";
+
+export interface BolusReviewTableProps {
+  className?: string;
+}
+
+const PERIOD_OPTIONS: { value: BolusReviewPeriod; label: string }[] = [
+  { value: "1d", label: "1D" },
+  { value: "3d", label: "3D" },
+  { value: "7d", label: "7D" },
+  { value: "14d", label: "14D" },
+];
+
+function formatDateTime(iso: string): string {
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return "---";
+    return d.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    });
+  } catch {
+    return "---";
+  }
+}
+
+function SkeletonRow() {
+  return (
+    <tr className="border-b border-slate-800/50">
+      {Array.from({ length: 6 }).map((_, i) => (
+        <td key={i} className="px-4 py-3">
+          <div className="animate-pulse h-4 bg-slate-700 rounded w-16" />
+        </td>
+      ))}
+    </tr>
+  );
+}
+
+function BolusRow({ bolus }: { bolus: BolusReviewItem }) {
+  return (
+    <tr
+      className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors"
+      aria-label={`Bolus at ${formatDateTime(bolus.event_timestamp)}, ${Number.isFinite(bolus.units) ? `${bolus.units.toFixed(2)} units` : "unknown"}, ${bolus.is_automated ? "automated" : "manual"}`}
+    >
+      <td className="px-4 py-3 text-sm text-slate-300 whitespace-nowrap">
+        {formatDateTime(bolus.event_timestamp)}
+      </td>
+      <td className="px-4 py-3 text-sm text-white font-medium whitespace-nowrap">
+        {Number.isFinite(bolus.units) && bolus.units >= 0 ? bolus.units.toFixed(2) : "---"} U
+      </td>
+      <td className="px-4 py-3 whitespace-nowrap">
+        {bolus.is_automated ? (
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-violet-500/20 text-violet-300">
+            Auto
+          </span>
+        ) : (
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-700/50 text-slate-400">
+            Manual
+          </span>
+        )}
+      </td>
+      <td className="px-4 py-3 text-sm text-slate-300 whitespace-nowrap">
+        {bolus.bg_at_event != null && Number.isFinite(bolus.bg_at_event)
+          ? `${Math.round(bolus.bg_at_event)} mg/dL`
+          : "---"}
+      </td>
+      <td className="px-4 py-3 text-sm text-slate-300 whitespace-nowrap">
+        {bolus.iob_at_event != null && Number.isFinite(bolus.iob_at_event)
+          ? `${bolus.iob_at_event.toFixed(1)} U`
+          : "---"}
+      </td>
+      <td className="px-4 py-3 text-sm text-slate-400 whitespace-nowrap max-w-[200px] truncate">
+        {bolus.is_automated && bolus.control_iq_reason
+          ? bolus.control_iq_reason
+          : bolus.is_automated && bolus.control_iq_mode
+            ? bolus.control_iq_mode
+            : ""}
+      </td>
+    </tr>
+  );
+}
+
+export function BolusReviewTable({ className }: BolusReviewTableProps) {
+  const { data, isLoading, error, period, setPeriod, refetch } = useBolusReview();
+  const periodLabel = BOLUS_PERIOD_LABELS[period] ?? period;
+  const buttonsRef = useRef<(HTMLButtonElement | null)[]>([]);
+
+  const handlePeriodKeyDown = (e: React.KeyboardEvent, index: number) => {
+    let newIndex = index;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+      e.preventDefault();
+      newIndex = (index + 1) % PERIOD_OPTIONS.length;
+    } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+      e.preventDefault();
+      newIndex = (index - 1 + PERIOD_OPTIONS.length) % PERIOD_OPTIONS.length;
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      newIndex = 0;
+    } else if (e.key === "End") {
+      e.preventDefault();
+      newIndex = PERIOD_OPTIONS.length - 1;
+    } else {
+      return;
+    }
+    setPeriod(PERIOD_OPTIONS[newIndex].value);
+    buttonsRef.current[newIndex]?.focus();
+  };
+
+  const noData = !data || !data.boluses || data.boluses.length === 0;
+
+  const periodSelector = (
+    <div className="flex gap-1" role="radiogroup" aria-label="Bolus review time period">
+      {PERIOD_OPTIONS.map((opt, i) => (
+        <button
+          key={opt.value}
+          ref={(el) => { buttonsRef.current[i] = el; }}
+          role="radio"
+          aria-checked={period === opt.value}
+          aria-label={BOLUS_PERIOD_LABELS[opt.value]}
+          tabIndex={period === opt.value ? 0 : -1}
+          onClick={() => setPeriod(opt.value)}
+          onKeyDown={(e) => handlePeriodKeyDown(e, i)}
+          className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
+            period === opt.value
+              ? "bg-violet-600 text-white"
+              : "text-slate-400 hover:text-white hover:bg-slate-800"
+          }`}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+
+  return (
+    <section
+      aria-labelledby="bolus-review-heading"
+      aria-busy={isLoading}
+      data-testid="bolus-review"
+      className={`bg-slate-900 rounded-xl p-6 border border-slate-800 ${className ?? ""}`}
+    >
+      {/* Header with period selector */}
+      <div className="flex items-center justify-between mb-5">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-violet-500/10 rounded-lg">
+            <ListOrdered className="h-5 w-5 text-violet-400" aria-hidden="true" />
+          </div>
+          <h2 id="bolus-review-heading" className="text-white font-semibold">
+            Recent Boluses
+            <span className="text-slate-400 text-sm font-normal ml-2">
+              {periodLabel}
+            </span>
+          </h2>
+        </div>
+        {periodSelector}
+      </div>
+
+      {/* Table content */}
+      {isLoading ? (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead>
+              <tr className="border-b border-slate-700">
+                <th scope="col" className="px-4 py-2 text-xs font-medium text-slate-400">Time</th>
+                <th scope="col" className="px-4 py-2 text-xs font-medium text-slate-400">Units</th>
+                <th scope="col" className="px-4 py-2 text-xs font-medium text-slate-400">Type</th>
+                <th scope="col" className="px-4 py-2 text-xs font-medium text-slate-400">BG</th>
+                <th scope="col" className="px-4 py-2 text-xs font-medium text-slate-400">IoB</th>
+                <th scope="col" className="px-4 py-2 text-xs font-medium text-slate-400">Reason</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Array.from({ length: 5 }).map((_, i) => (
+                <SkeletonRow key={i} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : error ? (
+        <div className="text-center py-4">
+          <div className="flex items-center gap-2 text-red-400 text-sm justify-center mb-3" role="alert">
+            <AlertCircle className="h-4 w-4" aria-hidden="true" />
+            <p>Failed to load bolus data.</p>
+          </div>
+          <p className="text-slate-500 text-xs mb-3 max-w-md truncate">{error}</p>
+          <button
+            onClick={refetch}
+            className="text-violet-400 hover:text-violet-300 text-sm font-medium"
+          >
+            Retry
+          </button>
+        </div>
+      ) : noData ? (
+        <p className="text-slate-500 text-sm text-center py-4">
+          No bolus events recorded for this period.
+        </p>
+      ) : (
+        <div className="overflow-x-auto max-h-96 overflow-y-auto">
+          <table className="w-full text-left">
+            <thead className="sticky top-0 bg-slate-900">
+              <tr className="border-b border-slate-700">
+                <th scope="col" className="px-4 py-2 text-xs font-medium text-slate-400">Time</th>
+                <th scope="col" className="px-4 py-2 text-xs font-medium text-slate-400">Units</th>
+                <th scope="col" className="px-4 py-2 text-xs font-medium text-slate-400">Type</th>
+                <th scope="col" className="px-4 py-2 text-xs font-medium text-slate-400">BG</th>
+                <th scope="col" className="px-4 py-2 text-xs font-medium text-slate-400">IoB</th>
+                <th scope="col" className="px-4 py-2 text-xs font-medium text-slate-400">Reason</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.boluses.map((bolus, i) => (
+                <BolusRow key={`${bolus.event_timestamp}-${i}`} bolus={bolus} />
+              ))}
+            </tbody>
+          </table>
+          {data.total_count > data.boluses.length && (
+            <p className="text-slate-500 text-xs text-center mt-3">
+              Showing {data.boluses.length} of {data.total_count} bolus events
+            </p>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}

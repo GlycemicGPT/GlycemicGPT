@@ -2546,3 +2546,77 @@ export async function getGlucosePercentiles(
   }
   return response.json();
 }
+
+// ============================================================================
+// Insulin Summary (Story 30.7)
+// ============================================================================
+
+export interface InsulinSummaryResponse {
+  tdd: number;
+  basal_units: number;
+  bolus_units: number;
+  correction_units: number;
+  basal_pct: number;
+  bolus_pct: number;
+  bolus_count: number;
+  correction_count: number;
+  period_days: number;
+}
+
+export async function getInsulinSummary(
+  days: number = 14
+): Promise<InsulinSummaryResponse> {
+  const safeDays = Number.isFinite(days) ? days : 14;
+  const clampedDays = Math.max(1, Math.min(90, Math.round(safeDays)));
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/insulin/summary?days=${clampedDays}`
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to fetch insulin summary: ${response.status}`
+    );
+  }
+  return response.json();
+}
+
+// ============================================================================
+// Bolus Review (Story 30.7)
+// ============================================================================
+
+export interface BolusReviewItem {
+  event_timestamp: string;
+  units: number;
+  is_automated: boolean;
+  control_iq_reason: string | null;
+  control_iq_mode: string | null;
+  iob_at_event: number | null;
+  bg_at_event: number | null;
+}
+
+export interface BolusReviewResponse {
+  boluses: BolusReviewItem[];
+  total_count: number;
+  period_days: number;
+}
+
+export async function getBolusReview(
+  days: number = 7,
+  limit: number = 100,
+  offset: number = 0
+): Promise<BolusReviewResponse> {
+  const safeDays = Number.isFinite(days) ? days : 7;
+  const clampedDays = Math.max(1, Math.min(30, Math.round(safeDays)));
+  const safeLimit = Math.max(1, Math.min(500, Math.round(limit)));
+  const safeOffset = Math.max(0, Math.round(offset));
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/bolus/review?days=${clampedDays}&limit=${safeLimit}&offset=${safeOffset}`
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to fetch bolus review: ${response.status}`
+    );
+  }
+  return response.json();
+}
