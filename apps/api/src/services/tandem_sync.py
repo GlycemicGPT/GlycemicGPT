@@ -372,7 +372,9 @@ def _normalize_pump_event(event, _seen_ids: set | None = None) -> dict | None:
         commanded_mu = _int("commandedRate")
         profile_mu = _int("profileBasalRate")
         if commanded_mu is not None:
-            d["actualRate"] = commanded_mu / 1000.0
+            rate = commanded_mu / 1000.0
+            d["actualRate"] = rate
+            d["units"] = rate  # Store rate (U/hr) for time-weighted aggregation
         if profile_mu is not None:
             d["profileRate"] = profile_mu / 1000.0
         # Detect Control-IQ automation via commandedRateSource
@@ -393,6 +395,8 @@ def _normalize_pump_event(event, _seen_ids: set | None = None) -> dict | None:
     # Normalize basal rates for adjustment calculation (event ID 3)
     if "commandedbasalrate" in d:
         d["actualRate"] = _float("commandedbasalrate")
+        if d.get("actualRate") is not None:
+            d["units"] = d["actualRate"]  # Store rate for aggregation
     if "basebasalrate" in d:
         d["profileRate"] = _float("basebasalrate")
 
