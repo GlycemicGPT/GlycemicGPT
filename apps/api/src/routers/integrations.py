@@ -1981,7 +1981,9 @@ async def get_insulin_summary(
     # We compute actual delivery as rate * time_until_next_record, capped at
     # _BASAL_MAX_GAP_HOURS to handle pump disconnections/gaps.
     # Uses PostgreSQL EXTRACT(EPOCH) and LEAST() -- not portable to SQLite.
-    basal_query = text("""
+    _table = PumpEvent.__tablename__
+    _basal_val = PumpEventType.BASAL.value
+    basal_query = text(f"""
         WITH basal_ordered AS (
             SELECT
                 event_timestamp,
@@ -1989,10 +1991,10 @@ async def get_insulin_summary(
                 LEAD(event_timestamp) OVER (
                     PARTITION BY user_id ORDER BY event_timestamp
                 ) AS next_ts
-            FROM pump_events
+            FROM {_table}
             WHERE user_id = :user_id
               AND event_timestamp >= :cutoff
-              AND event_type = 'basal'
+              AND event_type = :event_type
               AND units IS NOT NULL
               AND units >= 0
               AND units <= :max_rate
@@ -2013,6 +2015,7 @@ async def get_insulin_summary(
             "user_id": str(current_user.id),
             "cutoff": cutoff,
             "now": now,
+            "event_type": _basal_val,
             "max_rate": float(_MAX_BASAL_RATE),
             "max_gap": float(_BASAL_MAX_GAP_HOURS),
         },
