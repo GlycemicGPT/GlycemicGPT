@@ -139,7 +139,7 @@ export function BolusReviewTable({ className }: BolusReviewTableProps) {
           tabIndex={period === opt.value ? 0 : -1}
           onClick={() => setPeriod(opt.value)}
           onKeyDown={(e) => handlePeriodKeyDown(e, i)}
-          className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
+          className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 ${
             period === opt.value
               ? "bg-violet-600 text-white"
               : "text-slate-400 hover:text-white hover:bg-slate-800"
@@ -203,8 +203,9 @@ export function BolusReviewTable({ className }: BolusReviewTableProps) {
           </div>
           <p className="text-slate-500 text-xs mb-3 max-w-md truncate">{error}</p>
           <button
+            type="button"
             onClick={refetch}
-            className="text-violet-400 hover:text-violet-300 text-sm font-medium"
+            className="text-violet-400 hover:text-violet-300 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 rounded"
           >
             Retry
           </button>

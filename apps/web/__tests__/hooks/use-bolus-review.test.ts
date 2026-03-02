@@ -180,7 +180,10 @@ describe("useBolusReview", () => {
 
     resolveFirst!(makeResponse({ period_days: 7 }));
 
-    expect(result.current.data!.period_days).toBe(14);
+    // Allow microtask queue to flush, then verify stale result was ignored
+    await waitFor(() => {
+      expect(result.current.data!.period_days).toBe(14);
+    });
   });
 
   it("starts in loading state", () => {
