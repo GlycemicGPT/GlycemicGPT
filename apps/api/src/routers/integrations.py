@@ -833,6 +833,8 @@ async def get_time_in_range(
                 GlucoseReading.user_id == current_user.id,
                 GlucoseReading.reading_timestamp >= cutoff,
                 GlucoseReading.reading_timestamp < now,
+                GlucoseReading.value >= 20,
+                GlucoseReading.value <= 500,
             )
         )
         row = result.one()
