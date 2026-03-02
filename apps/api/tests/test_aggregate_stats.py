@@ -546,6 +546,8 @@ class TestCrossUserIsolation:
                 cookies={settings.jwt_cookie_name: cookie_b},
             )
 
+        assert resp_a.status_code == 200
+        assert resp_b.status_code == 200
         assert resp_a.json()["readings_count"] == 50
         assert resp_b.json()["readings_count"] == 0
 
@@ -569,6 +571,8 @@ class TestCrossUserIsolation:
                 cookies={settings.jwt_cookie_name: cookie_b},
             )
 
+        assert resp_a.status_code == 200
+        assert resp_b.status_code == 200
         assert resp_a.json()["tdd"] > 0
         assert resp_b.json()["tdd"] == 0.0
 
@@ -592,6 +596,8 @@ class TestCrossUserIsolation:
                 cookies={settings.jwt_cookie_name: cookie_b},
             )
 
+        assert resp_a.status_code == 200
+        assert resp_b.status_code == 200
         assert resp_a.json()["total_count"] == 35
         assert resp_b.json()["total_count"] == 0
         assert resp_b.json()["boluses"] == []
@@ -619,6 +625,8 @@ class TestCrossUserIsolation:
                 cookies={settings.jwt_cookie_name: cookie_b},
             )
 
+        assert resp_a.status_code == 200
+        assert resp_b.status_code == 200
         assert resp_a.json()["readings_count"] == 50
         assert resp_b.json()["readings_count"] == 0
 

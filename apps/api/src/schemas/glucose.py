@@ -70,10 +70,10 @@ class TirBucket(BaseModel):
     )
     readings: int = Field(..., ge=0, description="Number of readings in this bucket")
     threshold_low: float | None = Field(
-        None, ge=0, le=600, description="Lower bound in mg/dL (None for urgent_low)"
+        None, ge=20, le=500, description="Lower bound in mg/dL (None for urgent_low)"
     )
     threshold_high: float | None = Field(
-        None, ge=0, le=600, description="Upper bound in mg/dL (None for urgent_high)"
+        None, ge=20, le=500, description="Upper bound in mg/dL (None for urgent_high)"
     )
 
 
@@ -81,12 +81,12 @@ class TirThresholds(BaseModel):
     """Threshold values used for TIR bucket boundaries."""
 
     urgent_low: float = Field(
-        ..., ge=0, le=600, description="Urgent low threshold (mg/dL)"
+        ..., ge=20, le=500, description="Urgent low threshold (mg/dL)"
     )
-    low: float = Field(..., ge=0, le=600, description="Low threshold (mg/dL)")
-    high: float = Field(..., ge=0, le=600, description="High threshold (mg/dL)")
+    low: float = Field(..., ge=20, le=500, description="Low threshold (mg/dL)")
+    high: float = Field(..., ge=20, le=500, description="High threshold (mg/dL)")
     urgent_high: float = Field(
-        ..., ge=0, le=600, description="Urgent high threshold (mg/dL)"
+        ..., ge=20, le=500, description="Urgent high threshold (mg/dL)"
     )
 
 

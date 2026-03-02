@@ -818,7 +818,8 @@ async def get_time_in_range(
 
     if not include_details:
         # Original 3-bucket response (backward compatible)
-        cutoff = datetime.now(UTC) - timedelta(minutes=minutes)
+        now = datetime.now(UTC)
+        cutoff = now - timedelta(minutes=minutes)
         result = await db.execute(
             select(
                 func.count().label("total"),
@@ -831,6 +832,7 @@ async def get_time_in_range(
             ).where(
                 GlucoseReading.user_id == current_user.id,
                 GlucoseReading.reading_timestamp >= cutoff,
+                GlucoseReading.reading_timestamp < now,
             )
         )
         row = result.one()
@@ -935,7 +937,11 @@ async def _query_5_buckets(
     high: float,
     urgent_high: float,
 ) -> dict:
-    """Query 5-bucket TIR counts for a time window."""
+    """Query 5-bucket TIR counts for a time window.
+
+    Filters to physiologically plausible glucose values (20-500 mg/dL)
+    to prevent sensor errors or corrupt data from skewing percentages.
+    """
     result = await db.execute(
         select(
             func.count().label("total"),
@@ -985,6 +991,8 @@ async def _query_5_buckets(
             GlucoseReading.user_id == user_id,
             GlucoseReading.reading_timestamp >= start,
             GlucoseReading.reading_timestamp < end,
+            GlucoseReading.value >= 20,
+            GlucoseReading.value <= 500,
         )
     )
     row = result.one()
