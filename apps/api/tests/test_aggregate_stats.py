@@ -330,7 +330,9 @@ class TestGlucosePercentiles:
         all_p10 = [b["p10"] for b in populated]
         all_p90 = [b["p90"] for b in populated]
         full_range = max(all_p90) - min(all_p10)
-        assert full_range > 50, f"Expected meaningful percentile spread, got {full_range}"
+        assert full_range > 50, (
+            f"Expected meaningful percentile spread, got {full_range}"
+        )
 
     async def test_percentiles_with_timezone(self):
         """Verify tz parameter is accepted and produces valid results."""
