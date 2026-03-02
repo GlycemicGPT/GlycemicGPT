@@ -54,17 +54,22 @@ def load_icon_only(logo_path: Path) -> Image.Image:
         count = sum(1 for x in range(width) if pixels[x, y][3] > 10)
         row_counts.append(count)
 
-    # Find gap between icon and text: scan from top, find first empty
-    # stretch after content starts. icon_bottom tracks the last row with pixels.
+    # Find gap between icon and text: scan from top, find a sustained run of
+    # near-empty rows after content starts. Tolerant threshold (<=5 opaque pixels)
+    # handles anti-aliased edges that aren't perfectly empty.
     icon_bottom = 0
     in_content = False
+    gap_run = 0
     for y in range(height):
         if row_counts[y] > 5:
             in_content = True
             icon_bottom = y
-        elif in_content and row_counts[y] == 0:
-            # Found gap - icon ends at icon_bottom
-            break
+            gap_run = 0
+        elif in_content and row_counts[y] <= 5:
+            gap_run += 1
+            if gap_run >= 3:
+                # Found sustained gap - icon ends at icon_bottom
+                break
 
     # Find horizontal bounds for icon portion
     min_x, max_x = width, 0
@@ -163,18 +168,17 @@ def add_dev_badge(img: Image.Image) -> Image.Image:
     return img
 
 
+FONT_PATH = PROJECT_ROOT / "assets" / "fonts" / "DejaVuSans-Bold.ttf"
+
+
 def _load_font(size: int):
-    """Try to load a bold TTF font, fall back to default."""
-    for path in [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans-Bold.ttf",
-    ]:
-        try:
-            return ImageFont.truetype(path, size)
-        except (OSError, IOError):
-            continue
-    return ImageFont.load_default()
+    """Load the repository-pinned font for deterministic badge rendering."""
+    if not FONT_PATH.exists():
+        raise FileNotFoundError(
+            f"Missing pinned font at {FONT_PATH}. "
+            "Add DejaVuSans-Bold.ttf to assets/fonts/ for reproducible icon generation."
+        )
+    return ImageFont.truetype(str(FONT_PATH), size)
 
 
 def make_legacy_launcher(icon: Image.Image, size: int, with_bg: bool = True) -> Image.Image:
