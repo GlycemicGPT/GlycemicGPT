@@ -2444,28 +2444,35 @@ export async function getSafetyLimitsDefaults(): Promise<SafetyLimitsDefaults> {
 }
 
 // ============================================================================
-// Time in Range Statistics
+// Time in Range Detail Statistics
 // ============================================================================
 
-export interface TimeInRangeStats {
-  low_pct: number;
-  in_range_pct: number;
-  high_pct: number;
-  readings_count: number;
-  low_threshold: number;
-  high_threshold: number;
+export interface TirBucket {
+  label: "urgent_low" | "low" | "in_range" | "high" | "urgent_high";
+  pct: number;
+  readings: number;
+  threshold_low: number | null;
+  threshold_high: number | null;
 }
 
-export async function getTimeInRangeStats(
+export interface TimeInRangeDetailStats {
+  buckets: TirBucket[];
+  readings_count: number;
+  previous_buckets: TirBucket[] | null;
+  previous_readings_count: number | null;
+  thresholds: { urgent_low: number; low: number; high: number; urgent_high: number };
+}
+
+export async function getTimeInRangeDetailStats(
   minutes: number = 1440
-): Promise<TimeInRangeStats> {
+): Promise<TimeInRangeDetailStats> {
   const response = await apiFetch(
-    `${API_BASE_URL}/api/integrations/glucose/time-in-range?minutes=${minutes}`
+    `${API_BASE_URL}/api/integrations/glucose/time-in-range?minutes=${minutes}&include_details=true`
   );
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
     throw new Error(
-      error.detail || `Failed to fetch time in range: ${response.status}`
+      error.detail || `Failed to fetch TIR detail: ${response.status}`
     );
   }
   return response.json();

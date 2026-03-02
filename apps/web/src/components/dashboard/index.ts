@@ -32,10 +32,8 @@ export {
 export {
   TimeInRangeBar,
   type TimeInRangeBarProps,
-  type RangeData,
   type TimePeriod,
-  normalizePercentages,
-  sanitizeRangeData,
+  normalizeBuckets,
   formatPercentage,
   getQualityAssessment,
   PERIOD_LABELS,
@@ -67,3 +65,4 @@ export {
   CgmSummaryStats,
   type CgmSummaryStatsProps,
 } from "./cgm-summary-stats";
+
