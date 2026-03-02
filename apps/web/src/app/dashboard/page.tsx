@@ -26,10 +26,12 @@ import {
   TimeInRangeBar,
   ConnectionStatusBanner,
   GlucoseTrendChart,
+  CgmSummaryStats,
 } from "@/components/dashboard";
 import { PERIOD_LABELS } from "@/components/dashboard/time-in-range-bar";
 import { useGlucoseStreamContext, useUserContext } from "@/providers";
 import { useTimeInRangeStats } from "@/hooks/use-time-in-range-stats";
+import { useGlucoseStats } from "@/hooks/use-glucose-stats";
 import { useGlucoseRange } from "@/hooks/use-glucose-range";
 import { usePumpStatus } from "@/hooks/use-pump-status";
 
@@ -81,6 +83,15 @@ export default function DashboardPage() {
     period: tirPeriod,
     setPeriod: setTirPeriod,
   } = useTimeInRangeStats("24h");
+
+  // Story 30.3: Fetch CGM summary stats from API
+  const {
+    stats: cgmStats,
+    isLoading: cgmLoading,
+    error: cgmError,
+    period: cgmPeriod,
+    setPeriod: setCgmPeriod,
+  } = useGlucoseStats("24h");
 
   // Prevent flash of diabetic dashboard while caregiver redirect is pending
   if (isUserLoading || user?.role === "caregiver") {
@@ -139,6 +150,15 @@ export default function DashboardPage() {
 
       {/* Glucose trend chart */}
       <GlucoseTrendChart refreshKey={chartRefreshKey} thresholds={glucoseThresholds} />
+
+      {/* CGM Summary Stats Panel - Story 30.3 */}
+      <CgmSummaryStats
+        stats={cgmStats}
+        isLoading={cgmLoading}
+        error={cgmError}
+        period={cgmPeriod}
+        onPeriodChange={setCgmPeriod}
+      />
 
       {/* Metrics grid with proper heading hierarchy */}
       <section aria-labelledby="metrics-heading">

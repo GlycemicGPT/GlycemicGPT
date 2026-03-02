@@ -62,3 +62,8 @@ export {
   getPointColor,
   PERIOD_TO_MS,
 } from "./glucose-trend-chart";
+
+export {
+  CgmSummaryStats,
+  type CgmSummaryStatsProps,
+} from "./cgm-summary-stats";
