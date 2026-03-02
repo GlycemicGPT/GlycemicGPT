@@ -167,7 +167,10 @@ describe("useInsulinSummary", () => {
 
     resolveFirst!(makeResponse({ period_days: 14 }));
 
-    expect(result.current.data!.period_days).toBe(30);
+    // Allow microtask queue to flush, then verify stale result was ignored
+    await waitFor(() => {
+      expect(result.current.data!.period_days).toBe(30);
+    });
   });
 
   it("starts in loading state", () => {
