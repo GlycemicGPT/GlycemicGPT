@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydexcom import Dexcom
 from pydexcom import errors as dexcom_errors
-from sqlalchemy import case, func, select
+from sqlalchemy import and_, case, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from tconnectsync.api.common import ApiException
@@ -41,7 +41,10 @@ from src.schemas.glucose import (
     GlucoseStatsResponse,
     SyncResponse,
     SyncStatusResponse,
+    TimeInRangeDetailResponse,
     TimeInRangeResponse,
+    TirBucket,
+    TirThresholds,
 )
 from src.schemas.integration import (
     DexcomCredentialsRequest,
@@ -94,6 +97,9 @@ from src.services.tandem_sync import (
 from src.services.target_glucose_range import get_or_create_range
 
 logger = get_logger(__name__)
+
+# Minimum readings for a statistically meaningful previous-period TIR comparison
+_MIN_PREV_PERIOD_READINGS = 10
 
 router = APIRouter(prefix="/api/integrations", tags=["integrations"])
 
@@ -760,9 +766,21 @@ async def get_glucose_history(
 
 @router.get(
     "/glucose/time-in-range",
-    response_model=TimeInRangeResponse,
+    response_model=None,
     responses={
-        200: {"description": "Time in range statistics"},
+        200: {
+            "description": "Time in range statistics",
+            "content": {
+                "application/json": {
+                    "schema": {
+                        "oneOf": [
+                            {"$ref": "#/components/schemas/TimeInRangeResponse"},
+                            {"$ref": "#/components/schemas/TimeInRangeDetailResponse"},
+                        ]
+                    }
+                }
+            },
+        },
         401: {"model": ErrorResponse, "description": "Not authenticated"},
         403: {"model": ErrorResponse, "description": "Permission denied"},
     },
@@ -778,61 +796,285 @@ async def get_time_in_range(
         le=43200,
         description="Analysis window in minutes (max 30d)",
     ),
-) -> TimeInRangeResponse:
+    include_details: bool = Query(
+        default=False,
+        description="Return 5-bucket detail with previous period comparison",
+    ),
+) -> TimeInRangeResponse | TimeInRangeDetailResponse:
     """Get time-in-range statistics for the specified period.
 
     Calculates the percentage of glucose readings that fall below, within,
     and above the user's configured target range.
+
+    When include_details=true, returns 5-bucket clinical breakdown
+    (urgent_low, low, in_range, high, urgent_high) with previous-period
+    comparison data.
     """
     # Fetch user's target range thresholds
     target_range = await get_or_create_range(current_user.id, db)
     low_threshold = target_range.low_target
     high_threshold = target_range.high_target
 
-    # Aggregate counts in SQL for efficiency (no Python-side iteration)
-    cutoff = datetime.now(UTC) - timedelta(minutes=minutes)
-    result = await db.execute(
-        select(
-            func.count().label("total"),
-            func.sum(case((GlucoseReading.value < low_threshold, 1), else_=0)).label(
-                "low_count"
-            ),
-            func.sum(case((GlucoseReading.value > high_threshold, 1), else_=0)).label(
-                "high_count"
-            ),
-        ).where(
-            GlucoseReading.user_id == current_user.id,
-            GlucoseReading.reading_timestamp >= cutoff,
+    if not include_details:
+        # Original 3-bucket response (backward compatible)
+        cutoff = datetime.now(UTC) - timedelta(minutes=minutes)
+        result = await db.execute(
+            select(
+                func.count().label("total"),
+                func.sum(
+                    case((GlucoseReading.value < low_threshold, 1), else_=0)
+                ).label("low_count"),
+                func.sum(
+                    case((GlucoseReading.value > high_threshold, 1), else_=0)
+                ).label("high_count"),
+            ).where(
+                GlucoseReading.user_id == current_user.id,
+                GlucoseReading.reading_timestamp >= cutoff,
+            )
         )
-    )
-    row = result.one()
-    count = row.total
-    low_count = row.low_count or 0
-    high_count = row.high_count or 0
+        row = result.one()
+        count = row.total
+        low_count = row.low_count or 0
+        high_count = row.high_count or 0
 
-    if count == 0:
+        if count == 0:
+            return TimeInRangeResponse(
+                low_pct=0.0,
+                in_range_pct=0.0,
+                high_pct=0.0,
+                readings_count=0,
+                low_threshold=low_threshold,
+                high_threshold=high_threshold,
+            )
+
+        low_pct = round((low_count / count) * 100, 1)
+        high_pct = round((high_count / count) * 100, 1)
+        in_range_pct = round(100 - low_pct - high_pct, 1)
+
         return TimeInRangeResponse(
-            low_pct=0.0,
-            in_range_pct=0.0,
-            high_pct=0.0,
-            readings_count=0,
+            low_pct=low_pct,
+            in_range_pct=in_range_pct,
+            high_pct=high_pct,
+            readings_count=count,
             low_threshold=low_threshold,
             high_threshold=high_threshold,
         )
 
-    # Round low and high independently, derive in_range to guarantee sum = 100
-    low_pct = round((low_count / count) * 100, 1)
-    high_pct = round((high_count / count) * 100, 1)
-    in_range_pct = round(100 - low_pct - high_pct, 1)
+    # 5-bucket detail response
+    urgent_low = target_range.urgent_low
+    urgent_high = target_range.urgent_high
+    now = datetime.now(UTC)
+    cutoff = now - timedelta(minutes=minutes)
 
-    return TimeInRangeResponse(
-        low_pct=low_pct,
-        in_range_pct=in_range_pct,
-        high_pct=high_pct,
-        readings_count=count,
-        low_threshold=low_threshold,
-        high_threshold=high_threshold,
+    buckets_result = await _query_5_buckets(
+        db,
+        current_user.id,
+        cutoff,
+        now,
+        urgent_low,
+        low_threshold,
+        high_threshold,
+        urgent_high,
     )
+
+    # Previous period: same duration ending at cutoff
+    prev_start = cutoff - timedelta(minutes=minutes)
+    prev_result = await _query_5_buckets(
+        db,
+        current_user.id,
+        prev_start,
+        cutoff,
+        urgent_low,
+        low_threshold,
+        high_threshold,
+        urgent_high,
+    )
+
+    previous_buckets = None
+    previous_count = None
+    if prev_result["total"] >= _MIN_PREV_PERIOD_READINGS:
+        previous_buckets = _build_tir_buckets(
+            prev_result,
+            urgent_low,
+            low_threshold,
+            high_threshold,
+            urgent_high,
+        )
+        previous_count = prev_result["total"]
+
+    thresholds = TirThresholds(
+        urgent_low=urgent_low,
+        low=low_threshold,
+        high=high_threshold,
+        urgent_high=urgent_high,
+    )
+
+    return TimeInRangeDetailResponse(
+        buckets=_build_tir_buckets(
+            buckets_result,
+            urgent_low,
+            low_threshold,
+            high_threshold,
+            urgent_high,
+        ),
+        readings_count=buckets_result["total"],
+        previous_buckets=previous_buckets,
+        previous_readings_count=previous_count,
+        thresholds=thresholds,
+    )
+
+
+async def _query_5_buckets(
+    db: AsyncSession,
+    user_id,
+    start: datetime,
+    end: datetime,
+    urgent_low: float,
+    low: float,
+    high: float,
+    urgent_high: float,
+) -> dict:
+    """Query 5-bucket TIR counts for a time window."""
+    result = await db.execute(
+        select(
+            func.count().label("total"),
+            func.sum(case((GlucoseReading.value < urgent_low, 1), else_=0)).label(
+                "urgent_low_count"
+            ),
+            func.sum(
+                case(
+                    (
+                        and_(
+                            GlucoseReading.value >= urgent_low,
+                            GlucoseReading.value < low,
+                        ),
+                        1,
+                    ),
+                    else_=0,
+                )
+            ).label("low_count"),
+            func.sum(
+                case(
+                    (
+                        and_(
+                            GlucoseReading.value >= low,
+                            GlucoseReading.value <= high,
+                        ),
+                        1,
+                    ),
+                    else_=0,
+                )
+            ).label("in_range_count"),
+            func.sum(
+                case(
+                    (
+                        and_(
+                            GlucoseReading.value > high,
+                            GlucoseReading.value <= urgent_high,
+                        ),
+                        1,
+                    ),
+                    else_=0,
+                )
+            ).label("high_count"),
+            func.sum(case((GlucoseReading.value > urgent_high, 1), else_=0)).label(
+                "urgent_high_count"
+            ),
+        ).where(
+            GlucoseReading.user_id == user_id,
+            GlucoseReading.reading_timestamp >= start,
+            GlucoseReading.reading_timestamp < end,
+        )
+    )
+    row = result.one()
+    return {
+        "total": row.total or 0,
+        "urgent_low_count": row.urgent_low_count or 0,
+        "low_count": row.low_count or 0,
+        "in_range_count": row.in_range_count or 0,
+        "high_count": row.high_count or 0,
+        "urgent_high_count": row.urgent_high_count or 0,
+    }
+
+
+def _build_tir_buckets(
+    counts: dict,
+    urgent_low: float,
+    low: float,
+    high: float,
+    urgent_high: float,
+) -> list[TirBucket]:
+    """Build ordered list of 5 TirBucket objects from query counts."""
+    total = counts["total"]
+    if total == 0:
+        return [
+            TirBucket(
+                label="urgent_low",
+                pct=0.0,
+                readings=0,
+                threshold_low=None,
+                threshold_high=urgent_low,
+            ),
+            TirBucket(
+                label="low",
+                pct=0.0,
+                readings=0,
+                threshold_low=urgent_low,
+                threshold_high=low,
+            ),
+            TirBucket(
+                label="in_range",
+                pct=0.0,
+                readings=0,
+                threshold_low=low,
+                threshold_high=high,
+            ),
+            TirBucket(
+                label="high",
+                pct=0.0,
+                readings=0,
+                threshold_low=high,
+                threshold_high=urgent_high,
+            ),
+            TirBucket(
+                label="urgent_high",
+                pct=0.0,
+                readings=0,
+                threshold_low=urgent_high,
+                threshold_high=None,
+            ),
+        ]
+
+    labels = ["urgent_low", "low", "in_range", "high", "urgent_high"]
+    count_keys = [
+        "urgent_low_count",
+        "low_count",
+        "in_range_count",
+        "high_count",
+        "urgent_high_count",
+    ]
+    thresholds_low = [None, urgent_low, low, high, urgent_high]
+    thresholds_high = [urgent_low, low, high, urgent_high, None]
+
+    # Calculate percentages: round 4 independently, derive in_range to ensure sum = 100
+    raw_pcts = [(counts[k] / total) * 100 for k in count_keys]
+    rounded = [round(p, 1) for p in raw_pcts]
+    # Adjust in_range (index 2) to absorb rounding drift
+    others_sum = sum(rounded[i] for i in [0, 1, 3, 4])
+    rounded[2] = max(0.0, round(100.0 - others_sum, 1))
+
+    buckets = []
+    for i, label in enumerate(labels):
+        buckets.append(
+            TirBucket(
+                label=label,
+                pct=rounded[i],
+                readings=counts[count_keys[i]],
+                threshold_low=thresholds_low[i],
+                threshold_high=thresholds_high[i],
+            )
+        )
+    return buckets
 
 
 # ============================================================================

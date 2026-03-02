@@ -4,6 +4,7 @@ Pydantic schemas for glucose reading API responses.
 """
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -52,6 +53,56 @@ class TimeInRangeResponse(BaseModel):
     readings_count: int = Field(..., description="Total readings analyzed")
     low_threshold: float = Field(..., description="Low target threshold (mg/dL)")
     high_threshold: float = Field(..., description="High target threshold (mg/dL)")
+
+
+TirLabel = Literal["urgent_low", "low", "in_range", "high", "urgent_high"]
+
+
+class TirBucket(BaseModel):
+    """A single TIR bucket for 5-bucket clinical breakdown."""
+
+    label: TirLabel = Field(
+        ...,
+        description="Bucket label: urgent_low, low, in_range, high, urgent_high",
+    )
+    pct: float = Field(
+        ..., ge=0, le=100, description="Percentage of readings in this bucket"
+    )
+    readings: int = Field(..., description="Number of readings in this bucket")
+    threshold_low: float | None = Field(
+        None, description="Lower bound (None for urgent_low)"
+    )
+    threshold_high: float | None = Field(
+        None, description="Upper bound (None for urgent_high)"
+    )
+
+
+class TirThresholds(BaseModel):
+    """Threshold values used for TIR bucket boundaries."""
+
+    urgent_low: float = Field(..., description="Urgent low threshold (mg/dL)")
+    low: float = Field(..., description="Low threshold (mg/dL)")
+    high: float = Field(..., description="High threshold (mg/dL)")
+    urgent_high: float = Field(..., description="Urgent high threshold (mg/dL)")
+
+
+class TimeInRangeDetailResponse(BaseModel):
+    """Response schema for 5-bucket TIR with previous-period comparison."""
+
+    buckets: list[TirBucket] = Field(
+        ..., description="5 buckets ordered urgent_low -> urgent_high"
+    )
+    readings_count: int = Field(..., description="Total readings in current period")
+    previous_buckets: list[TirBucket] | None = Field(
+        None, description="Previous period buckets (null if insufficient data)"
+    )
+    previous_readings_count: int | None = Field(
+        None, description="Total readings in previous period"
+    )
+    thresholds: TirThresholds = Field(
+        ...,
+        description="Threshold values used for bucket boundaries",
+    )
 
 
 class GlucoseStatsResponse(BaseModel):

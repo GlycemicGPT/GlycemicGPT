@@ -67,3 +67,8 @@ export {
   CgmSummaryStats,
   type CgmSummaryStatsProps,
 } from "./cgm-summary-stats";
+
+export {
+  TirDonutChart,
+  type TirDonutChartProps,
+} from "./tir-donut-chart";

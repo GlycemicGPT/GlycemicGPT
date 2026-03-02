@@ -27,10 +27,11 @@ import {
   ConnectionStatusBanner,
   GlucoseTrendChart,
   CgmSummaryStats,
+  TirDonutChart,
 } from "@/components/dashboard";
 import { PERIOD_LABELS } from "@/components/dashboard/time-in-range-bar";
 import { useGlucoseStreamContext, useUserContext } from "@/providers";
-import { useTimeInRangeStats } from "@/hooks/use-time-in-range-stats";
+import { useTimeInRangeStats, useTimeInRangeDetailStats } from "@/hooks/use-time-in-range-stats";
 import { useGlucoseStats } from "@/hooks/use-glucose-stats";
 import { useGlucoseRange } from "@/hooks/use-glucose-range";
 import { usePumpStatus } from "@/hooks/use-pump-status";
@@ -92,6 +93,14 @@ export default function DashboardPage() {
     period: cgmPeriod,
     setPeriod: setCgmPeriod,
   } = useGlucoseStats("24h");
+
+  // Story 30.4: Fetch 5-bucket TIR detail stats from API
+  const {
+    stats: tirDetailStats,
+    isLoading: tirDetailLoading,
+    period: tirDetailPeriod,
+    setPeriod: setTirDetailPeriod,
+  } = useTimeInRangeDetailStats("24h");
 
   // Prevent flash of diabetic dashboard while caregiver redirect is pending
   if (isUserLoading || user?.role === "caregiver") {
@@ -201,6 +210,17 @@ export default function DashboardPage() {
         onPeriodChange={setTirPeriod}
         targetRange={targetRange}
         isLoading={tirLoading}
+      />
+
+      {/* TIR Donut Chart - Story 30.4 */}
+      <TirDonutChart
+        buckets={tirDetailStats?.buckets ?? null}
+        readingsCount={tirDetailStats?.readings_count ?? 0}
+        previousBuckets={tirDetailStats?.previous_buckets ?? null}
+        previousReadingsCount={tirDetailStats?.previous_readings_count ?? null}
+        isLoading={tirDetailLoading}
+        period={tirDetailPeriod}
+        onPeriodChange={setTirDetailPeriod}
       />
     </main>
   );
