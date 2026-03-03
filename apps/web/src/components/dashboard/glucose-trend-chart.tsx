@@ -7,7 +7,7 @@
  * bolus delivery markers, basal rate area, and time period selector.
  */
 
-import { useMemo, useEffect, useRef } from "react";
+import { useMemo, useEffect, useRef, useState, useCallback } from "react";
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -21,7 +21,9 @@ import {
   ReferenceLine,
   Cell,
 } from "recharts";
+import { ZoomOut } from "lucide-react";
 import clsx from "clsx";
+import type { MouseHandlerDataParam } from "recharts/types/synchronisation/types";
 import { type GlucoseHistoryReading, type PumpEventReading } from "@/lib/api";
 import { lttbDownsample } from "@/lib/downsample";
 import { type ChartTimePeriod, PERIOD_TO_MS, isMultiDay } from "@/lib/chart-periods";
@@ -67,6 +69,8 @@ export { PERIOD_TO_MS };
 const MAX_CHART_POINTS = 500;
 // Max bolus markers to display (keeps largest when exceeded)
 const MAX_BOLUS_MARKERS = 50;
+// Minimum zoom window (15 minutes) to prevent accidental micro-zooms
+const MIN_ZOOM_MS = 15 * 60 * 1000;
 
 // --- Chart data point ---
 
@@ -142,8 +146,7 @@ function ChartTooltip({
   multiDay,
 }: {
   active?: boolean;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  payload?: Array<{ payload: any }>;
+  payload?: Array<{ payload: Record<string, unknown> }>;
   multiDay?: boolean;
 }) {
   if (!active || !payload?.length) return null;
@@ -160,25 +163,25 @@ function ChartTooltip({
   };
 
   // Basal data point (has `rate` field)
-  if ("rate" in point && point.rate != null) {
+  if ("rate" in point && typeof point.rate === "number") {
     return (
       <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm shadow-lg">
         <p className="font-semibold text-blue-400">
           Basal: {point.rate.toFixed(2)} u/hr
         </p>
-        <p className="text-slate-400 text-xs">{formatTime(point.timestamp)}</p>
+        <p className="text-slate-400 text-xs">{formatTime(point.timestamp as number)}</p>
       </div>
     );
   }
 
   // Glucose data point (has `iso` and `value` fields)
-  if (!point.iso || point.value == null) return null;
+  if (!point.iso || typeof point.value !== "number") return null;
   return (
     <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm shadow-lg">
-      <p className="font-semibold" style={{ color: point.color }}>
+      <p className="font-semibold" style={{ color: point.color as string }}>
         {point.value} mg/dL
       </p>
-      <p className="text-slate-400 text-xs">{formatTime(point.iso)}</p>
+      <p className="text-slate-400 text-xs">{formatTime(point.iso as string)}</p>
     </div>
   );
 }
@@ -228,6 +231,145 @@ function formatXTick(epoch: number, multiDay: boolean): string {
   return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
+// --- Brush slider for zoom pan ---
+
+interface BrushSliderProps {
+  fullDomain: [number, number];
+  zoomDomain: [number, number] | null;
+  onZoomChange: (d: [number, number] | null) => void;
+}
+
+function BrushSlider({ fullDomain, zoomDomain, onZoomChange }: BrushSliderProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [dragType, setDragType] = useState<"left" | "right" | "pan" | null>(null);
+  const dragStartRef = useRef<{ clientX: number; domain: [number, number] }>({
+    clientX: 0,
+    domain: [0, 0],
+  });
+  // Keep zoom in a ref so drag handlers always see latest value (FIX #1: stale closure)
+  const zoomRef = useRef(zoomDomain ?? fullDomain);
+  zoomRef.current = zoomDomain ?? fullDomain;
+
+  const range = fullDomain[1] - fullDomain[0];
+  // FIX #2: Guard against division by zero
+  const safeRange = range > 0 ? range : 1;
+  const zoom = zoomDomain ?? fullDomain;
+  const leftPct = ((zoom[0] - fullDomain[0]) / safeRange) * 100;
+  const widthPct = ((zoom[1] - zoom[0]) / safeRange) * 100;
+
+  const clientXToTimestamp = useCallback(
+    (clientX: number): number => {
+      const el = containerRef.current;
+      if (!el) return fullDomain[0];
+      const rect = el.getBoundingClientRect();
+      const frac = Math.max(0, Math.min(1, (clientX - rect.left) / Math.max(1, rect.width)));
+      return fullDomain[0] + frac * safeRange;
+    },
+    [fullDomain, safeRange],
+  );
+
+  const handlePointerDown = useCallback(
+    (type: "left" | "right" | "pan", e: React.MouseEvent | React.TouchEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const clientX = "touches" in e ? e.touches[0]?.clientX : e.clientX;
+      if (clientX == null) return;
+      setDragType(type);
+      dragStartRef.current = { clientX, domain: [...zoomRef.current] as [number, number] };
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!dragType) return;
+
+    const onMove = (e: MouseEvent | TouchEvent) => {
+      const touch = "touches" in e ? (e.touches[0] ?? e.changedTouches?.[0]) : null;
+      const clientX = touch ? touch.clientX : (e as MouseEvent).clientX;
+      if (clientX == null) return;
+      const ts = clientXToTimestamp(clientX);
+      const start = dragStartRef.current;
+      const currentZoom = zoomRef.current; // FIX #1: read from ref, not closure
+
+      if (dragType === "left") {
+        const newLeft = Math.max(fullDomain[0], Math.min(ts, currentZoom[1] - MIN_ZOOM_MS));
+        onZoomChange([newLeft, currentZoom[1]]);
+      } else if (dragType === "right") {
+        const newRight = Math.min(fullDomain[1], Math.max(ts, currentZoom[0] + MIN_ZOOM_MS));
+        onZoomChange([currentZoom[0], newRight]);
+      } else if (dragType === "pan") {
+        const delta = ts - clientXToTimestamp(start.clientX);
+        const span = start.domain[1] - start.domain[0];
+        let newLeft = start.domain[0] + delta;
+        let newRight = start.domain[1] + delta;
+        if (newLeft < fullDomain[0]) {
+          newLeft = fullDomain[0];
+          newRight = fullDomain[0] + span;
+        }
+        if (newRight > fullDomain[1]) {
+          newRight = fullDomain[1];
+          newLeft = fullDomain[1] - span;
+        }
+        onZoomChange([newLeft, newRight]);
+      }
+    };
+
+    const onUp = () => setDragType(null);
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    window.addEventListener("touchmove", onMove, { passive: false });
+    window.addEventListener("touchend", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("touchmove", onMove);
+      window.removeEventListener("touchend", onUp);
+    };
+  }, [dragType, fullDomain, clientXToTimestamp, onZoomChange]);
+
+  if (!zoomDomain) return null;
+
+  return (
+    <div
+      ref={containerRef}
+      className="relative h-6 mt-2 bg-slate-800 rounded select-none"
+      aria-label="Zoom brush slider"
+    >
+      {/* Selected region */}
+      <div
+        className="absolute top-0 h-full bg-slate-600 rounded-sm"
+        style={{
+          left: `${leftPct}%`,
+          width: `${widthPct}%`,
+          cursor: dragType === "pan" ? "grabbing" : "grab",
+        }}
+        onMouseDown={(e) => handlePointerDown("pan", e)}
+        onTouchStart={(e) => handlePointerDown("pan", e)}
+      >
+        {/* Left handle -- FIX #9: 16px touch target via padding, 8px visual */}
+        <div
+          className="absolute left-0 top-0 h-full w-4 flex justify-start"
+          style={{ cursor: "col-resize", marginLeft: "-4px" }}
+          onMouseDown={(e) => handlePointerDown("left", e)}
+          onTouchStart={(e) => handlePointerDown("left", e)}
+        >
+          <div className="h-full w-2 bg-slate-400 rounded-l-sm hover:bg-slate-300 transition-colors" />
+        </div>
+        {/* Right handle -- FIX #9: 16px touch target via padding, 8px visual */}
+        <div
+          className="absolute right-0 top-0 h-full w-4 flex justify-end"
+          style={{ cursor: "col-resize", marginRight: "-4px" }}
+          onMouseDown={(e) => handlePointerDown("right", e)}
+          onTouchStart={(e) => handlePointerDown("right", e)}
+        >
+          <div className="h-full w-2 bg-slate-400 rounded-r-sm hover:bg-slate-300 transition-colors" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // --- Main component ---
 
 export interface GlucoseTrendChartProps {
@@ -251,6 +393,12 @@ export function GlucoseTrendChart({
   const { readings, isLoading, error, period, setPeriod, refetch } =
     useGlucoseHistory("3h");
   const { events: pumpEvents, refetch: refetchPump } = usePumpEvents(period);
+
+  // Zoom state
+  const [zoomDomain, setZoomDomain] = useState<[number, number] | null>(null);
+  const [selectionStart, setSelectionStart] = useState<number | null>(null);
+  const [selectionEnd, setSelectionEnd] = useState<number | null>(null);
+  const chartAreaRef = useRef<HTMLDivElement>(null);
 
   // Refetch when refreshKey changes (new SSE data arrived)
   const prevRefreshKeyRef = useRef(refreshKey);
@@ -281,13 +429,125 @@ export function GlucoseTrendChart({
     return [...bolusData].sort((a, b) => b.units - a.units).slice(0, MAX_BOLUS_MARKERS);
   }, [bolusData]);
 
-  // X-axis domain: always show the full selected time window.
+  // Full time window for the selected period.
   // Depends on `data` so it recomputes with fresh Date.now() on refetch.
-  const xDomain = useMemo(() => {
+  const fullDomain = useMemo(() => {
     const now = Date.now();
-    return [now - PERIOD_TO_MS[period], now];
+    return [now - PERIOD_TO_MS[period], now] as [number, number];
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [period, data]);
+
+  // When zoomed, use the zoom domain; otherwise show the full period
+  const xDomain = zoomDomain ?? fullDomain;
+
+  // Refs for zoom interaction state (declared early so callbacks can reference them)
+  const gridElRef = useRef<Element | null>(null);
+  const selectionStartRef = useRef<number | null>(null);
+  // Keep current domain in a ref so pixelToTimestamp always reads the latest value
+  const currentDomainRef = useRef(zoomDomain ?? fullDomain);
+  currentDomainRef.current = zoomDomain ?? fullDomain;
+
+  // Wrap setPeriod to reset zoom on period change
+  const handlePeriodChange = useCallback(
+    (p: ChartTimePeriod) => {
+      setPeriod(p);
+      setZoomDomain(null);
+      setSelectionStart(null);
+      setSelectionEnd(null);
+      selectionStartRef.current = null;
+      gridElRef.current = null; // Invalidate cached grid element
+    },
+    [setPeriod],
+  );
+
+  // Cache grid element ref + read domain from ref to avoid stale closures
+  const pixelToTimestamp = useCallback(
+    (clientX: number): number | null => {
+      const el = chartAreaRef.current;
+      if (!el) return null;
+      if (!gridElRef.current || !gridElRef.current.isConnected) {
+        gridElRef.current = el.querySelector(".recharts-cartesian-grid");
+      }
+      if (!gridElRef.current) return null;
+      const rect = gridElRef.current.getBoundingClientRect();
+      const domain = currentDomainRef.current;
+      const fraction = Math.max(0, Math.min(1, (clientX - rect.left) / Math.max(1, rect.width)));
+      return domain[0] + fraction * (domain[1] - domain[0]);
+    },
+    [], // Reads from refs -- no closure dependencies needed
+  );
+
+  // Extract clientX from either mouse or touch native events (with empty-touches guard)
+  const getClientX = useCallback((event: React.SyntheticEvent): number | null => {
+    const native = event?.nativeEvent;
+    if (!native) return null;
+    if ("touches" in native) {
+      const te = native as TouchEvent;
+      const touch = te.touches[0] ?? te.changedTouches?.[0];
+      return touch?.clientX ?? null;
+    }
+    if ("clientX" in native) return (native as MouseEvent).clientX;
+    return null;
+  }, []);
+
+  const handleChartMouseDown = useCallback(
+    (_nextState: MouseHandlerDataParam, event: React.SyntheticEvent) => {
+      const clientX = getClientX(event);
+      if (clientX == null) return;
+      const ts = pixelToTimestamp(clientX);
+      if (ts != null) {
+        selectionStartRef.current = ts;
+        setSelectionStart(ts);
+        setSelectionEnd(ts);
+      }
+    },
+    [pixelToTimestamp, getClientX],
+  );
+
+  // FIX #3: Early return when not dragging avoids unnecessary work on every pixel move
+  const handleChartMouseMove = useCallback(
+    (_nextState: MouseHandlerDataParam, event: React.SyntheticEvent) => {
+      if (selectionStartRef.current == null) return;
+      const clientX = getClientX(event);
+      if (clientX == null) return;
+      const ts = pixelToTimestamp(clientX);
+      if (ts != null) setSelectionEnd(ts);
+    },
+    [pixelToTimestamp, getClientX],
+  );
+
+  // Compute final zoom from refs + event directly to avoid stale closure issues
+  const handleChartMouseUp = useCallback(
+    (_nextState: MouseHandlerDataParam, event: React.SyntheticEvent) => {
+      const startTs = selectionStartRef.current;
+      if (startTs != null) {
+        const clientX = getClientX(event);
+        const endTs = clientX != null ? pixelToTimestamp(clientX) : null;
+        if (endTs != null) {
+          const full = currentDomainRef.current;
+          const lo = Math.max(full[0], Math.min(startTs, endTs));
+          const hi = Math.min(full[1], Math.max(startTs, endTs));
+          if (hi - lo >= MIN_ZOOM_MS) {
+            setZoomDomain([lo, hi]);
+          }
+        }
+      }
+      selectionStartRef.current = null;
+      setSelectionStart(null);
+      setSelectionEnd(null);
+    },
+    [pixelToTimestamp, getClientX],
+  );
+
+  const handleChartDoubleClick = useCallback(
+    (_nextState: MouseHandlerDataParam, _event: React.SyntheticEvent) => {
+      setZoomDomain(null);
+    },
+    [],
+  );
+
+  // FIX #7: Disable tooltip during drag selection to avoid interference
+  const isDragging = selectionStart != null;
 
   // Y-axis domain: show reasonable range, expand to fit data
   const yDomain = useMemo(() => {
@@ -347,7 +607,7 @@ export function GlucoseTrendChart({
           <h2 className="text-lg font-semibold text-slate-200">
             Glucose Trend
           </h2>
-          <PeriodSelector selected={period} onSelect={setPeriod} />
+          <PeriodSelector selected={period} onSelect={handlePeriodChange} />
         </div>
         <div className="h-64 flex flex-col items-center justify-center text-slate-500 gap-3">
           <p>Unable to load glucose history</p>
@@ -379,7 +639,7 @@ export function GlucoseTrendChart({
           <h2 className="text-lg font-semibold text-slate-200">
             Glucose Trend
           </h2>
-          <PeriodSelector selected={period} onSelect={setPeriod} />
+          <PeriodSelector selected={period} onSelect={handlePeriodChange} />
         </div>
         <div className="h-64 flex items-center justify-center text-slate-500">
           <p>No glucose readings yet</p>
@@ -404,15 +664,34 @@ export function GlucoseTrendChart({
     >
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-slate-200">Glucose Trend</h2>
-        <PeriodSelector selected={period} onSelect={setPeriod} />
+        <div className="flex items-center gap-2">
+          <h2 className="text-lg font-semibold text-slate-200">Glucose Trend</h2>
+          {zoomDomain && (
+            <button
+              type="button"
+              onClick={() => setZoomDomain(null)}
+              className="flex items-center gap-1 px-2 py-1 text-xs text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-md transition-colors"
+              aria-label="Reset zoom"
+            >
+              <ZoomOut size={14} /> Reset
+            </button>
+          )}
+        </div>
+        <PeriodSelector selected={period} onSelect={handlePeriodChange} />
       </div>
 
       {/* Chart */}
-      <div className="h-64 md:h-72 lg:h-80">
+      <div ref={chartAreaRef} className="h-64 md:h-72 lg:h-80">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart
             margin={{ top: 10, right: 10, bottom: 0, left: -10 }}
+            onMouseDown={handleChartMouseDown}
+            onMouseMove={handleChartMouseMove}
+            onMouseUp={handleChartMouseUp}
+            onDoubleClick={handleChartDoubleClick}
+            onTouchStart={handleChartMouseDown}
+            onTouchMove={handleChartMouseMove}
+            onTouchEnd={handleChartMouseUp}
           >
             <CartesianGrid
               stroke="#334155"
@@ -434,6 +713,7 @@ export function GlucoseTrendChart({
               dataKey="timestamp"
               type="number"
               domain={xDomain}
+              allowDataOverflow={!!zoomDomain}
               tickFormatter={(v: number) => formatXTick(v, multiDay)}
               tick={{ fill: "#94a3b8", fontSize: 12 }}
               axisLine={{ stroke: "#475569" }}
@@ -497,13 +777,33 @@ export function GlucoseTrendChart({
               />
             ))}
 
+            {/* Drag-select zoom overlay */}
+            {selectionStart != null && selectionEnd != null && (
+              <ReferenceArea
+                yAxisId="glucose"
+                x1={Math.min(selectionStart, selectionEnd)}
+                x2={Math.max(selectionStart, selectionEnd)}
+                fill="#3b82f6"
+                fillOpacity={0.15}
+                stroke="#3b82f6"
+                strokeOpacity={0.4}
+              />
+            )}
+
             <Tooltip
-              content={<ChartTooltip multiDay={multiDay} />}
+              content={isDragging ? () => null : <ChartTooltip multiDay={multiDay} />}
               cursor={false}
             />
           </ComposedChart>
         </ResponsiveContainer>
       </div>
+
+      {/* Brush slider for zoom pan */}
+      <BrushSlider
+        fullDomain={fullDomain}
+        zoomDomain={zoomDomain}
+        onZoomChange={setZoomDomain}
+      />
 
       {/* Legend */}
       <div className="flex flex-wrap items-center justify-center gap-4 mt-3 text-xs text-slate-500">
