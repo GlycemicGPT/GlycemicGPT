@@ -100,7 +100,7 @@ async def seed_pump_events(db: AsyncSession, user_id: str):
                 units=0.8,
                 is_automated=True,
                 received_at=ts,
-                source="test",
+                source="mobile",
             )
         )
 
@@ -116,7 +116,7 @@ async def seed_pump_events(db: AsyncSession, user_id: str):
                     units=4.5,
                     is_automated=False,
                     received_at=ts,
-                    source="test",
+                    source="mobile",
                 )
             )
 
@@ -133,7 +133,7 @@ async def seed_pump_events(db: AsyncSession, user_id: str):
                     is_automated=True,
                     control_iq_reason="high_bg",
                     received_at=ts,
-                    source="test",
+                    source="mobile",
                 )
             )
 
@@ -504,7 +504,7 @@ class TestInsulinSummary:
                         units=0.8,
                         is_automated=True,
                         received_at=now,
-                        source="test",
+                        source="mobile",
                     )
                 )
                 db.add(
@@ -515,7 +515,7 @@ class TestInsulinSummary:
                         units=0.8,
                         is_automated=True,
                         received_at=now,
-                        source="test",
+                        source="mobile",
                     )
                 )
                 await db.commit()
@@ -555,7 +555,7 @@ class TestInsulinSummary:
                             units=1.0,
                             is_automated=True,
                             received_at=ts,
-                            source="test",
+                            source="mobile",
                         )
                     )
                 await db.commit()
@@ -591,7 +591,7 @@ class TestInsulinSummary:
                         units=0.0,
                         is_automated=True,
                         received_at=now,
-                        source="test",
+                        source="mobile",
                     )
                 )
                 db.add(
@@ -602,7 +602,7 @@ class TestInsulinSummary:
                         units=0.8,
                         is_automated=True,
                         received_at=now,
-                        source="test",
+                        source="mobile",
                     )
                 )
                 await db.commit()
@@ -637,7 +637,7 @@ class TestInsulinSummary:
                         units=1.0,
                         is_automated=True,
                         received_at=now,
-                        source="test",
+                        source="mobile",
                     )
                 )
                 # Record INSIDE the window (1 hour ago)
@@ -649,7 +649,7 @@ class TestInsulinSummary:
                         units=0.5,
                         is_automated=True,
                         received_at=now,
-                        source="test",
+                        source="mobile",
                     )
                 )
                 await db.commit()
@@ -995,7 +995,7 @@ class TestTirDetail:
                             trend=TrendDirection.FLAT,
                             trend_rate=0.0,
                             received_at=ts,
-                            source="test",
+                            source="mobile",
                         )
                     )
                 await db.commit()
@@ -1055,3 +1055,253 @@ class TestTirDetail:
         assert "high_pct" in data
         # Should NOT have 5-bucket fields
         assert "buckets" not in data
+
+
+@pytest.mark.asyncio
+class TestSourceFilteringAndDedup:
+    """Story 30.10: source filtering and bolus/correction dedup tests."""
+
+    async def test_source_test_excluded(self):
+        """Events with source='test' should be excluded from insulin summary."""
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie, user_id = await register_and_login(client)
+
+            async for db in get_db():
+                now = datetime.now(UTC)
+                uid = uuid.UUID(user_id)
+                # Insert bolus and basal with source='test' -- should be ignored
+                db.add(
+                    PumpEvent(
+                        user_id=uid,
+                        event_type=PumpEventType.BOLUS,
+                        event_timestamp=now - timedelta(hours=1),
+                        units=5.0,
+                        is_automated=False,
+                        received_at=now,
+                        source="test",
+                    )
+                )
+                db.add(
+                    PumpEvent(
+                        user_id=uid,
+                        event_type=PumpEventType.BASAL,
+                        event_timestamp=now - timedelta(hours=1),
+                        units=1.0,
+                        is_automated=True,
+                        received_at=now,
+                        source="test",
+                    )
+                )
+                await db.commit()
+                break
+
+            resp = await client.get(
+                "/api/integrations/insulin/summary?days=1",
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["tdd"] == 0.0
+        assert data["bolus_count"] == 0
+
+    async def test_bolus_correction_dedup(self):
+        """Same delivery stored as both bolus and correction should be counted once."""
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie, user_id = await register_and_login(client)
+
+            async for db in get_db():
+                now = datetime.now(UTC)
+                uid = uuid.UUID(user_id)
+                ts = now - timedelta(hours=2)
+                # Same timestamp and units, different event_type (mobile dual-creation)
+                db.add(
+                    PumpEvent(
+                        user_id=uid,
+                        event_type=PumpEventType.BOLUS,
+                        event_timestamp=ts,
+                        units=3.0,
+                        is_automated=False,
+                        received_at=now,
+                        source="mobile",
+                    )
+                )
+                db.add(
+                    PumpEvent(
+                        user_id=uid,
+                        event_type=PumpEventType.CORRECTION,
+                        event_timestamp=ts,
+                        units=3.0,
+                        is_automated=True,
+                        control_iq_reason="high_bg",
+                        received_at=now,
+                        source="mobile",
+                    )
+                )
+                await db.commit()
+                break
+
+            resp = await client.get(
+                "/api/integrations/insulin/summary?days=1",
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        # Should count as ONE delivery of 3.0 U, classified as correction
+        assert data["correction_count"] == 1
+        assert data["bolus_count"] == 0
+        # correction_units is daily avg (3.0 / 1 day = 3.0)
+        assert abs(data["correction_units"] - 3.0) < 0.5
+
+    async def test_cross_source_prefers_mobile(self):
+        """When both mobile and tandem have data, only mobile is aggregated."""
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie, user_id = await register_and_login(client)
+
+            async for db in get_db():
+                now = datetime.now(UTC)
+                uid = uuid.UUID(user_id)
+                # Mobile bolus
+                db.add(
+                    PumpEvent(
+                        user_id=uid,
+                        event_type=PumpEventType.BOLUS,
+                        event_timestamp=now - timedelta(hours=2),
+                        units=4.0,
+                        is_automated=False,
+                        received_at=now,
+                        source="mobile",
+                    )
+                )
+                # Tandem bolus at slightly different timestamp (cloud sync)
+                db.add(
+                    PumpEvent(
+                        user_id=uid,
+                        event_type=PumpEventType.BOLUS,
+                        event_timestamp=now - timedelta(hours=2, seconds=5),
+                        units=4.0,
+                        is_automated=False,
+                        received_at=now,
+                        source="tandem",
+                    )
+                )
+                await db.commit()
+                break
+
+            resp = await client.get(
+                "/api/integrations/insulin/summary?days=1",
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        # Only the mobile bolus (4.0 U) should be counted, not both
+        assert data["bolus_count"] == 1
+        assert abs(data["bolus_units"] - 4.0) < 0.5
+
+    async def test_tandem_fallback_when_no_mobile(self):
+        """When only tandem data exists, it should be used for aggregation."""
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie, user_id = await register_and_login(client)
+
+            async for db in get_db():
+                now = datetime.now(UTC)
+                uid = uuid.UUID(user_id)
+                db.add(
+                    PumpEvent(
+                        user_id=uid,
+                        event_type=PumpEventType.BOLUS,
+                        event_timestamp=now - timedelta(hours=3),
+                        units=5.5,
+                        is_automated=False,
+                        received_at=now,
+                        source="tandem",
+                    )
+                )
+                db.add(
+                    PumpEvent(
+                        user_id=uid,
+                        event_type=PumpEventType.BASAL,
+                        event_timestamp=now - timedelta(hours=3),
+                        units=0.8,
+                        is_automated=True,
+                        received_at=now,
+                        source="tandem",
+                    )
+                )
+                db.add(
+                    PumpEvent(
+                        user_id=uid,
+                        event_type=PumpEventType.BASAL,
+                        event_timestamp=now,
+                        units=0.8,
+                        is_automated=True,
+                        received_at=now,
+                        source="tandem",
+                    )
+                )
+                await db.commit()
+                break
+
+            resp = await client.get(
+                "/api/integrations/insulin/summary?days=1",
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["tdd"] > 0
+        assert data["bolus_count"] == 1
+        assert data["basal_units"] > 0
+
+    async def test_bolus_review_excludes_test_source(self):
+        """Bolus review endpoint should exclude source='test' events."""
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie, user_id = await register_and_login(client)
+
+            async for db in get_db():
+                now = datetime.now(UTC)
+                uid = uuid.UUID(user_id)
+                # One mobile bolus (should appear) and one test bolus (excluded)
+                db.add(
+                    PumpEvent(
+                        user_id=uid,
+                        event_type=PumpEventType.BOLUS,
+                        event_timestamp=now - timedelta(hours=1),
+                        units=3.0,
+                        is_automated=False,
+                        received_at=now,
+                        source="mobile",
+                    )
+                )
+                db.add(
+                    PumpEvent(
+                        user_id=uid,
+                        event_type=PumpEventType.BOLUS,
+                        event_timestamp=now - timedelta(hours=2),
+                        units=5.0,
+                        is_automated=False,
+                        received_at=now,
+                        source="test",
+                    )
+                )
+                await db.commit()
+                break
+
+            resp = await client.get(
+                "/api/integrations/bolus/review?days=1",
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        # Only the mobile bolus should appear
+        assert data["total_count"] == 1
+        assert len(data["boluses"]) == 1
+        assert abs(data["boluses"][0]["units"] - 3.0) < 0.01
