@@ -61,7 +61,8 @@ private object ChartColors {
     val BasalProfile = Color(0xFF78909C)  // Blue-grey -- profile/manual basal
     val BasalSleep = Color(0xFF7E57C2)    // Purple -- sleep mode
     val BasalExercise = Color(0xFFFF9800) // Orange -- exercise mode
-    val Correction = Color(0xFFE91E63)    // Pink -- correction bolus (auto or manual)
+    val Correction = Color(0xFFE91E63)    // Pink -- auto correction (pump-initiated)
+    val ManualCorrection = Color(0xFFFF5722)  // Deep orange -- manual correction (user-initiated)
     val Bolus = Color(0xFF7C4DFF)         // Deep purple -- meal/standard bolus
 }
 
@@ -181,7 +182,11 @@ fun GlucoseTrendChart(
                 val bolusTypesPresent = remember(bolusEvents) {
                     buildSet {
                         for (b in bolusEvents) {
-                            if (b.isAutomated || b.isCorrection) add("correction") else add("bolus")
+                            when {
+                                b.isAutomated -> add("auto_correction")
+                                b.isCorrection -> add("manual_correction")
+                                else -> add("meal_bolus")
+                            }
                         }
                     }
                 }
@@ -212,8 +217,9 @@ private fun ChartLegend(
         if ("profile" in basalModesPresent) LegendItem(color = ChartColors.BasalProfile, label = "Profile")
         if ("sleep" in basalModesPresent) LegendItem(color = ChartColors.BasalSleep, label = "Sleep")
         if ("exercise" in basalModesPresent) LegendItem(color = ChartColors.BasalExercise, label = "Exercise")
-        if ("correction" in bolusTypesPresent) LegendItem(color = ChartColors.Correction, label = "Correction")
-        if ("bolus" in bolusTypesPresent) LegendItem(color = ChartColors.Bolus, label = "Bolus")
+        if ("auto_correction" in bolusTypesPresent) LegendItem(color = ChartColors.Correction, label = "Auto Correction")
+        if ("manual_correction" in bolusTypesPresent) LegendItem(color = ChartColors.ManualCorrection, label = "Manual Correction")
+        if ("meal_bolus" in bolusTypesPresent) LegendItem(color = ChartColors.Bolus, label = "Meal Bolus")
         if (hasIob) LegendItem(color = iobColor.copy(alpha = 0.7f), label = "IoB")
     }
 }
@@ -328,6 +334,17 @@ private fun DrawScope.drawGlucoseChart(
             ),
         )
     }
+
+    // -- Mode overlay bands (full-height colored bands for sleep/exercise modes) --
+    drawModeOverlay(
+        basalReadings = basalReadings,
+        xMin = xMin,
+        xMax = xMax,
+        leftPadding = leftPadding,
+        topPadding = topPadding,
+        chartWidth = chartWidth,
+        chartHeight = chartHeight,
+    )
 
     // -- Basal rate stepped area (drawn first, behind everything) ----------------
     drawBasalOverlay(
@@ -456,6 +473,52 @@ private fun DrawScope.drawBasalOverlay(
     }
 }
 
+private fun DrawScope.drawModeOverlay(
+    basalReadings: List<BasalReading>,
+    xMin: Long,
+    xMax: Long,
+    leftPadding: Float,
+    topPadding: Float,
+    chartWidth: Float,
+    chartHeight: Float,
+) {
+    if (basalReadings.isEmpty()) return
+
+    for (i in basalReadings.indices) {
+        val reading = basalReadings[i]
+        val mode = reading.controlIqMode
+        // Only draw overlays for sleep and exercise/activity modes
+        if (mode != ControlIqMode.SLEEP && mode != ControlIqMode.EXERCISE) continue
+
+        val ts = reading.timestamp.toEpochMilli()
+        if (ts > xMax) continue
+
+        val nextTs = if (i + 1 < basalReadings.size) {
+            basalReadings[i + 1].timestamp.toEpochMilli().coerceAtMost(xMax)
+        } else {
+            xMax
+        }
+        if (nextTs < xMin) continue
+
+        val startMs = ts.coerceAtLeast(xMin)
+        val x1 = leftPadding + chartWidth * (startMs - xMin).toFloat() / (xMax - xMin).toFloat()
+        val x2 = leftPadding + chartWidth * (nextTs - xMin).toFloat() / (xMax - xMin).toFloat()
+
+        val color = if (mode == ControlIqMode.SLEEP) {
+            ChartColors.BasalSleep
+        } else {
+            ChartColors.BasalExercise
+        }
+
+        // Full-height background band
+        drawRect(
+            color = color.copy(alpha = 0.06f),
+            topLeft = Offset(x1, topPadding),
+            size = Size(x2 - x1, chartHeight),
+        )
+    }
+}
+
 private fun DrawScope.drawIoBOverlay(
     iobReadings: List<IoBReading>,
     xMin: Long,
@@ -533,6 +596,8 @@ private fun DrawScope.drawBolusMarkers(
     val minSpacing = 20.dp.toPx()
     val staggerStep = 18.dp.toPx()
     val baseMarkerY = topPadding + 16.dp.toPx()
+    // Cap stagger levels so clustered boluses don't overflow into glucose area
+    val maxStaggerLevels = ((chartHeight * 0.25f) / staggerStep).toInt().coerceAtLeast(1)
     var prevX = Float.NEGATIVE_INFINITY
     var staggerLevel = 0
 
@@ -542,16 +607,19 @@ private fun DrawScope.drawBolusMarkers(
 
         val x = leftPadding + chartWidth * (ts - xMin).toFloat() / (xMax - xMin).toFloat()
 
-        // Stagger markers that are too close together
+        // Stagger markers that are too close together (capped to avoid glucose overlap)
         if (x - prevX < minSpacing) {
-            staggerLevel++
+            staggerLevel = (staggerLevel + 1).coerceAtMost(maxStaggerLevels)
         } else {
             staggerLevel = 0
         }
         prevX = x
 
-        val isCorrection = event.isAutomated || event.isCorrection
-        val color = if (isCorrection) ChartColors.Correction else ChartColors.Bolus
+        val color = when {
+            event.isAutomated -> ChartColors.Correction        // Pink: pump auto-correction
+            event.isCorrection -> ChartColors.ManualCorrection  // Deep orange: user correction
+            else -> ChartColors.Bolus                           // Purple: meal bolus
+        }
 
         val markerY = baseMarkerY + staggerLevel * staggerStep
 

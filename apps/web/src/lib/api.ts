@@ -2287,6 +2287,9 @@ export interface PumpEventReading {
   control_iq_reason: string | null;
   control_iq_mode: string | null;
   basal_adjustment_pct: number | null;
+  iob_at_event: number | null;
+  cob_at_event: number | null;
+  bg_at_event: number | null;
   received_at: string;
   source: string;
 }
