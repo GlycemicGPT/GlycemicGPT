@@ -35,7 +35,7 @@ class PumpEventMapperTest {
             ),
         )
         assertEquals("basal", dto.eventType)
-        assertEquals(0.8f, dto.units)
+        assertEquals(0.8f, dto.units!!, 0.001f)
         assertEquals(true, dto.isAutomated)
         assertEquals("sleep", dto.pumpActivityMode)
     }

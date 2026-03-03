@@ -1,7 +1,8 @@
 package com.glycemicgpt.mobile.domain.plugin
 
-/** Current plugin API version. Plugins with a different version are rejected. */
-const val PLUGIN_API_VERSION = 2
+/** Current plugin API version. Plugins with a different version are rejected.
+ *  v3: BasalReading.controlIqMode renamed to activityMode (PumpActivityMode enum). */
+const val PLUGIN_API_VERSION = 3
 
 /**
  * Immutable metadata describing a plugin. Available before the plugin is created.
