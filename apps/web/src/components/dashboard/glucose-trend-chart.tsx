@@ -21,7 +21,7 @@ import {
   ReferenceLine,
   Cell,
 } from "recharts";
-import { ZoomOut } from "lucide-react";
+import { ZoomIn, ZoomOut } from "lucide-react";
 import clsx from "clsx";
 import type { MouseHandlerDataParam } from "recharts/types/synchronisation/types";
 import { type GlucoseHistoryReading, type PumpEventReading } from "@/lib/api";
@@ -666,22 +666,26 @@ export function GlucoseTrendChart({
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <h2 className="text-lg font-semibold text-slate-200">Glucose Trend</h2>
-          {zoomDomain && (
+          {zoomDomain ? (
             <button
               type="button"
               onClick={() => setZoomDomain(null)}
               className="flex items-center gap-1 px-2 py-1 text-xs text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-md transition-colors"
               aria-label="Reset zoom"
             >
-              <ZoomOut size={14} /> Reset
+              <ZoomOut size={14} /> Reset Zoom
             </button>
+          ) : (
+            <span className="flex items-center gap-1 text-xs text-slate-500">
+              <ZoomIn size={12} /> Drag chart to zoom
+            </span>
           )}
         </div>
         <PeriodSelector selected={period} onSelect={handlePeriodChange} />
       </div>
 
-      {/* Chart */}
-      <div ref={chartAreaRef} className="h-64 md:h-72 lg:h-80">
+      {/* Chart -- crosshair cursor signals drag-to-zoom */}
+      <div ref={chartAreaRef} className={clsx("h-64 md:h-72 lg:h-80", isDragging ? "cursor-col-resize" : "cursor-crosshair")}>
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart
             margin={{ top: 10, right: 10, bottom: 0, left: -10 }}
