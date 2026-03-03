@@ -26,7 +26,7 @@ import com.glycemicgpt.mobile.domain.model.BasalReading
 import com.glycemicgpt.mobile.domain.model.BatteryStatus
 import com.glycemicgpt.mobile.domain.model.CgmReading
 import com.glycemicgpt.mobile.domain.model.CgmTrend
-import com.glycemicgpt.mobile.domain.model.ControlIqMode
+import com.glycemicgpt.mobile.domain.model.PumpActivityMode
 import com.glycemicgpt.mobile.domain.model.IoBReading
 import com.glycemicgpt.mobile.domain.model.ReservoirReading
 import com.glycemicgpt.mobile.presentation.theme.GlucoseColors
@@ -159,10 +159,10 @@ fun GlucoseHero(
                         }
                         if (basalRate != null) {
                             val basalText = "%.2f u/hr".format(basalRate.rate)
-                            val modeLabel = when (basalRate.controlIqMode) {
-                                ControlIqMode.SLEEP -> " Sleep"
-                                ControlIqMode.EXERCISE -> " Exercise"
-                                ControlIqMode.STANDARD -> if (basalRate.isAutomated) " Auto" else ""
+                            val modeLabel = when (basalRate.activityMode) {
+                                PumpActivityMode.SLEEP -> " Sleep"
+                                PumpActivityMode.EXERCISE -> " Exercise"
+                                PumpActivityMode.NONE -> if (basalRate.isAutomated) " Automated" else ""
                             }
                             SecondaryMetric(
                                 label = "Basal",

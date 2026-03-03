@@ -1,12 +1,12 @@
 """Story 3.4 & 3.5: Pump data schemas.
 
 Pydantic schemas for pump event API requests and responses,
-including Control-IQ activity data.
+including pump activity mode data.
 """
 
 from datetime import UTC, datetime, timedelta
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.models.pump_data import PumpEventType
 
@@ -22,8 +22,8 @@ class PumpEventResponse(BaseModel):
     duration_minutes: int | None = None
     is_automated: bool = False
     control_iq_reason: str | None = None
-    control_iq_mode: str | None = None  # Story 3.5
-    basal_adjustment_pct: float | None = None  # Story 3.5
+    pump_activity_mode: str | None = None
+    basal_adjustment_pct: float | None = None
     iob_at_event: float | None = None
     cob_at_event: float | None = None
     bg_at_event: int | None = None
@@ -167,10 +167,25 @@ class PumpEventPushItem(BaseModel):
     units: float | None = None
     duration_minutes: int | None = None
     is_automated: bool = False
-    control_iq_mode: str | None = None
+    pump_activity_mode: str | None = None
+    control_iq_mode: str | None = None  # backwards compat: old field name
     basal_adjustment_pct: float | None = None
     iob_at_event: float | None = None
     bg_at_event: int | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_control_iq_mode(cls, data: dict) -> dict:
+        """Accept old control_iq_mode field and map to pump_activity_mode."""
+        if isinstance(data, dict):
+            old = data.get("control_iq_mode")
+            new = data.get("pump_activity_mode")
+            if old and not new:
+                # Map legacy "standard"/"Standard"/"STANDARD" -> "none"
+                old_lower = old.lower() if isinstance(old, str) else old
+                data["pump_activity_mode"] = "none" if old_lower == "standard" else old
+                data.pop("control_iq_mode", None)
+        return data
 
     @field_validator("event_timestamp")
     @classmethod
@@ -332,7 +347,7 @@ class BolusReviewItem(BaseModel):
     )
     is_automated: bool = False
     control_iq_reason: str | None = None
-    control_iq_mode: str | None = None
+    pump_activity_mode: str | None = None
     iob_at_event: float | None = None
     bg_at_event: int | None = Field(
         None, ge=20, le=500, description="Glucose at bolus event (mg/dL)"

@@ -10,15 +10,26 @@ data class IoBReading(
 data class BasalReading(
     val rate: Float,
     val isAutomated: Boolean,
-    val controlIqMode: ControlIqMode,
+    val activityMode: PumpActivityMode,
     val timestamp: Instant,
 )
 
-enum class ControlIqMode {
-    STANDARD,
+/**
+ * Pump activity modes -- pump-level feature, independent of Control-IQ automation.
+ *
+ * Sleep and Exercise are pump activity modes that adjust target ranges and basal
+ * profiles. They exist on all Tandem pumps regardless of whether Control-IQ is
+ * enabled. NONE means no special activity mode is active (normal operation).
+ */
+enum class PumpActivityMode {
+    NONE,
     SLEEP,
     EXERCISE,
 }
+
+/** Backwards-compat alias. Remove once all consumers migrate. */
+@Deprecated("Use PumpActivityMode", ReplaceWith("PumpActivityMode"))
+typealias ControlIqMode = PumpActivityMode
 
 data class BolusEvent(
     val units: Float,

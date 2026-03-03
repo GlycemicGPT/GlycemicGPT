@@ -6,7 +6,7 @@ import com.glycemicgpt.mobile.domain.model.BatteryStatus
 import com.glycemicgpt.mobile.domain.model.BolusEvent
 import com.glycemicgpt.mobile.domain.model.CgmReading
 import com.glycemicgpt.mobile.domain.model.CgmTrend
-import com.glycemicgpt.mobile.domain.model.ControlIqMode
+import com.glycemicgpt.mobile.domain.model.PumpActivityMode
 import com.glycemicgpt.mobile.domain.model.HistoryLogRange
 import com.glycemicgpt.mobile.domain.model.HistoryLogRecord
 import com.glycemicgpt.mobile.domain.model.IoBReading
@@ -107,7 +107,7 @@ internal object StatusResponseParser {
         return BasalReading(
             rate = rate,
             isAutomated = isAutomated,
-            controlIqMode = ControlIqMode.STANDARD, // updated by HomeScreenMirror
+            activityMode = PumpActivityMode.NONE, // updated by HomeScreenMirror
             timestamp = Instant.now(),
         )
     }
@@ -797,7 +797,7 @@ internal object StatusResponseParser {
         return BasalReading(
             rate = commandedRateMu / 1000f,
             isAutomated = isAutomated,
-            controlIqMode = ControlIqMode.STANDARD, // mode not in history payload
+            activityMode = PumpActivityMode.NONE, // mode not in history payload
             timestamp = pumpTimeToInstant(pumpTimeSec),
         )
     }

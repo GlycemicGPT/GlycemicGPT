@@ -5,7 +5,7 @@ import com.glycemicgpt.mobile.data.local.entity.SyncQueueEntity
 import com.glycemicgpt.mobile.data.remote.InstantAdapter
 import com.glycemicgpt.mobile.domain.model.BasalReading
 import com.glycemicgpt.mobile.domain.model.BolusEvent
-import com.glycemicgpt.mobile.domain.model.ControlIqMode
+import com.glycemicgpt.mobile.domain.model.PumpActivityMode
 import com.glycemicgpt.mobile.domain.model.IoBReading
 import com.squareup.moshi.Moshi
 import io.mockk.coEvery
@@ -47,7 +47,7 @@ class SyncQueueEnqueuerTest {
             BasalReading(
                 rate = 1.2f,
                 isAutomated = true,
-                controlIqMode = ControlIqMode.EXERCISE,
+                activityMode = PumpActivityMode.EXERCISE,
                 timestamp = Instant.now(),
             ),
         )

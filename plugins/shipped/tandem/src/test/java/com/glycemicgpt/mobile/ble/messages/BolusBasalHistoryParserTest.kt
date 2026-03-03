@@ -1,7 +1,7 @@
 package com.glycemicgpt.mobile.ble.messages
 
 import android.util.Base64
-import com.glycemicgpt.mobile.domain.model.ControlIqMode
+import com.glycemicgpt.mobile.domain.model.PumpActivityMode
 import com.glycemicgpt.mobile.domain.model.HistoryLogRecord
 import com.glycemicgpt.mobile.domain.pump.SafetyLimits
 import io.mockk.every
@@ -286,7 +286,7 @@ class BolusBasalHistoryParserTest {
         assertNotNull(result)
         assertEquals(0.8f, result!!.rate, 0.001f)
         assertFalse(result.isAutomated)
-        assertEquals(ControlIqMode.STANDARD, result.controlIqMode)
+        assertEquals(PumpActivityMode.NONE, result.activityMode)
     }
 
     @Test

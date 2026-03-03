@@ -22,7 +22,7 @@ data class BasalReadingEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val rate: Float,
     val isAutomated: Boolean,
-    val controlIqMode: String,
+    val activityMode: String,
     val timestampMs: Long,
 )
 

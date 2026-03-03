@@ -1461,7 +1461,7 @@ async def push_pump_events(
                 "units": item.units,
                 "duration_minutes": item.duration_minutes,
                 "is_automated": item.is_automated,
-                "control_iq_mode": item.control_iq_mode,
+                "pump_activity_mode": item.pump_activity_mode,
                 "basal_adjustment_pct": item.basal_adjustment_pct,
                 "iob_at_event": item.iob_at_event,
                 "bg_at_event": item.bg_at_event,
@@ -2246,7 +2246,7 @@ async def get_bolus_review(
                 units=e.units or 0.0,
                 is_automated=e.is_automated,
                 control_iq_reason=e.control_iq_reason,
-                control_iq_mode=e.control_iq_mode,
+                pump_activity_mode=e.pump_activity_mode,
                 iob_at_event=e.iob_at_event,
                 bg_at_event=e.bg_at_event,
             )

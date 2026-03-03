@@ -59,6 +59,14 @@ object DatabaseModule {
         }
     }
 
+    /** Migration 8->9: rename controlIqMode -> activityMode, STANDARD -> NONE. */
+    private val MIGRATION_8_9 = object : Migration(8, 9) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE basal_readings RENAME COLUMN controlIqMode TO activityMode")
+            db.execSQL("UPDATE basal_readings SET activityMode = 'NONE' WHERE activityMode = 'STANDARD'")
+        }
+    }
+
     /**
      * Retrieve or generate the database passphrase from EncryptedSharedPreferences.
      *
@@ -127,7 +135,7 @@ object DatabaseModule {
 
         return Room.databaseBuilder(context, AppDatabase::class.java, "glycemicgpt_encrypted.db")
             .openHelperFactory(factory)
-            .addMigrations(MIGRATION_6_7, MIGRATION_7_8)
+            .addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
             .fallbackToDestructiveMigration()
             .build()
     }

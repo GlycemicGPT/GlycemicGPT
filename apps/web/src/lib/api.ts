@@ -2285,7 +2285,7 @@ export interface PumpEventReading {
   duration_minutes: number | null;
   is_automated: boolean;
   control_iq_reason: string | null;
-  control_iq_mode: string | null;
+  pump_activity_mode: string | null;
   basal_adjustment_pct: number | null;
   iob_at_event: number | null;
   cob_at_event: number | null;
@@ -2592,7 +2592,7 @@ export interface BolusReviewItem {
   units: number;
   is_automated: boolean;
   control_iq_reason: string | null;
-  control_iq_mode: string | null;
+  pump_activity_mode: string | null;
   iob_at_event: number | null;
   bg_at_event: number | null;
 }

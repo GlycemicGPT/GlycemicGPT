@@ -43,6 +43,7 @@ data class PumpEventDto(
     val units: Float? = null,
     @Json(name = "duration_minutes") val durationMinutes: Int? = null,
     @Json(name = "is_automated") val isAutomated: Boolean = false,
+    @Json(name = "pump_activity_mode") val pumpActivityMode: String? = null,
     @Json(name = "control_iq_mode") val controlIqMode: String? = null,
     @Json(name = "basal_adjustment_pct") val basalAdjustmentPct: Float? = null,
     @Json(name = "iob_at_event") val iobAtEvent: Float? = null,

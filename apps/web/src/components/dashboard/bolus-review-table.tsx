@@ -103,7 +103,7 @@ function BolusRow({ bolus }: { bolus: BolusReviewItem }) {
       </td>
       <td className="px-4 py-3 text-sm text-slate-400 whitespace-nowrap max-w-[200px] truncate">
         {bolus.is_automated
-          ? (bolus.control_iq_reason || bolus.control_iq_mode || "Auto correction")
+          ? (bolus.control_iq_reason || "Automated correction")
           : ""}
       </td>
     </tr>

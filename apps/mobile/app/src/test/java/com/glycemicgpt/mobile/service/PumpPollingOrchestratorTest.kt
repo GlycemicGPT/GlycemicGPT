@@ -10,7 +10,7 @@ import com.glycemicgpt.mobile.domain.model.BatteryStatus
 import com.glycemicgpt.mobile.domain.model.CgmReading
 import com.glycemicgpt.mobile.domain.model.CgmTrend
 import com.glycemicgpt.mobile.domain.model.ConnectionState
-import com.glycemicgpt.mobile.domain.model.ControlIqMode
+import com.glycemicgpt.mobile.domain.model.PumpActivityMode
 import com.glycemicgpt.mobile.domain.model.HistoryLogRecord
 import com.glycemicgpt.mobile.domain.model.IoBReading
 import com.glycemicgpt.mobile.domain.model.ReservoirReading
@@ -46,7 +46,7 @@ class PumpPollingOrchestratorTest {
             BasalReading(
                 rate = 0.8f,
                 isAutomated = true,
-                controlIqMode = ControlIqMode.STANDARD,
+                activityMode = PumpActivityMode.NONE,
                 timestamp = Instant.now(),
             ),
         )
@@ -284,7 +284,7 @@ class PumpPollingOrchestratorTest {
         }
         coEvery { pumpDriver.getBasalRate() } coAnswers {
             callOrder.add("basal")
-            Result.success(BasalReading(rate = 0.8f, isAutomated = true, controlIqMode = ControlIqMode.STANDARD, timestamp = Instant.now()))
+            Result.success(BasalReading(rate = 0.8f, isAutomated = true, activityMode = PumpActivityMode.NONE, timestamp = Instant.now()))
         }
         coEvery { pumpDriver.getCgmStatus() } coAnswers {
             callOrder.add("cgm")

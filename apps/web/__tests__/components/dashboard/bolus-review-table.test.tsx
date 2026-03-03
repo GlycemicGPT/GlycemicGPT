@@ -21,7 +21,7 @@ let mockHookReturn: {
       units: number;
       is_automated: boolean;
       control_iq_reason: string | null;
-      control_iq_mode: string | null;
+      pump_activity_mode: string | null;
       iob_at_event: number | null;
       bg_at_event: number | null;
     }>;
@@ -55,7 +55,7 @@ function makeBoluses() {
       units: 3.5,
       is_automated: false,
       control_iq_reason: null,
-      control_iq_mode: null,
+      pump_activity_mode: null,
       iob_at_event: 2.1,
       bg_at_event: 185,
     },
@@ -64,7 +64,7 @@ function makeBoluses() {
       units: 0.8,
       is_automated: true,
       control_iq_reason: "Correction",
-      control_iq_mode: "Auto",
+      pump_activity_mode: "none",
       iob_at_event: 1.5,
       bg_at_event: 210,
     },
@@ -73,7 +73,7 @@ function makeBoluses() {
       units: 5.0,
       is_automated: false,
       control_iq_reason: null,
-      control_iq_mode: null,
+      pump_activity_mode: null,
       iob_at_event: null,
       bg_at_event: null,
     },
@@ -243,7 +243,7 @@ describe("BolusReviewTable", () => {
       expect(screen.getByText("Correction")).toBeInTheDocument();
     });
 
-    it("shows Auto correction fallback when reason and mode are null", () => {
+    it("shows Automated correction fallback when reason and mode are null", () => {
       mockHookReturn.data = makeData({
         boluses: [
           {
@@ -251,7 +251,7 @@ describe("BolusReviewTable", () => {
             units: 1.2,
             is_automated: true,
             control_iq_reason: null,
-            control_iq_mode: null,
+            pump_activity_mode: null,
             iob_at_event: null,
             bg_at_event: null,
           },
@@ -259,7 +259,7 @@ describe("BolusReviewTable", () => {
         total_count: 1,
       });
       renderComponent();
-      expect(screen.getByText("Auto correction")).toBeInTheDocument();
+      expect(screen.getByText("Automated correction")).toBeInTheDocument();
     });
 
     it("shows heading text", () => {

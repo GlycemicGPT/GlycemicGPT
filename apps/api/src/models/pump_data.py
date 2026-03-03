@@ -1,6 +1,6 @@
 """Story 3.4 & 3.5: Pump event model.
 
-Models for storing pump data from Tandem t:connect with Control-IQ activity tracking.
+Models for storing pump data from Tandem t:connect with pump activity tracking.
 """
 
 import enum
@@ -36,12 +36,21 @@ class PumpEventType(str, enum.Enum):
     RESERVOIR = "reservoir"  # Reservoir insulin units remaining
 
 
-class ControlIQMode(str, enum.Enum):
-    """Control-IQ operating modes from Tandem pump."""
+class PumpActivityMode(str, enum.Enum):
+    """Pump activity modes -- pump-level feature, independent of automation.
 
-    STANDARD = "standard"  # Normal Control-IQ operation
-    SLEEP = "sleep"  # Sleep Activity mode (tighter range)
-    EXERCISE = "exercise"  # Exercise Activity mode (higher target)
+    Sleep and Exercise are pump activity modes that adjust target ranges
+    and basal profiles. They exist on all Tandem pumps regardless of
+    whether Control-IQ is enabled. NONE means normal operation.
+    """
+
+    NONE = "none"
+    SLEEP = "sleep"
+    EXERCISE = "exercise"
+
+
+# Backwards-compat alias -- remove once all consumers migrate
+ControlIQMode = PumpActivityMode
 
 
 class PumpEvent(Base):
@@ -117,8 +126,8 @@ class PumpEvent(Base):
         nullable=True,
     )
 
-    # Control-IQ mode active during event (Story 3.5)
-    control_iq_mode: Mapped[str | None] = mapped_column(
+    # Pump activity mode active during event (sleep/exercise/none)
+    pump_activity_mode: Mapped[str | None] = mapped_column(
         String(20),
         nullable=True,
     )

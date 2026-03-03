@@ -13,7 +13,7 @@ import com.glycemicgpt.mobile.domain.model.BatteryStatus
 import com.glycemicgpt.mobile.domain.model.BolusEvent
 import com.glycemicgpt.mobile.domain.model.CgmReading
 import com.glycemicgpt.mobile.domain.model.CgmTrend
-import com.glycemicgpt.mobile.domain.model.ControlIqMode
+import com.glycemicgpt.mobile.domain.model.PumpActivityMode
 import com.glycemicgpt.mobile.domain.model.IoBReading
 import com.glycemicgpt.mobile.domain.model.ReservoirReading
 import com.glycemicgpt.mobile.domain.model.TimeInRangeData
@@ -67,7 +67,7 @@ class PumpDataRepository @Inject constructor(
             BasalReadingEntity(
                 rate = reading.rate,
                 isAutomated = reading.isAutomated,
-                controlIqMode = reading.controlIqMode.name,
+                activityMode = reading.activityMode.name,
                 timestampMs = reading.timestamp.toEpochMilli(),
             ),
         )
@@ -80,7 +80,7 @@ class PumpDataRepository @Inject constructor(
                 BasalReadingEntity(
                     rate = it.rate,
                     isAutomated = it.isAutomated,
-                    controlIqMode = it.controlIqMode.name,
+                    activityMode = it.activityMode.name,
                     timestampMs = it.timestamp.toEpochMilli(),
                 )
             },
@@ -214,10 +214,11 @@ private fun IoBReadingEntity.toDomain() = IoBReading(
 private fun BasalReadingEntity.toDomain() = BasalReading(
     rate = rate,
     isAutomated = isAutomated,
-    controlIqMode = try {
-        ControlIqMode.valueOf(controlIqMode)
+    activityMode = try {
+        PumpActivityMode.valueOf(activityMode)
     } catch (_: IllegalArgumentException) {
-        ControlIqMode.STANDARD
+        // Fallback handles legacy "STANDARD" values and any unknown modes
+        PumpActivityMode.NONE
     },
     timestamp = Instant.ofEpochMilli(timestampMs),
 )

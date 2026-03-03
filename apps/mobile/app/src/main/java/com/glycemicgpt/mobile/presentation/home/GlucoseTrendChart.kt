@@ -42,7 +42,7 @@ import androidx.compose.ui.unit.sp
 import com.glycemicgpt.mobile.domain.model.BasalReading
 import com.glycemicgpt.mobile.domain.model.BolusEvent
 import com.glycemicgpt.mobile.domain.model.CgmReading
-import com.glycemicgpt.mobile.domain.model.ControlIqMode
+import com.glycemicgpt.mobile.domain.model.PumpActivityMode
 import com.glycemicgpt.mobile.domain.model.IoBReading
 import com.glycemicgpt.mobile.presentation.theme.GlucoseColors
 import java.time.Instant
@@ -57,10 +57,10 @@ enum class ChartPeriod(val label: String, val hours: Long) {
 }
 
 private object ChartColors {
-    val BasalAuto = Color(0xFF00BCD4)     // Teal -- auto basal (algorithm adjusted)
-    val BasalProfile = Color(0xFF78909C)  // Blue-grey -- profile/manual basal
-    val BasalSleep = Color(0xFF7E57C2)    // Purple -- sleep mode
-    val BasalExercise = Color(0xFFFF9800) // Orange -- exercise mode
+    val BasalAutomated = Color(0xFF00BCD4)  // Teal -- automated basal (algorithm adjusted)
+    val BasalManual = Color(0xFF78909C)     // Blue-grey -- manual basal
+    val BasalSleep = Color(0xFF7E57C2)      // Purple -- sleep mode
+    val BasalExercise = Color(0xFFFF9800)   // Orange -- exercise mode
     val Correction = Color(0xFFE91E63)    // Pink -- auto correction (pump-initiated)
     val ManualCorrection = Color(0xFFFF5722)  // Deep orange -- manual correction (user-initiated)
     val Bolus = Color(0xFF7C4DFF)         // Deep purple -- meal/standard bolus
@@ -171,10 +171,10 @@ fun GlucoseTrendChart(
                     buildSet {
                         for (r in basalReadings) {
                             when {
-                                r.controlIqMode == ControlIqMode.SLEEP -> add("sleep")
-                                r.controlIqMode == ControlIqMode.EXERCISE -> add("exercise")
-                                r.isAutomated -> add("auto")
-                                else -> add("profile")
+                                r.activityMode == PumpActivityMode.SLEEP -> add("sleep")
+                                r.activityMode == PumpActivityMode.EXERCISE -> add("exercise")
+                                r.isAutomated -> add("automated")
+                                else -> add("manual")
                             }
                         }
                     }
@@ -183,8 +183,9 @@ fun GlucoseTrendChart(
                     buildSet {
                         for (b in bolusEvents) {
                             when {
-                                b.isAutomated -> add("auto_correction")
+                                b.isAutomated && b.isCorrection -> add("auto_correction")
                                 b.isCorrection -> add("manual_correction")
+                                b.isAutomated -> add("auto_correction")
                                 else -> add("meal_bolus")
                             }
                         }
@@ -213,8 +214,8 @@ private fun ChartLegend(
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if ("auto" in basalModesPresent) LegendItem(color = ChartColors.BasalAuto, label = "Auto")
-        if ("profile" in basalModesPresent) LegendItem(color = ChartColors.BasalProfile, label = "Profile")
+        if ("automated" in basalModesPresent) LegendItem(color = ChartColors.BasalAutomated, label = "Automated")
+        if ("manual" in basalModesPresent) LegendItem(color = ChartColors.BasalManual, label = "Manual")
         if ("sleep" in basalModesPresent) LegendItem(color = ChartColors.BasalSleep, label = "Sleep")
         if ("exercise" in basalModesPresent) LegendItem(color = ChartColors.BasalExercise, label = "Exercise")
         if ("auto_correction" in bolusTypesPresent) LegendItem(color = ChartColors.Correction, label = "Auto Correction")
@@ -437,10 +438,10 @@ private fun DrawScope.drawBasalOverlay(
         val y = basalBottom - segHeight
 
         val color = when {
-            reading.controlIqMode == ControlIqMode.SLEEP -> ChartColors.BasalSleep
-            reading.controlIqMode == ControlIqMode.EXERCISE -> ChartColors.BasalExercise
-            reading.isAutomated -> ChartColors.BasalAuto
-            else -> ChartColors.BasalProfile
+            reading.activityMode == PumpActivityMode.SLEEP -> ChartColors.BasalSleep
+            reading.activityMode == PumpActivityMode.EXERCISE -> ChartColors.BasalExercise
+            reading.isAutomated -> ChartColors.BasalAutomated
+            else -> ChartColors.BasalManual
         }
 
         // Filled rectangle for this basal segment
@@ -486,9 +487,9 @@ private fun DrawScope.drawModeOverlay(
 
     for (i in basalReadings.indices) {
         val reading = basalReadings[i]
-        val mode = reading.controlIqMode
+        val mode = reading.activityMode
         // Only draw overlays for sleep and exercise/activity modes
-        if (mode != ControlIqMode.SLEEP && mode != ControlIqMode.EXERCISE) continue
+        if (mode != PumpActivityMode.SLEEP && mode != PumpActivityMode.EXERCISE) continue
 
         val ts = reading.timestamp.toEpochMilli()
         if (ts > xMax) continue
@@ -504,7 +505,7 @@ private fun DrawScope.drawModeOverlay(
         val x1 = leftPadding + chartWidth * (startMs - xMin).toFloat() / (xMax - xMin).toFloat()
         val x2 = leftPadding + chartWidth * (nextTs - xMin).toFloat() / (xMax - xMin).toFloat()
 
-        val color = if (mode == ControlIqMode.SLEEP) {
+        val color = if (mode == PumpActivityMode.SLEEP) {
             ChartColors.BasalSleep
         } else {
             ChartColors.BasalExercise
@@ -616,9 +617,10 @@ private fun DrawScope.drawBolusMarkers(
         prevX = x
 
         val color = when {
-            event.isAutomated -> ChartColors.Correction        // Pink: pump auto-correction
-            event.isCorrection -> ChartColors.ManualCorrection  // Deep orange: user correction
-            else -> ChartColors.Bolus                           // Purple: meal bolus
+            event.isAutomated && event.isCorrection -> ChartColors.Correction        // Pink: pump auto-correction
+            event.isCorrection -> ChartColors.ManualCorrection                        // Deep orange: user correction
+            event.isAutomated -> ChartColors.Correction                               // Pink: other automated bolus
+            else -> ChartColors.Bolus                                                 // Purple: meal bolus
         }
 
         val markerY = baseMarkerY + staggerLevel * staggerStep

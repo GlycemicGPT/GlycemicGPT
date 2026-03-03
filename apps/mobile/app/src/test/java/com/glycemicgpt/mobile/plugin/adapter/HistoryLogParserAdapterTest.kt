@@ -129,7 +129,7 @@ class HistoryLogParserAdapterTest {
             BasalReading(
                 rate = 0.8f,
                 isAutomated = false,
-                controlIqMode = com.glycemicgpt.mobile.domain.model.ControlIqMode.STANDARD,
+                activityMode = com.glycemicgpt.mobile.domain.model.PumpActivityMode.NONE,
                 timestamp = Instant.now(),
             ),
         )

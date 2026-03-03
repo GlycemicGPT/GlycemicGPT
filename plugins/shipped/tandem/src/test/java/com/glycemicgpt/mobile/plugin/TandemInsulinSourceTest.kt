@@ -1,7 +1,7 @@
 package com.glycemicgpt.mobile.plugin
 
 import com.glycemicgpt.mobile.domain.model.BasalReading
-import com.glycemicgpt.mobile.domain.model.ControlIqMode
+import com.glycemicgpt.mobile.domain.model.PumpActivityMode
 import com.glycemicgpt.mobile.domain.model.IoBReading
 import com.glycemicgpt.mobile.ble.connection.TandemBleDriver
 import io.mockk.coEvery
@@ -35,7 +35,7 @@ class TandemInsulinSourceTest {
         val expected = BasalReading(
             rate = 0.8f,
             isAutomated = true,
-            controlIqMode = ControlIqMode.STANDARD,
+            activityMode = PumpActivityMode.NONE,
             timestamp = Instant.now(),
         )
         coEvery { bleDriver.getBasalRate() } returns Result.success(expected)

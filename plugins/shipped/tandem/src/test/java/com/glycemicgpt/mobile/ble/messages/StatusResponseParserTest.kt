@@ -1,7 +1,7 @@
 package com.glycemicgpt.mobile.ble.messages
 
 import com.glycemicgpt.mobile.domain.model.CgmTrend
-import com.glycemicgpt.mobile.domain.model.ControlIqMode
+import com.glycemicgpt.mobile.domain.model.PumpActivityMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -111,7 +111,7 @@ class StatusResponseParserTest {
         val result = StatusResponseParser.parseBasalStatusResponse(buf.array())
         assertNotNull(result)
         assertEquals(0.75f, result!!.rate, 0.001f)
-        assertEquals(ControlIqMode.STANDARD, result.controlIqMode)
+        assertEquals(PumpActivityMode.NONE, result.activityMode)
     }
 
     @Test

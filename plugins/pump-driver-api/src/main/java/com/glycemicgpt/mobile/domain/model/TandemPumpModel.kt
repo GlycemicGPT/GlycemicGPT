@@ -5,7 +5,7 @@ package com.glycemicgpt.mobile.domain.model
  *
  * This enum lives in the SDK because pairing UX (in the app module) needs it
  * to show model-appropriate instructions. The SDK already contains other
- * Tandem-specific domain types (e.g. [ControlIqMode]).
+ * Tandem-specific domain types (e.g. [PumpActivityMode]).
  */
 enum class TandemPumpModel(
     /** Human-readable model label. */

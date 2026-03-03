@@ -12,7 +12,7 @@ import com.glycemicgpt.mobile.domain.model.BatteryStatus
 import com.glycemicgpt.mobile.domain.model.BolusEvent
 import com.glycemicgpt.mobile.domain.model.CgmReading
 import com.glycemicgpt.mobile.domain.model.CgmTrend
-import com.glycemicgpt.mobile.domain.model.ControlIqMode
+import com.glycemicgpt.mobile.domain.model.PumpActivityMode
 import com.glycemicgpt.mobile.domain.model.IoBReading
 import com.glycemicgpt.mobile.domain.model.ReservoirReading
 import io.mockk.coEvery
@@ -68,7 +68,7 @@ class PumpDataRepositoryTest {
     // -- Basal ----------------------------------------------------------------
 
     @Test
-    fun `saveBasal stores controlIqMode as string`() = runTest {
+    fun `saveBasal stores activityMode as string`() = runTest {
         val slot = slot<BasalReadingEntity>()
         coEvery { pumpDao.insertBasal(capture(slot)) } returns Unit
 
@@ -76,12 +76,12 @@ class PumpDataRepositoryTest {
             BasalReading(
                 rate = 1.2f,
                 isAutomated = true,
-                controlIqMode = ControlIqMode.SLEEP,
+                activityMode = PumpActivityMode.SLEEP,
                 timestamp = Instant.now(),
             ),
         )
 
-        assertEquals("SLEEP", slot.captured.controlIqMode)
+        assertEquals("SLEEP", slot.captured.activityMode)
         assertEquals(1.2f, slot.captured.rate, 0.001f)
     }
 
@@ -91,14 +91,14 @@ class PumpDataRepositoryTest {
             id = 1,
             rate = 0.5f,
             isAutomated = false,
-            controlIqMode = "EXERCISE",
+            activityMode = "EXERCISE",
             timestampMs = 1000L,
         )
         coEvery { pumpDao.observeLatestBasal() } returns flowOf(entity)
 
         val result = repository.observeLatestBasal().first()
         assertNotNull(result)
-        assertEquals(ControlIqMode.EXERCISE, result!!.controlIqMode)
+        assertEquals(PumpActivityMode.EXERCISE, result!!.activityMode)
     }
 
     @Test
@@ -107,14 +107,30 @@ class PumpDataRepositoryTest {
             id = 1,
             rate = 0.5f,
             isAutomated = false,
-            controlIqMode = "UNKNOWN_MODE",
+            activityMode = "UNKNOWN_MODE",
             timestampMs = 1000L,
         )
         coEvery { pumpDao.observeLatestBasal() } returns flowOf(entity)
 
         val result = repository.observeLatestBasal().first()
         assertNotNull(result)
-        assertEquals(ControlIqMode.STANDARD, result!!.controlIqMode)
+        assertEquals(PumpActivityMode.NONE, result!!.activityMode)
+    }
+
+    @Test
+    fun `observeLatestBasal maps legacy STANDARD mode to NONE`() = runTest {
+        val entity = BasalReadingEntity(
+            id = 1,
+            rate = 0.5f,
+            isAutomated = true,
+            activityMode = "STANDARD",
+            timestampMs = 1000L,
+        )
+        coEvery { pumpDao.observeLatestBasal() } returns flowOf(entity)
+
+        val result = repository.observeLatestBasal().first()
+        assertNotNull(result)
+        assertEquals(PumpActivityMode.NONE, result!!.activityMode)
     }
 
     // -- Battery --------------------------------------------------------------

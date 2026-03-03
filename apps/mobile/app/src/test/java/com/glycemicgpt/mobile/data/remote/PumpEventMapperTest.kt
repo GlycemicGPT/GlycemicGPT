@@ -3,7 +3,7 @@ package com.glycemicgpt.mobile.data.remote
 import com.glycemicgpt.mobile.domain.model.BasalReading
 import com.glycemicgpt.mobile.domain.model.BatteryStatus
 import com.glycemicgpt.mobile.domain.model.BolusEvent
-import com.glycemicgpt.mobile.domain.model.ControlIqMode
+import com.glycemicgpt.mobile.domain.model.PumpActivityMode
 import com.glycemicgpt.mobile.domain.model.IoBReading
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -25,19 +25,20 @@ class PumpEventMapperTest {
     }
 
     @Test
-    fun `fromBasal maps rate and control_iq_mode`() {
+    fun `fromBasal maps rate and pump_activity_mode`() {
         val dto = PumpEventMapper.fromBasal(
             BasalReading(
                 rate = 0.8f,
                 isAutomated = true,
-                controlIqMode = ControlIqMode.SLEEP,
+                activityMode = PumpActivityMode.SLEEP,
                 timestamp = now,
             ),
         )
         assertEquals("basal", dto.eventType)
-        assertEquals(0.8f, dto.units)
+        assertEquals(0.8f, dto.units!!, 0.001f)
         assertEquals(true, dto.isAutomated)
-        assertEquals("sleep", dto.controlIqMode)
+        assertEquals("sleep", dto.pumpActivityMode)
+        assertEquals("sleep", dto.controlIqMode) // backwards compat field
     }
 
     @Test
