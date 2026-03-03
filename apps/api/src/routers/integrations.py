@@ -2194,9 +2194,8 @@ async def get_bolus_review(
         now=now,
     )
 
-    source_filter = (
-        [PumpEvent.source == review_source] if review_source is not None else []
-    )
+    if review_source is None:
+        return BolusReviewResponse(boluses=[], total_count=0, period_days=days)
 
     # Count total
     count_result = await db.execute(
@@ -2212,7 +2211,7 @@ async def get_bolus_review(
                     PumpEventType.CORRECTION,
                 ]
             ),
-            *source_filter,
+            PumpEvent.source == review_source,
         )
     )
     total = count_result.scalar() or 0
@@ -2232,7 +2231,7 @@ async def get_bolus_review(
                     PumpEventType.CORRECTION,
                 ]
             ),
-            *source_filter,
+            PumpEvent.source == review_source,
         )
         .order_by(PumpEvent.event_timestamp.desc(), PumpEvent.id.desc())
         .offset(offset)
