@@ -110,6 +110,7 @@ fun HomeScreen(
                 selectedPeriod = selectedPeriod,
                 onPeriodSelected = { viewModel.onPeriodSelected(it) },
                 thresholds = thresholds,
+                onClick = onNavigateToChartDetail,
             )
 
             Spacer(modifier = Modifier.height(12.dp))

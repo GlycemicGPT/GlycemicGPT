@@ -1,6 +1,6 @@
 # GlycemicGPT Implementation Progress
 
-> Last Updated: 2026-02-28
+> Last Updated: 2026-03-03
 
 ## Summary
 
@@ -31,9 +31,14 @@
 | 23 | Legal & Regulatory Compliance | 1/2 | **In Progress** |
 | 24 | Modular Plugin Architecture | 6/6 | **Complete** |
 | 25 | Background Service Resilience | 0/1 | Planned |
-| 26 | Runtime Plugin Loading | 0/7 | Planned |
+| 26 | Runtime Plugin Loading | 7/7 | **Complete** |
 | 27 | External Platform Integrations (Backend) | 0/5 | Planned |
 | 28 | Security Hardening & Penetration Testing | 17/17 | **Complete** |
+| 29 | App Icons & Branding | 3/3 | **Complete** |
+| 30 | Advanced Web Dashboard Visualization | 9/10 | **In Progress** |
+| 31 | Mobile Dashboard Parity & Hub-and-Spoke Redesign | 0/7 | Planned |
+| 33 | Data Source Abstraction & CGM Intelligence | 0/12 | Planned |
+| 34 | Code Quality & Technical Debt Elimination | 0/17 | Planned |
 
 **MVP Stories:** 54/54 complete (100%)
 **Post-MVP Fix Stories:** 13/13 complete (100%)
@@ -50,7 +55,13 @@
 **Epic 24 (Plugin Architecture):** 6/6 complete
 **Epic 27 (Platform Integrations):** 0/5 planned
 **Epic 28 (Security Hardening):** 17/17 complete
-**Overall Progress:** 141/159 stories complete
+**Epic 26 (Runtime Plugin Loading):** 7/7 complete
+**Epic 29 (App Icons & Branding):** 3/3 complete
+**Epic 30 (Web Dashboard Visualization):** 9/10 in progress
+**Epic 31 (Mobile Dashboard Parity):** 1/7 in progress
+**Epic 33 (Data Source Abstraction):** 0/12 planned
+**Epic 34 (Code Quality):** 0/17 planned
+**Overall Progress:** 158/207 stories complete
 
 ### Standalone Bug Fixes
 
@@ -61,6 +72,7 @@
 | Boot AlertStream | Restart AlertStreamService after device reboot when user is logged in | Done | [#276](https://github.com/jlengelbrecht/GlycemicGPT/pull/276) |
 | Alert Notification Spam | Stable notification IDs, local dedup, severity-aware sound, "Got It" acknowledge button | Done | [#277](https://github.com/jlengelbrecht/GlycemicGPT/pull/277) |
 | Custom Alert Sounds | Per-category sound customization (low/high/AI), versioned notification channels, DND bypass, volume boost for lows, ringtone picker in Settings | Done | [#278](https://github.com/jlengelbrecht/GlycemicGPT/pull/278) |
+| Pump Activity Mode Rename | Full-stack refactor: ControlIqMode -> PumpActivityMode, STANDARD -> NONE. Pump-agnostic naming since sleep/exercise modes are pump-level features independent of Control-IQ automation. Alembic migration 041, Room migration 8->9, backwards-compat validators, updated labels (Auto->Automated, Profile->Manual), display-layer safety caps. | Done | [#341](https://github.com/jlengelbrecht/GlycemicGPT/pull/341) |
 
 ---
 
@@ -961,3 +973,321 @@ All 5 stories completed:
 | 28.15 | Dependency Vulnerability Scanning | Done | [#316](https://github.com/jlengelbrecht/GlycemicGPT/pull/316) |
 | 28.16 | Security Testing Documentation | Done | [#316](https://github.com/jlengelbrecht/GlycemicGPT/pull/316) |
 | 28.17 | Branch Protection Rules Update | Done | Applied via gh api after #316 merged |
+
+---
+
+## Epic 29: App Icons & Branding
+
+**Status:** Complete (3/3 stories)
+
+| Story | Title | Status | PR |
+|-------|-------|--------|-----|
+| 29.1 | Generate App Icon Assets from Logo | Done | [#323](https://github.com/jlengelbrecht/GlycemicGPT/pull/323) |
+| 29.2 | Mobile Phone App Icon with Debug Badge | Done | [#323](https://github.com/jlengelbrecht/GlycemicGPT/pull/323) |
+| 29.3 | Wear OS App Icon and Web Favicon | Done | [#323](https://github.com/jlengelbrecht/GlycemicGPT/pull/323) |
+
+---
+
+## Epic 30: Advanced Web Dashboard Visualization
+
+**Status:** In Progress (9/10 stories)
+
+| Story | Title | Status | PR |
+|-------|-------|--------|-----|
+| 30.1 | Backend Aggregate Stats API | Done | [#324](https://github.com/jlengelbrecht/GlycemicGPT/pull/324) |
+| 30.2 | Extended Time Period Support with LTTB Downsampling | Done | [#324](https://github.com/jlengelbrecht/GlycemicGPT/pull/324) |
+| 30.3 | CGM Summary Stats Panel | Done | [#325](https://github.com/jlengelbrecht/GlycemicGPT/pull/325) |
+| 30.4 | TIR Donut Chart with Period Comparison | Done | [#328](https://github.com/jlengelbrecht/GlycemicGPT/pull/328) |
+| 30.5 | Percentile Band Glucose Chart (AGP) | Done | [#329](https://github.com/jlengelbrecht/GlycemicGPT/pull/329) |
+| 30.6 | Zoom, Pan, and Brush Controls + Chart Tooltip & Insulin Display | Done | [#338](https://github.com/jlengelbrecht/GlycemicGPT/pull/338) |
+| 30.7 | Insulin Summary and Bolus Review | Done | [#332](https://github.com/jlengelbrecht/GlycemicGPT/pull/332) |
+| 30.8 | Reports Page with Daily Timeline | Planned | |
+| 30.9 | Fix Basal Rate Aggregation in Insulin Summary | Done | [#336](https://github.com/jlengelbrecht/GlycemicGPT/pull/336) |
+| 30.10 | Fix Source Duplication and Bolus/Correction Double-Counting | Done | [#337](https://github.com/jlengelbrecht/GlycemicGPT/pull/337) |
+
+---
+
+## Epic 31: Mobile Dashboard Parity & Hub-and-Spoke Redesign
+
+**Status:** In Progress (1/7 stories)
+
+**Goal:** Redesign the mobile home screen from a monolithic vertical scroll into a professional hub-and-spoke dashboard. The "hub" is a compact card grid showing at-a-glance summaries with shortened labels. Each card taps to open a "spoke" -- a full-featured detail page with complete data, full labels, and interactive controls matching web dashboard capabilities. Bring every web dashboard visualization component to mobile with form-factor-appropriate design.
+
+**Data Architecture Constraint (CRITICAL -- do not violate during implementation):**
+
+The mobile app's charts, stats, and visualizations get their data from **local Room DB populated by plugins** (Tandem built-in, future Omnipod, third-party plugins). This is fundamentally different from the web dashboard, which fetches from backend API endpoints. The mobile app does NOT fetch chart/graph data from the backend. The data flow is:
+
+```
+Plugin (BLE/hardware) -> PumpDataRepository (Room DB) -> ViewModel StateFlows -> UI Components
+```
+
+The only things the mobile app fetches from the backend are **platform-level settings and configuration**:
+- Glucose range thresholds (GlucoseRangeStore)
+- Safety limits / platform-enforced bounds
+- User preferences (brief delivery, alert config, etc.)
+- AI chat / daily briefs (server-side AI processing)
+- Authentication tokens
+
+**This epic is a UI/presentation redesign only.** Do NOT:
+- Replace local Room queries with backend API calls for chart/stats data
+- Change how plugins feed data into PumpDataRepository
+- Alter the data aggregation pipeline
+- Add new backend endpoints for mobile-specific data views
+
+Any new stats calculations (CGM summary, insulin summary, AGP percentiles, 5-bucket TIR) must be computed **locally on-device** from existing Room DB data via the ViewModel layer, not fetched from backend API endpoints. The web dashboard's `/api/integrations/cgm/stats`, `/api/integrations/insulin/summary`, etc. are for the web client only.
+
+**Design Philosophy:**
+- **Hub (Home Screen):** Compact, glanceable card grid. GlucoseHero stays prominent (full-width). All other components become tappable summary tiles with abbreviated labels and sparkline previews. Maximum information density without clutter.
+- **Spokes (Detail Pages):** Full-featured dedicated screens. Charts fill the screen (landscape support). Full period selection, tooltips, zoom/pan/brush, complete labels. Parity with web dashboard functionality.
+- **Label Strategy:** Shortened on home ("Auto", "Manual", "Corr") -> Full on detail pages ("Automated Correction", "Manual Bolus"). Compact metric display on cards -> expanded with assessments on detail pages.
+- **Data Source:** All visualization data comes from local Room DB via plugins. Backend is only for platform settings/config. New stats computations (CGM summary, insulin summary, AGP, 5-bucket TIR) are calculated on-device in the ViewModel layer.
+
+| Story | Title | Status | PR |
+|-------|-------|--------|-----|
+| 31.1 | Navigation Scaffold & Detail Page Architecture | Complete | #344 |
+| 31.2 | Compact Card Grid Home Screen | Planned | |
+| 31.3 | Chart Detail Page with Landscape & Zoom/Pan/Brush | Planned | |
+| 31.4 | TIR Upgrade & CGM Stats Detail Page | Planned | |
+| 31.5 | Insulin Summary & Bolus Review Detail Page | Planned | |
+| 31.6 | Visual Polish, Animations & Label Refinement | Planned | |
+| 31.7 | Wear OS Compact Chart & Data Feed | Planned | |
+
+### Story 31.1: Navigation Scaffold & Detail Page Architecture
+
+**Priority:** Foundation -- all other stories depend on this.
+
+**Scope:** Create the navigation infrastructure for hub-and-spoke pattern without changing the existing home screen layout yet. This enables incremental migration in subsequent stories.
+
+**Changes:**
+- Add new screen routes to `NavHost`: `chart_detail`, `tir_detail`, `insulin_detail`, `alert_history`
+- Create empty composable shells for each detail page with back-navigation and toolbar
+- Add `SharedTransitionLayout` or `AnimatedNavHost` for smooth card-to-page transitions
+- Define a `DashboardCard` reusable composable: Card with tap handler, icon, title, content slot, chevron indicator
+- Define landscape activity configuration for chart detail route
+- Create `DetailScaffold` composable: TopAppBar with back arrow + title, full-screen content area
+
+**Acceptance Criteria:**
+- New routes exist and can be navigated to/from programmatically
+- DashboardCard composable renders with tap handler
+- Chart detail route triggers landscape orientation
+- Back navigation works from all detail pages
+- No visual changes to current home screen (infrastructure only)
+
+### Story 31.2: Compact Card Grid Home Screen
+
+**Priority:** High -- the visual overhaul users see first.
+
+**Scope:** Replace the vertical Column layout with a compact card grid. Each visualization becomes a tappable summary tile. GlucoseHero remains prominent (full-width). All other components become DashboardCard instances with abbreviated data.
+
+**Changes:**
+- **GlucoseHero:** Stays full-width at top (existing design is good). Minor cleanup: tighter padding, consistent typography.
+- **Chart Preview Card:** Replace full GlucoseTrendChart with a compact sparkline (last 3h of glucose data, no axes, no legend, just the colored line). Tap navigates to chart detail. Show "3h" label and last glucose value as subtitle.
+- **TIR Card:** Compact horizontal bar (existing TimeInRangeBar shrunk to card size). Show quality label ("Excellent 72%"). Tap navigates to TIR+CGM detail.
+- **Insulin Card:** NEW. Compact card showing TDD value and basal/bolus % split bar. Tap navigates to insulin detail. Data computed locally from Room DB bolus/basal records via ViewModel.
+- **CGM Stats Card:** NEW. Compact card showing avg glucose, CV%, and GMI. Tap navigates to TIR+CGM detail page. Data computed locally from Room DB CGM readings via ViewModel.
+- **Alerts Card:** Compact card showing active alert count + highest severity badge. Tap navigates to alert history.
+- **Layout:** 2-column grid below GlucoseHero using `LazyVerticalGrid` or `FlowRow`. Cards have equal height per row. ConnectionSyncRow stays above hero.
+- **Plugin cards:** Remain below the grid, existing behavior.
+
+**Acceptance Criteria:**
+- Home screen shows card grid layout (2 columns below hero)
+- Each card is tappable and navigates to correct detail page
+- Chart preview shows sparkline without axes/legend
+- Insulin and CGM stats cards compute data locally from Room DB via ViewModel
+- Plugin cards still render below the grid
+- Pull-to-refresh still works
+- Visual inspection: clean, professional, no clutter or overlap
+
+### Story 31.3: Chart Detail Page with Landscape & Zoom/Pan/Brush
+
+**Priority:** High -- the primary spoke users will use most.
+
+**Scope:** Full-featured glucose trend chart on a dedicated page. Auto-rotates to landscape. Ports zoom/pan/brush interaction model from web. All 8 time periods. Tap-to-tooltip.
+
+**Changes:**
+- **Landscape Mode:** Activity orientation set to `sensorLandscape` when entering chart detail. Revert to `unspecified` on exit. Status bar hidden for maximum chart area.
+- **Extended Periods:** Add 3D, 7D, 14D, 30D period chips (currently only 3H/6H/12H/24H). Data loading via existing `HomeViewModel.setChartPeriod()` expanded to support new periods. Backend already supports these via LTTB downsampling.
+- **Zoom/Pan/Brush:** Port interaction model from web's `glucose-trend-chart.tsx`:
+  - Drag-to-zoom: horizontal drag creates selection rectangle, release zooms to selection
+  - Pinch-to-zoom: standard pinch gesture for touch (mobile-native, web uses drag)
+  - Pan: single-finger horizontal drag when zoomed
+  - Double-tap to reset zoom
+  - Brush bar at bottom: minimap with viewport indicator, draggable handles
+- **Tap Tooltips:** Tap a glucose dot, bolus marker, or basal segment to show a tooltip overlay:
+  - Glucose: value, trend, time
+  - Bolus: units, type (Meal/Manual Correction/Auto Correction), IoB at event, BG at event
+  - Basal: rate, mode (Automated/Manual/Sleep/Exercise), adjustment %
+- **Full Labels:** "Automated", "Manual Correction", "Meal Bolus", "Auto Correction" (not abbreviated)
+- **Full Legend:** All items with complete labels, positioned below chart in landscape
+
+**Acceptance Criteria:**
+- Chart detail opens in landscape orientation
+- All 8 periods available and load data correctly
+- Pinch-to-zoom and drag-to-pan work smoothly
+- Brush bar shows minimap with draggable viewport
+- Double-tap resets zoom
+- Tap tooltip shows for glucose dots, bolus markers, basal segments
+- Full (non-abbreviated) labels throughout
+- Back navigation returns to portrait home screen
+- Performance: smooth 60fps rendering with 500+ data points
+
+### Story 31.4: TIR Upgrade & CGM Stats Detail Page
+
+**Priority:** Medium -- brings clinical-grade stats to mobile.
+
+**Scope:** Upgrade TimeInRangeBar from 3-bucket to 5-bucket clinical display. Create a combined TIR + CGM Stats detail page matching web's CgmSummaryStats panel.
+
+**Changes:**
+- **TIR 5-Bucket Upgrade (home screen card + detail page):**
+  - Urgent Low (<55 mg/dL), Low (55-70), In Range (70-180), High (180-250), Urgent High (>250)
+  - Dynamic thresholds from GlucoseRangeStore (same as web)
+- **Period Comparison Delta:** Show +/- change vs previous period (e.g., "In Range: 72% +3%")
+- **Quality Assessment:** "Excellent" (>=70%), "Good" (50-70%), "Needs Improvement" (<50%)
+- **CGM Summary Stats (detail page only):**
+  - 6-metric grid matching web: Avg Glucose, Std Dev, CV%, GMI, CGM Active %, Total Readings
+  - Assessment labels: CV% stability, CGM active quality
+  - Data computed locally from Room DB CGM readings via new `CgmStatsCalculator` utility in ViewModel layer
+- **AGP Chart (detail page only):**
+  - Percentile band chart (p10/p25/p50/p75/p90) matching web's AgpChart
+  - 24-hour X-axis, auto-scaled Y-axis
+  - Periods: 7D, 14D, 30D, 90D
+  - Canvas-based rendering (consistent with existing chart code)
+  - Percentile calculations done locally from Room DB CGM readings grouped by hour-of-day
+
+**Acceptance Criteria:**
+- Home screen TIR card shows 5-bucket bar
+- Detail page shows 5-bucket bar + comparison delta + quality assessment
+- CGM summary stats panel renders 6 metrics correctly
+- AGP chart renders percentile bands
+- All stats computed locally on-device from Room DB (no backend API calls for chart/stats data)
+- Empty/loading/error states handled
+
+### Story 31.5: Insulin Summary & Bolus Review Detail Page
+
+**Priority:** Medium -- brings insulin analytics to mobile.
+
+**Scope:** Create insulin detail page with summary stats grid and scrollable bolus review list. All data computed locally from Room DB.
+
+**Changes:**
+- **Insulin Summary Stats (detail page):**
+  - 6-metric grid matching web: TDD, Basal (U + %), Bolus (U + %), Corrections (U/day), Bolus Count, Correction Count
+  - Assessment labels for basal/bolus split (Balanced/Moderate/Review)
+  - Periods: 24H, 3D, 7D, 14D, 30D, 90D
+  - Data computed locally via new `InsulinStatsCalculator` from Room DB basal/bolus records. Basal delivery calculation uses rate-to-delivery conversion (rate * time delta between consecutive records) -- same logic as backend Story 30.9 fix but implemented on-device.
+- **Bolus Review List (detail page):**
+  - Scrollable LazyColumn of bolus events (replaces web's table -- more mobile-appropriate)
+  - Each row: time, units, type badge (Auto/Manual), BG at event, IoB at event
+  - Auto correction boluses show CIQ reason if available
+  - Period selector matching insulin summary
+  - Sorted by timestamp descending
+  - Data queried directly from Room DB BolusEvent table via PumpDataRepository
+- **Home Screen Insulin Card:** Compact TDD + basal/bolus split bar (from Story 31.2)
+
+**Acceptance Criteria:**
+- Insulin summary renders 6 metrics with assessment labels
+- Bolus review list shows all boluses for selected period
+- Type badges correctly distinguish auto vs manual
+- All data computed locally from Room DB (no backend API calls)
+- Scrolling is smooth with 100+ boluses
+- Empty state shown when no data
+
+### Story 31.6: Visual Polish, Animations & Label Refinement
+
+**Priority:** Medium -- the finishing touches that make it feel professional.
+
+**Scope:** Unified visual polish pass across all new and existing components. Consistent Material 3 theming, transitions, spacing, and typography.
+
+**Changes:**
+- **Card Transitions:** Smooth shared-element or fade transitions when navigating hub -> spoke
+- **Loading States:** Consistent shimmer/skeleton placeholders across all cards and detail pages
+- **Typography Audit:** Ensure consistent use of Material 3 type scale (headlineLarge for values, titleMedium for labels, bodySmall for captions)
+- **Spacing Audit:** Consistent 8dp grid, 16dp card padding, 12dp inter-card gap
+- **Color Consistency:** Ensure glucose range colors, chart colors, and badge colors match between home cards and detail pages
+- **Dark Theme:** Verify all new components render correctly in dark mode
+- **Accessibility:** Content descriptions on all cards, screen reader traversal order, minimum 48dp touch targets
+- **Connection Status:** Move ConnectionSyncRow into a more subtle top bar (icon-only when connected, expanded only on issues)
+- **Empty States:** Unified empty state illustrations/messages across all detail pages
+
+**Acceptance Criteria:**
+- Smooth transitions between hub and spoke screens
+- Consistent shimmer loading across all cards
+- Dark mode renders correctly
+- TalkBack screen reader traversal is logical
+- Touch targets meet 48dp minimum
+- Visual inspection: clean, cohesive Material 3 design
+
+### Story 31.7: Wear OS Compact Chart & Data Feed
+
+**Priority:** Low -- builds on existing Wear OS watch face.
+
+**Scope:** Add a compact glucose sparkline to the Wear OS watch face. Define data flow from phone to watch.
+
+**Changes:**
+- **Watch Face Sparkline:** Small glucose trend line (last 1-2h) rendered on the watch face background
+  - No axes, no labels -- just the colored line showing trend direction
+  - Color follows glucose range (green/amber/red)
+  - Rendered in the existing watch face Canvas alongside time, BG value, trend arrow
+- **Data Source:** Wear OS DataClient API from phone's `HomeViewModel` state
+  - Phone sends last 2h of CgmReading list via DataMap on each poll cycle
+  - Watch receives via DataClient listener, renders sparkline
+  - Fallback: if phone disconnected, show last known data with stale indicator
+- **Complication:** Optional complication showing current BG value for third-party watch faces
+
+**Acceptance Criteria:**
+- Watch face shows compact sparkline below/beside BG value
+- Sparkline updates when phone syncs new data
+- Sparkline color reflects glucose range
+- Stale indicator when data is old (>10 min)
+- Battery impact: <1% additional drain from sparkline rendering
+
+---
+
+## Epic 33: Data Source Abstraction & CGM Intelligence
+
+**Goal:** Replace hardcoded Tandem/Dexcom integration with a generic data source registry. Track sensor sessions, calibrations, and CGM health per source. Render per-source CGM Summary cards. Feed sensor intelligence into AI/alerting. Foundation for third-party platform connectors (Nightscout, Tidepool, LibreView).
+
+**Full planning doc:** `_bmad-output/planning-artifacts/epic-33-data-source-abstraction.md`
+
+| # | Title | Status | PR |
+|---|-------|--------|----|
+| 33.1 | Data Source Registry Model | Planned | |
+| 33.2 | Sensor Session & Calibration Models | Planned | |
+| 33.3 | Link Existing Data to Data Sources | Planned | |
+| 33.4 | Parse Sensor Session Events from Tandem BLE | Planned | |
+| 33.5 | Parse Calibration Events from Tandem BLE | Planned | |
+| 33.6 | Real-Time Sensor Status via BLE | Planned | |
+| 33.7 | Per-Source Stats API | Planned | |
+| 33.8 | Per-Source CGM Summary Cards (Frontend) | Planned | |
+| 33.9 | AI Context -- Multi-Source & Sensor Intelligence | Planned | |
+| 33.10 | Nightscout Connector (Design Only) | Planned | |
+| 33.11 | Tidepool Connector (Design Only) | Planned | |
+| 33.12 | LibreView Connector (Design Only) | Planned | |
+
+---
+
+## Epic 34: Code Quality & Technical Debt Elimination
+
+**Status:** Planned (0/17 stories)
+**Goal:** Push the codebase from ~70% SOLID / ~25% ACCEPTABLE / ~5% NEEDS WORK to 100% SOLID. Address all findings from the full-codebase quality audit (backend, frontend, mobile, infra). Eliminate god files, dead code, missing error boundaries, test gaps, and security configuration weaknesses.
+
+**Priority order:** HIGH severity first (stories 34.1, 34.3), then MEDIUM (34.2, 34.4-34.13), then LOW (34.14-34.16).
+
+| # | Title | Severity | Status | PR |
+|---|-------|----------|--------|----|
+| 34.1 | Fix Async Event Loop Blocking in Backend Routes | HIGH | Planned | |
+| 34.2 | Decompose the Integrations God Router | MEDIUM | Planned | |
+| 34.3 | Docker Security Hardening | HIGH | Planned | |
+| 34.4 | Add React Error Boundaries | MEDIUM | Planned | |
+| 34.5 | Split Frontend God Components | MEDIUM | Planned | |
+| 34.6 | Add Focus Trapping and Remaining Accessibility Gaps | MEDIUM | Planned | |
+| 34.7 | Add Compose Preview Annotations Across Mobile UI | MEDIUM | Planned | |
+| 34.8 | Decompose Mobile Settings Screen | MEDIUM | Planned | |
+| 34.9 | Backend Dead Code and Minor Fixes Cleanup | LOW | Planned | |
+| 34.10 | Rate Limiter Trusted Proxy Configuration | MEDIUM | Planned | |
+| 34.11 | Push AGP Percentile Calculation to PostgreSQL | MEDIUM | Planned | |
+| 34.12 | Fill Frontend Test Coverage Gaps | MEDIUM | Planned | |
+| 34.13 | Fill Backend Test Coverage Gaps | MEDIUM | Planned | |
+| 34.14 | Mobile BLE Code Safety Hardening | LOW | Planned | |
+| 34.15 | Sidecar Request Timeout and Auth Hardening | LOW | Planned | |
+| 34.16 | Repository Hygiene and Unused Dependency Cleanup | LOW | Planned | |
+| 34.17 | Comprehensive AI Attribution Detection and Prevention | MEDIUM | Planned | |
