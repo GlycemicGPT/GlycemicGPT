@@ -28,7 +28,7 @@ wear-watchface = "1.2.1"
 play-services-wearable = "18.2.0"
 bouncycastle = "1.83"
 sqlcipher = "4.13.0"
-sqlite = "2.4.0"
+sqlite = "2.6.2"
 compose-markdown = "0.5.8"
 
 [libraries]
