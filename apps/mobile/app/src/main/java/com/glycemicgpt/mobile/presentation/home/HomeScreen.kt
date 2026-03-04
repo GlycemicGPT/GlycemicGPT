@@ -49,6 +49,10 @@ import java.time.Instant
 fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel(),
     onPluginCardTap: (pluginId: String, cardId: String) -> Unit = { _, _ -> },
+    onNavigateToChartDetail: () -> Unit = {},
+    onNavigateToTirDetail: () -> Unit = {},
+    onNavigateToInsulinDetail: () -> Unit = {},
+    onNavigateToAlertHistory: () -> Unit = {},
 ) {
     val connectionState by viewModel.connectionState.collectAsState()
     val cgm by viewModel.cgm.collectAsState()
@@ -133,7 +137,6 @@ fun HomeScreen(
                     )
                 }
             }
-
 
             Spacer(modifier = Modifier.height(24.dp))
 
