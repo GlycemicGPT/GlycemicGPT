@@ -30,6 +30,9 @@ interface PumpDao {
     @Query("SELECT * FROM iob_readings WHERE timestampMs >= :sinceMs ORDER BY timestampMs ASC LIMIT :limit")
     fun observeIoBHistory(sinceMs: Long, limit: Int = 2000): Flow<List<IoBReadingEntity>>
 
+    @Query("SELECT * FROM iob_readings WHERE timestampMs >= :sinceMs ORDER BY timestampMs ASC")
+    fun observeIoBHistoryAll(sinceMs: Long): Flow<List<IoBReadingEntity>>
+
     @Query("DELETE FROM iob_readings WHERE timestampMs < :beforeMs")
     suspend fun deleteIoBBefore(beforeMs: Long): Int
 
@@ -46,6 +49,9 @@ interface PumpDao {
 
     @Query("SELECT * FROM basal_readings WHERE timestampMs >= :sinceMs ORDER BY timestampMs ASC LIMIT :limit")
     fun observeBasalHistory(sinceMs: Long, limit: Int = 2000): Flow<List<BasalReadingEntity>>
+
+    @Query("SELECT * FROM basal_readings WHERE timestampMs >= :sinceMs ORDER BY timestampMs ASC")
+    fun observeBasalHistoryAll(sinceMs: Long): Flow<List<BasalReadingEntity>>
 
     @Query("DELETE FROM basal_readings WHERE timestampMs < :beforeMs")
     suspend fun deleteBasalBefore(beforeMs: Long): Int
@@ -66,6 +72,9 @@ interface PumpDao {
 
     @Query("SELECT MAX(timestampMs) FROM bolus_events")
     suspend fun getLatestBolusTimestamp(): Long?
+
+    @Query("SELECT * FROM bolus_events WHERE timestampMs >= :sinceMs ORDER BY timestampMs ASC")
+    fun observeBolusHistoryAll(sinceMs: Long): Flow<List<BolusEventEntity>>
 
     @Query("DELETE FROM bolus_events WHERE timestampMs < :beforeMs")
     suspend fun deleteBolusBefore(beforeMs: Long): Int
@@ -105,6 +114,9 @@ interface PumpDao {
 
     @Query("SELECT * FROM cgm_readings WHERE timestampMs >= :sinceMs ORDER BY timestampMs ASC LIMIT :limit")
     fun observeCgmHistory(sinceMs: Long, limit: Int = 2000): Flow<List<CgmReadingEntity>>
+
+    @Query("SELECT * FROM cgm_readings WHERE timestampMs >= :sinceMs ORDER BY timestampMs ASC")
+    fun observeCgmHistoryAll(sinceMs: Long): Flow<List<CgmReadingEntity>>
 
     @Query("DELETE FROM cgm_readings WHERE timestampMs < :beforeMs")
     suspend fun deleteCgmBefore(beforeMs: Long): Int

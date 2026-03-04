@@ -7,11 +7,16 @@ import com.glycemicgpt.mobile.data.local.SafetyLimitsStore
 import com.glycemicgpt.mobile.data.remote.GlycemicGptApi
 import com.glycemicgpt.mobile.data.repository.AuthRepository
 import com.glycemicgpt.mobile.data.repository.PumpDataRepository
+import com.glycemicgpt.mobile.domain.compute.DashboardComputations
+import com.glycemicgpt.mobile.domain.model.AgpProfile
 import com.glycemicgpt.mobile.domain.model.BasalReading
 import com.glycemicgpt.mobile.domain.model.BatteryStatus
 import com.glycemicgpt.mobile.domain.model.BolusEvent
 import com.glycemicgpt.mobile.domain.model.CgmReading
+import com.glycemicgpt.mobile.domain.model.CgmStats
 import com.glycemicgpt.mobile.domain.model.ConnectionState
+import com.glycemicgpt.mobile.domain.model.EnrichedBolusEvent
+import com.glycemicgpt.mobile.domain.model.InsulinSummary
 import com.glycemicgpt.mobile.domain.model.IoBReading
 import com.glycemicgpt.mobile.domain.model.ReservoirReading
 import com.glycemicgpt.mobile.domain.model.TimeInRangeData
@@ -175,6 +180,93 @@ class HomeViewModel @Inject constructor(
 
     fun onTirPeriodSelected(period: TirPeriod) {
         _selectedTirPeriod.value = period
+    }
+
+    // -- AGP Chart state ------------------------------------------------------
+
+    private val _selectedAgpPeriod = MutableStateFlow(AgpPeriod.FOURTEEN_DAYS)
+    val selectedAgpPeriod: StateFlow<AgpPeriod> = _selectedAgpPeriod.asStateFlow()
+
+    val agpProfile: StateFlow<AgpProfile?> = _selectedAgpPeriod
+        .flatMapLatest { period ->
+            val since = Instant.ofEpochMilli(
+                System.currentTimeMillis() - period.days * 24 * 3600_000L,
+            )
+            repository.observeCgmHistoryAll(since).map { readings ->
+                DashboardComputations.computeAgp(readings, period.days)
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    fun onAgpPeriodSelected(period: AgpPeriod) {
+        _selectedAgpPeriod.value = period
+    }
+
+    // -- CGM Stats state ------------------------------------------------------
+
+    private val _selectedCgmStatsPeriod = MutableStateFlow(TirPeriod.TWENTY_FOUR_HOURS)
+    val selectedCgmStatsPeriod: StateFlow<TirPeriod> = _selectedCgmStatsPeriod.asStateFlow()
+
+    val cgmStats: StateFlow<CgmStats?> = _selectedCgmStatsPeriod
+        .flatMapLatest { period ->
+            val since = Instant.ofEpochMilli(
+                System.currentTimeMillis() - period.hours * 3600_000L,
+            )
+            repository.observeCgmHistoryAll(since).map { readings ->
+                DashboardComputations.computeCgmStats(readings)
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    fun onCgmStatsPeriodSelected(period: TirPeriod) {
+        _selectedCgmStatsPeriod.value = period
+    }
+
+    // -- Insulin Summary state ------------------------------------------------
+
+    private val _selectedInsulinPeriod = MutableStateFlow(TirPeriod.TWENTY_FOUR_HOURS)
+    val selectedInsulinPeriod: StateFlow<TirPeriod> = _selectedInsulinPeriod.asStateFlow()
+
+    val insulinSummary: StateFlow<InsulinSummary?> = _selectedInsulinPeriod
+        .flatMapLatest { period ->
+            val since = Instant.ofEpochMilli(
+                System.currentTimeMillis() - period.hours * 3600_000L,
+            )
+            combine(
+                repository.observeBasalHistoryAll(since),
+                repository.observeBolusHistoryAll(since),
+            ) { basals, boluses ->
+                DashboardComputations.computeInsulinSummary(basals, boluses, period.hours)
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    fun onInsulinPeriodSelected(period: TirPeriod) {
+        _selectedInsulinPeriod.value = period
+    }
+
+    // -- Enriched Boluses state -----------------------------------------------
+
+    private val _selectedBolusPeriod = MutableStateFlow(TirPeriod.TWENTY_FOUR_HOURS)
+    val selectedBolusPeriod: StateFlow<TirPeriod> = _selectedBolusPeriod.asStateFlow()
+
+    val enrichedBoluses: StateFlow<List<EnrichedBolusEvent>> = _selectedBolusPeriod
+        .flatMapLatest { period ->
+            val since = Instant.ofEpochMilli(
+                System.currentTimeMillis() - period.hours * 3600_000L,
+            )
+            combine(
+                repository.observeBolusHistoryAll(since),
+                repository.observeCgmHistoryAll(since),
+                repository.observeIoBHistoryAll(since),
+            ) { boluses, cgmReadings, iobReadings ->
+                DashboardComputations.enrichBoluses(boluses, cgmReadings, iobReadings)
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun onBolusPeriodSelected(period: TirPeriod) {
+        _selectedBolusPeriod.value = period
     }
 
     /**

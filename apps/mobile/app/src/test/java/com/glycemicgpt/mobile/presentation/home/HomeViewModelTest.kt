@@ -10,6 +10,7 @@ import com.glycemicgpt.mobile.domain.model.BasalReading
 import com.glycemicgpt.mobile.domain.model.BatteryStatus
 import com.glycemicgpt.mobile.domain.model.CgmReading
 import com.glycemicgpt.mobile.domain.model.CgmTrend
+import com.glycemicgpt.mobile.domain.model.BolusEvent
 import com.glycemicgpt.mobile.domain.model.ConnectionState
 import com.glycemicgpt.mobile.domain.model.IoBReading
 import com.glycemicgpt.mobile.domain.model.PumpActivityMode
@@ -44,6 +45,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.time.Instant
@@ -422,6 +424,138 @@ class HomeViewModelTest {
     }
 
     // -- Plugin cards ----------------------------------------------------------
+
+    // -- AGP state ------------------------------------------------------------
+
+    @Test
+    fun `initial AGP period is 14 days`() = runTest {
+        val vm = createViewModel()
+        assertEquals(AgpPeriod.FOURTEEN_DAYS, vm.selectedAgpPeriod.value)
+    }
+
+    @Test
+    fun `onAgpPeriodSelected updates selected period`() = runTest {
+        val vm = createViewModel()
+        vm.onAgpPeriodSelected(AgpPeriod.THIRTY_DAYS)
+        assertEquals(AgpPeriod.THIRTY_DAYS, vm.selectedAgpPeriod.value)
+    }
+
+    @Test
+    fun `agpProfile emits null when repository returns empty data`() = runTest {
+        every { repository.observeCgmHistoryAll(any()) } returns flowOf(emptyList())
+        val vm = createViewModel()
+        val job = backgroundScope.launch(testDispatcher) { vm.agpProfile.collect {} }
+        advanceTimeBy(10_000); runCurrent()
+        assertNull(vm.agpProfile.value)
+        job.cancel()
+    }
+
+    // -- CGM Stats state ------------------------------------------------------
+
+    @Test
+    fun `initial CGM stats period is 24 hours`() = runTest {
+        val vm = createViewModel()
+        assertEquals(TirPeriod.TWENTY_FOUR_HOURS, vm.selectedCgmStatsPeriod.value)
+    }
+
+    @Test
+    fun `onCgmStatsPeriodSelected updates selected period`() = runTest {
+        val vm = createViewModel()
+        vm.onCgmStatsPeriodSelected(TirPeriod.SEVEN_DAYS)
+        assertEquals(TirPeriod.SEVEN_DAYS, vm.selectedCgmStatsPeriod.value)
+    }
+
+    @Test
+    fun `cgmStats emits stats when repository returns readings`() = runTest {
+        val readings = listOf(
+            CgmReading(glucoseMgDl = 100, trendArrow = CgmTrend.FLAT, timestamp = Instant.now()),
+            CgmReading(glucoseMgDl = 200, trendArrow = CgmTrend.FLAT, timestamp = Instant.now()),
+        )
+        every { repository.observeCgmHistoryAll(any()) } returns flowOf(readings)
+        val vm = createViewModel()
+        val job = backgroundScope.launch(testDispatcher) { vm.cgmStats.collect {} }
+        advanceTimeBy(10_000); runCurrent()
+        assertNotNull(vm.cgmStats.value)
+        assertEquals(150f, vm.cgmStats.value!!.meanGlucose, 0.01f)
+        job.cancel()
+    }
+
+    // -- Insulin Summary state ------------------------------------------------
+
+    @Test
+    fun `initial insulin period is 24 hours`() = runTest {
+        val vm = createViewModel()
+        assertEquals(TirPeriod.TWENTY_FOUR_HOURS, vm.selectedInsulinPeriod.value)
+    }
+
+    @Test
+    fun `onInsulinPeriodSelected updates selected period`() = runTest {
+        val vm = createViewModel()
+        vm.onInsulinPeriodSelected(TirPeriod.THREE_DAYS)
+        assertEquals(TirPeriod.THREE_DAYS, vm.selectedInsulinPeriod.value)
+    }
+
+    @Test
+    fun `insulinSummary emits null when no insulin data`() = runTest {
+        every { repository.observeBasalHistoryAll(any()) } returns flowOf(emptyList())
+        every { repository.observeBolusHistoryAll(any()) } returns flowOf(emptyList())
+        val vm = createViewModel()
+        val job = backgroundScope.launch(testDispatcher) { vm.insulinSummary.collect {} }
+        advanceTimeBy(10_000); runCurrent()
+        assertNull(vm.insulinSummary.value)
+        job.cancel()
+    }
+
+    @Test
+    fun `insulinSummary emits data when boluses exist`() = runTest {
+        val boluses = listOf(
+            BolusEvent(units = 5f, isAutomated = false, isCorrection = false, timestamp = Instant.now()),
+        )
+        every { repository.observeBasalHistoryAll(any()) } returns flowOf(emptyList())
+        every { repository.observeBolusHistoryAll(any()) } returns flowOf(boluses)
+        val vm = createViewModel()
+        val job = backgroundScope.launch(testDispatcher) { vm.insulinSummary.collect {} }
+        advanceTimeBy(10_000); runCurrent()
+        assertNotNull(vm.insulinSummary.value)
+        assertTrue(vm.insulinSummary.value!!.totalDailyDose > 0f)
+        job.cancel()
+    }
+
+    // -- Enriched Boluses state -----------------------------------------------
+
+    @Test
+    fun `initial bolus period is 24 hours`() = runTest {
+        val vm = createViewModel()
+        assertEquals(TirPeriod.TWENTY_FOUR_HOURS, vm.selectedBolusPeriod.value)
+    }
+
+    @Test
+    fun `onBolusPeriodSelected updates selected period`() = runTest {
+        val vm = createViewModel()
+        vm.onBolusPeriodSelected(TirPeriod.SEVEN_DAYS)
+        assertEquals(TirPeriod.SEVEN_DAYS, vm.selectedBolusPeriod.value)
+    }
+
+    @Test
+    fun `enrichedBoluses emits enriched list when data exists`() = runTest {
+        val boluses = listOf(
+            BolusEvent(units = 3f, isAutomated = false, isCorrection = false, timestamp = Instant.now()),
+        )
+        val cgmReadings = listOf(
+            CgmReading(glucoseMgDl = 140, trendArrow = CgmTrend.FLAT, timestamp = Instant.now()),
+        )
+        every { repository.observeBolusHistoryAll(any()) } returns flowOf(boluses)
+        every { repository.observeCgmHistoryAll(any()) } returns flowOf(cgmReadings)
+        every { repository.observeIoBHistoryAll(any()) } returns flowOf(emptyList())
+        val vm = createViewModel()
+        val job = backgroundScope.launch(testDispatcher) { vm.enrichedBoluses.collect {} }
+        advanceTimeBy(10_000); runCurrent()
+        assertEquals(1, vm.enrichedBoluses.value.size)
+        assertEquals(3f, vm.enrichedBoluses.value[0].units, 0.01f)
+        job.cancel()
+    }
+
+    // -- Plugin cards (existing test) -----------------------------------------
 
     @Test
     fun `pluginCards wraps cards with plugin ID`() = runTest {

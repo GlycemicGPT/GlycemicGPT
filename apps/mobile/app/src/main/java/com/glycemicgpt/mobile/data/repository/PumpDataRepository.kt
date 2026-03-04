@@ -60,6 +60,11 @@ class PumpDataRepository @Inject constructor(
             entities.map { it.toDomain() }
         }
 
+    fun observeIoBHistoryAll(since: Instant): Flow<List<IoBReading>> =
+        pumpDao.observeIoBHistoryAll(since.toEpochMilli()).map { entities ->
+            entities.map { it.toDomain() }
+        }
+
     // -- Basal ----------------------------------------------------------------
 
     suspend fun saveBasal(reading: BasalReading) {
@@ -95,6 +100,11 @@ class PumpDataRepository @Inject constructor(
             entities.map { it.toDomain() }
         }
 
+    fun observeBasalHistoryAll(since: Instant): Flow<List<BasalReading>> =
+        pumpDao.observeBasalHistoryAll(since.toEpochMilli()).map { entities ->
+            entities.map { it.toDomain() }
+        }
+
     // -- Bolus ----------------------------------------------------------------
 
     suspend fun saveBoluses(events: List<BolusEvent>) {
@@ -113,6 +123,11 @@ class PumpDataRepository @Inject constructor(
 
     fun observeBolusHistory(since: Instant): Flow<List<BolusEvent>> =
         pumpDao.observeBolusHistory(since.toEpochMilli()).map { entities ->
+            entities.mapNotNull { it.toDomain() }
+        }
+
+    fun observeBolusHistoryAll(since: Instant): Flow<List<BolusEvent>> =
+        pumpDao.observeBolusHistoryAll(since.toEpochMilli()).map { entities ->
             entities.mapNotNull { it.toDomain() }
         }
 
@@ -180,6 +195,11 @@ class PumpDataRepository @Inject constructor(
 
     fun observeCgmHistory(since: Instant): Flow<List<CgmReading>> =
         pumpDao.observeCgmHistory(since.toEpochMilli()).map { entities ->
+            entities.mapNotNull { it.toDomain() }
+        }
+
+    fun observeCgmHistoryAll(since: Instant): Flow<List<CgmReading>> =
+        pumpDao.observeCgmHistoryAll(since.toEpochMilli()).map { entities ->
             entities.mapNotNull { it.toDomain() }
         }
 
