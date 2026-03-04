@@ -49,7 +49,7 @@ import java.time.Instant
 fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel(),
     onPluginCardTap: (pluginId: String, cardId: String) -> Unit = { _, _ -> },
-    onNavigateToChartDetail: () -> Unit = {},
+    onNavigateToChartDetail: (() -> Unit)? = null,
     onNavigateToTirDetail: () -> Unit = {},
     onNavigateToInsulinDetail: () -> Unit = {},
     onNavigateToAlertHistory: () -> Unit = {},

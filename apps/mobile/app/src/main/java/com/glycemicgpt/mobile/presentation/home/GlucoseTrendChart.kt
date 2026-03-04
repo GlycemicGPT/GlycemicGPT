@@ -294,6 +294,7 @@ private fun GlucoseTrendChartContent(
                             viewportSpan = newSpan
 
                             // Pan: shift center by drag amount
+                            if (size.width <= 0f) return@detectTransformGestures
                             val msPerPx = viewportSpan.toFloat() / size.width
                             val panMs = (pan.x * msPerPx).toLong()
                             val halfSpan = viewportSpan / 2
