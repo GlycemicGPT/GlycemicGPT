@@ -19,4 +19,11 @@ data class EnrichedBolusEvent(
     val bgAtEvent: Int?,
     val iobAtEvent: Float?,
     val timestamp: Instant,
-)
+) {
+    init {
+        require(units in 0f..BolusEvent.MAX_BOLUS_UNITS) { "units must be 0-${BolusEvent.MAX_BOLUS_UNITS} U" }
+        require(correctionUnits in 0f..BolusEvent.MAX_BOLUS_UNITS) { "correctionUnits must be 0-${BolusEvent.MAX_BOLUS_UNITS} U" }
+        require(mealUnits in 0f..BolusEvent.MAX_BOLUS_UNITS) { "mealUnits must be 0-${BolusEvent.MAX_BOLUS_UNITS} U" }
+        bgAtEvent?.let { require(it in 20..500) { "bgAtEvent must be 20-500 mg/dL" } }
+    }
+}

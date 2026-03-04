@@ -39,6 +39,7 @@ import com.glycemicgpt.mobile.domain.model.BolusType
 import com.glycemicgpt.mobile.domain.model.EnrichedBolusEvent
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 private val BolusTimePeriods = listOf(
     TirPeriod.TWENTY_FOUR_HOURS,
@@ -217,7 +218,7 @@ internal fun BolusTableRow(bolus: EnrichedBolusEvent) {
                 modifier = Modifier.weight(1.2f),
             )
             Text(
-                text = "%.2fU".format(bolus.units),
+                text = String.format(Locale.US, "%.2fU", bolus.units),
                 style = MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.weight(0.8f),
@@ -231,7 +232,7 @@ internal fun BolusTableRow(bolus: EnrichedBolusEvent) {
                 modifier = Modifier.weight(0.8f),
             )
             Text(
-                text = bolus.iobAtEvent?.let { "%.1fU".format(it) } ?: "--",
+                text = bolus.iobAtEvent?.let { String.format(Locale.US, "%.1fU", it) } ?: "--",
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.weight(0.8f),
             )

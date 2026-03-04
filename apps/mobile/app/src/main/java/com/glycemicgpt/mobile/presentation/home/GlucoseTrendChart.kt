@@ -927,33 +927,15 @@ private fun DrawScope.drawBolusMarkers(
             pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 4f)),
         )
 
-        if (isCombo) {
-            // Split diamond: top half = meal color, bottom half = correction color
-            val topHalf = Path().apply {
-                moveTo(x, markerY - markerRadius)
-                lineTo(x + markerRadius, markerY)
-                lineTo(x - markerRadius, markerY)
-                close()
-            }
-            drawPath(topHalf, ChartColors.Bolus, style = Fill)
-            val bottomHalf = Path().apply {
-                moveTo(x + markerRadius, markerY)
-                lineTo(x, markerY + markerRadius)
-                lineTo(x - markerRadius, markerY)
-                close()
-            }
-            drawPath(bottomHalf, ChartColors.ManualCorrection, style = Fill)
-        } else {
-            // Standard single-color diamond marker
-            val diamond = Path().apply {
-                moveTo(x, markerY - markerRadius)          // top
-                lineTo(x + markerRadius, markerY)           // right
-                lineTo(x, markerY + markerRadius)           // bottom
-                lineTo(x - markerRadius, markerY)           // left
-                close()
-            }
-            drawPath(diamond, color, style = Fill)
+        // Diamond marker -- color already set above from deriveBolusType()
+        val diamond = Path().apply {
+            moveTo(x, markerY - markerRadius)          // top
+            lineTo(x + markerRadius, markerY)           // right
+            lineTo(x, markerY + markerRadius)           // bottom
+            lineTo(x - markerRadius, markerY)           // left
+            close()
         }
+        drawPath(diamond, color, style = Fill)
 
         // Units label above the marker, clamped to canvas bounds
         val unitsLabel = textMeasurer.measure(

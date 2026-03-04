@@ -31,6 +31,15 @@ enum class PumpActivityMode {
 @Deprecated("Use PumpActivityMode", ReplaceWith("PumpActivityMode"))
 typealias ControlIqMode = PumpActivityMode
 
+/**
+ * A bolus delivery event from a pump.
+ *
+ * [units] is the actual delivered total (from pump hardware). [correctionUnits] and [mealUnits]
+ * are the *requested* breakdown (correction vs meal portions). These may not sum to [units]
+ * because: (1) partial delivery (occlusion, user cancel) means delivered < requested,
+ * (2) the status response (opcode 0x30) has no breakdown so both are 0, and
+ * (3) automated boluses set mealUnits=0 regardless of correction portion.
+ */
 data class BolusEvent(
     val units: Float,
     val isAutomated: Boolean,
