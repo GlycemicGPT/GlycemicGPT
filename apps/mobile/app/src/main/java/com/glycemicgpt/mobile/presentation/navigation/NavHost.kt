@@ -11,12 +11,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.automirrored.filled.ShowChart
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -50,6 +54,10 @@ import com.glycemicgpt.mobile.presentation.chat.AiChatScreen
 import com.glycemicgpt.mobile.presentation.home.HomeScreen
 import com.glycemicgpt.mobile.BuildConfig
 import com.glycemicgpt.mobile.presentation.debug.BleDebugScreen
+import com.glycemicgpt.mobile.presentation.detail.AlertHistoryScreen
+import com.glycemicgpt.mobile.presentation.detail.ChartDetailScreen
+import com.glycemicgpt.mobile.presentation.detail.InsulinDetailScreen
+import com.glycemicgpt.mobile.presentation.detail.TirDetailScreen
 import com.glycemicgpt.mobile.presentation.onboarding.OnboardingScreen
 import com.glycemicgpt.mobile.presentation.pairing.PairingScreen
 import com.glycemicgpt.mobile.presentation.plugin.PluginDetailScreen
@@ -65,9 +73,24 @@ sealed class Screen(val route: String, val label: String, val icon: ImageVector)
     data object BleDebug : Screen("ble_debug", "BLE Debug", Icons.Default.BugReport)
     data object Onboarding : Screen("onboarding", "Onboarding", Icons.Default.Home)
     data object PluginDetail : Screen("plugin_detail/{pluginId}/{cardId}", "Plugin Detail", Icons.Default.Settings)
+    data object ChartDetail : Screen("chart_detail", "Chart", Icons.AutoMirrored.Filled.ShowChart)
+    data object TirDetail : Screen("tir_detail", "Time in Range", Icons.Default.BarChart)
+    data object InsulinDetail : Screen("insulin_detail", "Insulin", Icons.Default.Science)
+    data object AlertHistory : Screen("alert_history", "Alert History", Icons.Default.History)
 }
 
 private val bottomNavItems = listOf(Screen.Home, Screen.AiChat, Screen.Alerts, Screen.Settings)
+
+// Routes that show their own TopAppBar + back button; bottom nav is hidden on these.
+private val spokeRoutes = setOf(
+    Screen.ChartDetail.route,
+    Screen.TirDetail.route,
+    Screen.InsulinDetail.route,
+    Screen.AlertHistory.route,
+    Screen.PluginDetail.route,
+    Screen.Pairing.route,
+    Screen.BleDebug.route,
+)
 
 @Composable
 fun GlycemicGptNavHost(appSettingsStore: AppSettingsStore, authTokenStore: AuthTokenStore) {
@@ -89,6 +112,7 @@ fun GlycemicGptNavHost(appSettingsStore: AppSettingsStore, authTokenStore: AuthT
     }
 
     val isOnboarding = currentDestination?.route == Screen.Onboarding.route
+    val showBottomNav = !isOnboarding && currentDestination?.route !in spokeRoutes
 
     // Observe logout -> onboarding navigation event
     LaunchedEffect(Unit) {
@@ -112,7 +136,7 @@ fun GlycemicGptNavHost(appSettingsStore: AppSettingsStore, authTokenStore: AuthT
 
     Scaffold(
         bottomBar = {
-            if (!isOnboarding) {
+            if (showBottomNav) {
                 NavigationBar {
                     bottomNavItems.forEach { screen ->
                         NavigationBarItem(
@@ -172,6 +196,10 @@ fun GlycemicGptNavHost(appSettingsStore: AppSettingsStore, authTokenStore: AuthT
                                 "plugin_detail/${Uri.encode(pluginId)}/${Uri.encode(cardId)}",
                             )
                         },
+                        onNavigateToChartDetail = { navController.navigate(Screen.ChartDetail.route) },
+                        onNavigateToTirDetail = { navController.navigate(Screen.TirDetail.route) },
+                        onNavigateToInsulinDetail = { navController.navigate(Screen.InsulinDetail.route) },
+                        onNavigateToAlertHistory = { navController.navigate(Screen.AlertHistory.route) },
                     )
                 }
                 composable(Screen.AiChat.route) { AiChatScreen() }
@@ -213,6 +241,18 @@ fun GlycemicGptNavHost(appSettingsStore: AppSettingsStore, authTokenStore: AuthT
                         cardId = cardId,
                         onBack = { navController.popBackStack() },
                     )
+                }
+                composable(Screen.ChartDetail.route) {
+                    ChartDetailScreen(onBack = { navController.popBackStack() })
+                }
+                composable(Screen.TirDetail.route) {
+                    TirDetailScreen(onBack = { navController.popBackStack() })
+                }
+                composable(Screen.InsulinDetail.route) {
+                    InsulinDetailScreen(onBack = { navController.popBackStack() })
+                }
+                composable(Screen.AlertHistory.route) {
+                    AlertHistoryScreen(onBack = { navController.popBackStack() })
                 }
             }
         }
