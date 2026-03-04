@@ -11,8 +11,8 @@ import com.glycemicgpt.mobile.domain.model.BatteryStatus
 import com.glycemicgpt.mobile.domain.model.CgmReading
 import com.glycemicgpt.mobile.domain.model.CgmTrend
 import com.glycemicgpt.mobile.domain.model.ConnectionState
-import com.glycemicgpt.mobile.domain.model.PumpActivityMode
 import com.glycemicgpt.mobile.domain.model.IoBReading
+import com.glycemicgpt.mobile.domain.model.PumpActivityMode
 import com.glycemicgpt.mobile.domain.model.ReservoirReading
 import com.glycemicgpt.mobile.domain.model.TimeInRangeData
 import com.glycemicgpt.mobile.domain.plugin.Plugin
@@ -33,9 +33,10 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
-import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
@@ -50,7 +51,7 @@ import java.time.Instant
 @OptIn(ExperimentalCoroutinesApi::class)
 class HomeViewModelTest {
 
-    private val testDispatcher = UnconfinedTestDispatcher()
+    private val testDispatcher = StandardTestDispatcher()
 
     private val connectionStateFlow = MutableStateFlow(ConnectionState.DISCONNECTED)
     private val iobFlow = MutableStateFlow<IoBReading?>(null)
@@ -154,6 +155,7 @@ class HomeViewModelTest {
 
         val reading = CgmReading(glucoseMgDl = 180, trendArrow = CgmTrend.SINGLE_UP, timestamp = Instant.now())
         cgmFlow.value = reading
+        runCurrent()
 
         assertNotNull(vm.cgm.value)
         assertEquals(180, vm.cgm.value!!.glucoseMgDl)
@@ -167,7 +169,7 @@ class HomeViewModelTest {
         val vm = createViewModel()
 
         vm.refreshData()
-        advanceUntilIdle()
+        advanceTimeBy(10_000); runCurrent()
 
         coVerify(atLeast = 1) { pumpDriver.getIoB() }
         coVerify(atLeast = 1) { pumpDriver.getBasalRate() }
@@ -181,7 +183,7 @@ class HomeViewModelTest {
         val vm = createViewModel()
 
         vm.refreshData()
-        advanceUntilIdle()
+        advanceTimeBy(10_000); runCurrent()
 
         coVerify(atLeast = 1) { repository.saveCgm(any()) }
     }
@@ -191,7 +193,7 @@ class HomeViewModelTest {
         val vm = createViewModel()
 
         vm.refreshData()
-        advanceUntilIdle()
+        advanceTimeBy(10_000); runCurrent()
 
         assertFalse(vm.isRefreshing.value)
     }
@@ -202,7 +204,7 @@ class HomeViewModelTest {
         val vm = createViewModel()
 
         vm.refreshData()
-        advanceUntilIdle()
+        advanceTimeBy(10_000); runCurrent()
 
         assertFalse(vm.isRefreshing.value)
     }
@@ -233,6 +235,7 @@ class HomeViewModelTest {
         assertEquals(ConnectionState.DISCONNECTED, vm.connectionState.value)
 
         connectionStateFlow.value = ConnectionState.CONNECTED
+        runCurrent()
         assertEquals(ConnectionState.CONNECTED, vm.connectionState.value)
 
         job.cancel()
@@ -273,7 +276,7 @@ class HomeViewModelTest {
             vm.timeInRange.collect {}
         }
 
-        advanceUntilIdle()
+        advanceTimeBy(10_000); runCurrent()
 
         val result = vm.timeInRange.value
         assertNotNull(result)
@@ -299,7 +302,7 @@ class HomeViewModelTest {
         val job = backgroundScope.launch(testDispatcher) {
             vm.timeInRange.collect {}
         }
-        advanceUntilIdle()
+        advanceTimeBy(10_000); runCurrent()
 
         // Verify initial subscription uses default thresholds
         verify { repository.observeTimeInRange(any(), eq(GlucoseRangeStore.DEFAULT_LOW), eq(GlucoseRangeStore.DEFAULT_HIGH)) }
@@ -318,7 +321,7 @@ class HomeViewModelTest {
         every { glucoseRangeStore.urgentHigh } returns 330
 
         vm.refreshData()
-        advanceUntilIdle()
+        advanceTimeBy(10_000); runCurrent()
 
         // After threshold update, observeTimeInRange should be re-called with new low/high
         verify { repository.observeTimeInRange(any(), eq(90), eq(230)) }
@@ -344,7 +347,7 @@ class HomeViewModelTest {
 
         val vm = createViewModel()
         vm.refreshData()
-        advanceUntilIdle()
+        advanceTimeBy(10_000); runCurrent()
 
         verify { glucoseRangeStore.updateAll(urgentLow = 55, low = 80, high = 200, urgentHigh = 300) }
         val t = vm.glucoseThresholds.value
@@ -360,7 +363,7 @@ class HomeViewModelTest {
         val vm = createViewModel()
 
         vm.refreshData()
-        advanceUntilIdle()
+        advanceTimeBy(10_000); runCurrent()
 
         val t = vm.glucoseThresholds.value
         assertEquals(GlucoseRangeStore.DEFAULT_URGENT_LOW, t.urgentLow)
@@ -382,7 +385,7 @@ class HomeViewModelTest {
 
         val vm = createViewModel()
         vm.refreshData()
-        advanceUntilIdle()
+        advanceTimeBy(10_000); runCurrent()
 
         // Store should NOT be updated because low >= high
         verify(exactly = 0) { glucoseRangeStore.updateAll(any(), any(), any(), any()) }
@@ -404,7 +407,7 @@ class HomeViewModelTest {
         coEvery { api.getGlucoseRange() } returns Response.success(rangeResponse)
 
         createViewModel()
-        advanceUntilIdle()
+        advanceTimeBy(10_000); runCurrent()
 
         coVerify(atLeast = 1) { api.getGlucoseRange() }
         verify { glucoseRangeStore.updateAll(urgentLow = 60, low = 85, high = 190, urgentHigh = 290) }
@@ -414,7 +417,7 @@ class HomeViewModelTest {
     fun `init refreshes safety limits when store is stale`() = runTest {
         every { safetyLimitsStore.isStale(any()) } returns true
         createViewModel()
-        advanceUntilIdle()
+        advanceTimeBy(10_000); runCurrent()
         coVerify(atLeast = 1) { authRepository.refreshSafetyLimits() }
     }
 
@@ -444,7 +447,7 @@ class HomeViewModelTest {
         val job = backgroundScope.launch(testDispatcher) {
             vm.pluginCards.collect {}
         }
-        advanceUntilIdle()
+        advanceTimeBy(10_000); runCurrent()
 
         val cards = vm.pluginCards.value
         assertEquals(1, cards.size)
@@ -453,4 +456,5 @@ class HomeViewModelTest {
 
         job.cancel()
     }
+
 }

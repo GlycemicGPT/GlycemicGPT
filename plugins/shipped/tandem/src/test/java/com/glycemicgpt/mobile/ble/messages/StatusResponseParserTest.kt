@@ -419,6 +419,33 @@ class StatusResponseParserTest {
         assertNull(StatusResponseParser.parseHomeScreenMirrorResponse(ByteArray(6)))
     }
 
+    // -- ControlIQInfoV1 tests (opcode 105) ----------------------------------------
+
+    @Test
+    fun `parseControlIqInfoV1Response maps activity modes from byte 5`() {
+        // Standard/None: byte 5 = 0
+        val none = ByteArray(10).also { it[5] = 0 }
+        assertEquals(PumpActivityMode.NONE, StatusResponseParser.parseControlIqInfoV1Response(none))
+        // Sleep: byte 5 = 1
+        val sleep = ByteArray(10).also { it[5] = 1 }
+        assertEquals(PumpActivityMode.SLEEP, StatusResponseParser.parseControlIqInfoV1Response(sleep))
+        // Exercise: byte 5 = 2
+        val exercise = ByteArray(10).also { it[5] = 2 }
+        assertEquals(PumpActivityMode.EXERCISE, StatusResponseParser.parseControlIqInfoV1Response(exercise))
+        // EatingSoon: byte 5 = 3 (exists on pump, no SDK enum yet -> NONE)
+        val eatingSoon = ByteArray(10).also { it[5] = 3 }
+        assertEquals(PumpActivityMode.NONE, StatusResponseParser.parseControlIqInfoV1Response(eatingSoon))
+        // Unknown mode values degrade to NONE
+        val unknown = ByteArray(10).also { it[5] = 5 }
+        assertEquals(PumpActivityMode.NONE, StatusResponseParser.parseControlIqInfoV1Response(unknown))
+    }
+
+    @Test
+    fun `parseControlIqInfoV1Response returns NONE for short cargo`() {
+        assertEquals(PumpActivityMode.NONE, StatusResponseParser.parseControlIqInfoV1Response(ByteArray(5)))
+        assertEquals(PumpActivityMode.NONE, StatusResponseParser.parseControlIqInfoV1Response(ByteArray(0)))
+    }
+
     // -- Pump settings tests (opcode 91) --------------------------------------
 
     @Test

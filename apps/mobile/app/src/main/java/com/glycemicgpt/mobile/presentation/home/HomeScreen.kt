@@ -49,7 +49,7 @@ import java.time.Instant
 fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel(),
     onPluginCardTap: (pluginId: String, cardId: String) -> Unit = { _, _ -> },
-    onNavigateToChartDetail: () -> Unit = {},
+    onNavigateToChartDetail: (() -> Unit)? = null,
     onNavigateToTirDetail: () -> Unit = {},
     onNavigateToInsulinDetail: () -> Unit = {},
     onNavigateToAlertHistory: () -> Unit = {},
@@ -110,6 +110,7 @@ fun HomeScreen(
                 selectedPeriod = selectedPeriod,
                 onPeriodSelected = { viewModel.onPeriodSelected(it) },
                 thresholds = thresholds,
+                onClick = onNavigateToChartDetail,
             )
 
             Spacer(modifier = Modifier.height(12.dp))

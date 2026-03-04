@@ -1,25 +1,39 @@
 package com.glycemicgpt.mobile.presentation.home
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -30,6 +44,7 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -37,6 +52,7 @@ import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.glycemicgpt.mobile.domain.model.BasalReading
@@ -54,7 +70,30 @@ enum class ChartPeriod(val label: String, val hours: Long) {
     SIX_HOURS("6H", 6),
     TWELVE_HOURS("12H", 12),
     TWENTY_FOUR_HOURS("24H", 24),
+    THREE_DAYS("3D", 72),
+    SEVEN_DAYS("7D", 168),
+    FOURTEEN_DAYS("14D", 336),
+    THIRTY_DAYS("30D", 720),
 }
+
+private val HOME_PERIODS = ChartPeriod.entries.take(4)
+
+private data class ChartTooltip(
+    val reading: CgmReading,
+    val canvasX: Float,
+    val canvasY: Float,
+)
+
+/** Minimum visible span when zoomed in (15 minutes). */
+private const val MIN_VISIBLE_MS = 15L * 60_000L
+
+/** Y-axis range constants (mg/dL) shared between draw and tap-hit logic. */
+private const val CHART_Y_MIN = 40f
+private const val CHART_Y_MAX = 300f
+
+/** Formatter for tooltip time display (hoisted to avoid per-recomposition allocation). */
+private val TOOLTIP_TIME_FORMAT: DateTimeFormatter =
+    DateTimeFormatter.ofPattern("h:mm a").withZone(ZoneId.systemDefault())
 
 private object ChartColors {
     val BasalAutomated = Color(0xFF00BCD4)  // Teal -- automated basal (algorithm adjusted)
@@ -75,23 +114,94 @@ fun GlucoseTrendChart(
     selectedPeriod: ChartPeriod,
     onPeriodSelected: (ChartPeriod) -> Unit,
     thresholds: GlucoseThresholds = GlucoseThresholds(),
+    onClick: (() -> Unit)? = null,
+    isDetailMode: Boolean = false,
+    showPeriodSelector: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface,
-        ),
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
+    val content: @Composable (Modifier) -> Unit = { innerModifier ->
+        GlucoseTrendChartContent(
+            readings = readings,
+            iobReadings = iobReadings,
+            basalReadings = basalReadings,
+            bolusEvents = bolusEvents,
+            selectedPeriod = selectedPeriod,
+            onPeriodSelected = onPeriodSelected,
+            thresholds = thresholds,
+            onClick = onClick,
+            isDetailMode = isDetailMode,
+            showPeriodSelector = showPeriodSelector,
+            modifier = innerModifier,
+        )
+    }
+
+    if (isDetailMode) {
+        // Detail mode: no Card wrapper, fill available space
+        content(modifier)
+    } else {
+        Card(
+            modifier = modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface,
+            ),
         ) {
-            // Period selector
+            content(Modifier.padding(16.dp))
+        }
+    }
+}
+
+@Composable
+private fun GlucoseTrendChartContent(
+    readings: List<CgmReading>,
+    iobReadings: List<IoBReading>,
+    basalReadings: List<BasalReading>,
+    bolusEvents: List<BolusEvent>,
+    selectedPeriod: ChartPeriod,
+    onPeriodSelected: (ChartPeriod) -> Unit,
+    thresholds: GlucoseThresholds,
+    onClick: (() -> Unit)?,
+    isDetailMode: Boolean,
+    showPeriodSelector: Boolean = true,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier) {
+        // Header row with title and expand button (shown on home screen only)
+        if (onClick != null) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Glucose Trend",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                IconButton(
+                    onClick = onClick,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .testTag("expand_chart_detail"),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.OpenInFull,
+                        contentDescription = "Expand chart detail",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+
+        // Period selector (hidden when managed externally, e.g. detail screen)
+        if (showPeriodSelector) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.Center,
             ) {
-                ChartPeriod.entries.forEach { period ->
+                HOME_PERIODS.forEach { period ->
                     FilterChip(
                         selected = period == selectedPeriod,
                         onClick = { onPeriodSelected(period) },
@@ -112,51 +222,160 @@ fun GlucoseTrendChart(
                     )
                 }
             }
-
             Spacer(modifier = Modifier.height(12.dp))
+        }
 
-            if (readings.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(280.dp)
-                        .testTag("chart_empty_state"),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = "No glucose readings yet",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        if (readings.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(
+                        if (isDetailMode) Modifier.weight(1f) else Modifier.height(280.dp),
                     )
-                }
-            } else {
-                val textMeasurer = rememberTextMeasurer()
-                val axisLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
-                val gridColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
-                val iobColor = MaterialTheme.colorScheme.primary
-                val nowMs = remember(readings, iobReadings, basalReadings, bolusEvents, selectedPeriod) {
-                    System.currentTimeMillis()
-                }
-                val iobSuffix = if (iobReadings.isNotEmpty()) ", with insulin on board overlay" else ""
-                val basalSuffix = if (basalReadings.isNotEmpty()) ", with basal rate overlay" else ""
-                val bolusSuffix = if (bolusEvents.isNotEmpty()) ", with ${bolusEvents.size} bolus markers" else ""
-                val a11yLabel = "Glucose trend chart showing ${readings.size} readings " +
-                    "over the last ${selectedPeriod.label}" + iobSuffix + basalSuffix + bolusSuffix
+                    .testTag("chart_empty_state"),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = "No glucose readings yet",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else {
+            val textMeasurer = rememberTextMeasurer()
+            val axisLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
+            val gridColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+            val iobColor = MaterialTheme.colorScheme.primary
+            val nowMs = remember(readings, iobReadings, basalReadings, bolusEvents, selectedPeriod) {
+                System.currentTimeMillis()
+            }
+            val fullPeriodMs = selectedPeriod.hours * 3600_000L
+            val fullStartMs = nowMs - fullPeriodMs
 
+            // -- Zoom / pan state (detail mode only) --
+            var viewportSpan by remember(selectedPeriod) { mutableLongStateOf(fullPeriodMs) }
+            var viewportCenter by remember(selectedPeriod) {
+                mutableLongStateOf(nowMs - fullPeriodMs / 2)
+            }
+
+            val visibleStartMs = (viewportCenter - viewportSpan / 2).coerceAtLeast(fullStartMs)
+            val visibleEndMs = (viewportCenter + viewportSpan / 2).coerceAtMost(nowMs)
+
+            // Pass the visible window (zoom-aware) to the draw function
+            val drawXMin = if (isDetailMode) visibleStartMs else (nowMs - fullPeriodMs)
+            val drawXMax = if (isDetailMode) visibleEndMs else nowMs
+
+            // -- Tooltip state (detail mode only) --
+            var tooltip by remember { mutableStateOf<ChartTooltip?>(null) }
+
+            // Chart layout params for hit-testing (captured during draw)
+            var chartLeftPadding by remember { mutableFloatStateOf(0f) }
+            var chartWidth by remember { mutableFloatStateOf(0f) }
+            var chartTopPadding by remember { mutableFloatStateOf(0f) }
+            var chartHeight by remember { mutableFloatStateOf(0f) }
+
+            val iobSuffix = if (iobReadings.isNotEmpty()) ", with insulin on board overlay" else ""
+            val basalSuffix = if (basalReadings.isNotEmpty()) ", with basal rate overlay" else ""
+            val bolusSuffix = if (bolusEvents.isNotEmpty()) ", with ${bolusEvents.size} bolus markers" else ""
+            val a11yLabel = "Glucose trend chart showing ${readings.size} readings " +
+                "over the last ${selectedPeriod.label}" + iobSuffix + basalSuffix + bolusSuffix
+
+            val gestureModifier = if (isDetailMode) {
+                Modifier
+                    .pointerInput(selectedPeriod, nowMs) {
+                        detectTransformGestures { _, pan, zoom, _ ->
+                            // Dismiss tooltip on any gesture
+                            tooltip = null
+
+                            // Zoom: adjust visible span
+                            val newSpan = (viewportSpan / zoom)
+                                .toLong()
+                                .coerceIn(MIN_VISIBLE_MS, fullPeriodMs)
+                            viewportSpan = newSpan
+
+                            // Pan: shift center by drag amount
+                            if (size.width <= 0f) return@detectTransformGestures
+                            val msPerPx = viewportSpan.toFloat() / size.width
+                            val panMs = (pan.x * msPerPx).toLong()
+                            val halfSpan = viewportSpan / 2
+                            viewportCenter = (viewportCenter - panMs)
+                                .coerceIn(fullStartMs + halfSpan, nowMs - halfSpan)
+                        }
+                    }
+                    .pointerInput(readings, drawXMin, drawXMax) {
+                        detectTapGestures(
+                            onDoubleTap = {
+                                // Reset zoom
+                                viewportSpan = fullPeriodMs
+                                viewportCenter = nowMs - fullPeriodMs / 2
+                                tooltip = null
+                            },
+                            onTap = { offset ->
+                                if (chartWidth <= 0f) return@detectTapGestures
+                                // Convert tap x to timestamp
+                                val tapFraction = ((offset.x - chartLeftPadding) / chartWidth)
+                                    .coerceIn(0f, 1f)
+                                val tapMs = drawXMin + (tapFraction * (drawXMax - drawXMin)).toLong()
+
+                                // Find nearest reading via binary search (readings sorted by timestamp)
+                                val proximityMs = ((drawXMax - drawXMin) * 0.03).toLong()
+                                    .coerceIn(60_000L, 300_000L) // 1-5 min, scales with zoom
+                                val nearest = findNearestReading(readings, tapMs)
+                                if (nearest != null &&
+                                    kotlin.math.abs(nearest.timestamp.toEpochMilli() - tapMs) < proximityMs
+                                ) {
+                                    val readingX = chartLeftPadding + chartWidth *
+                                        (nearest.timestamp.toEpochMilli() - drawXMin).toFloat() /
+                                        (drawXMax - drawXMin).toFloat()
+                                    val clamped = nearest.glucoseMgDl.coerceIn(
+                                        CHART_Y_MIN.toInt(),
+                                        CHART_Y_MAX.toInt(),
+                                    )
+                                    val yRange = CHART_Y_MAX - CHART_Y_MIN
+                                    val readingY = chartTopPadding + chartHeight *
+                                        (1f - (clamped - CHART_Y_MIN) / yRange)
+                                    tooltip = ChartTooltip(nearest, readingX, readingY)
+                                } else {
+                                    tooltip = null
+                                }
+                            },
+                        )
+                    }
+            } else {
+                Modifier
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(
+                        if (isDetailMode) Modifier.weight(1f) else Modifier.height(280.dp),
+                    ),
+            ) {
                 Canvas(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .height(280.dp)
+                        .fillMaxSize()
+                        .then(gestureModifier)
                         .testTag("glucose_chart")
                         .semantics { contentDescription = a11yLabel },
                 ) {
+                    // Capture layout params for hit-testing
+                    val lp = 36.dp.toPx()
+                    val rp = if (iobReadings.isNotEmpty()) 32.dp.toPx() else 8.dp.toPx()
+                    val tp = 8.dp.toPx()
+                    val bp = 24.dp.toPx()
+                    chartLeftPadding = lp
+                    chartWidth = size.width - lp - rp
+                    chartTopPadding = tp
+                    chartHeight = size.height - tp - bp
+
                     drawGlucoseChart(
                         readings = readings,
                         iobReadings = iobReadings,
                         basalReadings = basalReadings,
                         bolusEvents = bolusEvents,
-                        period = selectedPeriod,
-                        nowMs = nowMs,
+                        xMin = drawXMin,
+                        xMax = drawXMax,
                         textMeasurer = textMeasurer,
                         axisLabelColor = axisLabelColor,
                         gridColor = gridColor,
@@ -165,39 +384,80 @@ fun GlucoseTrendChart(
                     )
                 }
 
-                // Legend row
-                Spacer(modifier = Modifier.height(6.dp))
-                val basalModesPresent = remember(basalReadings) {
-                    buildSet {
-                        for (r in basalReadings) {
-                            when {
-                                r.activityMode == PumpActivityMode.SLEEP -> add("sleep")
-                                r.activityMode == PumpActivityMode.EXERCISE -> add("exercise")
-                                r.isAutomated -> add("automated")
-                                else -> add("manual")
+                // Tooltip overlay (detail mode only)
+                val tt = tooltip
+                if (isDetailMode && tt != null) {
+                    val timeStr = TOOLTIP_TIME_FORMAT.format(tt.reading.timestamp)
+                    val color = glucoseColor(tt.reading.glucoseMgDl, thresholds)
+                    // Use captured canvas dimensions for clamping
+                    val ttWidthPx = 120.dp
+                    val ttHeightPx = 56.dp
+                    Box(
+                        modifier = Modifier
+                            .offset {
+                                val totalW = chartLeftPadding + chartWidth
+                                val totalH = chartTopPadding + chartHeight
+                                val maxX = (totalW - ttWidthPx.toPx()).toInt().coerceAtLeast(0)
+                                val maxY = (totalH - ttHeightPx.toPx()).toInt().coerceAtLeast(0)
+                                IntOffset(
+                                    (tt.canvasX - 60.dp.toPx()).toInt().coerceIn(0, maxX),
+                                    (tt.canvasY - 56.dp.toPx()).toInt().coerceIn(0, maxY),
+                                )
                             }
+                            .background(
+                                MaterialTheme.colorScheme.surfaceVariant,
+                                RoundedCornerShape(8.dp),
+                            )
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "${tt.reading.glucoseMgDl} mg/dL",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = color,
+                            )
+                            Text(
+                                text = timeStr,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                     }
                 }
-                val bolusTypesPresent = remember(bolusEvents) {
-                    buildSet {
-                        for (b in bolusEvents) {
-                            when {
-                                b.isAutomated && b.isCorrection -> add("auto_correction")
-                                b.isCorrection -> add("manual_correction")
-                                b.isAutomated -> add("auto_correction")
-                                else -> add("meal_bolus")
-                            }
-                        }
-                    }
-                }
-                ChartLegend(
-                    hasIob = iobReadings.isNotEmpty(),
-                    basalModesPresent = basalModesPresent,
-                    bolusTypesPresent = bolusTypesPresent,
-                    iobColor = iobColor,
-                )
             }
+
+            // Legend row
+            Spacer(modifier = Modifier.height(if (isDetailMode) 4.dp else 6.dp))
+            val basalModesPresent = remember(basalReadings) {
+                buildSet {
+                    for (r in basalReadings) {
+                        when {
+                            r.activityMode == PumpActivityMode.SLEEP -> add("sleep")
+                            r.activityMode == PumpActivityMode.EXERCISE -> add("exercise")
+                            r.isAutomated -> add("automated")
+                            else -> add("manual")
+                        }
+                    }
+                }
+            }
+            val bolusTypesPresent = remember(bolusEvents) {
+                buildSet {
+                    for (b in bolusEvents) {
+                        when {
+                            b.isAutomated && b.isCorrection -> add("auto_correction")
+                            b.isCorrection -> add("manual_correction")
+                            b.isAutomated -> add("auto_correction")
+                            else -> add("meal_bolus")
+                        }
+                    }
+                }
+            }
+            ChartLegend(
+                hasIob = iobReadings.isNotEmpty(),
+                basalModesPresent = basalModesPresent,
+                bolusTypesPresent = bolusTypesPresent,
+                iobColor = iobColor,
+            )
         }
     }
 }
@@ -240,20 +500,40 @@ private fun LegendItem(color: Color, label: String) {
     }
 }
 
+/** Binary search for the nearest reading to [targetMs] in a timestamp-sorted list. */
+private fun findNearestReading(readings: List<CgmReading>, targetMs: Long): CgmReading? {
+    if (readings.isEmpty()) return null
+    var lo = 0
+    var hi = readings.lastIndex
+    while (lo < hi) {
+        val mid = (lo + hi) / 2
+        if (readings[mid].timestamp.toEpochMilli() < targetMs) lo = mid + 1 else hi = mid
+    }
+    // Check lo and lo-1 (the two candidates straddling targetMs)
+    val candidates = listOfNotNull(
+        readings.getOrNull(lo),
+        readings.getOrNull(lo - 1),
+    )
+    return candidates.minByOrNull { kotlin.math.abs(it.timestamp.toEpochMilli() - targetMs) }
+}
+
 @Suppress("LongMethod")
 private fun DrawScope.drawGlucoseChart(
     readings: List<CgmReading>,
     iobReadings: List<IoBReading>,
     basalReadings: List<BasalReading>,
     bolusEvents: List<BolusEvent>,
-    period: ChartPeriod,
-    nowMs: Long,
+    xMin: Long,
+    xMax: Long,
     textMeasurer: TextMeasurer,
     axisLabelColor: Color,
     gridColor: Color,
     iobColor: Color,
     thresholds: GlucoseThresholds = GlucoseThresholds(),
 ) {
+    // Guard against zero-span viewport (prevents division by zero throughout)
+    if (xMax <= xMin) return
+
     val leftPadding = 36.dp.toPx()
     val bottomPadding = 24.dp.toPx()
     val topPadding = 8.dp.toPx()
@@ -261,16 +541,11 @@ private fun DrawScope.drawGlucoseChart(
 
     val chartWidth = size.width - leftPadding - rightPadding
     val chartHeight = size.height - topPadding - bottomPadding
+    if (chartWidth <= 0f || chartHeight <= 0f) return
 
-    // Y-axis range: 40 to 300 mg/dL
-    val yMin = 40f
-    val yMax = 300f
+    val yMin = CHART_Y_MIN
+    val yMax = CHART_Y_MAX
     val yRange = yMax - yMin
-
-    // X-axis range
-    val periodMs = period.hours * 3600_000L
-    val xMin = nowMs - periodMs
-    val xMax = nowMs
 
     // Target range band (dynamic thresholds)
     val bandTopY = topPadding + chartHeight * (1f - (thresholds.high - yMin) / yRange)
@@ -310,16 +585,26 @@ private fun DrawScope.drawGlucoseChart(
         )
     }
 
-    // X-axis time labels
+    // X-axis time labels (format adapts to visible duration)
+    val visibleHours = (xMax - xMin) / 3_600_000L
     val timeFormatter = DateTimeFormatter.ofPattern(
-        if (period.hours <= 6) "h:mm" else "ha",
+        when {
+            visibleHours <= 6 -> "h:mm"
+            visibleHours <= 48 -> "ha"
+            visibleHours <= 168 -> "EEE"
+            else -> "M/d"
+        },
     ).withZone(ZoneId.systemDefault())
 
-    val tickCount = when (period) {
-        ChartPeriod.THREE_HOURS -> 3
-        ChartPeriod.SIX_HOURS -> 3
-        ChartPeriod.TWELVE_HOURS -> 4
-        ChartPeriod.TWENTY_FOUR_HOURS -> 4
+    val tickCount = when {
+        visibleHours <= 3 -> 3
+        visibleHours <= 6 -> 3
+        visibleHours <= 12 -> 4
+        visibleHours <= 24 -> 4
+        visibleHours <= 72 -> 3
+        visibleHours <= 168 -> 7
+        visibleHours <= 336 -> 7
+        else -> 6
     }
 
     for (i in 0..tickCount) {

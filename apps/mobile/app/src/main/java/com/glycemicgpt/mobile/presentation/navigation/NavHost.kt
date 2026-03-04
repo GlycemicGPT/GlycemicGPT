@@ -243,7 +243,21 @@ fun GlycemicGptNavHost(appSettingsStore: AppSettingsStore, authTokenStore: AuthT
                     )
                 }
                 composable(Screen.ChartDetail.route) {
-                    ChartDetailScreen(onBack = { navController.popBackStack() })
+                    val homeEntry = remember(it) {
+                        try {
+                            navController.getBackStackEntry(Screen.Home.route)
+                        } catch (_: IllegalArgumentException) {
+                            null
+                        }
+                    }
+                    if (homeEntry == null) {
+                        LaunchedEffect(Unit) { navController.popBackStack() }
+                        return@composable
+                    }
+                    ChartDetailScreen(
+                        onBack = { navController.popBackStack() },
+                        viewModel = hiltViewModel(homeEntry),
+                    )
                 }
                 composable(Screen.TirDetail.route) {
                     TirDetailScreen(onBack = { navController.popBackStack() })
