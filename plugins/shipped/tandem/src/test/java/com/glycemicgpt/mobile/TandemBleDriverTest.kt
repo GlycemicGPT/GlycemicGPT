@@ -5,6 +5,7 @@ import com.glycemicgpt.mobile.ble.connection.TandemBleDriver
 import com.glycemicgpt.mobile.ble.protocol.TandemProtocol
 import com.glycemicgpt.mobile.domain.model.CgmTrend
 import com.glycemicgpt.mobile.domain.model.ConnectionState
+import com.glycemicgpt.mobile.domain.model.PumpActivityMode
 import com.glycemicgpt.mobile.domain.pump.DebugLogger
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -103,7 +104,7 @@ class TandemBleDriverTest {
     // -- Basal rate tests (opcode 40, 9-byte cargo) ----------------------------
 
     @Test
-    fun `getBasalRate returns parsed reading on success`() = runTest {
+    fun `getBasalRate returns parsed reading with activity mode from ControlIQInfo`() = runTest {
         // 9-byte CurrentBasalStatusResponse: profileRate=800, currentRate=750, modified=1
         val buf = ByteBuffer.allocate(9).order(ByteOrder.LITTLE_ENDIAN)
         buf.putInt(800)   // profileBasalRate (milliunits/hr)
@@ -113,10 +114,71 @@ class TandemBleDriverTest {
             connectionManager.sendStatusRequest(TandemProtocol.OPCODE_CURRENT_BASAL_STATUS_REQ, any(), any())
         } returns buf.array()
 
+        // ControlIQInfoV1: 10-byte response, byte 5 = currentUserModeType=1 (SLEEP)
+        val ciqInfo = ByteArray(10)
+        ciqInfo[0] = 1 // closedLoopEnabled=on
+        ciqInfo[5] = 1 // currentUserModeType=SLEEP
+        coEvery {
+            connectionManager.sendStatusRequest(TandemProtocol.OPCODE_CONTROL_IQ_INFO_V1_REQ, any(), any())
+        } returns ciqInfo
+
         val result = driver.getBasalRate()
         assertTrue(result.isSuccess)
         assertEquals(0.75f, result.getOrThrow().rate, 0.001f)
         assertTrue(result.getOrThrow().isAutomated)
+        assertEquals(PumpActivityMode.SLEEP, result.getOrThrow().activityMode)
+    }
+
+    @Test
+    fun `getBasalRate degrades to NONE when ControlIQInfo fails`() = runTest {
+        val buf = ByteBuffer.allocate(9).order(ByteOrder.LITTLE_ENDIAN)
+        buf.putInt(800)
+        buf.putInt(750)
+        buf.put(1)
+        coEvery {
+            connectionManager.sendStatusRequest(TandemProtocol.OPCODE_CURRENT_BASAL_STATUS_REQ, any(), any())
+        } returns buf.array()
+
+        coEvery {
+            connectionManager.sendStatusRequest(TandemProtocol.OPCODE_CONTROL_IQ_INFO_V1_REQ, any(), any())
+        } throws RuntimeException("BLE timeout")
+
+        val result = driver.getBasalRate()
+        assertTrue(result.isSuccess)
+        assertEquals(PumpActivityMode.NONE, result.getOrThrow().activityMode)
+    }
+
+    @Test
+    fun `getBasalRate caches activity mode across calls`() = runTest {
+        val basalBuf = ByteBuffer.allocate(9).order(ByteOrder.LITTLE_ENDIAN)
+        basalBuf.putInt(800)
+        basalBuf.putInt(750)
+        basalBuf.put(1)
+        coEvery {
+            connectionManager.sendStatusRequest(TandemProtocol.OPCODE_CURRENT_BASAL_STATUS_REQ, any(), any())
+        } returns basalBuf.array()
+
+        // ControlIQInfoV1: SLEEP mode
+        val ciqInfo = ByteArray(10)
+        ciqInfo[5] = 1 // SLEEP
+        coEvery {
+            connectionManager.sendStatusRequest(TandemProtocol.OPCODE_CONTROL_IQ_INFO_V1_REQ, any(), any())
+        } returns ciqInfo
+
+        // ACTIVITY_MODE_REFRESH_CYCLES = 3, so calls 0,3,6... refresh, others use cache
+        val r1 = driver.getBasalRate() // call 0 -> refreshes
+        val r2 = driver.getBasalRate() // call 1 -> cached
+        val r3 = driver.getBasalRate() // call 2 -> cached
+
+        // All three should return SLEEP
+        assertEquals(PumpActivityMode.SLEEP, r1.getOrThrow().activityMode)
+        assertEquals(PumpActivityMode.SLEEP, r2.getOrThrow().activityMode)
+        assertEquals(PumpActivityMode.SLEEP, r3.getOrThrow().activityMode)
+
+        // ControlIQInfoV1 should only be called once (on call 0)
+        coVerify(exactly = 1) {
+            connectionManager.sendStatusRequest(TandemProtocol.OPCODE_CONTROL_IQ_INFO_V1_REQ, any(), any())
+        }
     }
 
     // -- Battery tests (V2 opcode 144, V1 opcode 52) ---------------------------

@@ -824,6 +824,45 @@ internal object StatusResponseParser {
             .sortedBy { it.timestamp }
     }
 
+    /**
+     * Parse ControlIQInfoV1Response (opcode 105) for current activity mode.
+     *
+     * Cargo layout (10 bytes):
+     *   byte  0:    closedLoopEnabled (0=off, 1=on)
+     *   bytes 1-2:  weight (uint16 LE)
+     *   byte  3:    weightUnit
+     *   byte  4:    totalDailyInsulin
+     *   byte  5:    currentUserModeType (0=standard, 1=sleep, 2=exercise, 3=eating_soon)
+     *   bytes 6-8:  reserved
+     *   byte  9:    controlStateType
+     *
+     * Layout verified against jwoglom/pumpX2 ControlIQInfoV1Response.java.
+     */
+    fun parseControlIqInfoV1Response(cargo: ByteArray): PumpActivityMode {
+        if (cargo.size < 6) {
+            Timber.w("ControlIQInfoV1 cargo too short: %d bytes", cargo.size)
+            return PumpActivityMode.NONE
+        }
+
+        val currentUserModeType = cargo[5].toInt() and 0xFF
+
+        return when (currentUserModeType) {
+            0 -> PumpActivityMode.NONE       // Standard
+            1 -> PumpActivityMode.SLEEP
+            2 -> PumpActivityMode.EXERCISE
+            3 -> {
+                // EatingSoon mode exists on-pump but has no SDK enum yet.
+                // Log so we can track usage and add support if needed.
+                Timber.d("ControlIQInfoV1: EATING_SOON mode (3) mapped to NONE")
+                PumpActivityMode.NONE
+            }
+            else -> {
+                Timber.w("ControlIQInfoV1: unknown mode type %d", currentUserModeType)
+                PumpActivityMode.NONE
+            }
+        }
+    }
+
     /** Read a fixed-width string field, trimming trailing nulls and whitespace. */
     private fun readFixedString(data: ByteArray, offset: Int, length: Int): String {
         if (offset + length > data.size) return ""

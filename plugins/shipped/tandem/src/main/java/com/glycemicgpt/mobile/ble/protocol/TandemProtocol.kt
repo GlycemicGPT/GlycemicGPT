@@ -104,6 +104,8 @@ object TandemProtocol {
     const val OPCODE_CGM_EGV_RESP = 35              // CurrentEGVGuiDataResponse (8 bytes)
     const val OPCODE_HOME_SCREEN_MIRROR_REQ = 56    // HomeScreenMirrorRequest
     const val OPCODE_HOME_SCREEN_MIRROR_RESP = 57   // HomeScreenMirrorResponse (9 bytes: trend icons, CIQ mode)
+    const val OPCODE_CONTROL_IQ_INFO_V1_REQ = 104    // ControlIQInfoV1Request (10-byte resp)
+    const val OPCODE_CONTROL_IQ_INFO_V1_RESP = 105  // ControlIQInfoV1Response (activity mode at byte 5)
 
     /** Default timeout for a status read request (milliseconds). */
     const val STATUS_READ_TIMEOUT_MS = 5000L
@@ -186,6 +188,8 @@ object TandemProtocol {
         OPCODE_CGM_EGV_RESP -> "CGM_EGV_RESP"
         OPCODE_HOME_SCREEN_MIRROR_REQ -> "HomeScreenMirror_REQ"
         OPCODE_HOME_SCREEN_MIRROR_RESP -> "HomeScreenMirror_RESP"
+        OPCODE_CONTROL_IQ_INFO_V1_REQ -> "ControlIQInfoV1_REQ"
+        OPCODE_CONTROL_IQ_INFO_V1_RESP -> "ControlIQInfoV1_RESP"
         OPCODE_CENTRAL_CHALLENGE_REQ -> "V1Auth_CentralChallenge_REQ"
         OPCODE_CENTRAL_CHALLENGE_RESP -> "V1Auth_CentralChallenge_RESP"
         OPCODE_PUMP_CHALLENGE_REQ -> "V1Auth_PumpChallenge_REQ"

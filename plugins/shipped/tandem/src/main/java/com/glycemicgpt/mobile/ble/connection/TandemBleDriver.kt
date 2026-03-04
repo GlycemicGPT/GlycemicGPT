@@ -9,6 +9,7 @@ import com.glycemicgpt.mobile.domain.model.BolusEvent
 import com.glycemicgpt.mobile.domain.model.CgmReading
 import com.glycemicgpt.mobile.domain.model.CgmTrend
 import com.glycemicgpt.mobile.domain.model.ConnectionState
+import com.glycemicgpt.mobile.domain.model.PumpActivityMode
 import com.glycemicgpt.mobile.domain.model.HistoryLogRecord
 import com.glycemicgpt.mobile.domain.model.IoBReading
 import com.glycemicgpt.mobile.domain.model.PumpHardwareInfo
@@ -22,6 +23,7 @@ import timber.log.Timber
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.time.Instant
+import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -46,8 +48,17 @@ class TandemBleDriver @Inject constructor(
     @Volatile
     private var nextHistoryIndex: Int = 0
 
+    /** Cached activity mode from ControlIQInfoV1 to avoid an extra BLE round-trip
+     *  on every poll cycle. Refreshed every [ACTIVITY_MODE_REFRESH_CYCLES] calls. */
+    @Volatile
+    private var cachedActivityMode: PumpActivityMode = PumpActivityMode.NONE
+    private val activityModePollCount = AtomicInteger(0)
+
     override suspend fun connect(deviceAddress: String): Result<Unit> {
         return try {
+            // Reset cached state to avoid serving stale data from a previous session
+            cachedActivityMode = PumpActivityMode.NONE
+            activityModePollCount.set(0)
             connectionManager.connect(deviceAddress)
             Result.success(Unit)
         } catch (e: Exception) {
@@ -71,11 +82,32 @@ class TandemBleDriver @Inject constructor(
             ?: throw IllegalStateException("Failed to parse IoB response")
     }
 
-    override suspend fun getBasalRate(): Result<BasalReading> = runStatusRequest(
-        opcode = TandemProtocol.OPCODE_CURRENT_BASAL_STATUS_REQ,
-    ) { cargo ->
-        StatusResponseParser.parseBasalStatusResponse(cargo)
-            ?: throw IllegalStateException("Failed to parse basal status response")
+    override suspend fun getBasalRate(): Result<BasalReading> {
+        // Get basal rate from CurrentBasalStatus
+        val basalResult = runStatusRequest(
+            opcode = TandemProtocol.OPCODE_CURRENT_BASAL_STATUS_REQ,
+        ) { cargo ->
+            StatusResponseParser.parseBasalStatusResponse(cargo)
+                ?: throw IllegalStateException("Failed to parse basal status response")
+        }
+        if (basalResult.isFailure) return basalResult
+
+        // Refresh activity mode periodically (not every call) to avoid doubling
+        // BLE round-trips and eating into the pump's 30s idle timeout budget.
+        // getAndIncrement is atomic. floorMod handles negative values after
+        // Int overflow correctly (plain % preserves sign in Kotlin/JVM).
+        val shouldRefreshMode = Math.floorMod(activityModePollCount.getAndIncrement(), ACTIVITY_MODE_REFRESH_CYCLES) == 0
+        if (shouldRefreshMode) {
+            val modeResult = runStatusRequest(
+                opcode = TandemProtocol.OPCODE_CONTROL_IQ_INFO_V1_REQ,
+            ) { cargo ->
+                StatusResponseParser.parseControlIqInfoV1Response(cargo)
+            }
+            cachedActivityMode = modeResult.getOrDefault(cachedActivityMode)
+        }
+
+        val basal = basalResult.getOrThrow()
+        return Result.success(basal.copy(activityMode = cachedActivityMode))
     }
 
     override suspend fun getBolusHistory(since: Instant, limits: SafetyLimits): Result<List<BolusEvent>> = runStatusRequest(
@@ -253,6 +285,11 @@ class TandemBleDriver @Inject constructor(
         /** Max time (ms) to spend fetching history logs per poll cycle.
          *  Keeps the slow loop responsive and avoids pump idle-timeout. */
         const val MAX_HISTORY_FETCH_DURATION_MS = 15_000L
+
+        /** Fetch activity mode every N getBasalRate() calls to avoid doubling
+         *  BLE round-trips. Mode changes (sleep/exercise) are infrequent; 3
+         *  cycles (~45s at 15s poll) is responsive enough. */
+        const val ACTIVITY_MODE_REFRESH_CYCLES = 3
 
         /** How many indices from the end of the range to scan for gap-fill.
          *  ~2000 indices covers roughly 12-24h of pump events depending on
