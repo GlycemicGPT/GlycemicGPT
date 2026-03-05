@@ -2,7 +2,9 @@ package com.glycemicgpt.mobile.presentation.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.glycemicgpt.mobile.data.local.AnalyticsSettingsStore
 import com.glycemicgpt.mobile.data.local.GlucoseRangeStore
+import com.glycemicgpt.mobile.data.local.PumpProfileStore
 import com.glycemicgpt.mobile.data.local.SafetyLimitsStore
 import com.glycemicgpt.mobile.data.remote.GlycemicGptApi
 import com.glycemicgpt.mobile.data.repository.AuthRepository
@@ -41,6 +43,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import java.time.Instant
+import java.time.ZoneId
 import javax.inject.Inject
 
 /** A dashboard card paired with the plugin that produced it. */
@@ -54,6 +57,8 @@ class HomeViewModel @Inject constructor(
     private val backendSyncManager: BackendSyncManager,
     private val glucoseRangeStore: GlucoseRangeStore,
     private val safetyLimitsStore: SafetyLimitsStore,
+    private val analyticsSettingsStore: AnalyticsSettingsStore,
+    private val pumpProfileStore: PumpProfileStore,
     private val authRepository: AuthRepository,
     private val api: GlycemicGptApi,
     private val pluginRegistry: PluginRegistry,
@@ -99,6 +104,10 @@ class HomeViewModel @Inject constructor(
     private val _glucoseThresholds = MutableStateFlow(thresholdsFromStore())
     val glucoseThresholds: StateFlow<GlucoseThresholds> = _glucoseThresholds.asStateFlow()
 
+    /** Day boundary hour for aligning analytics periods with pump Delivery Summary. */
+    private val _dayBoundaryHour = MutableStateFlow(analyticsSettingsStore.dayBoundaryHour)
+    val dayBoundaryHour: StateFlow<Int> = _dayBoundaryHour.asStateFlow()
+
     init {
         // Refresh glucose range from backend on screen load if stale (15 min)
         if (glucoseRangeStore.isStale(maxAgeMs = RANGE_REFRESH_INTERVAL_MS)) {
@@ -110,6 +119,14 @@ class HomeViewModel @Inject constructor(
                 authRepository.refreshSafetyLimits()
                 pluginRegistry.refreshSafetyLimits()
             }
+        }
+        // Refresh analytics config from backend if stale (15 min)
+        if (analyticsSettingsStore.isStale()) {
+            viewModelScope.launch { refreshAnalyticsConfig() }
+        }
+        // Refresh pump profile from backend if stale (1 hour)
+        if (pumpProfileStore.isStale()) {
+            viewModelScope.launch { refreshPumpProfile() }
         }
     }
 
@@ -227,10 +244,13 @@ class HomeViewModel @Inject constructor(
     private val _selectedInsulinPeriod = MutableStateFlow(TirPeriod.TWENTY_FOUR_HOURS)
     val selectedInsulinPeriod: StateFlow<TirPeriod> = _selectedInsulinPeriod.asStateFlow()
 
-    val insulinSummary: StateFlow<InsulinSummary?> = _selectedInsulinPeriod
-        .flatMapLatest { period ->
-            val since = Instant.ofEpochMilli(
-                System.currentTimeMillis() - period.hours * 3600_000L,
+    val insulinSummary: StateFlow<InsulinSummary?> = combine(
+        _selectedInsulinPeriod,
+        _dayBoundaryHour,
+    ) { period, boundary -> Pair(period, boundary) }
+        .flatMapLatest { (period, boundary) ->
+            val since = DashboardComputations.periodStart(
+                period.daysBack, boundary, ZoneId.systemDefault(),
             )
             combine(
                 repository.observeBasalHistoryAll(since),
@@ -250,10 +270,13 @@ class HomeViewModel @Inject constructor(
     private val _selectedBolusPeriod = MutableStateFlow(TirPeriod.TWENTY_FOUR_HOURS)
     val selectedBolusPeriod: StateFlow<TirPeriod> = _selectedBolusPeriod.asStateFlow()
 
-    val enrichedBoluses: StateFlow<List<EnrichedBolusEvent>> = _selectedBolusPeriod
-        .flatMapLatest { period ->
-            val since = Instant.ofEpochMilli(
-                System.currentTimeMillis() - period.hours * 3600_000L,
+    val enrichedBoluses: StateFlow<List<EnrichedBolusEvent>> = combine(
+        _selectedBolusPeriod,
+        _dayBoundaryHour,
+    ) { period, boundary -> Pair(period, boundary) }
+        .flatMapLatest { (period, boundary) ->
+            val since = DashboardComputations.periodStart(
+                period.daysBack, boundary, ZoneId.systemDefault(),
             )
             combine(
                 repository.observeBolusHistoryAll(since),
@@ -278,8 +301,10 @@ class HomeViewModel @Inject constructor(
         if (!_isRefreshing.compareAndSet(expect = false, update = true)) return
         viewModelScope.launch {
             try {
-                // Refresh glucose range + safety limits concurrently -- don't block BLE reads
+                // Refresh settings concurrently -- don't block BLE reads
                 launch { refreshGlucoseRange() }
+                launch { refreshAnalyticsConfig() }
+                launch { refreshPumpProfile() }
                 // If backend call fails, refreshSafetyLimits re-reads the store's
                 // last-known-good values -- harmless no-op, plugins keep safe limits.
                 launch {
@@ -341,6 +366,49 @@ class HomeViewModel @Inject constructor(
             }
         } catch (e: Exception) {
             Timber.w(e, "Failed to refresh glucose range")
+        }
+    }
+
+    private suspend fun refreshAnalyticsConfig() {
+        try {
+            val response = api.getAnalyticsConfig()
+            if (response.isSuccessful) {
+                response.body()?.let { config ->
+                    val hour = config.dayBoundaryHour.coerceIn(0, 23)
+                    analyticsSettingsStore.updateAll(hour)
+                    if (hour != _dayBoundaryHour.value) {
+                        _dayBoundaryHour.value = hour
+                        Timber.d("Analytics day boundary updated: %d", hour)
+                    }
+                }
+            } else {
+                Timber.w("Analytics config refresh failed: HTTP %d", response.code())
+            }
+        } catch (e: Exception) {
+            Timber.w(e, "Failed to refresh analytics config")
+        }
+    }
+
+    private suspend fun refreshPumpProfile() {
+        try {
+            val response = api.getPumpProfile()
+            if (response.isSuccessful) {
+                response.body()?.let { profile ->
+                    pumpProfileStore.updateAll(
+                        profileName = profile.profileName,
+                        diaMinutes = profile.diaMinutes ?: 0,
+                        maxBolusUnits = profile.maxBolusUnits ?: 0f,
+                        segmentCount = profile.segments.size,
+                    )
+                    Timber.d("Pump profile updated: %s (%d segments)",
+                        profile.profileName, profile.segments.size)
+                }
+            } else if (response.code() != 404) {
+                // 404 is expected when no profile is synced yet
+                Timber.w("Pump profile refresh failed: HTTP %d", response.code())
+            }
+        } catch (e: Exception) {
+            Timber.w(e, "Failed to refresh pump profile")
         }
     }
 

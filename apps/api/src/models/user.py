@@ -240,6 +240,12 @@ class User(Base, TimestampMixin):
         back_populates="user",
         cascade="all, delete-orphan",
     )
+    analytics_config = relationship(
+        "AnalyticsConfig",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
 
     def __repr__(self) -> str:
         return f"<User {self.email} ({self.role.value})>"

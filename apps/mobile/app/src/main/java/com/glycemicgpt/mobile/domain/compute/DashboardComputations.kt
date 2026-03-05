@@ -10,7 +10,9 @@ import com.glycemicgpt.mobile.domain.model.CgmStats
 import com.glycemicgpt.mobile.domain.model.EnrichedBolusEvent
 import com.glycemicgpt.mobile.domain.model.InsulinSummary
 import com.glycemicgpt.mobile.domain.model.IoBReading
+import java.time.Instant
 import java.time.ZoneId
+import java.time.ZonedDateTime
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.sqrt
@@ -26,6 +28,35 @@ object DashboardComputations {
     /** Valid CGM glucose range (mg/dL) -- filters sensor noise and impossible values. */
     private const val VALID_GLUCOSE_MIN = 20
     private const val VALID_GLUCOSE_MAX = 500
+
+    /**
+     * Compute the start instant for an analytics period aligned to the day boundary.
+     *
+     * For [daysBack]=0 (24H): returns today's boundary hour (or yesterday's if we
+     * haven't passed it yet). For [daysBack]=3 (3D): returns the boundary 3 days
+     * before the effective boundary. This matches the pump's Delivery Summary which
+     * resets at midnight (boundary=0).
+     *
+     * @param daysBack Number of additional days to go back (0 for current day period).
+     * @param boundaryHour Hour (0-23) when the analytics day resets.
+     * @param zone Time zone for local-time boundary calculation.
+     * @return The [Instant] at which the analytics period starts.
+     */
+    fun periodStart(
+        daysBack: Int,
+        boundaryHour: Int,
+        zone: ZoneId = ZoneId.systemDefault(),
+        now: ZonedDateTime = ZonedDateTime.now(zone),
+    ): Instant {
+        require(boundaryHour in 0..23) { "boundaryHour must be 0-23, got $boundaryHour" }
+        val todayBoundary = now.toLocalDate().atTime(boundaryHour, 0).atZone(zone)
+        val effectiveBoundary = if (now.isBefore(todayBoundary)) {
+            todayBoundary.minusDays(1)
+        } else {
+            todayBoundary
+        }
+        return effectiveBoundary.minusDays(daysBack.toLong()).toInstant()
+    }
 
     fun computeAgp(readings: List<CgmReading>, periodDays: Int): AgpProfile? {
         val valid = readings.filter { it.glucoseMgDl in VALID_GLUCOSE_MIN..VALID_GLUCOSE_MAX }

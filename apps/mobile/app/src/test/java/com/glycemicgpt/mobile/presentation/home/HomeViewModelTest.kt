@@ -1,6 +1,8 @@
 package com.glycemicgpt.mobile.presentation.home
 
+import com.glycemicgpt.mobile.data.local.AnalyticsSettingsStore
 import com.glycemicgpt.mobile.data.local.GlucoseRangeStore
+import com.glycemicgpt.mobile.data.local.PumpProfileStore
 import com.glycemicgpt.mobile.data.local.SafetyLimitsStore
 import com.glycemicgpt.mobile.data.remote.GlycemicGptApi
 import com.glycemicgpt.mobile.data.repository.AuthRepository
@@ -111,6 +113,15 @@ class HomeViewModelTest {
         every { isStale(any()) } returns false
     }
 
+    private val analyticsSettingsStore = mockk<AnalyticsSettingsStore>(relaxed = true) {
+        every { dayBoundaryHour } returns 0
+        every { isStale(any()) } returns false
+    }
+
+    private val pumpProfileStore = mockk<PumpProfileStore>(relaxed = true) {
+        every { isStale(any()) } returns false
+    }
+
     private val authRepository = mockk<AuthRepository>(relaxed = true)
 
     private val api = mockk<GlycemicGptApi>(relaxed = true)
@@ -128,7 +139,7 @@ class HomeViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun createViewModel() = HomeViewModel(pumpDriver, repository, backendSyncManager, glucoseRangeStore, safetyLimitsStore, authRepository, api, pluginRegistry)
+    private fun createViewModel() = HomeViewModel(pumpDriver, repository, backendSyncManager, glucoseRangeStore, safetyLimitsStore, analyticsSettingsStore, pumpProfileStore, authRepository, api, pluginRegistry)
 
     @Test
     fun `initial state has null readings and not refreshing`() = runTest {

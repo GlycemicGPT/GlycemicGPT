@@ -37,12 +37,12 @@ import androidx.compose.ui.unit.dp
 import com.glycemicgpt.mobile.domain.model.TimeInRangeData
 import com.glycemicgpt.mobile.presentation.theme.GlucoseColors
 
-enum class TirPeriod(val label: String, val hours: Long) {
-    TWENTY_FOUR_HOURS("24H", 24),
-    THREE_DAYS("3D", 72),
-    SEVEN_DAYS("7D", 168),
-    FOURTEEN_DAYS("14D", 336),
-    THIRTY_DAYS("30D", 720),
+enum class TirPeriod(val label: String, val hours: Long, val daysBack: Int) {
+    TWENTY_FOUR_HOURS("24H", 24, 0),
+    THREE_DAYS("3D", 72, 3),
+    SEVEN_DAYS("7D", 168, 7),
+    FOURTEEN_DAYS("14D", 336, 14),
+    THIRTY_DAYS("30D", 720, 30),
 }
 
 private val TirLow = GlucoseColors.UrgentLow   // Red

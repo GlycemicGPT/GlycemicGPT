@@ -1,8 +1,9 @@
-"""Stories 6.1, 6.6, 9.1, 9.2, 9.3, 9.4, 9.5: Settings router.
+"""Settings router.
 
 Provides endpoints for managing user alert thresholds, escalation timing,
 target glucose range, brief delivery configuration, data retention settings,
-data purge capability, and settings export.
+data purge capability, settings export, analytics configuration, and pump
+profile summary.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -15,6 +16,11 @@ from src.schemas.alert_threshold import (
     AlertThresholdDefaults,
     AlertThresholdResponse,
     AlertThresholdUpdate,
+)
+from src.schemas.analytics_config import (
+    AnalyticsConfigDefaults,
+    AnalyticsConfigResponse,
+    AnalyticsConfigUpdate,
 )
 from src.schemas.brief_delivery_config import (
     BriefDeliveryConfigDefaults,
@@ -38,6 +44,10 @@ from src.schemas.insulin_config import (
     InsulinConfigResponse,
     InsulinConfigUpdate,
 )
+from src.schemas.pump_profile_summary import (
+    PumpProfileSegment,
+    PumpProfileSummaryResponse,
+)
 from src.schemas.safety_limits import (
     SafetyLimitsDefaults,
     SafetyLimitsResponse,
@@ -54,6 +64,10 @@ from src.schemas.target_glucose_range import (
     TargetGlucoseRangeUpdate,
 )
 from src.services.alert_threshold import get_or_create_thresholds, update_thresholds
+from src.services.analytics_config import (
+    get_or_create_config as get_or_create_analytics_config,
+)
+from src.services.analytics_config import update_config as update_analytics_config
 from src.services.brief_delivery_config import (
     get_or_create_config as get_or_create_brief_config,
 )
@@ -73,6 +87,7 @@ from src.services.insulin_config import (
     get_or_create_config as get_or_create_insulin_config,
 )
 from src.services.insulin_config import update_config as update_insulin_config
+from src.services.pump_profile import get_active_profile
 from src.services.safety_limits import (
     get_or_create_safety_limits,
     update_safety_limits,
@@ -549,3 +564,96 @@ async def export_settings(
     include_data = body.export_type == ExportType.ALL_DATA
     export_data = await export_user_data(user.id, db, include_data=include_data)
     return SettingsExportResponse(export_data=export_data)
+
+
+# -- Analytics configuration endpoints ----------------------------------------
+
+
+@router.get(
+    "/analytics-config",
+    response_model=AnalyticsConfigResponse,
+    dependencies=[Depends(require_diabetic_or_admin)],
+)
+async def get_analytics_config(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> AnalyticsConfigResponse:
+    """Get the current user's analytics configuration.
+
+    Returns defaults (midnight boundary) if not configured yet.
+    """
+    config = await get_or_create_analytics_config(user.id, db)
+    return AnalyticsConfigResponse.model_validate(config)
+
+
+@router.patch(
+    "/analytics-config",
+    response_model=AnalyticsConfigResponse,
+    dependencies=[Depends(require_diabetic_or_admin)],
+)
+async def patch_analytics_config(
+    body: AnalyticsConfigUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> AnalyticsConfigResponse:
+    """Update the current user's analytics configuration.
+
+    Only provided fields are updated. day_boundary_hour must be 0-23.
+    """
+    config = await update_analytics_config(user.id, body, db)
+    return AnalyticsConfigResponse.model_validate(config)
+
+
+@router.get(
+    "/analytics-config/defaults",
+    response_model=AnalyticsConfigDefaults,
+)
+async def get_analytics_config_defaults() -> AnalyticsConfigDefaults:
+    """Get the default analytics configuration values for reference.
+
+    This endpoint does not require authentication.
+    """
+    return AnalyticsConfigDefaults()
+
+
+# -- Pump profile summary endpoint --------------------------------------------
+
+
+@router.get(
+    "/pump-profile",
+    response_model=PumpProfileSummaryResponse,
+    dependencies=[Depends(require_diabetic_or_admin)],
+)
+async def get_pump_profile(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> PumpProfileSummaryResponse:
+    """Get the user's active pump profile summary.
+
+    Returns the latest active pump profile synced from the cloud
+    (carb ratios, correction factors, basal schedules, target BG, DIA).
+    Returns 404 if no profile has been synced yet.
+    """
+    profile = await get_active_profile(user.id, db)
+
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No pump profile synced yet",
+        )
+
+    segments: list[PumpProfileSegment] = []
+    for seg in profile.segments or []:
+        try:
+            segments.append(PumpProfileSegment(**seg))
+        except (TypeError, KeyError):
+            continue
+
+    return PumpProfileSummaryResponse(
+        profile_name=profile.profile_name,
+        is_active=profile.is_active,
+        dia_minutes=profile.insulin_duration_min,
+        max_bolus_units=profile.max_bolus_units,
+        segments=segments,
+        synced_at=profile.synced_at,
+    )

@@ -122,3 +122,28 @@ data class SafetyLimitsResponse(
     @Json(name = "max_bolus_dose_milliunits") val maxBolusDoseMilliunits: Int,
     @Json(name = "updated_at") val updatedAt: String,
 )
+
+@JsonClass(generateAdapter = true)
+data class AnalyticsConfigResponse(
+    @Json(name = "day_boundary_hour") val dayBoundaryHour: Int,
+)
+
+@JsonClass(generateAdapter = true)
+data class PumpProfileSegmentDto(
+    val time: String,
+    @Json(name = "start_minutes") val startMinutes: Int,
+    @Json(name = "basal_rate") val basalRate: Float,
+    @Json(name = "correction_factor") val correctionFactor: Float? = null,
+    @Json(name = "carb_ratio") val carbRatio: Float? = null,
+    @Json(name = "target_bg") val targetBg: Int? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class PumpProfileResponse(
+    @Json(name = "profile_name") val profileName: String,
+    @Json(name = "is_active") val isActive: Boolean,
+    @Json(name = "dia_minutes") val diaMinutes: Int? = null,
+    @Json(name = "max_bolus_units") val maxBolusUnits: Float? = null,
+    val segments: List<PumpProfileSegmentDto>,
+    @Json(name = "synced_at") val syncedAt: String,
+)

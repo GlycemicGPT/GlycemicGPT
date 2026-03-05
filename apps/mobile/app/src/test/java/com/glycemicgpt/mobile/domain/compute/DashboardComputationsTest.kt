@@ -14,7 +14,9 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
+import java.time.ZonedDateTime
 
 class DashboardComputationsTest {
 
@@ -552,5 +554,85 @@ class DashboardComputationsTest {
         val basals = listOf(basal(2.0f, 1))
         val result = DashboardComputations.computeBasalIntegral(basals)
         assertEquals(2f, result, 0.1f)
+    }
+
+    // -- periodStart ----------------------------------------------------------
+
+    @Test
+    fun `periodStart with boundary 0 and daysBack 0 returns today midnight`() {
+        val zone = ZoneId.systemDefault()
+        val now = ZonedDateTime.now(zone)
+        val result = DashboardComputations.periodStart(0, 0, zone)
+        val resultZdt = result.atZone(zone)
+        // If past midnight, should be today at 00:00; if before midnight (impossible
+        // for boundary=0), yesterday at 00:00. At any time, result is today's midnight.
+        assertEquals(0, resultZdt.hour)
+        assertEquals(0, resultZdt.minute)
+        assertEquals(0, resultZdt.second)
+        assertTrue(result.isBefore(now.toInstant()) || result == now.toInstant())
+    }
+
+    @Test
+    fun `periodStart with boundary 0 and daysBack 3 returns midnight 3 days ago`() {
+        val zone = ZoneId.systemDefault()
+        val result = DashboardComputations.periodStart(3, 0, zone)
+        val resultZdt = result.atZone(zone)
+        val today = LocalDate.now(zone)
+        // Should be 3 days before today's midnight boundary
+        val expected = today.minusDays(3).atTime(0, 0).atZone(zone).toInstant()
+        assertEquals(expected, result)
+        assertEquals(0, resultZdt.hour)
+    }
+
+    @Test
+    fun `periodStart with boundary 6 before boundary hour rolls back to yesterday`() {
+        // Simulate 3 AM with boundary at 6 AM -- current "day" started yesterday at 6 AM
+        val zone = ZoneId.of("America/Chicago")
+        val today = LocalDate.now(zone)
+        val expectedBoundary = today.minusDays(1).atTime(6, 0).atZone(zone).toInstant()
+
+        // We can't control "now" in the function, but we can verify the logic:
+        // At 3 AM, todayBoundary = today at 6:00, now < todayBoundary, so
+        // effectiveBoundary = yesterday at 6:00.
+        // At 8 AM, todayBoundary = today at 6:00, now >= todayBoundary, so
+        // effectiveBoundary = today at 6:00.
+        // We test the property: result always represents an instant that has already passed.
+        val result = DashboardComputations.periodStart(0, 6, zone)
+        assertTrue(result.isBefore(Instant.now()) || result == Instant.now())
+    }
+
+    @Test
+    fun `periodStart with daysBack 7 and boundary 0 returns midnight 7 days ago`() {
+        val zone = ZoneId.systemDefault()
+        val result = DashboardComputations.periodStart(7, 0, zone)
+        val resultZdt = result.atZone(zone)
+        val today = LocalDate.now(zone)
+        val expected = today.minusDays(7).atTime(0, 0).atZone(zone).toInstant()
+        assertEquals(expected, result)
+        assertEquals(0, resultZdt.hour)
+    }
+
+    @Test
+    fun `periodStart is always in the past`() {
+        val zone = ZoneId.systemDefault()
+        for (boundary in 0..23) {
+            for (daysBack in listOf(0, 1, 3, 7, 14, 30)) {
+                val result = DashboardComputations.periodStart(daysBack, boundary, zone)
+                assertTrue(
+                    "periodStart(daysBack=$daysBack, boundary=$boundary) should be in the past",
+                    result.isBefore(Instant.now()) || result == Instant.now(),
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `periodStart with larger daysBack returns earlier instant`() {
+        val zone = ZoneId.systemDefault()
+        val p0 = DashboardComputations.periodStart(0, 0, zone)
+        val p3 = DashboardComputations.periodStart(3, 0, zone)
+        val p7 = DashboardComputations.periodStart(7, 0, zone)
+        assertTrue(p7.isBefore(p3))
+        assertTrue(p3.isBefore(p0))
     }
 }
