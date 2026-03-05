@@ -55,6 +55,20 @@ internal object StatusResponseParser {
     }
 
     /**
+     * Map a Tandem BLE bolus source ID to a human-readable string.
+     *
+     * Source IDs appear in both opcode 0x30 (LastBolusStatusResponse, byte 13)
+     * and event 280 (LidBolusDelivery, byte 4).
+     */
+    private fun mapBolusSource(sourceId: Int): String = when (sourceId) {
+        0 -> "GUI"
+        1 -> "AUTO_PILOT"
+        2 -> "AUTO_POP_UP"
+        7 -> "ALGORITHM"
+        else -> "UNKNOWN_$sourceId"
+    }
+
+    /**
      * Parse ControlIQIOBResponse (opcode 109).
      *
      * Cargo layout (17 bytes, all little-endian unsigned):
@@ -348,7 +362,7 @@ internal object StatusResponseParser {
                 isCorrection = isCorrection,
                 correctionUnits = 0f,
                 mealUnits = 0f,
-                source = "",
+                source = mapBolusSource(bolusSourceId),
                 timestamp = timestamp,
             ),
         )
@@ -757,7 +771,7 @@ internal object StatusResponseParser {
             isCorrection = isCorrection,
             correctionUnits = correctionMuClamped / 1000f,
             mealUnits = mealPortionMu / 1000f,
-            source = "",
+            source = mapBolusSource(bolusSourceRaw),
             timestamp = pumpTimeToInstant(pumpTimeSec),
         )
     }

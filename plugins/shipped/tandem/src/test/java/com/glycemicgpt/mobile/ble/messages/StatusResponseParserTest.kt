@@ -898,6 +898,34 @@ class StatusResponseParserTest {
             assertEquals(3.5f, result.mealUnits, 0.001f)
             assertFalse(result.isAutomated)
             assertTrue(result.isCorrection)
+            assertEquals("GUI", result.source)
+        } finally {
+            TimeZone.setDefault(savedTz)
+        }
+    }
+
+    @Test
+    fun `parseBolusDeliveryPayload automated bolus has ALGORITHM source`() {
+        val savedTz = TimeZone.getDefault()
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
+            val data = ByteBuffer.allocate(16).order(ByteOrder.LITTLE_ENDIAN)
+            data.putShort(5)              // bolusId
+            data.put(0)                   // deliveryStatus = Completed
+            data.put(0x08.toByte())       // bolusType = correction component
+            data.put(7)                   // bolusSource = ALGORITHM
+            data.put(0)                   // remoteId
+            data.putShort(800.toShort())  // requestedNow
+            data.putShort(800.toShort())  // correctionPortion
+            data.putShort(0)              // requestedLater
+            data.putShort(0)              // reserved
+            data.putShort(800.toShort())  // deliveredTotal
+
+            val pumpTime = (Instant.now().epochSecond - 1199145600L)
+            val result = StatusResponseParser.parseBolusDeliveryPayload(data.array(), pumpTime)
+            assertNotNull(result)
+            assertTrue(result!!.isAutomated)
+            assertEquals("ALGORITHM", result.source)
         } finally {
             TimeZone.setDefault(savedTz)
         }
@@ -983,7 +1011,7 @@ class StatusResponseParserTest {
             assertEquals(1, events.size)
             assertEquals(0f, events[0].correctionUnits, 0.001f)
             assertEquals(0f, events[0].mealUnits, 0.001f)
-            assertEquals("", events[0].source)
+            assertEquals("GUI", events[0].source)
         } finally {
             TimeZone.setDefault(savedTz)
         }

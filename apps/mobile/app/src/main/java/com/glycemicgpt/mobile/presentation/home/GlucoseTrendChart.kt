@@ -450,7 +450,7 @@ private fun GlucoseTrendChartContent(
                             BolusType.AUTO_CORRECTION -> add("auto_correction")
                             BolusType.MEAL_WITH_CORRECTION -> add("meal_with_correction")
                             BolusType.CORRECTION -> add("manual_correction")
-                            BolusType.AUTO -> add("auto_correction")
+                            BolusType.AUTO -> add("auto_bolus")
                             BolusType.MEAL -> add("meal_bolus")
                         }
                     }
@@ -483,6 +483,7 @@ private fun ChartLegend(
         if ("sleep" in basalModesPresent) LegendItem(color = ChartColors.BasalSleep, label = "Sleep")
         if ("exercise" in basalModesPresent) LegendItem(color = ChartColors.BasalExercise, label = "Exercise")
         if ("auto_correction" in bolusTypesPresent) LegendItem(color = ChartColors.Correction, label = "Auto Correction")
+        if ("auto_bolus" in bolusTypesPresent) LegendItem(color = ChartColors.Correction, label = "Auto Bolus")
         if ("manual_correction" in bolusTypesPresent) LegendItem(color = ChartColors.ManualCorrection, label = "Manual Correction")
         if ("meal_with_correction" in bolusTypesPresent) LegendItem(color = ChartColors.MealWithCorrection, label = "Meal + Corr")
         if ("meal_bolus" in bolusTypesPresent) LegendItem(color = ChartColors.Bolus, label = "Meal Bolus")

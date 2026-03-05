@@ -59,7 +59,9 @@ fun RecentBolusesCard(
     onExpand: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    val a11yDescription = "Recent boluses: ${boluses.size} events in the last ${selectedPeriod.label}"
+    // Coerce period to one supported by this card (detail screen allows 14D/30D)
+    val effectivePeriod = if (selectedPeriod in BolusTimePeriods) selectedPeriod else BolusTimePeriods.first()
+    val a11yDescription = "Recent boluses: ${boluses.size} events in the last ${effectivePeriod.label}"
 
     Card(
         modifier = modifier
@@ -112,7 +114,7 @@ fun RecentBolusesCard(
             ) {
                 BolusTimePeriods.forEach { period ->
                     FilterChip(
-                        selected = period == selectedPeriod,
+                        selected = period == effectivePeriod,
                         onClick = { onPeriodSelected(period) },
                         label = {
                             Text(
