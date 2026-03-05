@@ -37,6 +37,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.glycemicgpt.mobile.domain.model.InsulinSummary
+import com.glycemicgpt.mobile.presentation.theme.BolusTypeColors
 import java.util.Locale
 
 private val BasalColor = Color(0xFF38BDF8)  // sky-400
@@ -59,14 +60,18 @@ fun InsulinSummaryCard(
         String.format(
             Locale.US,
             "Insulin summary: total daily dose %.1f units, " +
-                "basal %.1f units (%.0f%%), bolus %.1f units (%.0f%%), " +
-                "corrections %.1f units per day, %d total boluses, %d total corrections",
+                "basal %.1f units (%.0f%%), bolus %.1f units (%.0f%%). " +
+                "Breakdown: Food %.1f, Correction %.1f, BG+Food %.1f, BG Only %.1f units per day. " +
+                "%d total boluses, %d total corrections",
             summary.totalDailyDose,
             summary.basalUnits,
             summary.basalPercent,
             summary.bolusUnits,
             summary.bolusPercent,
-            summary.correctionUnits,
+            summary.foodBolusUnits,
+            summary.correctionBolusUnits,
+            summary.bgFoodUnits,
+            summary.bgOnlyUnits,
             summary.bolusCount,
             summary.correctionCount,
         )
@@ -173,26 +178,45 @@ fun InsulinSummaryCard(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Detail stats row
-                Row(
+                // Per-category bolus breakdown (mirrors pump Delivery Summary)
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("insulin_detail_stats"),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    DetailStat(
-                        label = "Corr/day",
-                        value = String.format(Locale.US, "%.1f U", summary.correctionUnits),
+                    CategoryRow(
+                        color = BolusTypeColors.Meal,
+                        label = "Food",
+                        value = String.format(Locale.US, "%.1f U/d", summary.foodBolusUnits),
                     )
-                    DetailStat(
-                        label = "Total Boluses",
-                        value = "%d".format(summary.bolusCount),
+                    CategoryRow(
+                        color = BolusTypeColors.Correction,
+                        label = "Correction",
+                        value = String.format(Locale.US, "%.1f U/d", summary.correctionBolusUnits),
                     )
-                    DetailStat(
-                        label = "Total Corr",
-                        value = "%d".format(summary.correctionCount),
+                    CategoryRow(
+                        color = BolusTypeColors.MealWithCorrection,
+                        label = "BG+Food",
+                        value = String.format(Locale.US, "%.1f U/d", summary.bgFoodUnits),
+                    )
+                    CategoryRow(
+                        color = BolusTypeColors.ManualCorrection,
+                        label = "BG Only",
+                        value = String.format(Locale.US, "%.1f U/d", summary.bgOnlyUnits),
                     )
                 }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // Total count footer
+                Text(
+                    text = "${summary.bolusCount} boluses (${summary.correctionCount} corrections)",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
     }
@@ -278,23 +302,38 @@ private fun InsulinLegend(
 }
 
 @Composable
-private fun DetailStat(label: String, value: String) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.semantics(mergeDescendants = true) {
-            contentDescription = "$label: $value"
-        },
+private fun CategoryRow(
+    color: Color,
+    label: String,
+    value: String,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics(mergeDescendants = true) {
+                contentDescription = "$label: $value"
+            },
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .background(color, CircleShape),
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         Text(
             text = value,
             style = MaterialTheme.typography.bodySmall,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurface,
-        )
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }

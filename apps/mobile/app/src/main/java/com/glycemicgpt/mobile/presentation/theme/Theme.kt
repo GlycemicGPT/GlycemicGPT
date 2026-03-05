@@ -52,3 +52,11 @@ object GlucoseColors {
     val UrgentHigh = Red500
     val UrgentLow = Red500
 }
+
+// Semantic colors for bolus type categories (shared across chart, badges, and summary card)
+object BolusTypeColors {
+    val Correction = Color(0xFFE91E63)       // Pink -- auto correction / automated (pump-initiated)
+    val ManualCorrection = Color(0xFFFF5722) // Deep orange -- BG Only (user-initiated correction)
+    val Meal = Color(0xFF7C4DFF)             // Deep purple -- Food bolus
+    val MealWithCorrection = Color(0xFFAB47BC) // Medium purple -- BG+Food combo
+}

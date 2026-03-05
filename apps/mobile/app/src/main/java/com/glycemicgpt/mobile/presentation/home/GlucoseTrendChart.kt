@@ -62,6 +62,7 @@ import com.glycemicgpt.mobile.domain.model.BolusType
 import com.glycemicgpt.mobile.domain.model.CgmReading
 import com.glycemicgpt.mobile.domain.model.PumpActivityMode
 import com.glycemicgpt.mobile.domain.model.IoBReading
+import com.glycemicgpt.mobile.presentation.theme.BolusTypeColors
 import com.glycemicgpt.mobile.presentation.theme.GlucoseColors
 import java.time.Instant
 import java.time.ZoneId
@@ -102,10 +103,6 @@ private object ChartColors {
     val BasalManual = Color(0xFF78909C)     // Blue-grey -- manual basal
     val BasalSleep = Color(0xFF7E57C2)      // Purple -- sleep mode
     val BasalExercise = Color(0xFFFF9800)   // Orange -- exercise mode
-    val Correction = Color(0xFFE91E63)    // Pink -- auto correction (pump-initiated)
-    val ManualCorrection = Color(0xFFFF5722)  // Deep orange -- manual correction (user-initiated)
-    val Bolus = Color(0xFF7C4DFF)         // Deep purple -- meal/standard bolus
-    val MealWithCorrection = Color(0xFFAB47BC) // Medium purple -- meal + correction combo
 }
 
 @Composable
@@ -482,11 +479,11 @@ private fun ChartLegend(
         if ("manual" in basalModesPresent) LegendItem(color = ChartColors.BasalManual, label = "Manual")
         if ("sleep" in basalModesPresent) LegendItem(color = ChartColors.BasalSleep, label = "Sleep")
         if ("exercise" in basalModesPresent) LegendItem(color = ChartColors.BasalExercise, label = "Exercise")
-        if ("auto_correction" in bolusTypesPresent) LegendItem(color = ChartColors.Correction, label = "A.Corr")
-        if ("auto_bolus" in bolusTypesPresent) LegendItem(color = ChartColors.Correction, label = "A.Bolus")
-        if ("manual_correction" in bolusTypesPresent) LegendItem(color = ChartColors.ManualCorrection, label = "M.Corr")
-        if ("meal_with_correction" in bolusTypesPresent) LegendItem(color = ChartColors.MealWithCorrection, label = "M+C")
-        if ("meal_bolus" in bolusTypesPresent) LegendItem(color = ChartColors.Bolus, label = "Meal")
+        if ("auto_correction" in bolusTypesPresent) LegendItem(color = BolusTypeColors.Correction, label = "Corr")
+        if ("auto_bolus" in bolusTypesPresent) LegendItem(color = BolusTypeColors.Correction, label = "Auto")
+        if ("manual_correction" in bolusTypesPresent) LegendItem(color = BolusTypeColors.ManualCorrection, label = "BG Only")
+        if ("meal_with_correction" in bolusTypesPresent) LegendItem(color = BolusTypeColors.MealWithCorrection, label = "BG+Food")
+        if ("meal_bolus" in bolusTypesPresent) LegendItem(color = BolusTypeColors.Meal, label = "Food")
         if (hasIob) LegendItem(color = iobColor.copy(alpha = 0.7f), label = "IoB")
     }
 }
@@ -909,11 +906,11 @@ private fun DrawScope.drawBolusMarkers(
 
         val bolusType = DashboardComputations.deriveBolusType(event)
         val color = when (bolusType) {
-            BolusType.AUTO_CORRECTION -> ChartColors.Correction       // Pink: pump auto-correction
-            BolusType.MEAL_WITH_CORRECTION -> ChartColors.MealWithCorrection // Purple: meal + correction combo
-            BolusType.CORRECTION -> ChartColors.ManualCorrection      // Deep orange: user correction
-            BolusType.AUTO -> ChartColors.Correction                  // Pink: other automated bolus
-            BolusType.MEAL -> ChartColors.Bolus                       // Purple: meal bolus
+            BolusType.AUTO_CORRECTION -> BolusTypeColors.Correction
+            BolusType.MEAL_WITH_CORRECTION -> BolusTypeColors.MealWithCorrection
+            BolusType.CORRECTION -> BolusTypeColors.ManualCorrection
+            BolusType.AUTO -> BolusTypeColors.Correction
+            BolusType.MEAL -> BolusTypeColors.Meal
         }
 
         val markerY = baseMarkerY + staggerLevel * staggerStep
@@ -954,9 +951,9 @@ private fun DrawScope.drawBolusMarkers(
 
         // Type tag above units label -- skip plain MEAL (most common) to reduce clutter
         val tagText = when (bolusType) {
-            BolusType.AUTO_CORRECTION -> "A.CORR"
-            BolusType.CORRECTION -> "CORR"
-            BolusType.MEAL_WITH_CORRECTION -> "M+C"
+            BolusType.AUTO_CORRECTION -> "CORR"
+            BolusType.CORRECTION -> "BG"
+            BolusType.MEAL_WITH_CORRECTION -> "BG+F"
             BolusType.AUTO -> "AUTO"
             BolusType.MEAL -> null
         }

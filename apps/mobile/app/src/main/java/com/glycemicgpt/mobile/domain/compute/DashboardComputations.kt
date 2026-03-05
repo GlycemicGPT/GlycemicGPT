@@ -114,6 +114,21 @@ object DashboardComputations {
             if (it.correctionUnits > 0f) it.correctionUnits.toDouble() else it.units.toDouble()
         }.toFloat()
 
+        // Per-category breakdown (mirrors pump Delivery Summary)
+        var foodTotal = 0.0
+        var corrTotal = 0.0     // AUTO_CORRECTION + AUTO
+        var bgFoodTotal = 0.0   // MEAL_WITH_CORRECTION
+        var bgOnlyTotal = 0.0   // CORRECTION
+
+        for (b in boluses) {
+            when (deriveBolusType(b)) {
+                BolusType.MEAL -> foodTotal += b.units.toDouble()
+                BolusType.AUTO_CORRECTION, BolusType.AUTO -> corrTotal += b.units.toDouble()
+                BolusType.MEAL_WITH_CORRECTION -> bgFoodTotal += b.units.toDouble()
+                BolusType.CORRECTION -> bgOnlyTotal += b.units.toDouble()
+            }
+        }
+
         val tdd = total / days
         val basalPerDay = totalBasal / days
         val bolusPerDay = totalBolus / days
@@ -129,6 +144,10 @@ object DashboardComputations {
             bolusPercent = if (tdd > 0f) 100f - basalPct else 0f,
             bolusCount = boluses.size,
             correctionCount = correctionBoluses.size,
+            foodBolusUnits = (foodTotal / days).toFloat(),
+            correctionBolusUnits = (corrTotal / days).toFloat(),
+            bgFoodUnits = (bgFoodTotal / days).toFloat(),
+            bgOnlyUnits = (bgOnlyTotal / days).toFloat(),
             periodDays = days,
         )
     }
@@ -249,9 +268,9 @@ object DashboardComputations {
     }
 
     internal fun deriveBolusReason(type: BolusType, bolus: BolusEvent? = null): String = when (type) {
-        BolusType.AUTO_CORRECTION -> "Automated high BG correction"
-        BolusType.CORRECTION -> "Manual correction bolus"
-        BolusType.MEAL -> "Manual meal bolus"
+        BolusType.AUTO_CORRECTION -> "Auto correction bolus"
+        BolusType.CORRECTION -> "BG correction bolus"
+        BolusType.MEAL -> "Food bolus"
         BolusType.MEAL_WITH_CORRECTION -> {
             val meal = bolus?.mealUnits ?: 0f
             val corr = bolus?.correctionUnits ?: 0f
@@ -261,6 +280,6 @@ object DashboardComputations {
                 "Meal bolus with correction"
             }
         }
-        BolusType.AUTO -> "Automated delivery"
+        BolusType.AUTO -> "Automated bolus"
     }
 }

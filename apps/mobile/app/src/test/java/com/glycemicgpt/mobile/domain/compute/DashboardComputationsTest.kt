@@ -256,6 +256,66 @@ class DashboardComputationsTest {
     }
 
     @Test
+    fun `insulin summary per-category breakdown sums match total bolusUnits`() {
+        val boluses = listOf(
+            bolus(3f, 60, isAutomated = false, isCorrection = false),          // MEAL (food)
+            bolus(1f, 120, isAutomated = true, isCorrection = true),           // AUTO_CORRECTION (correction)
+            bolus(4f, 180, isCorrection = true, correctionUnits = 0.5f, mealUnits = 3.5f), // MEAL_WITH_CORRECTION (bg+food)
+            bolus(2f, 240, isCorrection = true, correctionUnits = 0f),         // CORRECTION (bg only)
+            bolus(0.3f, 300, isAutomated = true, isCorrection = false),        // AUTO (correction)
+        )
+        val summary = DashboardComputations.computeInsulinSummary(emptyList(), boluses, 24)!!
+        val categorySum = summary.foodBolusUnits + summary.correctionBolusUnits +
+            summary.bgFoodUnits + summary.bgOnlyUnits
+        assertEquals(summary.bolusUnits, categorySum, 0.01f)
+    }
+
+    @Test
+    fun `insulin summary AUTO_CORRECTION and AUTO both counted in correctionBolusUnits`() {
+        val boluses = listOf(
+            bolus(1f, 60, isAutomated = true, isCorrection = true),      // AUTO_CORRECTION
+            bolus(0.5f, 120, isAutomated = true, isCorrection = false),  // AUTO
+        )
+        val summary = DashboardComputations.computeInsulinSummary(emptyList(), boluses, 24)!!
+        assertEquals(1.5f, summary.correctionBolusUnits, 0.01f)
+        assertEquals(0f, summary.foodBolusUnits, 0.01f)
+        assertEquals(0f, summary.bgFoodUnits, 0.01f)
+        assertEquals(0f, summary.bgOnlyUnits, 0.01f)
+    }
+
+    @Test
+    fun `insulin summary mixed bolus types produce correct per-category breakdown`() {
+        val boluses = listOf(
+            bolus(5f, 60, isAutomated = false, isCorrection = false),                         // MEAL
+            bolus(2f, 120, isAutomated = true, isCorrection = true),                           // AUTO_CORRECTION
+            bolus(4f, 180, isCorrection = true, correctionUnits = 1f, mealUnits = 3f),        // MEAL_WITH_CORRECTION
+            bolus(1f, 240, isAutomated = false, isCorrection = true, correctionUnits = 0f),   // CORRECTION
+        )
+        val summary = DashboardComputations.computeInsulinSummary(emptyList(), boluses, 24)!!
+        // Data span < 1 day, clamped to 1 day -> U/day = raw totals
+        assertEquals(5f, summary.foodBolusUnits, 0.01f)
+        assertEquals(2f, summary.correctionBolusUnits, 0.01f)
+        assertEquals(4f, summary.bgFoodUnits, 0.01f)
+        assertEquals(1f, summary.bgOnlyUnits, 0.01f)
+    }
+
+    @Test
+    fun `insulin summary combo bolus counted in bgFoodUnits and correctionUnits independently`() {
+        // A MEAL_WITH_CORRECTION bolus of 4U (3U meal + 1U correction) should:
+        // - Add full 4U to bgFoodUnits (pump-aligned: total delivery for that category)
+        // - Add 1U correction component to correctionUnits (the aggregate correction field)
+        // These are intentionally different views of the same data (pump Delivery Summary
+        // vs correction tracking), not a double-count bug.
+        val combo = bolus(4f, 60, isCorrection = false, correctionUnits = 1f, mealUnits = 3f)
+        val summary = DashboardComputations.computeInsulinSummary(emptyList(), listOf(combo), 24)!!
+        assertEquals(4f, summary.bgFoodUnits, 0.01f)       // full combo goes to BG+Food
+        assertEquals(0f, summary.foodBolusUnits, 0.01f)     // not a plain food bolus
+        assertEquals(0f, summary.correctionBolusUnits, 0.01f) // not AUTO_CORRECTION/AUTO
+        assertEquals(0f, summary.bgOnlyUnits, 0.01f)        // not a plain correction
+        assertEquals(1f, summary.correctionUnits, 0.01f)    // correction component tracked separately
+    }
+
+    @Test
     fun `insulin summary periodDays capped at selected period`() {
         // Data from 1h ago, all periods should clamp to 1 day (minimum)
         val boluses = listOf(bolus(5f, 60))
@@ -371,21 +431,21 @@ class DashboardComputationsTest {
             emptyList(),
             emptyList(),
         )
-        assertEquals("Automated high BG correction", result[0].reason)
-        assertEquals("Manual correction bolus", result[1].reason)
-        assertEquals("Manual meal bolus", result[2].reason)
-        assertEquals("Automated delivery", result[3].reason)
+        assertEquals("Auto correction bolus", result[0].reason)
+        assertEquals("BG correction bolus", result[1].reason)
+        assertEquals("Food bolus", result[2].reason)
+        assertEquals("Automated bolus", result[3].reason)
     }
 
     // -- deriveBolusReason ----------------------------------------------------
 
     @Test
     fun `deriveBolusReason returns correct reason for each type`() {
-        assertEquals("Automated high BG correction", DashboardComputations.deriveBolusReason(BolusType.AUTO_CORRECTION))
-        assertEquals("Manual correction bolus", DashboardComputations.deriveBolusReason(BolusType.CORRECTION))
-        assertEquals("Manual meal bolus", DashboardComputations.deriveBolusReason(BolusType.MEAL))
+        assertEquals("Auto correction bolus", DashboardComputations.deriveBolusReason(BolusType.AUTO_CORRECTION))
+        assertEquals("BG correction bolus", DashboardComputations.deriveBolusReason(BolusType.CORRECTION))
+        assertEquals("Food bolus", DashboardComputations.deriveBolusReason(BolusType.MEAL))
         assertEquals("Meal bolus with correction", DashboardComputations.deriveBolusReason(BolusType.MEAL_WITH_CORRECTION))
-        assertEquals("Automated delivery", DashboardComputations.deriveBolusReason(BolusType.AUTO))
+        assertEquals("Automated bolus", DashboardComputations.deriveBolusReason(BolusType.AUTO))
     }
 
     // -- deriveBolusType with dose breakdown ------------------------------------

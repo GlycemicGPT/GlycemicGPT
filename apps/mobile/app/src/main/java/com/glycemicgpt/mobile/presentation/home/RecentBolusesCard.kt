@@ -36,6 +36,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.glycemicgpt.mobile.domain.model.BolusType
 import com.glycemicgpt.mobile.domain.model.EnrichedBolusEvent
+import com.glycemicgpt.mobile.presentation.theme.BolusTypeColors
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -46,7 +47,7 @@ private val BolusTimePeriods = listOf(
     TirPeriod.SEVEN_DAYS,
 )
 
-private fun bolusDateTimeFormatter(): DateTimeFormatter =
+private val BolusDateTimeFormatter: DateTimeFormatter =
     DateTimeFormatter.ofPattern("M/d h:mm a").withZone(ZoneId.systemDefault())
 
 private const val MAX_HOME_ROWS = 5
@@ -214,7 +215,7 @@ internal fun BolusTableRow(bolus: EnrichedBolusEvent) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = bolusDateTimeFormatter().format(bolus.timestamp),
+                text = BolusDateTimeFormatter.format(bolus.timestamp),
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.weight(1.2f),
             )
@@ -250,11 +251,11 @@ internal fun BolusTableRow(bolus: EnrichedBolusEvent) {
 @Composable
 private fun BolusTypeBadge(type: BolusType) {
     val (label, color) = when (type) {
-        BolusType.AUTO_CORRECTION -> "A.Corr" to Color(0xFFE91E63)
-        BolusType.CORRECTION -> "Corr" to Color(0xFFFF5722)
-        BolusType.MEAL -> "Meal" to Color(0xFF7C4DFF)
-        BolusType.MEAL_WITH_CORRECTION -> "M+C" to Color(0xFFAB47BC)
-        BolusType.AUTO -> "Auto" to Color(0xFFEC407A)
+        BolusType.AUTO_CORRECTION -> "Corr" to BolusTypeColors.Correction
+        BolusType.CORRECTION -> "BG Only" to BolusTypeColors.ManualCorrection
+        BolusType.MEAL -> "Food" to BolusTypeColors.Meal
+        BolusType.MEAL_WITH_CORRECTION -> "BG+Food" to BolusTypeColors.MealWithCorrection
+        BolusType.AUTO -> "Auto" to BolusTypeColors.Correction
     }
 
     Text(
