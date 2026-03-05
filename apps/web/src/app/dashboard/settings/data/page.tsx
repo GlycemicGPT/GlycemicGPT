@@ -19,6 +19,7 @@ import {
   RotateCcw,
   Trash2,
   Download,
+  Clock,
 } from "lucide-react";
 import Link from "next/link";
 import clsx from "clsx";
@@ -28,8 +29,11 @@ import {
   getStorageUsage,
   purgeUserData,
   exportSettings,
+  getAnalyticsConfig,
+  updateAnalyticsConfig,
   type DataRetentionConfigResponse,
   type StorageUsageResponse,
+  type AnalyticsConfigResponse,
 } from "@/lib/api";
 import { OfflineBanner } from "@/components/ui/offline-banner";
 
@@ -48,6 +52,12 @@ const RETENTION_OPTIONS = [
   { value: 1825, label: "5 years" },
   { value: 3650, label: "10 years" },
 ];
+
+const HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) => {
+  const ampm = i === 0 ? "12:00 AM (midnight)" : i === 12 ? "12:00 PM (noon)"
+    : i < 12 ? `${i}:00 AM` : `${i - 12}:00 PM`;
+  return { value: i, label: ampm };
+});
 
 function formatNumber(n: number): string {
   return n.toLocaleString();
@@ -75,6 +85,12 @@ export default function DataRetentionPage() {
   );
   const [isExporting, setIsExporting] = useState(false);
 
+  // Analytics config state
+  const [analyticsConfig, setAnalyticsConfig] =
+    useState<AnalyticsConfigResponse | null>(null);
+  const [boundaryHour, setBoundaryHour] = useState(0);
+  const [isSavingBoundary, setIsSavingBoundary] = useState(false);
+
   // Form state
   const [glucoseDays, setGlucoseDays] = useState(365);
   const [analysisDays, setAnalysisDays] = useState(365);
@@ -90,15 +106,20 @@ export default function DataRetentionPage() {
   const fetchData = useCallback(async () => {
     try {
       setError(null);
-      const [configData, usageData] = await Promise.all([
+      const [configData, usageData, analyticsData] = await Promise.all([
         getDataRetentionConfig(),
         getStorageUsage(),
+        getAnalyticsConfig().catch(() => null),
       ]);
       setConfig(configData);
       setUsage(usageData);
       setGlucoseDays(configData.glucose_retention_days);
       setAnalysisDays(configData.analysis_retention_days);
       setAuditDays(configData.audit_retention_days);
+      if (analyticsData) {
+        setAnalyticsConfig(analyticsData);
+        setBoundaryHour(analyticsData.day_boundary_hour);
+      }
       setIsOffline(false);
     } catch (err) {
       if (!(err instanceof Error && err.message.includes("401"))) {
@@ -591,6 +612,124 @@ export default function DataRetentionPage() {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* Analytics Day Boundary */}
+      {!isLoading && (
+        <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="p-2 bg-cyan-500/10 rounded-lg">
+              <Clock className="h-5 w-5 text-cyan-400" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold">Analytics Day Boundary</h2>
+              <p className="text-xs text-slate-500">
+                Controls when your daily analytics period resets
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
+              <p className="text-sm text-slate-300 mb-2">
+                The day boundary determines when analytics periods like Insulin
+                Summary and Recent Boluses start counting each day. Most insulin
+                pumps reset their Delivery Summary at midnight, so the default
+                boundary is <strong className="text-slate-200">12:00 AM</strong>.
+              </p>
+              <p className="text-sm text-slate-400">
+                Changing this affects how &ldquo;24H&rdquo;, &ldquo;3D&rdquo;, and
+                &ldquo;7D&rdquo; periods are calculated for insulin delivery
+                statistics. For example, if your pump resets at a different time, or
+                you work night shifts, you can align the boundary to match your
+                schedule. Charts, Time in Range, and CGM Stats are not affected
+                &mdash; they always use a rolling window.
+              </p>
+            </div>
+
+            <div>
+              <label
+                htmlFor="day-boundary-hour"
+                className="block text-sm font-medium text-slate-300 mb-1"
+              >
+                Day starts at
+              </label>
+              <select
+                id="day-boundary-hour"
+                value={boundaryHour}
+                onChange={(e) => setBoundaryHour(Number(e.target.value))}
+                disabled={isSavingBoundary || isOffline}
+                className={clsx(
+                  "w-full rounded-lg border px-3 py-2 text-sm",
+                  "bg-slate-800 border-slate-700 text-slate-200",
+                  "focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent",
+                  "disabled:opacity-50 disabled:cursor-not-allowed"
+                )}
+                aria-describedby="day-boundary-hint"
+              >
+                {HOUR_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+              <p
+                id="day-boundary-hint"
+                className="text-xs text-slate-500 mt-1"
+              >
+                Hour in your local time when the analytics day resets. Default:
+                12:00 AM (midnight)
+              </p>
+            </div>
+
+            <button
+              type="button"
+              disabled={
+                isSavingBoundary ||
+                isOffline ||
+                (analyticsConfig !== null &&
+                  boundaryHour === analyticsConfig.day_boundary_hour)
+              }
+              onClick={async () => {
+                setIsSavingBoundary(true);
+                setError(null);
+                setSuccess(null);
+                try {
+                  const updated = await updateAnalyticsConfig({
+                    day_boundary_hour: boundaryHour,
+                  });
+                  setAnalyticsConfig(updated);
+                  setSuccess("Analytics day boundary updated successfully");
+                } catch (err) {
+                  setError(
+                    err instanceof Error
+                      ? err.message
+                      : "Failed to update analytics day boundary"
+                  );
+                } finally {
+                  setIsSavingBoundary(false);
+                }
+              }}
+              className={clsx(
+                "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium",
+                "bg-cyan-600 text-white hover:bg-cyan-500",
+                "transition-colors",
+                "focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500",
+                "disabled:opacity-50 disabled:cursor-not-allowed"
+              )}
+            >
+              {isSavingBoundary ? (
+                <Loader2
+                  className="h-4 w-4 animate-spin"
+                  aria-hidden="true"
+                />
+              ) : (
+                <Check className="h-4 w-4" aria-hidden="true" />
+              )}
+              {isSavingBoundary ? "Saving..." : "Save Boundary"}
+            </button>
+          </div>
         </div>
       )}
 

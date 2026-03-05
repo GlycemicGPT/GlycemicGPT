@@ -2623,3 +2623,56 @@ export async function getBolusReview(
   }
   return response.json();
 }
+
+// ---------------------------------------------------------------------------
+// Analytics Configuration
+// ---------------------------------------------------------------------------
+
+export interface AnalyticsConfigResponse {
+  id: string;
+  day_boundary_hour: number;
+  updated_at: string;
+}
+
+export interface AnalyticsConfigUpdate {
+  day_boundary_hour?: number;
+}
+
+/**
+ * Fetch current analytics configuration (day boundary hour).
+ */
+export async function getAnalyticsConfig(): Promise<AnalyticsConfigResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/settings/analytics-config`
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to fetch analytics config: ${response.status}`
+    );
+  }
+  return response.json();
+}
+
+/**
+ * Update analytics configuration.
+ */
+export async function updateAnalyticsConfig(
+  updates: AnalyticsConfigUpdate
+): Promise<AnalyticsConfigResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/settings/analytics-config`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updates),
+    }
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to update analytics config: ${response.status}`
+    );
+  }
+  return response.json();
+}
