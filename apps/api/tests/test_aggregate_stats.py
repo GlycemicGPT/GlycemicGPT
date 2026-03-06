@@ -18,6 +18,24 @@ def unique_email(prefix: str = "stats") -> str:
     return f"{prefix}_{uuid.uuid4().hex[:8]}@example.com"
 
 
+def _boundary_cutoff(days: int, boundary_hour: int = 0) -> datetime:
+    """Compute the boundary-aligned cutoff matching the backend logic.
+
+    The insulin summary and bolus review endpoints now align their query
+    window to the day boundary hour rather than using ``now - timedelta(days)``.
+    Test data must be placed after this cutoff to be counted.
+    """
+    now = datetime.now(UTC)
+    today_boundary = now.replace(
+        hour=boundary_hour, minute=0, second=0, microsecond=0
+    )
+    if now < today_boundary:
+        effective_boundary = today_boundary - timedelta(days=1)
+    else:
+        effective_boundary = today_boundary
+    return effective_boundary - timedelta(days=max(days - 1, 0))
+
+
 async def register_and_login(client: AsyncClient) -> tuple[str, str]:
     """Register a test user and return (session_cookie, user_id)."""
     email = unique_email()
@@ -85,13 +103,21 @@ async def seed_glucose(
 
 
 async def seed_pump_events(db: AsyncSession, user_id: str):
-    """Insert test pump events spanning the last 7 days."""
-    now = datetime.now(UTC)
-    uid = uuid.UUID(user_id)
+    """Insert test pump events spanning the last 7 days.
 
-    # Basal events (one per hour for 7 days)
-    for h in range(168):
-        ts = now - timedelta(hours=h)
+    Events are placed relative to the boundary-aligned cutoff so they
+    always fall within the 7-day query window.  Only 6 *complete* days
+    are seeded (the current partial day is skipped) to avoid timing
+    flakes when the test runs near midnight.
+
+    Totals: 18 boluses (3/day * 6), 12 corrections (2/day * 6).
+    """
+    uid = uuid.UUID(user_id)
+    cutoff = _boundary_cutoff(days=7)
+
+    # Basal events (one per hour for 6 complete days = 144 hours)
+    for h in range(144):
+        ts = cutoff + timedelta(hours=h + 1)
         db.add(
             PumpEvent(
                 user_id=uid,
@@ -104,10 +130,11 @@ async def seed_pump_events(db: AsyncSession, user_id: str):
             )
         )
 
-    # Bolus events (3 per day for 7 days)
-    for d in range(7):
+    # Bolus events (3 per day for 6 complete days)
+    for d in range(6):
+        day_start = cutoff + timedelta(days=d)
         for meal_h in [8, 12, 18]:
-            ts = now - timedelta(days=d, hours=24 - meal_h)
+            ts = day_start + timedelta(hours=meal_h)
             db.add(
                 PumpEvent(
                     user_id=uid,
@@ -120,10 +147,11 @@ async def seed_pump_events(db: AsyncSession, user_id: str):
                 )
             )
 
-    # Correction events (2 per day)
-    for d in range(7):
+    # Correction events (2 per day for 6 complete days)
+    for d in range(6):
+        day_start = cutoff + timedelta(days=d)
         for h_offset in [10, 15]:
-            ts = now - timedelta(days=d, hours=24 - h_offset)
+            ts = day_start + timedelta(hours=h_offset)
             db.add(
                 PumpEvent(
                     user_id=uid,
@@ -420,12 +448,12 @@ class TestInsulinSummary:
         assert resp.status_code == 200
         data = resp.json()
         # Expected: basal ~19.1 U/day (0.8 U/hr * 24h), bolus 13.5 + correction 2.4
-        # = TDD ~35 U/day
+        # = TDD ~35 U/day.  Seed covers 6 complete days (see seed_pump_events).
         assert 25 < data["tdd"] < 45, f"TDD out of range: {data['tdd']}"
         assert data["basal_units"] > 0
         assert data["bolus_units"] > 0
-        assert data["bolus_count"] == 21  # 3/day * 7 days
-        assert data["correction_count"] == 14  # 2/day * 7 days
+        assert data["bolus_count"] == 18  # 3/day * 6 complete days
+        assert data["correction_count"] == 12  # 2/day * 6 complete days
         assert abs(data["basal_pct"] + data["bolus_pct"] - 100) < 0.2
 
     async def test_insulin_summary_days_below_minimum(self):
@@ -457,9 +485,13 @@ class TestInsulinSummary:
             async for db in get_db():
                 now = datetime.now(UTC)
                 uid = uuid.UUID(user_id)
+                cutoff = _boundary_cutoff(days=1)
+                base_ts = cutoff + timedelta(minutes=30)
                 # 240 records over 1 hour (every 15 seconds) at 0.8 U/hr
                 for i in range(240):
-                    ts = now - timedelta(seconds=i * 15)
+                    ts = base_ts + timedelta(seconds=i * 15)
+                    if ts > now:
+                        break
                     db.add(
                         PumpEvent(
                             user_id=uid,
@@ -480,8 +512,9 @@ class TestInsulinSummary:
             )
         assert resp.status_code == 200
         data = resp.json()
-        # Time-weighted: 0.8 U/hr * 1 hour = ~0.8 U (not 240 * 0.8 = 192)
-        assert 0.5 < data["basal_units"] < 1.2, (
+        # Time-weighted: 0.8 U/hr * ~1 hour = ~0.8 U (not 240 * 0.8 = 192)
+        # Lower bound varies based on how much of the window has elapsed.
+        assert 0.1 < data["basal_units"] < 1.5, (
             f"Basal overcounted: {data['basal_units']} U (expected ~0.8)"
         )
 
@@ -495,12 +528,16 @@ class TestInsulinSummary:
             async for db in get_db():
                 now = datetime.now(UTC)
                 uid = uuid.UUID(user_id)
-                # Two records 6 hours apart at 0.8 U/hr
+                # Use days=2 so the window is wide enough for a 6-hour gap
+                # even when the test runs shortly after midnight.
+                cutoff = _boundary_cutoff(days=2)
+                first_ts = cutoff + timedelta(hours=1)
+                second_ts = first_ts + timedelta(hours=6)
                 db.add(
                     PumpEvent(
                         user_id=uid,
                         event_type=PumpEventType.BASAL,
-                        event_timestamp=now - timedelta(hours=6),
+                        event_timestamp=first_ts,
                         units=0.8,
                         is_automated=True,
                         received_at=now,
@@ -511,7 +548,7 @@ class TestInsulinSummary:
                     PumpEvent(
                         user_id=uid,
                         event_type=PumpEventType.BASAL,
-                        event_timestamp=now,
+                        event_timestamp=second_ts,
                         units=0.8,
                         is_automated=True,
                         received_at=now,
@@ -522,7 +559,7 @@ class TestInsulinSummary:
                 break
 
             resp = await client.get(
-                "/api/integrations/insulin/summary?days=1",
+                "/api/integrations/insulin/summary?days=2",
                 cookies={settings.jwt_cookie_name: cookie},
             )
         assert resp.status_code == 200
@@ -544,9 +581,12 @@ class TestInsulinSummary:
             async for db in get_db():
                 now = datetime.now(UTC)
                 uid = uuid.UUID(user_id)
-                # 24 hourly basal records at 1.0 U/hr, no boluses
+                cutoff = _boundary_cutoff(days=1)
+                # 24 hourly basal records at 1.0 U/hr, starting from cutoff
                 for h in range(24):
-                    ts = now - timedelta(hours=h)
+                    ts = cutoff + timedelta(hours=h)
+                    if ts > now:
+                        break
                     db.add(
                         PumpEvent(
                             user_id=uid,
@@ -582,12 +622,13 @@ class TestInsulinSummary:
             async for db in get_db():
                 now = datetime.now(UTC)
                 uid = uuid.UUID(user_id)
+                cutoff = _boundary_cutoff(days=1)
                 # Suspended record (rate = 0) followed by a normal record
                 db.add(
                     PumpEvent(
                         user_id=uid,
                         event_type=PumpEventType.BASAL,
-                        event_timestamp=now - timedelta(hours=1),
+                        event_timestamp=cutoff + timedelta(minutes=30),
                         units=0.0,
                         is_automated=True,
                         received_at=now,
@@ -598,7 +639,7 @@ class TestInsulinSummary:
                     PumpEvent(
                         user_id=uid,
                         event_type=PumpEventType.BASAL,
-                        event_timestamp=now,
+                        event_timestamp=cutoff + timedelta(hours=1, minutes=30),
                         units=0.8,
                         is_automated=True,
                         received_at=now,
@@ -628,24 +669,26 @@ class TestInsulinSummary:
             async for db in get_db():
                 now = datetime.now(UTC)
                 uid = uuid.UUID(user_id)
-                # Record BEFORE the 1-day cutoff (25 hours ago) at 1.0 U/hr
+                # Use days=2 so there's always enough window for the test.
+                cutoff = _boundary_cutoff(days=2)
+                # Record BEFORE the boundary-aligned cutoff at 1.0 U/hr
                 db.add(
                     PumpEvent(
                         user_id=uid,
                         event_type=PumpEventType.BASAL,
-                        event_timestamp=now - timedelta(hours=25),
+                        event_timestamp=cutoff - timedelta(hours=2),
                         units=1.0,
                         is_automated=True,
                         received_at=now,
                         source="mobile",
                     )
                 )
-                # Record INSIDE the window (1 hour ago)
+                # Record INSIDE the window (3 hours after cutoff)
                 db.add(
                     PumpEvent(
                         user_id=uid,
                         event_type=PumpEventType.BASAL,
-                        event_timestamp=now - timedelta(hours=1),
+                        event_timestamp=cutoff + timedelta(hours=3),
                         units=0.5,
                         is_automated=True,
                         received_at=now,
@@ -656,15 +699,16 @@ class TestInsulinSummary:
                 break
 
             resp = await client.get(
-                "/api/integrations/insulin/summary?days=1",
+                "/api/integrations/insulin/summary?days=2",
                 cookies={settings.jwt_cookie_name: cookie},
             )
         assert resp.status_code == 200
         data = resp.json()
-        # The pre-cutoff record at 1.0 U/hr should carry over, contributing
-        # delivery from cutoff until the in-window record (gap capped at 2h).
-        # Then the in-window record at 0.5 U/hr contributes ~0.5 U for ~1h.
-        # Without carry-over, only the second record contributes ~0.5 U.
+        # The pre-cutoff record at 1.0 U/hr should carry over into the window,
+        # contributing delivery from cutoff to cutoff+3h (capped at 2h max gap).
+        # That gives 1.0 * 2.0 = 2.0 U from carry-over.
+        # Plus the in-window record at 0.5 U/hr from cutoff+3h to now.
+        # Without carry-over, only the second record contributes.
         assert data["basal_units"] > 1.0, (
             f"Carry-over missing: {data['basal_units']} U (expected >1.0)"
         )
@@ -702,7 +746,7 @@ class TestBolusReview:
             )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["total_count"] == 35  # 21 bolus + 14 correction
+        assert data["total_count"] == 30  # 18 bolus + 12 correction (6 complete days)
         assert len(data["boluses"]) == 10  # Limited to 10
         # Verify ordering (newest first)
         timestamps = [b["event_timestamp"] for b in data["boluses"]]
@@ -822,7 +866,7 @@ class TestCrossUserIsolation:
 
         assert resp_a.status_code == 200
         assert resp_b.status_code == 200
-        assert resp_a.json()["total_count"] == 35
+        assert resp_a.json()["total_count"] == 30  # 18 bolus + 12 correction (6 complete days)
         assert resp_b.json()["total_count"] == 0
         assert resp_b.json()["boluses"] == []
 
@@ -1071,12 +1115,14 @@ class TestSourceFilteringAndDedup:
             async for db in get_db():
                 now = datetime.now(UTC)
                 uid = uuid.UUID(user_id)
+                cutoff = _boundary_cutoff(days=1)
+                ts = cutoff + timedelta(hours=1)
                 # Insert bolus and basal with source='test' -- should be ignored
                 db.add(
                     PumpEvent(
                         user_id=uid,
                         event_type=PumpEventType.BOLUS,
-                        event_timestamp=now - timedelta(hours=1),
+                        event_timestamp=ts,
                         units=5.0,
                         is_automated=False,
                         received_at=now,
@@ -1087,7 +1133,7 @@ class TestSourceFilteringAndDedup:
                     PumpEvent(
                         user_id=uid,
                         event_type=PumpEventType.BASAL,
-                        event_timestamp=now - timedelta(hours=1),
+                        event_timestamp=ts,
                         units=1.0,
                         is_automated=True,
                         received_at=now,
@@ -1116,7 +1162,8 @@ class TestSourceFilteringAndDedup:
             async for db in get_db():
                 now = datetime.now(UTC)
                 uid = uuid.UUID(user_id)
-                ts = now - timedelta(hours=2)
+                cutoff = _boundary_cutoff(days=1)
+                ts = cutoff + timedelta(hours=1)
                 # Same timestamp and units, different event_type (mobile dual-creation)
                 db.add(
                     PumpEvent(
@@ -1166,12 +1213,14 @@ class TestSourceFilteringAndDedup:
             async for db in get_db():
                 now = datetime.now(UTC)
                 uid = uuid.UUID(user_id)
+                cutoff = _boundary_cutoff(days=1)
+                ts = cutoff + timedelta(hours=1)
                 # Mobile bolus
                 db.add(
                     PumpEvent(
                         user_id=uid,
                         event_type=PumpEventType.BOLUS,
-                        event_timestamp=now - timedelta(hours=2),
+                        event_timestamp=ts,
                         units=4.0,
                         is_automated=False,
                         received_at=now,
@@ -1183,7 +1232,7 @@ class TestSourceFilteringAndDedup:
                     PumpEvent(
                         user_id=uid,
                         event_type=PumpEventType.BOLUS,
-                        event_timestamp=now - timedelta(hours=2, seconds=5),
+                        event_timestamp=ts - timedelta(seconds=5),
                         units=4.0,
                         is_automated=False,
                         received_at=now,
@@ -1213,11 +1262,13 @@ class TestSourceFilteringAndDedup:
             async for db in get_db():
                 now = datetime.now(UTC)
                 uid = uuid.UUID(user_id)
+                cutoff = _boundary_cutoff(days=1)
+                ts = cutoff + timedelta(hours=1)
                 db.add(
                     PumpEvent(
                         user_id=uid,
                         event_type=PumpEventType.BOLUS,
-                        event_timestamp=now - timedelta(hours=3),
+                        event_timestamp=ts,
                         units=5.5,
                         is_automated=False,
                         received_at=now,
@@ -1228,7 +1279,7 @@ class TestSourceFilteringAndDedup:
                     PumpEvent(
                         user_id=uid,
                         event_type=PumpEventType.BASAL,
-                        event_timestamp=now - timedelta(hours=3),
+                        event_timestamp=ts,
                         units=0.8,
                         is_automated=True,
                         received_at=now,
@@ -1239,7 +1290,7 @@ class TestSourceFilteringAndDedup:
                     PumpEvent(
                         user_id=uid,
                         event_type=PumpEventType.BASAL,
-                        event_timestamp=now,
+                        event_timestamp=ts + timedelta(hours=2),
                         units=0.8,
                         is_automated=True,
                         received_at=now,
@@ -1269,12 +1320,14 @@ class TestSourceFilteringAndDedup:
             async for db in get_db():
                 now = datetime.now(UTC)
                 uid = uuid.UUID(user_id)
+                cutoff = _boundary_cutoff(days=1)
+                ts = cutoff + timedelta(hours=1)
                 # One mobile bolus (should appear) and one test bolus (excluded)
                 db.add(
                     PumpEvent(
                         user_id=uid,
                         event_type=PumpEventType.BOLUS,
-                        event_timestamp=now - timedelta(hours=1),
+                        event_timestamp=ts,
                         units=3.0,
                         is_automated=False,
                         received_at=now,
@@ -1285,7 +1338,7 @@ class TestSourceFilteringAndDedup:
                     PumpEvent(
                         user_id=uid,
                         event_type=PumpEventType.BOLUS,
-                        event_timestamp=now - timedelta(hours=2),
+                        event_timestamp=ts + timedelta(minutes=30),
                         units=5.0,
                         is_automated=False,
                         received_at=now,
