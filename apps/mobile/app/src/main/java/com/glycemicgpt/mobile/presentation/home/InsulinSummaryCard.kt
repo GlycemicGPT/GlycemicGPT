@@ -67,6 +67,9 @@ fun InsulinSummaryCard(
     onPeriodSelected: (TirPeriod) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // Coerce period to one supported by this card (other cards may allow 14D/30D)
+    val effectivePeriod = if (selectedPeriod in InsulinPeriods) selectedPeriod else InsulinPeriods.first()
+
     val a11yDescription = if (summary != null) {
         String.format(
             Locale.US,
@@ -115,7 +118,7 @@ fun InsulinSummaryCard(
             ) {
                 InsulinPeriods.forEach { period ->
                     FilterChip(
-                        selected = period == selectedPeriod,
+                        selected = period == effectivePeriod,
                         onClick = { onPeriodSelected(period) },
                         label = {
                             Text(
