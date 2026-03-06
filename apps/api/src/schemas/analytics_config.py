@@ -1,4 +1,8 @@
-"""Analytics configuration schemas."""
+"""Analytics configuration schemas.
+
+DisplayLabel-based architecture: labels are first-class entities with
+optional computation_role binding and optional pump_source assignment.
+"""
 
 import re
 import uuid
@@ -6,60 +10,110 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field, field_validator
 
-VALID_CATEGORY_KEYS = frozenset(
+COMPUTATION_ROLES = frozenset(
     {
         "AUTO_CORRECTION",
         "FOOD",
         "FOOD_AND_CORRECTION",
         "CORRECTION",
         "OVERRIDE",
-        "AI_SUGGESTED",
         "OTHER",
     }
 )
 
+DEFAULT_DISPLAY_LABELS: list[dict] = [
+    {
+        "id": "auto_corr",
+        "label": "Auto Corr",
+        "computation_role": "AUTO_CORRECTION",
+        "pump_source": None,
+        "sort_order": 0,
+    },
+    {
+        "id": "meal",
+        "label": "Meal",
+        "computation_role": "FOOD",
+        "pump_source": None,
+        "sort_order": 1,
+    },
+    {
+        "id": "meal_corr",
+        "label": "Meal+Corr",
+        "computation_role": "FOOD_AND_CORRECTION",
+        "pump_source": None,
+        "sort_order": 2,
+    },
+    {
+        "id": "correction",
+        "label": "Correction",
+        "computation_role": "CORRECTION",
+        "pump_source": None,
+        "sort_order": 3,
+    },
+    {
+        "id": "override",
+        "label": "Override",
+        "computation_role": "OVERRIDE",
+        "pump_source": None,
+        "sort_order": 4,
+    },
+    {
+        "id": "other",
+        "label": "Other",
+        "computation_role": "OTHER",
+        "pump_source": None,
+        "sort_order": 5,
+    },
+]
+
+# Legacy compat: dict form for mobile backward compatibility
 DEFAULT_CATEGORY_LABELS: dict[str, str] = {
-    "AUTO_CORRECTION": "Auto Corr",
-    "FOOD": "Meal",
-    "FOOD_AND_CORRECTION": "Meal+Corr",
-    "CORRECTION": "Correction",
-    "OVERRIDE": "Override",
-    "AI_SUGGESTED": "AI Suggested",
-    "OTHER": "Other",
+    item["computation_role"]: item["label"]
+    for item in DEFAULT_DISPLAY_LABELS
+    if item["computation_role"]
 }
 
+MAX_DISPLAY_LABELS = 20
 
-_CUSTOM_KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
+_LABEL_ID_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
 
-MAX_CUSTOM_CATEGORIES = 10
 
-
-class CustomCategoryItem(BaseModel):
-    """A user-defined bolus category (future feature)."""
+class DisplayLabel(BaseModel):
+    """A user-owned display label for bolus categories."""
 
     model_config = {"extra": "forbid"}
 
-    key: str = Field(..., max_length=32)
-    display_name: str = Field(..., max_length=20)
+    id: str = Field(..., max_length=32)
+    label: str = Field(..., max_length=20)
+    computation_role: str | None = Field(default=None)
+    pump_source: str | None = Field(default=None, max_length=32)
+    sort_order: int = Field(..., ge=0)
 
-    @field_validator("key")
+    @field_validator("id")
     @classmethod
-    def validate_key(cls, v: str) -> str:
-        if not _CUSTOM_KEY_RE.match(v):
-            raise ValueError(
-                f"Custom category key must match ^[A-Z][A-Z0-9_]*$ (got: {v!r})."
-            )
-        if v in VALID_CATEGORY_KEYS:
-            raise ValueError(
-                f"Custom category key must not overlap with built-in keys (got: {v!r})."
-            )
+    def validate_id(cls, v: str) -> str:
+        if not _LABEL_ID_RE.match(v):
+            raise ValueError(f"Label id must match ^[a-z][a-z0-9_]*$ (got: {v!r}).")
         return v
 
-    @field_validator("display_name")
+    @field_validator("label")
     @classmethod
-    def validate_display_name(cls, v: str) -> str:
+    def validate_label(cls, v: str) -> str:
         if len(v.strip()) == 0:
-            raise ValueError("display_name must not be blank.")
+            raise ValueError("Label text must not be blank.")
+        if _HTML_TAG_RE.search(v):
+            raise ValueError("Label text must not contain HTML tags.")
+        return v
+
+    @field_validator("computation_role")
+    @classmethod
+    def validate_computation_role(cls, v: str | None) -> str | None:
+        if v is not None and v not in COMPUTATION_ROLES:
+            raise ValueError(
+                f"computation_role must be one of {sorted(COMPUTATION_ROLES)} or null "
+                f"(got: {v!r})."
+            )
         return v
 
 
@@ -70,8 +124,8 @@ class AnalyticsConfigResponse(BaseModel):
 
     id: uuid.UUID
     day_boundary_hour: int
+    display_labels: list[DisplayLabel] | None = None
     category_labels: dict[str, str] | None = None
-    custom_categories: list[CustomCategoryItem] | None = None
     updated_at: datetime
 
 
@@ -90,55 +144,36 @@ class AnalyticsConfigUpdate(BaseModel):
         description="Hour (0-23) in local time when the analytics day resets.",
     )
 
-    category_labels: dict[str, str] | None = Field(
+    display_labels: list[DisplayLabel] | None = Field(
         default=None,
-        description="Custom display labels for bolus categories. "
-        "Keys must be valid BolusCategory names, values max 20 chars.",
+        description="Complete array of display labels (full-replace semantics).",
     )
 
-    custom_categories: list[CustomCategoryItem] | None = Field(
-        default=None,
-        description="User-defined custom bolus categories (future feature). "
-        "Max 10 items. Keys must not overlap with built-in categories.",
-    )
-
-    @field_validator("category_labels")
+    @field_validator("display_labels")
     @classmethod
-    def validate_category_labels(
-        cls, v: dict[str, str] | None
-    ) -> dict[str, str] | None:
+    def validate_display_labels(
+        cls, v: list[DisplayLabel] | None
+    ) -> list[DisplayLabel] | None:
         if v is None:
             return v
-        invalid_keys = set(v.keys()) - VALID_CATEGORY_KEYS
-        if invalid_keys:
+        if len(v) < 1:
+            raise ValueError("At least one display label is required.")
+        if len(v) > MAX_DISPLAY_LABELS:
             raise ValueError(
-                f"Invalid category keys: {sorted(invalid_keys)}. "
-                f"Valid keys: {sorted(VALID_CATEGORY_KEYS)}"
+                f"At most {MAX_DISPLAY_LABELS} display labels allowed (got {len(v)})."
             )
-        for key, label in v.items():
-            if not isinstance(label, str) or len(label) > 20:
-                raise ValueError(
-                    f"Label for '{key}' must be a string of at most 20 characters."
-                )
-            if len(label.strip()) == 0:
-                raise ValueError(f"Label for '{key}' must not be blank.")
-        return v
+        # Unique ids
+        ids = [item.id for item in v]
+        if len(ids) != len(set(ids)):
+            raise ValueError("Display label ids must be unique.")
 
-    @field_validator("custom_categories")
-    @classmethod
-    def validate_custom_categories(
-        cls, v: list[CustomCategoryItem] | None
-    ) -> list[CustomCategoryItem] | None:
-        if v is None:
-            return v
-        if len(v) > MAX_CUSTOM_CATEGORIES:
+        # Unique computation_roles (non-null only)
+        roles = [item.computation_role for item in v if item.computation_role]
+        if len(roles) != len(set(roles)):
             raise ValueError(
-                f"At most {MAX_CUSTOM_CATEGORIES} custom categories allowed "
-                f"(got {len(v)})."
+                "Each computation_role can be assigned to at most one label."
             )
-        keys = [item.key for item in v]
-        if len(keys) != len(set(keys)):
-            raise ValueError("Custom category keys must be unique.")
+
         return v
 
 
@@ -146,7 +181,32 @@ class AnalyticsConfigDefaults(BaseModel):
     """Default analytics configuration values for reference."""
 
     day_boundary_hour: int = 0
+    display_labels: list[dict] = Field(
+        default_factory=lambda: [dict(d) for d in DEFAULT_DISPLAY_LABELS]
+    )
     category_labels: dict[str, str] = Field(
         default_factory=lambda: dict(DEFAULT_CATEGORY_LABELS)
     )
-    custom_categories: list[CustomCategoryItem] = Field(default_factory=list)
+
+
+def display_labels_to_category_labels(
+    labels: list[dict | DisplayLabel] | None,
+) -> dict[str, str]:
+    """Convert display_labels array to legacy {role: label} dict.
+
+    Used for mobile backward compatibility. Labels without a
+    computation_role are excluded.
+    """
+    if not labels:
+        return dict(DEFAULT_CATEGORY_LABELS)
+    result = {}
+    for item in labels:
+        if isinstance(item, DisplayLabel):
+            role = item.computation_role
+            text = item.label
+        else:
+            role = item.get("computation_role")
+            text = item.get("label", "")
+        if role:
+            result[role] = text
+    return result

@@ -9,7 +9,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from src.schemas.analytics_config import VALID_CATEGORY_KEYS
+from src.schemas.analytics_config import COMPUTATION_ROLES
 
 _PLUGIN_ID_RE = re.compile(r"^[a-zA-Z0-9._-]+$")
 _PLUGIN_NAME_RE = re.compile(r"^[\w\s.()-]+$")
@@ -57,7 +57,8 @@ class PluginDeclarationCreate(BaseModel):
     @field_validator("plugin_name")
     @classmethod
     def validate_plugin_name(cls, v: str) -> str:
-        if not v.strip():
+        v = v.strip()
+        if not v:
             raise ValueError("plugin_name must not be blank.")
         if not _PLUGIN_NAME_RE.match(v):
             raise ValueError(
@@ -69,7 +70,8 @@ class PluginDeclarationCreate(BaseModel):
     @field_validator("plugin_version")
     @classmethod
     def validate_plugin_version(cls, v: str) -> str:
-        if not v.strip():
+        v = v.strip()
+        if not v:
             raise ValueError("plugin_version must not be blank.")
         if not _PLUGIN_VERSION_RE.match(v):
             raise ValueError(
@@ -96,12 +98,12 @@ class PluginDeclarationCreate(BaseModel):
     @field_validator("category_mappings")
     @classmethod
     def validate_category_mappings(cls, v: dict[str, str]) -> dict[str, str]:
-        invalid_values = {val for val in v.values() if val not in VALID_CATEGORY_KEYS}
+        invalid_values = {val for val in v.values() if val not in COMPUTATION_ROLES}
         if invalid_values:
             raise ValueError(
                 f"Mapping values must be valid platform categories. "
                 f"Invalid: {sorted(invalid_values)}. "
-                f"Valid: {sorted(VALID_CATEGORY_KEYS)}"
+                f"Valid: {sorted(COMPUTATION_ROLES)}"
             )
         return v
 

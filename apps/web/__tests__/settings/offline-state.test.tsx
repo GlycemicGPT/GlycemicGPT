@@ -89,9 +89,17 @@ jest.mock("../../src/lib/api", () => {
     getAnalyticsConfig: jest.fn().mockRejectedValue(networkError),
     updateAnalyticsConfig: jest.fn().mockRejectedValue(networkError),
     getPluginDeclarations: jest.fn().mockRejectedValue(networkError),
+    DEFAULT_DISPLAY_LABELS: [
+      { id: "auto_corr", label: "Auto Corr", computation_role: "AUTO_CORRECTION", pump_source: null, sort_order: 0 },
+      { id: "meal", label: "Meal", computation_role: "FOOD", pump_source: null, sort_order: 1 },
+      { id: "meal_corr", label: "Meal+Corr", computation_role: "FOOD_AND_CORRECTION", pump_source: null, sort_order: 2 },
+      { id: "correction", label: "Correction", computation_role: "CORRECTION", pump_source: null, sort_order: 3 },
+      { id: "override", label: "Override", computation_role: "OVERRIDE", pump_source: null, sort_order: 4 },
+      { id: "other", label: "Other", computation_role: "OTHER", pump_source: null, sort_order: 5 },
+    ],
     VALID_CATEGORY_KEYS: [
       "AUTO_CORRECTION", "FOOD", "FOOD_AND_CORRECTION",
-      "CORRECTION", "OVERRIDE", "AI_SUGGESTED", "OTHER",
+      "CORRECTION", "OVERRIDE", "OTHER",
     ],
     DEFAULT_CATEGORY_LABELS: {
       AUTO_CORRECTION: "Auto Corr",
@@ -99,7 +107,6 @@ jest.mock("../../src/lib/api", () => {
       FOOD_AND_CORRECTION: "Meal+Corr",
       CORRECTION: "Correction",
       OVERRIDE: "Override",
-      AI_SUGGESTED: "AI Suggested",
       OTHER: "Other",
     },
     // Insulin / bolus

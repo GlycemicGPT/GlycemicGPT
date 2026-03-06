@@ -2,6 +2,7 @@ package com.glycemicgpt.mobile.data.local
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.glycemicgpt.mobile.data.remote.dto.DisplayLabelDto
 import com.glycemicgpt.mobile.domain.model.BolusCategory
 import dagger.hilt.android.qualifiers.ApplicationContext
 import org.json.JSONObject
@@ -91,5 +92,25 @@ class AnalyticsSettingsStore @Inject constructor(
         private const val KEY_DAY_BOUNDARY_HOUR = "day_boundary_hour"
         private const val KEY_LAST_FETCHED = "last_fetched_ms"
         private const val KEY_CATEGORY_LABELS = "category_labels"
+
+        /**
+         * Convert a list of [DisplayLabelDto] to a category labels map.
+         * Only labels with a non-null computationRole are included.
+         * Falls back to [fallback] if [displayLabels] is null or empty.
+         */
+        fun displayLabelsToMap(
+            displayLabels: List<DisplayLabelDto>?,
+            fallback: Map<String, String>?,
+        ): Map<String, String>? {
+            if (!displayLabels.isNullOrEmpty()) {
+                return buildMap {
+                    for (dl in displayLabels) {
+                        val role = dl.computationRole ?: continue
+                        put(role, dl.label)
+                    }
+                }
+            }
+            return fallback
+        }
     }
 }

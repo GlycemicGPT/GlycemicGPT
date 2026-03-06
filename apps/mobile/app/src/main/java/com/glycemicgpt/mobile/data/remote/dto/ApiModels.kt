@@ -124,8 +124,18 @@ data class SafetyLimitsResponse(
 )
 
 @JsonClass(generateAdapter = true)
+data class DisplayLabelDto(
+    val id: String,
+    val label: String,
+    @Json(name = "computation_role") val computationRole: String? = null,
+    @Json(name = "pump_source") val pumpSource: String? = null,
+    @Json(name = "sort_order") val sortOrder: Int = 0,
+)
+
+@JsonClass(generateAdapter = true)
 data class AnalyticsConfigResponse(
     @Json(name = "day_boundary_hour") val dayBoundaryHour: Int,
+    @Json(name = "display_labels") val displayLabels: List<DisplayLabelDto>? = null,
     @Json(name = "category_labels") val categoryLabels: Map<String, String>? = null,
 )
 

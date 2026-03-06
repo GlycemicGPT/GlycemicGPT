@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from src.schemas.analytics_config import VALID_CATEGORY_KEYS
+from src.schemas.analytics_config import COMPUTATION_ROLES
 from src.schemas.plugin_declaration import (
     PluginDeclarationCreate,
     PluginDeclarationResponse,
@@ -36,7 +36,7 @@ class TestPluginDeclarationCreate:
         assert len(decl.declared_categories) == 3
         assert decl.category_mappings["CONTROL_IQ"] == "AUTO_CORRECTION"
 
-    def test_all_seven_mappings(self):
+    def test_all_six_mappings(self):
         decl = PluginDeclarationCreate(
             **self._valid_data(
                 declared_categories=[
@@ -45,7 +45,6 @@ class TestPluginDeclarationCreate:
                     "BG_FOOD",
                     "BG_ONLY",
                     "OVERRIDE",
-                    "AI_REC",
                     "QUICK",
                 ],
                 category_mappings={
@@ -54,12 +53,21 @@ class TestPluginDeclarationCreate:
                     "BG_FOOD": "FOOD_AND_CORRECTION",
                     "BG_ONLY": "CORRECTION",
                     "OVERRIDE": "OVERRIDE",
-                    "AI_REC": "AI_SUGGESTED",
                     "QUICK": "OTHER",
                 },
             )
         )
-        assert len(decl.category_mappings) == 7
+        assert len(decl.category_mappings) == 6
+
+    def test_ai_suggested_no_longer_valid_mapping(self):
+        """AI_SUGGESTED was removed from computation roles."""
+        with pytest.raises(ValidationError, match="valid platform categories"):
+            PluginDeclarationCreate(
+                **self._valid_data(
+                    declared_categories=["AI_REC"],
+                    category_mappings={"AI_REC": "AI_SUGGESTED"},
+                )
+            )
 
     def test_plugin_id_invalid_chars_rejected(self):
         with pytest.raises(ValidationError, match="plugin_id"):
@@ -107,16 +115,16 @@ class TestPluginDeclarationCreate:
         with pytest.raises(ValidationError):
             PluginDeclarationCreate(**self._valid_data(extra_field="bad"))
 
-    def test_mapping_values_all_valid_category_keys(self):
-        """Every VALID_CATEGORY_KEY should be accepted as a mapping value."""
-        for key in VALID_CATEGORY_KEYS:
+    def test_mapping_values_all_computation_roles(self):
+        """Every COMPUTATION_ROLE should be accepted as a mapping value."""
+        for role in COMPUTATION_ROLES:
             decl = PluginDeclarationCreate(
                 **self._valid_data(
                     declared_categories=["TEST_CAT"],
-                    category_mappings={"TEST_CAT": key},
+                    category_mappings={"TEST_CAT": role},
                 )
             )
-            assert decl.category_mappings["TEST_CAT"] == key
+            assert decl.category_mappings["TEST_CAT"] == role
 
     def test_duplicate_declared_categories_rejected(self):
         with pytest.raises(ValidationError, match="unique"):

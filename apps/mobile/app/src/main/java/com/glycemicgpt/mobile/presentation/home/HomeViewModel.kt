@@ -427,12 +427,17 @@ class HomeViewModel @Inject constructor(
             if (response.isSuccessful) {
                 response.body()?.let { config ->
                     val hour = config.dayBoundaryHour.coerceIn(0, 23)
-                    analyticsSettingsStore.updateAll(hour, config.categoryLabels)
+                    // Prefer displayLabels (new format) over categoryLabels (legacy)
+                    val resolvedLabels = AnalyticsSettingsStore.displayLabelsToMap(
+                        config.displayLabels,
+                        config.categoryLabels,
+                    )
+                    analyticsSettingsStore.updateAll(hour, resolvedLabels)
                     if (hour != _dayBoundaryHour.value) {
                         _dayBoundaryHour.value = hour
                         Timber.d("Analytics day boundary updated: %d", hour)
                     }
-                    val labels = config.categoryLabels ?: emptyMap()
+                    val labels = resolvedLabels ?: emptyMap()
                     if (labels != _categoryLabels.value) {
                         _categoryLabels.value = labels
                         Timber.d("Category labels updated: %s", labels.keys)

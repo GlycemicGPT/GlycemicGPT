@@ -23,6 +23,7 @@ from src.schemas.analytics_config import (
     AnalyticsConfigDefaults,
     AnalyticsConfigResponse,
     AnalyticsConfigUpdate,
+    display_labels_to_category_labels,
 )
 from src.schemas.brief_delivery_config import (
     BriefDeliveryConfigDefaults,
@@ -594,9 +595,13 @@ async def get_analytics_config(
     """Get the current user's analytics configuration.
 
     Returns defaults (midnight boundary) if not configured yet.
+    Response includes both display_labels (new) and category_labels
+    (legacy, computed from display_labels for mobile backward compat).
     """
     config = await get_or_create_analytics_config(user.id, db)
-    return AnalyticsConfigResponse.model_validate(config)
+    resp = AnalyticsConfigResponse.model_validate(config)
+    resp.category_labels = display_labels_to_category_labels(config.display_labels)
+    return resp
 
 
 @router.patch(
@@ -620,7 +625,9 @@ async def patch_analytics_config(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(e),
         ) from e
-    return AnalyticsConfigResponse.model_validate(config)
+    resp = AnalyticsConfigResponse.model_validate(config)
+    resp.category_labels = display_labels_to_category_labels(config.display_labels)
+    return resp
 
 
 @router.get(

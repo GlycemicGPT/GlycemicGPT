@@ -2630,28 +2630,35 @@ export async function getBolusReview(
 // Analytics Configuration
 // ---------------------------------------------------------------------------
 
+export interface DisplayLabel {
+  id: string;
+  label: string;
+  computation_role: string | null;
+  pump_source: string | null;
+  sort_order: number;
+}
+
 export interface AnalyticsConfigResponse {
   id: string;
   day_boundary_hour: number;
+  display_labels: DisplayLabel[] | null;
   category_labels: Record<string, string> | null;
-  custom_categories: { key: string; display_name: string }[] | null;
   updated_at: string;
 }
 
 export interface AnalyticsConfigUpdate {
   day_boundary_hour?: number;
-  category_labels?: Record<string, string>;
+  display_labels?: DisplayLabel[];
 }
 
-export const VALID_CATEGORY_KEYS = [
-  "AUTO_CORRECTION",
-  "FOOD",
-  "FOOD_AND_CORRECTION",
-  "CORRECTION",
-  "OVERRIDE",
-  "AI_SUGGESTED",
-  "OTHER",
-] as const;
+export const DEFAULT_DISPLAY_LABELS: DisplayLabel[] = [
+  { id: "auto_corr", label: "Auto Corr", computation_role: "AUTO_CORRECTION", pump_source: null, sort_order: 0 },
+  { id: "meal", label: "Meal", computation_role: "FOOD", pump_source: null, sort_order: 1 },
+  { id: "meal_corr", label: "Meal+Corr", computation_role: "FOOD_AND_CORRECTION", pump_source: null, sort_order: 2 },
+  { id: "correction", label: "Correction", computation_role: "CORRECTION", pump_source: null, sort_order: 3 },
+  { id: "override", label: "Override", computation_role: "OVERRIDE", pump_source: null, sort_order: 4 },
+  { id: "other", label: "Other", computation_role: "OTHER", pump_source: null, sort_order: 5 },
+];
 
 export const DEFAULT_CATEGORY_LABELS: Record<string, string> = {
   AUTO_CORRECTION: "Auto Corr",
@@ -2659,9 +2666,17 @@ export const DEFAULT_CATEGORY_LABELS: Record<string, string> = {
   FOOD_AND_CORRECTION: "Meal+Corr",
   CORRECTION: "Correction",
   OVERRIDE: "Override",
-  AI_SUGGESTED: "AI Suggested",
   OTHER: "Other",
 };
+
+export const VALID_CATEGORY_KEYS = [
+  "AUTO_CORRECTION",
+  "FOOD",
+  "FOOD_AND_CORRECTION",
+  "CORRECTION",
+  "OVERRIDE",
+  "OTHER",
+] as const;
 
 /**
  * Fetch current analytics configuration (day boundary hour).

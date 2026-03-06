@@ -22,6 +22,10 @@ import {
   Clock,
   Tag,
   Plug,
+  Plus,
+  X,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import Link from "next/link";
 import clsx from "clsx";
@@ -34,8 +38,8 @@ import {
   getAnalyticsConfig,
   updateAnalyticsConfig,
   getPluginDeclarations,
-  VALID_CATEGORY_KEYS,
-  DEFAULT_CATEGORY_LABELS,
+  DEFAULT_DISPLAY_LABELS,
+  type DisplayLabel,
   type DataRetentionConfigResponse,
   type StorageUsageResponse,
   type AnalyticsConfigResponse,
@@ -59,40 +63,26 @@ const RETENTION_OPTIONS = [
   { value: 3650, label: "10 years" },
 ];
 
-/** Convert "AUTO_CORRECTION" to "Auto Correction" for accessible labels. */
-function toTitleCase(key: string): string {
-  return key
-    .split("_")
-    .map((w) => w.charAt(0) + w.slice(1).toLowerCase())
-    .join(" ");
+/** Check if two DisplayLabel arrays are equal (by content). */
+function displayLabelsEqual(a: DisplayLabel[], b: DisplayLabel[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every(
+    (item, i) =>
+      item.id === b[i].id &&
+      item.label === b[i].label &&
+      item.computation_role === b[i].computation_role &&
+      item.pump_source === b[i].pump_source &&
+      item.sort_order === b[i].sort_order,
+  );
 }
 
-/** Per-key equality check for label maps (order-independent). */
-function labelsEqual(
-  a: Record<string, string>,
-  b: Record<string, string>,
-): boolean {
-  return VALID_CATEGORY_KEYS.every((key) => (a[key] ?? "") === (b[key] ?? ""));
-}
-
-/**
- * Build a reverse map: platform category key -> comma-separated pump-native categories.
- * E.g. { "AUTO_CORRECTION": "CONTROL_IQ", "OTHER": "QUICK, UNKNOWN" }
- */
-function buildPumpSourceMap(
-  declaration: PluginDeclarationResponse | null,
-): Record<string, string> {
-  if (!declaration) return {};
-  const result: Record<string, string[]> = {};
-  for (const [pumpCat, platformKey] of Object.entries(declaration.category_mappings)) {
-    if (!result[platformKey]) result[platformKey] = [];
-    result[platformKey].push(pumpCat);
+/** Generate a unique slug id for a new label. */
+function generateLabelId(existingIds: Set<string>): string {
+  for (let i = 1; i <= 100; i++) {
+    const candidate = `custom_${i}`;
+    if (!existingIds.has(candidate)) return candidate;
   }
-  const flat: Record<string, string> = {};
-  for (const [key, arr] of Object.entries(result)) {
-    flat[key] = arr.join(", ");
-  }
-  return flat;
+  return `custom_${Date.now()}`;
 }
 
 const HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) => {
@@ -133,9 +123,12 @@ export default function DataRetentionPage() {
   const [boundaryHour, setBoundaryHour] = useState(0);
   const [isSavingBoundary, setIsSavingBoundary] = useState(false);
 
-  // Category labels state
-  const [categoryLabels, setCategoryLabels] = useState<Record<string, string>>(
-    () => ({ ...DEFAULT_CATEGORY_LABELS })
+  // Display labels state
+  const [displayLabels, setDisplayLabels] = useState<DisplayLabel[]>(
+    () => DEFAULT_DISPLAY_LABELS.map((d) => ({ ...d }))
+  );
+  const [savedLabels, setSavedLabels] = useState<DisplayLabel[]>(
+    () => DEFAULT_DISPLAY_LABELS.map((d) => ({ ...d }))
   );
   const [isSavingLabels, setIsSavingLabels] = useState(false);
 
@@ -172,11 +165,12 @@ export default function DataRetentionPage() {
       if (analyticsData) {
         setAnalyticsConfig(analyticsData);
         setBoundaryHour(analyticsData.day_boundary_hour);
-        if (analyticsData.category_labels) {
-          setCategoryLabels({
-            ...DEFAULT_CATEGORY_LABELS,
-            ...analyticsData.category_labels,
-          });
+        if (analyticsData.display_labels && analyticsData.display_labels.length > 0) {
+          const sorted = [...analyticsData.display_labels].sort(
+            (a, b) => a.sort_order - b.sort_order,
+          );
+          setDisplayLabels(sorted);
+          setSavedLabels(sorted.map((d) => ({ ...d })));
         }
       }
       setPluginDeclaration(pluginData);
@@ -794,7 +788,7 @@ export default function DataRetentionPage() {
         </div>
       )}
 
-      {/* Bolus Categories */}
+      {/* Bolus Display Labels */}
       {!isLoading && (
         <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
           <div className="flex items-center gap-3 mb-4">
@@ -802,9 +796,9 @@ export default function DataRetentionPage() {
               <Tag className="h-5 w-5 text-violet-400" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold">Bolus Categories</h2>
+              <h2 className="text-lg font-semibold">Bolus Display Labels</h2>
               <p className="text-xs text-slate-500">
-                Customize how bolus categories are displayed across the app
+                Customize how bolus categories are displayed across the platform
               </p>
             </div>
           </div>
@@ -830,48 +824,84 @@ export default function DataRetentionPage() {
               <p className="text-sm text-slate-400">
                 Labels control how bolus categories appear in the Insulin
                 Summary, charts, and dashboards on both web and mobile.
-                The &ldquo;Pump Source&rdquo; column shows which pump-native
-                categories map to each platform category.
+                Assign a Pump Source to link labels with your pump&apos;s native categories.
               </p>
             </div>
 
-            {/* Category mapping table */}
+            {/* Display labels table */}
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-700">
-                    <th className="text-left py-2 pr-3 text-xs font-medium text-slate-400 uppercase tracking-wider">
-                      Platform Category
+                    <th className="text-left py-2 pr-2 text-xs font-medium text-slate-400 uppercase tracking-wider w-8">
+                      <span className="sr-only">Order</span>
                     </th>
-                    <th className="text-left py-2 px-3 text-xs font-medium text-slate-400 uppercase tracking-wider">
+                    <th className="text-left py-2 px-2 text-xs font-medium text-slate-400 uppercase tracking-wider">
                       Display Label
                     </th>
-                    <th className="text-left py-2 pl-3 text-xs font-medium text-slate-400 uppercase tracking-wider">
+                    <th className="text-left py-2 px-2 text-xs font-medium text-slate-400 uppercase tracking-wider">
                       Pump Source
+                    </th>
+                    <th className="text-right py-2 pl-2 text-xs font-medium text-slate-400 uppercase tracking-wider w-10">
+                      <span className="sr-only">Actions</span>
                     </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {(() => {
-                    const pumpSourceMap = buildPumpSourceMap(pluginDeclaration);
-                    return VALID_CATEGORY_KEYS.map((key) => (
-                      <tr key={key} className="border-b border-slate-800/50">
-                        <td className="py-2 pr-3 text-slate-300 whitespace-nowrap">
-                          {toTitleCase(key)}
-                        </td>
-                        <td className="py-2 px-3">
+                  {displayLabels.map((item, index) => (
+                    <tr key={item.id} className="border-b border-slate-800/50">
+                      {/* Reorder controls */}
+                      <td className="py-2 pr-2">
+                        <div className="flex flex-col gap-0.5">
+                          <button
+                            type="button"
+                            disabled={index === 0 || isSavingLabels}
+                            aria-label={`Move ${item.label} up`}
+                            onClick={() => {
+                              setDisplayLabels((prev) => {
+                                const next = [...prev];
+                                [next[index - 1], next[index]] = [next[index], next[index - 1]];
+                                return next.map((l, i) => ({ ...l, sort_order: i }));
+                              });
+                            }}
+                            className="text-slate-500 hover:text-slate-300 disabled:opacity-30 disabled:cursor-not-allowed"
+                          >
+                            <ArrowUp className="h-3 w-3" />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={index === displayLabels.length - 1 || isSavingLabels}
+                            aria-label={`Move ${item.label} down`}
+                            onClick={() => {
+                              setDisplayLabels((prev) => {
+                                const next = [...prev];
+                                [next[index], next[index + 1]] = [next[index + 1], next[index]];
+                                return next.map((l, i) => ({ ...l, sort_order: i }));
+                              });
+                            }}
+                            className="text-slate-500 hover:text-slate-300 disabled:opacity-30 disabled:cursor-not-allowed"
+                          >
+                            <ArrowDown className="h-3 w-3" />
+                          </button>
+                        </div>
+                      </td>
+                      {/* Label text input */}
+                      <td className="py-2 px-2">
+                        <div className="flex items-center gap-1.5">
                           <input
-                            id={`label-${key}`}
+                            id={`label-${item.id}`}
                             type="text"
                             maxLength={20}
-                            aria-label={`${toTitleCase(key)} label`}
-                            value={categoryLabels[key] ?? DEFAULT_CATEGORY_LABELS[key]}
-                            onChange={(e) =>
-                              setCategoryLabels((prev) => ({
-                                ...prev,
-                                [key]: e.target.value,
-                              }))
-                            }
+                            aria-label={`${item.label} display label`}
+                            value={item.label}
+                            onChange={(e) => {
+                              const newLabel = e.target.value;
+                              setDisplayLabels((prev) =>
+                                prev.map((l) =>
+                                  l.id === item.id ? { ...l, label: newLabel } : l
+                                )
+                              );
+                            }}
                             disabled={isSavingLabels || isOffline}
                             className={clsx(
                               "w-full rounded-lg border px-2 py-1.5 text-sm",
@@ -881,16 +911,90 @@ export default function DataRetentionPage() {
                               "disabled:opacity-50 disabled:cursor-not-allowed"
                             )}
                           />
-                        </td>
-                        <td className="py-2 pl-3 text-slate-500 font-mono text-xs whitespace-nowrap">
-                          {pumpSourceMap[key] || "\u2014"}
-                        </td>
-                      </tr>
-                    ));
-                  })()}
+                        </div>
+                      </td>
+                      {/* Pump source dropdown */}
+                      <td className="py-2 px-2">
+                        <select
+                          aria-label={`${item.label} pump source`}
+                          value={item.pump_source ?? ""}
+                          onChange={(e) => {
+                            const val = e.target.value || null;
+                            setDisplayLabels((prev) =>
+                              prev.map((l) =>
+                                l.id === item.id ? { ...l, pump_source: val } : l
+                              )
+                            );
+                          }}
+                          disabled={isSavingLabels || isOffline || !pluginDeclaration}
+                          className={clsx(
+                            "w-full rounded-lg border px-2 py-1.5 text-sm",
+                            "bg-slate-800 border-slate-700 text-slate-200",
+                            "focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent",
+                            "disabled:opacity-50 disabled:cursor-not-allowed"
+                          )}
+                        >
+                          <option value="">{"\u2014"}</option>
+                          {pluginDeclaration?.declared_categories.map((cat) => (
+                            <option key={cat} value={cat}>
+                              {cat}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      {/* Delete button */}
+                      <td className="py-2 pl-2 text-right">
+                        <button
+                          type="button"
+                          aria-label={`Delete ${item.label}`}
+                          disabled={isSavingLabels || displayLabels.length <= 1}
+                          onClick={() => {
+                            setDisplayLabels((prev) =>
+                              prev
+                                .filter((l) => l.id !== item.id)
+                                .map((l, i) => ({ ...l, sort_order: i }))
+                            );
+                          }}
+                          className="text-slate-500 hover:text-red-400 disabled:opacity-30 disabled:cursor-not-allowed p-1"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
+
+            {/* Add Label button */}
+            <button
+              type="button"
+              disabled={isSavingLabels || isOffline || displayLabels.length >= 20}
+              onClick={() => {
+                const existingIds = new Set(displayLabels.map((l) => l.id));
+                const newId = generateLabelId(existingIds);
+                setDisplayLabels((prev) => [
+                  ...prev,
+                  {
+                    id: newId,
+                    label: "New Label",
+                    computation_role: null,
+                    pump_source: null,
+                    sort_order: prev.length,
+                  },
+                ]);
+              }}
+              className={clsx(
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm",
+                "bg-slate-800 text-slate-300 hover:bg-slate-700",
+                "transition-colors border border-slate-700",
+                "focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500",
+                "disabled:opacity-50 disabled:cursor-not-allowed"
+              )}
+            >
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              Add Label
+            </button>
 
             <div className="flex items-center gap-3 pt-2">
               <button
@@ -898,15 +1002,8 @@ export default function DataRetentionPage() {
                 disabled={
                   isSavingLabels ||
                   isOffline ||
-                  labelsEqual(
-                    categoryLabels,
-                    analyticsConfig?.category_labels
-                      ? {
-                          ...DEFAULT_CATEGORY_LABELS,
-                          ...analyticsConfig.category_labels,
-                        }
-                      : DEFAULT_CATEGORY_LABELS
-                  )
+                  displayLabels.length === 0 ||
+                  displayLabelsEqual(displayLabels, savedLabels)
                 }
                 onClick={async () => {
                   setIsSavingLabels(true);
@@ -914,15 +1011,22 @@ export default function DataRetentionPage() {
                   setSuccess(null);
                   try {
                     const updated = await updateAnalyticsConfig({
-                      category_labels: categoryLabels,
+                      display_labels: displayLabels,
                     });
                     setAnalyticsConfig(updated);
-                    setSuccess("Category labels updated successfully");
+                    if (updated.display_labels && updated.display_labels.length > 0) {
+                      const sorted = [...updated.display_labels].sort(
+                        (a, b) => a.sort_order - b.sort_order,
+                      );
+                      setDisplayLabels(sorted);
+                      setSavedLabels(sorted.map((d) => ({ ...d })));
+                    }
+                    setSuccess("Display labels updated successfully");
                   } catch (err) {
                     setError(
                       err instanceof Error
                         ? err.message
-                        : "Failed to update category labels"
+                        : "Failed to update display labels"
                     );
                   } finally {
                     setIsSavingLabels(false);
@@ -950,11 +1054,12 @@ export default function DataRetentionPage() {
               <button
                 type="button"
                 onClick={() => {
-                  setCategoryLabels({ ...DEFAULT_CATEGORY_LABELS });
+                  const defaults = DEFAULT_DISPLAY_LABELS.map((d) => ({ ...d }));
+                  setDisplayLabels(defaults);
                 }}
                 disabled={
                   isSavingLabels ||
-                  labelsEqual(categoryLabels, DEFAULT_CATEGORY_LABELS)
+                  displayLabelsEqual(displayLabels, DEFAULT_DISPLAY_LABELS)
                 }
                 className={clsx(
                   "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium",

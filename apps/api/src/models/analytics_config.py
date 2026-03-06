@@ -2,7 +2,8 @@
 
 Stores user-configured analytics day boundary hour for aligning
 analytics periods (Insulin Summary, Recent Boluses) with pump
-Delivery Summary reset times.
+Delivery Summary reset times, and user-owned display labels for
+bolus categories.
 """
 
 import uuid
@@ -18,7 +19,8 @@ class AnalyticsConfig(Base, TimestampMixin):
     """User-specific analytics configuration.
 
     One-to-one with User. Stores the day boundary hour used to align
-    analytics period start times with pump delivery summary resets.
+    analytics period start times with pump delivery summary resets,
+    and an array of DisplayLabel objects for bolus category display.
     """
 
     __tablename__ = "analytics_configs"
@@ -43,13 +45,7 @@ class AnalyticsConfig(Base, TimestampMixin):
         default=0,
     )
 
-    category_labels: Mapped[dict | None] = mapped_column(
-        JSONB,
-        nullable=True,
-        default=None,
-    )
-
-    custom_categories: Mapped[list | None] = mapped_column(
+    display_labels: Mapped[list | None] = mapped_column(
         JSONB,
         nullable=True,
         default=None,
