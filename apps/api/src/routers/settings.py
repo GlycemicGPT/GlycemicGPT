@@ -46,6 +46,10 @@ from src.schemas.insulin_config import (
     InsulinConfigResponse,
     InsulinConfigUpdate,
 )
+from src.schemas.plugin_declaration import (
+    PluginDeclarationCreate,
+    PluginDeclarationResponse,
+)
 from src.schemas.pump_profile_summary import (
     PumpProfileSegment,
     PumpProfileSummaryResponse,
@@ -89,6 +93,11 @@ from src.services.insulin_config import (
     get_or_create_config as get_or_create_insulin_config,
 )
 from src.services.insulin_config import update_config as update_insulin_config
+from src.services.plugin_declaration import (
+    delete_declaration,
+    get_declaration,
+    upsert_declaration,
+)
 from src.services.pump_profile import get_active_profile
 from src.services.safety_limits import (
     get_or_create_safety_limits,
@@ -624,6 +633,66 @@ async def get_analytics_config_defaults() -> AnalyticsConfigDefaults:
     This endpoint does not require authentication.
     """
     return AnalyticsConfigDefaults()
+
+
+# -- Plugin declarations endpoints ---------------------------------------------
+
+
+@router.get(
+    "/plugin-declarations",
+    response_model=PluginDeclarationResponse,
+    dependencies=[Depends(require_diabetic_or_admin)],
+)
+async def get_plugin_declarations(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> PluginDeclarationResponse:
+    """Get the current user's active pump plugin declaration.
+
+    Returns 404 if no plugin is currently active.
+    """
+    declaration = await get_declaration(user.id, db)
+    if declaration is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No plugin declaration found",
+        )
+    return PluginDeclarationResponse.model_validate(declaration)
+
+
+@router.put(
+    "/plugin-declarations",
+    response_model=PluginDeclarationResponse,
+    dependencies=[Depends(require_diabetic_or_admin)],
+)
+async def put_plugin_declarations(
+    body: PluginDeclarationCreate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> PluginDeclarationResponse:
+    """Upsert the current user's active pump plugin declaration.
+
+    Called by the mobile app when a pump plugin activates. Fully replaces
+    any existing declaration (not a merge).
+    """
+    declaration = await upsert_declaration(user.id, body, db)
+    return PluginDeclarationResponse.model_validate(declaration)
+
+
+@router.delete(
+    "/plugin-declarations",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_diabetic_or_admin)],
+)
+async def delete_plugin_declarations(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Delete the current user's plugin declaration.
+
+    Called by the mobile app when a pump plugin deactivates.
+    """
+    await delete_declaration(user.id, db)
 
 
 # -- Pump profile summary endpoint --------------------------------------------

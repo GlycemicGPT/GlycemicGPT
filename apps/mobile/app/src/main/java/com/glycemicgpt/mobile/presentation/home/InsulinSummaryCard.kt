@@ -65,6 +65,8 @@ fun InsulinSummaryCard(
     summary: InsulinSummary?,
     selectedPeriod: TirPeriod,
     onPeriodSelected: (TirPeriod) -> Unit,
+    categoryLabels: Map<String, String> = emptyMap(),
+    pumpLabelMap: Map<BolusCategory, String>? = null,
     modifier: Modifier = Modifier,
 ) {
     // Coerce period to one supported by this card (other cards may allow 14D/30D)
@@ -237,9 +239,17 @@ fun InsulinSummaryCard(
                             } else {
                                 0f
                             }
+                            val baseLabel = categoryLabels[category.name]
+                                ?: category.displayName
+                            val pumpNative = pumpLabelMap?.get(category)
+                            val label = if (pumpNative != null) {
+                                "$baseLabel ($pumpNative)"
+                            } else {
+                                baseLabel
+                            }
                             CategoryCountRow(
                                 color = colorForCategory(category),
-                                label = category.displayName,
+                                label = label,
                                 count = stats.count,
                                 percent = pct,
                             )

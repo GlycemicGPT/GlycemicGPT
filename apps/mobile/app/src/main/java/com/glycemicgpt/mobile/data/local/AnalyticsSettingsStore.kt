@@ -2,7 +2,10 @@ package com.glycemicgpt.mobile.data.local
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.glycemicgpt.mobile.domain.model.BolusCategory
 import dagger.hilt.android.qualifiers.ApplicationContext
+import org.json.JSONObject
+import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -13,6 +16,10 @@ import javax.inject.Singleton
  * The day boundary hour controls when analytics periods (Insulin Summary,
  * Recent Boluses) start counting -- aligning with the pump's Delivery
  * Summary reset time.
+ *
+ * Category labels allow the user to customize how bolus categories are
+ * displayed. Labels are stored as a JSON string mapping BolusCategory
+ * names to display strings.
  */
 @Singleton
 class AnalyticsSettingsStore @Inject constructor(
@@ -27,10 +34,43 @@ class AnalyticsSettingsStore @Inject constructor(
     val lastFetchedMs: Long
         get() = prefs.getLong(KEY_LAST_FETCHED, 0L)
 
-    fun updateAll(dayBoundaryHour: Int) {
+    val categoryLabels: Map<String, String>
+        get() {
+            val json = prefs.getString(KEY_CATEGORY_LABELS, null) ?: return emptyMap()
+            return try {
+                val obj = JSONObject(json)
+                buildMap {
+                    for (key in obj.keys()) {
+                        put(key, obj.getString(key))
+                    }
+                }
+            } catch (e: Exception) {
+                Timber.w(e, "Failed to parse category labels JSON")
+                emptyMap()
+            }
+        }
+
+    fun labelFor(category: BolusCategory): String =
+        categoryLabels[category.name] ?: category.displayName
+
+    fun updateAll(dayBoundaryHour: Int, categoryLabels: Map<String, String>? = null) {
         require(dayBoundaryHour in 0..23) { "dayBoundaryHour must be 0-23, was $dayBoundaryHour" }
         prefs.edit()
             .putInt(KEY_DAY_BOUNDARY_HOUR, dayBoundaryHour)
+            .putLong(KEY_LAST_FETCHED, System.currentTimeMillis())
+            .also { editor ->
+                if (categoryLabels != null) {
+                    val json = JSONObject(categoryLabels).toString()
+                    editor.putString(KEY_CATEGORY_LABELS, json)
+                }
+            }
+            .apply()
+    }
+
+    fun updateCategoryLabels(labels: Map<String, String>) {
+        val json = JSONObject(labels).toString()
+        prefs.edit()
+            .putString(KEY_CATEGORY_LABELS, json)
             .putLong(KEY_LAST_FETCHED, System.currentTimeMillis())
             .apply()
     }
@@ -50,5 +90,6 @@ class AnalyticsSettingsStore @Inject constructor(
 
         private const val KEY_DAY_BOUNDARY_HOUR = "day_boundary_hour"
         private const val KEY_LAST_FETCHED = "last_fetched_ms"
+        private const val KEY_CATEGORY_LABELS = "category_labels"
     }
 }

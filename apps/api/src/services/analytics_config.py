@@ -81,7 +81,8 @@ async def update_config(
 ) -> AnalyticsConfig:
     """Update the user's analytics configuration.
 
-    Only fields provided in the request are updated.
+    Only fields provided in the request are updated. For category_labels,
+    provided keys are merged with existing labels (partial update).
 
     Args:
         user_id: User's UUID.
@@ -96,6 +97,12 @@ async def update_config(
     update_data = updates.model_dump(exclude_none=True)
     if not update_data:
         return config
+
+    # Merge category_labels with existing values (partial update)
+    if "category_labels" in update_data:
+        existing = config.category_labels or {}
+        merged = {**existing, **update_data["category_labels"]}
+        update_data["category_labels"] = merged
 
     for field, value in update_data.items():
         setattr(config, field, value)

@@ -3,16 +3,19 @@ package com.glycemicgpt.mobile.presentation.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.glycemicgpt.mobile.data.local.AnalyticsSettingsStore
+import com.glycemicgpt.mobile.data.local.AppSettingsStore
 import com.glycemicgpt.mobile.data.local.GlucoseRangeStore
 import com.glycemicgpt.mobile.data.local.PumpProfileStore
 import com.glycemicgpt.mobile.data.local.SafetyLimitsStore
 import com.glycemicgpt.mobile.data.remote.GlycemicGptApi
+import com.glycemicgpt.mobile.data.remote.dto.PluginDeclarationRequest
 import com.glycemicgpt.mobile.data.repository.AuthRepository
 import com.glycemicgpt.mobile.data.repository.PumpDataRepository
 import com.glycemicgpt.mobile.domain.compute.DashboardComputations
 import com.glycemicgpt.mobile.domain.model.AgpProfile
 import com.glycemicgpt.mobile.domain.model.BasalReading
 import com.glycemicgpt.mobile.domain.model.BatteryStatus
+import com.glycemicgpt.mobile.domain.model.BolusCategory
 import com.glycemicgpt.mobile.domain.model.BolusEvent
 import com.glycemicgpt.mobile.domain.model.CgmReading
 import com.glycemicgpt.mobile.domain.model.CgmStats
@@ -20,6 +23,7 @@ import com.glycemicgpt.mobile.domain.model.ConnectionState
 import com.glycemicgpt.mobile.domain.model.EnrichedBolusEvent
 import com.glycemicgpt.mobile.domain.model.InsulinSummary
 import com.glycemicgpt.mobile.domain.model.IoBReading
+import com.glycemicgpt.mobile.domain.plugin.DevicePlugin
 import com.glycemicgpt.mobile.domain.plugin.asBolusCategoryProvider
 import com.glycemicgpt.mobile.domain.model.ReservoirReading
 import com.glycemicgpt.mobile.domain.model.TimeInRangeData
@@ -39,6 +43,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -60,6 +65,7 @@ class HomeViewModel @Inject constructor(
     private val safetyLimitsStore: SafetyLimitsStore,
     private val analyticsSettingsStore: AnalyticsSettingsStore,
     private val pumpProfileStore: PumpProfileStore,
+    private val appSettingsStore: AppSettingsStore,
     private val authRepository: AuthRepository,
     private val api: GlycemicGptApi,
     private val pluginRegistry: PluginRegistry,
@@ -109,6 +115,39 @@ class HomeViewModel @Inject constructor(
     private val _dayBoundaryHour = MutableStateFlow(analyticsSettingsStore.dayBoundaryHour)
     val dayBoundaryHour: StateFlow<Int> = _dayBoundaryHour.asStateFlow()
 
+    /** Custom display labels for bolus categories, synced from backend. */
+    private val _categoryLabels = MutableStateFlow(analyticsSettingsStore.categoryLabels)
+    val categoryLabels: StateFlow<Map<String, String>> = _categoryLabels.asStateFlow()
+
+    /**
+     * Reverse map from platform BolusCategory -> pump-native label, built from
+     * the active plugin's BolusCategoryProvider. Null when no plugin is active
+     * or the provider doesn't declare categories. Only consumed when the debug
+     * "Show Pump Labels" toggle is enabled.
+     */
+    val pumpLabelMap: StateFlow<Map<BolusCategory, String>?> =
+        pluginRegistry.activePumpPlugin.map { plugin ->
+            val provider = plugin?.asBolusCategoryProvider() ?: return@map null
+            try {
+                val declared = provider.declaredCategories()
+                if (declared.isEmpty()) return@map null
+                buildMap {
+                    for (pumpCat in declared) {
+                        val platformName = provider.toPlatformCategory(pumpCat) ?: continue
+                        val category = BolusCategory.fromName(platformName)
+                        put(category, pumpCat)
+                    }
+                }.ifEmpty { null }
+            } catch (e: Exception) {
+                Timber.w(e, "Failed to build pump label map from plugin")
+                null
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    /** Debug-only: whether to show pump-native labels next to display labels. */
+    val showPumpLabels: Boolean
+        get() = appSettingsStore.showPumpLabels
+
     init {
         // Refresh glucose range from backend on screen load if stale (15 min)
         if (glucoseRangeStore.isStale(maxAgeMs = RANGE_REFRESH_INTERVAL_MS)) {
@@ -128,6 +167,14 @@ class HomeViewModel @Inject constructor(
         // Refresh pump profile from backend if stale (1 hour)
         if (pumpProfileStore.isStale()) {
             viewModelScope.launch { refreshPumpProfile() }
+        }
+        // Sync plugin declarations to backend when active pump plugin changes
+        viewModelScope.launch {
+            pluginRegistry.activePumpPlugin
+                .distinctUntilChangedBy { it?.metadata?.id }
+                .collect { plugin ->
+                    syncPluginDeclaration(plugin)
+                }
         }
     }
 
@@ -380,10 +427,15 @@ class HomeViewModel @Inject constructor(
             if (response.isSuccessful) {
                 response.body()?.let { config ->
                     val hour = config.dayBoundaryHour.coerceIn(0, 23)
-                    analyticsSettingsStore.updateAll(hour)
+                    analyticsSettingsStore.updateAll(hour, config.categoryLabels)
                     if (hour != _dayBoundaryHour.value) {
                         _dayBoundaryHour.value = hour
                         Timber.d("Analytics day boundary updated: %d", hour)
+                    }
+                    val labels = config.categoryLabels ?: emptyMap()
+                    if (labels != _categoryLabels.value) {
+                        _categoryLabels.value = labels
+                        Timber.d("Category labels updated: %s", labels.keys)
                     }
                 }
             } else {
@@ -414,6 +466,44 @@ class HomeViewModel @Inject constructor(
             }
         } catch (e: Exception) {
             Timber.w(e, "Failed to refresh pump profile")
+        }
+    }
+
+    private suspend fun syncPluginDeclaration(plugin: DevicePlugin?) {
+        try {
+            if (plugin == null) {
+                val response = api.deletePluginDeclarations()
+                if (response.isSuccessful || response.code() == 404) {
+                    Timber.d("Plugin declaration cleared")
+                } else {
+                    Timber.w("Failed to delete plugin declaration: HTTP %d", response.code())
+                }
+                return
+            }
+            val provider = plugin.asBolusCategoryProvider() ?: return
+            val declared = provider.declaredCategories()
+            if (declared.isEmpty()) return
+            val mappings = buildMap {
+                for (pumpCat in declared) {
+                    val platform = provider.toPlatformCategory(pumpCat) ?: continue
+                    put(pumpCat, platform)
+                }
+            }
+            val request = PluginDeclarationRequest(
+                pluginId = plugin.metadata.id,
+                pluginName = plugin.metadata.name,
+                pluginVersion = plugin.metadata.version,
+                declaredCategories = declared.toList(),
+                categoryMappings = mappings,
+            )
+            val response = api.putPluginDeclarations(request)
+            if (response.isSuccessful) {
+                Timber.d("Plugin declaration synced: %s", plugin.metadata.id)
+            } else {
+                Timber.w("Failed to sync plugin declaration: HTTP %d", response.code())
+            }
+        } catch (e: Exception) {
+            Timber.w(e, "Failed to sync plugin declaration")
         }
     }
 

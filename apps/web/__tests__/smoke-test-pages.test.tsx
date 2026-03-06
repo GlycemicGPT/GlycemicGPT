@@ -113,6 +113,23 @@ jest.mock("@/lib/api", () => ({
   generateTelegramCode: jest.fn().mockResolvedValue({ code: "TEST123" }),
   unlinkTelegram: jest.fn().mockResolvedValue({}),
   sendTelegramTestMessage: jest.fn().mockResolvedValue({}),
+  // Analytics config
+  getAnalyticsConfig: jest.fn().mockResolvedValue({ id: "test", day_boundary_hour: 0, category_labels: null, custom_categories: null, updated_at: "2026-01-01" }),
+  updateAnalyticsConfig: jest.fn().mockResolvedValue({}),
+  getPluginDeclarations: jest.fn().mockResolvedValue(null),
+  VALID_CATEGORY_KEYS: [
+    "AUTO_CORRECTION", "FOOD", "FOOD_AND_CORRECTION",
+    "CORRECTION", "OVERRIDE", "AI_SUGGESTED", "OTHER",
+  ],
+  DEFAULT_CATEGORY_LABELS: {
+    AUTO_CORRECTION: "Auto Corr",
+    FOOD: "Meal",
+    FOOD_AND_CORRECTION: "Meal+Corr",
+    CORRECTION: "Correction",
+    OVERRIDE: "Override",
+    AI_SUGGESTED: "AI Suggested",
+    OTHER: "Other",
+  },
   // Alerts page
   getActiveAlerts: jest.fn().mockResolvedValue({ alerts: [] }),
   acknowledgeAlert: jest.fn().mockResolvedValue({}),

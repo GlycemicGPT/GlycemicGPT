@@ -20,6 +20,8 @@ import {
   Trash2,
   Download,
   Clock,
+  Tag,
+  Plug,
 } from "lucide-react";
 import Link from "next/link";
 import clsx from "clsx";
@@ -31,9 +33,13 @@ import {
   exportSettings,
   getAnalyticsConfig,
   updateAnalyticsConfig,
+  getPluginDeclarations,
+  VALID_CATEGORY_KEYS,
+  DEFAULT_CATEGORY_LABELS,
   type DataRetentionConfigResponse,
   type StorageUsageResponse,
   type AnalyticsConfigResponse,
+  type PluginDeclarationResponse,
 } from "@/lib/api";
 import { OfflineBanner } from "@/components/ui/offline-banner";
 
@@ -52,6 +58,42 @@ const RETENTION_OPTIONS = [
   { value: 1825, label: "5 years" },
   { value: 3650, label: "10 years" },
 ];
+
+/** Convert "AUTO_CORRECTION" to "Auto Correction" for accessible labels. */
+function toTitleCase(key: string): string {
+  return key
+    .split("_")
+    .map((w) => w.charAt(0) + w.slice(1).toLowerCase())
+    .join(" ");
+}
+
+/** Per-key equality check for label maps (order-independent). */
+function labelsEqual(
+  a: Record<string, string>,
+  b: Record<string, string>,
+): boolean {
+  return VALID_CATEGORY_KEYS.every((key) => (a[key] ?? "") === (b[key] ?? ""));
+}
+
+/**
+ * Build a reverse map: platform category key -> comma-separated pump-native categories.
+ * E.g. { "AUTO_CORRECTION": "CONTROL_IQ", "OTHER": "QUICK, UNKNOWN" }
+ */
+function buildPumpSourceMap(
+  declaration: PluginDeclarationResponse | null,
+): Record<string, string> {
+  if (!declaration) return {};
+  const result: Record<string, string[]> = {};
+  for (const [pumpCat, platformKey] of Object.entries(declaration.category_mappings)) {
+    if (!result[platformKey]) result[platformKey] = [];
+    result[platformKey].push(pumpCat);
+  }
+  const flat: Record<string, string> = {};
+  for (const [key, arr] of Object.entries(result)) {
+    flat[key] = arr.join(", ");
+  }
+  return flat;
+}
 
 const HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) => {
   const ampm = i === 0 ? "12:00 AM (midnight)" : i === 12 ? "12:00 PM (noon)"
@@ -91,6 +133,16 @@ export default function DataRetentionPage() {
   const [boundaryHour, setBoundaryHour] = useState(0);
   const [isSavingBoundary, setIsSavingBoundary] = useState(false);
 
+  // Category labels state
+  const [categoryLabels, setCategoryLabels] = useState<Record<string, string>>(
+    () => ({ ...DEFAULT_CATEGORY_LABELS })
+  );
+  const [isSavingLabels, setIsSavingLabels] = useState(false);
+
+  // Plugin declaration state
+  const [pluginDeclaration, setPluginDeclaration] =
+    useState<PluginDeclarationResponse | null>(null);
+
   // Form state
   const [glucoseDays, setGlucoseDays] = useState(365);
   const [analysisDays, setAnalysisDays] = useState(365);
@@ -106,10 +158,11 @@ export default function DataRetentionPage() {
   const fetchData = useCallback(async () => {
     try {
       setError(null);
-      const [configData, usageData, analyticsData] = await Promise.all([
+      const [configData, usageData, analyticsData, pluginData] = await Promise.all([
         getDataRetentionConfig(),
         getStorageUsage(),
         getAnalyticsConfig().catch(() => null),
+        getPluginDeclarations().catch(() => null),
       ]);
       setConfig(configData);
       setUsage(usageData);
@@ -119,7 +172,14 @@ export default function DataRetentionPage() {
       if (analyticsData) {
         setAnalyticsConfig(analyticsData);
         setBoundaryHour(analyticsData.day_boundary_hour);
+        if (analyticsData.category_labels) {
+          setCategoryLabels({
+            ...DEFAULT_CATEGORY_LABELS,
+            ...analyticsData.category_labels,
+          });
+        }
       }
+      setPluginDeclaration(pluginData);
       setIsOffline(false);
     } catch (err) {
       if (!(err instanceof Error && err.message.includes("401"))) {
@@ -730,6 +790,184 @@ export default function DataRetentionPage() {
               )}
               {isSavingBoundary ? "Saving..." : "Save Boundary"}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Bolus Categories */}
+      {!isLoading && (
+        <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="p-2 bg-violet-500/10 rounded-lg">
+              <Tag className="h-5 w-5 text-violet-400" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold">Bolus Categories</h2>
+              <p className="text-xs text-slate-500">
+                Customize how bolus categories are displayed across the app
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            {/* Active plugin info */}
+            <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
+              <div className="flex items-center gap-2 mb-2">
+                <Plug className="h-4 w-4 text-slate-400" aria-hidden="true" />
+                <span className="text-sm font-medium text-slate-300">
+                  Active Plugin:
+                </span>
+                {pluginDeclaration ? (
+                  <span className="text-sm text-violet-400">
+                    {pluginDeclaration.plugin_name} v{pluginDeclaration.plugin_version}
+                  </span>
+                ) : (
+                  <span className="text-sm text-slate-500 italic">
+                    No pump plugin connected
+                  </span>
+                )}
+              </div>
+              <p className="text-sm text-slate-400">
+                Labels control how bolus categories appear in the Insulin
+                Summary, charts, and dashboards on both web and mobile.
+                The &ldquo;Pump Source&rdquo; column shows which pump-native
+                categories map to each platform category.
+              </p>
+            </div>
+
+            {/* Category mapping table */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-700">
+                    <th className="text-left py-2 pr-3 text-xs font-medium text-slate-400 uppercase tracking-wider">
+                      Platform Category
+                    </th>
+                    <th className="text-left py-2 px-3 text-xs font-medium text-slate-400 uppercase tracking-wider">
+                      Display Label
+                    </th>
+                    <th className="text-left py-2 pl-3 text-xs font-medium text-slate-400 uppercase tracking-wider">
+                      Pump Source
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(() => {
+                    const pumpSourceMap = buildPumpSourceMap(pluginDeclaration);
+                    return VALID_CATEGORY_KEYS.map((key) => (
+                      <tr key={key} className="border-b border-slate-800/50">
+                        <td className="py-2 pr-3 text-slate-300 whitespace-nowrap">
+                          {toTitleCase(key)}
+                        </td>
+                        <td className="py-2 px-3">
+                          <input
+                            id={`label-${key}`}
+                            type="text"
+                            maxLength={20}
+                            aria-label={`${toTitleCase(key)} label`}
+                            value={categoryLabels[key] ?? DEFAULT_CATEGORY_LABELS[key]}
+                            onChange={(e) =>
+                              setCategoryLabels((prev) => ({
+                                ...prev,
+                                [key]: e.target.value,
+                              }))
+                            }
+                            disabled={isSavingLabels || isOffline}
+                            className={clsx(
+                              "w-full rounded-lg border px-2 py-1.5 text-sm",
+                              "bg-slate-800 border-slate-700 text-slate-200",
+                              "placeholder:text-slate-600",
+                              "focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent",
+                              "disabled:opacity-50 disabled:cursor-not-allowed"
+                            )}
+                          />
+                        </td>
+                        <td className="py-2 pl-3 text-slate-500 font-mono text-xs whitespace-nowrap">
+                          {pumpSourceMap[key] || "\u2014"}
+                        </td>
+                      </tr>
+                    ));
+                  })()}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="button"
+                disabled={
+                  isSavingLabels ||
+                  isOffline ||
+                  labelsEqual(
+                    categoryLabels,
+                    analyticsConfig?.category_labels
+                      ? {
+                          ...DEFAULT_CATEGORY_LABELS,
+                          ...analyticsConfig.category_labels,
+                        }
+                      : DEFAULT_CATEGORY_LABELS
+                  )
+                }
+                onClick={async () => {
+                  setIsSavingLabels(true);
+                  setError(null);
+                  setSuccess(null);
+                  try {
+                    const updated = await updateAnalyticsConfig({
+                      category_labels: categoryLabels,
+                    });
+                    setAnalyticsConfig(updated);
+                    setSuccess("Category labels updated successfully");
+                  } catch (err) {
+                    setError(
+                      err instanceof Error
+                        ? err.message
+                        : "Failed to update category labels"
+                    );
+                  } finally {
+                    setIsSavingLabels(false);
+                  }
+                }}
+                className={clsx(
+                  "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium",
+                  "bg-violet-600 text-white hover:bg-violet-500",
+                  "transition-colors",
+                  "focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500",
+                  "disabled:opacity-50 disabled:cursor-not-allowed"
+                )}
+              >
+                {isSavingLabels ? (
+                  <Loader2
+                    className="h-4 w-4 animate-spin"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <Check className="h-4 w-4" aria-hidden="true" />
+                )}
+                {isSavingLabels ? "Saving..." : "Save Labels"}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setCategoryLabels({ ...DEFAULT_CATEGORY_LABELS });
+                }}
+                disabled={
+                  isSavingLabels ||
+                  labelsEqual(categoryLabels, DEFAULT_CATEGORY_LABELS)
+                }
+                className={clsx(
+                  "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium",
+                  "bg-slate-800 text-slate-300 hover:bg-slate-700",
+                  "transition-colors",
+                  "focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500",
+                  "disabled:opacity-50 disabled:cursor-not-allowed"
+                )}
+              >
+                <RotateCcw className="h-4 w-4" aria-hidden="true" />
+                Reset to Defaults
+              </button>
+            </div>
           </div>
         </div>
       )}

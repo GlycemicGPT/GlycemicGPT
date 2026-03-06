@@ -88,6 +88,20 @@ jest.mock("../../src/lib/api", () => {
     // Analytics config
     getAnalyticsConfig: jest.fn().mockRejectedValue(networkError),
     updateAnalyticsConfig: jest.fn().mockRejectedValue(networkError),
+    getPluginDeclarations: jest.fn().mockRejectedValue(networkError),
+    VALID_CATEGORY_KEYS: [
+      "AUTO_CORRECTION", "FOOD", "FOOD_AND_CORRECTION",
+      "CORRECTION", "OVERRIDE", "AI_SUGGESTED", "OTHER",
+    ],
+    DEFAULT_CATEGORY_LABELS: {
+      AUTO_CORRECTION: "Auto Corr",
+      FOOD: "Meal",
+      FOOD_AND_CORRECTION: "Meal+Corr",
+      CORRECTION: "Correction",
+      OVERRIDE: "Override",
+      AI_SUGGESTED: "AI Suggested",
+      OTHER: "Other",
+    },
     // Insulin / bolus
     getInsulinSummary: jest.fn().mockRejectedValue(networkError),
     getBolusReview: jest.fn().mockRejectedValue(networkError),

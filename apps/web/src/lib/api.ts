@@ -2633,12 +2633,35 @@ export async function getBolusReview(
 export interface AnalyticsConfigResponse {
   id: string;
   day_boundary_hour: number;
+  category_labels: Record<string, string> | null;
+  custom_categories: { key: string; display_name: string }[] | null;
   updated_at: string;
 }
 
 export interface AnalyticsConfigUpdate {
   day_boundary_hour?: number;
+  category_labels?: Record<string, string>;
 }
+
+export const VALID_CATEGORY_KEYS = [
+  "AUTO_CORRECTION",
+  "FOOD",
+  "FOOD_AND_CORRECTION",
+  "CORRECTION",
+  "OVERRIDE",
+  "AI_SUGGESTED",
+  "OTHER",
+] as const;
+
+export const DEFAULT_CATEGORY_LABELS: Record<string, string> = {
+  AUTO_CORRECTION: "Auto Corr",
+  FOOD: "Meal",
+  FOOD_AND_CORRECTION: "Meal+Corr",
+  CORRECTION: "Correction",
+  OVERRIDE: "Override",
+  AI_SUGGESTED: "AI Suggested",
+  OTHER: "Other",
+};
 
 /**
  * Fetch current analytics configuration (day boundary hour).
@@ -2674,6 +2697,40 @@ export async function updateAnalyticsConfig(
     const error = await response.json().catch(() => ({}));
     throw new Error(
       error.detail || `Failed to update analytics config: ${response.status}`
+    );
+  }
+  return response.json();
+}
+
+// ---------------------------------------------------------------------------
+// Plugin Declarations
+// ---------------------------------------------------------------------------
+
+export interface PluginDeclarationResponse {
+  id: string;
+  plugin_id: string;
+  plugin_name: string;
+  plugin_version: string;
+  declared_categories: string[];
+  category_mappings: Record<string, string>;
+  updated_at: string;
+}
+
+/**
+ * Fetch the current user's active pump plugin declaration.
+ * Returns null if no plugin is active (404).
+ */
+export async function getPluginDeclarations(): Promise<PluginDeclarationResponse | null> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/settings/plugin-declarations`
+  );
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to fetch plugin declarations: ${response.status}`
     );
   }
   return response.json();

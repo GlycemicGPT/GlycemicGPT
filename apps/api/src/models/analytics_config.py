@@ -8,7 +8,7 @@ Delivery Summary reset times.
 import uuid
 
 from sqlalchemy import ForeignKey, Integer
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.models.base import Base, TimestampMixin
@@ -41,6 +41,18 @@ class AnalyticsConfig(Base, TimestampMixin):
         Integer,
         nullable=False,
         default=0,
+    )
+
+    category_labels: Mapped[dict | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        default=None,
+    )
+
+    custom_categories: Mapped[list | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        default=None,
     )
 
     user = relationship("User", back_populates="analytics_config")

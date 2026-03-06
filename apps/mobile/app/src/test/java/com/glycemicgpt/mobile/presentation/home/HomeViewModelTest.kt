@@ -1,10 +1,12 @@
 package com.glycemicgpt.mobile.presentation.home
 
 import com.glycemicgpt.mobile.data.local.AnalyticsSettingsStore
+import com.glycemicgpt.mobile.data.local.AppSettingsStore
 import com.glycemicgpt.mobile.data.local.GlucoseRangeStore
 import com.glycemicgpt.mobile.data.local.PumpProfileStore
 import com.glycemicgpt.mobile.data.local.SafetyLimitsStore
 import com.glycemicgpt.mobile.data.remote.GlycemicGptApi
+import com.glycemicgpt.mobile.data.remote.dto.PluginDeclarationRequest
 import com.glycemicgpt.mobile.data.repository.AuthRepository
 import com.glycemicgpt.mobile.data.remote.dto.GlucoseRangeResponse
 import com.glycemicgpt.mobile.data.repository.PumpDataRepository
@@ -116,11 +118,16 @@ class HomeViewModelTest {
 
     private val analyticsSettingsStore = mockk<AnalyticsSettingsStore>(relaxed = true) {
         every { dayBoundaryHour } returns 0
+        every { categoryLabels } returns emptyMap()
         every { isStale(any()) } returns false
     }
 
     private val pumpProfileStore = mockk<PumpProfileStore>(relaxed = true) {
         every { isStale(any()) } returns false
+    }
+
+    private val appSettingsStore = mockk<AppSettingsStore>(relaxed = true) {
+        every { showPumpLabels } returns false
     }
 
     private val authRepository = mockk<AuthRepository>(relaxed = true)
@@ -141,7 +148,7 @@ class HomeViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun createViewModel() = HomeViewModel(pumpDriver, repository, backendSyncManager, glucoseRangeStore, safetyLimitsStore, analyticsSettingsStore, pumpProfileStore, authRepository, api, pluginRegistry)
+    private fun createViewModel() = HomeViewModel(pumpDriver, repository, backendSyncManager, glucoseRangeStore, safetyLimitsStore, analyticsSettingsStore, pumpProfileStore, appSettingsStore, authRepository, api, pluginRegistry)
 
     @Test
     fun `initial state has null readings and not refreshing`() = runTest {
@@ -566,6 +573,16 @@ class HomeViewModelTest {
         assertEquals(1, vm.enrichedBoluses.value.size)
         assertEquals(3f, vm.enrichedBoluses.value[0].units, 0.01f)
         job.cancel()
+    }
+
+    // -- Plugin declaration sync ----------------------------------------------
+
+    @Test
+    fun `init syncs plugin declaration when no plugin active`() = runTest {
+        createViewModel()
+        advanceTimeBy(10_000); runCurrent()
+        // When activePumpPlugin emits null, deletePluginDeclarations is called
+        coVerify(atLeast = 1) { api.deletePluginDeclarations() }
     }
 
     // -- Plugin cards (existing test) -----------------------------------------

@@ -126,6 +126,16 @@ data class SafetyLimitsResponse(
 @JsonClass(generateAdapter = true)
 data class AnalyticsConfigResponse(
     @Json(name = "day_boundary_hour") val dayBoundaryHour: Int,
+    @Json(name = "category_labels") val categoryLabels: Map<String, String>? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class PluginDeclarationRequest(
+    @Json(name = "plugin_id") val pluginId: String,
+    @Json(name = "plugin_name") val pluginName: String,
+    @Json(name = "plugin_version") val pluginVersion: String,
+    @Json(name = "declared_categories") val declaredCategories: List<String>,
+    @Json(name = "category_mappings") val categoryMappings: Map<String, String>,
 )
 
 @JsonClass(generateAdapter = true)
