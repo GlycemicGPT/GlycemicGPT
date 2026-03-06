@@ -55,11 +55,14 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.glycemicgpt.mobile.domain.compute.DashboardComputations
 import com.glycemicgpt.mobile.domain.model.BasalReading
 import com.glycemicgpt.mobile.domain.model.BolusEvent
+import com.glycemicgpt.mobile.domain.model.BolusType
 import com.glycemicgpt.mobile.domain.model.CgmReading
 import com.glycemicgpt.mobile.domain.model.PumpActivityMode
 import com.glycemicgpt.mobile.domain.model.IoBReading
+import com.glycemicgpt.mobile.presentation.theme.BolusTypeColors
 import com.glycemicgpt.mobile.presentation.theme.GlucoseColors
 import java.time.Instant
 import java.time.ZoneId
@@ -100,9 +103,6 @@ private object ChartColors {
     val BasalManual = Color(0xFF78909C)     // Blue-grey -- manual basal
     val BasalSleep = Color(0xFF7E57C2)      // Purple -- sleep mode
     val BasalExercise = Color(0xFFFF9800)   // Orange -- exercise mode
-    val Correction = Color(0xFFE91E63)    // Pink -- auto correction (pump-initiated)
-    val ManualCorrection = Color(0xFFFF5722)  // Deep orange -- manual correction (user-initiated)
-    val Bolus = Color(0xFF7C4DFF)         // Deep purple -- meal/standard bolus
 }
 
 @Composable
@@ -443,11 +443,12 @@ private fun GlucoseTrendChartContent(
             val bolusTypesPresent = remember(bolusEvents) {
                 buildSet {
                     for (b in bolusEvents) {
-                        when {
-                            b.isAutomated && b.isCorrection -> add("auto_correction")
-                            b.isCorrection -> add("manual_correction")
-                            b.isAutomated -> add("auto_correction")
-                            else -> add("meal_bolus")
+                        when (DashboardComputations.deriveBolusType(b)) {
+                            BolusType.AUTO_CORRECTION -> add("auto_correction")
+                            BolusType.MEAL_WITH_CORRECTION -> add("meal_with_correction")
+                            BolusType.CORRECTION -> add("manual_correction")
+                            BolusType.AUTO -> add("auto_bolus")
+                            BolusType.MEAL -> add("meal_bolus")
                         }
                     }
                 }
@@ -474,13 +475,15 @@ private fun ChartLegend(
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if ("automated" in basalModesPresent) LegendItem(color = ChartColors.BasalAutomated, label = "Automated")
+        if ("automated" in basalModesPresent) LegendItem(color = ChartColors.BasalAutomated, label = "Auto")
         if ("manual" in basalModesPresent) LegendItem(color = ChartColors.BasalManual, label = "Manual")
         if ("sleep" in basalModesPresent) LegendItem(color = ChartColors.BasalSleep, label = "Sleep")
         if ("exercise" in basalModesPresent) LegendItem(color = ChartColors.BasalExercise, label = "Exercise")
-        if ("auto_correction" in bolusTypesPresent) LegendItem(color = ChartColors.Correction, label = "Auto Correction")
-        if ("manual_correction" in bolusTypesPresent) LegendItem(color = ChartColors.ManualCorrection, label = "Manual Correction")
-        if ("meal_bolus" in bolusTypesPresent) LegendItem(color = ChartColors.Bolus, label = "Meal Bolus")
+        if ("auto_correction" in bolusTypesPresent) LegendItem(color = BolusTypeColors.Correction, label = "Corr")
+        if ("auto_bolus" in bolusTypesPresent) LegendItem(color = BolusTypeColors.Correction, label = "Auto")
+        if ("manual_correction" in bolusTypesPresent) LegendItem(color = BolusTypeColors.ManualCorrection, label = "BG Only")
+        if ("meal_with_correction" in bolusTypesPresent) LegendItem(color = BolusTypeColors.MealWithCorrection, label = "BG+Food")
+        if ("meal_bolus" in bolusTypesPresent) LegendItem(color = BolusTypeColors.Meal, label = "Food")
         if (hasIob) LegendItem(color = iobColor.copy(alpha = 0.7f), label = "IoB")
     }
 }
@@ -901,11 +904,13 @@ private fun DrawScope.drawBolusMarkers(
         }
         prevX = x
 
-        val color = when {
-            event.isAutomated && event.isCorrection -> ChartColors.Correction        // Pink: pump auto-correction
-            event.isCorrection -> ChartColors.ManualCorrection                        // Deep orange: user correction
-            event.isAutomated -> ChartColors.Correction                               // Pink: other automated bolus
-            else -> ChartColors.Bolus                                                 // Purple: meal bolus
+        val bolusType = DashboardComputations.deriveBolusType(event)
+        val color = when (bolusType) {
+            BolusType.AUTO_CORRECTION -> BolusTypeColors.Correction
+            BolusType.MEAL_WITH_CORRECTION -> BolusTypeColors.MealWithCorrection
+            BolusType.CORRECTION -> BolusTypeColors.ManualCorrection
+            BolusType.AUTO -> BolusTypeColors.Correction
+            BolusType.MEAL -> BolusTypeColors.Meal
         }
 
         val markerY = baseMarkerY + staggerLevel * staggerStep
@@ -919,7 +924,7 @@ private fun DrawScope.drawBolusMarkers(
             pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 4f)),
         )
 
-        // Diamond marker
+        // Diamond marker -- color already set above from deriveBolusType()
         val diamond = Path().apply {
             moveTo(x, markerY - markerRadius)          // top
             lineTo(x + markerRadius, markerY)           // right
@@ -944,14 +949,21 @@ private fun DrawScope.drawBolusMarkers(
             ),
         )
 
-        // "AUTO" tag above units label for automated corrections
-        if (event.isAutomated) {
-            val autoTagStyle = TextStyle(fontSize = 7.sp, color = color.copy(alpha = 0.8f))
-            val autoTag = textMeasurer.measure("AUTO", autoTagStyle)
-            val autoTagY = (labelY - autoTag.size.height - 1.dp.toPx()).coerceAtLeast(0f)
+        // Type tag above units label -- skip plain MEAL (most common) to reduce clutter
+        val tagText = when (bolusType) {
+            BolusType.AUTO_CORRECTION -> "CORR"
+            BolusType.CORRECTION -> "BG"
+            BolusType.MEAL_WITH_CORRECTION -> "BG+F"
+            BolusType.AUTO -> "AUTO"
+            BolusType.MEAL -> null
+        }
+        if (tagText != null) {
+            val tagStyle = TextStyle(fontSize = 7.sp, color = color.copy(alpha = 0.8f))
+            val tag = textMeasurer.measure(tagText, tagStyle)
+            val tagY = (labelY - tag.size.height - 1.dp.toPx()).coerceAtLeast(0f)
             drawText(
-                autoTag,
-                topLeft = Offset(x - autoTag.size.width / 2f, autoTagY),
+                tag,
+                topLeft = Offset(x - tag.size.width / 2f, tagY),
             )
         }
     }

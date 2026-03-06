@@ -2,6 +2,7 @@
 from src.models.ai_provider import AIProviderConfig, AIProviderStatus, AIProviderType
 from src.models.alert import Alert, AlertSeverity, AlertType
 from src.models.alert_threshold import AlertThreshold
+from src.models.analytics_config import AnalyticsConfig
 from src.models.api_key import ApiKey
 from src.models.base import Base, TimestampMixin
 from src.models.brief_delivery_config import BriefDeliveryConfig
@@ -46,6 +47,7 @@ __all__ = [
     "AIProviderStatus",
     "AIProviderType",
     "Alert",
+    "AnalyticsConfig",
     "AlertSeverity",
     "AlertThreshold",
     "AlertType",

@@ -1,6 +1,6 @@
 # GlycemicGPT Implementation Progress
 
-> Last Updated: 2026-03-03
+> Last Updated: 2026-03-04
 
 ## Summary
 
@@ -36,9 +36,11 @@
 | 28 | Security Hardening & Penetration Testing | 17/17 | **Complete** |
 | 29 | App Icons & Branding | 3/3 | **Complete** |
 | 30 | Advanced Web Dashboard Visualization | 9/10 | **In Progress** |
-| 31 | Mobile Dashboard Parity & Hub-and-Spoke Redesign | 0/7 | Planned |
+| 31 | Mobile Dashboard Parity & Hub-and-Spoke Redesign | 2/8 | **In Progress** |
 | 33 | Data Source Abstraction & CGM Intelligence | 0/12 | Planned |
 | 34 | Code Quality & Technical Debt Elimination | 0/17 | Planned |
+| 35 | AI Intelligence Pipeline | 0/18 | Planned |
+| 36 | Android App Distribution Strategy | 0/4 | Planned |
 
 **MVP Stories:** 54/54 complete (100%)
 **Post-MVP Fix Stories:** 13/13 complete (100%)
@@ -58,10 +60,12 @@
 **Epic 26 (Runtime Plugin Loading):** 7/7 complete
 **Epic 29 (App Icons & Branding):** 3/3 complete
 **Epic 30 (Web Dashboard Visualization):** 9/10 in progress
-**Epic 31 (Mobile Dashboard Parity):** 1/7 in progress
+**Epic 31 (Mobile Dashboard Parity):** 2/8 in progress
 **Epic 33 (Data Source Abstraction):** 0/12 planned
 **Epic 34 (Code Quality):** 0/17 planned
-**Overall Progress:** 158/207 stories complete
+**Epic 35 (AI Intelligence Pipeline):** 0/18 planned
+**Epic 36 (Android Distribution Strategy):** 0/4 planned
+**Overall Progress:** 158/229 stories planned/complete
 
 ### Standalone Bug Fixes
 
@@ -1044,13 +1048,14 @@ Any new stats calculations (CGM summary, insulin summary, AGP percentiles, 5-buc
 
 | Story | Title | Status | PR |
 |-------|-------|--------|-----|
-| 31.1 | Navigation Scaffold & Detail Page Architecture | Complete | #344 |
+| 31.1 | Navigation Scaffold & Detail Page Architecture | Complete | #345 |
 | 31.2 | Compact Card Grid Home Screen | Planned | |
-| 31.3 | Chart Detail Page with Landscape & Zoom/Pan/Brush | Planned | |
+| 31.3 | Chart Detail Page with Landscape & Zoom/Pan/Brush | Complete | #345 |
 | 31.4 | TIR Upgrade & CGM Stats Detail Page | Planned | |
 | 31.5 | Insulin Summary & Bolus Review Detail Page | Planned | |
 | 31.6 | Visual Polish, Animations & Label Refinement | Planned | |
 | 31.7 | Wear OS Compact Chart & Data Feed | Planned | |
+| 31.8 | Retention-Aware Period Options | Planned | |
 
 ### Story 31.1: Navigation Scaffold & Detail Page Architecture
 
@@ -1240,6 +1245,34 @@ Any new stats calculations (CGM summary, insulin summary, AGP percentiles, 5-buc
 - Stale indicator when data is old (>10 min)
 - Battery impact: <1% additional drain from sparkline rendering
 
+### Story 31.8: Retention-Aware Period Options
+
+**Priority:** Medium -- prevents misleading UI when local data doesn't cover the selected range.
+
+**Scope:** Dynamically filter time period options across all mobile dashboard components based on the user's `dataRetentionDays` setting (default 7 days, max 30 days via Settings slider). Hide period buttons that exceed the retention window so users never see empty charts or tables.
+
+**Context:** Mobile app stores data locally (Room DB) with a configurable retention period (1-30 days, default 7). The backend stores 365+ days. Currently, several UI components offer period options (14D, 30D) that exceed the default 7-day local retention, showing empty/sparse data and confusing users. The web dashboard can offer longer ranges since it reads from the backend.
+
+**Changes:**
+- **HomeViewModel:** Read `dataRetentionDays` from `AppSettingsStore`. Expose as state for composables. Compute available periods per component by filtering against retention setting.
+- **TirPeriod / ChartPeriod / AgpPeriod:** Filter displayed period chips to only show options where `period.hours <= retentionDays * 24` (with small buffer for partial-day overlap).
+- **Affected components:**
+  - TimeInRangeBar: currently shows all 5 TirPeriod values (24H-30D)
+  - ChartDetailScreen: currently shows all 8 ChartPeriod values (3H-30D)
+  - AgpChart + AgpDetailScreen: currently shows 7D, 14D, 30D
+  - BolusHistoryScreen: currently shows all 5 TirPeriod values (24H-30D)
+  - Future: TirDetailScreen, InsulinDetailScreen (when implemented in 31.4/31.5)
+- **Home card subsets** (CgmStatsCard, InsulinSummaryCard, RecentBolusesCard): already capped at 24H/3D/7D -- no change needed unless retention < 7 days.
+- **Default period fallback:** If the currently selected period exceeds retention, auto-select the largest available period.
+
+**Acceptance Criteria:**
+- At default 7-day retention: 14D and 30D buttons are hidden from all components
+- At 30-day retention: all period buttons are visible
+- At 3-day retention: 7D, 14D, 30D are hidden
+- Changing the retention slider in Settings immediately updates available periods on the home screen
+- No empty charts or "no data" states caused by selecting a period longer than retention
+- Detail screens respect the same filtering as home cards
+
 ---
 
 ## Epic 33: Data Source Abstraction & CGM Intelligence
@@ -1291,3 +1324,56 @@ Any new stats calculations (CGM summary, insulin summary, AGP percentiles, 5-buc
 | 34.15 | Sidecar Request Timeout and Auth Hardening | LOW | Planned | |
 | 34.16 | Repository Hygiene and Unused Dependency Cleanup | LOW | Planned | |
 | 34.17 | Comprehensive AI Attribution Detection and Prevention | MEDIUM | Planned | |
+
+---
+
+## Epic 35: AI Intelligence Pipeline
+
+**Status:** Planned (0/18 stories)
+**Goal:** Transform the AI from a basic chatbot into an intelligent diabetes analysis engine with enriched context, clinical knowledge RAG, PHI privacy protection, streaming responses, proactive intelligence, response caching, and medical safety guardrails. Eliminate the sidecar container and unify all provider tiers (API key, subscription, BYOAI) with zero compromises.
+
+**Planning doc:** `_bmad-output/planning-artifacts/epic-35-ai-intelligence-pipeline.md`
+
+**Phases:**
+1. Context Enrichment (35.1-35.4) -- Feed the AI everything it needs
+2. Privacy & Provider Unification (35.5-35.8) -- PHI masking, eliminate sidecar, streaming, budget caps
+3. Clinical Knowledge RAG (35.9-35.11) -- pgvector knowledge base
+4. Proactive Intelligence (35.12-35.15) -- Weekly reports, anomaly detection, appointment prep
+5. Performance & Cost Optimization (35.16-35.18) -- Response caching, prompt caching, safety guardrails
+
+| # | Title | Phase | Status | PR |
+|---|-------|-------|--------|----|
+| 35.1 | Enrich All AI Analysis Prompts with Pump Profile Context | 1 | Planned | |
+| 35.2 | Multi-Period Statistical Context for AI | 1 | Planned | |
+| 35.3 | Conversation Memory and Chat History | 1 | Planned | |
+| 35.4 | Insulin Pharmacokinetics Context Lookup | 1 | Planned | |
+| 35.5 | PHI Masking with Microsoft Presidio | 2 | Planned | |
+| 35.6 | Unified AI Client -- Eliminate Sidecar, Unify All Provider Tiers | 2 | Planned | |
+| 35.7 | Streaming AI Responses (SSE) | 2 | Planned | |
+| 35.8 | Privacy Settings UI, Token Usage Tracking, and Budget Caps | 2 | Planned | |
+| 35.9 | pgvector Knowledge Base Infrastructure | 3 | Planned | |
+| 35.10 | Clinical Knowledge Content Pipeline | 3 | Planned | |
+| 35.11 | Wire RAG Retrieval into AI Chat Pipeline | 3 | Planned | |
+| 35.12 | Automated Weekly Pattern Reports | 4 | Planned | |
+| 35.13 | Proactive Anomaly Detection and Settings Drift Alerts | 4 | Planned | |
+| 35.14 | Pre-Appointment Prep Report | 4 | Planned | |
+| 35.15 | Insulin Response Curve Analysis | 4 | Planned | |
+| 35.16 | AI Response Caching (Redis + Semantic) | 5 | Planned | |
+| 35.17 | Provider-Side Prompt Caching | 5 | Planned | |
+| 35.18 | AI Safety Guardrails (Prompt Injection + Output Validation) | 5 | Planned | |
+
+---
+
+## Epic 36: Android App Distribution Strategy
+
+**Status:** Planned (0/4 stories)
+**Goal:** Prepare for Google's Android developer verification requirements (September 2026) that will restrict sideloaded APK installation on certified devices. Identify and implement a distribution strategy that keeps GlycemicGPT installable without unreasonable friction.
+
+**Key context:** Google's "Android Developer Verifier" system service will check every APK against a developer registry. ADB installs are exempt. An "advanced flow" for power users is planned but details are TBD. F-Droid and 36 other organizations are opposing the policy.
+
+| # | Title | Type | Status | PR |
+|---|-------|------|--------|----|
+| 36.1 | Research Spike -- Android Distribution Strategy for Developer Verification | Spike | Planned | |
+| 36.2 | Android Developer Verification Registration | Implementation | Planned (blocked by 36.1) | |
+| 36.3 | Adapt Distribution Pipeline for Verified Developer Requirements | Implementation | Planned (blocked by 36.1, 36.2) | |
+| 36.4 | Evaluate and Implement Alternative Distribution Channel | Implementation | Planned (blocked by 36.1) | |

@@ -6,6 +6,7 @@ import com.glycemicgpt.mobile.ble.connection.TandemBleDriver
 import com.glycemicgpt.mobile.ble.messages.TandemHistoryLogParser
 import com.glycemicgpt.mobile.domain.plugin.PLUGIN_API_VERSION
 import com.glycemicgpt.mobile.domain.plugin.PluginCapability
+import com.glycemicgpt.mobile.domain.plugin.capabilities.BolusCategoryProvider
 import com.glycemicgpt.mobile.domain.plugin.capabilities.GlucoseSource
 import com.glycemicgpt.mobile.domain.plugin.capabilities.InsulinSource
 import com.glycemicgpt.mobile.domain.plugin.capabilities.PumpStatus
@@ -31,12 +32,13 @@ class TandemDevicePluginTest {
     )
 
     @Test
-    fun `capabilities includes GLUCOSE_SOURCE, INSULIN_SOURCE, PUMP_STATUS`() {
+    fun `capabilities includes GLUCOSE_SOURCE, INSULIN_SOURCE, PUMP_STATUS, BOLUS_CATEGORY_PROVIDER`() {
         val caps = plugin.capabilities
-        assertEquals(3, caps.size)
+        assertEquals(4, caps.size)
         assertTrue(caps.contains(PluginCapability.GLUCOSE_SOURCE))
         assertTrue(caps.contains(PluginCapability.INSULIN_SOURCE))
         assertTrue(caps.contains(PluginCapability.PUMP_STATUS))
+        assertTrue(caps.contains(PluginCapability.BOLUS_CATEGORY_PROVIDER))
     }
 
     @Test
@@ -58,6 +60,13 @@ class TandemDevicePluginTest {
         val status = plugin.getCapability(PumpStatus::class)
         assertNotNull(status)
         assertTrue(status is PumpStatus)
+    }
+
+    @Test
+    fun `getCapability returns BolusCategoryProvider`() {
+        val provider = plugin.getCapability(BolusCategoryProvider::class)
+        assertNotNull(provider)
+        assertTrue(provider is BolusCategoryProvider)
     }
 
     @Test

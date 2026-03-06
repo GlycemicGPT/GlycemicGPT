@@ -31,16 +31,37 @@ enum class PumpActivityMode {
 @Deprecated("Use PumpActivityMode", ReplaceWith("PumpActivityMode"))
 typealias ControlIqMode = PumpActivityMode
 
+/**
+ * A bolus delivery event from a pump.
+ *
+ * [units] is the actual delivered total (from pump hardware). [correctionUnits] and [mealUnits]
+ * are the *requested* breakdown (correction vs meal portions). These may not sum to [units]
+ * because: (1) partial delivery (occlusion, user cancel) means delivered < requested,
+ * (2) the status response (opcode 0x30) has no breakdown so both are 0, and
+ * (3) automated boluses set mealUnits=0 regardless of correction portion.
+ */
 data class BolusEvent(
     val units: Float,
     val isAutomated: Boolean,
     val isCorrection: Boolean,
+    val correctionUnits: Float = 0f,
+    val mealUnits: Float = 0f,
+    val source: String = "",
+    val category: String = "",
     val timestamp: Instant,
 ) {
     init {
         require(units >= 0f) { "BolusEvent units must be non-negative, was $units" }
         require(units <= MAX_BOLUS_UNITS) {
             "BolusEvent units ($units) exceeds hard safety cap of $MAX_BOLUS_UNITS U"
+        }
+        require(correctionUnits >= 0f) { "correctionUnits must be non-negative" }
+        require(correctionUnits <= MAX_BOLUS_UNITS) {
+            "correctionUnits ($correctionUnits) exceeds hard safety cap of $MAX_BOLUS_UNITS U"
+        }
+        require(mealUnits >= 0f) { "mealUnits must be non-negative" }
+        require(mealUnits <= MAX_BOLUS_UNITS) {
+            "mealUnits ($mealUnits) exceeds hard safety cap of $MAX_BOLUS_UNITS U"
         }
     }
 

@@ -4,6 +4,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import com.glycemicgpt.mobile.domain.model.BolusCategory
 
 // Matches the web app's dark theme palette
 private val Slate950 = Color(0xFF020617)
@@ -51,4 +52,25 @@ object GlucoseColors {
     val Low = Yellow500
     val UrgentHigh = Red500
     val UrgentLow = Red500
+}
+
+// Semantic colors for bolus type categories (shared across chart, badges, and summary card)
+object BolusTypeColors {
+    val Correction = Color(0xFFE91E63)       // Pink -- auto correction / automated (pump-initiated)
+    val ManualCorrection = Color(0xFFFF5722) // Deep orange -- BG Only (user-initiated correction)
+    val Meal = Color(0xFF7C4DFF)             // Deep purple -- Food bolus
+    val MealWithCorrection = Color(0xFFAB47BC) // Medium purple -- BG+Food combo
+    val Override = Color(0xFFFFA000)         // Amber -- user overrode recommendation
+    val Other = Color(0xFF78909C)            // Blue-grey -- uncategorized / quick bolus
+}
+
+/** Map a [BolusCategory] to its display color. */
+fun colorForCategory(category: BolusCategory): Color = when (category) {
+    BolusCategory.AUTO_CORRECTION -> BolusTypeColors.Correction
+    BolusCategory.FOOD -> BolusTypeColors.Meal
+    BolusCategory.FOOD_AND_CORRECTION -> BolusTypeColors.MealWithCorrection
+    BolusCategory.CORRECTION -> BolusTypeColors.ManualCorrection
+    BolusCategory.OVERRIDE -> BolusTypeColors.Override
+    BolusCategory.AI_SUGGESTED -> Color(0xFF00BCD4) // Cyan
+    BolusCategory.OTHER -> BolusTypeColors.Other
 }

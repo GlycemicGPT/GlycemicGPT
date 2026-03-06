@@ -3,6 +3,8 @@ package com.glycemicgpt.mobile.data.remote
 import com.glycemicgpt.mobile.data.remote.dto.AcknowledgeResponse
 import com.glycemicgpt.mobile.data.remote.dto.AlertResponse
 import com.glycemicgpt.mobile.data.remote.dto.AiProviderStatusResponse
+import com.glycemicgpt.mobile.data.remote.dto.AnalyticsConfigResponse
+import com.glycemicgpt.mobile.data.remote.dto.PumpProfileResponse
 import com.glycemicgpt.mobile.data.remote.dto.ChatRequest
 import com.glycemicgpt.mobile.data.remote.dto.ChatResponse
 import com.glycemicgpt.mobile.data.remote.dto.DeviceRegistrationRequest
@@ -66,4 +68,12 @@ interface GlycemicGptApi {
     // Safety limits settings
     @GET("/api/settings/safety-limits")
     suspend fun getSafetyLimits(): Response<SafetyLimitsResponse>
+
+    // Analytics configuration
+    @GET("/api/settings/analytics-config")
+    suspend fun getAnalyticsConfig(): Response<AnalyticsConfigResponse>
+
+    // Pump profile summary
+    @GET("/api/settings/pump-profile")
+    suspend fun getPumpProfile(): Response<PumpProfileResponse>
 }

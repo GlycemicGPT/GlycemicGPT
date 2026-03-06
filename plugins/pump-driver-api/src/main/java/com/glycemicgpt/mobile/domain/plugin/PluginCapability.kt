@@ -25,6 +25,9 @@ enum class PluginCapability {
 
     /** Syncs data to external services (Nightscout, Tidepool). Multiple allowed. */
     DATA_SYNC,
+
+    /** Declares pump-specific bolus categories and maps to platform labels. Max 1 active. */
+    BOLUS_CATEGORY_PROVIDER,
     ;
 
     companion object {
@@ -35,6 +38,7 @@ enum class PluginCapability {
             PUMP_STATUS,
             PUMP_CONTROL,
             CALIBRATION_TARGET,
+            BOLUS_CATEGORY_PROVIDER,
         )
 
         /** Capabilities that allow multiple active plugins simultaneously. */

@@ -53,6 +53,8 @@ fun HomeScreen(
     onNavigateToTirDetail: () -> Unit = {},
     onNavigateToInsulinDetail: () -> Unit = {},
     onNavigateToAlertHistory: () -> Unit = {},
+    onNavigateToAgpDetail: (() -> Unit)? = null,
+    onNavigateToBolusHistory: (() -> Unit)? = null,
 ) {
     val connectionState by viewModel.connectionState.collectAsState()
     val cgm by viewModel.cgm.collectAsState()
@@ -71,6 +73,14 @@ fun HomeScreen(
     val timeInRange by viewModel.timeInRange.collectAsState()
     val thresholds by viewModel.glucoseThresholds.collectAsState()
     val pluginCards by viewModel.pluginCards.collectAsState()
+    val selectedAgpPeriod by viewModel.selectedAgpPeriod.collectAsState()
+    val agpProfile by viewModel.agpProfile.collectAsState()
+    val selectedCgmStatsPeriod by viewModel.selectedCgmStatsPeriod.collectAsState()
+    val cgmStats by viewModel.cgmStats.collectAsState()
+    val selectedInsulinPeriod by viewModel.selectedInsulinPeriod.collectAsState()
+    val insulinSummary by viewModel.insulinSummary.collectAsState()
+    val selectedBolusPeriod by viewModel.selectedBolusPeriod.collectAsState()
+    val enrichedBoluses by viewModel.enrichedBoluses.collectAsState()
 
     PullToRefreshBox(
         isRefreshing = isRefreshing,
@@ -121,6 +131,45 @@ fun HomeScreen(
                 selectedPeriod = selectedTirPeriod,
                 onPeriodSelected = { viewModel.onTirPeriodSelected(it) },
                 thresholds = thresholds,
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // CGM Stats card
+            CgmStatsCard(
+                stats = cgmStats,
+                selectedPeriod = selectedCgmStatsPeriod,
+                onPeriodSelected = { viewModel.onCgmStatsPeriodSelected(it) },
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Insulin Summary card
+            InsulinSummaryCard(
+                summary = insulinSummary,
+                selectedPeriod = selectedInsulinPeriod,
+                onPeriodSelected = { viewModel.onInsulinPeriodSelected(it) },
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // AGP chart
+            AgpChart(
+                profile = agpProfile,
+                selectedPeriod = selectedAgpPeriod,
+                onPeriodSelected = { viewModel.onAgpPeriodSelected(it) },
+                thresholds = thresholds,
+                onClick = onNavigateToAgpDetail,
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Recent Boluses card
+            RecentBolusesCard(
+                boluses = enrichedBoluses,
+                selectedPeriod = selectedBolusPeriod,
+                onPeriodSelected = { viewModel.onBolusPeriodSelected(it) },
+                onExpand = onNavigateToBolusHistory,
             )
 
             // Plugin-contributed cards (sorted by priority, memoized)
