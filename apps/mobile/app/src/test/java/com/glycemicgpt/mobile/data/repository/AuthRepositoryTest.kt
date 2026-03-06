@@ -4,6 +4,8 @@ import android.content.Context
 import com.glycemicgpt.mobile.data.auth.AuthManager
 import com.glycemicgpt.mobile.data.local.AuthTokenStore
 import com.glycemicgpt.mobile.data.local.GlucoseRangeStore
+import com.glycemicgpt.mobile.data.local.AnalyticsSettingsStore
+import com.glycemicgpt.mobile.data.local.PumpProfileStore
 import com.glycemicgpt.mobile.data.local.SafetyLimitsStore
 import com.glycemicgpt.mobile.data.remote.GlycemicGptApi
 import com.glycemicgpt.mobile.data.remote.dto.GlucoseRangeResponse
@@ -38,12 +40,15 @@ class AuthRepositoryTest {
     }
     private val glucoseRangeStore = mockk<GlucoseRangeStore>(relaxed = true)
     private val safetyLimitsStore = mockk<SafetyLimitsStore>(relaxed = true)
+    private val analyticsSettingsStore = mockk<AnalyticsSettingsStore>(relaxed = true)
+    private val pumpProfileStore = mockk<PumpProfileStore>(relaxed = true)
     private val api = mockk<GlycemicGptApi>()
     private val deviceRepository = mockk<DeviceRepository>(relaxed = true)
     private val authManager = mockk<AuthManager>(relaxed = true)
 
     private val repository = AuthRepository(
-        appContext, authTokenStore, glucoseRangeStore, safetyLimitsStore, api, deviceRepository, authManager,
+        appContext, authTokenStore, glucoseRangeStore, safetyLimitsStore,
+        analyticsSettingsStore, pumpProfileStore, api, deviceRepository, authManager,
     )
 
     private val testScope = TestScope(UnconfinedTestDispatcher())
@@ -192,6 +197,8 @@ class AuthRepositoryTest {
 
         verify { authTokenStore.clearToken() }
         verify { safetyLimitsStore.clear() }
+        verify { analyticsSettingsStore.clear() }
+        verify { pumpProfileStore.clear() }
         verify { authManager.onLogout() }
     }
 

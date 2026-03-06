@@ -1,6 +1,7 @@
 package com.glycemicgpt.mobile.domain.plugin
 
 import com.glycemicgpt.mobile.domain.plugin.capabilities.BgmSource
+import com.glycemicgpt.mobile.domain.plugin.capabilities.BolusCategoryProvider
 import com.glycemicgpt.mobile.domain.plugin.capabilities.CalibrationTarget
 import com.glycemicgpt.mobile.domain.plugin.capabilities.GlucoseSource
 import com.glycemicgpt.mobile.domain.plugin.capabilities.InsulinSource
@@ -74,3 +75,6 @@ fun Plugin.asBgmSource(): BgmSource? = getCapability(BgmSource::class)
 
 /** Convenience: get this plugin's [CalibrationTarget] capability, if available. */
 fun Plugin.asCalibrationTarget(): CalibrationTarget? = getCapability(CalibrationTarget::class)
+
+/** Convenience: get this plugin's [BolusCategoryProvider] capability, if available. */
+fun Plugin.asBolusCategoryProvider(): BolusCategoryProvider? = getCapability(BolusCategoryProvider::class)

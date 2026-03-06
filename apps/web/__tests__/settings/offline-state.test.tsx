@@ -85,6 +85,12 @@ jest.mock("../../src/lib/api", () => {
     revokeCaregiverInvitation: jest.fn().mockRejectedValue(networkError),
     listLinkedCaregivers: jest.fn().mockRejectedValue(networkError),
     unlinkCaregiver: jest.fn().mockRejectedValue(networkError),
+    // Analytics config
+    getAnalyticsConfig: jest.fn().mockRejectedValue(networkError),
+    updateAnalyticsConfig: jest.fn().mockRejectedValue(networkError),
+    // Insulin / bolus
+    getInsulinSummary: jest.fn().mockRejectedValue(networkError),
+    getBolusReview: jest.fn().mockRejectedValue(networkError),
   };
 });
 

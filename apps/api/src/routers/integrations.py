@@ -1746,6 +1746,47 @@ _BASAL_MAX_GAP_HOURS = 2.0
 _SOURCE_PRIORITY = ("mobile", "tandem")
 
 
+def _boundary_aligned_cutoff(
+    days: int,
+    boundary_hour: int,
+    tz_name: str = "UTC",
+    now: datetime | None = None,
+) -> datetime:
+    """Compute the start of an analytics period aligned to the day boundary.
+
+    For days=1 (24H): returns today's boundary hour (or yesterday's if
+    we haven't passed it yet).  For days=3: returns the boundary 3-1=2
+    days before the effective boundary.  This matches the pump's Delivery
+    Summary which resets at midnight (boundary=0).
+
+    The ``days`` parameter follows the same semantics as the web API
+    ``days`` query parameter: days=1 means "current day period" (like 24H),
+    days=7 means "7-day period", etc.
+
+    ``tz_name`` is an IANA timezone string (e.g. "America/Chicago") so
+    the boundary is computed in the user's local time.  Defaults to UTC
+    for backward compatibility.
+    """
+    if not 0 <= boundary_hour <= 23:
+        boundary_hour = 0
+    try:
+        tz = zoneinfo.ZoneInfo(tz_name)
+    except (KeyError, ValueError) as e:
+        raise ValueError(f"Invalid timezone: {tz_name}") from e
+    local_now = (now or datetime.now(UTC)).astimezone(tz)
+    today_boundary = local_now.replace(
+        hour=boundary_hour, minute=0, second=0, microsecond=0
+    )
+    if local_now < today_boundary:
+        effective_boundary = today_boundary - timedelta(days=1)
+    else:
+        effective_boundary = today_boundary
+    # days=1 means "since the current boundary" (daysBack=0 on mobile).
+    # days=7 means "since 6 days before the effective boundary".
+    # Convert back to UTC for DB queries.
+    return (effective_boundary - timedelta(days=max(days - 1, 0))).astimezone(UTC)
+
+
 async def _best_source(
     db: AsyncSession,
     user_id: uuid.UUID,
@@ -1978,6 +2019,11 @@ async def get_insulin_summary(
         le=90,
         description="Number of days to analyze",
     ),
+    tz: str = Query(
+        default="UTC",
+        max_length=50,
+        description="IANA timezone for day boundary (e.g. America/Chicago)",
+    ),
 ) -> InsulinSummaryResponse:
     """Get insulin delivery summary: TDD, basal/bolus split, bolus count.
 
@@ -1985,8 +2031,14 @@ async def get_insulin_summary(
     daily averages over the requested period. Counts (bolus_count,
     correction_count) are totals for the full period.
     """
+    from src.services.analytics_config import get_boundary_hour
+
     now = datetime.now(UTC)
-    cutoff = now - timedelta(days=days)
+    boundary_hour = await get_boundary_hour(current_user.id, db)
+    try:
+        cutoff = _boundary_aligned_cutoff(days, boundary_hour, tz, now)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
 
     # Determine best data source for bolus/correction events.
     bolus_source = await _best_source(
@@ -2180,10 +2232,21 @@ async def get_bolus_review(
     days: int = Query(default=7, ge=1, le=30, description="Number of days"),
     limit: int = Query(default=100, ge=1, le=500, description="Max results"),
     offset: int = Query(default=0, ge=0, description="Pagination offset"),
+    tz: str = Query(
+        default="UTC",
+        max_length=50,
+        description="IANA timezone for day boundary (e.g. America/Chicago)",
+    ),
 ) -> BolusReviewResponse:
     """Get paginated list of bolus events for review."""
+    from src.services.analytics_config import get_boundary_hour
+
     now = datetime.now(UTC)
-    cutoff = now - timedelta(days=days)
+    boundary_hour = await get_boundary_hour(current_user.id, db)
+    try:
+        cutoff = _boundary_aligned_cutoff(days, boundary_hour, tz, now)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
 
     # Determine best source to avoid cross-source duplicates.
     review_source = await _best_source(

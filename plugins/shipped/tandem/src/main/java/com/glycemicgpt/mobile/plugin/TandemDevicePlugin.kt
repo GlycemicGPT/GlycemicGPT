@@ -8,6 +8,7 @@ import com.glycemicgpt.mobile.domain.plugin.PluginCapability
 import com.glycemicgpt.mobile.domain.plugin.PluginCapabilityInterface
 import com.glycemicgpt.mobile.domain.plugin.PluginContext
 import com.glycemicgpt.mobile.domain.plugin.PluginMetadata
+import com.glycemicgpt.mobile.domain.plugin.capabilities.BolusCategoryProvider
 import com.glycemicgpt.mobile.domain.plugin.capabilities.GlucoseSource
 import com.glycemicgpt.mobile.domain.plugin.capabilities.InsulinSource
 import com.glycemicgpt.mobile.domain.plugin.capabilities.PumpStatus
@@ -39,11 +40,13 @@ class TandemDevicePlugin(
         PluginCapability.GLUCOSE_SOURCE,
         PluginCapability.INSULIN_SOURCE,
         PluginCapability.PUMP_STATUS,
+        PluginCapability.BOLUS_CATEGORY_PROVIDER,
     )
 
     private val glucoseSource = TandemGlucoseSource(bleDriver)
     private val insulinSource = TandemInsulinSource(bleDriver)
     private val pumpStatus = TandemPumpStatus(bleDriver, historyParser, connectionManager)
+    private val bolusCategoryProvider = TandemBolusCategoryProvider()
 
     override fun initialize(context: PluginContext) {
         // No additional initialization needed; BLE components are injected ready-to-use
@@ -67,6 +70,7 @@ class TandemDevicePlugin(
         GlucoseSource::class -> glucoseSource as? T
         InsulinSource::class -> insulinSource as? T
         PumpStatus::class -> pumpStatus as? T
+        BolusCategoryProvider::class -> bolusCategoryProvider as? T
         else -> null
     }
 

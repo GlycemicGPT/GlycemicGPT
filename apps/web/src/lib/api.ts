@@ -2571,8 +2571,9 @@ export async function getInsulinSummary(
 ): Promise<InsulinSummaryResponse> {
   const safeDays = Number.isFinite(days) ? days : 14;
   const clampedDays = Math.max(1, Math.min(90, Math.round(safeDays)));
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const response = await apiFetch(
-    `${API_BASE_URL}/api/integrations/insulin/summary?days=${clampedDays}`
+    `${API_BASE_URL}/api/integrations/insulin/summary?days=${clampedDays}&tz=${encodeURIComponent(tz)}`
   );
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
@@ -2612,13 +2613,67 @@ export async function getBolusReview(
   const clampedDays = Math.max(1, Math.min(30, Math.round(safeDays)));
   const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(500, Math.round(limit))) : 100;
   const safeOffset = Number.isFinite(offset) ? Math.max(0, Math.round(offset)) : 0;
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const response = await apiFetch(
-    `${API_BASE_URL}/api/integrations/bolus/review?days=${clampedDays}&limit=${safeLimit}&offset=${safeOffset}`
+    `${API_BASE_URL}/api/integrations/bolus/review?days=${clampedDays}&limit=${safeLimit}&offset=${safeOffset}&tz=${encodeURIComponent(tz)}`
   );
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
     throw new Error(
       error.detail || `Failed to fetch bolus review: ${response.status}`
+    );
+  }
+  return response.json();
+}
+
+// ---------------------------------------------------------------------------
+// Analytics Configuration
+// ---------------------------------------------------------------------------
+
+export interface AnalyticsConfigResponse {
+  id: string;
+  day_boundary_hour: number;
+  updated_at: string;
+}
+
+export interface AnalyticsConfigUpdate {
+  day_boundary_hour?: number;
+}
+
+/**
+ * Fetch current analytics configuration (day boundary hour).
+ */
+export async function getAnalyticsConfig(): Promise<AnalyticsConfigResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/settings/analytics-config`
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to fetch analytics config: ${response.status}`
+    );
+  }
+  return response.json();
+}
+
+/**
+ * Update analytics configuration.
+ */
+export async function updateAnalyticsConfig(
+  updates: AnalyticsConfigUpdate
+): Promise<AnalyticsConfigResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/settings/analytics-config`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updates),
+    }
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to update analytics config: ${response.status}`
     );
   }
   return response.json();

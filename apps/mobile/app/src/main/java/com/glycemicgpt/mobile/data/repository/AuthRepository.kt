@@ -3,8 +3,10 @@ package com.glycemicgpt.mobile.data.repository
 import android.content.Context
 import com.glycemicgpt.mobile.BuildConfig
 import com.glycemicgpt.mobile.data.auth.AuthManager
+import com.glycemicgpt.mobile.data.local.AnalyticsSettingsStore
 import com.glycemicgpt.mobile.data.local.AuthTokenStore
 import com.glycemicgpt.mobile.data.local.GlucoseRangeStore
+import com.glycemicgpt.mobile.data.local.PumpProfileStore
 import com.glycemicgpt.mobile.data.local.SafetyLimitsStore
 import com.glycemicgpt.mobile.data.remote.GlycemicGptApi
 import com.glycemicgpt.mobile.data.remote.dto.LoginRequest
@@ -31,6 +33,8 @@ class AuthRepository @Inject constructor(
     private val authTokenStore: AuthTokenStore,
     private val glucoseRangeStore: GlucoseRangeStore,
     private val safetyLimitsStore: SafetyLimitsStore,
+    private val analyticsSettingsStore: AnalyticsSettingsStore,
+    private val pumpProfileStore: PumpProfileStore,
     private val api: GlycemicGptApi,
     private val deviceRepository: DeviceRepository,
     private val authManager: AuthManager,
@@ -116,6 +120,8 @@ class AuthRepository @Inject constructor(
         // Server-side cleanup handles orphaned device registrations.
         authTokenStore.clearToken()
         safetyLimitsStore.clear()
+        analyticsSettingsStore.clear()
+        pumpProfileStore.clear()
         authManager.onLogout()
         scope.launch {
             deviceRepository.unregisterDevice()

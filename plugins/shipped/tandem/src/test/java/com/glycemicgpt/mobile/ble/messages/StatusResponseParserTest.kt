@@ -2,6 +2,7 @@ package com.glycemicgpt.mobile.ble.messages
 
 import com.glycemicgpt.mobile.domain.model.CgmTrend
 import com.glycemicgpt.mobile.domain.model.PumpActivityMode
+import com.glycemicgpt.mobile.plugin.TandemBolusCategoryProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -489,7 +490,7 @@ class StatusResponseParserTest {
             buf.putInt(recentPumpTime) // timestamp (Tandem epoch, local time)
             buf.putInt(3500)           // deliveredVolume (milliunits = 3.5 units)
             buf.put(3)                 // bolusStatusId = COMPLETED
-            buf.put(1)                 // bolusSourceId = AUTO_PILOT
+            buf.put(7)                 // bolusSourceId = Algorithm/Control-IQ
             buf.put(0x09.toByte())     // bolusTypeBitmask = STANDARD | CORRECTION
             buf.putShort(0)            // extendedBolusDuration
 
@@ -497,7 +498,7 @@ class StatusResponseParserTest {
             val events = StatusResponseParser.parseLastBolusStatusResponse(buf.array(), since)
             assertEquals(1, events.size)
             assertEquals(3.5f, events[0].units, 0.001f)
-            assertTrue(events[0].isAutomated) // AUTO_PILOT
+            assertTrue(events[0].isAutomated) // Algorithm source
             assertTrue(events[0].isCorrection) // bitmask bit 3
         } finally {
             TimeZone.setDefault(savedTz)
@@ -571,7 +572,7 @@ class StatusResponseParserTest {
             buf.putInt(recentPumpTime) // timestamp
             buf.putInt(1500)           // deliveredVolume (1.5 units)
             buf.put(3)                 // bolusStatusId = COMPLETED
-            buf.put(1)                 // bolusSourceId = AUTO_PILOT
+            buf.put(7)                 // bolusSourceId = Algorithm/Control-IQ
             buf.put(0x08.toByte())     // bolusTypeBitmask = CORRECTION only
             buf.putShort(0)            // extendedBolusDuration
             buf.put(0)                 // V2 extension byte
@@ -580,7 +581,7 @@ class StatusResponseParserTest {
             val events = StatusResponseParser.parseLastBolusStatusResponse(buf.array(), since)
             assertEquals(1, events.size)
             assertEquals(1.5f, events[0].units, 0.001f)
-            assertTrue(events[0].isAutomated) // AUTO_PILOT
+            assertTrue(events[0].isAutomated) // Algorithm source
             assertTrue(events[0].isCorrection) // bitmask bit 3
         } finally {
             TimeZone.setDefault(savedTz)
@@ -608,6 +609,36 @@ class StatusResponseParserTest {
             val since = Instant.now().minusSeconds(3600)
             val events = StatusResponseParser.parseLastBolusStatusResponse(buf.array(), since)
             assertTrue(events.isEmpty())
+        } finally {
+            TimeZone.setDefault(savedTz)
+        }
+    }
+
+    @Test
+    fun `parseLastBolusStatusResponse detects correction via 0x02 bitmask`() {
+        // Real-world case: Control-IQ auto-correction with typeMask=0x02
+        val savedTz = TimeZone.getDefault()
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("America/Chicago"))
+            val fiveMinAgoLocal = LocalDateTime.now().minusMinutes(5)
+            val recentPumpTime = (fiveMinAgoLocal.toEpochSecond(ZoneOffset.UTC) - 1199145600L).toInt()
+            val buf = ByteBuffer.allocate(20).order(ByteOrder.LITTLE_ENDIAN)
+            buf.put(0x01)              // V2 status prefix
+            buf.putInt(5252)           // bolusId
+            buf.putInt(recentPumpTime) // timestamp
+            buf.putInt(982)            // deliveredVolume (0.982 units)
+            buf.put(3)                 // bolusStatusId = COMPLETED
+            buf.put(7)                 // bolusSourceId = Algorithm/Control-IQ
+            buf.put(0x02.toByte())     // bolusTypeBitmask = correction (bit 1)
+            buf.putShort(0)            // extendedBolusDuration
+            buf.put(0)                 // V2 extension byte
+
+            val since = Instant.now().minusSeconds(3600)
+            val events = StatusResponseParser.parseLastBolusStatusResponse(buf.array(), since)
+            assertEquals(1, events.size)
+            assertEquals(0.982f, events[0].units, 0.001f)
+            assertTrue(events[0].isAutomated) // Algorithm source
+            assertTrue(events[0].isCorrection) // bitmask bit 1 (0x02)
         } finally {
             TimeZone.setDefault(savedTz)
         }
@@ -837,6 +868,245 @@ class StatusResponseParserTest {
     @Test
     fun `parsePumpFeaturesResponse returns empty map for short cargo`() {
         assertTrue(StatusResponseParser.parsePumpFeaturesResponse(ByteArray(7)).isEmpty())
+    }
+
+    // -- Bolus delivery dose breakdown tests (event 280) -----------------------
+
+    @Test
+    fun `parseBolusDeliveryPayload extracts combo bolus dose breakdown`() {
+        // Scenario: user delivers 3.5U meal bolus, pump adds 0.5U correction on top
+        // requestedNow=3500mu, correctionPortion=500mu, deliveredTotal=4000mu
+        val savedTz = TimeZone.getDefault()
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
+            val data = ByteBuffer.allocate(16).order(ByteOrder.LITTLE_ENDIAN)
+            data.putShort(1)              // bytes 0-1: bolusId
+            data.put(0)                   // byte  2: deliveryStatus = Completed
+            data.put(0x08.toByte())       // byte  3: bolusType = correction component
+            data.put(0)                   // byte  4: bolusSource = GUI (manual)
+            data.put(0)                   // byte  5: remoteId
+            data.putShort(3500.toShort()) // bytes 6-7: requestedNow (milliunits)
+            data.putShort(500.toShort())  // bytes 8-9: correctionPortion (milliunits)
+            data.putShort(0)              // bytes 10-11: requestedLater
+            data.putShort(0)              // bytes 12-13: reserved
+            data.putShort(4000.toShort()) // bytes 14-15: deliveredTotal (milliunits)
+
+            val pumpTime = (Instant.now().epochSecond - 1199145600L)
+            val result = StatusResponseParser.parseBolusDeliveryPayload(data.array(), pumpTime)
+            assertNotNull(result)
+            assertEquals(4.0f, result!!.units, 0.001f)
+            assertEquals(0.5f, result.correctionUnits, 0.001f)
+            assertEquals(3.5f, result.mealUnits, 0.001f)
+            assertFalse(result.isAutomated)
+            assertTrue(result.isCorrection)
+            assertEquals("GUI", result.source)
+        } finally {
+            TimeZone.setDefault(savedTz)
+        }
+    }
+
+    @Test
+    fun `parseBolusDeliveryPayload automated bolus has ALGORITHM source`() {
+        val savedTz = TimeZone.getDefault()
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
+            val data = ByteBuffer.allocate(16).order(ByteOrder.LITTLE_ENDIAN)
+            data.putShort(5)              // bolusId
+            data.put(0)                   // deliveryStatus = Completed
+            data.put(0x08.toByte())       // bolusType = correction component
+            data.put(7)                   // bolusSource = ALGORITHM
+            data.put(0)                   // remoteId
+            data.putShort(800.toShort())  // requestedNow
+            data.putShort(800.toShort())  // correctionPortion
+            data.putShort(0)              // requestedLater
+            data.putShort(0)              // reserved
+            data.putShort(800.toShort())  // deliveredTotal
+
+            val pumpTime = (Instant.now().epochSecond - 1199145600L)
+            val result = StatusResponseParser.parseBolusDeliveryPayload(data.array(), pumpTime)
+            assertNotNull(result)
+            assertTrue(result!!.isAutomated)
+            assertEquals("ALGORITHM", result.source)
+        } finally {
+            TimeZone.setDefault(savedTz)
+        }
+    }
+
+    @Test
+    fun `parseBolusDeliveryPayload pure correction has zero meal portion`() {
+        // Pure manual correction: requestedNow=1000mu, correctionPortion=1000mu
+        val savedTz = TimeZone.getDefault()
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
+            val data = ByteBuffer.allocate(16).order(ByteOrder.LITTLE_ENDIAN)
+            data.putShort(2)              // bolusId
+            data.put(0)                   // deliveryStatus = Completed
+            data.put(0x02.toByte())       // bolusType = correction type
+            data.put(0)                   // bolusSource = GUI
+            data.put(0)                   // remoteId
+            data.putShort(1000.toShort()) // requestedNow
+            data.putShort(1000.toShort()) // correctionPortion = all correction
+            data.putShort(0)              // requestedLater
+            data.putShort(0)              // reserved
+            data.putShort(1000.toShort()) // deliveredTotal
+
+            val pumpTime = (Instant.now().epochSecond - 1199145600L)
+            val result = StatusResponseParser.parseBolusDeliveryPayload(data.array(), pumpTime)
+            assertNotNull(result)
+            assertEquals(1.0f, result!!.correctionUnits, 0.001f)
+            assertEquals(0.0f, result.mealUnits, 0.001f)
+        } finally {
+            TimeZone.setDefault(savedTz)
+        }
+    }
+
+    @Test
+    fun `parseBolusDeliveryPayload automated bolus has zero meal portion`() {
+        // Automated (Control-IQ) correction: source=7, has correction portion
+        // Automated boluses never have a meal component
+        val savedTz = TimeZone.getDefault()
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
+            val data = ByteBuffer.allocate(16).order(ByteOrder.LITTLE_ENDIAN)
+            data.putShort(3)              // bolusId
+            data.put(0)                   // deliveryStatus = Completed
+            data.put(0x08.toByte())       // bolusType = correction component
+            data.put(7)                   // bolusSource = Algorithm (automated)
+            data.put(0)                   // remoteId
+            data.putShort(800.toShort())  // requestedNow
+            data.putShort(800.toShort())  // correctionPortion
+            data.putShort(0)              // requestedLater
+            data.putShort(0)              // reserved
+            data.putShort(800.toShort())  // deliveredTotal
+
+            val pumpTime = (Instant.now().epochSecond - 1199145600L)
+            val result = StatusResponseParser.parseBolusDeliveryPayload(data.array(), pumpTime)
+            assertNotNull(result)
+            assertEquals(0.8f, result!!.correctionUnits, 0.001f)
+            assertEquals(0.0f, result.mealUnits, 0.001f)
+            assertTrue(result.isAutomated)
+        } finally {
+            TimeZone.setDefault(savedTz)
+        }
+    }
+
+    @Test
+    fun `parseLastBolusStatusResponse returns zero dose breakdown`() {
+        // LastBolus status response does NOT contain correction/meal breakdown
+        val savedTz = TimeZone.getDefault()
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("America/Chicago"))
+            val tenMinAgoLocal = LocalDateTime.now().minusMinutes(10)
+            val recentPumpTime = (tenMinAgoLocal.toEpochSecond(ZoneOffset.UTC) - 1199145600L).toInt()
+            val buf = ByteBuffer.allocate(17).order(ByteOrder.LITTLE_ENDIAN)
+            buf.putInt(50)             // bolusId
+            buf.putInt(recentPumpTime) // timestamp
+            buf.putInt(2500)           // deliveredVolume (2.5 units)
+            buf.put(3)                 // bolusStatusId = COMPLETED
+            buf.put(0)                 // bolusSourceId = GUI
+            buf.put(0x01.toByte())     // bolusTypeBitmask = STANDARD
+            buf.putShort(0)            // extendedBolusDuration
+
+            val since = Instant.now().minusSeconds(3600)
+            val events = StatusResponseParser.parseLastBolusStatusResponse(buf.array(), since)
+            assertEquals(1, events.size)
+            assertEquals(0f, events[0].correctionUnits, 0.001f)
+            assertEquals(0f, events[0].mealUnits, 0.001f)
+            assertEquals("GUI", events[0].source)
+        } finally {
+            TimeZone.setDefault(savedTz)
+        }
+    }
+
+    @Test
+    fun `parseBolusDeliveryPayload clamps correction exceeding delivered total`() {
+        // Edge case: correctionPortion (2000mu) > deliveredTotal (1500mu)
+        // Should clamp correction to delivered total and set meal to 0
+        val savedTz = TimeZone.getDefault()
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
+            val data = ByteBuffer.allocate(16).order(ByteOrder.LITTLE_ENDIAN)
+            data.putShort(4)              // bolusId
+            data.put(0)                   // deliveryStatus = Completed
+            data.put(0x08.toByte())       // bolusType = correction component
+            data.put(0)                   // bolusSource = GUI
+            data.put(0)                   // remoteId
+            data.putShort(2000.toShort()) // requestedNow
+            data.putShort(2000.toShort()) // correctionPortion (> deliveredTotal)
+            data.putShort(0)              // requestedLater
+            data.putShort(0)              // reserved
+            data.putShort(1500.toShort()) // deliveredTotal (partial delivery)
+
+            val pumpTime = (Instant.now().epochSecond - 1199145600L)
+            val result = StatusResponseParser.parseBolusDeliveryPayload(data.array(), pumpTime)
+            assertNotNull(result)
+            assertEquals(1.5f, result!!.units, 0.001f)
+            // Correction clamped to deliveredTotal
+            assertEquals(1.5f, result.correctionUnits, 0.001f)
+            // Meal is 0 since delivered == clamped correction
+            assertEquals(0.0f, result.mealUnits, 0.001f)
+        } finally {
+            TimeZone.setDefault(savedTz)
+        }
+    }
+
+    // -- deriveTandemCategory tests -------------------------------------------
+
+    @Test
+    fun `deriveTandemCategory source 7 returns CONTROL_IQ`() {
+        assertEquals(
+            TandemBolusCategoryProvider.CONTROL_IQ,
+            StatusResponseParser.deriveTandemCategory(bolusSourceRaw = 7, bolusTypeRaw = 0, correctionMu = 0, mealMu = 0),
+        )
+    }
+
+    @Test
+    fun `deriveTandemCategory source 2 returns OVERRIDE`() {
+        assertEquals(
+            TandemBolusCategoryProvider.OVERRIDE,
+            StatusResponseParser.deriveTandemCategory(bolusSourceRaw = 2, bolusTypeRaw = 0, correctionMu = 500, mealMu = 1000),
+        )
+    }
+
+    @Test
+    fun `deriveTandemCategory combo bolus returns BG_FOOD`() {
+        assertEquals(
+            TandemBolusCategoryProvider.BG_FOOD,
+            StatusResponseParser.deriveTandemCategory(bolusSourceRaw = 0, bolusTypeRaw = 0, correctionMu = 500, mealMu = 3000),
+        )
+    }
+
+    @Test
+    fun `deriveTandemCategory meal only returns FOOD_ONLY`() {
+        assertEquals(
+            TandemBolusCategoryProvider.FOOD_ONLY,
+            StatusResponseParser.deriveTandemCategory(bolusSourceRaw = 0, bolusTypeRaw = 0, correctionMu = 0, mealMu = 3000),
+        )
+    }
+
+    @Test
+    fun `deriveTandemCategory correction only returns BG_ONLY`() {
+        assertEquals(
+            TandemBolusCategoryProvider.BG_ONLY,
+            StatusResponseParser.deriveTandemCategory(bolusSourceRaw = 0, bolusTypeRaw = 0, correctionMu = 1000, mealMu = 0),
+        )
+    }
+
+    @Test
+    fun `deriveTandemCategory bitmask correction returns BG_ONLY`() {
+        // No meal/correction breakdown but correction bitmask set
+        assertEquals(
+            TandemBolusCategoryProvider.BG_ONLY,
+            StatusResponseParser.deriveTandemCategory(bolusSourceRaw = 0, bolusTypeRaw = 0x0A, correctionMu = 0, mealMu = 0),
+        )
+    }
+
+    @Test
+    fun `deriveTandemCategory no breakdown no flags returns UNKNOWN`() {
+        assertEquals(
+            TandemBolusCategoryProvider.UNKNOWN,
+            StatusResponseParser.deriveTandemCategory(bolusSourceRaw = 0, bolusTypeRaw = 0, correctionMu = 0, mealMu = 0),
+        )
     }
 
     // -- Helper ---------------------------------------------------------------

@@ -1,5 +1,6 @@
 package com.glycemicgpt.mobile.data.local.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -38,6 +39,10 @@ data class BolusEventEntity(
     val units: Float,
     val isAutomated: Boolean,
     val isCorrection: Boolean,
+    @ColumnInfo(defaultValue = "0.0") val correctionUnits: Float = 0f,
+    @ColumnInfo(defaultValue = "0.0") val mealUnits: Float = 0f,
+    @ColumnInfo(defaultValue = "") val source: String = "",
+    @ColumnInfo(defaultValue = "") val category: String = "",
     val timestampMs: Long,
 )
 
