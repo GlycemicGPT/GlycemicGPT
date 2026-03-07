@@ -113,6 +113,30 @@ jest.mock("@/lib/api", () => ({
   generateTelegramCode: jest.fn().mockResolvedValue({ code: "TEST123" }),
   unlinkTelegram: jest.fn().mockResolvedValue({}),
   sendTelegramTestMessage: jest.fn().mockResolvedValue({}),
+  // Analytics config
+  getAnalyticsConfig: jest.fn().mockResolvedValue({ id: "test", day_boundary_hour: 0, display_labels: null, category_labels: null, updated_at: "2026-01-01" }),
+  updateAnalyticsConfig: jest.fn().mockResolvedValue({}),
+  getPluginDeclarations: jest.fn().mockResolvedValue(null),
+  DEFAULT_DISPLAY_LABELS: [
+    { id: "auto_corr", label: "Auto Corr", computation_role: "AUTO_CORRECTION", pump_source: null, sort_order: 0 },
+    { id: "meal", label: "Meal", computation_role: "FOOD", pump_source: null, sort_order: 1 },
+    { id: "meal_corr", label: "Meal+Corr", computation_role: "FOOD_AND_CORRECTION", pump_source: null, sort_order: 2 },
+    { id: "correction", label: "Correction", computation_role: "CORRECTION", pump_source: null, sort_order: 3 },
+    { id: "override", label: "Override", computation_role: "OVERRIDE", pump_source: null, sort_order: 4 },
+    { id: "other", label: "Other", computation_role: "OTHER", pump_source: null, sort_order: 5 },
+  ],
+  VALID_CATEGORY_KEYS: [
+    "AUTO_CORRECTION", "FOOD", "FOOD_AND_CORRECTION",
+    "CORRECTION", "OVERRIDE", "OTHER",
+  ],
+  DEFAULT_CATEGORY_LABELS: {
+    AUTO_CORRECTION: "Auto Corr",
+    FOOD: "Meal",
+    FOOD_AND_CORRECTION: "Meal+Corr",
+    CORRECTION: "Correction",
+    OVERRIDE: "Override",
+    OTHER: "Other",
+  },
   // Alerts page
   getActiveAlerts: jest.fn().mockResolvedValue({ alerts: [] }),
   acknowledgeAlert: jest.fn().mockResolvedValue({}),

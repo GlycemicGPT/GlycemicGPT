@@ -246,6 +246,12 @@ class User(Base, TimestampMixin):
         cascade="all, delete-orphan",
         uselist=False,
     )
+    plugin_declaration = relationship(
+        "PluginDeclaration",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
 
     def __repr__(self) -> str:
         return f"<User {self.email} ({self.role.value})>"

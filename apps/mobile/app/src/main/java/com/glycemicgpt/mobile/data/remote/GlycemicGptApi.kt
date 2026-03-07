@@ -9,6 +9,7 @@ import com.glycemicgpt.mobile.data.remote.dto.ChatRequest
 import com.glycemicgpt.mobile.data.remote.dto.ChatResponse
 import com.glycemicgpt.mobile.data.remote.dto.DeviceRegistrationRequest
 import com.glycemicgpt.mobile.data.remote.dto.DeviceRegistrationResponse
+import com.glycemicgpt.mobile.data.remote.dto.PluginDeclarationRequest
 import com.glycemicgpt.mobile.data.remote.dto.GlucoseRangeResponse
 import com.glycemicgpt.mobile.data.remote.dto.SafetyLimitsResponse
 import com.glycemicgpt.mobile.data.remote.dto.HealthResponse
@@ -22,6 +23,7 @@ import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.POST
+import retrofit2.http.PUT
 import retrofit2.http.Path
 
 /**
@@ -76,4 +78,11 @@ interface GlycemicGptApi {
     // Pump profile summary
     @GET("/api/settings/pump-profile")
     suspend fun getPumpProfile(): Response<PumpProfileResponse>
+
+    // Plugin declarations
+    @PUT("/api/settings/plugin-declarations")
+    suspend fun putPluginDeclarations(@Body body: PluginDeclarationRequest): Response<Unit>
+
+    @DELETE("/api/settings/plugin-declarations")
+    suspend fun deletePluginDeclarations(): Response<Unit>
 }
