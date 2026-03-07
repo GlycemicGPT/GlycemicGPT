@@ -268,10 +268,11 @@ private fun FiveBucketStackedBar(
         )
 
         var x = 0f
+        val lastNonZeroIndex = segments.indexOfLast { it.first > 0f }
         segments.forEachIndexed { index, (pct, color) ->
             if (pct <= 0f) return@forEachIndexed
-            val w = if (index == segments.lastIndex) {
-                totalWidth - x // absorb rounding on last segment
+            val w = if (index == lastNonZeroIndex) {
+                totalWidth - x // absorb rounding on last drawn segment
             } else {
                 (pct / total) * totalWidth
             }

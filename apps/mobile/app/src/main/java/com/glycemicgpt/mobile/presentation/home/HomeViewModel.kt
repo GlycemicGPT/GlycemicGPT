@@ -385,8 +385,11 @@ class HomeViewModel @Inject constructor(
                     val low = range.lowTarget.toInt().coerceIn(MIN_THRESHOLD, MAX_THRESHOLD)
                     val high = range.highTarget.toInt().coerceIn(MIN_THRESHOLD, MAX_THRESHOLD)
                     val urgentHigh = range.urgentHigh.toInt().coerceIn(MIN_THRESHOLD, MAX_THRESHOLD)
-                    if (low >= high) {
-                        Timber.w("Invalid glucose range: low=%d >= high=%d, skipping update", low, high)
+                    if (urgentLow > low || low >= high || high > urgentHigh) {
+                        Timber.w(
+                            "Invalid glucose range ordering: urgentLow=%d, low=%d, high=%d, urgentHigh=%d, skipping update",
+                            urgentLow, low, high, urgentHigh,
+                        )
                         return
                     }
                     glucoseRangeStore.updateAll(
