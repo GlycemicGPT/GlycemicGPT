@@ -65,24 +65,30 @@ fun InsulinSummaryCard(
     summary: InsulinSummary?,
     selectedPeriod: TirPeriod,
     onPeriodSelected: (TirPeriod) -> Unit,
+    categoryLabels: Map<String, String> = emptyMap(),
+    pumpLabelMap: Map<BolusCategory, String>? = null,
     modifier: Modifier = Modifier,
 ) {
     // Coerce period to one supported by this card (other cards may allow 14D/30D)
     val effectivePeriod = if (selectedPeriod in InsulinPeriods) selectedPeriod else InsulinPeriods.first()
 
+    val foodLabel = categoryLabels["FOOD"] ?: BolusCategory.FOOD.displayName
+    val corrLabel = categoryLabels["CORRECTION"] ?: BolusCategory.CORRECTION.displayName
     val a11yDescription = if (summary != null) {
         String.format(
             Locale.US,
             "Insulin summary: total daily dose %.1f units, " +
                 "basal %.1f units (%.0f%%), bolus %.1f units (%.0f%%). " +
-                "Food bolus %.1f, Correction bolus %.1f units per day. " +
+                "%s bolus %.1f, %s bolus %.1f units per day. " +
                 "%d total boluses",
             summary.totalDailyDose,
             summary.basalUnits,
             summary.basalPercent,
             summary.bolusUnits,
             summary.bolusPercent,
+            foodLabel,
             summary.foodBolusUnits,
+            corrLabel,
             summary.correctionBolusUnits,
             summary.bolusCount,
         )
@@ -197,11 +203,11 @@ fun InsulinSummaryCard(
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     PortionRow(
-                        label = "Food Bolus",
+                        label = "${categoryLabels["FOOD"] ?: BolusCategory.FOOD.displayName} Bolus",
                         value = String.format(Locale.US, "%.1f U/d", summary.foodBolusUnits),
                     )
                     PortionRow(
-                        label = "Correction Bolus",
+                        label = "${categoryLabels["CORRECTION"] ?: BolusCategory.CORRECTION.displayName} Bolus",
                         value = String.format(Locale.US, "%.1f U/d", summary.correctionBolusUnits),
                     )
                 }
@@ -237,9 +243,17 @@ fun InsulinSummaryCard(
                             } else {
                                 0f
                             }
+                            val baseLabel = categoryLabels[category.name]
+                                ?: category.displayName
+                            val pumpNative = pumpLabelMap?.get(category)
+                            val label = if (pumpNative != null) {
+                                "$baseLabel ($pumpNative)"
+                            } else {
+                                baseLabel
+                            }
                             CategoryCountRow(
                                 color = colorForCategory(category),
-                                label = category.displayName,
+                                label = label,
                                 count = stats.count,
                                 percent = pct,
                             )

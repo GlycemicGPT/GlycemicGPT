@@ -39,6 +39,7 @@ fun BolusHistoryScreen(
 
     val enrichedBoluses by viewModel.enrichedBoluses.collectAsState()
     val selectedPeriod by viewModel.selectedBolusPeriod.collectAsState()
+    val categoryLabels by viewModel.categoryLabels.collectAsState()
 
     DetailScaffold(title = "Bolus History", onBack = onBack) { innerPadding ->
         Column(
@@ -100,7 +101,7 @@ fun BolusHistoryScreen(
                 ) {
                     items(sorted.size) { index ->
                         val bolus = sorted[index]
-                        BolusTableRow(bolus)
+                        BolusTableRow(bolus, categoryLabels)
                         HorizontalDivider(
                             modifier = Modifier.padding(vertical = 2.dp),
                             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),

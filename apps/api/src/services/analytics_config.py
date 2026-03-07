@@ -1,6 +1,7 @@
 """Analytics configuration service.
 
-Manages user analytics day boundary setting with get-or-create pattern.
+Manages user analytics day boundary setting and display labels
+with get-or-create pattern.
 """
 
 import uuid
@@ -81,7 +82,8 @@ async def update_config(
 ) -> AnalyticsConfig:
     """Update the user's analytics configuration.
 
-    Only fields provided in the request are updated.
+    display_labels uses full-replace semantics -- the entire array is
+    replaced, not merged.
 
     Args:
         user_id: User's UUID.
@@ -96,6 +98,13 @@ async def update_config(
     update_data = updates.model_dump(exclude_none=True)
     if not update_data:
         return config
+
+    # display_labels: full-replace (convert Pydantic models to dicts)
+    if "display_labels" in update_data:
+        raw_labels = update_data["display_labels"]
+        update_data["display_labels"] = [
+            item if isinstance(item, dict) else item for item in raw_labels
+        ]
 
     for field, value in update_data.items():
         setattr(config, field, value)

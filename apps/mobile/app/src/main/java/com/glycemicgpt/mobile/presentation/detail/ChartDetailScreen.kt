@@ -64,6 +64,7 @@ fun ChartDetailScreen(
     val bolusHistory by viewModel.bolusHistory.collectAsState()
     val selectedPeriod by viewModel.selectedPeriod.collectAsState()
     val thresholds by viewModel.glucoseThresholds.collectAsState()
+    val categoryLabels by viewModel.categoryLabels.collectAsState()
 
     Column(modifier = Modifier.fillMaxSize()) {
         // Single compact row: back button + title + period chips -- flush to top
@@ -122,6 +123,7 @@ fun ChartDetailScreen(
             selectedPeriod = selectedPeriod,
             onPeriodSelected = { viewModel.onPeriodSelected(it) },
             thresholds = thresholds,
+            categoryLabels = categoryLabels,
             isDetailMode = true,
             showPeriodSelector = false,
             modifier = Modifier

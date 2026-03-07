@@ -6,10 +6,10 @@ package com.glycemicgpt.mobile.domain.model
  * and display.
  */
 enum class BolusCategory(val displayName: String) {
-    AUTO_CORRECTION("Auto"),
-    FOOD("Food"),
-    FOOD_AND_CORRECTION("BG+Food"),
-    CORRECTION("BG Only"),
+    AUTO_CORRECTION("Auto Corr"),
+    FOOD("Meal"),
+    FOOD_AND_CORRECTION("Meal+Corr"),
+    CORRECTION("Correction"),
     OVERRIDE("Override"),
     AI_SUGGESTED("AI Suggested"),
     OTHER("Other"),

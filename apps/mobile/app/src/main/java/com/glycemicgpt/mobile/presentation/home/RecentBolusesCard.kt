@@ -57,6 +57,7 @@ fun RecentBolusesCard(
     boluses: List<EnrichedBolusEvent>,
     selectedPeriod: TirPeriod,
     onPeriodSelected: (TirPeriod) -> Unit,
+    categoryLabels: Map<String, String> = emptyMap(),
     onExpand: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -152,7 +153,7 @@ fun RecentBolusesCard(
                     boluses.sortedByDescending { it.timestamp }.take(MAX_HOME_ROWS)
                 }
                 recentBoluses.forEachIndexed { index, bolus ->
-                    BolusTableRow(bolus)
+                    BolusTableRow(bolus, categoryLabels)
                     if (index < recentBoluses.lastIndex) {
                         HorizontalDivider(
                             modifier = Modifier.padding(vertical = 2.dp),
@@ -203,7 +204,7 @@ private fun TableHeaderCell(text: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-internal fun BolusTableRow(bolus: EnrichedBolusEvent) {
+internal fun BolusTableRow(bolus: EnrichedBolusEvent, categoryLabels: Map<String, String> = emptyMap()) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -226,7 +227,7 @@ internal fun BolusTableRow(bolus: EnrichedBolusEvent) {
                 modifier = Modifier.weight(0.8f),
             )
             Box(modifier = Modifier.weight(1.2f)) {
-                BolusTypeBadge(bolus.bolusType)
+                BolusTypeBadge(bolus.bolusType, categoryLabels)
             }
             Text(
                 text = bolus.bgAtEvent?.toString() ?: "--",
@@ -249,12 +250,14 @@ internal fun BolusTableRow(bolus: EnrichedBolusEvent) {
 }
 
 @Composable
-private fun BolusTypeBadge(type: BolusType) {
+private fun BolusTypeBadge(type: BolusType, categoryLabels: Map<String, String> = emptyMap()) {
+    // AUTO has no dedicated BolusCategory -- always use static "Auto" to avoid
+    // conflating with AUTO_CORRECTION when users customize labels.
     val (label, color) = when (type) {
-        BolusType.AUTO_CORRECTION -> "Corr" to BolusTypeColors.Correction
-        BolusType.CORRECTION -> "BG Only" to BolusTypeColors.ManualCorrection
-        BolusType.MEAL -> "Food" to BolusTypeColors.Meal
-        BolusType.MEAL_WITH_CORRECTION -> "BG+Food" to BolusTypeColors.MealWithCorrection
+        BolusType.AUTO_CORRECTION -> (categoryLabels["AUTO_CORRECTION"] ?: "Auto Corr") to BolusTypeColors.Correction
+        BolusType.CORRECTION -> (categoryLabels["CORRECTION"] ?: "Correction") to BolusTypeColors.ManualCorrection
+        BolusType.MEAL -> (categoryLabels["FOOD"] ?: "Meal") to BolusTypeColors.Meal
+        BolusType.MEAL_WITH_CORRECTION -> (categoryLabels["FOOD_AND_CORRECTION"] ?: "Meal+Corr") to BolusTypeColors.MealWithCorrection
         BolusType.AUTO -> "Auto" to BolusTypeColors.Correction
     }
 
@@ -263,6 +266,8 @@ private fun BolusTypeBadge(type: BolusType) {
         style = MaterialTheme.typography.labelSmall,
         fontWeight = FontWeight.SemiBold,
         color = Color.White,
+        maxLines = 1,
+        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
         modifier = Modifier
             .background(color.copy(alpha = 0.85f), RoundedCornerShape(4.dp))
             .padding(horizontal = 6.dp, vertical = 1.dp),

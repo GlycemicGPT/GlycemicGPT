@@ -195,6 +195,30 @@ fun SettingsScreen(
             ) {
                 Text("BLE Debug Console")
             }
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("show_pump_labels_toggle"),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Show Pump Labels",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        text = "Show pump-native category names next to display labels in Insulin Summary",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = state.showPumpLabels,
+                    onCheckedChange = { settingsViewModel.setShowPumpLabels(it) },
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(16.dp))

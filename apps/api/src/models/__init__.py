@@ -28,6 +28,7 @@ from src.models.integration import (
     IntegrationType,
 )
 from src.models.meal_analysis import MealAnalysis
+from src.models.plugin_declaration import PluginDeclaration
 from src.models.pump_data import PumpEvent, PumpEventType
 from src.models.pump_hardware_info import PumpHardwareInfo
 from src.models.pump_profile import PumpProfile
@@ -74,6 +75,7 @@ __all__ = [
     "IntegrationType",
     "MealAnalysis",
     "NotificationStatus",
+    "PluginDeclaration",
     "PumpEvent",
     "PumpEventType",
     "PumpHardwareInfo",

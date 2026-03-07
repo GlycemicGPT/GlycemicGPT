@@ -2630,15 +2630,53 @@ export async function getBolusReview(
 // Analytics Configuration
 // ---------------------------------------------------------------------------
 
+export interface DisplayLabel {
+  id: string;
+  label: string;
+  computation_role: string | null;
+  pump_source: string | null;
+  sort_order: number;
+}
+
 export interface AnalyticsConfigResponse {
   id: string;
   day_boundary_hour: number;
+  display_labels: DisplayLabel[] | null;
+  category_labels: Record<string, string> | null;
   updated_at: string;
 }
 
 export interface AnalyticsConfigUpdate {
   day_boundary_hour?: number;
+  display_labels?: DisplayLabel[];
 }
+
+export const DEFAULT_DISPLAY_LABELS: DisplayLabel[] = [
+  { id: "auto_corr", label: "Auto Corr", computation_role: "AUTO_CORRECTION", pump_source: null, sort_order: 0 },
+  { id: "meal", label: "Meal", computation_role: "FOOD", pump_source: null, sort_order: 1 },
+  { id: "meal_corr", label: "Meal+Corr", computation_role: "FOOD_AND_CORRECTION", pump_source: null, sort_order: 2 },
+  { id: "correction", label: "Correction", computation_role: "CORRECTION", pump_source: null, sort_order: 3 },
+  { id: "override", label: "Override", computation_role: "OVERRIDE", pump_source: null, sort_order: 4 },
+  { id: "other", label: "Other", computation_role: "OTHER", pump_source: null, sort_order: 5 },
+];
+
+export const DEFAULT_CATEGORY_LABELS: Record<string, string> = {
+  AUTO_CORRECTION: "Auto Corr",
+  FOOD: "Meal",
+  FOOD_AND_CORRECTION: "Meal+Corr",
+  CORRECTION: "Correction",
+  OVERRIDE: "Override",
+  OTHER: "Other",
+};
+
+export const VALID_CATEGORY_KEYS = [
+  "AUTO_CORRECTION",
+  "FOOD",
+  "FOOD_AND_CORRECTION",
+  "CORRECTION",
+  "OVERRIDE",
+  "OTHER",
+] as const;
 
 /**
  * Fetch current analytics configuration (day boundary hour).
@@ -2674,6 +2712,40 @@ export async function updateAnalyticsConfig(
     const error = await response.json().catch(() => ({}));
     throw new Error(
       error.detail || `Failed to update analytics config: ${response.status}`
+    );
+  }
+  return response.json();
+}
+
+// ---------------------------------------------------------------------------
+// Plugin Declarations
+// ---------------------------------------------------------------------------
+
+export interface PluginDeclarationResponse {
+  id: string;
+  plugin_id: string;
+  plugin_name: string;
+  plugin_version: string;
+  declared_categories: string[];
+  category_mappings: Record<string, string>;
+  updated_at: string;
+}
+
+/**
+ * Fetch the current user's active pump plugin declaration.
+ * Returns null if no plugin is active (404).
+ */
+export async function getPluginDeclarations(): Promise<PluginDeclarationResponse | null> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/settings/plugin-declarations`
+  );
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to fetch plugin declarations: ${response.status}`
     );
   }
   return response.json();

@@ -114,6 +114,7 @@ fun GlucoseTrendChart(
     selectedPeriod: ChartPeriod,
     onPeriodSelected: (ChartPeriod) -> Unit,
     thresholds: GlucoseThresholds = GlucoseThresholds(),
+    categoryLabels: Map<String, String> = emptyMap(),
     onClick: (() -> Unit)? = null,
     isDetailMode: Boolean = false,
     showPeriodSelector: Boolean = true,
@@ -128,6 +129,7 @@ fun GlucoseTrendChart(
             selectedPeriod = selectedPeriod,
             onPeriodSelected = onPeriodSelected,
             thresholds = thresholds,
+            categoryLabels = categoryLabels,
             onClick = onClick,
             isDetailMode = isDetailMode,
             showPeriodSelector = showPeriodSelector,
@@ -159,6 +161,7 @@ private fun GlucoseTrendChartContent(
     selectedPeriod: ChartPeriod,
     onPeriodSelected: (ChartPeriod) -> Unit,
     thresholds: GlucoseThresholds,
+    categoryLabels: Map<String, String>,
     onClick: (() -> Unit)?,
     isDetailMode: Boolean,
     showPeriodSelector: Boolean = true,
@@ -381,6 +384,7 @@ private fun GlucoseTrendChartContent(
                         gridColor = gridColor,
                         iobColor = iobColor,
                         thresholds = thresholds,
+                        categoryLabels = categoryLabels,
                     )
                 }
 
@@ -458,6 +462,7 @@ private fun GlucoseTrendChartContent(
                 basalModesPresent = basalModesPresent,
                 bolusTypesPresent = bolusTypesPresent,
                 iobColor = iobColor,
+                categoryLabels = categoryLabels,
             )
         }
     }
@@ -469,6 +474,7 @@ private fun ChartLegend(
     basalModesPresent: Set<String>,
     bolusTypesPresent: Set<String>,
     iobColor: Color,
+    categoryLabels: Map<String, String> = emptyMap(),
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -479,11 +485,23 @@ private fun ChartLegend(
         if ("manual" in basalModesPresent) LegendItem(color = ChartColors.BasalManual, label = "Manual")
         if ("sleep" in basalModesPresent) LegendItem(color = ChartColors.BasalSleep, label = "Sleep")
         if ("exercise" in basalModesPresent) LegendItem(color = ChartColors.BasalExercise, label = "Exercise")
-        if ("auto_correction" in bolusTypesPresent) LegendItem(color = BolusTypeColors.Correction, label = "Corr")
+        if ("auto_correction" in bolusTypesPresent) LegendItem(
+            color = BolusTypeColors.Correction,
+            label = abbreviateLabel(categoryLabels["AUTO_CORRECTION"] ?: "Auto Corr"),
+        )
         if ("auto_bolus" in bolusTypesPresent) LegendItem(color = BolusTypeColors.Correction, label = "Auto")
-        if ("manual_correction" in bolusTypesPresent) LegendItem(color = BolusTypeColors.ManualCorrection, label = "BG Only")
-        if ("meal_with_correction" in bolusTypesPresent) LegendItem(color = BolusTypeColors.MealWithCorrection, label = "BG+Food")
-        if ("meal_bolus" in bolusTypesPresent) LegendItem(color = BolusTypeColors.Meal, label = "Food")
+        if ("manual_correction" in bolusTypesPresent) LegendItem(
+            color = BolusTypeColors.ManualCorrection,
+            label = abbreviateLabel(categoryLabels["CORRECTION"] ?: "Correction"),
+        )
+        if ("meal_with_correction" in bolusTypesPresent) LegendItem(
+            color = BolusTypeColors.MealWithCorrection,
+            label = abbreviateLabel(categoryLabels["FOOD_AND_CORRECTION"] ?: "Meal+Corr"),
+        )
+        if ("meal_bolus" in bolusTypesPresent) LegendItem(
+            color = BolusTypeColors.Meal,
+            label = abbreviateLabel(categoryLabels["FOOD"] ?: "Meal"),
+        )
         if (hasIob) LegendItem(color = iobColor.copy(alpha = 0.7f), label = "IoB")
     }
 }
@@ -533,6 +551,7 @@ private fun DrawScope.drawGlucoseChart(
     gridColor: Color,
     iobColor: Color,
     thresholds: GlucoseThresholds = GlucoseThresholds(),
+    categoryLabels: Map<String, String> = emptyMap(),
 ) {
     // Guard against zero-span viewport (prevents division by zero throughout)
     if (xMax <= xMin) return
@@ -669,6 +688,7 @@ private fun DrawScope.drawGlucoseChart(
         chartWidth = chartWidth,
         chartHeight = chartHeight,
         textMeasurer = textMeasurer,
+        categoryLabels = categoryLabels,
     )
 
     // -- Glucose data points (drawn last so they're on top) ----------------------
@@ -868,6 +888,38 @@ private fun DrawScope.drawIoBOverlay(
     }
 }
 
+/** Resolve the display label for a [BolusType] from user-configured category labels. */
+private fun bolusTypeLabel(type: BolusType, categoryLabels: Map<String, String>): String? {
+    if (categoryLabels.isEmpty()) {
+        // Fallback to hardcoded abbreviations when no labels configured
+        return when (type) {
+            BolusType.AUTO_CORRECTION -> "Auto Corr"
+            BolusType.CORRECTION -> "Correction"
+            BolusType.MEAL_WITH_CORRECTION -> "Meal+Corr"
+            BolusType.AUTO -> "Auto"
+            BolusType.MEAL -> null // Skip plain meal to reduce clutter
+        }
+    }
+    // Map BolusType -> BolusCategory platform key -> user label.
+    // AUTO has no dedicated BolusCategory -- always use static "Auto" to avoid
+    // conflating with AUTO_CORRECTION when users customize labels.
+    return when (type) {
+        BolusType.AUTO_CORRECTION -> categoryLabels["AUTO_CORRECTION"] ?: "Auto Corr"
+        BolusType.CORRECTION -> categoryLabels["CORRECTION"] ?: "Correction"
+        BolusType.MEAL_WITH_CORRECTION -> categoryLabels["FOOD_AND_CORRECTION"] ?: "Meal+Corr"
+        BolusType.AUTO -> "Auto"
+        BolusType.MEAL -> null // Skip plain meal to reduce clutter
+    }
+}
+
+/** Abbreviate a label for chart markers (max ~8 chars for 7sp text). */
+private fun abbreviateLabel(label: String): String {
+    if (label.isBlank()) return label
+    if (label.length <= 8) return label
+    // Truncate with ellipsis, preserving enough chars for uniqueness
+    return label.take(7) + "."
+}
+
 private fun DrawScope.drawBolusMarkers(
     bolusEvents: List<BolusEvent>,
     xMin: Long,
@@ -877,6 +929,7 @@ private fun DrawScope.drawBolusMarkers(
     chartWidth: Float,
     chartHeight: Float,
     textMeasurer: TextMeasurer,
+    categoryLabels: Map<String, String> = emptyMap(),
 ) {
     if (bolusEvents.isEmpty()) return
 
@@ -950,13 +1003,7 @@ private fun DrawScope.drawBolusMarkers(
         )
 
         // Type tag above units label -- skip plain MEAL (most common) to reduce clutter
-        val tagText = when (bolusType) {
-            BolusType.AUTO_CORRECTION -> "CORR"
-            BolusType.CORRECTION -> "BG"
-            BolusType.MEAL_WITH_CORRECTION -> "BG+F"
-            BolusType.AUTO -> "AUTO"
-            BolusType.MEAL -> null
-        }
+        val tagText = bolusTypeLabel(bolusType, categoryLabels)?.let { abbreviateLabel(it) }
         if (tagText != null) {
             val tagStyle = TextStyle(fontSize = 7.sp, color = color.copy(alpha = 0.8f))
             val tag = textMeasurer.measure(tagText, tagStyle)

@@ -81,6 +81,8 @@ fun HomeScreen(
     val insulinSummary by viewModel.insulinSummary.collectAsState()
     val selectedBolusPeriod by viewModel.selectedBolusPeriod.collectAsState()
     val enrichedBoluses by viewModel.enrichedBoluses.collectAsState()
+    val categoryLabels by viewModel.categoryLabels.collectAsState()
+    val pumpLabelMap by viewModel.pumpLabelMap.collectAsState()
 
     PullToRefreshBox(
         isRefreshing = isRefreshing,
@@ -120,6 +122,7 @@ fun HomeScreen(
                 selectedPeriod = selectedPeriod,
                 onPeriodSelected = { viewModel.onPeriodSelected(it) },
                 thresholds = thresholds,
+                categoryLabels = categoryLabels,
                 onClick = onNavigateToChartDetail,
             )
 
@@ -149,6 +152,8 @@ fun HomeScreen(
                 summary = insulinSummary,
                 selectedPeriod = selectedInsulinPeriod,
                 onPeriodSelected = { viewModel.onInsulinPeriodSelected(it) },
+                categoryLabels = categoryLabels,
+                pumpLabelMap = if (viewModel.showPumpLabels) pumpLabelMap else null,
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -169,6 +174,7 @@ fun HomeScreen(
                 boluses = enrichedBoluses,
                 selectedPeriod = selectedBolusPeriod,
                 onPeriodSelected = { viewModel.onBolusPeriodSelected(it) },
+                categoryLabels = categoryLabels,
                 onExpand = onNavigateToBolusHistory,
             )
 

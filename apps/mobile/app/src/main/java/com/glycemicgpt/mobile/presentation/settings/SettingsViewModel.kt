@@ -116,6 +116,8 @@ data class SettingsUiState(
     val aiNotificationSoundName: String = DEFAULT_NOTIFICATION_NAME,
     val aiNotificationSoundUri: String? = null,
     val overrideSilentForLow: Boolean = true,
+    // Debug-only
+    val showPumpLabels: Boolean = false,
 )
 
 @HiltViewModel
@@ -188,6 +190,7 @@ class SettingsViewModel @Inject constructor(
             availablePlugins = pluginRegistry.availablePlugins.value,
             activePluginIds = pluginRegistry.allActivePlugins.value.map { it.metadata.id }.toSet(),
             runtimePlugins = pluginRegistry.runtimePlugins.value,
+            showPumpLabels = appSettingsStore.showPumpLabels,
         ).withActivePumpFields()
 
         checkBatteryOptimization()
@@ -603,6 +606,11 @@ class SettingsViewModel @Inject constructor(
     private fun defaultSoundName(category: AlertSoundCategory): String = when (category) {
         AlertSoundCategory.LOW_ALERT -> DEFAULT_ALARM_NAME
         AlertSoundCategory.HIGH_ALERT, AlertSoundCategory.AI_NOTIFICATION -> DEFAULT_NOTIFICATION_NAME
+    }
+
+    fun setShowPumpLabels(enabled: Boolean) {
+        appSettingsStore.showPumpLabels = enabled
+        _uiState.value = _uiState.value.copy(showPumpLabels = enabled)
     }
 
     fun setOverrideSilentForLow(enabled: Boolean) {

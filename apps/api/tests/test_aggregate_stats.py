@@ -483,8 +483,8 @@ class TestInsulinSummary:
             async for db in get_db():
                 now = datetime.now(UTC)
                 uid = uuid.UUID(user_id)
-                cutoff = _boundary_cutoff(days=1)
-                base_ts = cutoff + timedelta(minutes=30)
+                # Place 240 records ending near now so trailing gap is minimal
+                base_ts = now - timedelta(hours=1)
                 # 240 records over 1 hour (every 15 seconds) at 0.8 U/hr
                 for i in range(240):
                     ts = base_ts + timedelta(seconds=i * 15)
@@ -620,13 +620,12 @@ class TestInsulinSummary:
             async for db in get_db():
                 now = datetime.now(UTC)
                 uid = uuid.UUID(user_id)
-                cutoff = _boundary_cutoff(days=1)
-                # Suspended record (rate = 0) followed by a normal record
+                # Suspended record (rate = 0) followed by normal record near now
                 db.add(
                     PumpEvent(
                         user_id=uid,
                         event_type=PumpEventType.BASAL,
-                        event_timestamp=cutoff + timedelta(minutes=30),
+                        event_timestamp=now - timedelta(hours=1),
                         units=0.0,
                         is_automated=True,
                         received_at=now,
@@ -637,7 +636,7 @@ class TestInsulinSummary:
                     PumpEvent(
                         user_id=uid,
                         event_type=PumpEventType.BASAL,
-                        event_timestamp=cutoff + timedelta(hours=1, minutes=30),
+                        event_timestamp=now - timedelta(minutes=1),
                         units=0.8,
                         is_automated=True,
                         received_at=now,
@@ -653,8 +652,7 @@ class TestInsulinSummary:
             )
         assert resp.status_code == 200
         data = resp.json()
-        # Suspended hour contributes 0. Second record has ~0 gap to now.
-        # Total should be very close to 0.
+        # Suspended hour contributes 0. Second record near now has minimal gap.
         assert data["basal_units"] < 0.5
 
     async def test_basal_carry_over_from_before_cutoff(self):
