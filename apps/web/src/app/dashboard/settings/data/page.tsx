@@ -76,6 +76,25 @@ function displayLabelsEqual(a: DisplayLabel[], b: DisplayLabel[]): boolean {
   );
 }
 
+/** Build default labels, auto-populating pump_source from plugin category_mappings when available. */
+function buildDefaultLabels(plugin: PluginDeclarationResponse | null): DisplayLabel[] {
+  const defaults = DEFAULT_DISPLAY_LABELS.map((d) => ({ ...d }));
+  if (plugin && plugin.category_mappings) {
+    const roleToSource: Record<string, string> = {};
+    for (const [pumpCat, role] of Object.entries(plugin.category_mappings)) {
+      if (!roleToSource[role]) {
+        roleToSource[role] = pumpCat;
+      }
+    }
+    for (const label of defaults) {
+      if (label.computation_role && roleToSource[label.computation_role]) {
+        label.pump_source = roleToSource[label.computation_role];
+      }
+    }
+  }
+  return defaults;
+}
+
 /** Generate a unique slug id for a new label. */
 function generateLabelId(existingIds: Set<string>): string {
   for (let i = 1; i <= 100; i++) {
@@ -1054,30 +1073,11 @@ export default function DataRetentionPage() {
               <button
                 type="button"
                 onClick={() => {
-                  const defaults = DEFAULT_DISPLAY_LABELS.map((d) => ({ ...d }));
-                  // Auto-populate pump_source from plugin category_mappings
-                  if (pluginDeclaration) {
-                    // Reverse map: computation_role -> pump-native category
-                    const roleToSource: Record<string, string> = {};
-                    for (const [pumpCat, role] of Object.entries(
-                      pluginDeclaration.category_mappings
-                    )) {
-                      // First mapping wins (avoids many-to-one ambiguity)
-                      if (!roleToSource[role]) {
-                        roleToSource[role] = pumpCat;
-                      }
-                    }
-                    for (const label of defaults) {
-                      if (label.computation_role && roleToSource[label.computation_role]) {
-                        label.pump_source = roleToSource[label.computation_role];
-                      }
-                    }
-                  }
-                  setDisplayLabels(defaults);
+                  setDisplayLabels(buildDefaultLabels(pluginDeclaration));
                 }}
                 disabled={
                   isSavingLabels ||
-                  displayLabelsEqual(displayLabels, DEFAULT_DISPLAY_LABELS)
+                  displayLabelsEqual(displayLabels, buildDefaultLabels(pluginDeclaration))
                 }
                 className={clsx(
                   "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium",
