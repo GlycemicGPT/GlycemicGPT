@@ -67,48 +67,6 @@ class DashboardComputationsTest {
         return IoBReading(iob = iob, timestamp = ts)
     }
 
-    // -- computeAgp -----------------------------------------------------------
-
-    @Test
-    fun `computeAgp returns null for empty readings`() {
-        assertNull(DashboardComputations.computeAgp(emptyList(), 14))
-    }
-
-    @Test
-    fun `computeAgp returns null for insufficient readings`() {
-        val readings = (1..100).map { cgm(120, minutesAgo = it.toLong() * 5) }
-        assertNull(DashboardComputations.computeAgp(readings, 14))
-    }
-
-    @Test
-    fun `computeAgp returns profile with 24 buckets for sufficient data`() {
-        // Generate 1000 readings spread across multiple hours
-        val readings = (0 until 1000).map { i ->
-            cgm(100 + (i % 50), minutesAgo = i.toLong() * 5)
-        }
-        val profile = DashboardComputations.computeAgp(readings, 7)
-        assertNotNull(profile)
-        assertEquals(24, profile!!.buckets.size)
-        assertEquals(1000, profile.totalReadings)
-        assertEquals(7, profile.periodDays)
-    }
-
-    @Test
-    fun `computeAgp buckets have ordered percentiles`() {
-        val readings = (0 until 1000).map { i ->
-            cgm(80 + (i % 100), minutesAgo = i.toLong() * 5)
-        }
-        val profile = DashboardComputations.computeAgp(readings, 7)!!
-        for (bucket in profile.buckets) {
-            if (bucket.count > 1) {
-                assertTrue("p10 <= p25", bucket.p10 <= bucket.p25)
-                assertTrue("p25 <= p50", bucket.p25 <= bucket.p50)
-                assertTrue("p50 <= p75", bucket.p50 <= bucket.p75)
-                assertTrue("p75 <= p90", bucket.p75 <= bucket.p90)
-            }
-        }
-    }
-
     // -- computeCgmStats ------------------------------------------------------
 
     @Test
@@ -552,26 +510,6 @@ class DashboardComputationsTest {
         assertEquals(0.5f, result[0].correctionUnits, 0.001f)
         assertEquals(3.5f, result[0].mealUnits, 0.001f)
         assertEquals("Meal 3.5U + correction 0.5U", result[0].reason)
-    }
-
-    // -- percentile -----------------------------------------------------------
-
-    @Test
-    fun `percentile returns correct values for simple list`() {
-        val sorted = listOf(10f, 20f, 30f, 40f, 50f)
-        assertEquals(10f, DashboardComputations.percentile(sorted, 0f), 0.01f)
-        assertEquals(30f, DashboardComputations.percentile(sorted, 50f), 0.01f)
-        assertEquals(50f, DashboardComputations.percentile(sorted, 100f), 0.01f)
-    }
-
-    @Test
-    fun `percentile returns 0 for empty list`() {
-        assertEquals(0f, DashboardComputations.percentile(emptyList(), 50f), 0.01f)
-    }
-
-    @Test
-    fun `percentile returns single value for single-element list`() {
-        assertEquals(42f, DashboardComputations.percentile(listOf(42f), 50f), 0.01f)
     }
 
     // -- computeBasalIntegral -------------------------------------------------

@@ -128,6 +128,7 @@ class HomeViewModelTest {
 
     private val appSettingsStore = mockk<AppSettingsStore>(relaxed = true) {
         every { showPumpLabels } returns false
+        every { dataRetentionDays } returns 7
     }
 
     private val authRepository = mockk<AuthRepository>(relaxed = true)
@@ -445,31 +446,6 @@ class HomeViewModelTest {
 
     // -- Plugin cards ----------------------------------------------------------
 
-    // -- AGP state ------------------------------------------------------------
-
-    @Test
-    fun `initial AGP period is 14 days`() = runTest {
-        val vm = createViewModel()
-        assertEquals(AgpPeriod.FOURTEEN_DAYS, vm.selectedAgpPeriod.value)
-    }
-
-    @Test
-    fun `onAgpPeriodSelected updates selected period`() = runTest {
-        val vm = createViewModel()
-        vm.onAgpPeriodSelected(AgpPeriod.THIRTY_DAYS)
-        assertEquals(AgpPeriod.THIRTY_DAYS, vm.selectedAgpPeriod.value)
-    }
-
-    @Test
-    fun `agpProfile emits null when repository returns empty data`() = runTest {
-        every { repository.observeCgmHistoryAll(any()) } returns flowOf(emptyList())
-        val vm = createViewModel()
-        val job = backgroundScope.launch(testDispatcher) { vm.agpProfile.collect {} }
-        advanceTimeBy(10_000); runCurrent()
-        assertNull(vm.agpProfile.value)
-        job.cancel()
-    }
-
     // -- CGM Stats state ------------------------------------------------------
 
     @Test
@@ -573,6 +549,14 @@ class HomeViewModelTest {
         assertEquals(1, vm.enrichedBoluses.value.size)
         assertEquals(3f, vm.enrichedBoluses.value[0].units, 0.01f)
         job.cancel()
+    }
+
+    // -- Data retention state -------------------------------------------------
+
+    @Test
+    fun `dataRetentionDays reflects AppSettingsStore value`() = runTest {
+        val vm = createViewModel()
+        assertEquals(7, vm.dataRetentionDays.value)
     }
 
     // -- Plugin declaration sync ----------------------------------------------

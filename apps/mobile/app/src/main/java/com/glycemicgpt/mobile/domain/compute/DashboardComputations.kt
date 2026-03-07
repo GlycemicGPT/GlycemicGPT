@@ -1,7 +1,5 @@
 package com.glycemicgpt.mobile.domain.compute
 
-import com.glycemicgpt.mobile.domain.model.AgpBucket
-import com.glycemicgpt.mobile.domain.model.AgpProfile
 import com.glycemicgpt.mobile.domain.model.BasalReading
 import com.glycemicgpt.mobile.domain.model.BolusCategory
 import com.glycemicgpt.mobile.domain.model.BolusEvent
@@ -21,9 +19,6 @@ import kotlin.math.abs
 import kotlin.math.sqrt
 
 object DashboardComputations {
-
-    /** Minimum readings required for AGP (roughly 3 days of 5-min intervals). */
-    private const val MIN_AGP_READINGS = 864
 
     /** Maximum time delta (ms) for cross-referencing CGM/IoB to a bolus event. */
     private const val CROSS_REF_WINDOW_MS = 5L * 60_000L
@@ -59,38 +54,6 @@ object DashboardComputations {
             todayBoundary
         }
         return effectiveBoundary.minusDays(daysBack.toLong()).toInstant()
-    }
-
-    fun computeAgp(readings: List<CgmReading>, periodDays: Int): AgpProfile? {
-        val valid = readings.filter { it.glucoseMgDl in VALID_GLUCOSE_MIN..VALID_GLUCOSE_MAX }
-        if (valid.size < MIN_AGP_READINGS) return null
-
-        val zone = ZoneId.systemDefault()
-        val byHour = valid.groupBy { it.timestamp.atZone(zone).hour }
-
-        val buckets = (0..23).map { hour ->
-            val hourReadings = byHour[hour]
-            if (hourReadings.isNullOrEmpty()) {
-                AgpBucket(hour, 0f, 0f, 0f, 0f, 0f, 0)
-            } else {
-                val sorted = hourReadings.map { it.glucoseMgDl.toFloat() }.sorted()
-                AgpBucket(
-                    hour = hour,
-                    p10 = percentile(sorted, 10f),
-                    p25 = percentile(sorted, 25f),
-                    p50 = percentile(sorted, 50f),
-                    p75 = percentile(sorted, 75f),
-                    p90 = percentile(sorted, 90f),
-                    count = sorted.size,
-                )
-            }
-        }
-
-        return AgpProfile(
-            buckets = buckets,
-            totalReadings = valid.size,
-            periodDays = periodDays,
-        )
     }
 
     fun computeCgmStats(readings: List<CgmReading>): CgmStats? {
@@ -263,18 +226,6 @@ object DashboardComputations {
                 timestamp = bolus.timestamp,
             )
         }
-    }
-
-    internal fun percentile(sorted: List<Float>, p: Float): Float {
-        if (sorted.isEmpty()) return 0f
-        if (sorted.size == 1) return sorted[0]
-
-        val rank = (p / 100f) * (sorted.size - 1)
-        val lower = rank.toInt()
-        val upper = (lower + 1).coerceAtMost(sorted.lastIndex)
-        val fraction = rank - lower
-
-        return sorted[lower] + fraction * (sorted[upper] - sorted[lower])
     }
 
     internal fun computeBasalIntegral(basals: List<BasalReading>): Float {

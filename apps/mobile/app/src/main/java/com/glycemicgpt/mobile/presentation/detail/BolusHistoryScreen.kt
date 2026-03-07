@@ -41,6 +41,9 @@ fun BolusHistoryScreen(
     val selectedPeriod by viewModel.selectedBolusPeriod.collectAsState()
     val categoryLabels by viewModel.categoryLabels.collectAsState()
 
+    val retentionDays by viewModel.dataRetentionDays.collectAsState()
+    val availablePeriods = TirPeriod.entries.filter { it.hours / 24 <= retentionDays }
+
     DetailScaffold(title = "Bolus History", onBack = onBack) { innerPadding ->
         Column(
             modifier = Modifier
@@ -50,12 +53,12 @@ fun BolusHistoryScreen(
         ) {
             Spacer(modifier = Modifier.height(8.dp))
 
-            // All 5 period options
+            // Period options filtered by data retention
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
             ) {
-                TirPeriod.entries.forEach { period ->
+                availablePeriods.forEach { period ->
                     FilterChip(
                         selected = period == selectedPeriod,
                         onClick = { viewModel.onBolusPeriodSelected(period) },

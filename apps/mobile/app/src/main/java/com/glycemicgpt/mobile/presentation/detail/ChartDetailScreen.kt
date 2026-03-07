@@ -65,6 +65,10 @@ fun ChartDetailScreen(
     val selectedPeriod by viewModel.selectedPeriod.collectAsState()
     val thresholds by viewModel.glucoseThresholds.collectAsState()
     val categoryLabels by viewModel.categoryLabels.collectAsState()
+    val retentionDays by viewModel.dataRetentionDays.collectAsState()
+    val safeRetention = retentionDays.coerceAtLeast(1)
+    val availablePeriods = ChartPeriod.entries.filter { it.hours / 24 <= safeRetention }
+    val effectivePeriod = if (selectedPeriod in availablePeriods) selectedPeriod else availablePeriods.first()
 
     Column(modifier = Modifier.fillMaxSize()) {
         // Single compact row: back button + title + period chips -- flush to top
@@ -91,9 +95,9 @@ fun ChartDetailScreen(
                 modifier = Modifier.horizontalScroll(rememberScrollState()),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                ChartPeriod.entries.forEach { period ->
+                availablePeriods.forEach { period ->
                     FilterChip(
-                        selected = period == selectedPeriod,
+                        selected = period == effectivePeriod,
                         onClick = { viewModel.onPeriodSelected(period) },
                         label = {
                             Text(
@@ -120,7 +124,7 @@ fun ChartDetailScreen(
             iobReadings = iobHistory,
             basalReadings = basalHistory,
             bolusEvents = bolusHistory,
-            selectedPeriod = selectedPeriod,
+            selectedPeriod = effectivePeriod,
             onPeriodSelected = { viewModel.onPeriodSelected(it) },
             thresholds = thresholds,
             categoryLabels = categoryLabels,

@@ -34,9 +34,15 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.glycemicgpt.mobile.data.local.AppSettingsStore
 import com.glycemicgpt.mobile.domain.model.TimeInRangeData
 import com.glycemicgpt.mobile.presentation.theme.GlucoseColors
 
+/**
+ * Time periods for analytics cards. Entries beyond the user's local data retention
+ * setting are filtered out at the UI level (see [maxRetentionDays] on card composables).
+ * All entries are kept in the enum to support users who increase retention up to 30 days.
+ */
 enum class TirPeriod(val label: String, val hours: Long, val daysBack: Int) {
     TWENTY_FOUR_HOURS("24H", 24, 0),
     THREE_DAYS("3D", 72, 2),
@@ -55,8 +61,12 @@ fun TimeInRangeBar(
     selectedPeriod: TirPeriod,
     onPeriodSelected: (TirPeriod) -> Unit,
     thresholds: GlucoseThresholds = GlucoseThresholds(),
+    maxRetentionDays: Int = AppSettingsStore.DEFAULT_RETENTION_DAYS,
     modifier: Modifier = Modifier,
 ) {
+    val safeRetention = maxRetentionDays.coerceAtLeast(1)
+    val availablePeriods = TirPeriod.entries.filter { it.hours / 24 <= safeRetention }
+    val effectivePeriod = if (selectedPeriod in availablePeriods) selectedPeriod else availablePeriods.first()
     val a11yDescription = if (data != null && data.totalReadings > 0) {
         ("Time in range: %.0f%% low, %.0f%% in range, %.0f%% high, " +
             "target %d to %d mg/dL, " +
@@ -67,7 +77,7 @@ fun TimeInRangeBar(
                 thresholds.low,
                 thresholds.high,
                 data.totalReadings,
-                selectedPeriod.label,
+                effectivePeriod.label,
             )
     } else {
         "Time in range: no glucose readings for this period"
@@ -117,9 +127,9 @@ fun TimeInRangeBar(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
             ) {
-                TirPeriod.entries.forEach { period ->
+                availablePeriods.forEach { period ->
                     FilterChip(
-                        selected = period == selectedPeriod,
+                        selected = period == effectivePeriod,
                         onClick = { onPeriodSelected(period) },
                         label = {
                             Text(

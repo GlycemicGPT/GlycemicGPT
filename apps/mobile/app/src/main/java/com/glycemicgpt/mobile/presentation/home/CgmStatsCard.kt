@@ -23,6 +23,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.glycemicgpt.mobile.data.local.AppSettingsStore
 import com.glycemicgpt.mobile.domain.model.CgmStats
 import com.glycemicgpt.mobile.presentation.theme.GlucoseColors
 
@@ -37,8 +38,12 @@ fun CgmStatsCard(
     stats: CgmStats?,
     selectedPeriod: TirPeriod,
     onPeriodSelected: (TirPeriod) -> Unit,
+    maxRetentionDays: Int = AppSettingsStore.DEFAULT_RETENTION_DAYS,
     modifier: Modifier = Modifier,
 ) {
+    val safeRetention = maxRetentionDays.coerceAtLeast(1)
+    val availablePeriods = CgmStatsPeriods.filter { it.hours / 24 <= safeRetention }
+    val effectivePeriod = if (selectedPeriod in availablePeriods) selectedPeriod else availablePeriods.first()
     val a11yDescription = if (stats != null) {
         "CGM statistics: mean glucose %.0f mg/dL, coefficient of variation %.1f%%, GMI %.1f%%".format(
             stats.meanGlucose,
@@ -75,9 +80,9 @@ fun CgmStatsCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
             ) {
-                CgmStatsPeriods.forEach { period ->
+                availablePeriods.forEach { period ->
                     FilterChip(
-                        selected = period == selectedPeriod,
+                        selected = period == effectivePeriod,
                         onClick = { onPeriodSelected(period) },
                         label = {
                             Text(

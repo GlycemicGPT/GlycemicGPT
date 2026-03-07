@@ -34,6 +34,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.glycemicgpt.mobile.data.local.AppSettingsStore
 import com.glycemicgpt.mobile.domain.model.BolusType
 import com.glycemicgpt.mobile.domain.model.EnrichedBolusEvent
 import com.glycemicgpt.mobile.presentation.theme.BolusTypeColors
@@ -59,10 +60,13 @@ fun RecentBolusesCard(
     onPeriodSelected: (TirPeriod) -> Unit,
     categoryLabels: Map<String, String> = emptyMap(),
     onExpand: (() -> Unit)? = null,
+    maxRetentionDays: Int = AppSettingsStore.DEFAULT_RETENTION_DAYS,
     modifier: Modifier = Modifier,
 ) {
-    // Coerce period to one supported by this card (detail screen allows 14D/30D)
-    val effectivePeriod = if (selectedPeriod in BolusTimePeriods) selectedPeriod else BolusTimePeriods.first()
+    val safeRetention = maxRetentionDays.coerceAtLeast(1)
+    val availablePeriods = BolusTimePeriods.filter { it.hours / 24 <= safeRetention }
+    // Coerce period to one supported by this card
+    val effectivePeriod = if (selectedPeriod in availablePeriods) selectedPeriod else availablePeriods.first()
     val a11yDescription = "Recent boluses: ${boluses.size} events in the last ${effectivePeriod.label}"
 
     Card(
@@ -114,7 +118,7 @@ fun RecentBolusesCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
             ) {
-                BolusTimePeriods.forEach { period ->
+                availablePeriods.forEach { period ->
                     FilterChip(
                         selected = period == effectivePeriod,
                         onClick = { onPeriodSelected(period) },

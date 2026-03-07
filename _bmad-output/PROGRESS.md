@@ -1,6 +1,6 @@
 # GlycemicGPT Implementation Progress
 
-> Last Updated: 2026-03-04
+> Last Updated: 2026-03-07
 
 ## Summary
 
@@ -60,7 +60,7 @@
 **Epic 26 (Runtime Plugin Loading):** 7/7 complete
 **Epic 29 (App Icons & Branding):** 3/3 complete
 **Epic 30 (Web Dashboard Visualization):** 9/10 in progress
-**Epic 31 (Mobile Dashboard Parity):** 2/8 in progress
+**Epic 31 (Mobile Dashboard Parity):** 2/8 complete
 **Epic 33 (Data Source Abstraction):** 0/12 planned
 **Epic 34 (Code Quality):** 0/17 planned
 **Epic 35 (AI Intelligence Pipeline):** 0/18 planned
@@ -1050,12 +1050,12 @@ Any new stats calculations (CGM summary, insulin summary, AGP percentiles, 5-buc
 |-------|-------|--------|-----|
 | 31.1 | Navigation Scaffold & Detail Page Architecture | Complete | #345 |
 | 31.2 | Compact Card Grid Home Screen | Planned | |
-| 31.3 | Chart Detail Page with Landscape & Zoom/Pan/Brush | Complete | #345 |
+| 31.3 | Chart Detail Page with Landscape & Zoom/Pan/Brush | Complete | #345, #351 |
 | 31.4 | TIR Upgrade & CGM Stats Detail Page | Planned | |
 | 31.5 | Insulin Summary & Bolus Review Detail Page | Planned | |
 | 31.6 | Visual Polish, Animations & Label Refinement | Planned | |
 | 31.7 | Wear OS Compact Chart & Data Feed | Planned | |
-| 31.8 | Retention-Aware Period Options | Planned | |
+| 31.8 | Retention-Aware Period Options + AGP Removal | Complete | #352 |
 
 ### Story 31.1: Navigation Scaffold & Detail Page Architecture
 
@@ -1245,33 +1245,17 @@ Any new stats calculations (CGM summary, insulin summary, AGP percentiles, 5-buc
 - Stale indicator when data is old (>10 min)
 - Battery impact: <1% additional drain from sparkline rendering
 
-### Story 31.8: Retention-Aware Period Options
+### Story 31.8: Retention-Aware Period Options + AGP Removal (COMPLETE -- PR #352)
 
-**Priority:** Medium -- prevents misleading UI when local data doesn't cover the selected range.
+**Expanded scope:** Original retention-aware filtering PLUS full removal of AGP chart from mobile. Backend has 365+ day retention making AGP a web-only feature; mobile's default 7-day retention makes AGP impractical.
 
-**Scope:** Dynamically filter time period options across all mobile dashboard components based on the user's `dataRetentionDays` setting (default 7 days, max 30 days via Settings slider). Hide period buttons that exceed the retention window so users never see empty charts or tables.
+**Changes delivered:**
+- **AGP removal:** Deleted `AgpChart.kt`, `AgpDetailScreen.kt`, `AgpData.kt`. Removed AGP computation from `DashboardComputations.kt`, AGP state from `HomeViewModel.kt`, AGP route from `NavHost.kt`, AGP card from `HomeScreen.kt`.
+- **Retention-aware periods:** `HomeViewModel` exposes reactive `dataRetentionDays` StateFlow from `AppSettingsStore`. All analytics cards filter period chips via `it.hours / 24 <= maxRetentionDays` and coerce selected period to valid range.
+- **Affected components:** TimeInRangeBar, CgmStatsCard, InsulinSummaryCard, RecentBolusesCard, ChartDetailScreen, BolusHistoryScreen -- all accept `maxRetentionDays` parameter.
+- **Tests:** Removed AGP tests (4 compute + 3 percentile + 3 ViewModel). Added retention state test.
 
-**Context:** Mobile app stores data locally (Room DB) with a configurable retention period (1-30 days, default 7). The backend stores 365+ days. Currently, several UI components offer period options (14D, 30D) that exceed the default 7-day local retention, showing empty/sparse data and confusing users. The web dashboard can offer longer ranges since it reads from the backend.
-
-**Changes:**
-- **HomeViewModel:** Read `dataRetentionDays` from `AppSettingsStore`. Expose as state for composables. Compute available periods per component by filtering against retention setting.
-- **TirPeriod / ChartPeriod / AgpPeriod:** Filter displayed period chips to only show options where `period.hours <= retentionDays * 24` (with small buffer for partial-day overlap).
-- **Affected components:**
-  - TimeInRangeBar: currently shows all 5 TirPeriod values (24H-30D)
-  - ChartDetailScreen: currently shows all 8 ChartPeriod values (3H-30D)
-  - AgpChart + AgpDetailScreen: currently shows 7D, 14D, 30D
-  - BolusHistoryScreen: currently shows all 5 TirPeriod values (24H-30D)
-  - Future: TirDetailScreen, InsulinDetailScreen (when implemented in 31.4/31.5)
-- **Home card subsets** (CgmStatsCard, InsulinSummaryCard, RecentBolusesCard): already capped at 24H/3D/7D -- no change needed unless retention < 7 days.
-- **Default period fallback:** If the currently selected period exceeds retention, auto-select the largest available period.
-
-**Acceptance Criteria:**
-- At default 7-day retention: 14D and 30D buttons are hidden from all components
-- At 30-day retention: all period buttons are visible
-- At 3-day retention: 7D, 14D, 30D are hidden
-- Changing the retention slider in Settings immediately updates available periods on the home screen
-- No empty charts or "no data" states caused by selecting a period longer than retention
-- Detail screens respect the same filtering as home cards
+**Verified on physical phone:** All cards show correct period options based on retention setting. No AGP chart. Real pump data displays correctly.
 
 ---
 

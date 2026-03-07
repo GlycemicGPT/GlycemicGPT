@@ -35,6 +35,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.glycemicgpt.mobile.data.local.AppSettingsStore
 import com.glycemicgpt.mobile.domain.model.BolusCategory
 import com.glycemicgpt.mobile.domain.model.InsulinSummary
 import com.glycemicgpt.mobile.presentation.theme.colorForCategory
@@ -67,10 +68,13 @@ fun InsulinSummaryCard(
     onPeriodSelected: (TirPeriod) -> Unit,
     categoryLabels: Map<String, String> = emptyMap(),
     pumpLabelMap: Map<BolusCategory, String>? = null,
+    maxRetentionDays: Int = AppSettingsStore.DEFAULT_RETENTION_DAYS,
     modifier: Modifier = Modifier,
 ) {
-    // Coerce period to one supported by this card (other cards may allow 14D/30D)
-    val effectivePeriod = if (selectedPeriod in InsulinPeriods) selectedPeriod else InsulinPeriods.first()
+    val safeRetention = maxRetentionDays.coerceAtLeast(1)
+    val availablePeriods = InsulinPeriods.filter { it.hours / 24 <= safeRetention }
+    // Coerce period to one supported by this card
+    val effectivePeriod = if (selectedPeriod in availablePeriods) selectedPeriod else availablePeriods.first()
 
     val foodLabel = categoryLabels["FOOD"] ?: BolusCategory.FOOD.displayName
     val corrLabel = categoryLabels["CORRECTION"] ?: BolusCategory.CORRECTION.displayName
@@ -122,7 +126,7 @@ fun InsulinSummaryCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
             ) {
-                InsulinPeriods.forEach { period ->
+                availablePeriods.forEach { period ->
                     FilterChip(
                         selected = period == effectivePeriod,
                         onClick = { onPeriodSelected(period) },

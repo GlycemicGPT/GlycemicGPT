@@ -54,7 +54,6 @@ import com.glycemicgpt.mobile.presentation.chat.AiChatScreen
 import com.glycemicgpt.mobile.presentation.home.HomeScreen
 import com.glycemicgpt.mobile.BuildConfig
 import com.glycemicgpt.mobile.presentation.debug.BleDebugScreen
-import com.glycemicgpt.mobile.presentation.detail.AgpDetailScreen
 import com.glycemicgpt.mobile.presentation.detail.AlertHistoryScreen
 import com.glycemicgpt.mobile.presentation.detail.BolusHistoryScreen
 import com.glycemicgpt.mobile.presentation.detail.ChartDetailScreen
@@ -79,7 +78,6 @@ sealed class Screen(val route: String, val label: String, val icon: ImageVector)
     data object TirDetail : Screen("tir_detail", "Time in Range", Icons.Default.BarChart)
     data object InsulinDetail : Screen("insulin_detail", "Insulin", Icons.Default.Science)
     data object AlertHistory : Screen("alert_history", "Alert History", Icons.Default.History)
-    data object AgpDetail : Screen("agp_detail", "AGP Chart", Icons.AutoMirrored.Filled.ShowChart)
     data object BolusHistory : Screen("bolus_history", "Bolus History", Icons.Default.History)
 }
 
@@ -91,7 +89,6 @@ private val spokeRoutes = setOf(
     Screen.TirDetail.route,
     Screen.InsulinDetail.route,
     Screen.AlertHistory.route,
-    Screen.AgpDetail.route,
     Screen.BolusHistory.route,
     Screen.PluginDetail.route,
     Screen.Pairing.route,
@@ -206,7 +203,6 @@ fun GlycemicGptNavHost(appSettingsStore: AppSettingsStore, authTokenStore: AuthT
                         onNavigateToTirDetail = { navController.navigate(Screen.TirDetail.route) },
                         onNavigateToInsulinDetail = { navController.navigate(Screen.InsulinDetail.route) },
                         onNavigateToAlertHistory = { navController.navigate(Screen.AlertHistory.route) },
-                        onNavigateToAgpDetail = { navController.navigate(Screen.AgpDetail.route) },
                         onNavigateToBolusHistory = { navController.navigate(Screen.BolusHistory.route) },
                     )
                 }
@@ -275,23 +271,6 @@ fun GlycemicGptNavHost(appSettingsStore: AppSettingsStore, authTokenStore: AuthT
                 }
                 composable(Screen.AlertHistory.route) {
                     AlertHistoryScreen(onBack = { navController.popBackStack() })
-                }
-                composable(Screen.AgpDetail.route) {
-                    val homeEntry = remember(it) {
-                        try {
-                            navController.getBackStackEntry(Screen.Home.route)
-                        } catch (_: IllegalArgumentException) {
-                            null
-                        }
-                    }
-                    if (homeEntry == null) {
-                        LaunchedEffect(Unit) { navController.popBackStack() }
-                        return@composable
-                    }
-                    AgpDetailScreen(
-                        onBack = { navController.popBackStack() },
-                        viewModel = hiltViewModel(homeEntry),
-                    )
                 }
                 composable(Screen.BolusHistory.route) {
                     val homeEntry = remember(it) {
