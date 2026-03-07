@@ -242,7 +242,9 @@ class HomeViewModel @Inject constructor(
             val since = Instant.ofEpochMilli(
                 System.currentTimeMillis() - period.hours * 3600_000L,
             )
-            repository.observeTimeInRange(since, thresholds.low, thresholds.high)
+            repository.observeTimeInRange(
+                since, thresholds.urgentLow, thresholds.low, thresholds.high, thresholds.urgentHigh,
+            )
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
@@ -261,7 +263,7 @@ class HomeViewModel @Inject constructor(
                 System.currentTimeMillis() - period.hours * 3600_000L,
             )
             repository.observeCgmHistoryAll(since).map { readings ->
-                DashboardComputations.computeCgmStats(readings)
+                DashboardComputations.computeCgmStats(readings, period.hours)
             }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)

@@ -286,12 +286,14 @@ class HomeViewModelTest {
     @Test
     fun `timeInRange state flow emits repository data`() = runTest {
         val tirData = TimeInRangeData(
-            lowPercent = 5f,
+            urgentLowPercent = 1f,
+            lowPercent = 4f,
             inRangePercent = 80f,
-            highPercent = 15f,
+            highPercent = 12f,
+            urgentHighPercent = 3f,
             totalReadings = 200,
         )
-        every { repository.observeTimeInRange(any(), any(), any()) } returns flowOf(tirData)
+        every { repository.observeTimeInRange(any(), any(), any(), any(), any()) } returns flowOf(tirData)
 
         val vm = createViewModel()
 
@@ -312,12 +314,14 @@ class HomeViewModelTest {
     @Test
     fun `timeInRange recomputes when glucose thresholds change`() = runTest {
         val tirData = TimeInRangeData(
-            lowPercent = 10f,
+            urgentLowPercent = 2f,
+            lowPercent = 8f,
             inRangePercent = 60f,
-            highPercent = 30f,
+            highPercent = 25f,
+            urgentHighPercent = 5f,
             totalReadings = 100,
         )
-        every { repository.observeTimeInRange(any(), any(), any()) } returns flowOf(tirData)
+        every { repository.observeTimeInRange(any(), any(), any(), any(), any()) } returns flowOf(tirData)
 
         // Start with defaults (low=70, high=180)
         val vm = createViewModel()
@@ -328,7 +332,7 @@ class HomeViewModelTest {
         advanceTimeBy(10_000); runCurrent()
 
         // Verify initial subscription uses default thresholds
-        verify { repository.observeTimeInRange(any(), eq(GlucoseRangeStore.DEFAULT_LOW), eq(GlucoseRangeStore.DEFAULT_HIGH)) }
+        verify { repository.observeTimeInRange(any(), eq(GlucoseRangeStore.DEFAULT_URGENT_LOW), eq(GlucoseRangeStore.DEFAULT_LOW), eq(GlucoseRangeStore.DEFAULT_HIGH), eq(GlucoseRangeStore.DEFAULT_URGENT_HIGH)) }
 
         // Now simulate backend returning new thresholds via refreshData
         val rangeResponse = GlucoseRangeResponse(
@@ -346,8 +350,8 @@ class HomeViewModelTest {
         vm.refreshData()
         advanceTimeBy(10_000); runCurrent()
 
-        // After threshold update, observeTimeInRange should be re-called with new low/high
-        verify { repository.observeTimeInRange(any(), eq(90), eq(230)) }
+        // After threshold update, observeTimeInRange should be re-called with new thresholds
+        verify { repository.observeTimeInRange(any(), eq(60), eq(90), eq(230), eq(330)) }
 
         job.cancel()
     }

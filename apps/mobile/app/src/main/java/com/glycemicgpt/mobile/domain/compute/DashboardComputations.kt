@@ -56,7 +56,10 @@ object DashboardComputations {
         return effectiveBoundary.minusDays(daysBack.toLong()).toInstant()
     }
 
-    fun computeCgmStats(readings: List<CgmReading>): CgmStats? {
+    /** Expected CGM readings per hour (one every 5 minutes). */
+    private const val EXPECTED_READINGS_PER_HOUR = 12
+
+    fun computeCgmStats(readings: List<CgmReading>, periodHours: Long = 0): CgmStats? {
         val valid = readings.filter { it.glucoseMgDl in VALID_GLUCOSE_MIN..VALID_GLUCOSE_MAX }
         if (valid.isEmpty()) return null
 
@@ -68,12 +71,20 @@ object DashboardComputations {
         val cvPercent = if (mean > 0f) (stdDev / mean) * 100f else 0f
         val gmi = 3.31f + 0.02392f * mean
 
+        val cgmActivePercent = if (periodHours > 0) {
+            val expected = periodHours * EXPECTED_READINGS_PER_HOUR
+            (valid.size * 100f / expected).coerceIn(0f, 100f)
+        } else {
+            100f
+        }
+
         return CgmStats(
             meanGlucose = mean,
             stdDev = stdDev,
             cvPercent = cvPercent,
             gmi = gmi,
             readingsCount = valid.size,
+            cgmActivePercent = cgmActivePercent,
         )
     }
 

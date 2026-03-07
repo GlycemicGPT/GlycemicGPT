@@ -209,8 +209,15 @@ class PumpDataRepository @Inject constructor(
 
     // -- Time in Range --------------------------------------------------------
 
-    fun observeTimeInRange(since: Instant, low: Int, high: Int): Flow<TimeInRangeData> =
-        pumpDao.observeTimeInRangeCounts(since.toEpochMilli(), low, high).map { it.toTimeInRange() }
+    fun observeTimeInRange(
+        since: Instant,
+        urgentLow: Int,
+        low: Int,
+        high: Int,
+        urgentHigh: Int,
+    ): Flow<TimeInRangeData> =
+        pumpDao.observeTimeInRangeCounts(since.toEpochMilli(), urgentLow, low, high, urgentHigh)
+            .map { it.toTimeInRange() }
 
     // -- Cleanup --------------------------------------------------------------
 
@@ -289,11 +296,16 @@ private fun CgmReadingEntity.toDomain(): CgmReading? = try {
 }
 
 private fun TimeInRangeCounts.toTimeInRange(): TimeInRangeData {
-    if (total == 0) return TimeInRangeData(0f, 0f, 0f, 0)
+    if (total == 0) return TimeInRangeData(
+        urgentLowPercent = 0f, lowPercent = 0f, inRangePercent = 0f,
+        highPercent = 0f, urgentHighPercent = 0f, totalReadings = 0,
+    )
     return TimeInRangeData(
+        urgentLowPercent = urgentLowCount * 100f / total,
         lowPercent = lowCount * 100f / total,
         inRangePercent = inRangeCount * 100f / total,
         highPercent = highCount * 100f / total,
+        urgentHighPercent = urgentHighCount * 100f / total,
         totalReadings = total,
     )
 }
