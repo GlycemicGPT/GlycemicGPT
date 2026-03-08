@@ -75,6 +75,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.glycemicgpt.mobile.data.local.AlertSoundCategory
 import com.glycemicgpt.mobile.domain.plugin.PluginMetadata
 import com.glycemicgpt.mobile.plugin.RuntimePluginInfo
+import com.glycemicgpt.mobile.presentation.theme.ThemeMode
 import java.io.File
 import kotlin.math.roundToInt
 
@@ -171,6 +172,15 @@ fun SettingsScreen(
             watchInstalled = state.watchAppInstalled,
             watchConnected = state.watchConnected,
             onCheckStatus = settingsViewModel::checkWatchStatus,
+        )
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // -- Appearance Section --
+        SectionHeader(title = "Appearance")
+        ThemeSection(
+            currentTheme = state.themeMode,
+            onThemeChange = settingsViewModel::setThemeMode,
         )
 
         Spacer(modifier = Modifier.height(20.dp))
@@ -1580,6 +1590,59 @@ private fun BatteryOptimizationCard(
                     .testTag("disable_battery_optimization_button"),
             ) {
                 Text("Disable Battery Optimization")
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThemeSection(
+    currentTheme: ThemeMode,
+    onThemeChange: (ThemeMode) -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+        ) {
+            Text(
+                text = "Theme",
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Text(
+                text = "Choose your preferred color scheme",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                ThemeMode.entries.forEach { mode ->
+                    val label = when (mode) {
+                        ThemeMode.System -> "System"
+                        ThemeMode.Dark -> "Dark"
+                        ThemeMode.Light -> "Light"
+                    }
+                    OutlinedButton(
+                        onClick = { onThemeChange(mode) },
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("theme_${mode.name.lowercase()}"),
+                        colors = if (currentTheme == mode) {
+                            ButtonDefaults.outlinedButtonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary,
+                            )
+                        } else {
+                            ButtonDefaults.outlinedButtonColors()
+                        },
+                    ) {
+                        Text(label, style = MaterialTheme.typography.labelMedium)
+                    }
+                }
             }
         }
     }

@@ -281,15 +281,15 @@ export default function CaregiverDashboardPage() {
       <main id="main-content" className="space-y-6">
         <div>
           <h1 className="text-2xl font-bold">Caregiver Dashboard</h1>
-          <p className="text-slate-400">Loading patient data</p>
+          <p className="text-slate-500 dark:text-slate-400">Loading patient data</p>
         </div>
         <div
-          className="bg-slate-900 rounded-xl p-12 border border-slate-800 text-center"
+          className="bg-white dark:bg-slate-900 rounded-xl p-12 border border-slate-200 dark:border-slate-800 text-center"
           role="status"
           aria-label="Loading dashboard"
         >
           <Loader2 className="h-8 w-8 text-blue-400 animate-spin mx-auto mb-3" />
-          <p className="text-slate-400">Loading dashboard...</p>
+          <p className="text-slate-500 dark:text-slate-400">Loading dashboard...</p>
         </div>
       </main>
     );
@@ -300,11 +300,11 @@ export default function CaregiverDashboardPage() {
       <main id="main-content" className="space-y-6">
         <div>
           <h1 className="text-2xl font-bold">Caregiver Dashboard</h1>
-          <p className="text-slate-400">Monitor your patient&apos;s glucose</p>
+          <p className="text-slate-500 dark:text-slate-400">Monitor your patient&apos;s glucose</p>
         </div>
-        <div className="bg-slate-900 rounded-xl p-8 border border-slate-800 text-center">
+        <div className="bg-white dark:bg-slate-900 rounded-xl p-8 border border-slate-200 dark:border-slate-800 text-center">
           <Users className="h-10 w-10 text-slate-600 mx-auto mb-3" />
-          <p className="text-slate-400 mb-1">No patients linked</p>
+          <p className="text-slate-500 dark:text-slate-400 mb-1">No patients linked</p>
           <p className="text-xs text-slate-500">
             Ask your patient to send you an invitation link from the
             GlycemicGPT web app.
@@ -322,7 +322,7 @@ export default function CaregiverDashboardPage() {
           {showOverview ? (
             <>
               <h1 className="text-2xl font-bold">Caregiver Dashboard</h1>
-              <p className="text-slate-400">
+              <p className="text-slate-500 dark:text-slate-400">
                 Monitoring {patients.length} patients
               </p>
             </>
@@ -332,7 +332,7 @@ export default function CaregiverDashboardPage() {
                 <button
                   type="button"
                   onClick={handleBackToOverview}
-                  className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                  className="p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                   aria-label="Back to all patients"
                 >
                   <ChevronLeft className="h-5 w-5" />
@@ -340,7 +340,7 @@ export default function CaregiverDashboardPage() {
               )}
               <div>
                 <h1 className="text-2xl font-bold">Caregiver Dashboard</h1>
-                <p className="text-slate-400">
+                <p className="text-slate-500 dark:text-slate-400">
                   Monitor your patient&apos;s glucose
                 </p>
               </div>
@@ -360,7 +360,7 @@ export default function CaregiverDashboardPage() {
                 : fetchStatus(true)
             }
             disabled={isRefreshing}
-            className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors disabled:opacity-50"
+            className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors disabled:opacity-50"
             aria-label="Refresh data"
           >
             <RefreshCw
@@ -388,12 +388,12 @@ export default function CaregiverDashboardPage() {
         <>
           {isLoadingStatuses && patientStatuses.size === 0 ? (
             <div
-              className="bg-slate-900 rounded-xl p-12 border border-slate-800 text-center"
+              className="bg-white dark:bg-slate-900 rounded-xl p-12 border border-slate-200 dark:border-slate-800 text-center"
               role="status"
               aria-label="Loading patient statuses"
             >
               <Loader2 className="h-6 w-6 text-blue-400 animate-spin mx-auto mb-2" />
-              <p className="text-sm text-slate-400">
+              <p className="text-sm text-slate-500 dark:text-slate-400">
                 Loading patient statuses...
               </p>
             </div>
@@ -416,7 +416,7 @@ export default function CaregiverDashboardPage() {
                     key={patient.patient_id}
                     type="button"
                     onClick={() => handleSelectPatient(patient.patient_id)}
-                    className="bg-slate-900 rounded-xl p-5 border border-slate-800 text-left hover:border-blue-500/40 hover:bg-slate-900/80 transition-all cursor-pointer group"
+                    className="bg-white dark:bg-slate-900 rounded-xl p-5 border border-slate-200 dark:border-slate-800 text-left hover:border-blue-500/40 hover:bg-slate-50 dark:hover:bg-slate-900/80 transition-all cursor-pointer group"
                     aria-label={`View details for ${patient.patient_email}`}
                   >
                     {/* Patient name + status dot */}
@@ -428,7 +428,7 @@ export default function CaregiverDashboardPage() {
                         )}
                         aria-hidden="true"
                       />
-                      <span className="text-sm font-medium text-slate-200 truncate">
+                      <span className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate">
                         {patient.patient_email}
                       </span>
                     </div>
@@ -445,7 +445,7 @@ export default function CaregiverDashboardPage() {
                           >
                             {g.value}
                           </span>
-                          <span className="text-sm text-slate-400">mg/dL</span>
+                          <span className="text-sm text-slate-500 dark:text-slate-400">mg/dL</span>
                           <span className="text-lg">
                             {getTrendArrow(g.trend)}
                           </span>
@@ -474,7 +474,7 @@ export default function CaregiverDashboardPage() {
                     )}
 
                     {/* Tap hint */}
-                    <p className="text-xs text-slate-600 mt-3 group-hover:text-slate-400 transition-colors">
+                    <p className="text-xs text-slate-600 mt-3 group-hover:text-slate-500 dark:group-hover:text-slate-400 transition-colors">
                       Tap to view details
                     </p>
                   </button>
@@ -498,12 +498,12 @@ export default function CaregiverDashboardPage() {
       {/* Detail view loading spinner (drill-down transition) */}
       {!showOverview && !status && selectedPatientId && (
         <div
-          className="bg-slate-900 rounded-xl p-12 border border-slate-800 text-center"
+          className="bg-white dark:bg-slate-900 rounded-xl p-12 border border-slate-200 dark:border-slate-800 text-center"
           role="status"
           aria-label="Loading patient details"
         >
           <Loader2 className="h-6 w-6 text-blue-400 animate-spin mx-auto mb-2" />
-          <p className="text-sm text-slate-400">Loading patient details...</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400">Loading patient details...</p>
         </div>
       )}
 
@@ -511,7 +511,7 @@ export default function CaregiverDashboardPage() {
       {!showOverview && status && (
         <>
           {/* Patient info bar */}
-          <div className="flex items-center gap-2 text-sm text-slate-400">
+          <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
             <Users className="h-4 w-4" />
             <span>
               Viewing data for{" "}
@@ -529,7 +529,7 @@ export default function CaregiverDashboardPage() {
           </div>
 
           {/* Glucose Card */}
-          <div className="bg-slate-900 rounded-xl p-6 border border-slate-800">
+          <div className="bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800">
             <div className="flex items-center gap-3 mb-4">
               <div className="p-2 bg-blue-500/10 rounded-lg">
                 <Activity className="h-5 w-5 text-blue-400" />
@@ -549,7 +549,7 @@ export default function CaregiverDashboardPage() {
                     >
                       {status.glucose.value}
                     </span>
-                    <span className="text-2xl text-slate-400">mg/dL</span>
+                    <span className="text-2xl text-slate-500 dark:text-slate-400">mg/dL</span>
                     <span className="text-2xl">
                       {getTrendArrow(status.glucose.trend)}
                     </span>
@@ -588,7 +588,7 @@ export default function CaregiverDashboardPage() {
           </div>
 
           {/* IoB Card */}
-          <div className="bg-slate-900 rounded-xl p-6 border border-slate-800">
+          <div className="bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800">
             <div className="flex items-center gap-3 mb-4">
               <div className="p-2 bg-purple-500/10 rounded-lg">
                 <Syringe className="h-5 w-5 text-purple-400" />
@@ -601,7 +601,7 @@ export default function CaregiverDashboardPage() {
                 <div className="space-y-2">
                   <p className="text-3xl font-bold text-purple-400">
                     {status.iob.current_iob.toFixed(2)}{" "}
-                    <span className="text-base text-slate-400">U</span>
+                    <span className="text-base text-slate-500 dark:text-slate-400">U</span>
                   </p>
                   {status.iob.is_stale && (
                     <p className="text-yellow-400 text-xs">
@@ -623,7 +623,7 @@ export default function CaregiverDashboardPage() {
           </div>
 
           {/* AI Chat Card - Story 8.4 */}
-          <div className="bg-slate-900 rounded-xl p-6 border border-slate-800">
+          <div className="bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800">
             <div className="flex items-center gap-3 mb-4">
               <div className="p-2 bg-cyan-500/10 rounded-lg">
                 <MessageSquare className="h-5 w-5 text-cyan-400" />
@@ -637,8 +637,8 @@ export default function CaregiverDashboardPage() {
               <div className="space-y-4">
                 <div aria-live="polite" aria-atomic="true">
                   {chatResponse && (
-                    <div className="bg-slate-800/50 rounded-lg p-4 space-y-3">
-                      <MarkdownContent content={chatResponse.response} className="text-slate-200" />
+                    <div className="bg-slate-100/50 dark:bg-slate-800/50 rounded-lg p-4 space-y-3">
+                      <MarkdownContent content={chatResponse.response} className="text-slate-700 dark:text-slate-200" />
                       <p className="text-xs text-amber-400/70 italic">
                         {chatResponse.disclaimer}
                       </p>
@@ -661,7 +661,7 @@ export default function CaregiverDashboardPage() {
                     placeholder='Ask about your patient, e.g. "How are they doing?"'
                     maxLength={2000}
                     disabled={isChatLoading}
-                    className="flex-1 bg-slate-800 text-slate-200 rounded-lg px-3 py-2 text-sm border border-slate-700 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 disabled:opacity-50"
+                    className="flex-1 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-lg px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 disabled:opacity-50"
                     aria-label="Ask AI about your patient"
                   />
                   <button
@@ -688,7 +688,7 @@ export default function CaregiverDashboardPage() {
                       type="button"
                       onClick={() => setChatMessage(q)}
                       disabled={isChatLoading}
-                      className="text-xs px-3 py-1 rounded-full bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200 transition-colors disabled:opacity-50"
+                      className="text-xs px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-700 dark:hover:text-slate-200 transition-colors disabled:opacity-50"
                     >
                       {q}
                     </button>
@@ -704,8 +704,8 @@ export default function CaregiverDashboardPage() {
           </div>
 
           {/* Permissions summary */}
-          <div className="bg-slate-900/50 rounded-xl p-4 border border-slate-800">
-            <h3 className="text-sm font-medium text-slate-400 mb-2">
+          <div className="bg-slate-50 dark:bg-slate-900/50 rounded-xl p-4 border border-slate-200 dark:border-slate-800">
+            <h3 className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-2">
               Your access permissions
             </h3>
             <div className="flex flex-wrap gap-2">
@@ -734,7 +734,7 @@ export default function CaregiverDashboardPage() {
                     "text-xs px-2 py-1 rounded-full",
                     status.permissions[perm.key]
                       ? "bg-green-500/10 text-green-400"
-                      : "bg-slate-800 text-slate-500"
+                      : "bg-slate-100 dark:bg-slate-800 text-slate-500"
                   )}
                 >
                   {status.permissions[perm.key] ? (
@@ -751,7 +751,7 @@ export default function CaregiverDashboardPage() {
       )}
 
       {/* Info card */}
-      <div className="bg-slate-900/50 rounded-xl p-4 border border-slate-800">
+      <div className="bg-slate-50 dark:bg-slate-900/50 rounded-xl p-4 border border-slate-200 dark:border-slate-800">
         <p className="text-xs text-slate-500">
           This is a read-only view. Data access is controlled by the patient.
           Data refreshes automatically every 60 seconds.

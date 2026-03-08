@@ -33,8 +33,8 @@ export function CollapsibleSection({
     <div
       className={clsx(
         isSection
-          ? "bg-slate-900 rounded-xl border border-slate-800"
-          : "bg-slate-800/30 rounded-lg border border-slate-700/50"
+          ? "bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800"
+          : "bg-slate-100/30 dark:bg-slate-800/30 rounded-lg border border-slate-300/50 dark:border-slate-700/50"
       )}
     >
       <button
@@ -62,7 +62,7 @@ export function CollapsibleSection({
               <Icon
                 className={clsx(
                   "h-5 w-5",
-                  isSection ? "text-blue-400" : "text-slate-400"
+                  isSection ? "text-blue-400" : "text-slate-500 dark:text-slate-400"
                 )}
               />
             </div>

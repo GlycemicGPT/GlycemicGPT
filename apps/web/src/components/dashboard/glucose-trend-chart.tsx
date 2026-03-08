@@ -247,21 +247,21 @@ function ChartTooltip({
     const bg = typeof point.bgAtEvent === "number" ? point.bgAtEvent : null;
     const ts = typeof point.timestamp === "number" ? point.timestamp : null;
     return (
-      <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm shadow-lg max-w-[200px]">
+      <div className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-sm shadow-lg max-w-[200px]">
         <p className="font-semibold" style={{ color: typeColor }}>
           {point.units.toFixed(1)}u {bolusType}
         </p>
         {/* "standard" guard: pre-migration data may still have this value */}
         {mode && mode !== "none" && mode !== "standard" && (
-          <p className="text-slate-400 text-xs">{getBasalModeLabel(mode, isAuto)}</p>
+          <p className="text-slate-500 dark:text-slate-400 text-xs">{getBasalModeLabel(mode, isAuto)}</p>
         )}
         {iob != null && (
-          <p className="text-slate-400 text-xs">IoB: {iob.toFixed(1)}u</p>
+          <p className="text-slate-500 dark:text-slate-400 text-xs">IoB: {iob.toFixed(1)}u</p>
         )}
         {bg != null && (
-          <p className="text-slate-400 text-xs">BG: {bg} mg/dL</p>
+          <p className="text-slate-500 dark:text-slate-400 text-xs">BG: {bg} mg/dL</p>
         )}
-        {ts != null && <p className="text-slate-400 text-xs">{formatTime(ts)}</p>}
+        {ts != null && <p className="text-slate-500 dark:text-slate-400 text-xs">{formatTime(ts)}</p>}
       </div>
     );
   }
@@ -275,17 +275,17 @@ function ChartTooltip({
     const adjustPct = typeof point.basalAdjustmentPct === "number" ? point.basalAdjustmentPct : null;
     const ts = typeof point.timestamp === "number" ? point.timestamp : null;
     return (
-      <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm shadow-lg">
+      <div className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-sm shadow-lg">
         <p className="font-semibold" style={{ color: modeColor }}>
           Basal: {point.rate.toFixed(2)} u/hr
         </p>
-        <p className="text-slate-400 text-xs">{modeLabel}</p>
+        <p className="text-slate-500 dark:text-slate-400 text-xs">{modeLabel}</p>
         {adjustPct != null && adjustPct !== 0 && (
-          <p className="text-slate-400 text-xs">
+          <p className="text-slate-500 dark:text-slate-400 text-xs">
             {adjustPct > 0 ? "+" : ""}{adjustPct}% from profile
           </p>
         )}
-        {ts != null && <p className="text-slate-400 text-xs">{formatTime(ts)}</p>}
+        {ts != null && <p className="text-slate-500 dark:text-slate-400 text-xs">{formatTime(ts)}</p>}
       </div>
     );
   }
@@ -296,7 +296,7 @@ function ChartTooltip({
   const trendArrow = trend ? TREND_ARROWS[trend] : null;
   const trendLabel = trend ? TREND_DESCRIPTIONS[trend] : null;
   return (
-    <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm shadow-lg">
+    <div className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-sm shadow-lg">
       <p className="font-semibold" style={{ color: point.color as string }}>
         {point.value} mg/dL
         {trendArrow && trendArrow !== "?" && (
@@ -304,9 +304,9 @@ function ChartTooltip({
         )}
       </p>
       {trendLabel && trendLabel !== "unknown trend" && (
-        <p className="text-slate-400 text-xs capitalize">{trendLabel}</p>
+        <p className="text-slate-500 dark:text-slate-400 text-xs capitalize">{trendLabel}</p>
       )}
-      <p className="text-slate-400 text-xs">{formatTime(point.iso as string)}</p>
+      <p className="text-slate-500 dark:text-slate-400 text-xs">{formatTime(point.iso as string)}</p>
     </div>
   );
 }
@@ -321,7 +321,7 @@ interface PeriodSelectorProps {
 function PeriodSelector({ selected, onSelect }: PeriodSelectorProps) {
   return (
     <div
-      className="flex gap-1 bg-slate-800 rounded-lg p-1"
+      className="flex gap-1 bg-slate-100 dark:bg-slate-800 rounded-lg p-1"
       role="radiogroup"
       aria-label="Time period"
     >
@@ -335,8 +335,8 @@ function PeriodSelector({ selected, onSelect }: PeriodSelectorProps) {
           className={clsx(
             "px-3 py-1 text-sm font-medium rounded-md transition-colors",
             selected === value
-              ? "bg-slate-700 text-white"
-              : "text-slate-400 hover:text-slate-200"
+              ? "bg-slate-700 text-slate-900 dark:text-white"
+              : "text-slate-500 dark:text-slate-400 hover:text-slate-200"
           )}
         >
           {label}
@@ -481,7 +481,7 @@ function BrushSlider({ fullDomain, zoomDomain, onZoomChange }: BrushSliderProps)
   return (
     <div
       ref={containerRef}
-      className="relative h-6 mt-2 bg-slate-800 rounded select-none"
+      className="relative h-6 mt-2 bg-slate-100 dark:bg-slate-800 rounded select-none"
       aria-label="Zoom brush slider"
     >
       {/* Selected region */}
@@ -840,7 +840,7 @@ export function GlucoseTrendChart({
     return (
       <div
         className={clsx(
-          "bg-slate-900 rounded-xl p-6 border border-slate-800",
+          "bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800",
           className
         )}
         role="region"
@@ -852,7 +852,7 @@ export function GlucoseTrendChart({
           <div className="h-6 w-40 bg-slate-700 rounded animate-pulse" />
           <div className="h-8 w-48 bg-slate-700 rounded animate-pulse" />
         </div>
-        <div className="h-64 bg-slate-800 rounded animate-pulse" />
+        <div className="h-64 bg-slate-100 dark:bg-slate-800 rounded animate-pulse" />
       </div>
     );
   }
@@ -862,7 +862,7 @@ export function GlucoseTrendChart({
     return (
       <div
         className={clsx(
-          "bg-slate-900 rounded-xl p-6 border border-slate-800",
+          "bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800",
           className
         )}
         role="region"
@@ -875,12 +875,12 @@ export function GlucoseTrendChart({
           </h2>
           <PeriodSelector selected={period} onSelect={handlePeriodChange} />
         </div>
-        <div className="h-64 flex flex-col items-center justify-center text-slate-500 gap-3">
+        <div className="h-64 flex flex-col items-center justify-center text-slate-500 dark:text-slate-500 gap-3">
           <p>Unable to load glucose history</p>
           <button
             type="button"
             onClick={refetch}
-            className="px-4 py-2 text-sm font-medium rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white transition-colors"
+            className="px-4 py-2 text-sm font-medium rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-700 hover:text-white transition-colors"
           >
             Retry
           </button>
@@ -894,7 +894,7 @@ export function GlucoseTrendChart({
     return (
       <div
         className={clsx(
-          "bg-slate-900 rounded-xl p-6 border border-slate-800",
+          "bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800",
           className
         )}
         role="region"
@@ -907,7 +907,7 @@ export function GlucoseTrendChart({
           </h2>
           <PeriodSelector selected={period} onSelect={handlePeriodChange} />
         </div>
-        <div className="h-64 flex items-center justify-center text-slate-500">
+        <div className="h-64 flex items-center justify-center text-slate-500 dark:text-slate-500">
           <p>No glucose readings yet</p>
         </div>
       </div>
@@ -921,7 +921,7 @@ export function GlucoseTrendChart({
   return (
     <div
       className={clsx(
-        "bg-slate-900 rounded-xl p-6 border border-slate-800",
+        "bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800",
         className
       )}
       role="region"
@@ -936,13 +936,13 @@ export function GlucoseTrendChart({
             <button
               type="button"
               onClick={() => setZoomDomain(null)}
-              className="flex items-center gap-1 px-2 py-1 text-xs text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-md transition-colors"
+              className="flex items-center gap-1 px-2 py-1 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white bg-slate-100 dark:bg-slate-800 hover:bg-slate-700 rounded-md transition-colors"
               aria-label="Reset zoom"
             >
               <ZoomOut size={14} /> Reset Zoom
             </button>
           ) : (
-            <span className="flex items-center gap-1 text-xs text-slate-500">
+            <span className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-500">
               <ZoomIn size={12} /> Drag chart to zoom
             </span>
           )}
@@ -1094,7 +1094,7 @@ export function GlucoseTrendChart({
       />
 
       {/* Legend */}
-      <div className="flex flex-wrap items-center justify-center gap-4 mt-3 text-xs text-slate-500">
+      <div className="flex flex-wrap items-center justify-center gap-4 mt-3 text-xs text-slate-500 dark:text-slate-500">
         <span className="flex items-center gap-1">
           <span
             className="w-2 h-2 rounded-full bg-green-500 inline-block"

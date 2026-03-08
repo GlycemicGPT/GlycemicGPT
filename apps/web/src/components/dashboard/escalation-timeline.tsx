@@ -49,9 +49,9 @@ const TIER_CONFIG: Record<
 const UNKNOWN_TIER = {
   label: "Unknown Escalation",
   icon: AlertCircle,
-  color: "text-slate-400",
-  bg: "bg-slate-900/20",
-  border: "border-slate-700/30",
+  color: "text-slate-500 dark:text-slate-400",
+  bg: "bg-slate-50/20 dark:bg-slate-900/20",
+  border: "border-slate-300/30 dark:border-slate-700/30",
 };
 
 function formatTimestamp(iso: string): string {
@@ -124,7 +124,7 @@ export function EscalationTimeline({ alertId }: EscalationTimelineProps) {
 
   if (loading) {
     return (
-      <div className="flex items-center gap-2 text-xs text-slate-500 mt-3">
+      <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-500 mt-3">
         <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
         <span>Loading escalation timeline...</span>
       </div>
@@ -145,7 +145,7 @@ export function EscalationTimeline({ alertId }: EscalationTimelineProps) {
 
   return (
     <div className="mt-3 space-y-2" aria-label="Escalation timeline">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-500">
         Escalation History
       </p>
       {events.map((event) => {
@@ -170,7 +170,7 @@ export function EscalationTimeline({ alertId }: EscalationTimelineProps) {
             </span>
             <span className="ml-auto flex items-center gap-2">
               <StatusBadge status={event.notification_status} />
-              <span className="text-[10px] text-slate-500">
+              <span className="text-[10px] text-slate-500 dark:text-slate-500">
                 {formatTimestamp(event.triggered_at)}
               </span>
             </span>

@@ -182,7 +182,7 @@ export function TimeInRangeBar({
     return (
       <div
         className={clsx(
-          "bg-slate-900 rounded-xl p-6 border border-slate-800 animate-pulse",
+          "bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800 animate-pulse",
           className
         )}
         data-testid="time-in-range-bar"
@@ -209,7 +209,7 @@ export function TimeInRangeBar({
     return (
       <div
         className={clsx(
-          "bg-slate-900 rounded-xl p-6 border border-slate-800",
+          "bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800",
           className
         )}
         data-testid="time-in-range-bar"
@@ -238,7 +238,7 @@ export function TimeInRangeBar({
     return (
       <div
         className={clsx(
-          "bg-slate-900 rounded-xl p-6 border border-slate-800",
+          "bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800",
           className
         )}
         data-testid="time-in-range-bar"
@@ -252,7 +252,7 @@ export function TimeInRangeBar({
           )}
         </div>
         <p
-          className="text-slate-500 text-center py-8"
+          className="text-slate-500 dark:text-slate-500 text-center py-8"
           data-testid="no-data-message"
         >
           No glucose data available for this period.
@@ -339,7 +339,7 @@ export function TimeInRangeBar({
   // Fix #10: use opacity class on parent container instead of per-segment inline opacity
   const previousBar = orderedPrev ? (
     <div
-      className="h-3 rounded-full overflow-hidden flex bg-slate-800 mt-1 opacity-40"
+      className="h-3 rounded-full overflow-hidden flex bg-slate-100 dark:bg-slate-800 mt-1 opacity-40"
       data-testid="previous-period-bar"
       aria-label="Previous period comparison"
     >
@@ -373,7 +373,7 @@ export function TimeInRangeBar({
     // Fix #7: add role="region" and aria-label to main render path
     <div
       className={clsx(
-        "bg-slate-900 rounded-xl p-6 border border-slate-800",
+        "bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800",
         className
       )}
       data-testid="time-in-range-bar"
@@ -404,7 +404,7 @@ export function TimeInRangeBar({
           <PeriodSelector period={period} onPeriodChange={onPeriodChange} />
         ) : (
           <span
-            className="text-sm text-slate-400 bg-slate-800 px-2 py-1 rounded"
+            className="text-sm text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded"
             data-testid="period-label"
           >
             {periodLabel}
@@ -442,10 +442,10 @@ export function TimeInRangeBar({
               style={{ backgroundColor: BUCKET_COLORS[b.label] }}
               aria-hidden="true"
             />
-            <span className="text-xs text-slate-300">
+            <span className="text-xs text-slate-600 dark:text-slate-300">
               {BUCKET_LABELS[b.label]}
             </span>
-            <span className="text-xs text-slate-500">
+            <span className="text-xs text-slate-500 dark:text-slate-500">
               {formatPercentage(b.pct)}
             </span>
           </div>
@@ -453,7 +453,7 @@ export function TimeInRangeBar({
       </div>
 
       {/* Target range & readings */}
-      <p className="text-slate-500 text-xs mt-3 text-center">
+      <p className="text-slate-500 dark:text-slate-500 text-xs mt-3 text-center">
         Target: {targetRange}
         {" \u00B7 "}
         {readingsCount} readings
@@ -474,7 +474,7 @@ function PeriodSelector({
 }) {
   return (
     <div
-      className="flex gap-1 bg-slate-800 rounded-lg p-1"
+      className="flex gap-1 bg-slate-100 dark:bg-slate-800 rounded-lg p-1"
       role="radiogroup"
       aria-label="Time period"
       data-testid="period-selector"
@@ -490,7 +490,7 @@ function PeriodSelector({
             "px-2 py-1 text-xs font-medium rounded transition-colors",
             p === period
               ? "bg-blue-600 text-white"
-              : "text-slate-400 hover:text-slate-200"
+              : "text-slate-500 dark:text-slate-400 hover:text-slate-200"
           )}
         >
           {p.toUpperCase()}

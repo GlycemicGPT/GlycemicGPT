@@ -383,13 +383,13 @@ export default function DataRetentionPage() {
       <div>
         <Link
           href="/dashboard/settings"
-          className="flex items-center gap-1 text-sm text-slate-400 hover:text-slate-300 mb-2"
+          className="flex items-center gap-1 text-sm text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 mb-2"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to Settings
         </Link>
         <h1 className="text-2xl font-bold">Data Retention</h1>
-        <p className="text-slate-400">
+        <p className="text-slate-500 dark:text-slate-400">
           Configure how long your data is retained before automatic cleanup
         </p>
       </div>
@@ -428,12 +428,12 @@ export default function DataRetentionPage() {
       {/* Loading state */}
       {isLoading && (
         <div
-          className="bg-slate-900 rounded-xl p-12 border border-slate-800 text-center"
+          className="bg-white dark:bg-slate-900 rounded-xl p-12 border border-slate-200 dark:border-slate-800 text-center"
           role="status"
           aria-label="Loading data retention configuration"
         >
           <Loader2 className="h-8 w-8 text-blue-400 animate-spin mx-auto mb-3" />
-          <p className="text-slate-400">
+          <p className="text-slate-500 dark:text-slate-400">
             Loading data retention configuration...
           </p>
         </div>
@@ -441,7 +441,7 @@ export default function DataRetentionPage() {
 
       {/* Storage usage */}
       {!isLoading && usage && (
-        <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6">
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 bg-purple-500/10 rounded-lg">
               <Database className="h-5 w-5 text-purple-400" />
@@ -455,7 +455,7 @@ export default function DataRetentionPage() {
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <div className="bg-slate-800/50 rounded-lg p-3 border border-slate-700/50">
+            <div className="bg-slate-100/50 dark:bg-slate-800/50 rounded-lg p-3 border border-slate-300/50 dark:border-slate-700/50">
               <p className="text-xs text-slate-500 mb-1">Glucose Data</p>
               <p className="text-lg font-semibold text-blue-400">
                 {formatNumber(usage.glucose_records + usage.pump_records)}
@@ -465,7 +465,7 @@ export default function DataRetentionPage() {
                 {formatNumber(usage.pump_records)} pump
               </p>
             </div>
-            <div className="bg-slate-800/50 rounded-lg p-3 border border-slate-700/50">
+            <div className="bg-slate-100/50 dark:bg-slate-800/50 rounded-lg p-3 border border-slate-300/50 dark:border-slate-700/50">
               <p className="text-xs text-slate-500 mb-1">AI Analysis</p>
               <p className="text-lg font-semibold text-green-400">
                 {formatNumber(usage.analysis_records)}
@@ -474,7 +474,7 @@ export default function DataRetentionPage() {
                 briefs, meals, corrections
               </p>
             </div>
-            <div className="bg-slate-800/50 rounded-lg p-3 border border-slate-700/50">
+            <div className="bg-slate-100/50 dark:bg-slate-800/50 rounded-lg p-3 border border-slate-300/50 dark:border-slate-700/50">
               <p className="text-xs text-slate-500 mb-1">Audit Logs</p>
               <p className="text-lg font-semibold text-amber-400">
                 {formatNumber(usage.audit_records)}
@@ -483,9 +483,9 @@ export default function DataRetentionPage() {
                 safety, alerts, escalations
               </p>
             </div>
-            <div className="bg-slate-800/50 rounded-lg p-3 border border-slate-700/50">
+            <div className="bg-slate-100/50 dark:bg-slate-800/50 rounded-lg p-3 border border-slate-300/50 dark:border-slate-700/50">
               <p className="text-xs text-slate-500 mb-1">Total Records</p>
-              <p className="text-lg font-semibold text-white">
+              <p className="text-lg font-semibold text-slate-900 dark:text-white">
                 {formatNumber(usage.total_records)}
               </p>
               <p className="text-xs text-slate-600">across all categories</p>
@@ -496,7 +496,7 @@ export default function DataRetentionPage() {
 
       {/* Configuration form */}
       {!isLoading && (
-        <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6">
           <div className="flex items-center gap-3 mb-6">
             <div className="p-2 bg-blue-500/10 rounded-lg">
               <Database className="h-5 w-5 text-blue-400" />
@@ -514,7 +514,7 @@ export default function DataRetentionPage() {
             <div>
               <label
                 htmlFor="glucose-retention"
-                className="block text-sm font-medium text-slate-300 mb-1"
+                className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
               >
                 Glucose Data Retention
               </label>
@@ -525,7 +525,7 @@ export default function DataRetentionPage() {
                 disabled={isSaving}
                 className={clsx(
                   "w-full rounded-lg border px-3 py-2 text-sm",
-                  "bg-slate-800 border-slate-700 text-slate-200",
+                  "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-200",
                   "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                   "disabled:opacity-50 disabled:cursor-not-allowed"
                 )}
@@ -549,7 +549,7 @@ export default function DataRetentionPage() {
             <div>
               <label
                 htmlFor="analysis-retention"
-                className="block text-sm font-medium text-slate-300 mb-1"
+                className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
               >
                 AI Analysis Retention
               </label>
@@ -560,7 +560,7 @@ export default function DataRetentionPage() {
                 disabled={isSaving}
                 className={clsx(
                   "w-full rounded-lg border px-3 py-2 text-sm",
-                  "bg-slate-800 border-slate-700 text-slate-200",
+                  "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-200",
                   "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                   "disabled:opacity-50 disabled:cursor-not-allowed"
                 )}
@@ -584,7 +584,7 @@ export default function DataRetentionPage() {
             <div>
               <label
                 htmlFor="audit-retention"
-                className="block text-sm font-medium text-slate-300 mb-1"
+                className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
               >
                 Audit Log Retention
               </label>
@@ -595,7 +595,7 @@ export default function DataRetentionPage() {
                 disabled={isSaving}
                 className={clsx(
                   "w-full rounded-lg border px-3 py-2 text-sm",
-                  "bg-slate-800 border-slate-700 text-slate-200",
+                  "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-200",
                   "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                   "disabled:opacity-50 disabled:cursor-not-allowed"
                 )}
@@ -617,7 +617,7 @@ export default function DataRetentionPage() {
 
             {/* Preview */}
             {!isLoading && (
-              <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
+              <div className="bg-slate-100/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-300/50 dark:border-slate-700/50">
                 <p className="text-xs text-slate-500 mb-2">Preview</p>
                 <p className="text-lg font-semibold text-blue-400">
                   Glucose:{" "}
@@ -674,7 +674,7 @@ export default function DataRetentionPage() {
                 }
                 className={clsx(
                   "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium",
-                  "bg-slate-800 text-slate-300 hover:bg-slate-700",
+                  "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700",
                   "transition-colors",
                   "focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500",
                   "disabled:opacity-50 disabled:cursor-not-allowed"
@@ -690,7 +690,7 @@ export default function DataRetentionPage() {
 
       {/* Analytics Day Boundary */}
       {!isLoading && (
-        <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6">
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 bg-cyan-500/10 rounded-lg">
               <Clock className="h-5 w-5 text-cyan-400" />
@@ -704,14 +704,14 @@ export default function DataRetentionPage() {
           </div>
 
           <div className="space-y-4">
-            <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
-              <p className="text-sm text-slate-300 mb-2">
+            <div className="bg-slate-100/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-300/50 dark:border-slate-700/50">
+              <p className="text-sm text-slate-600 dark:text-slate-300 mb-2">
                 The day boundary determines when analytics periods like Insulin
                 Summary and Recent Boluses start counting each day. Most insulin
                 pumps reset their Delivery Summary at midnight, so the default
-                boundary is <strong className="text-slate-200">12:00 AM</strong>.
+                boundary is <strong className="text-slate-800 dark:text-slate-200">12:00 AM</strong>.
               </p>
-              <p className="text-sm text-slate-400">
+              <p className="text-sm text-slate-500 dark:text-slate-400">
                 Changing this affects how &ldquo;24H&rdquo;, &ldquo;3D&rdquo;, and
                 &ldquo;7D&rdquo; periods are calculated for insulin delivery
                 statistics. For example, if your pump resets at a different time, or
@@ -724,7 +724,7 @@ export default function DataRetentionPage() {
             <div>
               <label
                 htmlFor="day-boundary-hour"
-                className="block text-sm font-medium text-slate-300 mb-1"
+                className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
               >
                 Day starts at
               </label>
@@ -735,7 +735,7 @@ export default function DataRetentionPage() {
                 disabled={isSavingBoundary || isOffline}
                 className={clsx(
                   "w-full rounded-lg border px-3 py-2 text-sm",
-                  "bg-slate-800 border-slate-700 text-slate-200",
+                  "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-200",
                   "focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent",
                   "disabled:opacity-50 disabled:cursor-not-allowed"
                 )}
@@ -809,7 +809,7 @@ export default function DataRetentionPage() {
 
       {/* Bolus Display Labels */}
       {!isLoading && (
-        <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6">
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 bg-violet-500/10 rounded-lg">
               <Tag className="h-5 w-5 text-violet-400" />
@@ -824,10 +824,10 @@ export default function DataRetentionPage() {
 
           <div className="space-y-4">
             {/* Active plugin info */}
-            <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
+            <div className="bg-slate-100/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-300/50 dark:border-slate-700/50">
               <div className="flex items-center gap-2 mb-2">
-                <Plug className="h-4 w-4 text-slate-400" aria-hidden="true" />
-                <span className="text-sm font-medium text-slate-300">
+                <Plug className="h-4 w-4 text-slate-500 dark:text-slate-400" aria-hidden="true" />
+                <span className="text-sm font-medium text-slate-600 dark:text-slate-300">
                   Active Plugin:
                 </span>
                 {pluginDeclaration ? (
@@ -840,7 +840,7 @@ export default function DataRetentionPage() {
                   </span>
                 )}
               </div>
-              <p className="text-sm text-slate-400">
+              <p className="text-sm text-slate-500 dark:text-slate-400">
                 Labels control how bolus categories appear in the Insulin
                 Summary, charts, and dashboards on both web and mobile.
                 Assign a Pump Source to link labels with your pump&apos;s native categories.
@@ -851,24 +851,24 @@ export default function DataRetentionPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-slate-700">
-                    <th className="text-left py-2 pr-2 text-xs font-medium text-slate-400 uppercase tracking-wider w-8">
+                  <tr className="border-b border-slate-300 dark:border-slate-700">
+                    <th className="text-left py-2 pr-2 text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider w-8">
                       <span className="sr-only">Order</span>
                     </th>
-                    <th className="text-left py-2 px-2 text-xs font-medium text-slate-400 uppercase tracking-wider">
+                    <th className="text-left py-2 px-2 text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                       Display Label
                     </th>
-                    <th className="text-left py-2 px-2 text-xs font-medium text-slate-400 uppercase tracking-wider">
+                    <th className="text-left py-2 px-2 text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                       Pump Source
                     </th>
-                    <th className="text-right py-2 pl-2 text-xs font-medium text-slate-400 uppercase tracking-wider w-10">
+                    <th className="text-right py-2 pl-2 text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider w-10">
                       <span className="sr-only">Actions</span>
                     </th>
                   </tr>
                 </thead>
                 <tbody>
                   {displayLabels.map((item, index) => (
-                    <tr key={item.id} className="border-b border-slate-800/50">
+                    <tr key={item.id} className="border-b border-slate-200/50 dark:border-slate-800/50">
                       {/* Reorder controls */}
                       <td className="py-2 pr-2">
                         <div className="flex flex-col gap-0.5">
@@ -924,7 +924,7 @@ export default function DataRetentionPage() {
                             disabled={isSavingLabels || isOffline}
                             className={clsx(
                               "w-full rounded-lg border px-2 py-1.5 text-sm",
-                              "bg-slate-800 border-slate-700 text-slate-200",
+                              "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-200",
                               "placeholder:text-slate-600",
                               "focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent",
                               "disabled:opacity-50 disabled:cursor-not-allowed"
@@ -948,7 +948,7 @@ export default function DataRetentionPage() {
                           disabled={isSavingLabels || isOffline || !pluginDeclaration}
                           className={clsx(
                             "w-full rounded-lg border px-2 py-1.5 text-sm",
-                            "bg-slate-800 border-slate-700 text-slate-200",
+                            "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-200",
                             "focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent",
                             "disabled:opacity-50 disabled:cursor-not-allowed"
                           )}
@@ -1005,8 +1005,8 @@ export default function DataRetentionPage() {
               }}
               className={clsx(
                 "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm",
-                "bg-slate-800 text-slate-300 hover:bg-slate-700",
-                "transition-colors border border-slate-700",
+                "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700",
+                "transition-colors border border-slate-300 dark:border-slate-700",
                 "focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500",
                 "disabled:opacity-50 disabled:cursor-not-allowed"
               )}
@@ -1081,7 +1081,7 @@ export default function DataRetentionPage() {
                 }
                 className={clsx(
                   "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium",
-                  "bg-slate-800 text-slate-300 hover:bg-slate-700",
+                  "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700",
                   "transition-colors",
                   "focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500",
                   "disabled:opacity-50 disabled:cursor-not-allowed"
@@ -1097,7 +1097,7 @@ export default function DataRetentionPage() {
 
       {/* Export Data (Story 9.5) */}
       {!isLoading && (
-        <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6">
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 bg-green-500/10 rounded-lg">
               <Download className="h-5 w-5 text-green-400" />
@@ -1112,7 +1112,7 @@ export default function DataRetentionPage() {
 
           <div className="space-y-4">
             <fieldset>
-              <legend className="text-sm font-medium text-slate-300 mb-2">
+              <legend className="text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">
                 Export type
               </legend>
               <div className="space-y-2">
@@ -1186,7 +1186,7 @@ export default function DataRetentionPage() {
 
       {/* Danger Zone (Story 9.4) */}
       {!isLoading && (
-        <div className="bg-slate-900 rounded-xl border border-red-500/30 p-6">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-red-500/30 p-6">
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 bg-red-500/10 rounded-lg">
               <Trash2 className="h-5 w-5 text-red-400" />
@@ -1204,7 +1204,7 @@ export default function DataRetentionPage() {
           {!showPurgeConfirm ? (
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-300">Purge All Data</p>
+                <p className="text-sm text-slate-600 dark:text-slate-300">Purge All Data</p>
                 <p className="text-xs text-slate-500">
                   Permanently delete all glucose readings, pump events, AI
                   analysis, and audit records. Account settings are preserved.
@@ -1255,7 +1255,7 @@ export default function DataRetentionPage() {
               <div>
                 <label
                   htmlFor="purge-confirm"
-                  className="block text-sm font-medium text-slate-300 mb-1"
+                  className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
                 >
                   Type <span className="font-mono text-red-400">DELETE</span> to
                   confirm
@@ -1270,7 +1270,7 @@ export default function DataRetentionPage() {
                   autoComplete="off"
                   className={clsx(
                     "w-full rounded-lg border px-3 py-2 text-sm",
-                    "bg-slate-800 border-slate-700 text-slate-200",
+                    "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-200",
                     "placeholder:text-slate-600",
                     "focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent",
                     "disabled:opacity-50 disabled:cursor-not-allowed"
@@ -1311,7 +1311,7 @@ export default function DataRetentionPage() {
                   disabled={isPurging}
                   className={clsx(
                     "px-4 py-2 rounded-lg text-sm font-medium",
-                    "bg-slate-800 text-slate-300 hover:bg-slate-700",
+                    "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700",
                     "transition-colors",
                     "focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500",
                     "disabled:opacity-50 disabled:cursor-not-allowed"
@@ -1326,7 +1326,7 @@ export default function DataRetentionPage() {
       )}
 
       {/* Info card */}
-      <div className="bg-slate-900/50 rounded-xl p-4 border border-slate-800">
+      <div className="bg-slate-50/50 dark:bg-slate-900/50 rounded-xl p-4 border border-slate-200 dark:border-slate-800">
         <p className="text-xs text-slate-500">
           Data retention policies are enforced automatically on a daily schedule.
           Records older than the configured retention period will be permanently

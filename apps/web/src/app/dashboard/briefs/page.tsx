@@ -103,7 +103,7 @@ export default function BriefsPage() {
           <h1 className="text-2xl font-bold">
             {filter === "daily_brief" ? "Daily Briefs" : "AI Insights"}
           </h1>
-          <p className="text-slate-400">
+          <p className="text-slate-500 dark:text-slate-400">
             {filter === "daily_brief"
               ? "AI-generated daily summaries of your glucose data"
               : "AI-powered analysis of your glucose patterns"}
@@ -115,7 +115,7 @@ export default function BriefsPage() {
               setIsLoading(true);
               fetchInsights();
             }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 text-slate-300 hover:bg-slate-700 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
             aria-label="Refresh insights"
           >
             <RefreshCw className="h-3.5 w-3.5" />
@@ -147,7 +147,7 @@ export default function BriefsPage() {
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
               filter === "all"
                 ? "bg-blue-600 text-white"
-                : "bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700"
+                : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-slate-700"
             }`}
           >
             All Insights
@@ -163,7 +163,7 @@ export default function BriefsPage() {
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
               filter === "daily_brief"
                 ? "bg-blue-600 text-white"
-                : "bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700"
+                : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-slate-700"
             }`}
           >
             <Filter className="h-3.5 w-3.5" />
@@ -181,12 +181,12 @@ export default function BriefsPage() {
       {/* Loading state */}
       {isLoading && (
         <div
-          className="bg-slate-900 rounded-xl p-12 border border-slate-800 text-center"
+          className="bg-white dark:bg-slate-900 rounded-xl p-12 border border-slate-200 dark:border-slate-800 text-center"
           role="status"
           aria-label="Loading insights"
         >
           <Loader2 className="h-8 w-8 text-blue-400 animate-spin mx-auto mb-3" />
-          <p className="text-slate-400">Loading insights...</p>
+          <p className="text-slate-500 dark:text-slate-400">Loading insights...</p>
         </div>
       )}
 
@@ -211,14 +211,14 @@ export default function BriefsPage() {
 
       {/* Empty state */}
       {!isLoading && !error && insights.length === 0 && (
-        <div className="bg-slate-900 rounded-xl p-12 border border-slate-800 text-center">
+        <div className="bg-white dark:bg-slate-900 rounded-xl p-12 border border-slate-200 dark:border-slate-800 text-center">
           <div className="flex justify-center mb-4">
             <div className="p-4 bg-blue-500/10 rounded-full">
               <FileText className="h-12 w-12 text-blue-400" />
             </div>
           </div>
           <h2 className="text-xl font-semibold mb-2">No Insights Yet</h2>
-          <p className="text-slate-400 max-w-md mx-auto">
+          <p className="text-slate-500 dark:text-slate-400 max-w-md mx-auto">
             AI insights will appear here once you have enough glucose data.
             Connect your Dexcom CGM and Tandem pump to get started.
           </p>
@@ -234,7 +234,7 @@ export default function BriefsPage() {
             id="tabpanel-insights"
             role="tabpanel"
             aria-labelledby={filter === "all" ? "tab-all" : "tab-daily-briefs"}
-            className="bg-slate-900 rounded-xl p-12 border border-slate-800 text-center"
+            className="bg-white dark:bg-slate-900 rounded-xl p-12 border border-slate-200 dark:border-slate-800 text-center"
           >
             <div className="flex justify-center mb-4">
               <div className="p-4 bg-blue-500/10 rounded-full">
@@ -242,7 +242,7 @@ export default function BriefsPage() {
               </div>
             </div>
             <h2 className="text-xl font-semibold mb-2">No Daily Briefs Yet</h2>
-            <p className="text-slate-400 max-w-md mx-auto">
+            <p className="text-slate-500 dark:text-slate-400 max-w-md mx-auto">
               Daily briefs will appear here once they are generated.
               Check your brief delivery settings to configure when they are sent.
             </p>

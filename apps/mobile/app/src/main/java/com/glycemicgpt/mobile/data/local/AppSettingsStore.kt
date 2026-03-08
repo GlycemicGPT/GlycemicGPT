@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import com.glycemicgpt.mobile.presentation.theme.ThemeMode
 import dagger.hilt.android.qualifiers.ApplicationContext
 import timber.log.Timber
 import javax.inject.Inject
@@ -111,6 +112,28 @@ class AppSettingsStore @Inject constructor(
             prefs.edit().putBoolean(KEY_SHOW_PUMP_LABELS, value).apply()
         }
 
+    /** User-selected theme: System, Dark, or Light. */
+    var themeMode: ThemeMode
+        get() {
+            val stored = prefs.getString(KEY_THEME_MODE, ThemeMode.System.name)
+            return try {
+                ThemeMode.valueOf(stored ?: ThemeMode.System.name)
+            } catch (_: IllegalArgumentException) {
+                ThemeMode.System
+            }
+        }
+        set(value) {
+            prefs.edit().putString(KEY_THEME_MODE, value.name).apply()
+        }
+
+    fun registerListener(listener: SharedPreferences.OnSharedPreferenceChangeListener) {
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+    }
+
+    fun unregisterListener(listener: SharedPreferences.OnSharedPreferenceChangeListener) {
+        prefs.unregisterOnSharedPreferenceChangeListener(listener)
+    }
+
     companion object {
         private const val OLD_PREFS_NAME = "app_settings"
         private const val ENCRYPTED_PREFS_NAME = "app_settings_encrypted"
@@ -119,6 +142,7 @@ class AppSettingsStore @Inject constructor(
         private const val KEY_DATA_RETENTION_DAYS = "data_retention_days"
         private const val KEY_DEVICE_TOKEN = "device_token"
         private const val KEY_SHOW_PUMP_LABELS = "show_pump_labels"
+        internal const val KEY_THEME_MODE = "theme_mode"
         const val DEFAULT_RETENTION_DAYS = 7
         const val MIN_RETENTION_DAYS = 1
         const val MAX_RETENTION_DAYS = 30

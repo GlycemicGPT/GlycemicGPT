@@ -117,19 +117,19 @@ function AgpTooltipContent({
   if (!d) return null;
   if (d.count === 0) {
     return (
-      <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs shadow-lg">
+      <div className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-xs shadow-lg">
         <p className="font-semibold text-slate-200 mb-1">{d.label}</p>
-        <p className="text-slate-400">No data for this hour</p>
+        <p className="text-slate-500 dark:text-slate-400">No data for this hour</p>
       </div>
     );
   }
   return (
-    <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs shadow-lg">
+    <div className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-xs shadow-lg">
       <p className="font-semibold text-slate-200 mb-1">{d.label}</p>
       <p className="text-teal-400">Median: {Math.round(d.p50)} mg/dL</p>
-      <p className="text-slate-300">25th-75th: {Math.round(d.p25)}-{Math.round(d.p75)} mg/dL</p>
-      <p className="text-slate-400">10th-90th: {Math.round(d.p10)}-{Math.round(d.p90)} mg/dL</p>
-      <p className="text-slate-500 mt-1">{d.count} readings</p>
+      <p className="text-slate-600 dark:text-slate-300">25th-75th: {Math.round(d.p25)}-{Math.round(d.p75)} mg/dL</p>
+      <p className="text-slate-500 dark:text-slate-400">10th-90th: {Math.round(d.p10)}-{Math.round(d.p90)} mg/dL</p>
+      <p className="text-slate-500 dark:text-slate-500 mt-1">{d.count} readings</p>
     </div>
   );
 }
@@ -185,10 +185,10 @@ function PeriodSelector({
           onClick={() => onPeriodChange(p.value)}
           onKeyDown={(e) => handleKeyDown(e, index)}
           className={clsx(
-            "px-3 py-1 text-xs font-medium rounded-md transition-colors outline-none focus-visible:ring-2 focus-visible:ring-teal-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900",
+            "px-3 py-1 text-xs font-medium rounded-md transition-colors outline-none focus-visible:ring-2 focus-visible:ring-teal-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900",
             period === p.value
               ? "bg-teal-500/20 text-teal-400 border border-teal-500/40"
-              : "text-slate-400 hover:text-slate-300 border border-transparent"
+              : "text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 border border-transparent"
           )}
         >
           {p.label}
@@ -238,19 +238,19 @@ export function AgpChart({ className, thresholds }: AgpChartProps) {
         aria-label="Loading AGP chart"
         aria-busy="true"
         className={clsx(
-          "bg-slate-900 rounded-xl p-6 border border-slate-800",
+          "bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800",
           className
         )}
       >
         <div className="flex items-center justify-between mb-4">
-          <div className="h-6 w-48 bg-slate-800 rounded animate-pulse" />
+          <div className="h-6 w-48 bg-slate-100 dark:bg-slate-800 rounded animate-pulse" />
           <div className="flex gap-1">
             {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="h-7 w-10 bg-slate-800 rounded animate-pulse" />
+              <div key={i} className="h-7 w-10 bg-slate-100 dark:bg-slate-800 rounded animate-pulse" />
             ))}
           </div>
         </div>
-        <div className="h-64 bg-slate-800 rounded animate-pulse" />
+        <div className="h-64 bg-slate-100 dark:bg-slate-800 rounded animate-pulse" />
       </section>
     );
   }
@@ -262,7 +262,7 @@ export function AgpChart({ className, thresholds }: AgpChartProps) {
         data-testid="agp-chart"
         aria-label="AGP chart error"
         className={clsx(
-          "bg-slate-900 rounded-xl p-6 border border-slate-800",
+          "bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800",
           className
         )}
       >
@@ -274,11 +274,11 @@ export function AgpChart({ className, thresholds }: AgpChartProps) {
         </div>
         <div className="flex flex-col items-center justify-center h-64 text-center">
           <p className="text-red-400 mb-2">Unable to load AGP data</p>
-          <p className="text-slate-500 text-xs mb-2">{error}</p>
+          <p className="text-slate-500 dark:text-slate-500 text-xs mb-2">{error}</p>
           <button
             type="button"
             onClick={refetch}
-            className="text-teal-400 hover:text-teal-300 text-sm underline outline-none focus-visible:ring-2 focus-visible:ring-teal-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 rounded"
+            className="text-teal-400 hover:text-teal-300 text-sm underline outline-none focus-visible:ring-2 focus-visible:ring-teal-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900 rounded"
           >
             Retry
           </button>
@@ -294,7 +294,7 @@ export function AgpChart({ className, thresholds }: AgpChartProps) {
         data-testid="agp-chart"
         aria-label="AGP chart empty"
         className={clsx(
-          "bg-slate-900 rounded-xl p-6 border border-slate-800",
+          "bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800",
           className
         )}
       >
@@ -305,7 +305,7 @@ export function AgpChart({ className, thresholds }: AgpChartProps) {
           <PeriodSelector period={period} onPeriodChange={setPeriod} />
         </div>
         <div className="flex items-center justify-center h-64">
-          <p className="text-slate-400">
+          <p className="text-slate-500 dark:text-slate-400">
             Not enough glucose data for AGP analysis (minimum 7 days needed)
           </p>
         </div>
@@ -319,7 +319,7 @@ export function AgpChart({ className, thresholds }: AgpChartProps) {
       data-testid="agp-chart"
       aria-label={`Ambulatory Glucose Profile, ${AGP_PERIOD_LABELS[period]} view`}
       className={clsx(
-        "bg-slate-900 rounded-xl p-6 border border-slate-800",
+        "bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800",
         className
       )}
     >
@@ -329,7 +329,7 @@ export function AgpChart({ className, thresholds }: AgpChartProps) {
           <h2 className="text-lg font-semibold text-slate-200">
             Ambulatory Glucose Profile
           </h2>
-          <p className="text-xs text-slate-400" aria-live="polite">
+          <p className="text-xs text-slate-500 dark:text-slate-400" aria-live="polite">
             {data?.readings_count?.toLocaleString() ?? 0} readings
             {data?.is_truncated && (
               <span className="text-amber-400 ml-1" data-testid="agp-truncation-warning">
@@ -441,7 +441,7 @@ export function AgpChart({ className, thresholds }: AgpChartProps) {
       </div>
 
       {/* Legend */}
-      <div className="flex flex-wrap items-center gap-4 mt-3 text-xs text-slate-400" aria-label="Chart legend">
+      <div className="flex flex-wrap items-center gap-4 mt-3 text-xs text-slate-500 dark:text-slate-400" aria-label="Chart legend">
         <span className="flex items-center gap-1.5">
           <span className="w-5 h-0.5 rounded" style={{ backgroundColor: TEAL }} aria-hidden="true" />
           Median

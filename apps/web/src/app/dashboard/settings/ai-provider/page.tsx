@@ -483,7 +483,7 @@ export default function AIProviderPage() {
       {/* Back link */}
       <Link
         href="/dashboard/settings"
-        className="inline-flex items-center gap-2 text-slate-400 hover:text-white transition-colors text-sm"
+        className="inline-flex items-center gap-2 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors text-sm"
       >
         <ArrowLeft className="h-4 w-4" />
         Back to Settings
@@ -491,12 +491,12 @@ export default function AIProviderPage() {
 
       {/* Page header */}
       <div className="flex items-center gap-3">
-        <div className="p-3 bg-slate-800 rounded-lg">
+        <div className="p-3 bg-slate-100 dark:bg-slate-800 rounded-lg">
           <Brain className="h-6 w-6 text-purple-400" />
         </div>
         <div>
           <h1 className="text-2xl font-bold">AI Provider</h1>
-          <p className="text-slate-400 text-sm">
+          <p className="text-slate-500 dark:text-slate-400 text-sm">
             Configure your AI provider for glucose analysis and insights
           </p>
         </div>
@@ -538,18 +538,18 @@ export default function AIProviderPage() {
       {/* Loading state */}
       {isLoading && (
         <div
-          className="bg-slate-900 rounded-xl p-12 border border-slate-800 text-center"
+          className="bg-white dark:bg-slate-900 rounded-xl p-12 border border-slate-200 dark:border-slate-800 text-center"
           role="status"
           aria-label="Loading AI provider configuration"
         >
           <Loader2 className="h-8 w-8 text-purple-400 animate-spin mx-auto mb-3" />
-          <p className="text-slate-400">Loading AI configuration...</p>
+          <p className="text-slate-500 dark:text-slate-400">Loading AI configuration...</p>
         </div>
       )}
 
       {/* Current configuration status */}
       {!isLoading && isConfigured && (
-        <div className="bg-slate-900 rounded-xl p-6 border border-slate-800 space-y-4">
+        <div className="bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800 space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               {config.status === "connected" ? (
@@ -569,16 +569,16 @@ export default function AIProviderPage() {
             )}
           </div>
 
-          <div className="bg-slate-800 rounded-lg p-4 space-y-3">
+          <div className="bg-slate-100 dark:bg-slate-800 rounded-lg p-4 space-y-3">
             <div className="flex items-center justify-between text-sm">
-              <span className="text-slate-400">Provider</span>
-              <span className="text-white font-medium">
+              <span className="text-slate-500 dark:text-slate-400">Provider</span>
+              <span className="text-slate-900 dark:text-white font-medium">
                 {PROVIDER_LABELS[config.provider_type] || config.provider_type}
               </span>
             </div>
             {config.sidecar_provider ? (
               <div className="flex items-center justify-between text-sm">
-                <span className="text-slate-400">Authentication</span>
+                <span className="text-slate-500 dark:text-slate-400">Authentication</span>
                 <span className="text-green-400 text-xs flex items-center gap-1">
                   <Wifi className="h-3 w-3" />
                   Managed by sidecar
@@ -586,32 +586,32 @@ export default function AIProviderPage() {
               </div>
             ) : (
               <div className="flex items-center justify-between text-sm">
-                <span className="text-slate-400">API Key</span>
-                <span className="text-white font-mono text-xs">
+                <span className="text-slate-500 dark:text-slate-400">API Key</span>
+                <span className="text-slate-900 dark:text-white font-mono text-xs">
                   {config.masked_api_key}
                 </span>
               </div>
             )}
             {config.base_url && (
               <div className="flex items-center justify-between text-sm">
-                <span className="text-slate-400">Base URL</span>
-                <span className="text-white font-mono text-xs truncate max-w-[200px]">
+                <span className="text-slate-500 dark:text-slate-400">Base URL</span>
+                <span className="text-slate-900 dark:text-white font-mono text-xs truncate max-w-[200px]">
                   {config.base_url}
                 </span>
               </div>
             )}
             {config.model_name && (
               <div className="flex items-center justify-between text-sm">
-                <span className="text-slate-400">Model</span>
-                <span className="text-white font-mono text-xs">
+                <span className="text-slate-500 dark:text-slate-400">Model</span>
+                <span className="text-slate-900 dark:text-white font-mono text-xs">
                   {config.model_name}
                 </span>
               </div>
             )}
             {config.last_validated_at && (
               <div className="flex items-center justify-between text-sm">
-                <span className="text-slate-400">Last Validated</span>
-                <span className="text-white text-xs">
+                <span className="text-slate-500 dark:text-slate-400">Last Validated</span>
+                <span className="text-slate-900 dark:text-white text-xs">
                   {new Date(config.last_validated_at).toLocaleString()}
                 </span>
               </div>
@@ -629,7 +629,7 @@ export default function AIProviderPage() {
               onClick={handleTest}
               disabled={isTesting || isDeleting || isOffline}
               title={isOffline ? "Cannot test while disconnected" : undefined}
-              className="w-full bg-slate-800 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-lg px-4 py-3 transition-colors flex items-center justify-center gap-2"
+              className="w-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed text-slate-900 dark:text-white font-medium rounded-lg px-4 py-3 transition-colors flex items-center justify-center gap-2"
               aria-label="Test connection"
             >
               {isTesting ? (
@@ -671,7 +671,7 @@ export default function AIProviderPage() {
                   </button>
                   <button
                     onClick={() => setConfirmDelete(false)}
-                    className="flex-1 bg-slate-800 hover:bg-slate-700 text-white text-sm font-medium rounded-lg px-3 py-2 transition-colors"
+                    className="flex-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-900 dark:text-white text-sm font-medium rounded-lg px-3 py-2 transition-colors"
                   >
                     Cancel
                   </button>
@@ -684,7 +684,7 @@ export default function AIProviderPage() {
 
       {/* Configuration form */}
       {!isLoading && (
-        <div className="bg-slate-900 rounded-xl p-6 border border-slate-800 space-y-5">
+        <div className="bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800 space-y-5">
           <div className="flex items-center gap-2">
             <Key className="h-5 w-5 text-purple-400" />
             <h2 className="text-lg font-semibold">
@@ -693,7 +693,7 @@ export default function AIProviderPage() {
           </div>
 
           {!isConfigured && (
-            <p className="text-slate-400 text-sm">
+            <p className="text-slate-500 dark:text-slate-400 text-sm">
               GlycemicGPT uses your own AI (BYOAI) to analyze glucose data and
               generate insights. Choose from subscription plans, direct API keys,
               or self-hosted models below. Your credentials are encrypted before
@@ -707,7 +707,7 @@ export default function AIProviderPage() {
             <div>
               <div className="flex items-center gap-2 mb-2">
                 <Globe className="h-4 w-4 text-blue-400" />
-                <label className="text-sm font-medium text-slate-300">
+                <label className="text-sm font-medium text-slate-600 dark:text-slate-300">
                   Subscription Plans
                 </label>
                 <span className="text-xs text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-full">
@@ -724,13 +724,13 @@ export default function AIProviderPage() {
                     className={`text-left p-3 rounded-lg border transition-colors ${
                       providerType === option.value
                         ? "border-purple-500 bg-purple-500/10"
-                        : "border-slate-700 bg-slate-800 hover:border-slate-600"
+                        : "border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 hover:border-slate-400 dark:hover:border-slate-600"
                     } disabled:opacity-50 disabled:cursor-not-allowed`}
                     aria-pressed={providerType === option.value}
                     aria-label={`Select ${option.label}`}
                   >
-                    <p className="text-sm font-medium text-white">{option.label}</p>
-                    <p className="text-xs text-slate-400 mt-0.5">{option.description}</p>
+                    <p className="text-sm font-medium text-slate-900 dark:text-white">{option.label}</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{option.description}</p>
                   </button>
                 ))}
               </div>
@@ -740,7 +740,7 @@ export default function AIProviderPage() {
             <div>
               <div className="flex items-center gap-2 mb-2">
                 <Key className="h-4 w-4 text-amber-400" />
-                <label className="text-sm font-medium text-slate-300">
+                <label className="text-sm font-medium text-slate-600 dark:text-slate-300">
                   Pay-Per-Token APIs
                 </label>
                 <span className="text-xs text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full">
@@ -757,13 +757,13 @@ export default function AIProviderPage() {
                     className={`text-left p-3 rounded-lg border transition-colors ${
                       providerType === option.value
                         ? "border-purple-500 bg-purple-500/10"
-                        : "border-slate-700 bg-slate-800 hover:border-slate-600"
+                        : "border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 hover:border-slate-400 dark:hover:border-slate-600"
                     } disabled:opacity-50 disabled:cursor-not-allowed`}
                     aria-pressed={providerType === option.value}
                     aria-label={`Select ${option.label}`}
                   >
-                    <p className="text-sm font-medium text-white">{option.label}</p>
-                    <p className="text-xs text-slate-400 mt-0.5">{option.description}</p>
+                    <p className="text-sm font-medium text-slate-900 dark:text-white">{option.label}</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{option.description}</p>
                   </button>
                 ))}
               </div>
@@ -773,7 +773,7 @@ export default function AIProviderPage() {
             <div>
               <div className="flex items-center gap-2 mb-2">
                 <Server className="h-4 w-4 text-green-400" />
-                <label className="text-sm font-medium text-slate-300">
+                <label className="text-sm font-medium text-slate-600 dark:text-slate-300">
                   Self-Hosted
                 </label>
                 <span className="text-xs text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full">
@@ -790,13 +790,13 @@ export default function AIProviderPage() {
                     className={`text-left p-3 rounded-lg border transition-colors ${
                       providerType === option.value
                         ? "border-purple-500 bg-purple-500/10"
-                        : "border-slate-700 bg-slate-800 hover:border-slate-600"
+                        : "border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 hover:border-slate-400 dark:hover:border-slate-600"
                     } disabled:opacity-50 disabled:cursor-not-allowed`}
                     aria-pressed={providerType === option.value}
                     aria-label={`Select ${option.label}`}
                   >
-                    <p className="text-sm font-medium text-white">{option.label}</p>
-                    <p className="text-xs text-slate-400 mt-0.5">{option.description}</p>
+                    <p className="text-sm font-medium text-slate-900 dark:text-white">{option.label}</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{option.description}</p>
                   </button>
                 ))}
               </div>
@@ -804,7 +804,7 @@ export default function AIProviderPage() {
           </div>
 
           {/* Dynamic form fields based on selected provider */}
-          <div className="space-y-4 border-t border-slate-800 pt-4">
+          <div className="space-y-4 border-t border-slate-200 dark:border-slate-800 pt-4">
             <p className="text-xs text-slate-500">
               {selectedProvider.pricingHint}
             </p>
@@ -814,7 +814,7 @@ export default function AIProviderPage() {
               <div className="space-y-4">
                 {/* Sidecar status */}
                 <div className="flex items-center gap-2 text-sm">
-                  <span className="text-slate-400">AI Sidecar:</span>
+                  <span className="text-slate-500 dark:text-slate-400">AI Sidecar:</span>
                   {sidecarHealth === null ? (
                     <span className="text-slate-500">Checking...</span>
                   ) : sidecarHealth.available ? (
@@ -834,7 +834,7 @@ export default function AIProviderPage() {
                 <div className="space-y-2">
                   <label
                     htmlFor="sub-model-name"
-                    className="block text-sm font-medium text-slate-300"
+                    className="block text-sm font-medium text-slate-600 dark:text-slate-300"
                   >
                     Model Name{" "}
                     <span className="text-slate-500 font-normal">(optional)</span>
@@ -846,7 +846,7 @@ export default function AIProviderPage() {
                     onChange={(e) => setModelName(e.target.value)}
                     placeholder={selectedProvider.modelPlaceholder}
                     disabled={isOffline || isConfiguringSubscription || isSubmittingToken}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent disabled:opacity-50 text-sm"
+                    className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-4 py-3 text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent disabled:opacity-50 text-sm"
                   />
                   <p className="text-xs text-slate-500">
                     Leave blank to use the default model.
@@ -897,7 +897,7 @@ export default function AIProviderPage() {
                               </button>
                               <button
                                 onClick={() => setConfirmRevoke(false)}
-                                className="text-slate-400 hover:text-white text-xs transition-colors"
+                                className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white text-xs transition-colors"
                               >
                                 Cancel
                               </button>
@@ -946,16 +946,16 @@ export default function AIProviderPage() {
                       </button>
                     ) : (
                       <>
-                        <div className="bg-slate-800 rounded-lg p-4 space-y-2">
-                          <p className="text-sm text-slate-300 font-medium">How to get your token:</p>
-                          <p className="text-xs text-slate-400 leading-relaxed">
+                        <div className="bg-slate-100 dark:bg-slate-800 rounded-lg p-4 space-y-2">
+                          <p className="text-sm text-slate-600 dark:text-slate-300 font-medium">How to get your token:</p>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
                             {authInstructions}
                           </p>
                         </div>
                         <div className="space-y-2">
                           <label
                             htmlFor="subscription-token"
-                            className="block text-sm font-medium text-slate-300"
+                            className="block text-sm font-medium text-slate-600 dark:text-slate-300"
                           >
                             Paste your token
                           </label>
@@ -969,7 +969,7 @@ export default function AIProviderPage() {
                             spellCheck={false}
                             maxLength={5000}
                             rows={3}
-                            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent disabled:opacity-50 font-mono text-xs resize-vertical"
+                            className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-4 py-3 text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent disabled:opacity-50 font-mono text-xs resize-vertical"
                           />
                         </div>
                         <button
@@ -999,7 +999,7 @@ export default function AIProviderPage() {
                   <div className="space-y-2">
                     <label
                       htmlFor="base-url"
-                      className="block text-sm font-medium text-slate-300"
+                      className="block text-sm font-medium text-slate-600 dark:text-slate-300"
                     >
                       Base URL <span className="text-red-400">*</span>
                     </label>
@@ -1014,7 +1014,7 @@ export default function AIProviderPage() {
                         onChange={(e) => setBaseUrl(e.target.value)}
                         placeholder={selectedProvider.baseUrlPlaceholder}
                         disabled={isOffline || isSaving}
-                        className="w-full bg-slate-800 border border-slate-700 rounded-lg pl-10 pr-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent disabled:opacity-50 font-mono text-sm"
+                        className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg pl-10 pr-4 py-3 text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent disabled:opacity-50 font-mono text-sm"
                       />
                     </div>
                     <p className="text-xs text-slate-500">
@@ -1027,7 +1027,7 @@ export default function AIProviderPage() {
                 <div className="space-y-2">
                   <label
                     htmlFor="api-key"
-                    className="block text-sm font-medium text-slate-300"
+                    className="block text-sm font-medium text-slate-600 dark:text-slate-300"
                   >
                     API Key{" "}
                     {selectedProvider.requiresApiKey ? (
@@ -1048,12 +1048,12 @@ export default function AIProviderPage() {
                       placeholder={selectedProvider.apiKeyPlaceholder}
                       disabled={isOffline || isSaving}
                       autoComplete="off"
-                      className="w-full bg-slate-800 border border-slate-700 rounded-lg pl-10 pr-12 py-3 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent disabled:opacity-50 font-mono text-sm"
+                      className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg pl-10 pr-12 py-3 text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent disabled:opacity-50 font-mono text-sm"
                     />
                     <button
                       type="button"
                       onClick={() => setShowApiKey(!showApiKey)}
-                      className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-white transition-colors"
+                      className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
                       aria-label={showApiKey ? "Hide API key" : "Show API key"}
                     >
                       {showApiKey ? (
@@ -1072,7 +1072,7 @@ export default function AIProviderPage() {
                 <div className="space-y-2">
                   <label
                     htmlFor="model-name"
-                    className="block text-sm font-medium text-slate-300"
+                    className="block text-sm font-medium text-slate-600 dark:text-slate-300"
                   >
                     Model Name{" "}
                     {selectedProvider.requiresModelName ? (
@@ -1088,7 +1088,7 @@ export default function AIProviderPage() {
                     onChange={(e) => setModelName(e.target.value)}
                     placeholder={selectedProvider.modelPlaceholder}
                     disabled={isOffline || isSaving}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent disabled:opacity-50 text-sm"
+                    className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-4 py-3 text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent disabled:opacity-50 text-sm"
                   />
                   <p className="text-xs text-slate-500">
                     {selectedProvider.requiresModelName
@@ -1127,7 +1127,7 @@ export default function AIProviderPage() {
       )}
 
       {/* Info card */}
-      <div className="bg-slate-900/50 rounded-xl p-4 border border-slate-800">
+      <div className="bg-slate-50/50 dark:bg-slate-900/50 rounded-xl p-4 border border-slate-200 dark:border-slate-800">
         <div className="flex items-start gap-2">
           <Brain className="h-4 w-4 text-slate-500 mt-0.5 shrink-0" />
           <p className="text-xs text-slate-500">

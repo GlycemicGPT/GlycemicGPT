@@ -118,6 +118,9 @@ data class SettingsUiState(
     val overrideSilentForLow: Boolean = true,
     // Debug-only
     val showPumpLabels: Boolean = false,
+    // Appearance
+    val themeMode: com.glycemicgpt.mobile.presentation.theme.ThemeMode =
+        com.glycemicgpt.mobile.presentation.theme.ThemeMode.System,
 )
 
 @HiltViewModel
@@ -191,6 +194,7 @@ class SettingsViewModel @Inject constructor(
             activePluginIds = pluginRegistry.allActivePlugins.value.map { it.metadata.id }.toSet(),
             runtimePlugins = pluginRegistry.runtimePlugins.value,
             showPumpLabels = appSettingsStore.showPumpLabels,
+            themeMode = appSettingsStore.themeMode,
         ).withActivePumpFields()
 
         checkBatteryOptimization()
@@ -611,6 +615,11 @@ class SettingsViewModel @Inject constructor(
     fun setShowPumpLabels(enabled: Boolean) {
         appSettingsStore.showPumpLabels = enabled
         _uiState.value = _uiState.value.copy(showPumpLabels = enabled)
+    }
+
+    fun setThemeMode(mode: com.glycemicgpt.mobile.presentation.theme.ThemeMode) {
+        appSettingsStore.themeMode = mode
+        _uiState.value = _uiState.value.copy(themeMode = mode)
     }
 
     fun setOverrideSilentForLow(enabled: Boolean) {

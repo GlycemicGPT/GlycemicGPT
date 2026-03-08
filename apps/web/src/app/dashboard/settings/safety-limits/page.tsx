@@ -295,15 +295,15 @@ export default function SafetyLimitsPage() {
         <div>
           <Link
             href="/dashboard/settings"
-            className="flex items-center gap-1 text-sm text-slate-400 hover:text-slate-300 mb-2"
+            className="flex items-center gap-1 text-sm text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 mb-2"
           >
             <ArrowLeft className="h-4 w-4" />
             Back to Settings
           </Link>
           <h1 className="text-2xl font-bold">Safety Limits</h1>
         </div>
-        <div className="bg-slate-900 rounded-xl p-6 border border-slate-800 text-center">
-          <p className="text-slate-400">
+        <div className="bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800 text-center">
+          <p className="text-slate-500 dark:text-slate-400">
             Safety limits can only be configured by the account owner.
           </p>
         </div>
@@ -317,26 +317,26 @@ export default function SafetyLimitsPage() {
       <div>
         <Link
           href="/dashboard/settings"
-          className="flex items-center gap-1 text-sm text-slate-400 hover:text-slate-300 mb-2"
+          className="flex items-center gap-1 text-sm text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 mb-2"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to Settings
         </Link>
         <h1 className="text-2xl font-bold">Safety Limits</h1>
-        <p className="text-slate-400">
+        <p className="text-slate-500 dark:text-slate-400">
           Platform-enforced bounds for data validation and delivery rates
         </p>
       </div>
 
       {/* About Safety Limits */}
-      <div className="bg-slate-900/50 rounded-xl p-5 border border-slate-800">
+      <div className="bg-slate-50/50 dark:bg-slate-900/50 rounded-xl p-5 border border-slate-200 dark:border-slate-800">
         <div className="flex items-start gap-3">
           <Info className="h-5 w-5 text-orange-400 shrink-0 mt-0.5" />
           <div className="space-y-2">
-            <h2 className="text-sm font-semibold text-slate-200">
+            <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
               About Safety Limits
             </h2>
-            <p className="text-xs text-slate-400 leading-relaxed">
+            <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
               Safety limits define the platform-enforced bounds that constrain
               all data processing. These guardrails operate at the platform
               level {"\u2014"} sensor readings outside the configured glucose range
@@ -346,7 +346,7 @@ export default function SafetyLimitsPage() {
               app (e.g., custom data sources or device integrations built using
               the GlycemicGPT plugin SDK).
             </p>
-            <p className="text-xs text-slate-400 leading-relaxed">
+            <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
               GlycemicGPT is an open-source data monitoring and analysis
               platform. It does not provide medical advice, diagnosis, or
               treatment. Configuration of appropriate values and any use of
@@ -404,7 +404,7 @@ export default function SafetyLimitsPage() {
                   ? "Reset safety limits to defaults?"
                   : "Update safety limits?"}
               </p>
-              <p className="text-xs text-slate-400 mt-1">
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                 These values control data validation bounds and delivery rate
                 constraints enforced across the platform. Changes sync to
                 connected devices. Confirm to proceed.
@@ -427,7 +427,7 @@ export default function SafetyLimitsPage() {
                   onClick={cancelAction}
                   className={clsx(
                     "px-3 py-1.5 rounded-lg text-sm font-medium",
-                    "bg-slate-700 text-slate-300 hover:bg-slate-600",
+                    "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600",
                     "transition-colors"
                   )}
                 >
@@ -441,19 +441,19 @@ export default function SafetyLimitsPage() {
 
       {isLoading && (
         <div
-          className="bg-slate-900 rounded-xl p-12 border border-slate-800 text-center"
+          className="bg-white dark:bg-slate-900 rounded-xl p-12 border border-slate-200 dark:border-slate-800 text-center"
           role="status"
           aria-label="Loading safety limits"
         >
           <Loader2 className="h-8 w-8 text-blue-400 animate-spin mx-auto mb-3" />
-          <p className="text-slate-400">Loading safety limits...</p>
+          <p className="text-slate-500 dark:text-slate-400">Loading safety limits...</p>
         </div>
       )}
 
       {!isLoading && (
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Glucose bounds */}
-          <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6">
             <div className="flex items-center gap-3 mb-6">
               <div className="p-2 bg-orange-500/10 rounded-lg">
                 <ShieldCheck className="h-5 w-5 text-orange-400" />
@@ -472,7 +472,7 @@ export default function SafetyLimitsPage() {
                 <div>
                   <label
                     htmlFor="min-glucose"
-                    className="block text-sm font-medium text-slate-300 mb-1"
+                    className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
                   >
                     Minimum Glucose (mg/dL)
                   </label>
@@ -488,10 +488,10 @@ export default function SafetyLimitsPage() {
                     aria-invalid={!isNaN(minGNum) && (minGNum < 20 || minGNum > 499) ? true : undefined}
                     className={clsx(
                       "w-full rounded-lg border px-3 py-2 text-sm",
-                      "bg-slate-800 text-slate-200",
+                      "bg-slate-100 dark:bg-slate-800 text-slate-200",
                       !isNaN(minGNum) && (minGNum < 20 || minGNum > 499)
                         ? "border-red-500 focus:ring-red-500"
-                        : "border-slate-700 focus:ring-orange-500",
+                        : "border-slate-300 dark:border-slate-700 focus:ring-orange-500",
                       "focus:outline-none focus:ring-2 focus:border-transparent",
                       "disabled:opacity-50 disabled:cursor-not-allowed"
                     )}
@@ -509,7 +509,7 @@ export default function SafetyLimitsPage() {
                 <div>
                   <label
                     htmlFor="max-glucose"
-                    className="block text-sm font-medium text-slate-300 mb-1"
+                    className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
                   >
                     Maximum Glucose (mg/dL)
                   </label>
@@ -525,10 +525,10 @@ export default function SafetyLimitsPage() {
                     aria-invalid={!isNaN(maxGNum) && (maxGNum < 21 || maxGNum > 500) ? true : undefined}
                     className={clsx(
                       "w-full rounded-lg border px-3 py-2 text-sm",
-                      "bg-slate-800 text-slate-200",
+                      "bg-slate-100 dark:bg-slate-800 text-slate-200",
                       !isNaN(maxGNum) && (maxGNum < 21 || maxGNum > 500)
                         ? "border-red-500 focus:ring-red-500"
-                        : "border-slate-700 focus:ring-orange-500",
+                        : "border-slate-300 dark:border-slate-700 focus:ring-orange-500",
                       "focus:outline-none focus:ring-2 focus:border-transparent",
                       "disabled:opacity-50 disabled:cursor-not-allowed"
                     )}
@@ -545,7 +545,7 @@ export default function SafetyLimitsPage() {
 
               {/* Visual preview for glucose bounds */}
               {isValid && minGNum < maxGNum && (
-                <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
+                <div className="bg-slate-100/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-300/50 dark:border-slate-700/50">
                   <p className="text-xs text-slate-500 mb-2">Valid Glucose Range</p>
                   <p className="text-lg font-semibold text-orange-400">
                     {minGNum} - {maxGNum} mg/dL
@@ -560,7 +560,7 @@ export default function SafetyLimitsPage() {
           </div>
 
           {/* Delivery rate constraints */}
-          <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6">
             <div className="flex items-center gap-3 mb-6">
               <div className="p-2 bg-orange-500/10 rounded-lg">
                 <ShieldCheck className="h-5 w-5 text-orange-400" />
@@ -594,10 +594,10 @@ export default function SafetyLimitsPage() {
                   aria-invalid={!isNaN(basalMuNum) && (basalMuNum < 1 || basalMuNum > 15000) ? true : undefined}
                   className={clsx(
                     "w-full rounded-lg border px-3 py-2 text-sm",
-                    "bg-slate-800 text-slate-200",
+                    "bg-slate-100 dark:bg-slate-800 text-slate-200",
                     !isNaN(basalMuNum) && (basalMuNum < 1 || basalMuNum > 15000)
                       ? "border-red-500 focus:ring-red-500"
-                      : "border-slate-700 focus:ring-orange-500",
+                      : "border-slate-300 dark:border-slate-700 focus:ring-orange-500",
                     "focus:outline-none focus:ring-2 focus:border-transparent",
                     "disabled:opacity-50 disabled:cursor-not-allowed"
                   )}
@@ -631,10 +631,10 @@ export default function SafetyLimitsPage() {
                   aria-invalid={!isNaN(bolusMuNum) && (bolusMuNum < 1 || bolusMuNum > 25000) ? true : undefined}
                   className={clsx(
                     "w-full rounded-lg border px-3 py-2 text-sm",
-                    "bg-slate-800 text-slate-200",
+                    "bg-slate-100 dark:bg-slate-800 text-slate-200",
                     !isNaN(bolusMuNum) && (bolusMuNum < 1 || bolusMuNum > 25000)
                       ? "border-red-500 focus:ring-red-500"
-                      : "border-slate-700 focus:ring-orange-500",
+                      : "border-slate-300 dark:border-slate-700 focus:ring-orange-500",
                     "focus:outline-none focus:ring-2 focus:border-transparent",
                     "disabled:opacity-50 disabled:cursor-not-allowed"
                   )}
@@ -703,7 +703,7 @@ export default function SafetyLimitsPage() {
               }
               className={clsx(
                 "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium",
-                "bg-slate-800 text-slate-300 hover:bg-slate-700",
+                "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700",
                 "transition-colors",
                 "focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500",
                 "disabled:opacity-50 disabled:cursor-not-allowed"
@@ -717,7 +717,7 @@ export default function SafetyLimitsPage() {
       )}
 
       {/* Platform disclaimer */}
-      <div className="bg-slate-900/50 rounded-xl p-4 border border-slate-800">
+      <div className="bg-slate-50/50 dark:bg-slate-900/50 rounded-xl p-4 border border-slate-200 dark:border-slate-800">
         <p className="text-xs text-slate-500 leading-relaxed">
           Always consult a qualified healthcare professional regarding diabetes
           management decisions. GlycemicGPT is not a medical device and makes
