@@ -278,7 +278,7 @@ export function AgpChart({ className, thresholds }: AgpChartProps) {
           <button
             type="button"
             onClick={refetch}
-            className="text-teal-400 hover:text-teal-300 text-sm underline outline-none focus-visible:ring-2 focus-visible:ring-teal-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900 rounded"
+            className="text-teal-700 dark:text-teal-400 hover:text-teal-600 dark:hover:text-teal-300 text-sm underline outline-none focus-visible:ring-2 focus-visible:ring-teal-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900 rounded"
           >
             Retry
           </button>
