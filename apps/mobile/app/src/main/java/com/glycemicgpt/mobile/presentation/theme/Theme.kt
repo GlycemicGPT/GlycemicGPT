@@ -1,7 +1,9 @@
 package com.glycemicgpt.mobile.presentation.theme
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import com.glycemicgpt.mobile.domain.model.BolusCategory
@@ -14,6 +16,7 @@ private val Slate700 = Color(0xFF334155)
 private val Slate400 = Color(0xFF94A3B8)
 private val Slate300 = Color(0xFFCBD5E1)
 private val Slate100 = Color(0xFFF1F5F9)
+private val Slate50 = Color(0xFFF8FAFC)
 private val Blue600 = Color(0xFF2563EB)
 private val Blue500 = Color(0xFF3B82F6)
 private val Blue400 = Color(0xFF60A5FA)
@@ -37,15 +40,44 @@ private val DarkColorScheme = darkColorScheme(
     onError = Color.White,
 )
 
+private val LightColorScheme = lightColorScheme(
+    primary = Blue600,
+    onPrimary = Color.White,
+    primaryContainer = Blue400,
+    secondary = Blue500,
+    background = Slate50,
+    onBackground = Slate900,
+    surface = Color.White,
+    onSurface = Slate900,
+    surfaceVariant = Slate100,
+    onSurfaceVariant = Slate700,
+    outline = Slate300,
+    error = Red500,
+    onError = Color.White,
+)
+
+enum class ThemeMode { System, Dark, Light }
+
 @Composable
-fun GlycemicGptTheme(content: @Composable () -> Unit) {
+fun GlycemicGptTheme(
+    themeMode: ThemeMode = ThemeMode.System,
+    content: @Composable () -> Unit,
+) {
+    val darkTheme = when (themeMode) {
+        ThemeMode.System -> isSystemInDarkTheme()
+        ThemeMode.Dark -> true
+        ThemeMode.Light -> false
+    }
+
+    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
+
     MaterialTheme(
-        colorScheme = DarkColorScheme,
+        colorScheme = colorScheme,
         content = content,
     )
 }
 
-// Semantic colors for glucose ranges
+// Semantic colors for glucose ranges -- constant across themes
 object GlucoseColors {
     val InRange = Green500
     val High = Yellow500

@@ -60,13 +60,13 @@ export default function CommunicationsPage() {
       <div>
         <Link
           href="/dashboard/settings"
-          className="flex items-center gap-1 text-sm text-slate-400 hover:text-slate-300 mb-2"
+          className="flex items-center gap-1 text-sm text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 mb-2"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to Settings
         </Link>
         <h1 className="text-2xl font-bold">Communications</h1>
-        <p className="text-slate-400">
+        <p className="text-slate-500 dark:text-slate-400">
           Configure notification channels for alerts and daily briefs
         </p>
       </div>
@@ -87,12 +87,12 @@ export default function CommunicationsPage() {
       {/* Loading state */}
       {isLoading && (
         <div
-          className="bg-slate-900 rounded-xl p-12 border border-slate-800 text-center"
+          className="bg-white dark:bg-slate-900 rounded-xl p-12 border border-slate-200 dark:border-slate-800 text-center"
           role="status"
           aria-label="Loading communication channels"
         >
           <Loader2 className="h-8 w-8 text-blue-400 animate-spin mx-auto mb-3" />
-          <p className="text-slate-400">Loading channels...</p>
+          <p className="text-slate-500 dark:text-slate-400">Loading channels...</p>
         </div>
       )}
 
@@ -102,7 +102,7 @@ export default function CommunicationsPage() {
           {/* Telegram channel */}
           <Link
             href="/dashboard/settings/telegram"
-            className="block bg-slate-900 rounded-xl border border-slate-800 p-6 hover:border-slate-700 transition-colors group"
+            className="block bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6 hover:border-slate-300 dark:hover:border-slate-700 transition-colors group"
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
@@ -111,7 +111,7 @@ export default function CommunicationsPage() {
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <h2 className="text-lg font-semibold group-hover:text-white transition-colors">
+                    <h2 className="text-lg font-semibold group-hover:text-slate-900 dark:group-hover:text-white transition-colors">
                       Telegram
                     </h2>
                     {telegramLinked ? (
@@ -120,28 +120,28 @@ export default function CommunicationsPage() {
                         Connected
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 bg-slate-700 text-slate-400 text-xs font-medium px-2 py-0.5 rounded-full">
+                      <span className="inline-flex items-center gap-1 bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-xs font-medium px-2 py-0.5 rounded-full">
                         <XCircle className="h-3 w-3" />
                         Not Connected
                       </span>
                     )}
                   </div>
-                  <p className="text-sm text-slate-400 mt-1">
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
                     {telegramLinked && telegramStatus?.link?.username
                       ? `Linked as @${telegramStatus.link.username}`
                       : "Receive alerts and daily briefs via Telegram bot"}
                   </p>
                 </div>
               </div>
-              <ChevronRight className="h-5 w-5 text-slate-600 group-hover:text-slate-400 transition-colors" />
+              <ChevronRight className="h-5 w-5 text-slate-400 dark:text-slate-600 group-hover:text-slate-500 dark:group-hover:text-slate-400 transition-colors" />
             </div>
           </Link>
 
           {/* Future channels - coming soon */}
-          <div className="bg-slate-900/50 rounded-xl border border-slate-800/50 p-6 opacity-60">
+          <div className="bg-slate-50/50 dark:bg-slate-900/50 rounded-xl border border-slate-200/50 dark:border-slate-800/50 p-6 opacity-60">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
-                <div className="p-3 bg-slate-800 rounded-lg">
+                <div className="p-3 bg-slate-100 dark:bg-slate-800 rounded-lg">
                   <Hash className="h-6 w-6 text-slate-500" />
                 </div>
                 <div>
@@ -149,7 +149,7 @@ export default function CommunicationsPage() {
                     <h2 className="text-lg font-semibold text-slate-500">
                       Discord
                     </h2>
-                    <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-slate-800 text-slate-500">
+                    <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500">
                       Coming Soon
                     </span>
                   </div>
@@ -161,10 +161,10 @@ export default function CommunicationsPage() {
             </div>
           </div>
 
-          <div className="bg-slate-900/50 rounded-xl border border-slate-800/50 p-6 opacity-60">
+          <div className="bg-slate-50/50 dark:bg-slate-900/50 rounded-xl border border-slate-200/50 dark:border-slate-800/50 p-6 opacity-60">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
-                <div className="p-3 bg-slate-800 rounded-lg">
+                <div className="p-3 bg-slate-100 dark:bg-slate-800 rounded-lg">
                   <Mail className="h-6 w-6 text-slate-500" />
                 </div>
                 <div>
@@ -172,7 +172,7 @@ export default function CommunicationsPage() {
                     <h2 className="text-lg font-semibold text-slate-500">
                       Email
                     </h2>
-                    <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-slate-800 text-slate-500">
+                    <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500">
                       Coming Soon
                     </span>
                   </div>
@@ -187,7 +187,7 @@ export default function CommunicationsPage() {
       )}
 
       {/* Info card */}
-      <div className="bg-slate-900/50 rounded-xl p-4 border border-slate-800">
+      <div className="bg-slate-50/50 dark:bg-slate-900/50 rounded-xl p-4 border border-slate-200 dark:border-slate-800">
         <div className="flex items-start gap-2">
           <Radio className="h-4 w-4 text-slate-500 mt-0.5 shrink-0" />
           <p className="text-xs text-slate-500">

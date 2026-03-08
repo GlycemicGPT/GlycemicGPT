@@ -140,8 +140,8 @@ function DataContextDisplay({ data }: { data: Record<string, unknown> }) {
     <div className="grid grid-cols-2 gap-x-4 gap-y-1">
       {entries.map(([key, value]) => (
         <div key={key} className="flex justify-between text-xs">
-          <span className="text-slate-500">{formatKey(key)}</span>
-          <span className="text-slate-300 font-mono">{formatValue(value)}</span>
+          <span className="text-slate-500 dark:text-slate-400">{formatKey(key)}</span>
+          <span className="text-slate-600 dark:text-slate-300 font-mono">{formatValue(value)}</span>
         </div>
       ))}
     </div>
@@ -155,15 +155,15 @@ function StatusBadge({ status }: { status: InsightData["status"] }) {
   const config = {
     pending: {
       text: "New",
-      className: "bg-blue-500/20 text-blue-300",
+      className: "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300",
     },
     acknowledged: {
       text: "Acknowledged",
-      className: "bg-green-500/20 text-green-300",
+      className: "bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-300",
     },
     dismissed: {
       text: "Dismissed",
-      className: "bg-slate-500/20 text-slate-400",
+      className: "bg-slate-100 text-slate-700 dark:bg-slate-500/20 dark:text-slate-400",
     },
   };
 
@@ -274,9 +274,9 @@ export function AIInsightCard({ insight, onRespond, onFetchDetail }: AIInsightCa
     <motion.article
       className={clsx(
         "rounded-xl border p-5 transition-colors",
-        "bg-slate-900",
+        "bg-white dark:bg-slate-900",
         config.border,
-        "focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2 focus-within:ring-offset-slate-950"
+        "focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2 focus-within:ring-offset-white dark:focus-within:ring-offset-slate-950"
       )}
       initial={prefersReducedMotion ? false : { opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
@@ -309,11 +309,11 @@ export function AIInsightCard({ insight, onRespond, onFetchDetail }: AIInsightCa
             </span>
             <StatusBadge status={localStatus} />
           </div>
-          <h3 className="text-sm font-semibold text-slate-200 leading-tight">
+          <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-200 leading-tight">
             {insight.title}
           </h3>
           <time
-            className="text-xs text-slate-500 mt-0.5 block"
+            className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 block"
             dateTime={insight.created_at}
           >
             {formatDate(insight.created_at)}
@@ -335,9 +335,9 @@ export function AIInsightCard({ insight, onRespond, onFetchDetail }: AIInsightCa
 
       {/* Content */}
       {isExpanded || !needsTruncation ? (
-        <MarkdownContent content={insight.content} className="text-slate-300" />
+        <MarkdownContent content={insight.content} className="text-slate-600 dark:text-slate-300" />
       ) : (
-        <div className="text-sm text-slate-300 leading-relaxed whitespace-pre-line">
+        <div className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed whitespace-pre-line">
           {previewContent}
         </div>
       )}
@@ -348,7 +348,7 @@ export function AIInsightCard({ insight, onRespond, onFetchDetail }: AIInsightCa
           onClick={() => setIsExpanded(!isExpanded)}
           className={clsx(
             "mt-2 text-xs font-medium flex items-center gap-1",
-            "text-slate-400 hover:text-slate-200 transition-colors",
+            "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 transition-colors",
             "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
           )}
           aria-expanded={isExpanded}
@@ -373,7 +373,7 @@ export function AIInsightCard({ insight, onRespond, onFetchDetail }: AIInsightCa
           disabled={detailLoading}
           className={clsx(
             "mt-3 text-xs font-medium flex items-center gap-1.5",
-            "text-slate-400 hover:text-slate-200 transition-colors",
+            "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 transition-colors",
             "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded",
             "disabled:opacity-50 disabled:cursor-not-allowed"
           )}
@@ -409,23 +409,23 @@ export function AIInsightCard({ insight, onRespond, onFetchDetail }: AIInsightCa
       {/* Reasoning & Audit Detail Panel */}
       {showDetail && detail && (
         <div
-          className="mt-3 pt-3 border-t border-slate-800 space-y-4"
+          className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-800 space-y-4"
           role="region"
           aria-label="Insight reasoning and audit details"
         >
           {/* Analysis Period */}
           <div>
-            <h4 className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-1">
+            <h4 className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
               Analysis Period
             </h4>
-            <p className="text-sm text-slate-300">
+            <p className="text-sm text-slate-600 dark:text-slate-300">
               {formatPeriod(detail.period_start, detail.period_end)}
             </p>
           </div>
 
           {/* Data Context */}
           <div>
-            <h4 className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">
+            <h4 className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
               Data Used for Analysis
             </h4>
             <DataContextDisplay data={detail.data_context} />
@@ -433,23 +433,23 @@ export function AIInsightCard({ insight, onRespond, onFetchDetail }: AIInsightCa
 
           {/* AI Model Info */}
           <div>
-            <h4 className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">
+            <h4 className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
               AI Model
             </h4>
             <div className="flex items-center gap-2">
-              <Bot className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" />
-              <span className="text-xs text-slate-300">
+              <Bot className="h-3.5 w-3.5 text-slate-500 dark:text-slate-400" aria-hidden="true" />
+              <span className="text-xs text-slate-600 dark:text-slate-300">
                 {detail.model_info.provider} / {detail.model_info.model}
               </span>
             </div>
-            <div className="mt-1 text-xs text-slate-500">
+            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
               Tokens: {detail.model_info.input_tokens.toLocaleString()} in / {detail.model_info.output_tokens.toLocaleString()} out
             </div>
           </div>
 
           {/* Safety Validation */}
           <div>
-            <h4 className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">
+            <h4 className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
               Safety Validation
             </h4>
             {detail.safety ? (
@@ -472,7 +472,7 @@ export function AIInsightCard({ insight, onRespond, onFetchDetail }: AIInsightCa
                 </span>
               </div>
             ) : (
-              <p className="text-xs text-slate-500">No safety log available</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">No safety log available</p>
             )}
           </div>
         </div>
@@ -488,7 +488,7 @@ export function AIInsightCard({ insight, onRespond, onFetchDetail }: AIInsightCa
       {/* Action buttons (only show for pending insights) */}
       {localStatus === "pending" && onRespond && (
         <div
-          className="flex items-center gap-2 mt-4 pt-3 border-t border-slate-800"
+          className="flex items-center gap-2 mt-4 pt-3 border-t border-slate-200 dark:border-slate-800"
           role="group"
           aria-label="Insight actions"
         >
@@ -512,7 +512,7 @@ export function AIInsightCard({ insight, onRespond, onFetchDetail }: AIInsightCa
             disabled={isResponding}
             className={clsx(
               "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium",
-              "bg-slate-700/50 text-slate-400 hover:bg-slate-700",
+              "bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-700/50 dark:text-slate-300 dark:hover:bg-slate-700",
               "transition-colors",
               "focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500",
               "disabled:opacity-50 disabled:cursor-not-allowed"

@@ -4,12 +4,14 @@
  * Settings Page
  *
  * Story 4.1: Dashboard Layout & Navigation
- * Story 8.3: Role-aware settings — caregivers only see Profile & Telegram.
+ * Story 8.3: Role-aware settings -- caregivers only see Profile & Telegram.
  */
 
 import Link from "next/link";
 import { Settings, User, Bell, Database, Link2, Users, Radio, UserPlus, Target, Clock, Brain, Syringe, ShieldCheck } from "lucide-react";
 import { useUserContext } from "@/providers";
+import { AnimatedCard } from "@/components/ui/animated-card";
+import { PageTransition } from "@/components/ui/page-transition";
 
 interface SettingsSection {
   title: string;
@@ -104,47 +106,54 @@ export default function SettingsPage() {
     : settingsSections;
 
   return (
+    <PageTransition>
     <div className="space-y-6">
       {/* Page header */}
-      <div>
-        <h1 className="text-2xl font-bold">Settings</h1>
-        <p className="text-slate-400">Manage your account and preferences</p>
-      </div>
+      <AnimatedCard>
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Settings</h1>
+          <p className="text-slate-500 dark:text-slate-400">Manage your account and preferences</p>
+        </div>
+      </AnimatedCard>
 
       {/* Settings sections grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {visibleSections.map((section) => (
-          <Link
-            key={section.title}
-            href={section.href}
-            className="bg-slate-900 rounded-xl p-6 border border-slate-800 hover:border-slate-700 transition-colors group"
-          >
-            <div className="flex items-start gap-4">
-              <div className="p-3 bg-slate-800 rounded-lg group-hover:bg-slate-700 transition-colors">
-                <section.icon className="h-6 w-6 text-slate-400 group-hover:text-white transition-colors" />
+        {visibleSections.map((section, i) => (
+          <AnimatedCard key={section.title} delay={0.03 * (i + 1)}>
+            <Link
+              href={section.href}
+              className="block bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800 hover:border-blue-300 dark:hover:border-slate-700 transition-colors group shadow-sm dark:shadow-none"
+            >
+              <div className="flex items-start gap-4">
+                <div className="p-3 bg-slate-100 dark:bg-slate-800 rounded-lg group-hover:bg-blue-50 dark:group-hover:bg-slate-700 transition-colors">
+                  <section.icon className="h-6 w-6 text-slate-500 dark:text-slate-400 group-hover:text-blue-600 dark:group-hover:text-white transition-colors" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 group-hover:text-blue-600 dark:group-hover:text-white transition-colors">
+                    {section.title}
+                  </h2>
+                  <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">
+                    {section.description}
+                  </p>
+                </div>
               </div>
-              <div>
-                <h2 className="text-lg font-semibold group-hover:text-white transition-colors">
-                  {section.title}
-                </h2>
-                <p className="text-slate-400 text-sm mt-1">
-                  {section.description}
-                </p>
-              </div>
-            </div>
-          </Link>
+            </Link>
+          </AnimatedCard>
         ))}
       </div>
 
       {/* Disclaimer */}
-      <div className="bg-slate-900/50 rounded-xl p-4 border border-slate-800">
-        <div className="flex items-center gap-2 text-slate-500 text-sm">
-          <Settings className="h-4 w-4" />
-          <span>
-            Additional settings will be available as features are implemented.
-          </span>
+      <AnimatedCard delay={0.4}>
+        <div className="bg-slate-50 dark:bg-slate-900/50 rounded-xl p-4 border border-slate-200 dark:border-slate-800">
+          <div className="flex items-center gap-2 text-slate-500 text-sm">
+            <Settings className="h-4 w-4" />
+            <span>
+              Additional settings will be available as features are implemented.
+            </span>
+          </div>
         </div>
-      </div>
+      </AnimatedCard>
     </div>
+    </PageTransition>
   );
 }

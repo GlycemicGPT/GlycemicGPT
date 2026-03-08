@@ -8,6 +8,12 @@
   --background-end-rgb: 15, 23, 42;
 }
 
+html.light {
+  --foreground-rgb: 15, 23, 42;
+  --background-start-rgb: 248, 250, 252;
+  --background-end-rgb: 241, 245, 249;
+}
+
 body {
   color: rgb(var(--foreground-rgb));
   background: linear-gradient(

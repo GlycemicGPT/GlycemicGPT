@@ -108,10 +108,10 @@ export function TandemCloudUploadCard({ isOffline }: { isOffline: boolean }) {
 
   if (isLoading) {
     return (
-      <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6">
         <div className="flex items-center gap-3">
           <Loader2 className="h-5 w-5 text-blue-400 animate-spin" />
-          <p className="text-sm text-slate-400">
+          <p className="text-sm text-slate-500 dark:text-slate-400">
             Loading cloud upload settings...
           </p>
         </div>
@@ -120,7 +120,7 @@ export function TandemCloudUploadCard({ isOffline }: { isOffline: boolean }) {
   }
 
   return (
-    <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
+    <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-lg bg-slate-700/50">
@@ -181,7 +181,7 @@ export function TandemCloudUploadCard({ isOffline }: { isOffline: boolean }) {
         <div className="space-y-4">
           {/* Interval selector */}
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">
+            <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">
               Upload Interval
             </label>
             <div className="flex gap-2">
@@ -197,7 +197,7 @@ export function TandemCloudUploadCard({ isOffline }: { isOffline: boolean }) {
                     "disabled:opacity-50 disabled:cursor-not-allowed",
                     uploadStatus.upload_interval_minutes === mins
                       ? "bg-blue-600 text-white"
-                      : "bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700"
+                      : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700"
                   )}
                   aria-pressed={uploadStatus.upload_interval_minutes === mins}
                 >
@@ -209,12 +209,12 @@ export function TandemCloudUploadCard({ isOffline }: { isOffline: boolean }) {
 
           {/* Status info */}
           <div className="space-y-2">
-            <div className="bg-slate-800/50 rounded-lg px-3 py-2 border border-slate-700/50">
+            <div className="bg-slate-100/50 dark:bg-slate-800/50 rounded-lg px-3 py-2 border border-slate-300/50 dark:border-slate-700/50">
               <div className="flex items-center gap-2">
                 <Clock className="h-3.5 w-3.5 text-slate-500" />
                 <p className="text-xs text-slate-500">Last upload</p>
               </div>
-              <p className="text-sm text-slate-300 mt-0.5">
+              <p className="text-sm text-slate-600 dark:text-slate-300 mt-0.5">
                 {uploadStatus.last_upload_at
                   ? new Date(uploadStatus.last_upload_at).toLocaleString()
                   : "No uploads yet"}

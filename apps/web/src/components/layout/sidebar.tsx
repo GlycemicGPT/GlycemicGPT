@@ -100,12 +100,12 @@ export function Sidebar({ className }: SidebarProps) {
     <aside
       className={clsx(
         "hidden lg:flex lg:flex-col lg:w-64 lg:fixed lg:inset-y-0",
-        "bg-slate-900 border-r border-slate-800",
+        "bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800",
         className
       )}
     >
       {/* Logo */}
-      <div className="flex items-center gap-2 h-16 px-6 border-b border-slate-800">
+      <div className="flex items-center gap-2 h-16 px-6 border-b border-slate-200 dark:border-slate-800">
         <Image
           src="/logo.png"
           alt="GlycemicGPT"
@@ -113,7 +113,7 @@ export function Sidebar({ className }: SidebarProps) {
           height={32}
           className="rounded"
         />
-        <span className="text-xl font-bold">GlycemicGPT</span>
+        <span className="text-xl font-bold text-slate-900 dark:text-white">GlycemicGPT</span>
       </div>
 
       {/* Navigation */}
@@ -133,7 +133,7 @@ export function Sidebar({ className }: SidebarProps) {
                 "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
                 isActive
                   ? "bg-blue-600 text-white"
-                  : "text-slate-400 hover:text-white hover:bg-slate-800"
+                  : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
               )}
             >
               <item.icon className="h-5 w-5" />
@@ -147,7 +147,7 @@ export function Sidebar({ className }: SidebarProps) {
       </nav>
 
       {/* Footer */}
-      <div className="px-4 py-4 border-t border-slate-800">
+      <div className="px-4 py-4 border-t border-slate-200 dark:border-slate-800">
         <p className="text-xs text-slate-500 text-center">
           Not medical advice
         </p>
@@ -186,9 +186,9 @@ export function MobileNav() {
           />
 
           {/* Sidebar */}
-          <div className="fixed inset-y-0 left-0 w-64 bg-slate-900 shadow-xl">
+          <div className="fixed inset-y-0 left-0 w-64 bg-white dark:bg-slate-900 shadow-xl">
             {/* Header */}
-            <div className="flex items-center justify-between h-16 px-4 border-b border-slate-800">
+            <div className="flex items-center justify-between h-16 px-4 border-b border-slate-200 dark:border-slate-800">
               <div className="flex items-center gap-2">
                 <Image
                   src="/logo.png"
@@ -197,12 +197,12 @@ export function MobileNav() {
                   height={32}
                   className="rounded"
                 />
-                <span className="text-xl font-bold">GlycemicGPT</span>
+                <span className="text-xl font-bold text-slate-900 dark:text-white">GlycemicGPT</span>
               </div>
               <button
                 type="button"
                 onClick={() => setIsOpen(false)}
-                className="p-2 text-slate-400 hover:text-white"
+                className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white"
                 aria-label="Close navigation menu"
               >
                 <X className="h-6 w-6" />
@@ -227,7 +227,7 @@ export function MobileNav() {
                       "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
                       isActive
                         ? "bg-blue-600 text-white"
-                        : "text-slate-400 hover:text-white hover:bg-slate-800"
+                        : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
                     )}
                   >
                     <item.icon className="h-5 w-5" />
@@ -241,7 +241,7 @@ export function MobileNav() {
             </nav>
 
             {/* Footer */}
-            <div className="absolute bottom-0 left-0 right-0 px-4 py-4 border-t border-slate-800">
+            <div className="absolute bottom-0 left-0 right-0 px-4 py-4 border-t border-slate-200 dark:border-slate-800">
               <p className="text-xs text-slate-500 text-center">
                 Not medical advice
               </p>

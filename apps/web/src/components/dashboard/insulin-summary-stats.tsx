@@ -59,7 +59,7 @@ function StatSkeleton() {
     <div className="animate-pulse space-y-2">
       <div className="h-4 w-20 bg-slate-700 rounded" />
       <div className="h-8 w-16 bg-slate-700 rounded" />
-      <div className="h-3 w-24 bg-slate-800 rounded" />
+      <div className="h-3 w-24 bg-slate-100 dark:bg-slate-800 rounded" />
     </div>
   );
 }
@@ -78,9 +78,9 @@ function StatCard({ icon, label, value, subtitle, subtitleColor = "text-slate-50
     <div className="space-y-1" role="group" aria-label={ariaLabel}>
       <div className="flex items-center gap-2">
         {icon}
-        <span className="text-slate-400 text-xs font-medium">{label}</span>
+        <span className="text-slate-500 dark:text-slate-400 text-xs font-medium">{label}</span>
       </div>
-      <p className="text-2xl font-bold text-white">{value}</p>
+      <p className="text-2xl font-bold text-slate-900 dark:text-white">{value}</p>
       <p className={`text-xs ${subtitleColor}`}>{subtitle}</p>
     </div>
   );
@@ -129,10 +129,10 @@ export function InsulinSummaryStats({ className }: InsulinSummaryStatsProps) {
           tabIndex={period === opt.value ? 0 : -1}
           onClick={() => setPeriod(opt.value)}
           onKeyDown={(e) => handlePeriodKeyDown(e, i)}
-          className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 ${
+          className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900 ${
             period === opt.value
               ? "bg-violet-600 text-white"
-              : "text-slate-400 hover:text-white hover:bg-slate-800"
+              : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
           }`}
         >
           {opt.label}
@@ -146,7 +146,7 @@ export function InsulinSummaryStats({ className }: InsulinSummaryStatsProps) {
       aria-labelledby="insulin-summary-heading"
       aria-busy={isLoading}
       data-testid="insulin-summary"
-      className={`bg-slate-900 rounded-xl p-6 border border-slate-800 ${className ?? ""}`}
+      className={`bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800 ${className ?? ""}`}
     >
       {/* Header with period selector */}
       <div className="flex items-center justify-between mb-5">
@@ -154,9 +154,9 @@ export function InsulinSummaryStats({ className }: InsulinSummaryStatsProps) {
           <div className="p-2 bg-violet-500/10 rounded-lg">
             <Syringe className="h-5 w-5 text-violet-400" aria-hidden="true" />
           </div>
-          <h2 id="insulin-summary-heading" className="text-white font-semibold">
+          <h2 id="insulin-summary-heading" className="text-slate-900 dark:text-white font-semibold">
             Insulin Summary
-            <span className="text-slate-400 text-sm font-normal ml-2">
+            <span className="text-slate-500 dark:text-slate-400 text-sm font-normal ml-2">
               {periodLabel}
             </span>
           </h2>
@@ -177,17 +177,17 @@ export function InsulinSummaryStats({ className }: InsulinSummaryStatsProps) {
             <AlertCircle className="h-4 w-4" aria-hidden="true" />
             <p>Failed to load insulin summary.</p>
           </div>
-          <p className="text-slate-500 text-xs mb-3 max-w-md truncate">{error}</p>
+          <p className="text-slate-500 dark:text-slate-500 text-xs mb-3 max-w-md truncate">{error}</p>
           <button
             type="button"
             onClick={refetch}
-            className="text-violet-400 hover:text-violet-300 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 rounded"
+            className="text-violet-400 hover:text-violet-300 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900 rounded"
           >
             Retry
           </button>
         </div>
       ) : noData ? (
-        <p className="text-slate-500 text-sm text-center py-4">
+        <p className="text-slate-500 dark:text-slate-500 text-sm text-center py-4">
           No insulin delivery data available for this period.
         </p>
       ) : (

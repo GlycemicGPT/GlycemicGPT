@@ -33,8 +33,8 @@ export function CollapsibleSection({
     <div
       className={clsx(
         isSection
-          ? "bg-slate-900 rounded-xl border border-slate-800"
-          : "bg-slate-800/30 rounded-lg border border-slate-700/50"
+          ? "bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800"
+          : "bg-slate-100/30 dark:bg-slate-800/30 rounded-lg border border-slate-300/50 dark:border-slate-700/50"
       )}
     >
       <button
@@ -56,13 +56,13 @@ export function CollapsibleSection({
             <div
               className={clsx(
                 "p-2 rounded-lg",
-                isSection ? "bg-slate-700/50" : "bg-slate-700/30"
+                isSection ? "bg-slate-200/50 dark:bg-slate-700/50" : "bg-slate-200/30 dark:bg-slate-700/30"
               )}
             >
               <Icon
                 className={clsx(
                   "h-5 w-5",
-                  isSection ? "text-blue-400" : "text-slate-400"
+                  isSection ? "text-blue-400" : "text-slate-500 dark:text-slate-400"
                 )}
               />
             </div>
@@ -70,7 +70,7 @@ export function CollapsibleSection({
           <span
             className={clsx(
               "font-semibold",
-              isSection ? "text-lg" : "text-base text-slate-200"
+              isSection ? "text-lg" : "text-base text-slate-800 dark:text-slate-200"
             )}
           >
             {title}

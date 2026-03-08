@@ -306,13 +306,13 @@ export default function AlertSettingsPage() {
       <div>
         <Link
           href="/dashboard/settings"
-          className="flex items-center gap-1 text-sm text-slate-400 hover:text-slate-300 mb-2"
+          className="flex items-center gap-1 text-sm text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 mb-2"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to Settings
         </Link>
         <h1 className="text-2xl font-bold">Alert Settings</h1>
-        <p className="text-slate-400">
+        <p className="text-slate-500 dark:text-slate-400">
           Configure alert thresholds and escalation timing
         </p>
       </div>
@@ -351,19 +351,19 @@ export default function AlertSettingsPage() {
       {/* Loading state */}
       {isLoading && (
         <div
-          className="bg-slate-900 rounded-xl p-12 border border-slate-800 text-center"
+          className="bg-white dark:bg-slate-900 rounded-xl p-12 border border-slate-200 dark:border-slate-800 text-center"
           role="status"
           aria-label="Loading alert settings"
         >
           <Loader2 className="h-8 w-8 text-blue-400 animate-spin mx-auto mb-3" />
-          <p className="text-slate-400">Loading alert settings...</p>
+          <p className="text-slate-500 dark:text-slate-400">Loading alert settings...</p>
         </div>
       )}
 
       {!isLoading && (
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Alert Thresholds Section */}
-          <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6">
             <div className="flex items-center gap-3 mb-6">
               <div className="p-2 bg-red-500/10 rounded-lg">
                 <Activity className="h-5 w-5 text-red-400" />
@@ -378,14 +378,14 @@ export default function AlertSettingsPage() {
 
             {/* Low glucose thresholds */}
             <div className="space-y-4">
-              <h3 className="text-sm font-medium text-slate-400">
+              <h3 className="text-sm font-medium text-slate-500 dark:text-slate-400">
                 Low Glucose Alerts
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label
                     htmlFor="urgent-low"
-                    className="block text-sm font-medium text-slate-300 mb-1"
+                    className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
                   >
                     Urgent Low (mg/dL)
                   </label>
@@ -400,7 +400,7 @@ export default function AlertSettingsPage() {
                     disabled={isSaving}
                     className={clsx(
                       "w-full rounded-lg border px-3 py-2 text-sm",
-                      "bg-slate-800 border-slate-700 text-slate-200",
+                      "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
                       "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                       "disabled:opacity-50 disabled:cursor-not-allowed"
                     )}
@@ -417,7 +417,7 @@ export default function AlertSettingsPage() {
                 <div>
                   <label
                     htmlFor="low-warning"
-                    className="block text-sm font-medium text-slate-300 mb-1"
+                    className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
                   >
                     Low Warning (mg/dL)
                   </label>
@@ -432,7 +432,7 @@ export default function AlertSettingsPage() {
                     disabled={isSaving}
                     className={clsx(
                       "w-full rounded-lg border px-3 py-2 text-sm",
-                      "bg-slate-800 border-slate-700 text-slate-200",
+                      "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
                       "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                       "disabled:opacity-50 disabled:cursor-not-allowed"
                     )}
@@ -459,14 +459,14 @@ export default function AlertSettingsPage() {
 
             {/* High glucose thresholds */}
             <div className="space-y-4 mt-6">
-              <h3 className="text-sm font-medium text-slate-400">
+              <h3 className="text-sm font-medium text-slate-500 dark:text-slate-400">
                 High Glucose Alerts
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label
                     htmlFor="high-warning"
-                    className="block text-sm font-medium text-slate-300 mb-1"
+                    className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
                   >
                     High Warning (mg/dL)
                   </label>
@@ -481,7 +481,7 @@ export default function AlertSettingsPage() {
                     disabled={isSaving}
                     className={clsx(
                       "w-full rounded-lg border px-3 py-2 text-sm",
-                      "bg-slate-800 border-slate-700 text-slate-200",
+                      "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
                       "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                       "disabled:opacity-50 disabled:cursor-not-allowed"
                     )}
@@ -498,7 +498,7 @@ export default function AlertSettingsPage() {
                 <div>
                   <label
                     htmlFor="urgent-high"
-                    className="block text-sm font-medium text-slate-300 mb-1"
+                    className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
                   >
                     Urgent High (mg/dL)
                   </label>
@@ -513,7 +513,7 @@ export default function AlertSettingsPage() {
                     disabled={isSaving}
                     className={clsx(
                       "w-full rounded-lg border px-3 py-2 text-sm",
-                      "bg-slate-800 border-slate-700 text-slate-200",
+                      "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
                       "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                       "disabled:opacity-50 disabled:cursor-not-allowed"
                     )}
@@ -540,13 +540,13 @@ export default function AlertSettingsPage() {
 
             {/* IoB threshold */}
             <div className="space-y-4 mt-6">
-              <h3 className="text-sm font-medium text-slate-400">
+              <h3 className="text-sm font-medium text-slate-500 dark:text-slate-400">
                 Insulin on Board
               </h3>
               <div className="max-w-xs">
                 <label
                   htmlFor="iob-warning"
-                  className="block text-sm font-medium text-slate-300 mb-1"
+                  className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
                 >
                   IoB Warning (units)
                 </label>
@@ -561,7 +561,7 @@ export default function AlertSettingsPage() {
                   disabled={isSaving}
                   className={clsx(
                     "w-full rounded-lg border px-3 py-2 text-sm",
-                    "bg-slate-800 border-slate-700 text-slate-200",
+                    "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
                     "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                     "disabled:opacity-50 disabled:cursor-not-allowed"
                   )}
@@ -578,7 +578,7 @@ export default function AlertSettingsPage() {
 
             {/* Threshold preview */}
             {thresholdsValid && (
-              <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50 mt-6">
+              <div className="bg-slate-100/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-300/50 dark:border-slate-700/50 mt-6">
                 <p className="text-xs text-slate-500 mb-2">
                   Threshold Preview
                 </p>
@@ -619,7 +619,7 @@ export default function AlertSettingsPage() {
           </div>
 
           {/* Escalation Timing Section */}
-          <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6">
             <div className="flex items-center gap-3 mb-6">
               <div className="p-2 bg-amber-500/10 rounded-lg">
                 <Clock className="h-5 w-5 text-amber-400" />
@@ -637,7 +637,7 @@ export default function AlertSettingsPage() {
                 <div>
                   <label
                     htmlFor="reminder-delay"
-                    className="block text-sm font-medium text-slate-300 mb-1"
+                    className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
                   >
                     Reminder (minutes)
                   </label>
@@ -652,7 +652,7 @@ export default function AlertSettingsPage() {
                     disabled={isSaving}
                     className={clsx(
                       "w-full rounded-lg border px-3 py-2 text-sm",
-                      "bg-slate-800 border-slate-700 text-slate-200",
+                      "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
                       "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                       "disabled:opacity-50 disabled:cursor-not-allowed"
                     )}
@@ -666,7 +666,7 @@ export default function AlertSettingsPage() {
                 <div>
                   <label
                     htmlFor="primary-delay"
-                    className="block text-sm font-medium text-slate-300 mb-1"
+                    className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
                   >
                     Primary Contact (minutes)
                   </label>
@@ -681,7 +681,7 @@ export default function AlertSettingsPage() {
                     disabled={isSaving}
                     className={clsx(
                       "w-full rounded-lg border px-3 py-2 text-sm",
-                      "bg-slate-800 border-slate-700 text-slate-200",
+                      "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
                       "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                       "disabled:opacity-50 disabled:cursor-not-allowed"
                     )}
@@ -695,7 +695,7 @@ export default function AlertSettingsPage() {
                 <div>
                   <label
                     htmlFor="all-contacts-delay"
-                    className="block text-sm font-medium text-slate-300 mb-1"
+                    className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
                   >
                     All Contacts (minutes)
                   </label>
@@ -710,7 +710,7 @@ export default function AlertSettingsPage() {
                     disabled={isSaving}
                     className={clsx(
                       "w-full rounded-lg border px-3 py-2 text-sm",
-                      "bg-slate-800 border-slate-700 text-slate-200",
+                      "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
                       "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                       "disabled:opacity-50 disabled:cursor-not-allowed"
                     )}
@@ -738,12 +738,12 @@ export default function AlertSettingsPage() {
 
               {/* Escalation preview */}
               {escalationValid && (
-                <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50 mt-2">
+                <div className="bg-slate-100/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-300/50 dark:border-slate-700/50 mt-2">
                   <p className="text-xs text-slate-500 mb-2">
                     Escalation Flow
                   </p>
                   <div className="flex items-center gap-2 text-sm flex-wrap">
-                    <span className="text-slate-400">Alert triggered</span>
+                    <span className="text-slate-500 dark:text-slate-400">Alert triggered</span>
                     <span className="text-slate-600">&rarr;</span>
                     <span className="text-blue-400">
                       Reminder at {remDelay}m
@@ -793,7 +793,7 @@ export default function AlertSettingsPage() {
               disabled={isSaving || isAtDefaults || isOffline}
               className={clsx(
                 "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium",
-                "bg-slate-800 text-slate-300 hover:bg-slate-700",
+                "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700",
                 "transition-colors",
                 "focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500",
                 "disabled:opacity-50 disabled:cursor-not-allowed"
@@ -807,7 +807,7 @@ export default function AlertSettingsPage() {
       )}
 
       {/* Info card */}
-      <div className="bg-slate-900/50 rounded-xl p-4 border border-slate-800">
+      <div className="bg-slate-50/50 dark:bg-slate-900/50 rounded-xl p-4 border border-slate-200 dark:border-slate-800">
         <div className="flex items-start gap-2">
           <Bell className="h-4 w-4 text-slate-500 mt-0.5 shrink-0" />
           <p className="text-xs text-slate-500">

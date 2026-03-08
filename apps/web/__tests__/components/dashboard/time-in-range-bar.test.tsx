@@ -538,10 +538,8 @@ describe("TimeInRangeBar component", () => {
     it("has correct base styling classes", () => {
       render(<TimeInRangeBar {...baseProps} />);
       expect(screen.getByTestId("time-in-range-bar")).toHaveClass(
-        "bg-slate-900",
         "rounded-xl",
         "border",
-        "border-slate-800"
       );
     });
   });
