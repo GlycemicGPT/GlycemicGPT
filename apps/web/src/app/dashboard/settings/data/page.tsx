@@ -46,6 +46,7 @@ import {
   type PluginDeclarationResponse,
 } from "@/lib/api";
 import { OfflineBanner } from "@/components/ui/offline-banner";
+import { ClinicalReportSection } from "@/components/reports/clinical-report";
 
 const DEFAULTS = {
   glucose_retention_days: 365,
@@ -1183,6 +1184,9 @@ export default function DataRetentionPage() {
           </div>
         </div>
       )}
+
+      {/* Clinical Report (Story 31.3) */}
+      {!isLoading && <ClinicalReportSection />}
 
       {/* Danger Zone (Story 9.4) */}
       {!isLoading && (
