@@ -230,7 +230,7 @@ export default function CaregiversPage() {
             Share this link with your caregiver:
           </p>
           <div className="flex items-center gap-2">
-            <code className="flex-1 bg-slate-100 dark:bg-slate-800 rounded px-3 py-2 text-sm text-slate-200 overflow-x-auto">
+            <code className="flex-1 bg-slate-100 dark:bg-slate-800 rounded px-3 py-2 text-sm text-slate-900 dark:text-slate-200 overflow-x-auto">
               {newInviteUrl}
             </code>
             <button
@@ -315,7 +315,7 @@ export default function CaregiversPage() {
                           {config.label}
                         </span>
                       </div>
-                      <div className="text-xs text-slate-500 dark:text-slate-500 mt-1">
+                      <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                         Created {formatDate(inv.created_at)} &middot; Expires{" "}
                         {formatDate(inv.expires_at)}
                       </div>
@@ -409,7 +409,7 @@ export default function CaregiversPage() {
                   className="flex items-center justify-between bg-slate-100/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-300/50 dark:border-slate-700/50"
                 >
                   <div className="min-w-0">
-                    <p className="text-sm font-medium text-slate-200 truncate">
+                    <p className="text-sm font-medium text-slate-900 dark:text-slate-200 truncate">
                       {cg.caregiver_email}
                     </p>
                     <p className="text-xs text-slate-500 mt-0.5">

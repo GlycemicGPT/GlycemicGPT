@@ -56,7 +56,7 @@ export function CollapsibleSection({
             <div
               className={clsx(
                 "p-2 rounded-lg",
-                isSection ? "bg-slate-700/50" : "bg-slate-700/30"
+                isSection ? "bg-slate-200/50 dark:bg-slate-700/50" : "bg-slate-200/30 dark:bg-slate-700/30"
               )}
             >
               <Icon
@@ -70,7 +70,7 @@ export function CollapsibleSection({
           <span
             className={clsx(
               "font-semibold",
-              isSection ? "text-lg" : "text-base text-slate-200"
+              isSection ? "text-lg" : "text-base text-slate-800 dark:text-slate-200"
             )}
           >
             {title}

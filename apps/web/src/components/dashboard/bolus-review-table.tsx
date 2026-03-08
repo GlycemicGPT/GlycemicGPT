@@ -212,7 +212,7 @@ export function BolusReviewTable({ className }: BolusReviewTableProps) {
             <AlertCircle className="h-4 w-4" aria-hidden="true" />
             <p>Failed to load bolus data.</p>
           </div>
-          <p className="text-slate-500 dark:text-slate-500 text-xs mb-3 max-w-md truncate">{error}</p>
+          <p className="text-slate-500 dark:text-slate-400 text-xs mb-3 max-w-md truncate">{error}</p>
           <button
             type="button"
             onClick={refetch}
@@ -222,7 +222,7 @@ export function BolusReviewTable({ className }: BolusReviewTableProps) {
           </button>
         </div>
       ) : noData ? (
-        <p className="text-slate-500 dark:text-slate-500 text-sm text-center py-4">
+        <p className="text-slate-500 dark:text-slate-400 text-sm text-center py-4">
           No bolus events recorded for this period.
         </p>
       ) : (
@@ -245,7 +245,7 @@ export function BolusReviewTable({ className }: BolusReviewTableProps) {
             </tbody>
           </table>
           {data.total_count > data.boluses.length && (
-            <p className="text-slate-500 dark:text-slate-500 text-xs text-center mt-3">
+            <p className="text-slate-500 dark:text-slate-400 text-xs text-center mt-3">
               Showing {data.boluses.length} of {data.total_count} bolus events
             </p>
           )}

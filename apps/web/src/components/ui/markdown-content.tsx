@@ -81,7 +81,7 @@ const components: Components = {
     <h5 className="text-xs font-semibold text-slate-900 dark:text-white mt-2 mb-1">{children}</h5>
   ),
   h6: ({ children }) => (
-    <h6 className="text-xs font-medium text-slate-200 mt-2 mb-1">{children}</h6>
+    <h6 className="text-xs font-medium text-slate-800 dark:text-slate-200 mt-2 mb-1">{children}</h6>
   ),
   p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
   hr: () => <hr className="border-slate-300 dark:border-slate-700 my-3" />,
@@ -91,7 +91,7 @@ const components: Components = {
     </div>
   ),
   th: ({ children }) => (
-    <th className="border border-slate-300 dark:border-slate-700 px-2 py-1 text-left font-semibold text-slate-200 bg-slate-100 dark:bg-slate-800">
+    <th className="border border-slate-300 dark:border-slate-700 px-2 py-1 text-left font-semibold text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-800">
       {children}
     </th>
   ),

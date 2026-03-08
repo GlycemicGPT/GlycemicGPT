@@ -335,8 +335,8 @@ function PeriodSelector({ selected, onSelect }: PeriodSelectorProps) {
           className={clsx(
             "px-3 py-1 text-sm font-medium rounded-md transition-colors",
             selected === value
-              ? "bg-slate-700 text-slate-900 dark:text-white"
-              : "text-slate-500 dark:text-slate-400 hover:text-slate-200"
+              ? "bg-slate-200 text-slate-900 dark:bg-slate-700 dark:text-white"
+              : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
           )}
         >
           {label}
@@ -936,13 +936,13 @@ export function GlucoseTrendChart({
             <button
               type="button"
               onClick={() => setZoomDomain(null)}
-              className="flex items-center gap-1 px-2 py-1 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white bg-slate-100 dark:bg-slate-800 hover:bg-slate-700 rounded-md transition-colors"
+              className="flex items-center gap-1 px-2 py-1 text-xs text-slate-500 dark:text-slate-400 hover:text-white bg-slate-100 dark:bg-slate-800 hover:bg-slate-700 rounded-md transition-colors"
               aria-label="Reset zoom"
             >
               <ZoomOut size={14} /> Reset Zoom
             </button>
           ) : (
-            <span className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-500">
+            <span className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
               <ZoomIn size={12} /> Drag chart to zoom
             </span>
           )}

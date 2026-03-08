@@ -474,7 +474,7 @@ export default function CaregiverDashboardPage() {
                     )}
 
                     {/* Tap hint */}
-                    <p className="text-xs text-slate-600 mt-3 group-hover:text-slate-500 dark:group-hover:text-slate-400 transition-colors">
+                    <p className="text-xs text-slate-600 dark:text-slate-400 mt-3 group-hover:text-slate-500 dark:group-hover:text-slate-400 transition-colors">
                       Tap to view details
                     </p>
                   </button>
