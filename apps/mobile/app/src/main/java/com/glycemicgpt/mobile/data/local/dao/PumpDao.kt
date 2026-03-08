@@ -127,14 +127,23 @@ interface PumpDao {
         """
         SELECT
             COUNT(*) AS total,
-            SUM(CASE WHEN glucoseMgDl < :low THEN 1 ELSE 0 END) AS lowCount,
-            SUM(CASE WHEN glucoseMgDl >= :low AND glucoseMgDl <= :high THEN 1 ELSE 0 END) AS inRangeCount,
-            SUM(CASE WHEN glucoseMgDl > :high THEN 1 ELSE 0 END) AS highCount
+            COALESCE(SUM(CASE WHEN glucoseMgDl < :urgentLow THEN 1 ELSE 0 END), 0) AS urgentLowCount,
+            COALESCE(SUM(CASE WHEN glucoseMgDl >= :urgentLow AND glucoseMgDl < :low THEN 1 ELSE 0 END), 0) AS lowCount,
+            COALESCE(SUM(CASE WHEN glucoseMgDl >= :low AND glucoseMgDl <= :high THEN 1 ELSE 0 END), 0) AS inRangeCount,
+            COALESCE(SUM(CASE WHEN glucoseMgDl > :high AND glucoseMgDl <= :urgentHigh THEN 1 ELSE 0 END), 0) AS highCount,
+            COALESCE(SUM(CASE WHEN glucoseMgDl > :urgentHigh THEN 1 ELSE 0 END), 0) AS urgentHighCount
         FROM cgm_readings
         WHERE timestampMs >= :sinceMs
+          AND glucoseMgDl BETWEEN 20 AND 500
         """,
     )
-    fun observeTimeInRangeCounts(sinceMs: Long, low: Int, high: Int): Flow<TimeInRangeCounts>
+    fun observeTimeInRangeCounts(
+        sinceMs: Long,
+        urgentLow: Int,
+        low: Int,
+        high: Int,
+        urgentHigh: Int,
+    ): Flow<TimeInRangeCounts>
 
     // -- Transactional cleanup ------------------------------------------------
 
@@ -153,7 +162,9 @@ interface PumpDao {
 
 data class TimeInRangeCounts(
     val total: Int,
+    val urgentLowCount: Int,
     val lowCount: Int,
     val inRangeCount: Int,
     val highCount: Int,
+    val urgentHighCount: Int,
 )

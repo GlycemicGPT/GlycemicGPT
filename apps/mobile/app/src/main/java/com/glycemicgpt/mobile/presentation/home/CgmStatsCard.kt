@@ -14,6 +14,7 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -44,11 +45,24 @@ fun CgmStatsCard(
     val safeRetention = maxRetentionDays.coerceAtLeast(1)
     val availablePeriods = CgmStatsPeriods.filter { it.hours / 24 <= safeRetention }
     val effectivePeriod = if (selectedPeriod in availablePeriods) selectedPeriod else availablePeriods.first()
+    LaunchedEffect(selectedPeriod, availablePeriods) {
+        if (selectedPeriod !in availablePeriods) {
+            onPeriodSelected(effectivePeriod)
+        }
+    }
     val a11yDescription = if (stats != null) {
-        "CGM statistics: mean glucose %.0f mg/dL, coefficient of variation %.1f%%, GMI %.1f%%".format(
+        val (cvLabel, _) = cvAssessment(stats.cvPercent)
+        val (activeLabel, _) = cgmActiveAssessment(stats.cgmActivePercent)
+        ("CGM statistics: mean glucose %.0f mg/dL, std dev %.1f mg/dL, " +
+            "CV %.1f%% %s, GMI %.1f%%, CGM active %.0f%% %s, %d readings").format(
             stats.meanGlucose,
+            stats.stdDev,
             stats.cvPercent,
+            cvLabel,
             stats.gmi,
+            stats.cgmActivePercent,
+            activeLabel,
+            stats.readingsCount,
         )
     } else {
         "CGM statistics: no data available"
@@ -110,6 +124,7 @@ fun CgmStatsCard(
                     modifier = Modifier.fillMaxWidth(),
                 )
             } else {
+                // Row 1: Mean Glucose, Std Dev, CV%
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly,
@@ -119,6 +134,12 @@ fun CgmStatsCard(
                         value = "%.0f mg/dL".format(stats.meanGlucose),
                         valueColor = MaterialTheme.colorScheme.onSurface,
                     )
+                    StatColumn(
+                        label = "Std Dev",
+                        value = "%.1f".format(stats.stdDev),
+                        valueColor = MaterialTheme.colorScheme.onSurface,
+                        subtitle = "mg/dL",
+                    )
                     val (cvLabel, cvColor) = cvAssessment(stats.cvPercent)
                     StatColumn(
                         label = "CV%",
@@ -126,11 +147,32 @@ fun CgmStatsCard(
                         valueColor = cvColor,
                         subtitle = cvLabel,
                     )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Row 2: GMI, CGM Active %, Readings
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                ) {
                     StatColumn(
                         label = "GMI",
                         value = "%.1f%%".format(stats.gmi),
                         valueColor = MaterialTheme.colorScheme.onSurface,
                         subtitle = "est. A1C",
+                    )
+                    val (activeLabel, activeColor) = cgmActiveAssessment(stats.cgmActivePercent)
+                    StatColumn(
+                        label = "CGM Active",
+                        value = "%.0f%%".format(stats.cgmActivePercent),
+                        valueColor = activeColor,
+                        subtitle = activeLabel,
+                    )
+                    StatColumn(
+                        label = "Readings",
+                        value = "%d".format(stats.readingsCount),
+                        valueColor = MaterialTheme.colorScheme.onSurface,
                     )
                 }
             }
@@ -171,4 +213,10 @@ internal fun cvAssessment(cvPercent: Float): Pair<String, Color> = when {
     cvPercent <= 36f -> "Stable" to GlucoseColors.InRange
     cvPercent <= 50f -> "Moderate" to GlucoseColors.High
     else -> "High" to GlucoseColors.UrgentHigh
+}
+
+internal fun cgmActiveAssessment(activePercent: Float): Pair<String, Color> = when {
+    activePercent >= 70f -> "Good" to GlucoseColors.InRange
+    activePercent >= 50f -> "Fair" to GlucoseColors.High
+    else -> "Low" to GlucoseColors.UrgentHigh
 }

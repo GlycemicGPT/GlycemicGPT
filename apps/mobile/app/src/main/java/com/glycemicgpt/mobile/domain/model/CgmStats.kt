@@ -6,4 +6,6 @@ data class CgmStats(
     val cvPercent: Float,
     val gmi: Float,
     val readingsCount: Int,
+    /** Percentage of expected readings actually received [0..100]. */
+    val cgmActivePercent: Float = 100f,
 )

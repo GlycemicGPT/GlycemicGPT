@@ -242,7 +242,9 @@ class HomeViewModel @Inject constructor(
             val since = Instant.ofEpochMilli(
                 System.currentTimeMillis() - period.hours * 3600_000L,
             )
-            repository.observeTimeInRange(since, thresholds.low, thresholds.high)
+            repository.observeTimeInRange(
+                since, thresholds.urgentLow, thresholds.low, thresholds.high, thresholds.urgentHigh,
+            )
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
@@ -261,7 +263,7 @@ class HomeViewModel @Inject constructor(
                 System.currentTimeMillis() - period.hours * 3600_000L,
             )
             repository.observeCgmHistoryAll(since).map { readings ->
-                DashboardComputations.computeCgmStats(readings)
+                DashboardComputations.computeCgmStats(readings, period.hours)
             }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
@@ -383,8 +385,11 @@ class HomeViewModel @Inject constructor(
                     val low = range.lowTarget.toInt().coerceIn(MIN_THRESHOLD, MAX_THRESHOLD)
                     val high = range.highTarget.toInt().coerceIn(MIN_THRESHOLD, MAX_THRESHOLD)
                     val urgentHigh = range.urgentHigh.toInt().coerceIn(MIN_THRESHOLD, MAX_THRESHOLD)
-                    if (low >= high) {
-                        Timber.w("Invalid glucose range: low=%d >= high=%d, skipping update", low, high)
+                    if (urgentLow > low || low >= high || high > urgentHigh) {
+                        Timber.w(
+                            "Invalid glucose range ordering: urgentLow=%d, low=%d, high=%d, urgentHigh=%d, skipping update",
+                            urgentLow, low, high, urgentHigh,
+                        )
                         return
                     }
                     glucoseRangeStore.updateAll(

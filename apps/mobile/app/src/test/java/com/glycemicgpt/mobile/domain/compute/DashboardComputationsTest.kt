@@ -102,6 +102,30 @@ class DashboardComputationsTest {
         assertTrue(stats.cvPercent > 0f)
     }
 
+    @Test
+    fun `computeCgmStats cgmActivePercent defaults to 100 when periodHours is 0`() {
+        val readings = listOf(cgm(120), cgm(130))
+        val stats = DashboardComputations.computeCgmStats(readings)!!
+        assertEquals(100f, stats.cgmActivePercent, 0.01f)
+    }
+
+    @Test
+    fun `computeCgmStats cgmActivePercent computes correctly for 24h period`() {
+        // 24h period expects 24 * 12 = 288 readings
+        val readings = (1..144).map { cgm(120, minutesAgo = it * 5L) }
+        val stats = DashboardComputations.computeCgmStats(readings, periodHours = 24)!!
+        // 144 / 288 = 50%
+        assertEquals(50f, stats.cgmActivePercent, 0.5f)
+    }
+
+    @Test
+    fun `computeCgmStats cgmActivePercent capped at 100`() {
+        // More readings than expected (e.g., overlapping sensors)
+        val readings = (1..300).map { cgm(120, minutesAgo = it.toLong()) }
+        val stats = DashboardComputations.computeCgmStats(readings, periodHours = 24)!!
+        assertEquals(100f, stats.cgmActivePercent, 0.01f)
+    }
+
     // -- computeInsulinSummary ------------------------------------------------
 
     @Test
