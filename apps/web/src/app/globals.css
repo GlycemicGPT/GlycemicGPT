@@ -42,3 +42,47 @@ body {
     scroll-behavior: auto !important;
   }
 }
+
+/* Print styles for Reports page */
+@media print {
+  body {
+    background: white !important;
+    color: black !important;
+  }
+  /* Hide sidebar, header, mobile nav */
+  aside,
+  header,
+  nav,
+  [data-print-hide] {
+    display: none !important;
+  }
+  /* Make main content full width */
+  main {
+    margin-left: 0 !important;
+    padding: 0 !important;
+    max-width: 100% !important;
+  }
+  /* Remove dark mode styling */
+  .dark {
+    color-scheme: light;
+  }
+  /* Force light text colors for print */
+  * {
+    color: black !important;
+    border-color: #e2e8f0 !important;
+    background: white !important;
+  }
+  /* Keep TIR bar colors */
+  [style*="background-color"] {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    background: initial !important;
+  }
+  /* Keep chart colors */
+  svg circle,
+  svg rect,
+  svg line,
+  svg path {
+    color: initial !important;
+  }
+}

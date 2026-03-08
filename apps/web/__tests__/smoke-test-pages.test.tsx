@@ -189,6 +189,7 @@ import TelegramPage from "@/app/dashboard/settings/telegram/page";
 import AIProviderPage from "@/app/dashboard/settings/ai-provider/page";
 import BriefsPage from "@/app/dashboard/briefs/page";
 import AIChatPage from "@/app/dashboard/ai-chat/page";
+import ReportsPage from "@/app/dashboard/reports/page";
 
 describe("Page smoke tests - all pages render without crashing", () => {
   it("renders Dashboard page", async () => {
@@ -390,5 +391,12 @@ describe("Page smoke tests - all pages render without crashing", () => {
       const hasNoProvider = screen.queryByText(/no ai provider/i);
       expect(hasChat || hasChecking || hasUnable || hasNoProvider).toBeTruthy();
     });
+  });
+
+  it("renders Reports page", async () => {
+    await act(async () => {
+      render(<ReportsPage />);
+    });
+    expect(screen.getByText("Daily Report")).toBeInTheDocument();
   });
 });

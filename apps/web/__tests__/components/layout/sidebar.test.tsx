@@ -42,6 +42,7 @@ describe("Sidebar", () => {
     expect(screen.getByText("Dashboard")).toBeInTheDocument();
     expect(screen.getByText("Daily Briefs")).toBeInTheDocument();
     expect(screen.getByText("Alerts")).toBeInTheDocument();
+    expect(screen.getByText("Reports")).toBeInTheDocument();
     expect(screen.getByText("Settings")).toBeInTheDocument();
   });
 
@@ -58,6 +59,10 @@ describe("Sidebar", () => {
     expect(screen.getByText("Alerts").closest("a")).toHaveAttribute(
       "href",
       "/dashboard/alerts"
+    );
+    expect(screen.getByText("Reports").closest("a")).toHaveAttribute(
+      "href",
+      "/dashboard/reports"
     );
     expect(screen.getByText("Settings").closest("a")).toHaveAttribute(
       "href",

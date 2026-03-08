@@ -2750,3 +2750,95 @@ export async function getPluginDeclarations(): Promise<PluginDeclarationResponse
   }
   return response.json();
 }
+
+// ============================================================================
+// Date-Range Report Queries (Story 30.8)
+// ============================================================================
+
+function buildDateRangeParams(start: string, end: string): string {
+  return `start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`;
+}
+
+export async function getGlucoseHistoryByDateRange(
+  start: string,
+  end: string,
+  limit: number = 2000
+): Promise<GlucoseHistoryResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/glucose/history?${buildDateRangeParams(start, end)}&limit=${limit}`
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to fetch glucose history: ${response.status}`
+    );
+  }
+  return response.json();
+}
+
+export async function getGlucoseStatsByDateRange(
+  start: string,
+  end: string
+): Promise<GlucoseStats> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/glucose/stats?${buildDateRangeParams(start, end)}`
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to fetch glucose stats: ${response.status}`
+    );
+  }
+  return response.json();
+}
+
+export async function getTimeInRangeDetailByDateRange(
+  start: string,
+  end: string
+): Promise<TimeInRangeDetailStats> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/glucose/time-in-range?${buildDateRangeParams(start, end)}&include_details=true`
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to fetch TIR detail: ${response.status}`
+    );
+  }
+  return response.json();
+}
+
+export async function getInsulinSummaryByDateRange(
+  start: string,
+  end: string
+): Promise<InsulinSummaryResponse> {
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/insulin/summary?${buildDateRangeParams(start, end)}&tz=${encodeURIComponent(tz)}`
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to fetch insulin summary: ${response.status}`
+    );
+  }
+  return response.json();
+}
+
+export async function getBolusReviewByDateRange(
+  start: string,
+  end: string,
+  limit: number = 500
+): Promise<BolusReviewResponse> {
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/bolus/review?${buildDateRangeParams(start, end)}&limit=${limit}&tz=${encodeURIComponent(tz)}`
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to fetch bolus review: ${response.status}`
+    );
+  }
+  return response.json();
+}
