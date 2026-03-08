@@ -319,11 +319,13 @@ function TirSection({ tir }: { tir: TimeInRangeDetailStats | null }) {
   return (
     <div className="space-y-3">
       {/* Stacked horizontal bar */}
-      <div className="flex h-6 rounded-full overflow-hidden">
+      <div className="flex h-6 rounded-full overflow-hidden" role="img" aria-label="Time in range bar chart">
         {orderedBuckets.map((bucket) =>
           bucket.pct > 0 ? (
             <div
               key={bucket.label}
+              role="img"
+              aria-label={`${tirLabel(bucket.label, t)}: ${bucket.pct}%`}
               style={{
                 width: `${bucket.pct}%`,
                 backgroundColor: TIR_COLORS[bucket.label],
@@ -638,7 +640,7 @@ export default function ReportsPage() {
 
         {/* Loading state */}
         {isLoading && (
-          <div className="flex items-center justify-center py-20">
+          <div className="flex items-center justify-center py-20" role="status" aria-live="polite">
             <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
             <span className="ml-3 text-slate-500 dark:text-slate-400">
               Loading report...

@@ -294,7 +294,11 @@ async def get_glucose_readings(
     """
     from datetime import timedelta
 
+    if (start is None) != (end is None):
+        raise ValueError("Both 'start' and 'end' must be provided together, or neither")
     if start is not None and end is not None:
+        if start > end:
+            raise ValueError(f"'start' must be <= 'end' (got {start} > {end})")
         cutoff = start
         upper = end
     else:

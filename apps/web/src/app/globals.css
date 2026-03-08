@@ -66,8 +66,8 @@ body {
   .dark {
     color-scheme: light;
   }
-  /* Force light text colors for print */
-  * {
+  /* Force light text colors for print, except inline-colored elements and SVGs */
+  *:not([style*="background-color"]):not(svg):not(svg *) {
     color: black !important;
     border-color: #e2e8f0 !important;
     background: white !important;
@@ -76,13 +76,13 @@ body {
   [style*="background-color"] {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
-    background: initial !important;
   }
   /* Keep chart colors */
   svg circle,
   svg rect,
   svg line,
   svg path {
-    color: initial !important;
+    fill: initial !important;
+    stroke: initial !important;
   }
 }

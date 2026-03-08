@@ -42,6 +42,9 @@ export interface UseDailyReportResult {
  */
 function dateToUtcRange(date: string): { start: string; end: string } {
   const dayStart = new Date(`${date}T00:00:00`);
+  if (isNaN(dayStart.getTime())) {
+    throw new Error(`Invalid date: ${date}`);
+  }
   const dayEnd = new Date(`${date}T00:00:00`);
   dayEnd.setDate(dayEnd.getDate() + 1);
   return {
@@ -52,7 +55,7 @@ function dateToUtcRange(date: string): { start: string; end: string } {
 
 export function useDailyReport(date: string): UseDailyReportResult {
   const [data, setData] = useState<DailyReportData | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(!!date);
   const [error, setError] = useState<string | null>(null);
   const fetchIdRef = useRef(0);
 
