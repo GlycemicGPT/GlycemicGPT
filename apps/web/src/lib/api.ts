@@ -2752,6 +2752,44 @@ export async function getPluginDeclarations(): Promise<PluginDeclarationResponse
 }
 
 // ============================================================================
+// Pump Profile (Story 30.8 - Clinical Report)
+// ============================================================================
+
+export interface PumpProfileSegment {
+  time: string;
+  start_minutes: number;
+  basal_rate: number;
+  correction_factor: number | null;
+  carb_ratio: number | null;
+  target_bg: number | null;
+}
+
+export interface PumpProfileSummaryResponse {
+  profile_name: string;
+  is_active: boolean;
+  dia_minutes: number | null;
+  max_bolus_units: number | null;
+  segments: PumpProfileSegment[];
+  synced_at: string;
+}
+
+export async function getPumpProfile(): Promise<PumpProfileSummaryResponse | null> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/settings/pump-profile`
+  );
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to fetch pump profile: ${response.status}`
+    );
+  }
+  return response.json();
+}
+
+// ============================================================================
 // Date-Range Report Queries (Story 30.8)
 // ============================================================================
 

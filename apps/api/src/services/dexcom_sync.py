@@ -285,7 +285,7 @@ async def get_glucose_readings(
         db: Database session
         user_id: User ID
         minutes: Number of minutes of history (default 3 hours)
-        limit: Maximum readings to return
+        limit: Maximum readings to return (applied regardless of date range)
         start: Optional absolute start of date range (overrides minutes)
         end: Optional absolute end of date range (overrides minutes)
 

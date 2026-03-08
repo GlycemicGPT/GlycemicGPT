@@ -1195,7 +1195,7 @@ export default function DataRetentionPage() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-blue-500/10 rounded-lg">
-                <FileText className="h-5 w-5 text-blue-400" />
+                <FileText className="h-5 w-5 text-blue-400" aria-hidden="true" />
               </div>
               <div>
                 <h2 className="text-lg font-semibold text-slate-900 dark:text-white group-hover:text-blue-400 transition-colors">
@@ -1206,7 +1206,7 @@ export default function DataRetentionPage() {
                 </p>
               </div>
             </div>
-            <ChevronRight className="h-5 w-5 text-slate-400 group-hover:text-blue-400 transition-colors" />
+            <ChevronRight className="h-5 w-5 text-slate-400 group-hover:text-blue-400 transition-colors" aria-hidden="true" />
           </div>
         </Link>
       )}

@@ -574,4 +574,4 @@ class TestValidateDateRange:
         start = datetime(2026, 3, 1, tzinfo=UTC)
         end = datetime(2026, 4, 1, tzinfo=UTC)
         result = _validate_date_range(start, end)
-        assert result is not None
+        assert result == (start, end)

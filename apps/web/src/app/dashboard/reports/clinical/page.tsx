@@ -8,6 +8,21 @@
  * renders below -- on screen it lives inside the dashboard layout (sidebar
  * visible) but the existing globals.css print rules hide sidebar/header
  * automatically, producing a clean printable document.
+ *
+ * Sections:
+ * 1. Patient & Device Info (user profile, pump/CGM)
+ * 2. CGM Summary with estimated A1C
+ * 3. Time in Range (5-bucket + targets)
+ * 4. Ambulatory Glucose Profile (AGP) - percentile bands
+ * 5. Glucose Trend (scatter chart)
+ * 6. Daily Glucose Overlay (spaghetti plot)
+ * 7. Hypoglycemia Analysis
+ * 8. Overnight Pattern (10pm-6am)
+ * 9. Insulin Delivery
+ * 10. Active Pump Settings (basal, carb ratio, CF, targets)
+ * 11. Bolus Events table
+ * 12. Sensor Coverage & Gaps
+ * 13. Medical disclaimer footer
  */
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
@@ -29,6 +44,10 @@ import {
   ReferenceLine,
   ReferenceArea,
   ResponsiveContainer,
+  AreaChart,
+  Area,
+  LineChart,
+  Line,
 } from "recharts";
 import Link from "next/link";
 import {
@@ -37,12 +56,19 @@ import {
   getTimeInRangeDetailByDateRange,
   getInsulinSummaryByDateRange,
   getBolusReviewByDateRange,
+  getCurrentUser,
+  getPluginDeclarations,
+  getPumpProfile,
   type GlucoseHistoryReading,
   type GlucoseStats,
   type TimeInRangeDetailStats,
   type TirBucket,
   type InsulinSummaryResponse,
   type BolusReviewItem,
+  type CurrentUserResponse,
+  type PluginDeclarationResponse,
+  type PumpProfileSummaryResponse,
+  type PumpProfileSegment,
 } from "@/lib/api";
 
 // ---------------------------------------------------------------------------
@@ -56,7 +82,34 @@ interface ReportData {
   insulin: InsulinSummaryResponse | null;
   boluses: BolusReviewItem[];
   totalBolusCount: number;
+  user: CurrentUserResponse | null;
+  plugin: PluginDeclarationResponse | null;
+  pumpProfile: PumpProfileSummaryResponse | null;
   warnings: string[];
+}
+
+interface AgpBucket {
+  hour: number;
+  p10: number;
+  p25: number;
+  p50: number;
+  p75: number;
+  p90: number;
+  count: number;
+}
+
+interface HypoEvent {
+  start: Date;
+  end: Date;
+  durationMinutes: number;
+  nadir: number;
+  isUrgent: boolean;
+}
+
+interface SensorGap {
+  start: Date;
+  end: Date;
+  durationMinutes: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -89,6 +142,12 @@ function daysBetween(start: string, end: string): number {
   return Math.round((e.getTime() - s.getTime()) / 86400000);
 }
 
+function formatHour(hour: number): string {
+  if (hour === 0) return "12 AM";
+  if (hour === 12) return "12 PM";
+  return hour < 12 ? `${hour} AM` : `${hour - 12} PM`;
+}
+
 // ---------------------------------------------------------------------------
 // Data fetching
 // ---------------------------------------------------------------------------
@@ -99,33 +158,51 @@ const SECTION_NAMES = [
   "Time in Range",
   "Insulin Summary",
   "Bolus Events",
+  "User Profile",
+  "Device Info",
+  "Pump Settings",
 ] as const;
 
 async function fetchReportData(
   startDate: string,
   endDate: string,
 ): Promise<ReportData> {
-  const startISO = `${startDate}T00:00:00Z`;
-  const nextDay = new Date(`${endDate}T00:00:00Z`);
-  nextDay.setUTCDate(nextDay.getUTCDate() + 1);
-  const endISO = nextDay.toISOString();
+  // Use local midnight so the date range matches the user's selected dates
+  // regardless of timezone (input type="date" returns local date strings)
+  const startLocal = new Date(`${startDate}T00:00:00`);
+  const startISO = startLocal.toISOString();
+  const endLocal = new Date(`${endDate}T00:00:00`);
+  endLocal.setDate(endLocal.getDate() + 1);
+  const endISO = endLocal.toISOString();
+
+  // 288 readings/day (5-min intervals) + headroom for overlap
+  const periodDays = Math.max(
+    1,
+    Math.round((endLocal.getTime() - startLocal.getTime()) / 86400000),
+  );
+  const readingsLimit = periodDays * 300;
 
   const results = await Promise.allSettled([
-    getGlucoseHistoryByDateRange(startISO, endISO, 8640),
+    getGlucoseHistoryByDateRange(startISO, endISO, readingsLimit),
     getGlucoseStatsByDateRange(startISO, endISO),
     getTimeInRangeDetailByDateRange(startISO, endISO),
     getInsulinSummaryByDateRange(startISO, endISO),
     getBolusReviewByDateRange(startISO, endISO, 50),
+    getCurrentUser(),
+    getPluginDeclarations(),
+    getPumpProfile(),
   ]);
 
   const warnings: string[] = [];
-  results.forEach((r, i) => {
-    if (r.status === "rejected") {
+  // Only warn on core data sections (first 5), not profile/device info
+  for (let i = 0; i < 5; i++) {
+    if (results[i].status === "rejected") {
       warnings.push(`${SECTION_NAMES[i]} data could not be loaded`);
     }
-  });
+  }
 
-  const bolusResult = results[4].status === "fulfilled" ? results[4].value : null;
+  const bolusResult =
+    results[4].status === "fulfilled" ? results[4].value : null;
 
   return {
     readings:
@@ -135,8 +212,175 @@ async function fetchReportData(
     insulin: results[3].status === "fulfilled" ? results[3].value : null,
     boluses: bolusResult?.boluses ?? [],
     totalBolusCount: bolusResult?.total_count ?? 0,
+    user: results[5].status === "fulfilled" ? results[5].value : null,
+    plugin: results[6].status === "fulfilled" ? results[6].value : null,
+    pumpProfile: results[7].status === "fulfilled" ? results[7].value : null,
     warnings,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Computation helpers
+// ---------------------------------------------------------------------------
+
+function computeAgpBuckets(readings: GlucoseHistoryReading[]): AgpBucket[] {
+  // getHours() returns browser-local time, which is intentional: patients
+  // view reports in their own timezone, matching how they experience their day.
+  const hourBuckets: number[][] = Array.from({ length: 24 }, () => []);
+  for (const r of readings) {
+    const d = new Date(r.reading_timestamp);
+    hourBuckets[d.getHours()].push(r.value);
+  }
+  return hourBuckets.map((values, hour) => {
+    if (values.length === 0) {
+      return { hour, p10: 0, p25: 0, p50: 0, p75: 0, p90: 0, count: 0 };
+    }
+    const sorted = [...values].sort((a, b) => a - b);
+    const pct = (p: number) => {
+      const idx = (sorted.length - 1) * p;
+      const lo = Math.floor(idx);
+      const hi = Math.ceil(idx);
+      if (lo === hi) return sorted[lo];
+      const frac = idx - lo;
+      return sorted[lo] * (1 - frac) + sorted[hi] * frac;
+    };
+    return {
+      hour,
+      p10: pct(0.1),
+      p25: pct(0.25),
+      p50: pct(0.5),
+      p75: pct(0.75),
+      p90: pct(0.9),
+      count: values.length,
+    };
+  });
+}
+
+function detectHypoEvents(
+  readings: GlucoseHistoryReading[],
+  lowThreshold: number,
+  urgentLowThreshold: number,
+): HypoEvent[] {
+  const sorted = [...readings].sort(
+    (a, b) =>
+      new Date(a.reading_timestamp).getTime() -
+      new Date(b.reading_timestamp).getTime(),
+  );
+
+  const events: HypoEvent[] = [];
+  let inEvent = false;
+  let eventStart: Date | null = null;
+  let nadir = Infinity;
+  let isUrgent = false;
+
+  for (let i = 0; i < sorted.length; i++) {
+    const r = sorted[i];
+    const ts = new Date(r.reading_timestamp);
+
+    if (r.value < lowThreshold) {
+      if (!inEvent) {
+        inEvent = true;
+        eventStart = ts;
+        nadir = r.value;
+        isUrgent = r.value < urgentLowThreshold;
+      } else {
+        if (r.value < nadir) nadir = r.value;
+        if (r.value < urgentLowThreshold) isUrgent = true;
+      }
+    } else if (inEvent && eventStart) {
+      const duration = (ts.getTime() - eventStart.getTime()) / 60000;
+      if (duration >= 5) {
+        events.push({
+          start: eventStart,
+          end: ts,
+          durationMinutes: Math.round(duration),
+          nadir,
+          isUrgent,
+        });
+      }
+      inEvent = false;
+      eventStart = null;
+      nadir = Infinity;
+      isUrgent = false;
+    }
+  }
+  // Close open event
+  if (inEvent && eventStart && sorted.length > 0) {
+    const lastTs = new Date(sorted[sorted.length - 1].reading_timestamp);
+    const duration = (lastTs.getTime() - eventStart.getTime()) / 60000;
+    if (duration >= 5) {
+      events.push({
+        start: eventStart,
+        end: lastTs,
+        durationMinutes: Math.round(duration),
+        nadir,
+        isUrgent,
+      });
+    }
+  }
+
+  return events;
+}
+
+function computeOvernightStats(
+  readings: GlucoseHistoryReading[],
+  lowThreshold: number,
+  highThreshold: number,
+): { avg: number; count: number; lowPct: number; highPct: number; inRangePct: number } | null {
+  const overnight = readings.filter((r) => {
+    const h = new Date(r.reading_timestamp).getHours();
+    return h >= 22 || h < 6;
+  });
+  if (overnight.length === 0) return null;
+  const sum = overnight.reduce((s, r) => s + r.value, 0);
+  const lowCount = overnight.filter((r) => r.value < lowThreshold).length;
+  const highCount = overnight.filter((r) => r.value > highThreshold).length;
+  const inRange = overnight.length - lowCount - highCount;
+  return {
+    avg: Math.round(sum / overnight.length),
+    count: overnight.length,
+    lowPct: Math.round((lowCount / overnight.length) * 100),
+    highPct: Math.round((highCount / overnight.length) * 100),
+    inRangePct: Math.round((inRange / overnight.length) * 100),
+  };
+}
+
+function detectSensorGaps(readings: GlucoseHistoryReading[]): SensorGap[] {
+  if (readings.length < 2) return [];
+  const sorted = [...readings].sort(
+    (a, b) =>
+      new Date(a.reading_timestamp).getTime() -
+      new Date(b.reading_timestamp).getTime(),
+  );
+  const gaps: SensorGap[] = [];
+  const GAP_THRESHOLD_MIN = 20; // >20 min gap = sensor gap
+
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = new Date(sorted[i - 1].reading_timestamp);
+    const curr = new Date(sorted[i].reading_timestamp);
+    const diffMin = (curr.getTime() - prev.getTime()) / 60000;
+    if (diffMin > GAP_THRESHOLD_MIN) {
+      gaps.push({
+        start: prev,
+        end: curr,
+        durationMinutes: Math.round(diffMin),
+      });
+    }
+  }
+  return gaps;
+}
+
+function buildDailyOverlay(
+  readings: GlucoseHistoryReading[],
+): { minuteOfDay: number; value: number; day: string }[] {
+  return readings.map((r) => {
+    const d = new Date(r.reading_timestamp);
+    return {
+      minuteOfDay: d.getHours() * 60 + d.getMinutes(),
+      value: r.value,
+      day: d.toLocaleDateString([], { month: "short", day: "numeric" }),
+    };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -247,9 +491,17 @@ function ReportGlucoseChart({
 
   const chartSummary = useMemo(() => {
     if (points.length === 0) return "";
-    const avg = Math.round(points.reduce((s, p) => s + p.value, 0) / points.length);
-    const startLabel = new Date(domainStart).toLocaleDateString([], { month: "short", day: "numeric" });
-    const endLabel = new Date(domainEnd).toLocaleDateString([], { month: "short", day: "numeric" });
+    const avg = Math.round(
+      points.reduce((s, p) => s + p.value, 0) / points.length,
+    );
+    const startLabel = new Date(domainStart).toLocaleDateString([], {
+      month: "short",
+      day: "numeric",
+    });
+    const endLabel = new Date(domainEnd).toLocaleDateString([], {
+      month: "short",
+      day: "numeric",
+    });
     return `Glucose trend chart showing ${points.length} readings from ${startLabel} to ${endLabel}, average ${avg} mg/dL`;
   }, [points, domainStart, domainEnd]);
 
@@ -263,49 +515,274 @@ function ReportGlucoseChart({
 
   return (
     <div role="img" aria-label={chartSummary}>
-    <ResponsiveContainer width="100%" height={280}>
-      <ScatterChart margin={{ top: 10, right: 20, bottom: 20, left: 10 }}>
-        <CartesianGrid
-          strokeDasharray="3 3"
-          stroke="#e2e8f0"
-          opacity={0.5}
-        />
-        <XAxis
-          type="number"
-          dataKey="time"
-          domain={[domainStart, domainEnd]}
-          ticks={ticks}
-          tickFormatter={(ts: number) => {
-            const d = new Date(ts);
-            return d.toLocaleDateString([], { month: "short", day: "numeric" });
-          }}
-          tick={{ fontSize: 10, fill: "#94a3b8" }}
-        />
-        <YAxis
-          type="number"
-          dataKey="value"
-          domain={[40, 350]}
-          ticks={[54, low, high, 250, 300]}
-          tick={{ fontSize: 10, fill: "#94a3b8" }}
-          width={35}
-        />
-        <ReferenceArea y1={low} y2={high} fill="#22c55e" fillOpacity={0.08} />
-        <ReferenceLine
-          y={low}
-          stroke="#f59e0b"
-          strokeDasharray="4 4"
-          strokeOpacity={0.6}
-        />
-        <ReferenceLine
-          y={high}
-          stroke="#f97316"
-          strokeDasharray="4 4"
-          strokeOpacity={0.6}
-        />
-        <RechartsTooltip content={<GlucoseChartTooltip />} cursor={false} />
-        <Scatter data={points} shape={renderPoint} />
-      </ScatterChart>
-    </ResponsiveContainer>
+      <ResponsiveContainer width="100%" height={280}>
+        <ScatterChart margin={{ top: 10, right: 20, bottom: 20, left: 10 }}>
+          <CartesianGrid
+            strokeDasharray="3 3"
+            stroke="#e2e8f0"
+            opacity={0.5}
+          />
+          <XAxis
+            type="number"
+            dataKey="time"
+            domain={[domainStart, domainEnd]}
+            ticks={ticks}
+            tickFormatter={(ts: number) => {
+              const d = new Date(ts);
+              return d.toLocaleDateString([], {
+                month: "short",
+                day: "numeric",
+              });
+            }}
+            tick={{ fontSize: 10, fill: "#94a3b8" }}
+          />
+          <YAxis
+            type="number"
+            dataKey="value"
+            domain={[40, 350]}
+            ticks={[54, low, high, 250, 300]}
+            tick={{ fontSize: 10, fill: "#94a3b8" }}
+            width={35}
+          />
+          <ReferenceArea y1={low} y2={high} fill="#22c55e" fillOpacity={0.08} />
+          <ReferenceLine
+            y={low}
+            stroke="#f59e0b"
+            strokeDasharray="4 4"
+            strokeOpacity={0.6}
+          />
+          <ReferenceLine
+            y={high}
+            stroke="#f97316"
+            strokeDasharray="4 4"
+            strokeOpacity={0.6}
+          />
+          <RechartsTooltip content={<GlucoseChartTooltip />} cursor={false} />
+          <Scatter data={points} shape={renderPoint} />
+        </ScatterChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function AgpChartSection({
+  buckets,
+  low = 70,
+  high = 180,
+}: {
+  buckets: AgpBucket[];
+  low?: number;
+  high?: number;
+}) {
+  const data = buckets.filter((b) => b.count > 0);
+  if (data.length === 0) {
+    return (
+      <p className="text-sm text-slate-500">
+        Not enough data for AGP analysis.
+      </p>
+    );
+  }
+
+  return (
+    <div
+      role="img"
+      aria-label="Ambulatory Glucose Profile showing median and percentile bands over 24 hours"
+    >
+      <ResponsiveContainer width="100%" height={260}>
+        <AreaChart data={data} margin={{ top: 10, right: 20, bottom: 20, left: 10 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" opacity={0.5} />
+          <XAxis
+            dataKey="hour"
+            ticks={[0, 3, 6, 9, 12, 15, 18, 21]}
+            tickFormatter={(h: number) => formatHour(h)}
+            tick={{ fontSize: 10, fill: "#94a3b8" }}
+          />
+          <YAxis
+            domain={[40, 350]}
+            ticks={[54, low, high, 250]}
+            tick={{ fontSize: 10, fill: "#94a3b8" }}
+            width={35}
+          />
+          <ReferenceArea y1={low} y2={high} fill="#22c55e" fillOpacity={0.06} />
+          <ReferenceLine
+            y={low}
+            stroke="#f59e0b"
+            strokeDasharray="4 4"
+            strokeOpacity={0.5}
+          />
+          <ReferenceLine
+            y={high}
+            stroke="#f97316"
+            strokeDasharray="4 4"
+            strokeOpacity={0.5}
+          />
+          <Area
+            type="monotone"
+            dataKey="p90"
+            stroke="none"
+            fill="#93c5fd"
+            fillOpacity={0.2}
+            name="p90"
+          />
+          <Area
+            type="monotone"
+            dataKey="p75"
+            stroke="none"
+            fill="#60a5fa"
+            fillOpacity={0.25}
+            name="p75"
+          />
+          <Area
+            type="monotone"
+            dataKey="p50"
+            stroke="#2563eb"
+            strokeWidth={2}
+            fill="#3b82f6"
+            fillOpacity={0.15}
+            name="Median"
+          />
+          <Area
+            type="monotone"
+            dataKey="p25"
+            stroke="none"
+            fill="white"
+            fillOpacity={1}
+            name="p25"
+          />
+          <Area
+            type="monotone"
+            dataKey="p10"
+            stroke="none"
+            fill="white"
+            fillOpacity={1}
+            name="p10"
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500 mt-1">
+        <span>
+          <span className="inline-block w-3 h-0.5 bg-blue-600 mr-1 align-middle" />
+          Median (p50)
+        </span>
+        <span>
+          <span className="inline-block w-3 h-2 bg-blue-400/30 mr-1 align-middle rounded-sm" />
+          25th-75th percentile
+        </span>
+        <span>
+          <span className="inline-block w-3 h-2 bg-blue-300/20 mr-1 align-middle rounded-sm" />
+          10th-90th percentile
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function DailyOverlayChart({
+  readings,
+  low = 70,
+  high = 180,
+}: {
+  readings: GlucoseHistoryReading[];
+  low?: number;
+  high?: number;
+}) {
+  const MAX_OVERLAY_DAYS = 14;
+  const overlayData = useMemo(() => buildDailyOverlay(readings), [readings]);
+  const days = useMemo(() => {
+    const daySet = new Set(overlayData.map((p) => p.day));
+    const all = Array.from(daySet);
+    // Cap to most recent days for performance (each day = 1 SVG path)
+    return all.length > MAX_OVERLAY_DAYS
+      ? all.slice(all.length - MAX_OVERLAY_DAYS)
+      : all;
+  }, [overlayData]);
+
+  // Group by day for line chart
+  const chartData = useMemo(() => {
+    // Accumulate values per (bucket, day) to average collisions
+    const accum = new Map<string, { sum: number; count: number }>();
+    const minuteSet = new Set<number>();
+    for (const point of overlayData) {
+      const bucket = Math.round(point.minuteOfDay / 5) * 5;
+      minuteSet.add(bucket);
+      const key = `${bucket}:${point.day}`;
+      const prev = accum.get(key);
+      if (prev) {
+        prev.sum += point.value;
+        prev.count++;
+      } else {
+        accum.set(key, { sum: point.value, count: 1 });
+      }
+    }
+    const minuteMap = new Map<number, Record<string, number>>();
+    for (const bucket of minuteSet) {
+      minuteMap.set(bucket, { minuteOfDay: bucket });
+    }
+    for (const [key, { sum, count }] of accum) {
+      const [bucketStr, day] = key.split(":");
+      const entry = minuteMap.get(Number(bucketStr))!;
+      entry[day] = Math.round(sum / count);
+    }
+    return Array.from(minuteMap.values()).sort(
+      (a, b) => a.minuteOfDay - b.minuteOfDay,
+    );
+  }, [overlayData]);
+
+  if (days.length === 0) {
+    return <p className="text-sm text-slate-500">No data for daily overlay.</p>;
+  }
+
+  const COLORS = [
+    "#3b82f6", "#ef4444", "#22c55e", "#f59e0b", "#8b5cf6",
+    "#ec4899", "#14b8a6", "#f97316", "#6366f1", "#06b6d4",
+    "#84cc16", "#e11d48", "#0ea5e9", "#d946ef", "#10b981",
+    "#fb923c", "#a855f7", "#f43f5e", "#2dd4bf", "#fbbf24",
+    "#7c3aed", "#059669", "#dc2626", "#0284c7", "#c026d3",
+    "#65a30d", "#e879f9", "#38bdf8", "#4ade80", "#facc15",
+    "#818cf8",
+  ];
+
+  return (
+    <div
+      role="img"
+      aria-label={`Daily glucose overlay showing ${days.length} days overlaid on a 24-hour clock`}
+    >
+      <ResponsiveContainer width="100%" height={260}>
+        <LineChart data={chartData} margin={{ top: 10, right: 20, bottom: 20, left: 10 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" opacity={0.5} />
+          <XAxis
+            dataKey="minuteOfDay"
+            type="number"
+            domain={[0, 1440]}
+            ticks={[0, 180, 360, 540, 720, 900, 1080, 1260]}
+            tickFormatter={(m: number) => formatHour(Math.floor(m / 60))}
+            tick={{ fontSize: 10, fill: "#94a3b8" }}
+          />
+          <YAxis
+            domain={[40, 350]}
+            ticks={[54, low, high, 250]}
+            tick={{ fontSize: 10, fill: "#94a3b8" }}
+            width={35}
+          />
+          <ReferenceArea y1={low} y2={high} fill="#22c55e" fillOpacity={0.06} />
+          {days.map((day, i) => (
+            <Line
+              key={day}
+              type="monotone"
+              dataKey={day}
+              stroke={COLORS[i % COLORS.length]}
+              strokeWidth={1}
+              dot={false}
+              opacity={0.5}
+              connectNulls={false}
+            />
+          ))}
+        </LineChart>
+      </ResponsiveContainer>
+      <p className="text-xs text-slate-400 print:text-slate-500 mt-1">
+        Each line represents one day. {days.length} day
+        {days.length !== 1 ? "s" : ""} overlaid on a 24-hour clock.
+      </p>
     </div>
   );
 }
@@ -338,46 +815,134 @@ const TIR_TARGETS: Record<string, string> = {
   urgent_high: "<5%",
 };
 
-function CgmStatsTable({ stats }: { stats: GlucoseStats }) {
-  const rows = [
-    {
-      label: "Average Glucose",
-      value: `${Math.round(stats.mean_glucose)} mg/dL`,
-    },
-    { label: "Standard Deviation", value: `${Math.round(stats.std_dev)} mg/dL` },
-    {
-      label: "Coefficient of Variation",
-      value: `${stats.cv_pct}%`,
-      note: stats.cv_pct < 36 ? "Stable" : "Variable",
-    },
-    { label: "Glucose Management Indicator", value: `${stats.gmi}%` },
-    { label: "CGM Active Time", value: `${stats.cgm_active_pct}%` },
-    { label: "Total Readings", value: `${stats.readings_count.toLocaleString()}` },
-  ];
+function PatientDeviceHeader({
+  user,
+  plugin,
+  cgmSource,
+  dateRange,
+  generatedAt,
+}: {
+  user: CurrentUserResponse | null;
+  plugin: PluginDeclarationResponse | null;
+  cgmSource: string | null;
+  dateRange: string;
+  generatedAt: string | null;
+}) {
+  const patientName = user?.display_name || user?.email || "Unknown Patient";
+  const pumpInfo = plugin
+    ? `${plugin.plugin_name} v${plugin.plugin_version}`
+    : null;
 
   return (
-    <table className="w-full text-sm">
-      <tbody>
-        {rows.map((row) => (
-          <tr
-            key={row.label}
-            className="border-b border-slate-200 dark:border-slate-700 print:border-slate-300"
-          >
-            <td className="py-2 text-slate-600 dark:text-slate-400 print:text-slate-600">
-              {row.label}
-            </td>
-            <td className="py-2 text-right font-medium text-slate-900 dark:text-white print:text-black">
-              {row.value}
-              {row.note && (
-                <span className="ml-2 text-xs text-slate-400 print:text-slate-500">
-                  ({row.note})
-                </span>
-              )}
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <div className="space-y-3">
+      <div className="flex justify-between items-start">
+        <div>
+          <h2 className="text-xl font-bold text-slate-900 dark:text-white print:text-black print:text-2xl">
+            GlycemicGPT Clinical Report
+          </h2>
+          <p className="text-sm text-slate-500 print:text-slate-600 mt-1">
+            {dateRange}
+          </p>
+          {generatedAt && (
+            <p className="text-xs text-slate-400 print:text-slate-500 mt-0.5">
+              Generated {generatedAt}
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-200 dark:border-slate-700 print:border-slate-300">
+        <div>
+          <p className="text-xs text-slate-500 print:text-slate-600 uppercase tracking-wider mb-0.5">
+            Patient
+          </p>
+          <p className="text-sm font-medium text-slate-900 dark:text-white print:text-black">
+            {patientName}
+          </p>
+        </div>
+        <div>
+          <p className="text-xs text-slate-500 print:text-slate-600 uppercase tracking-wider mb-0.5">
+            Devices
+          </p>
+          <p className="text-sm font-medium text-slate-900 dark:text-white print:text-black">
+            {[pumpInfo, cgmSource].filter(Boolean).join(" + ") ||
+              "No device info available"}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CgmStatsSection({ stats }: { stats: GlucoseStats }) {
+  const eA1C = stats.gmi;
+
+  return (
+    <div className="space-y-4">
+      {/* Prominent eA1C card */}
+      <div className="flex items-center gap-6">
+        <div className="text-center">
+          <p className="text-xs text-slate-500 print:text-slate-600 uppercase tracking-wider">
+            Estimated A1C (GMI)
+          </p>
+          <p className="text-4xl font-bold text-slate-900 dark:text-white print:text-black mt-1">
+            {eA1C}%
+          </p>
+        </div>
+        <div className="text-center">
+          <p className="text-xs text-slate-500 print:text-slate-600 uppercase tracking-wider">
+            Average Glucose
+          </p>
+          <p className="text-4xl font-bold text-slate-900 dark:text-white print:text-black mt-1">
+            {Math.round(stats.mean_glucose)}
+            <span className="text-lg font-normal ml-1">mg/dL</span>
+          </p>
+        </div>
+        <div className="text-center">
+          <p className="text-xs text-slate-500 print:text-slate-600 uppercase tracking-wider">
+            Variability (CV)
+          </p>
+          <p className="text-4xl font-bold text-slate-900 dark:text-white print:text-black mt-1">
+            {stats.cv_pct}%
+            <span className="text-sm font-normal ml-1 text-slate-400">
+              {stats.cv_pct < 36 ? "Stable" : "Variable"}
+            </span>
+          </p>
+        </div>
+      </div>
+
+      {/* Detail table */}
+      <table className="w-full text-sm">
+        <tbody>
+          {[
+            {
+              label: "Standard Deviation",
+              value: `${Math.round(stats.std_dev)} mg/dL`,
+            },
+            {
+              label: "CGM Active Time",
+              value: `${stats.cgm_active_pct}%`,
+            },
+            {
+              label: "Total Readings",
+              value: stats.readings_count.toLocaleString(),
+            },
+          ].map((row) => (
+            <tr
+              key={row.label}
+              className="border-b border-slate-200 dark:border-slate-700 print:border-slate-300"
+            >
+              <td className="py-2 text-slate-600 dark:text-slate-400 print:text-slate-600">
+                {row.label}
+              </td>
+              <td className="py-2 text-right font-medium text-slate-900 dark:text-white print:text-black">
+                {row.value}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -505,6 +1070,134 @@ function TirSection({ tir }: { tir: TimeInRangeDetailStats }) {
   );
 }
 
+function HypoSection({
+  events,
+  periodDays,
+}: {
+  events: HypoEvent[];
+  periodDays: number;
+}) {
+  const urgentEvents = events.filter((e) => e.isUrgent);
+  const totalDuration = events.reduce((s, e) => s + e.durationMinutes, 0);
+  const avgDuration =
+    events.length > 0 ? Math.round(totalDuration / events.length) : 0;
+  const eventsPerWeek =
+    periodDays > 0 ? ((events.length / periodDays) * 7).toFixed(1) : "0";
+  const lowestNadir = events.length > 0 ? Math.min(...events.map((e) => e.nadir)) : null;
+
+  // Time-of-day distribution
+  const hourCounts = Array(24).fill(0);
+  for (const e of events) {
+    hourCounts[e.start.getHours()]++;
+  }
+  const peakHour =
+    events.length > 0
+      ? hourCounts.indexOf(Math.max(...hourCounts))
+      : -1;
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div>
+          <p className="text-xs text-slate-500 print:text-slate-600 mb-1">
+            Low Events (&lt;70)
+          </p>
+          <p className="text-2xl font-bold text-slate-900 dark:text-white print:text-black">
+            {events.length}
+          </p>
+          <p className="text-xs text-slate-400">{eventsPerWeek}/week</p>
+        </div>
+        <div>
+          <p className="text-xs text-slate-500 print:text-slate-600 mb-1">
+            Urgent Lows (&lt;54)
+          </p>
+          <p className={`text-2xl font-bold ${urgentEvents.length > 0 ? "text-red-600" : "text-slate-900 dark:text-white print:text-black"}`}>
+            {urgentEvents.length}
+          </p>
+        </div>
+        <div>
+          <p className="text-xs text-slate-500 print:text-slate-600 mb-1">
+            Avg Duration
+          </p>
+          <p className="text-2xl font-bold text-slate-900 dark:text-white print:text-black">
+            {avgDuration}<span className="text-sm font-normal ml-1">min</span>
+          </p>
+        </div>
+        <div>
+          <p className="text-xs text-slate-500 print:text-slate-600 mb-1">
+            Lowest Reading
+          </p>
+          <p className="text-2xl font-bold text-slate-900 dark:text-white print:text-black">
+            {lowestNadir ?? "---"}
+            {lowestNadir != null && (
+              <span className="text-sm font-normal ml-1">mg/dL</span>
+            )}
+          </p>
+        </div>
+      </div>
+      {peakHour >= 0 && events.length > 0 && (
+        <p className="text-xs text-slate-400 print:text-slate-500">
+          Most frequent low time: {formatHour(peakHour)}.
+          Total time below range: {totalDuration} minutes.
+        </p>
+      )}
+      {events.length === 0 && (
+        <p className="text-sm text-green-600 print:text-green-700">
+          No hypoglycemic events detected in this period.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function OvernightSection({
+  stats,
+}: {
+  stats: { avg: number; count: number; lowPct: number; highPct: number; inRangePct: number };
+}) {
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div>
+        <p className="text-xs text-slate-500 print:text-slate-600 mb-1">
+          Overnight Avg (10PM-6AM)
+        </p>
+        <p className="text-2xl font-bold text-slate-900 dark:text-white print:text-black">
+          {stats.avg}
+          <span className="text-sm font-normal ml-1">mg/dL</span>
+        </p>
+      </div>
+      <div>
+        <p className="text-xs text-slate-500 print:text-slate-600 mb-1">
+          In Range
+        </p>
+        <p className="text-2xl font-bold text-green-600 print:text-green-700">
+          {stats.inRangePct}%
+        </p>
+      </div>
+      <div>
+        <p className="text-xs text-slate-500 print:text-slate-600 mb-1">
+          Below Range
+        </p>
+        <p className={`text-2xl font-bold ${stats.lowPct > 0 ? "text-amber-500" : "text-slate-900 dark:text-white print:text-black"}`}>
+          {stats.lowPct}%
+        </p>
+      </div>
+      <div>
+        <p className="text-xs text-slate-500 print:text-slate-600 mb-1">
+          Above Range
+        </p>
+        <p className={`text-2xl font-bold ${stats.highPct > 25 ? "text-orange-500" : "text-slate-900 dark:text-white print:text-black"}`}>
+          {stats.highPct}%
+        </p>
+      </div>
+      <p className="text-xs text-slate-400 print:text-slate-500 col-span-full">
+        Based on {stats.count.toLocaleString()} overnight readings (10:00 PM -
+        6:00 AM).
+      </p>
+    </div>
+  );
+}
+
 function InsulinSection({ insulin }: { insulin: InsulinSummaryResponse }) {
   return (
     <div className="space-y-3">
@@ -548,7 +1241,7 @@ function InsulinSection({ insulin }: { insulin: InsulinSummaryResponse }) {
             {insulin.bolus_count}
             {insulin.correction_count > 0 && (
               <span className="text-sm font-normal text-slate-400 ml-1">
-                ({insulin.correction_count} auto)
+                ({insulin.correction_count} correction)
               </span>
             )}
           </p>
@@ -556,17 +1249,11 @@ function InsulinSection({ insulin }: { insulin: InsulinSummaryResponse }) {
       </div>
       <div className="flex h-4 rounded-full overflow-hidden">
         <div
-          style={{
-            width: `${insulin.basal_pct}%`,
-            backgroundColor: "#6366f1",
-          }}
+          style={{ width: `${insulin.basal_pct}%`, backgroundColor: "#6366f1" }}
           title={`Basal: ${insulin.basal_pct}%`}
         />
         <div
-          style={{
-            width: `${insulin.bolus_pct}%`,
-            backgroundColor: "#3b82f6",
-          }}
+          style={{ width: `${insulin.bolus_pct}%`, backgroundColor: "#3b82f6" }}
           title={`Bolus: ${insulin.bolus_pct}%`}
         />
       </div>
@@ -592,10 +1279,119 @@ function InsulinSection({ insulin }: { insulin: InsulinSummaryResponse }) {
   );
 }
 
-function BolusTable({ boluses, totalCount }: { boluses: BolusReviewItem[]; totalCount: number }) {
+function PumpSettingsSection({
+  profile,
+}: {
+  profile: PumpProfileSummaryResponse;
+}) {
+  const segments = profile.segments;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-4 text-sm">
+        <div>
+          <span className="text-slate-500 print:text-slate-600">Profile:</span>{" "}
+          <span className="font-medium text-slate-900 dark:text-white print:text-black">
+            {profile.profile_name}
+          </span>
+        </div>
+        {profile.dia_minutes && (
+          <div>
+            <span className="text-slate-500 print:text-slate-600">
+              Insulin Duration:
+            </span>{" "}
+            <span className="font-medium text-slate-900 dark:text-white print:text-black">
+              {(profile.dia_minutes / 60).toFixed(1)} hrs
+            </span>
+          </div>
+        )}
+        {profile.max_bolus_units && (
+          <div>
+            <span className="text-slate-500 print:text-slate-600">
+              Max Bolus:
+            </span>{" "}
+            <span className="font-medium text-slate-900 dark:text-white print:text-black">
+              {profile.max_bolus_units} U
+            </span>
+          </div>
+        )}
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b-2 border-slate-300 dark:border-slate-600 print:border-slate-400">
+              <th className="py-1.5 px-2 text-left text-xs font-semibold text-slate-500 print:text-slate-600 uppercase tracking-wider">
+                Time
+              </th>
+              <th className="py-1.5 px-2 text-right text-xs font-semibold text-slate-500 print:text-slate-600 uppercase tracking-wider">
+                Basal (U/hr)
+              </th>
+              <th className="py-1.5 px-2 text-right text-xs font-semibold text-slate-500 print:text-slate-600 uppercase tracking-wider">
+                Carb Ratio (g/U)
+              </th>
+              <th className="py-1.5 px-2 text-right text-xs font-semibold text-slate-500 print:text-slate-600 uppercase tracking-wider">
+                Correction (mg/dL/U)
+              </th>
+              <th className="py-1.5 px-2 text-right text-xs font-semibold text-slate-500 print:text-slate-600 uppercase tracking-wider">
+                Target BG
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {segments.map((seg: PumpProfileSegment, i: number) => (
+              <tr
+                key={`${seg.time}-${i}`}
+                className="border-b border-slate-200 dark:border-slate-700 print:border-slate-300"
+              >
+                <td className="py-1.5 px-2 text-slate-600 dark:text-slate-300 print:text-slate-700 font-medium">
+                  {seg.time}
+                </td>
+                <td className="py-1.5 px-2 text-right text-slate-900 dark:text-white print:text-black">
+                  {seg.basal_rate.toFixed(2)}
+                </td>
+                <td className="py-1.5 px-2 text-right text-slate-900 dark:text-white print:text-black">
+                  {seg.carb_ratio != null ? seg.carb_ratio.toFixed(1) : "---"}
+                </td>
+                <td className="py-1.5 px-2 text-right text-slate-900 dark:text-white print:text-black">
+                  {seg.correction_factor != null
+                    ? Math.round(seg.correction_factor)
+                    : "---"}
+                </td>
+                <td className="py-1.5 px-2 text-right text-slate-900 dark:text-white print:text-black">
+                  {seg.target_bg ?? "---"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-xs text-slate-400 print:text-slate-500">
+        Last synced:{" "}
+        {new Date(profile.synced_at).toLocaleString([], {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        })}
+      </p>
+    </div>
+  );
+}
+
+function BolusTable({
+  boluses,
+  totalCount,
+}: {
+  boluses: BolusReviewItem[];
+  totalCount: number;
+}) {
   if (boluses.length === 0) {
     return (
-      <p className="text-sm text-slate-500">No bolus events for this period.</p>
+      <p className="text-sm text-slate-500">
+        No bolus events for this period.
+      </p>
     );
   }
 
@@ -674,6 +1470,106 @@ function BolusTable({ boluses, totalCount }: { boluses: BolusReviewItem[]; total
   );
 }
 
+function SensorCoverageSection({
+  gaps,
+  readings,
+  periodDays,
+  cgmActivePct,
+}: {
+  gaps: SensorGap[];
+  readings: GlucoseHistoryReading[];
+  periodDays: number;
+  cgmActivePct: number | null;
+}) {
+  const totalGapMinutes = gaps.reduce((s, g) => s + g.durationMinutes, 0);
+  const totalPeriodMinutes = periodDays * 24 * 60;
+  // Prefer server-computed CGM active %, fall back to readings-based estimate
+  const coveragePct = cgmActivePct != null
+    ? Math.round(cgmActivePct)
+    : totalPeriodMinutes > 0
+      ? Math.min(
+          100,
+          Math.round((readings.length * 5 * 100) / totalPeriodMinutes),
+        )
+      : 0;
+  const longestGap =
+    gaps.length > 0 ? Math.max(...gaps.map((g) => g.durationMinutes)) : 0;
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div>
+          <p className="text-xs text-slate-500 print:text-slate-600 mb-1">
+            Sensor Coverage
+          </p>
+          <p className="text-2xl font-bold text-slate-900 dark:text-white print:text-black">
+            {coveragePct}%
+          </p>
+        </div>
+        <div>
+          <p className="text-xs text-slate-500 print:text-slate-600 mb-1">
+            Total Readings
+          </p>
+          <p className="text-2xl font-bold text-slate-900 dark:text-white print:text-black">
+            {readings.length.toLocaleString()}
+          </p>
+        </div>
+        <div>
+          <p className="text-xs text-slate-500 print:text-slate-600 mb-1">
+            Sensor Gaps (&gt;20min)
+          </p>
+          <p className="text-2xl font-bold text-slate-900 dark:text-white print:text-black">
+            {gaps.length}
+          </p>
+        </div>
+        <div>
+          <p className="text-xs text-slate-500 print:text-slate-600 mb-1">
+            Longest Gap
+          </p>
+          <p className="text-2xl font-bold text-slate-900 dark:text-white print:text-black">
+            {longestGap > 60
+              ? `${Math.floor(longestGap / 60)}h ${longestGap % 60}m`
+              : longestGap > 0
+                ? `${longestGap}m`
+                : "None"}
+          </p>
+        </div>
+      </div>
+      {totalGapMinutes > 0 && (
+        <p className="text-xs text-slate-400 print:text-slate-500">
+          Total gap time: {Math.floor(totalGapMinutes / 60)}h{" "}
+          {totalGapMinutes % 60}m across {gaps.length} gap
+          {gaps.length !== 1 ? "s" : ""}.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Section wrapper
+// ---------------------------------------------------------------------------
+
+const SECTION_CLASS =
+  "bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6 print:border-0 print:rounded-none print:border-b print:border-slate-300 print:p-4 print:break-inside-avoid";
+
+function ReportSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className={SECTION_CLASS}>
+      <h3 className="text-sm font-semibold text-slate-500 dark:text-slate-400 print:text-slate-600 uppercase tracking-wider mb-3">
+        {title}
+      </h3>
+      {children}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Page component
 // ---------------------------------------------------------------------------
@@ -702,9 +1598,47 @@ export default function ClinicalReportPage() {
     [startDate, endDate],
   );
   const isValid = numDays >= 1 && numDays <= 31;
-  const reportDays = reportStartDate && reportEndDate
-    ? daysBetween(reportStartDate, reportEndDate)
-    : 0;
+  const reportDays =
+    reportStartDate && reportEndDate
+      ? daysBetween(reportStartDate, reportEndDate)
+      : 0;
+
+  // Derive CGM source from readings (e.g., "dexcom" -> "Dexcom CGM")
+  const cgmSource = useMemo(() => {
+    if (!reportData || reportData.readings.length === 0) return null;
+    const sources = new Set(reportData.readings.map((r) => r.source));
+    const labels: string[] = [];
+    for (const s of sources) {
+      const lower = s.toLowerCase();
+      if (lower.includes("dexcom")) labels.push("Dexcom CGM");
+      else if (lower.includes("libre")) labels.push("FreeStyle Libre CGM");
+      else if (lower.includes("medtronic")) labels.push("Medtronic CGM");
+      else labels.push(`${s} CGM`);
+    }
+    return labels.join(", ") || null;
+  }, [reportData]);
+
+  // Computed analyses
+  const agpBuckets = useMemo(
+    () => (reportData ? computeAgpBuckets(reportData.readings) : []),
+    [reportData],
+  );
+  const hypoEvents = useMemo(() => {
+    if (!reportData || reportData.readings.length === 0) return [];
+    const low = reportData.tirStats?.thresholds.low ?? 70;
+    const urgentLow = reportData.tirStats?.thresholds.urgent_low ?? 54;
+    return detectHypoEvents(reportData.readings, low, urgentLow);
+  }, [reportData]);
+  const overnightStats = useMemo(() => {
+    if (!reportData || reportData.readings.length === 0) return null;
+    const low = reportData.tirStats?.thresholds.low ?? 70;
+    const high = reportData.tirStats?.thresholds.high ?? 180;
+    return computeOvernightStats(reportData.readings, low, high);
+  }, [reportData]);
+  const sensorGaps = useMemo(
+    () => (reportData ? detectSensorGaps(reportData.readings) : []),
+    [reportData],
+  );
 
   const handlePreset = useCallback((days: number) => {
     setStartDate(daysAgoDateString(days));
@@ -784,7 +1718,9 @@ export default function ClinicalReportPage() {
           setIsGenerating(false);
         }
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (
@@ -868,8 +1804,10 @@ export default function ClinicalReportPage() {
               />
               <span className="text-xs text-slate-400">
                 {numDays}d
-                {!isValid && numDays > 31 && (
-                  <span className="text-red-400 ml-1">(max 31)</span>
+                {!isValid && (
+                  <span className="text-red-400 ml-1">
+                    {numDays > 31 ? "(max 31 days)" : "(invalid range)"}
+                  </span>
                 )}
               </span>
             </div>
@@ -922,19 +1860,15 @@ export default function ClinicalReportPage() {
       {/* Report body -- this is what prints */}
       {reportData && reportStartDate && reportEndDate && (
         <div className="space-y-4 print:space-y-2">
-          {/* Report header */}
-          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6 print:border-0 print:rounded-none print:p-0 print:pb-4 print:mb-2 print:break-inside-avoid">
-            <h2 className="text-xl font-bold text-slate-900 dark:text-white print:text-black print:text-2xl">
-              GlycemicGPT Clinical Report
-            </h2>
-            <p className="text-sm text-slate-500 print:text-slate-600 mt-1">
-              {formatDisplayDate(reportStartDate)} &ndash;{" "}
-              {formatDisplayDate(reportEndDate)} ({reportDays} day
-              {reportDays !== 1 ? "s" : ""})
-            </p>
-            <p className="text-xs text-slate-400 print:text-slate-500 mt-0.5">
-              Generated {generatedAt}
-            </p>
+          {/* 1. Report header with patient & device info */}
+          <div className={`${SECTION_CLASS} print:p-0 print:pb-4 print:mb-2`}>
+            <PatientDeviceHeader
+              user={reportData.user}
+              plugin={reportData.plugin}
+              cgmSource={cgmSource}
+              dateRange={`${formatDisplayDate(reportStartDate)} \u2013 ${formatDisplayDate(reportEndDate)} (${reportDays} day${reportDays !== 1 ? "s" : ""})`}
+              generatedAt={generatedAt}
+            />
           </div>
 
           {/* Partial failure warnings */}
@@ -956,34 +1890,36 @@ export default function ClinicalReportPage() {
             </div>
           )}
 
-          {/* CGM Summary */}
+          {/* 2. CGM Summary with prominent eA1C */}
           {reportData.cgmStats &&
             reportData.cgmStats.readings_count > 0 && (
-              <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6 print:border-0 print:rounded-none print:border-b print:border-slate-300 print:p-4 print:break-inside-avoid">
-                <h3 className="text-sm font-semibold text-slate-500 dark:text-slate-400 print:text-slate-600 uppercase tracking-wider mb-3">
-                  CGM Summary
-                </h3>
-                <CgmStatsTable stats={reportData.cgmStats} />
-              </div>
+              <ReportSection title="CGM Summary">
+                <CgmStatsSection stats={reportData.cgmStats} />
+              </ReportSection>
             )}
 
-          {/* Time in Range */}
+          {/* 3. Time in Range */}
           {reportData.tirStats &&
             reportData.tirStats.readings_count > 0 && (
-              <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6 print:border-0 print:rounded-none print:border-b print:border-slate-300 print:p-4 print:break-inside-avoid">
-                <h3 className="text-sm font-semibold text-slate-500 dark:text-slate-400 print:text-slate-600 uppercase tracking-wider mb-3">
-                  Time in Range
-                </h3>
+              <ReportSection title="Time in Range">
                 <TirSection tir={reportData.tirStats} />
-              </div>
+              </ReportSection>
             )}
 
-          {/* Glucose Trend */}
+          {/* 4. Ambulatory Glucose Profile (AGP) */}
+          {agpBuckets.some((b) => b.count > 0) && (
+            <ReportSection title="Ambulatory Glucose Profile (AGP)">
+              <AgpChartSection
+                buckets={agpBuckets}
+                low={reportData.tirStats?.thresholds.low}
+                high={reportData.tirStats?.thresholds.high}
+              />
+            </ReportSection>
+          )}
+
+          {/* 5. Glucose Trend */}
           {reportData.readings.length > 0 && (
-            <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6 print:border-0 print:rounded-none print:border-b print:border-slate-300 print:p-4 print:break-inside-avoid">
-              <h3 className="text-sm font-semibold text-slate-500 dark:text-slate-400 print:text-slate-600 uppercase tracking-wider mb-3">
-                Glucose Trend
-              </h3>
+            <ReportSection title="Glucose Trend">
               <ReportGlucoseChart
                 readings={reportData.readings}
                 startDate={reportStartDate}
@@ -991,32 +1927,73 @@ export default function ClinicalReportPage() {
                 low={reportData.tirStats?.thresholds.low}
                 high={reportData.tirStats?.thresholds.high}
               />
-            </div>
+            </ReportSection>
           )}
 
-          {/* Insulin Delivery */}
+          {/* 6. Daily Glucose Overlay */}
+          {reportData.readings.length > 0 && reportDays >= 2 && (
+            <ReportSection title="Daily Glucose Overlay">
+              <DailyOverlayChart
+                readings={reportData.readings}
+                low={reportData.tirStats?.thresholds.low}
+                high={reportData.tirStats?.thresholds.high}
+              />
+            </ReportSection>
+          )}
+
+          {/* 7. Hypoglycemia Analysis */}
+          {reportData.readings.length > 0 && (
+            <ReportSection title="Hypoglycemia Analysis">
+              <HypoSection events={hypoEvents} periodDays={reportDays} />
+            </ReportSection>
+          )}
+
+          {/* 8. Overnight Pattern */}
+          {overnightStats && (
+            <ReportSection title="Overnight Pattern (10 PM - 6 AM)">
+              <OvernightSection stats={overnightStats} />
+            </ReportSection>
+          )}
+
+          {/* 9. Insulin Delivery */}
           {reportData.insulin &&
             (reportData.insulin.tdd > 0 ||
               reportData.insulin.bolus_count > 0) && (
-              <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6 print:border-0 print:rounded-none print:border-b print:border-slate-300 print:p-4 print:break-inside-avoid">
-                <h3 className="text-sm font-semibold text-slate-500 dark:text-slate-400 print:text-slate-600 uppercase tracking-wider mb-3">
-                  Insulin Delivery
-                </h3>
+              <ReportSection title="Insulin Delivery">
                 <InsulinSection insulin={reportData.insulin} />
-              </div>
+              </ReportSection>
             )}
 
-          {/* Bolus Events */}
-          {reportData.boluses.length > 0 && (
-            <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6 print:border-0 print:rounded-none print:border-b print:border-slate-300 print:p-4 print:break-inside-avoid">
-              <h3 className="text-sm font-semibold text-slate-500 dark:text-slate-400 print:text-slate-600 uppercase tracking-wider mb-3">
-                Bolus Events
-              </h3>
-              <BolusTable boluses={reportData.boluses} totalCount={reportData.totalBolusCount} />
-            </div>
+          {/* 10. Active Pump Settings */}
+          {reportData.pumpProfile && (
+            <ReportSection title="Active Pump Settings">
+              <PumpSettingsSection profile={reportData.pumpProfile} />
+            </ReportSection>
           )}
 
-          {/* Footer */}
+          {/* 11. Bolus Events */}
+          {reportData.boluses.length > 0 && (
+            <ReportSection title="Bolus Events">
+              <BolusTable
+                boluses={reportData.boluses}
+                totalCount={reportData.totalBolusCount}
+              />
+            </ReportSection>
+          )}
+
+          {/* 12. Sensor Coverage */}
+          {reportData.readings.length > 0 && (
+            <ReportSection title="Sensor Coverage">
+              <SensorCoverageSection
+                gaps={sensorGaps}
+                readings={reportData.readings}
+                periodDays={reportDays}
+                cgmActivePct={reportData.cgmStats?.cgm_active_pct ?? null}
+              />
+            </ReportSection>
+          )}
+
+          {/* 13. Footer */}
           <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-4 print:border-0 print:rounded-none print:p-2 print:mt-4">
             <p className="text-xs text-slate-400 print:text-slate-500 text-center">
               This report is generated from data collected by GlycemicGPT and is

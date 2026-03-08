@@ -66,14 +66,14 @@ body {
   .dark {
     color-scheme: light;
   }
-  /* Force light text colors for print, except inline-colored elements and SVGs */
-  *:not([style*="background-color"]):not(svg):not(svg *) {
+  /* Force light text colors for print within main content area */
+  main *:not([style*="background"]):not(svg):not(svg *) {
     color: black !important;
     border-color: #e2e8f0 !important;
     background: white !important;
   }
-  /* Keep TIR bar colors */
-  [style*="background-color"] {
+  /* Keep inline-colored elements (TIR bars, chart elements) */
+  [style*="background"] {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }

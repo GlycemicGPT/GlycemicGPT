@@ -1953,7 +1953,7 @@ async def get_glucose_stats(
         GlucoseReading.value <= 500,
     ]
     if upper is not None:
-        conditions.append(GlucoseReading.reading_timestamp <= upper)
+        conditions.append(GlucoseReading.reading_timestamp < upper)
 
     result = await db.execute(
         select(
