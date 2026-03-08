@@ -20,6 +20,8 @@
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Activity, Clock } from "lucide-react";
+import { AnimatedCard } from "@/components/ui/animated-card";
+import { PageTransition } from "@/components/ui/page-transition";
 
 import {
   GlucoseHero,
@@ -130,6 +132,7 @@ export default function DashboardPage() {
   )?.pct;
 
   return (
+    <PageTransition>
     <main id="main-content" className="space-y-6">
       {/* Connection status banner - Story 4.5 */}
       <ConnectionStatusBanner
@@ -140,88 +143,107 @@ export default function DashboardPage() {
       />
 
       {/* Page header - using div instead of header to avoid banner role confusion inside main */}
-      <div>
-        <h1 className="text-2xl font-bold">Dashboard</h1>
-        <p className="text-slate-400">Your glucose overview at a glance</p>
-      </div>
+      <AnimatedCard>
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Dashboard</h1>
+          <p className="text-slate-500 dark:text-slate-400">Your glucose overview at a glance</p>
+        </div>
+      </AnimatedCard>
 
       {/* Glucose hero - Story 4.2, 4.6 */}
-      <GlucoseHero
-        value={glucoseValue}
-        trend={glucoseTrend}
-        iob={iob}
-        basalRate={pumpStatus.basal?.rate ?? null}
-        batteryPct={pumpStatus.battery?.percentage ?? null}
-        reservoirUnits={pumpStatus.reservoir?.units_remaining ?? null}
-        isLoading={!isLive && !glucose}
-        thresholds={glucoseThresholds}
-      />
+      <AnimatedCard delay={0.05}>
+        <GlucoseHero
+          value={glucoseValue}
+          trend={glucoseTrend}
+          iob={iob}
+          basalRate={pumpStatus.basal?.rate ?? null}
+          batteryPct={pumpStatus.battery?.percentage ?? null}
+          reservoirUnits={pumpStatus.reservoir?.units_remaining ?? null}
+          isLoading={!isLive && !glucose}
+          thresholds={glucoseThresholds}
+        />
+      </AnimatedCard>
 
       {/* Glucose trend chart */}
-      <GlucoseTrendChart refreshKey={chartRefreshKey} thresholds={glucoseThresholds} />
+      <AnimatedCard delay={0.1}>
+        <GlucoseTrendChart refreshKey={chartRefreshKey} thresholds={glucoseThresholds} />
+      </AnimatedCard>
 
       {/* CGM Summary Stats Panel - Story 30.3 */}
-      <CgmSummaryStats
-        stats={cgmStats}
-        isLoading={cgmLoading}
-        error={cgmError}
-        period={cgmPeriod}
-        onPeriodChange={setCgmPeriod}
-      />
+      <AnimatedCard delay={0.15}>
+        <CgmSummaryStats
+          stats={cgmStats}
+          isLoading={cgmLoading}
+          error={cgmError}
+          period={cgmPeriod}
+          onPeriodChange={setCgmPeriod}
+        />
+      </AnimatedCard>
 
       {/* AGP Percentile Band Chart - Story 30.5 */}
-      <AgpChart thresholds={glucoseThresholds} />
+      <AnimatedCard delay={0.2}>
+        <AgpChart thresholds={glucoseThresholds} />
+      </AnimatedCard>
 
       {/* Insulin Summary & Bolus Review - Story 30.7 */}
-      <InsulinSummaryStats />
-      <BolusReviewTable />
+      <AnimatedCard delay={0.25}>
+        <InsulinSummaryStats />
+      </AnimatedCard>
+      <AnimatedCard delay={0.3}>
+        <BolusReviewTable />
+      </AnimatedCard>
 
       {/* Metrics grid with proper heading hierarchy */}
-      <section aria-labelledby="metrics-heading">
-        <h2 id="metrics-heading" className="sr-only">Dashboard Metrics</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Time in Range Card */}
-          <article className="bg-slate-900 rounded-xl p-6 border border-slate-800">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="p-2 bg-green-500/10 rounded-lg">
-                <Activity className="h-5 w-5 text-green-400" aria-hidden="true" />
+      <AnimatedCard delay={0.35}>
+        <section aria-labelledby="metrics-heading">
+          <h2 id="metrics-heading" className="sr-only">Dashboard Metrics</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Time in Range Card */}
+            <article className="bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="p-2 bg-green-500/10 rounded-lg">
+                  <Activity className="h-5 w-5 text-green-400" aria-hidden="true" />
+                </div>
+                <h3 className="text-slate-500 dark:text-slate-400 text-sm">Time in Range ({PERIOD_LABELS[tirPeriod]})</h3>
               </div>
-              <h3 className="text-slate-400 text-sm">Time in Range ({PERIOD_LABELS[tirPeriod]})</h3>
-            </div>
-            <p className="text-3xl font-bold text-green-400" aria-label={`Time in range: ${inRangePct != null && tirStats && tirStats.readings_count > 0 ? Math.round(inRangePct) : "--"} percent`}>
-              {inRangePct != null && tirStats && tirStats.readings_count > 0 ? `${Math.round(inRangePct)}%` : "--"}
-            </p>
-            <p className="text-slate-500 text-xs mt-1">Target: {targetRange}</p>
-          </article>
+              <p className="text-3xl font-bold text-green-400" aria-label={`Time in range: ${inRangePct != null && tirStats && tirStats.readings_count > 0 ? Math.round(inRangePct) : "--"} percent`}>
+                {inRangePct != null && tirStats && tirStats.readings_count > 0 ? `${Math.round(inRangePct)}%` : "--"}
+              </p>
+              <p className="text-slate-500 text-xs mt-1">Target: {targetRange}</p>
+            </article>
 
-          {/* Last Updated Card */}
-          <article className="bg-slate-900 rounded-xl p-6 border border-slate-800">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="p-2 bg-emerald-500/10 rounded-lg">
-                <Clock className="h-5 w-5 text-emerald-400" aria-hidden="true" />
+            {/* Last Updated Card */}
+            <article className="bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="p-2 bg-emerald-500/10 rounded-lg">
+                  <Clock className="h-5 w-5 text-emerald-400" aria-hidden="true" />
+                </div>
+                <h3 className="text-slate-500 dark:text-slate-400 text-sm">Last Updated</h3>
               </div>
-              <h3 className="text-slate-400 text-sm">Last Updated</h3>
-            </div>
-            <p className="text-3xl font-bold text-emerald-400" aria-label={`Last updated: ${getLastUpdatedText()}`}>
-              {getLastUpdatedText()}
-            </p>
-            <p className="text-slate-500 text-xs mt-1">{getFreshnessText()}</p>
-          </article>
-        </div>
-      </section>
+              <p className="text-3xl font-bold text-emerald-400" aria-label={`Last updated: ${getLastUpdatedText()}`}>
+                {getLastUpdatedText()}
+              </p>
+              <p className="text-slate-500 text-xs mt-1">{getFreshnessText()}</p>
+            </article>
+          </div>
+        </section>
+      </AnimatedCard>
 
       {/* Time in Range bar - consolidated 5-bucket display */}
-      <TimeInRangeBar
-        buckets={tirStats?.buckets ?? null}
-        readingsCount={tirStats?.readings_count ?? 0}
-        previousBuckets={tirStats?.previous_buckets ?? null}
-        previousReadingsCount={tirStats?.previous_readings_count ?? null}
-        error={tirError}
-        period={tirPeriod}
-        onPeriodChange={setTirPeriod}
-        targetRange={targetRange}
-        isLoading={tirLoading}
-      />
+      <AnimatedCard delay={0.4}>
+        <TimeInRangeBar
+          buckets={tirStats?.buckets ?? null}
+          readingsCount={tirStats?.readings_count ?? 0}
+          previousBuckets={tirStats?.previous_buckets ?? null}
+          previousReadingsCount={tirStats?.previous_readings_count ?? null}
+          error={tirError}
+          period={tirPeriod}
+          onPeriodChange={setTirPeriod}
+          targetRange={targetRange}
+          isLoading={tirLoading}
+        />
+      </AnimatedCard>
     </main>
+    </PageTransition>
   );
 }

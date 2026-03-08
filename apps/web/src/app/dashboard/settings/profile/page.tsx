@@ -140,13 +140,13 @@ export default function ProfilePage() {
       <div>
         <Link
           href="/dashboard/settings"
-          className="flex items-center gap-1 text-sm text-slate-400 hover:text-slate-300 mb-2"
+          className="flex items-center gap-1 text-sm text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 mb-2"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to Settings
         </Link>
         <h1 className="text-2xl font-bold">Profile</h1>
-        <p className="text-slate-400">
+        <p className="text-slate-500 dark:text-slate-400">
           Manage your account and personal information
         </p>
       </div>
@@ -189,18 +189,18 @@ export default function ProfilePage() {
       {/* Loading state */}
       {isLoading && (
         <div
-          className="bg-slate-900 rounded-xl p-12 border border-slate-800 text-center"
+          className="bg-white dark:bg-slate-900 rounded-xl p-12 border border-slate-200 dark:border-slate-800 text-center"
           role="status"
           aria-label="Loading profile"
         >
           <Loader2 className="h-8 w-8 text-blue-400 animate-spin mx-auto mb-3" />
-          <p className="text-slate-400">Loading profile...</p>
+          <p className="text-slate-500 dark:text-slate-400">Loading profile...</p>
         </div>
       )}
 
       {/* Account Information (read-only) */}
       {!isLoading && profile && (
-        <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6">
           <div className="flex items-center gap-3 mb-6">
             <div className="p-2 bg-blue-500/10 rounded-lg">
               <Shield className="h-5 w-5 text-blue-400" />
@@ -214,19 +214,19 @@ export default function ProfilePage() {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
+            <div className="bg-slate-100/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-300/50 dark:border-slate-700/50">
               <p className="text-xs text-slate-500 mb-1">Email</p>
               <p className="text-sm text-slate-200 font-medium">
                 {profile.email}
               </p>
             </div>
-            <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
+            <div className="bg-slate-100/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-300/50 dark:border-slate-700/50">
               <p className="text-xs text-slate-500 mb-1">Role</p>
               <p className="text-sm text-slate-200 font-medium">
                 {ROLE_LABELS[profile.role] || profile.role}
               </p>
             </div>
-            <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
+            <div className="bg-slate-100/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-300/50 dark:border-slate-700/50">
               <p className="text-xs text-slate-500 mb-1">Account Created</p>
               <p className="text-sm text-slate-200 font-medium">
                 {new Date(profile.created_at).toLocaleDateString(undefined, {
@@ -236,7 +236,7 @@ export default function ProfilePage() {
                 })}
               </p>
             </div>
-            <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
+            <div className="bg-slate-100/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-300/50 dark:border-slate-700/50">
               <p className="text-xs text-slate-500 mb-1">Account Status</p>
               <p className="text-sm font-medium">
                 <span
@@ -254,7 +254,7 @@ export default function ProfilePage() {
 
       {/* Display Name (editable) */}
       {!isLoading && profile && (
-        <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6">
           <div className="flex items-center gap-3 mb-6">
             <div className="p-2 bg-green-500/10 rounded-lg">
               <User className="h-5 w-5 text-green-400" />
@@ -271,7 +271,7 @@ export default function ProfilePage() {
             <div>
               <label
                 htmlFor="display-name"
-                className="block text-sm font-medium text-slate-300 mb-1"
+                className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
               >
                 Display Name
               </label>
@@ -285,7 +285,7 @@ export default function ProfilePage() {
                 placeholder="Enter your display name"
                 className={clsx(
                   "w-full rounded-lg border px-3 py-2 text-sm",
-                  "bg-slate-800 border-slate-700 text-slate-200",
+                  "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
                   "placeholder:text-slate-500",
                   "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                   "disabled:opacity-50 disabled:cursor-not-allowed"
@@ -328,7 +328,7 @@ export default function ProfilePage() {
 
       {/* Password Change */}
       {!isLoading && profile && (
-        <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6">
           <div className="flex items-center gap-3 mb-6">
             <div className="p-2 bg-amber-500/10 rounded-lg">
               <Key className="h-5 w-5 text-amber-400" />
@@ -349,7 +349,7 @@ export default function ProfilePage() {
               title={isOffline ? "Cannot change password while disconnected" : undefined}
               className={clsx(
                 "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium",
-                "bg-slate-800 text-slate-300 hover:bg-slate-700",
+                "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700",
                 "transition-colors",
                 "focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500",
                 "disabled:opacity-50 disabled:cursor-not-allowed"
@@ -363,7 +363,7 @@ export default function ProfilePage() {
               <div>
                 <label
                   htmlFor="current-password"
-                  className="block text-sm font-medium text-slate-300 mb-1"
+                  className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
                 >
                   Current Password
                 </label>
@@ -376,7 +376,7 @@ export default function ProfilePage() {
                   autoComplete="current-password"
                   className={clsx(
                     "w-full rounded-lg border px-3 py-2 text-sm",
-                    "bg-slate-800 border-slate-700 text-slate-200",
+                    "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
                     "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                     "disabled:opacity-50 disabled:cursor-not-allowed"
                   )}
@@ -386,7 +386,7 @@ export default function ProfilePage() {
               <div>
                 <label
                   htmlFor="new-password"
-                  className="block text-sm font-medium text-slate-300 mb-1"
+                  className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
                 >
                   New Password
                 </label>
@@ -399,7 +399,7 @@ export default function ProfilePage() {
                   autoComplete="new-password"
                   className={clsx(
                     "w-full rounded-lg border px-3 py-2 text-sm",
-                    "bg-slate-800 border-slate-700 text-slate-200",
+                    "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
                     "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                     "disabled:opacity-50 disabled:cursor-not-allowed"
                   )}
@@ -414,7 +414,7 @@ export default function ProfilePage() {
               <div>
                 <label
                   htmlFor="confirm-password"
-                  className="block text-sm font-medium text-slate-300 mb-1"
+                  className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
                 >
                   Confirm New Password
                 </label>
@@ -427,7 +427,7 @@ export default function ProfilePage() {
                   autoComplete="new-password"
                   className={clsx(
                     "w-full rounded-lg border px-3 py-2 text-sm",
-                    "bg-slate-800 border-slate-700 text-slate-200",
+                    "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
                     "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                     "disabled:opacity-50 disabled:cursor-not-allowed"
                   )}
@@ -475,7 +475,7 @@ export default function ProfilePage() {
                   disabled={isSavingPassword}
                   className={clsx(
                     "px-4 py-2 rounded-lg text-sm font-medium",
-                    "bg-slate-800 text-slate-300 hover:bg-slate-700",
+                    "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700",
                     "transition-colors",
                     "focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500",
                     "disabled:opacity-50 disabled:cursor-not-allowed"

@@ -32,6 +32,11 @@ jest.mock("@/components/layout/sidebar", () => ({
   MobileNav: () => <div data-testid="mobile-nav" />,
 }));
 
+// Mock ThemeToggle
+jest.mock("@/components/ui/theme-toggle", () => ({
+  ThemeToggle: () => <div data-testid="theme-toggle" />,
+}));
+
 // Mock logoutUser
 const mockLogoutUser = jest.fn();
 jest.mock("@/lib/api", () => ({

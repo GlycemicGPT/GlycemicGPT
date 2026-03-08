@@ -180,13 +180,13 @@ export default function IntegrationsPage() {
       <div>
         <Link
           href="/dashboard/settings"
-          className="flex items-center gap-1 text-sm text-slate-400 hover:text-slate-300 mb-2"
+          className="flex items-center gap-1 text-sm text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 mb-2"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to Settings
         </Link>
         <h1 className="text-2xl font-bold">Integrations</h1>
-        <p className="text-slate-400">
+        <p className="text-slate-500 dark:text-slate-400">
           Connect your Dexcom and Tandem accounts to sync glucose and pump data
         </p>
       </div>
@@ -229,12 +229,12 @@ export default function IntegrationsPage() {
       {/* Loading state */}
       {isLoading && (
         <div
-          className="bg-slate-900 rounded-xl p-12 border border-slate-800 text-center"
+          className="bg-white dark:bg-slate-900 rounded-xl p-12 border border-slate-200 dark:border-slate-800 text-center"
           role="status"
           aria-label="Loading integrations"
         >
           <Loader2 className="h-8 w-8 text-blue-400 animate-spin mx-auto mb-3" />
-          <p className="text-slate-400">Loading integrations...</p>
+          <p className="text-slate-500 dark:text-slate-400">Loading integrations...</p>
         </div>
       )}
 
@@ -271,7 +271,7 @@ export default function IntegrationsPage() {
       )}
 
       {/* Info card */}
-      <div className="bg-slate-900/50 rounded-xl p-4 border border-slate-800">
+      <div className="bg-slate-50/50 dark:bg-slate-900/50 rounded-xl p-4 border border-slate-200 dark:border-slate-800">
         <div className="flex items-start gap-2">
           <Link2 className="h-4 w-4 text-slate-500 mt-0.5 shrink-0" />
           <p className="text-xs text-slate-500">

@@ -195,13 +195,13 @@ export default function InsulinConfigPage() {
       <div>
         <Link
           href="/dashboard/settings"
-          className="flex items-center gap-1 text-sm text-slate-400 hover:text-slate-300 mb-2"
+          className="flex items-center gap-1 text-sm text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 mb-2"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to Settings
         </Link>
         <h1 className="text-2xl font-bold">Insulin Configuration</h1>
-        <p className="text-slate-400">
+        <p className="text-slate-500 dark:text-slate-400">
           Select your insulin type to configure IoB (Insulin on Board)
           calculations
         </p>
@@ -241,18 +241,18 @@ export default function InsulinConfigPage() {
       {/* Loading state */}
       {isLoading && (
         <div
-          className="bg-slate-900 rounded-xl p-12 border border-slate-800 text-center"
+          className="bg-white dark:bg-slate-900 rounded-xl p-12 border border-slate-200 dark:border-slate-800 text-center"
           role="status"
           aria-label="Loading insulin configuration"
         >
           <Loader2 className="h-8 w-8 text-blue-400 animate-spin mx-auto mb-3" />
-          <p className="text-slate-400">Loading insulin configuration...</p>
+          <p className="text-slate-500 dark:text-slate-400">Loading insulin configuration...</p>
         </div>
       )}
 
       {/* Configuration form */}
       {!isLoading && (
-        <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6">
           <div className="flex items-center gap-3 mb-6">
             <div className="p-2 bg-blue-500/10 rounded-lg">
               <Syringe className="h-5 w-5 text-blue-400" />
@@ -270,7 +270,7 @@ export default function InsulinConfigPage() {
             <div>
               <label
                 htmlFor="insulin-type"
-                className="block text-sm font-medium text-slate-300 mb-1"
+                className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
               >
                 Insulin Type
               </label>
@@ -281,7 +281,7 @@ export default function InsulinConfigPage() {
                 disabled={isSaving}
                 className={clsx(
                   "w-full rounded-lg border px-3 py-2 text-sm",
-                  "bg-slate-800 border-slate-700 text-slate-200",
+                  "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
                   "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                   "disabled:opacity-50 disabled:cursor-not-allowed"
                 )}
@@ -302,7 +302,7 @@ export default function InsulinConfigPage() {
               <div>
                 <label
                   htmlFor="dia-hours"
-                  className="block text-sm font-medium text-slate-300 mb-1"
+                  className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
                 >
                   Duration of Insulin Action (hours)
                 </label>
@@ -317,7 +317,7 @@ export default function InsulinConfigPage() {
                   disabled={isSaving || (!isCustom && insulinType !== "custom")}
                   className={clsx(
                     "w-full rounded-lg border px-3 py-2 text-sm",
-                    "bg-slate-800 border-slate-700 text-slate-200",
+                    "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
                     "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                     "placeholder:text-slate-500",
                     "disabled:opacity-50 disabled:cursor-not-allowed"
@@ -335,7 +335,7 @@ export default function InsulinConfigPage() {
               <div>
                 <label
                   htmlFor="onset-minutes"
-                  className="block text-sm font-medium text-slate-300 mb-1"
+                  className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
                 >
                   Onset Time (minutes)
                 </label>
@@ -350,7 +350,7 @@ export default function InsulinConfigPage() {
                   disabled={isSaving || (!isCustom && insulinType !== "custom")}
                   className={clsx(
                     "w-full rounded-lg border px-3 py-2 text-sm",
-                    "bg-slate-800 border-slate-700 text-slate-200",
+                    "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
                     "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                     "placeholder:text-slate-500",
                     "disabled:opacity-50 disabled:cursor-not-allowed"
@@ -367,9 +367,9 @@ export default function InsulinConfigPage() {
 
             {/* Preview */}
             {isValid && (
-              <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
+              <div className="bg-slate-100/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-300/50 dark:border-slate-700/50">
                 <p className="text-xs text-slate-500 mb-2">Active Configuration</p>
-                <p className="text-lg font-semibold text-blue-400">
+                <p className="text-lg font-semibold text-blue-700 dark:text-blue-400">
                   {INSULIN_LABELS[insulinType] || insulinType} - {diaNum}h DIA, {onsetNum}min onset
                 </p>
               </div>
@@ -412,7 +412,7 @@ export default function InsulinConfigPage() {
                 }
                 className={clsx(
                   "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium",
-                  "bg-slate-800 text-slate-300 hover:bg-slate-700",
+                  "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700",
                   "transition-colors",
                   "focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500",
                   "disabled:opacity-50 disabled:cursor-not-allowed"
@@ -427,7 +427,7 @@ export default function InsulinConfigPage() {
       )}
 
       {/* Info card */}
-      <div className="bg-slate-900/50 rounded-xl p-4 border border-slate-800">
+      <div className="bg-slate-50/50 dark:bg-slate-900/50 rounded-xl p-4 border border-slate-200 dark:border-slate-800">
         <p className="text-xs text-slate-500">
           Your insulin type determines the Duration of Insulin Action (DIA) used
           to calculate how much active insulin remains in your body (IoB). This

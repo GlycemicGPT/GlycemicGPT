@@ -213,17 +213,17 @@ export function GlucoseHero({
   if (isLoading) {
     return (
       <div
-        className="rounded-xl p-8 border border-slate-800 bg-slate-900 animate-pulse"
+        className="rounded-xl p-8 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 animate-pulse"
         role="region"
         aria-label="Loading glucose reading"
         aria-busy="true"
       >
         <div className="flex flex-col items-center">
-          <div className="h-16 w-32 bg-slate-700 rounded mb-4" />
-          <div className="h-6 w-16 bg-slate-700 rounded mb-4" />
+          <div className="h-16 w-32 bg-slate-200 dark:bg-slate-700 rounded mb-4" />
+          <div className="h-6 w-16 bg-slate-200 dark:bg-slate-700 rounded mb-4" />
           <div className="flex gap-6">
-            <div className="h-10 w-12 bg-slate-700 rounded" />
-            <div className="h-10 w-12 bg-slate-700 rounded" />
+            <div className="h-10 w-12 bg-slate-200 dark:bg-slate-700 rounded" />
+            <div className="h-10 w-12 bg-slate-200 dark:bg-slate-700 rounded" />
           </div>
         </div>
       </div>
@@ -255,8 +255,8 @@ export function GlucoseHero({
   return (
     <div
       className={clsx(
-        "rounded-xl p-8 border border-slate-800",
-        "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900",
+        "rounded-xl p-8 border border-slate-200 dark:border-slate-800",
+        "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900",
         colors.bg
       )}
       role="region"

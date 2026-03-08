@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
+import { ThemeProvider } from "@/providers";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -25,8 +26,17 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark">
-      <body className={inter.className}>{children}</body>
+    <html lang="en" className="" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem("glycemicgpt-theme");if(t==="light"){document.documentElement.className="light"}else if(t==="dark"){document.documentElement.className="dark"}else{document.documentElement.className=window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"}}catch(e){document.documentElement.className=window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"}})()`,
+          }}
+        />
+      </head>
+      <body className={inter.className}>
+        <ThemeProvider>{children}</ThemeProvider>
+      </body>
     </html>
   );
 }
