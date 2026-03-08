@@ -32,7 +32,6 @@ class MainActivity : ComponentActivity(), SharedPreferences.OnSharedPreferenceCh
         super.onCreate(savedInstanceState)
         themeMode = appSettingsStore.themeMode
         appSettingsStore.registerListener(this)
-        enableEdgeToEdge()
         setContent {
             val isDark = when (themeMode) {
                 ThemeMode.Dark -> true

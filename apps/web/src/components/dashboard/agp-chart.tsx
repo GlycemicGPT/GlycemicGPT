@@ -126,7 +126,7 @@ function AgpTooltipContent({
   return (
     <div className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-xs shadow-lg">
       <p className="font-semibold text-slate-800 dark:text-slate-200 mb-1">{d.label}</p>
-      <p className="text-teal-400">Median: {Math.round(d.p50)} mg/dL</p>
+      <p className="text-teal-700 dark:text-teal-400">Median: {Math.round(d.p50)} mg/dL</p>
       <p className="text-slate-600 dark:text-slate-300">25th-75th: {Math.round(d.p25)}-{Math.round(d.p75)} mg/dL</p>
       <p className="text-slate-500 dark:text-slate-400">10th-90th: {Math.round(d.p10)}-{Math.round(d.p90)} mg/dL</p>
       <p className="text-slate-500 dark:text-slate-400 mt-1">{d.count} readings</p>
@@ -187,7 +187,7 @@ function PeriodSelector({
           className={clsx(
             "px-3 py-1 text-xs font-medium rounded-md transition-colors outline-none focus-visible:ring-2 focus-visible:ring-teal-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900",
             period === p.value
-              ? "bg-teal-500/20 text-teal-400 border border-teal-500/40"
+              ? "bg-teal-500/20 text-teal-700 dark:text-teal-400 border border-teal-500/40"
               : "text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 border border-transparent"
           )}
         >
@@ -267,14 +267,14 @@ export function AgpChart({ className, thresholds }: AgpChartProps) {
         )}
       >
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-slate-200">
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-200">
             Ambulatory Glucose Profile
           </h2>
           <PeriodSelector period={period} onPeriodChange={setPeriod} />
         </div>
         <div className="flex flex-col items-center justify-center h-64 text-center">
-          <p className="text-red-400 mb-2">Unable to load AGP data</p>
-          <p className="text-slate-500 dark:text-slate-500 text-xs mb-2">{error}</p>
+          <p className="text-red-700 dark:text-red-400 mb-2">Unable to load AGP data</p>
+          <p className="text-slate-500 dark:text-slate-400 text-xs mb-2">{error}</p>
           <button
             type="button"
             onClick={refetch}
@@ -299,7 +299,7 @@ export function AgpChart({ className, thresholds }: AgpChartProps) {
         )}
       >
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-slate-200">
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-200">
             Ambulatory Glucose Profile
           </h2>
           <PeriodSelector period={period} onPeriodChange={setPeriod} />
@@ -326,13 +326,13 @@ export function AgpChart({ className, thresholds }: AgpChartProps) {
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-lg font-semibold text-slate-200">
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-200">
             Ambulatory Glucose Profile
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400" aria-live="polite">
             {data?.readings_count?.toLocaleString() ?? 0} readings
             {data?.is_truncated && (
-              <span className="text-amber-400 ml-1" data-testid="agp-truncation-warning">
+              <span className="text-amber-700 dark:text-amber-400 ml-1" data-testid="agp-truncation-warning">
                 (data truncated to available range)
               </span>
             )}

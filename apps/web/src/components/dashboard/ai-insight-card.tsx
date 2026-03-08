@@ -155,15 +155,15 @@ function StatusBadge({ status }: { status: InsightData["status"] }) {
   const config = {
     pending: {
       text: "New",
-      className: "bg-blue-500/20 text-blue-300",
+      className: "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300",
     },
     acknowledged: {
       text: "Acknowledged",
-      className: "bg-green-500/20 text-green-300",
+      className: "bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-300",
     },
     dismissed: {
       text: "Dismissed",
-      className: "bg-slate-500/20 text-slate-500 dark:text-slate-400",
+      className: "bg-slate-100 text-slate-700 dark:bg-slate-500/20 dark:text-slate-400",
     },
   };
 

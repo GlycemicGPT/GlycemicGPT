@@ -578,7 +578,7 @@ export default function SafetyLimitsPage() {
               <div>
                 <label
                   htmlFor="max-basal"
-                  className="block text-sm font-medium text-slate-300 mb-1"
+                  className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
                 >
                   Max Basal Rate (u/hr)
                 </label>
@@ -615,7 +615,7 @@ export default function SafetyLimitsPage() {
               <div>
                 <label
                   htmlFor="max-bolus"
-                  className="block text-sm font-medium text-slate-300 mb-1"
+                  className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
                 >
                   Max Bolus Dose (units)
                 </label>
