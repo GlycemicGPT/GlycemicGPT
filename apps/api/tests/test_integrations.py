@@ -555,16 +555,20 @@ class TestValidateDateRange:
         result = _validate_date_range(start, end)
         assert result == (start, end)
 
-    def test_naive_datetimes_get_utc(self):
-        from datetime import UTC, datetime
+    def test_naive_datetimes_rejected_with_422(self):
+        from datetime import datetime
+
+        import pytest
+        from fastapi import HTTPException
 
         from src.routers.integrations import _validate_date_range
 
         start = datetime(2026, 3, 1)
         end = datetime(2026, 3, 2)
-        result = _validate_date_range(start, end)
-        assert result[0].tzinfo == UTC
-        assert result[1].tzinfo == UTC
+        with pytest.raises(HTTPException) as exc_info:
+            _validate_date_range(start, end)
+        assert exc_info.value.status_code == 422
+        assert "timezone offset" in str(exc_info.value.detail)
 
     def test_exactly_31_days_is_valid(self):
         from datetime import UTC, datetime
