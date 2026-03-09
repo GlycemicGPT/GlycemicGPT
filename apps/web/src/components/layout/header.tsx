@@ -41,8 +41,8 @@ export function Header({ className }: HeaderProps) {
   return (
     <header
       className={clsx(
-        "sticky top-0 z-40 flex items-center justify-between h-16 px-4 lg:px-6",
-        "bg-white/95 dark:bg-slate-900/95 backdrop-blur border-b border-slate-200 dark:border-slate-800",
+        "flex items-center justify-between h-16 px-4 lg:px-6 flex-shrink-0 z-40",
+        "bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800",
         className
       )}
     >
@@ -60,7 +60,7 @@ export function Header({ className }: HeaderProps) {
       {/* Right side - Theme toggle + User menu */}
       <div className="flex items-center gap-3">
         <ThemeToggle />
-      <div className="relative" ref={menuRef}>
+        <div className="relative" ref={menuRef}>
         <button
           type="button"
           onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
@@ -125,7 +125,7 @@ export function Header({ className }: HeaderProps) {
             </button>
           </div>
         )}
-      </div>
+        </div>
       </div>
     </header>
   );

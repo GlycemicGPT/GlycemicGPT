@@ -39,17 +39,22 @@ jest.mock("@/providers", () => ({
 // Import after mocking
 import DashboardPage from "@/app/dashboard/page";
 
+// DashboardLayout provides <main id="main-content">, so wrap page in it for tests
+function LayoutWrapper({ children }: { children: React.ReactNode }) {
+  return <main id="main-content">{children}</main>;
+}
+
 describe("Dashboard Page Accessibility", () => {
   describe("Landmarks", () => {
     it("has a main landmark", () => {
-      render(<DashboardPage />);
+      render(<DashboardPage />, { wrapper: LayoutWrapper });
 
       const main = screen.getByRole("main");
       expect(main).toBeInTheDocument();
     });
 
     it("main landmark has id for skip link", () => {
-      render(<DashboardPage />);
+      render(<DashboardPage />, { wrapper: LayoutWrapper });
 
       const main = screen.getByRole("main");
       expect(main).toHaveAttribute("id", "main-content");
@@ -61,7 +66,7 @@ describe("Dashboard Page Accessibility", () => {
 
   describe("Heading Hierarchy", () => {
     it("has h1 as page title", () => {
-      render(<DashboardPage />);
+      render(<DashboardPage />, { wrapper: LayoutWrapper });
 
       const h1 = screen.getByRole("heading", { level: 1 });
       expect(h1).toBeInTheDocument();
@@ -69,7 +74,7 @@ describe("Dashboard Page Accessibility", () => {
     });
 
     it("has h2 for metrics section (visually hidden)", () => {
-      render(<DashboardPage />);
+      render(<DashboardPage />, { wrapper: LayoutWrapper });
 
       const h2 = screen.getByRole("heading", { level: 2, name: /dashboard metrics/i });
       expect(h2).toBeInTheDocument();
@@ -77,7 +82,7 @@ describe("Dashboard Page Accessibility", () => {
     });
 
     it("has h3 for individual metric cards", () => {
-      render(<DashboardPage />);
+      render(<DashboardPage />, { wrapper: LayoutWrapper });
 
       const h3s = screen.getAllByRole("heading", { level: 3 });
       expect(h3s.length).toBeGreaterThanOrEqual(2);
@@ -88,21 +93,21 @@ describe("Dashboard Page Accessibility", () => {
 
   describe("Semantic Structure", () => {
     it("uses article elements for metric cards", () => {
-      render(<DashboardPage />);
+      render(<DashboardPage />, { wrapper: LayoutWrapper });
 
       const articles = screen.getAllByRole("article");
       expect(articles.length).toBeGreaterThanOrEqual(2);
     });
 
     it("uses section element for metrics grid", () => {
-      render(<DashboardPage />);
+      render(<DashboardPage />, { wrapper: LayoutWrapper });
 
       const section = screen.getByRole("region", { name: /dashboard metrics/i });
       expect(section).toBeInTheDocument();
     });
 
     it("hides decorative icons from screen readers", () => {
-      render(<DashboardPage />);
+      render(<DashboardPage />, { wrapper: LayoutWrapper });
 
       // Icons should have aria-hidden="true"
       const articles = screen.getAllByRole("article");
@@ -117,14 +122,14 @@ describe("Dashboard Page Accessibility", () => {
 
   describe("Metric Card Accessibility", () => {
     it("provides accessible label for time in range value", () => {
-      render(<DashboardPage />);
+      render(<DashboardPage />, { wrapper: LayoutWrapper });
 
       const tirValue = screen.getByLabelText(/time in range.*percent/i);
       expect(tirValue).toBeInTheDocument();
     });
 
     it("provides accessible label for last updated value", () => {
-      render(<DashboardPage />);
+      render(<DashboardPage />, { wrapper: LayoutWrapper });
 
       // When no data, should show "No data"
       const lastUpdated = screen.getByLabelText(/last updated/i);
@@ -135,11 +140,11 @@ describe("Dashboard Page Accessibility", () => {
 
 describe("Dashboard Layout Accessibility", () => {
   // Note: Skip link is in layout.tsx, which wraps the page
-  // These tests would require rendering the full layout
+  // The <main id="main-content"> is now in DashboardLayout, not in page components
 
   describe("Skip Link", () => {
     it("skip link target matches main content id", () => {
-      render(<DashboardPage />);
+      render(<DashboardPage />, { wrapper: LayoutWrapper });
 
       const main = screen.getByRole("main");
       expect(main.id).toBe("main-content");

@@ -275,6 +275,9 @@ async def get_glucose_readings(
     user_id: uuid.UUID,
     minutes: int = 180,
     limit: int = 36,
+    *,
+    start: datetime | None = None,
+    end: datetime | None = None,
 ) -> list[GlucoseReading]:
     """Get recent glucose readings for a user.
 
@@ -282,21 +285,38 @@ async def get_glucose_readings(
         db: Database session
         user_id: User ID
         minutes: Number of minutes of history (default 3 hours)
-        limit: Maximum readings to return
+        limit: Maximum readings to return (applied regardless of date range)
+        start: Optional absolute start of date range (overrides minutes)
+        end: Optional absolute end of date range (overrides minutes)
 
     Returns:
         List of GlucoseReading objects, ordered by timestamp descending
     """
     from datetime import timedelta
 
-    cutoff = datetime.now(UTC) - timedelta(minutes=minutes)
+    if (start is None) != (end is None):
+        raise ValueError("Both 'start' and 'end' must be provided together, or neither")
+    if start is not None and end is not None:
+        if start.tzinfo is None or end.tzinfo is None:
+            raise ValueError("'start' and 'end' must be timezone-aware datetimes")
+        if start > end:
+            raise ValueError(f"'start' must be <= 'end' (got {start} > {end})")
+        cutoff = start
+        upper = end
+    else:
+        cutoff = datetime.now(UTC) - timedelta(minutes=minutes)
+        upper = None
+
+    conditions = [
+        GlucoseReading.user_id == user_id,
+        GlucoseReading.reading_timestamp >= cutoff,
+    ]
+    if upper is not None:
+        conditions.append(GlucoseReading.reading_timestamp < upper)
 
     result = await db.execute(
         select(GlucoseReading)
-        .where(
-            GlucoseReading.user_id == user_id,
-            GlucoseReading.reading_timestamp >= cutoff,
-        )
+        .where(*conditions)
         .order_by(GlucoseReading.reading_timestamp.desc())
         .limit(limit)
     )

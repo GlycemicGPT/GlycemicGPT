@@ -3,6 +3,7 @@
 import uuid
 from unittest.mock import patch
 
+import pytest
 from httpx import ASGITransport, AsyncClient
 
 from src.config import settings
@@ -466,3 +467,115 @@ class TestEncryption:
 
         # Each encryption should produce different output (different IV)
         assert encrypted1 != encrypted2
+
+
+# ── _validate_date_range tests ──
+
+
+class TestValidateDateRange:
+    """Tests for the _validate_date_range helper in integrations router."""
+
+    def test_both_none_returns_none(self):
+        from src.routers.integrations import _validate_date_range
+
+        assert _validate_date_range(None, None) is None
+
+    def test_only_start_raises_422(self):
+        from datetime import UTC, datetime
+
+        from fastapi import HTTPException
+
+        from src.routers.integrations import _validate_date_range
+
+        with pytest.raises(HTTPException) as exc_info:
+            _validate_date_range(datetime(2026, 3, 1, tzinfo=UTC), None)
+        assert exc_info.value.status_code == 422
+        assert "together" in exc_info.value.detail
+
+    def test_only_end_raises_422(self):
+        from datetime import UTC, datetime
+
+        from fastapi import HTTPException
+
+        from src.routers.integrations import _validate_date_range
+
+        with pytest.raises(HTTPException) as exc_info:
+            _validate_date_range(None, datetime(2026, 3, 1, tzinfo=UTC))
+        assert exc_info.value.status_code == 422
+
+    def test_end_before_start_raises_422(self):
+        from datetime import UTC, datetime
+
+        from fastapi import HTTPException
+
+        from src.routers.integrations import _validate_date_range
+
+        with pytest.raises(HTTPException) as exc_info:
+            _validate_date_range(
+                datetime(2026, 3, 5, tzinfo=UTC),
+                datetime(2026, 3, 1, tzinfo=UTC),
+            )
+        assert exc_info.value.status_code == 422
+        assert "strictly after" in exc_info.value.detail
+
+    def test_start_equals_end_raises_422(self):
+        from datetime import UTC, datetime
+
+        from fastapi import HTTPException
+
+        from src.routers.integrations import _validate_date_range
+
+        ts = datetime(2026, 3, 1, tzinfo=UTC)
+        with pytest.raises(HTTPException) as exc_info:
+            _validate_date_range(ts, ts)
+        assert exc_info.value.status_code == 422
+
+    def test_exceeds_max_days_raises_422(self):
+        from datetime import UTC, datetime
+
+        from fastapi import HTTPException
+
+        from src.routers.integrations import _validate_date_range
+
+        with pytest.raises(HTTPException) as exc_info:
+            _validate_date_range(
+                datetime(2026, 1, 1, tzinfo=UTC),
+                datetime(2026, 3, 1, tzinfo=UTC),
+            )
+        assert exc_info.value.status_code == 422
+        assert "31 days" in exc_info.value.detail
+
+    def test_valid_range_returns_tuple(self):
+        from datetime import UTC, datetime
+
+        from src.routers.integrations import _validate_date_range
+
+        start = datetime(2026, 3, 1, tzinfo=UTC)
+        end = datetime(2026, 3, 2, tzinfo=UTC)
+        result = _validate_date_range(start, end)
+        assert result == (start, end)
+
+    def test_naive_datetimes_rejected_with_422(self):
+        from datetime import datetime
+
+        import pytest
+        from fastapi import HTTPException
+
+        from src.routers.integrations import _validate_date_range
+
+        start = datetime(2026, 3, 1)
+        end = datetime(2026, 3, 2)
+        with pytest.raises(HTTPException) as exc_info:
+            _validate_date_range(start, end)
+        assert exc_info.value.status_code == 422
+        assert "timezone offset" in str(exc_info.value.detail)
+
+    def test_exactly_31_days_is_valid(self):
+        from datetime import UTC, datetime
+
+        from src.routers.integrations import _validate_date_range
+
+        start = datetime(2026, 3, 1, tzinfo=UTC)
+        end = datetime(2026, 4, 1, tzinfo=UTC)
+        result = _validate_date_range(start, end)
+        assert result == (start, end)

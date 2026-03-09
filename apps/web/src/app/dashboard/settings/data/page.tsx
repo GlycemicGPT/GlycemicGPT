@@ -26,6 +26,8 @@ import {
   X,
   ArrowUp,
   ArrowDown,
+  FileText,
+  ChevronRight,
 } from "lucide-react";
 import Link from "next/link";
 import clsx from "clsx";
@@ -1182,6 +1184,31 @@ export default function DataRetentionPage() {
             </button>
           </div>
         </div>
+      )}
+
+      {/* Clinical Report Link */}
+      {!isLoading && (
+        <Link
+          href="/dashboard/reports/clinical"
+          className="block bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6 hover:border-blue-500/50 transition-colors group"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-blue-500/10 rounded-lg">
+                <FileText className="h-5 w-5 text-blue-400" aria-hidden="true" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900 dark:text-white group-hover:text-blue-400 transition-colors">
+                  Clinical Report
+                </h2>
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                  Generate a printable report for your healthcare provider
+                </p>
+              </div>
+            </div>
+            <ChevronRight className="h-5 w-5 text-slate-400 group-hover:text-blue-400 transition-colors" aria-hidden="true" />
+          </div>
+        </Link>
       )}
 
       {/* Danger Zone (Story 9.4) */}
