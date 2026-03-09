@@ -20,3 +20,5 @@ export {
   useGlucoseRange,
   type GlucoseThresholds,
 } from "./use-glucose-range";
+
+export { useReducedMotion } from "./use-reduced-motion";

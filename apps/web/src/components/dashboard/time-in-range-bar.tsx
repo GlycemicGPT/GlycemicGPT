@@ -7,7 +7,7 @@
  * with previous-period comparison and delta indicator.
  */
 
-import { motion, useReducedMotion } from "framer-motion";
+import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import clsx from "clsx";
 
 import type { TirBucket } from "@/lib/api";
@@ -289,12 +289,6 @@ export function TimeInRangeBar({
     .map((b) => `${BUCKET_LABELS[b.label]} ${formatPercentage(b.pct)}`)
     .join(", ")}. ${readingsCount} readings. Target: ${targetRange}.`;
 
-  // Animation variants
-  const barVariants = {
-    hidden: { scaleX: 0 },
-    visible: { scaleX: 1, transition: { duration: 0.6, ease: "easeOut" } },
-  };
-
   const shouldAnimate = !prefersReducedMotion;
 
   const currentBar = (
@@ -413,22 +407,10 @@ export function TimeInRangeBar({
       </div>
 
       {/* Bar */}
-      {shouldAnimate ? (
-        <motion.div
-          initial="hidden"
-          animate="visible"
-          variants={barVariants}
-          style={{ originX: 0 }}
-        >
-          {currentBar}
-          {previousBar}
-        </motion.div>
-      ) : (
-        <>
-          {currentBar}
-          {previousBar}
-        </>
-      )}
+      <div className={shouldAnimate ? "animate-tir-bar-expand origin-left" : undefined}>
+        {currentBar}
+        {previousBar}
+      </div>
 
       {/* Legend -- 5 items, flex-wrap for narrow screens */}
       <div

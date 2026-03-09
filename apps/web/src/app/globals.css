@@ -4,25 +4,73 @@
 
 :root {
   --foreground-rgb: 255, 255, 255;
-  --background-start-rgb: 15, 23, 42;
-  --background-end-rgb: 15, 23, 42;
+  --background-rgb: 15, 23, 42;
 }
 
 html.light {
   --foreground-rgb: 15, 23, 42;
-  --background-start-rgb: 248, 250, 252;
-  --background-end-rgb: 241, 245, 249;
+  --background-rgb: 248, 250, 252;
 }
 
 body {
   color: rgb(var(--foreground-rgb));
-  background: linear-gradient(
-      to bottom,
-      transparent,
-      rgb(var(--background-end-rgb))
-    )
-    rgb(var(--background-start-rgb));
-  min-height: 100vh;
+  background: rgb(var(--background-rgb));
+  overscroll-behavior: none;
+}
+
+/* Glucose hero pulse animations (replaces framer-motion) */
+@keyframes glucose-pulse-subtle {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.02); opacity: 0.9; }
+}
+@keyframes glucose-pulse-strong {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.05); opacity: 0.8; }
+}
+.animate-glucose-pulse-subtle {
+  animation: glucose-pulse-subtle 2s ease-in-out infinite;
+}
+.animate-glucose-pulse-strong {
+  animation: glucose-pulse-strong 1s ease-in-out infinite;
+}
+
+/* TIR bar expand animation (replaces framer-motion scaleX) */
+@keyframes tir-bar-expand {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+.animate-tir-bar-expand {
+  animation: tir-bar-expand 0.6s ease-out forwards;
+}
+
+/* Trend arrow bounce animations (replaces framer-motion y translate) */
+@keyframes trend-bounce-up {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+}
+@keyframes trend-bounce-up-fast {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+@keyframes trend-bounce-down {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(2px); }
+}
+@keyframes trend-bounce-down-fast {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(3px); }
+}
+.animate-trend-bounce-up {
+  animation: trend-bounce-up 1.2s ease-in-out infinite;
+}
+.animate-trend-bounce-up-fast {
+  animation: trend-bounce-up-fast 0.8s ease-in-out infinite;
+}
+.animate-trend-bounce-down {
+  animation: trend-bounce-down 1.2s ease-in-out infinite;
+}
+.animate-trend-bounce-down-fast {
+  animation: trend-bounce-down-fast 0.8s ease-in-out infinite;
 }
 
 /* Focus visible for accessibility */
@@ -40,5 +88,72 @@ body {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+}
+
+/* Print styles -- scoped to dashboard layout via data attributes */
+@media print {
+  html, body {
+    height: auto !important;
+    overflow: visible !important;
+    background: white !important;
+    color: black !important;
+  }
+  /* Reset the dashboard flex layout so content flows across pages.
+     Scoped to data-dashboard-root/content to avoid hitting unrelated
+     components that also use .flex-1, .overflow-hidden, etc. */
+  [data-dashboard-root] {
+    height: auto !important;
+    overflow: visible !important;
+    background: white !important;
+    display: block !important;
+  }
+  [data-dashboard-content] {
+    overflow: visible !important;
+    display: block !important;
+    width: 100% !important;
+  }
+  /* Hide sidebar, header, mobile nav */
+  aside,
+  header,
+  nav,
+  [data-print-hide] {
+    display: none !important;
+  }
+  /* Make main content full width */
+  main {
+    overflow: visible !important;
+    margin-left: 0 !important;
+    padding: 0 !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    height: auto !important;
+    flex: none !important;
+  }
+  /* Remove dark mode styling */
+  .dark {
+    color-scheme: light;
+  }
+  [data-dashboard-root] {
+    background: white !important;
+  }
+  /* Force light text colors for print within main content area */
+  main *:not([style*="background"]):not(svg):not(svg *) {
+    color: black !important;
+    border-color: #e2e8f0 !important;
+    background: white !important;
+  }
+  /* Keep inline-colored elements (TIR bars, chart elements) */
+  [style*="background"] {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  /* Keep chart colors */
+  svg circle,
+  svg rect,
+  svg line,
+  svg path {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 }

@@ -99,7 +99,7 @@ export function Sidebar({ className }: SidebarProps) {
   return (
     <aside
       className={clsx(
-        "hidden lg:flex lg:flex-col lg:w-64 lg:fixed lg:inset-y-0",
+        "hidden lg:flex lg:flex-col lg:w-64 flex-shrink-0",
         "bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800",
         className
       )}

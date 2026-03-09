@@ -1,6 +1,6 @@
 # GlycemicGPT Implementation Progress
 
-> Last Updated: 2026-03-07
+> Last Updated: 2026-03-08
 
 ## Summary
 
@@ -35,12 +35,14 @@
 | 27 | External Platform Integrations (Backend) | 0/5 | Planned |
 | 28 | Security Hardening & Penetration Testing | 17/17 | **Complete** |
 | 29 | App Icons & Branding | 3/3 | **Complete** |
-| 30 | Advanced Web Dashboard Visualization | 9/10 | **In Progress** |
-| 31 | Mobile Dashboard Parity & Hub-and-Spoke Redesign | 2/8 | **In Progress** |
+| 30 | Advanced Web Dashboard Visualization | 9/9 | **Complete** |
+| 31 | Mobile Dashboard Parity & Hub-and-Spoke Redesign | 5/8 | **In Progress** |
 | 33 | Data Source Abstraction & CGM Intelligence | 0/12 | Planned |
 | 34 | Code Quality & Technical Debt Elimination | 0/17 | Planned |
-| 35 | AI Intelligence Pipeline | 0/18 | Planned |
+| 35 | AI Intelligence Pipeline | 0/19 | Planned |
 | 36 | Android App Distribution Strategy | 0/4 | Planned |
+| 37 | Longitudinal Reports & Data Visualization | 0/6 | Planned |
+| 38 | Historical Data Import & Platform Migration | 0/8 | Planned |
 
 **MVP Stories:** 54/54 complete (100%)
 **Post-MVP Fix Stories:** 13/13 complete (100%)
@@ -59,13 +61,15 @@
 **Epic 28 (Security Hardening):** 17/17 complete
 **Epic 26 (Runtime Plugin Loading):** 7/7 complete
 **Epic 29 (App Icons & Branding):** 3/3 complete
-**Epic 30 (Web Dashboard Visualization):** 9/10 in progress
-**Epic 31 (Mobile Dashboard Parity):** 2/8 complete
+**Epic 30 (Web Dashboard Visualization):** 10/10 complete
+**Epic 31 (Mobile Dashboard Parity):** 5/8 complete (2 cancelled)
 **Epic 33 (Data Source Abstraction):** 0/12 planned
 **Epic 34 (Code Quality):** 0/17 planned
-**Epic 35 (AI Intelligence Pipeline):** 0/18 planned
+**Epic 35 (AI Intelligence Pipeline):** 0/19 planned
 **Epic 36 (Android Distribution Strategy):** 0/4 planned
-**Overall Progress:** 158/229 stories planned/complete
+**Epic 37 (Longitudinal Reports):** 0/6 planned
+**Epic 38 (Historical Data Import):** 0/8 planned
+**Overall Progress:** 158/243 stories planned/complete
 
 ### Standalone Bug Fixes
 
@@ -994,7 +998,7 @@ All 5 stories completed:
 
 ## Epic 30: Advanced Web Dashboard Visualization
 
-**Status:** In Progress (9/10 stories)
+**Status:** Complete (10/10 stories)
 
 | Story | Title | Status | PR |
 |-------|-------|--------|-----|
@@ -1005,7 +1009,7 @@ All 5 stories completed:
 | 30.5 | Percentile Band Glucose Chart (AGP) | Done | [#329](https://github.com/jlengelbrecht/GlycemicGPT/pull/329) |
 | 30.6 | Zoom, Pan, and Brush Controls + Chart Tooltip & Insulin Display | Done | [#338](https://github.com/jlengelbrecht/GlycemicGPT/pull/338) |
 | 30.7 | Insulin Summary and Bolus Review | Done | [#332](https://github.com/jlengelbrecht/GlycemicGPT/pull/332) |
-| 30.8 | Reports Page with Daily Timeline | Planned | |
+| 30.8 | ~~Reports Page with Daily Timeline~~ | Removed | Redundant with Dashboard + Daily Briefs. PR #356 closed. Export fix shipped separately. |
 | 30.9 | Fix Basal Rate Aggregation in Insulin Summary | Done | [#336](https://github.com/jlengelbrecht/GlycemicGPT/pull/336) |
 | 30.10 | Fix Source Duplication and Bolus/Correction Double-Counting | Done | [#337](https://github.com/jlengelbrecht/GlycemicGPT/pull/337) |
 
@@ -1049,11 +1053,11 @@ Any new stats calculations (CGM summary, insulin summary, AGP percentiles, 5-buc
 | Story | Title | Status | PR |
 |-------|-------|--------|-----|
 | 31.1 | Navigation Scaffold & Detail Page Architecture | Complete | #345 |
-| 31.2 | Compact Card Grid Home Screen | Planned | |
+| 31.2 | Compact Card Grid Home Screen | Cancelled | |
 | 31.3 | Chart Detail Page with Landscape & Zoom/Pan/Brush | Complete | #345, #351 |
-| 31.4 | TIR Upgrade & CGM Stats Detail Page | Planned | |
-| 31.5 | Insulin Summary & Bolus Review Detail Page | Planned | |
-| 31.6 | Visual Polish, Animations & Label Refinement | Planned | |
+| 31.4 | 5-Bucket TIR Display & CGM Stats Active % | Complete | #354 |
+| 31.5 | Insulin Summary & Bolus Review Detail Page | Cancelled | Home cards already show full data; BolusHistoryScreen exists |
+| 31.6 | Visual Polish, Animations & Label Refinement | Complete | #355 |
 | 31.7 | Wear OS Compact Chart & Data Feed | Planned | |
 | 31.8 | Retention-Aware Period Options + AGP Removal | Complete | #352 |
 
@@ -1136,22 +1140,16 @@ Any new stats calculations (CGM summary, insulin summary, AGP percentiles, 5-buc
 - Back navigation returns to portrait home screen
 - Performance: smooth 60fps rendering with 500+ data points
 
-### Story 31.4: TIR Upgrade & CGM Stats Detail Page
+### Story 31.4: 5-Bucket TIR Display & CGM Stats Active % (Complete - PR #354)
 
-**Priority:** Medium -- brings clinical-grade stats to mobile.
-
-**Scope:** Upgrade TimeInRangeBar from 3-bucket to 5-bucket clinical display. Create a combined TIR + CGM Stats detail page matching web's CgmSummaryStats panel.
+**Scope:** Upgrade TIR card to 5-bucket clinical display and CGM Stats card with Std Dev + CGM Active %. In-place card upgrades only, no detail pages.
 
 **Changes:**
-- **TIR 5-Bucket Upgrade (home screen card + detail page):**
-  - Urgent Low (<55 mg/dL), Low (55-70), In Range (70-180), High (180-250), Urgent High (>250)
-  - Dynamic thresholds from GlucoseRangeStore (same as web)
-- **Period Comparison Delta:** Show +/- change vs previous period (e.g., "In Range: 72% +3%")
-- **Quality Assessment:** "Excellent" (>=70%), "Good" (50-70%), "Needs Improvement" (<50%)
-- **CGM Summary Stats (detail page only):**
-  - 6-metric grid matching web: Avg Glucose, Std Dev, CV%, GMI, CGM Active %, Total Readings
-  - Assessment labels: CV% stability, CGM active quality
-  - Data computed locally from Room DB CGM readings via new `CgmStatsCalculator` utility in ViewModel layer
+- **TIR 5-Bucket Upgrade:** PumpDao SQL expanded to 5 CASE WHEN buckets with 4 thresholds; FiveBucketStackedBar with 2-row legend; dynamic thresholds from GlucoseRangeStore
+- **CGM Stats 6-Metric Grid:** Added Std Dev, CGM Active %, Readings count to existing Mean/CV%/GMI; color-coded assessments for CV% and CGM Active %
+- **CGM Active %:** `DashboardComputations.computeCgmStats` accepts `periodHours` for actual/expected readings (12/hr)
+- **Threshold Validation:** Full ordering check (urgentLow <= low < high <= urgentHigh) in HomeViewModel
+- **Bar Rounding Fix:** `lastNonZeroIndex` ensures rounding absorption works with trailing zero-percent buckets
 - **AGP Chart (detail page only):**
   - Percentile band chart (p10/p25/p50/p75/p90) matching web's AgpChart
   - 24-hour X-axis, auto-scaled Y-axis
@@ -1196,30 +1194,19 @@ Any new stats calculations (CGM summary, insulin summary, AGP percentiles, 5-buc
 - Scrolling is smooth with 100+ boluses
 - Empty state shown when no data
 
-### Story 31.6: Visual Polish, Animations & Label Refinement
+### Story 31.6: Full-Platform Visual Polish & Theme Support
 
-**Priority:** Medium -- the finishing touches that make it feel professional.
+**Status:** Complete (PR #355)
 
-**Scope:** Unified visual polish pass across all new and existing components. Consistent Material 3 theming, transitions, spacing, and typography.
+**Scope:** Full-platform theme support (System/Dark/Light) across web and mobile, Framer Motion animations on web, and dual light/dark Tailwind classes across 40+ components.
 
 **Changes:**
-- **Card Transitions:** Smooth shared-element or fade transitions when navigating hub -> spoke
-- **Loading States:** Consistent shimmer/skeleton placeholders across all cards and detail pages
-- **Typography Audit:** Ensure consistent use of Material 3 type scale (headlineLarge for values, titleMedium for labels, bodySmall for captions)
-- **Spacing Audit:** Consistent 8dp grid, 16dp card padding, 12dp inter-card gap
-- **Color Consistency:** Ensure glucose range colors, chart colors, and badge colors match between home cards and detail pages
-- **Dark Theme:** Verify all new components render correctly in dark mode
-- **Accessibility:** Content descriptions on all cards, screen reader traversal order, minimum 48dp touch targets
-- **Connection Status:** Move ConnectionSyncRow into a more subtle top bar (icon-only when connected, expanded only on issues)
-- **Empty States:** Unified empty state illustrations/messages across all detail pages
-
-**Acceptance Criteria:**
-- Smooth transitions between hub and spoke screens
-- Consistent shimmer loading across all cards
-- Dark mode renders correctly
-- TalkBack screen reader traversal is logical
-- Touch targets meet 48dp minimum
-- Visual inspection: clean, cohesive Material 3 design
+- **Web Theme Infrastructure:** ThemeProvider context with localStorage persistence, FOUC-preventing inline script, ThemeToggle (sun/moon/monitor) in header
+- **Web Animations:** AnimatedCard and PageTransition wrappers using Framer Motion with useReducedMotion support, Skeleton components
+- **Web Dual Theme:** All 40+ components and pages updated with `dark:` class variants for complete light mode support
+- **Mobile Theme:** ThemeMode enum (System/Dark/Light), brand-consistent color schemes (no dynamic Material You colors), Appearance section in Settings
+- **Mobile Live Switching:** SharedPreferences.OnSharedPreferenceChangeListener in MainActivity for live theme updates without restart
+- **Accessibility:** prefers-reduced-motion support, proper ARIA for theme toggle radio group, WCAG contrast verified for light/dark
 
 ### Story 31.7: Wear OS Compact Chart & Data Feed
 
@@ -1313,7 +1300,7 @@ Any new stats calculations (CGM summary, insulin summary, AGP percentiles, 5-buc
 
 ## Epic 35: AI Intelligence Pipeline
 
-**Status:** Planned (0/18 stories)
+**Status:** Planned (0/19 stories)
 **Goal:** Transform the AI from a basic chatbot into an intelligent diabetes analysis engine with enriched context, clinical knowledge RAG, PHI privacy protection, streaming responses, proactive intelligence, response caching, and medical safety guardrails. Eliminate the sidecar container and unify all provider tiers (API key, subscription, BYOAI) with zero compromises.
 
 **Planning doc:** `_bmad-output/planning-artifacts/epic-35-ai-intelligence-pipeline.md`
@@ -1322,7 +1309,7 @@ Any new stats calculations (CGM summary, insulin summary, AGP percentiles, 5-buc
 1. Context Enrichment (35.1-35.4) -- Feed the AI everything it needs
 2. Privacy & Provider Unification (35.5-35.8) -- PHI masking, eliminate sidecar, streaming, budget caps
 3. Clinical Knowledge RAG (35.9-35.11) -- pgvector knowledge base
-4. Proactive Intelligence (35.12-35.15) -- Weekly reports, anomaly detection, appointment prep
+4. Proactive Intelligence (35.12-35.15, 35.19) -- Weekly reports, anomaly detection, appointment prep, report/import AI analysis
 5. Performance & Cost Optimization (35.16-35.18) -- Response caching, prompt caching, safety guardrails
 
 | # | Title | Phase | Status | PR |
@@ -1345,6 +1332,7 @@ Any new stats calculations (CGM summary, insulin summary, AGP percentiles, 5-buc
 | 35.16 | AI Response Caching (Redis + Semantic) | 5 | Planned | |
 | 35.17 | Provider-Side Prompt Caching | 5 | Planned | |
 | 35.18 | AI Safety Guardrails (Prompt Injection + Output Validation) | 5 | Planned | |
+| 35.19 | AI-Powered Report & Import Analysis | 4 | Planned (blocked by 35.6) | |
 
 ---
 
@@ -1361,3 +1349,102 @@ Any new stats calculations (CGM summary, insulin summary, AGP percentiles, 5-buc
 | 36.2 | Android Developer Verification Registration | Implementation | Planned (blocked by 36.1) | |
 | 36.3 | Adapt Distribution Pipeline for Verified Developer Requirements | Implementation | Planned (blocked by 36.1, 36.2) | |
 | 36.4 | Evaluate and Implement Alternative Distribution Channel | Implementation | Planned (blocked by 36.1) | |
+
+---
+
+## Epic 37: Longitudinal Reports & Data Visualization
+
+**Status:** Planned (0/6 stories)
+**Goal:** Enable users to generate clinical reports spanning months to years of diabetes history. GlycemicGPT uniquely supports ~10 years of data retention -- no other platform (Dexcom Clarity, t:connect, Glooko, Tidepool) offers this depth. A patient should be able to walk into a new endocrinologist's first appointment with a comprehensive multi-year report that reveals long-term trends, seasonal patterns, and management evolution at a glance.
+
+**Key design principles:**
+- Long-horizon data requires aggregation/downsampling (can't render 10 years of 5-minute readings as raw points)
+- Backend must provide pre-aggregated statistical summaries (daily/weekly/monthly granularity) for large date ranges
+- Charts must remain readable and performant even with years of data -- use rolling averages, percentile bands, heatmaps
+- Period-over-period comparison is critical for endos evaluating whether management is improving or declining
+- Reports must print cleanly to PDF (letter/A4) with page breaks at logical section boundaries
+
+**Dependencies:** Epic 30 (Web Dashboard Visualization) complete. Benefits from Epic 35 (AI Intelligence Pipeline) for Story 35.19 AI annotations.
+
+| # | Title | Type | Status | PR |
+|---|-------|------|--------|----|
+| 37.1 | Backend Data Aggregation & Downsampling API | Backend | Planned | |
+| 37.2 | Yearly Glucose Trend Charts (Rolling Averages + Percentile Bands) | Frontend | Planned (blocked by 37.1) | |
+| 37.3 | Monthly eA1C Progression Chart | Frontend | Planned (blocked by 37.1) | |
+| 37.4 | Period-Over-Period Comparison View | Frontend | Planned (blocked by 37.1) | |
+| 37.5 | Longitudinal TIR Heatmap (Daily TIR Buckets Over Months/Years) | Frontend | Planned (blocked by 37.1) | |
+| 37.6 | Multi-Year Report Template & PDF Export | Frontend | Planned (blocked by 37.2, 37.3, 37.4, 37.5) | |
+
+### Story Details
+
+**37.1 -- Backend Data Aggregation & Downsampling API**
+New API endpoints that return pre-aggregated glucose statistics at configurable granularity (daily, weekly, monthly). For a 1-year request, return ~365 daily summaries (mean, median, std dev, min, max, p10/p25/p75/p90, reading count, TIR percentages) instead of ~105,000 raw readings. Uses PostgreSQL window functions and materialized aggregation. Supports arbitrary date ranges up to the user's full retention period. Also aggregates insulin delivery (total daily dose, basal/bolus split) and bolus event counts per period.
+
+**37.2 -- Yearly Glucose Trend Charts (Rolling Averages + Percentile Bands)**
+Recharts AreaChart showing 7-day and 30-day rolling average glucose with shaded IQR (p25-p75) and whisker bands (p10-p90) over 1-12 month or multi-year spans. Target range band overlay. X-axis adapts granularity (daily ticks for months, weekly for quarters, monthly for years). Performant rendering with downsampled data from 37.1. Supports zoom/pan for drill-down into specific periods.
+
+**37.3 -- Monthly eA1C Progression Chart**
+Line chart showing estimated A1C (from mean glucose via ADAG formula) calculated monthly, with actual lab A1C values overlaid when available (future: manual entry or import). Trend line with slope annotation ("improving", "stable", "worsening"). GMI (Glucose Management Indicator) as secondary metric. Sparkline variant for compact report embedding.
+
+**37.4 -- Period-Over-Period Comparison View**
+Side-by-side or overlay comparison of two user-selected date ranges. Shows delta metrics: TIR change, mean glucose change, eA1C change, hypo event frequency change, coefficient of variation change. Visual diff highlighting (green = improved, red = worsened, gray = unchanged). Enables endo to quickly assess "Q1 vs Q2" or "this year vs last year" management trajectory.
+
+**37.5 -- Longitudinal TIR Heatmap (Daily TIR Buckets Over Months/Years)**
+Calendar-style heatmap where each cell is one day, color-coded by TIR percentage (green = >70%, yellow = 50-70%, red = <50%). Rows = weeks, columns = days. Supports scrolling through months/years. Hovering a cell shows that day's TIR breakdown, mean glucose, and hypo count. Reveals seasonal patterns (holidays, school year, travel), medication changes, and management consistency at a glance.
+
+**37.6 -- Multi-Year Report Template & PDF Export**
+Comprehensive report layout combining all longitudinal charts into a single printable document optimized for endo visits. Sections: executive summary (key metrics delta over report period), yearly trend chart, monthly eA1C progression, TIR heatmap, period comparison (if selected), insulin delivery trends, notable events timeline (sensor changes, pump changes, significant hypo/hyper clusters). Page-break-aware layout for clean PDF output via browser print. Header includes patient info, report date range, and data source provenance.
+
+---
+
+## Epic 38: Historical Data Import & Platform Migration
+
+**Status:** Planned (0/8 stories)
+**Goal:** Allow users adopting GlycemicGPT to import years of historical diabetes data from other platforms (Medtronic CareLink, Omnipod/Glooko, Dexcom Clarity, Tidepool, LibreView). Imported data is normalized into GlycemicGPT's schema, enabling longitudinal reports (Epic 37) and AI analysis (Story 35.19) across a patient's complete diabetes history -- even data predating their use of GlycemicGPT.
+
+**Key design principles:**
+- Each platform has a different export format (CSV, JSON, PDF) -- need dedicated parsers per platform
+- Data normalization must handle unit conversion (mmol/L vs mg/dL), timezone reconciliation, and deduplication against existing data
+- Provenance tracking is critical: every imported reading must record its original source, import timestamp, and confidence level
+- Import is a one-time batch operation per file, not a recurring sync
+- Must handle partial/corrupt exports gracefully with clear error reporting
+- Privacy: imported files are processed server-side and deleted after parsing (not stored as raw files)
+
+**Dependencies:** None for basic import. Epic 37 (Longitudinal Reports) for visualizing imported data. Story 35.19 (AI Analysis) for AI-powered analysis of imported data.
+
+| # | Title | Type | Status | PR |
+|---|-------|------|--------|----|
+| 38.1 | Import Infrastructure & Normalization Pipeline | Backend | Planned | |
+| 38.2 | Medtronic CareLink CSV Parser | Backend | Planned (blocked by 38.1) | |
+| 38.3 | Omnipod / Glooko Export Parser | Backend | Planned (blocked by 38.1) | |
+| 38.4 | Dexcom Clarity Export Parser | Backend | Planned (blocked by 38.1) | |
+| 38.5 | Tidepool Export Parser | Backend | Planned (blocked by 38.1) | |
+| 38.6 | LibreView Export Parser | Backend | Planned (blocked by 38.1) | |
+| 38.7 | Data Import Upload UI & Progress Tracking | Frontend | Planned (blocked by 38.1) | |
+| 38.8 | Import Validation, Deduplication & Provenance Tracking | Backend | Planned (blocked by 38.1) | |
+
+### Story Details
+
+**38.1 -- Import Infrastructure & Normalization Pipeline**
+Core import framework: file upload endpoint (multipart, max 50MB), async processing via background task (Celery or in-process), canonical intermediate representation (IR) that all parsers emit into. IR schema: `{timestamp, glucose_value, glucose_unit, insulin_dose, insulin_type, event_type, raw_source, confidence}`. Normalization layer converts IR records to GlycemicGPT's `GlucoseReading`, `BolusEvent`, `BasalSegment` models with unit conversion (mmol/L -> mg/dL), timezone alignment, and source tagging. Import job tracking table (`import_jobs`: id, user_id, filename, source_platform, status, records_parsed, records_imported, records_skipped, errors, created_at, completed_at).
+
+**38.2 -- Medtronic CareLink CSV Parser**
+Parser for Medtronic CareLink Personal CSV exports (the format users can download from carelink.medtronic.com). Handles multiple CSV layouts (CareLink has changed formats across pump generations: 630G, 670G, 770G, 780G). Extracts: sensor glucose readings, finger-stick BGs, bolus deliveries (normal, square, dual-wave), basal rates, temp basals, auto-mode exits, reservoir changes, sensor insertions. Maps Medtronic event types to GlycemicGPT's canonical categories.
+
+**38.3 -- Omnipod / Glooko Export Parser**
+Parser for Glooko/Diasend exports (used by Omnipod DASH and Omnipod 5 users, also Insulet's PDM exports). Handles CSV and PDF-extracted tabular data. Extracts: CGM glucose (if Dexcom paired), bolus events (normal, extended), basal programs, pod changes, alerts/alarms. Omnipod 5 automated mode events mapped to GlycemicGPT's pump activity modes.
+
+**38.4 -- Dexcom Clarity Export Parser**
+Parser for Dexcom Clarity CSV exports (downloadable by patients from clarity.dexcom.com). Relatively clean format: timestamp, glucose value (mg/dL), trend arrow, transmitter ID, event type (EGV, calibration, sensor start/end). Maps Dexcom trend arrows to GlycemicGPT's TrendDirection enum. Handles Dexcom G5, G6, G7, and ONE sensor data. Deduplicates against readings already synced via Dexcom Share API (Story 3.2).
+
+**38.5 -- Tidepool Export Parser**
+Parser for Tidepool JSON exports (downloadable via Tidepool Web). Tidepool uses a well-documented JSON schema with typed records: `cbg` (CGM), `smbg` (finger-stick), `bolus` (normal/square/dual), `basal` (scheduled/temp/automated), `pumpSettings`, `deviceEvent`. Most structured of all import formats. Maps Tidepool device metadata to GlycemicGPT's source tracking. Handles Tidepool's timezone-aware ISO 8601 timestamps with timezone offset preservation.
+
+**38.6 -- LibreView Export Parser**
+Parser for LibreView CSV exports (downloadable from libreview.com by FreeStyle Libre 2/3 users). Handles: historic glucose readings (every 15 min for Libre 2, every 1 min for Libre 3), scan glucose readings (on-demand scans), ketone readings (if Libre meter), notes/tags. LibreView CSVs have a multi-line header with patient info followed by tabular data. Maps LibreView's glucose values (which may be in mmol/L depending on locale) with automatic unit detection.
+
+**38.7 -- Data Import Upload UI & Progress Tracking**
+Web UI on a new `/dashboard/settings/data/import` page. Drag-and-drop file upload zone with platform auto-detection (or manual platform selection dropdown). Upload triggers backend processing; UI shows real-time progress via SSE (records parsed, imported, skipped, errors). Completion summary with: records imported by type (glucose, bolus, basal), date range covered, any warnings/errors. Option to review and confirm before final commit. Import history table showing past imports with date, platform, record counts, and option to undo (delete all records from a specific import job).
+
+**38.8 -- Import Validation, Deduplication & Provenance Tracking**
+Cross-cutting concern applied to all parsers. Deduplication: match incoming records against existing data by (user_id, timestamp, source) with configurable tolerance window (default 2 minutes for glucose, exact match for events). Provenance: every imported record tagged with `import_job_id` and `original_source` (e.g., "medtronic_carelink", "dexcom_clarity"). Validation: reject physiologically impossible values (glucose < 20 or > 600 mg/dL), flag suspicious gaps (>24h with no data), warn on timezone inconsistencies. Undo support: delete all records associated with a specific import job (cascading, respects FK constraints).

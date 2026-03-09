@@ -235,8 +235,9 @@ async def _export_all_data(
         {
             "event_type": e.event_type.value,
             "event_timestamp": e.event_timestamp.isoformat(),
-            "value": e.value,
+            "units": e.units,
             "duration_minutes": e.duration_minutes,
+            "is_automated": e.is_automated,
             "source": e.source,
         }
         for e in events

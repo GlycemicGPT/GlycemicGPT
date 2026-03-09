@@ -15,7 +15,7 @@
  * - Accessible labels for pump status metrics
  */
 
-import { motion, useReducedMotion } from "framer-motion";
+import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import clsx from "clsx";
 import {
   type TrendDirection,
@@ -159,26 +159,10 @@ export function shouldPulse(range: GlucoseRange): "strong" | "subtle" | null {
   return null;
 }
 
-// Animation variants for pulse effects
-const pulseVariants = {
-  subtle: {
-    scale: [1, 1.02, 1],
-    opacity: [1, 0.9, 1],
-    transition: {
-      duration: 2,
-      repeat: Infinity,
-      ease: "easeInOut",
-    },
-  },
-  strong: {
-    scale: [1, 1.05, 1],
-    opacity: [1, 0.8, 1],
-    transition: {
-      duration: 1,
-      repeat: Infinity,
-      ease: "easeInOut",
-    },
-  },
+// CSS class names for pulse effects (keyframes defined in globals.css)
+const PULSE_CLASS: Record<"subtle" | "strong", string> = {
+  subtle: "animate-glucose-pulse-subtle",
+  strong: "animate-glucose-pulse-strong",
 };
 
 /**
@@ -206,7 +190,6 @@ export function GlucoseHero({
   isLoading = false,
   thresholds,
 }: GlucoseHeroProps) {
-  // Use Framer Motion's hook for SSR-safe reduced motion detection
   const prefersReducedMotion = useReducedMotion();
 
   // Loading skeleton state
@@ -263,21 +246,13 @@ export function GlucoseHero({
       aria-label="Current glucose reading"
       tabIndex={0}
     >
-      <motion.div
-        className="flex flex-col items-center justify-center text-center"
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3 }}
-      >
-        {/* Main glucose display */}
+      <div className="flex flex-col items-center justify-center text-center">
         {/* Main glucose display with dynamic aria-live priority */}
-        <motion.div
-          className="flex items-center gap-4 mb-4"
-          animate={
-            pulseType && !prefersReducedMotion
-              ? pulseVariants[pulseType]
-              : undefined
-          }
+        <div
+          className={clsx(
+            "flex items-center gap-4 mb-4",
+            pulseType && !prefersReducedMotion && PULSE_CLASS[pulseType]
+          )}
           aria-live={ariaLivePriority}
           aria-atomic="true"
         >
@@ -302,7 +277,7 @@ export function GlucoseHero({
           >
             {arrow}
           </span>
-        </motion.div>
+        </div>
 
         {/* Unit label */}
         <p
@@ -399,7 +374,7 @@ export function GlucoseHero({
             </span>
           </div>
         </div>
-      </motion.div>
+      </div>
     </div>
   );
 }

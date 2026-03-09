@@ -102,6 +102,46 @@ logger = get_logger(__name__)
 # Minimum readings for a statistically meaningful previous-period TIR comparison
 _MIN_PREV_PERIOD_READINGS = 10
 
+# Maximum window for date-range queries (31 days)
+_MAX_DATE_RANGE_DAYS = 31
+
+
+def _validate_date_range(
+    start: datetime | None, end: datetime | None
+) -> tuple[datetime, datetime] | None:
+    """Validate optional start/end date-range query parameters.
+
+    Returns (start_utc, end_utc) if both are provided, or None if neither is.
+    Raises HTTPException(422) on validation failure.
+    """
+    if start is None and end is None:
+        return None
+    if (start is None) != (end is None):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Both 'start' and 'end' must be provided together.",
+        )
+    # Reject naive datetimes -- callers must include Z or an explicit offset
+    if start.tzinfo is None or end.tzinfo is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="'start' and 'end' must include a timezone offset (e.g. 'Z' or '+05:00').",
+        )
+    start = start.astimezone(UTC)
+    end = end.astimezone(UTC)
+    if end <= start:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="'end' must be strictly after 'start'.",
+        )
+    if (end - start) > timedelta(days=_MAX_DATE_RANGE_DAYS):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Date range must not exceed {_MAX_DATE_RANGE_DAYS} days.",
+        )
+    return start, end
+
+
 router = APIRouter(prefix="/api/integrations", tags=["integrations"])
 
 
@@ -747,6 +787,12 @@ async def get_glucose_history(
         default=180, ge=5, le=43200, description="Minutes of history (max 30d)"
     ),
     limit: int = Query(default=36, ge=1, le=8640, description="Max readings to return"),
+    start: datetime | None = Query(
+        default=None, description="Start of date range (ISO 8601, UTC)"
+    ),
+    end: datetime | None = Query(
+        default=None, description="End of date range (ISO 8601, UTC)"
+    ),
 ) -> GlucoseHistoryResponse:
     """Get glucose reading history.
 
@@ -754,10 +800,18 @@ async def get_glucose_history(
     Default is 3 hours (180 minutes), max is 30 days (43200 minutes).
     For longer periods, consider using fewer readings with client-side
     downsampling (e.g., LTTB) for chart rendering.
+
+    When start and end are provided, they override the minutes parameter.
     """
-    readings = await get_glucose_readings(
-        db, current_user.id, minutes=minutes, limit=limit
-    )
+    date_range = _validate_date_range(start, end)
+    if date_range is not None:
+        readings = await get_glucose_readings(
+            db, current_user.id, limit=limit, start=date_range[0], end=date_range[1]
+        )
+    else:
+        readings = await get_glucose_readings(
+            db, current_user.id, minutes=minutes, limit=limit
+        )
 
     return GlucoseHistoryResponse(
         readings=[GlucoseReadingResponse.model_validate(r) for r in readings],
@@ -801,6 +855,12 @@ async def get_time_in_range(
         default=False,
         description="Return 5-bucket detail with previous period comparison",
     ),
+    start: datetime | None = Query(
+        default=None, description="Start of date range (ISO 8601, UTC)"
+    ),
+    end: datetime | None = Query(
+        default=None, description="End of date range (ISO 8601, UTC)"
+    ),
 ) -> TimeInRangeResponse | TimeInRangeDetailResponse:
     """Get time-in-range statistics for the specified period.
 
@@ -810,7 +870,11 @@ async def get_time_in_range(
     When include_details=true, returns 5-bucket clinical breakdown
     (urgent_low, low, in_range, high, urgent_high) with previous-period
     comparison data.
+
+    When start and end are provided, they override the minutes parameter.
     """
+    date_range = _validate_date_range(start, end)
+
     # Fetch user's target range thresholds
     target_range = await get_or_create_range(current_user.id, db)
     low_threshold = target_range.low_target
@@ -818,8 +882,12 @@ async def get_time_in_range(
 
     if not include_details:
         # Original 3-bucket response (backward compatible)
-        now = datetime.now(UTC)
-        cutoff = now - timedelta(minutes=minutes)
+        if date_range is not None:
+            cutoff = date_range[0]
+            now = date_range[1]
+        else:
+            now = datetime.now(UTC)
+            cutoff = now - timedelta(minutes=minutes)
         result = await db.execute(
             select(
                 func.count().label("total"),
@@ -868,8 +936,14 @@ async def get_time_in_range(
     # 5-bucket detail response
     urgent_low = target_range.urgent_low
     urgent_high = target_range.urgent_high
-    now = datetime.now(UTC)
-    cutoff = now - timedelta(minutes=minutes)
+    if date_range is not None:
+        cutoff = date_range[0]
+        now = date_range[1]
+        window_minutes = (now - cutoff).total_seconds() / 60
+    else:
+        now = datetime.now(UTC)
+        cutoff = now - timedelta(minutes=minutes)
+        window_minutes = minutes
 
     buckets_result = await _query_5_buckets(
         db,
@@ -883,7 +957,7 @@ async def get_time_in_range(
     )
 
     # Previous period: same duration ending at cutoff
-    prev_start = cutoff - timedelta(minutes=minutes)
+    prev_start = cutoff - timedelta(minutes=window_minutes)
     prev_result = await _query_5_buckets(
         db,
         current_user.id,
@@ -1851,6 +1925,12 @@ async def get_glucose_stats(
         le=43200,
         description="Analysis window in minutes (max 30d)",
     ),
+    start: datetime | None = Query(
+        default=None, description="Start of date range (ISO 8601, UTC)"
+    ),
+    end: datetime | None = Query(
+        default=None, description="End of date range (ISO 8601, UTC)"
+    ),
 ) -> GlucoseStatsResponse:
     """Get aggregate glucose statistics: mean, SD, CV%, GMI, CGM active%.
 
@@ -1858,20 +1938,34 @@ async def get_glucose_stats(
     using the formula: GMI = 3.31 + (0.02392 * mean_glucose_mg_dl).
 
     CGM active % assumes 5-minute reading intervals (standard for Dexcom G6/G7).
+
+    When start and end are provided, they override the minutes parameter.
     """
-    cutoff = datetime.now(UTC) - timedelta(minutes=minutes)
+    date_range = _validate_date_range(start, end)
+    if date_range is not None:
+        cutoff = date_range[0]
+        upper = date_range[1]
+        period_minutes = (upper - cutoff).total_seconds() / 60
+    else:
+        cutoff = datetime.now(UTC) - timedelta(minutes=minutes)
+        upper = None
+        period_minutes = minutes
+
+    conditions = [
+        GlucoseReading.user_id == current_user.id,
+        GlucoseReading.reading_timestamp >= cutoff,
+        GlucoseReading.value >= 20,
+        GlucoseReading.value <= 500,
+    ]
+    if upper is not None:
+        conditions.append(GlucoseReading.reading_timestamp < upper)
 
     result = await db.execute(
         select(
             func.count().label("total"),
             func.avg(GlucoseReading.value).label("mean"),
             func.stddev_pop(GlucoseReading.value).label("stddev"),
-        ).where(
-            GlucoseReading.user_id == current_user.id,
-            GlucoseReading.reading_timestamp >= cutoff,
-            GlucoseReading.value >= 20,
-            GlucoseReading.value <= 500,
-        )
+        ).where(*conditions)
     )
     row = result.one()
     count = row.total or 0
@@ -1886,14 +1980,14 @@ async def get_glucose_stats(
             gmi=0.0,
             cgm_active_pct=0.0,
             readings_count=0,
-            period_minutes=minutes,
+            period_minutes=int(period_minutes),
         )
 
     cv = round((sd / mean) * 100, 1) if mean > 0 else 0.0
     # GMI formula: Bergenstal et al. 2018
     gmi = round(3.31 + (0.02392 * mean), 1)
     # CGM active %: readings / expected readings (1 per 5 min, Dexcom standard)
-    expected_readings = minutes / 5
+    expected_readings = period_minutes / 5
     cgm_active = round(min((count / expected_readings) * 100, 100.0), 1)
 
     return GlucoseStatsResponse(
@@ -1903,7 +1997,7 @@ async def get_glucose_stats(
         gmi=gmi,
         cgm_active_pct=cgm_active,
         readings_count=count,
-        period_minutes=minutes,
+        period_minutes=int(period_minutes),
     )
 
 
@@ -2024,21 +2118,38 @@ async def get_insulin_summary(
         max_length=50,
         description="IANA timezone for day boundary (e.g. America/Chicago)",
     ),
+    start: datetime | None = Query(
+        default=None, description="Start of date range (ISO 8601, UTC)"
+    ),
+    end: datetime | None = Query(
+        default=None, description="End of date range (ISO 8601, UTC)"
+    ),
 ) -> InsulinSummaryResponse:
     """Get insulin delivery summary: TDD, basal/bolus split, bolus count.
 
     All unit values (tdd, basal_units, bolus_units, correction_units) are
     daily averages over the requested period. Counts (bolus_count,
     correction_count) are totals for the full period.
-    """
-    from src.services.analytics_config import get_boundary_hour
 
-    now = datetime.now(UTC)
-    boundary_hour = await get_boundary_hour(current_user.id, db)
-    try:
-        cutoff = _boundary_aligned_cutoff(days, boundary_hour, tz, now)
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
+    When start and end are provided, they override the days/tz parameters
+    and skip boundary alignment.
+    """
+    date_range = _validate_date_range(start, end)
+    if date_range is not None:
+        cutoff = date_range[0]
+        now = date_range[1]
+        # Compute fractional days for averaging
+        period_days = max(1, (now - cutoff).total_seconds() / 86400)
+    else:
+        from src.services.analytics_config import get_boundary_hour
+
+        now = datetime.now(UTC)
+        boundary_hour = await get_boundary_hour(current_user.id, db)
+        try:
+            cutoff = _boundary_aligned_cutoff(days, boundary_hour, tz, now)
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e)) from e
+        period_days = days
 
     # Determine best data source for bolus/correction events.
     bolus_source = await _best_source(
@@ -2196,7 +2307,7 @@ async def get_insulin_summary(
         bolus_pct = 0.0
 
     # Average per day (round only at the final output step)
-    d = max(days, 1)
+    d = max(period_days, 1)
     tdd = round(tdd_total / d, 1)
     basal_avg = round(basal_units / d, 1)
     bolus_avg = round((bolus_units + correction_units) / d, 1)
@@ -2211,7 +2322,7 @@ async def get_insulin_summary(
         bolus_pct=bolus_pct,
         bolus_count=bolus_count,
         correction_count=correction_count,
-        period_days=days,
+        period_days=max(1, round(period_days)),
     )
 
 
@@ -2237,16 +2348,33 @@ async def get_bolus_review(
         max_length=50,
         description="IANA timezone for day boundary (e.g. America/Chicago)",
     ),
+    start: datetime | None = Query(
+        default=None, description="Start of date range (ISO 8601, UTC)"
+    ),
+    end: datetime | None = Query(
+        default=None, description="End of date range (ISO 8601, UTC)"
+    ),
 ) -> BolusReviewResponse:
-    """Get paginated list of bolus events for review."""
-    from src.services.analytics_config import get_boundary_hour
+    """Get paginated list of bolus events for review.
 
-    now = datetime.now(UTC)
-    boundary_hour = await get_boundary_hour(current_user.id, db)
-    try:
-        cutoff = _boundary_aligned_cutoff(days, boundary_hour, tz, now)
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
+    When start and end are provided, they override the days/tz parameters
+    and skip boundary alignment.
+    """
+    date_range = _validate_date_range(start, end)
+    if date_range is not None:
+        cutoff = date_range[0]
+        now = date_range[1]
+        period_days = max(1, (now - cutoff).total_seconds() / 86400)
+    else:
+        from src.services.analytics_config import get_boundary_hour
+
+        now = datetime.now(UTC)
+        boundary_hour = await get_boundary_hour(current_user.id, db)
+        try:
+            cutoff = _boundary_aligned_cutoff(days, boundary_hour, tz, now)
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e)) from e
+        period_days = days
 
     # Determine best source to avoid cross-source duplicates.
     review_source = await _best_source(
@@ -2258,13 +2386,16 @@ async def get_bolus_review(
     )
 
     if review_source is None:
-        return BolusReviewResponse(boluses=[], total_count=0, period_days=days)
+        return BolusReviewResponse(
+            boluses=[], total_count=0, period_days=max(1, round(period_days))
+        )
 
     # Count total
     count_result = await db.execute(
         select(func.count()).where(
             PumpEvent.user_id == current_user.id,
             PumpEvent.event_timestamp >= cutoff,
+            PumpEvent.event_timestamp <= now,
             PumpEvent.units.is_not(None),
             PumpEvent.units >= 0,
             PumpEvent.units <= _MAX_BOLUS_UNITS,
@@ -2285,6 +2416,7 @@ async def get_bolus_review(
         .where(
             PumpEvent.user_id == current_user.id,
             PumpEvent.event_timestamp >= cutoff,
+            PumpEvent.event_timestamp <= now,
             PumpEvent.units.is_not(None),
             PumpEvent.units >= 0,
             PumpEvent.units <= _MAX_BOLUS_UNITS,
@@ -2316,5 +2448,5 @@ async def get_bolus_review(
             for e in events
         ],
         total_count=total,
-        period_days=days,
+        period_days=max(1, round(period_days)),
     )

@@ -133,7 +133,7 @@ export default function DashboardPage() {
 
   return (
     <PageTransition>
-    <main id="main-content" className="space-y-6">
+    <div className="space-y-6">
       {/* Connection status banner - Story 4.5 */}
       <ConnectionStatusBanner
         isReconnecting={isReconnecting}
@@ -243,7 +243,7 @@ export default function DashboardPage() {
           isLoading={tirLoading}
         />
       </AnimatedCard>
-    </main>
+    </div>
     </PageTransition>
   );
 }
