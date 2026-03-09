@@ -15,7 +15,7 @@
  * - Accessible labels for pump status metrics
  */
 
-import { useState, useEffect } from "react";
+import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import clsx from "clsx";
 import {
   type TrendDirection,
@@ -190,12 +190,7 @@ export function GlucoseHero({
   isLoading = false,
   thresholds,
 }: GlucoseHeroProps) {
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
-  useEffect(() => {
-    if (typeof window.matchMedia === "function") {
-      setPrefersReducedMotion(window.matchMedia("(prefers-reduced-motion: reduce)").matches);
-    }
-  }, []);
+  const prefersReducedMotion = useReducedMotion();
 
   // Loading skeleton state
   if (isLoading) {

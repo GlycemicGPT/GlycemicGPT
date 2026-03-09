@@ -17,12 +17,12 @@ interface DashboardLayoutProps {
 
 export function DashboardLayout({ children }: DashboardLayoutProps) {
   return (
-    <div className="h-screen flex overflow-hidden bg-slate-50 dark:bg-slate-950">
+    <div data-dashboard-root className="h-screen flex overflow-hidden bg-slate-50 dark:bg-slate-950">
       {/* Desktop sidebar -- natural flex child, no position:fixed */}
       <Sidebar />
 
       {/* Main content column */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div data-dashboard-content className="flex-1 flex flex-col overflow-hidden">
         {/* Header -- stays at top naturally */}
         <Header />
 

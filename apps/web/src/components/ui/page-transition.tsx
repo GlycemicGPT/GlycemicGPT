@@ -24,9 +24,10 @@ export function PageTransition({ children, className }: PageTransitionProps) {
       return;
     }
     // Trigger fade on next frame so the transition actually animates
-    requestAnimationFrame(() => {
+    const id = requestAnimationFrame(() => {
       el.style.opacity = "1";
     });
+    return () => cancelAnimationFrame(id);
   }, []);
 
   return (

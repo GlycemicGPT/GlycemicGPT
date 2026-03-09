@@ -188,7 +188,7 @@ export default function AIChatPage() {
 
   // Ready state - main chat interface
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)]">
+    <div className="flex flex-col h-full -m-4 lg:-m-6">
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800">
         <div className="flex items-center gap-3">

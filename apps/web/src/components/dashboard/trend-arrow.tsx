@@ -8,8 +8,8 @@
  * Can be used standalone or embedded in other components.
  */
 
-import { useState, useEffect } from "react";
 import clsx from "clsx";
+import { useReducedMotion } from "@/hooks/use-reduced-motion";
 
 /**
  * Trend direction enum matching CGM API values.
@@ -152,12 +152,7 @@ export function TrendArrow({
   animated = false,
   className,
 }: TrendArrowProps) {
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
-  useEffect(() => {
-    if (typeof window.matchMedia === "function") {
-      setPrefersReducedMotion(window.matchMedia("(prefers-reduced-motion: reduce)").matches);
-    }
-  }, []);
+  const prefersReducedMotion = useReducedMotion();
 
   const arrow = TREND_ARROWS[direction];
   const description = TREND_DESCRIPTIONS[direction];

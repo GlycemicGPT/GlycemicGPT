@@ -91,11 +91,27 @@ body {
   }
 }
 
-/* Print styles for Reports page */
+/* Print styles -- scoped to dashboard layout via data attributes */
 @media print {
-  body {
+  html, body {
+    height: auto !important;
+    overflow: visible !important;
     background: white !important;
     color: black !important;
+  }
+  /* Reset the dashboard flex layout so content flows across pages.
+     Scoped to data-dashboard-root/content to avoid hitting unrelated
+     components that also use .flex-1, .overflow-hidden, etc. */
+  [data-dashboard-root] {
+    height: auto !important;
+    overflow: visible !important;
+    background: white !important;
+    display: block !important;
+  }
+  [data-dashboard-content] {
+    overflow: visible !important;
+    display: block !important;
+    width: 100% !important;
   }
   /* Hide sidebar, header, mobile nav */
   aside,
@@ -106,13 +122,20 @@ body {
   }
   /* Make main content full width */
   main {
+    overflow: visible !important;
     margin-left: 0 !important;
     padding: 0 !important;
     max-width: 100% !important;
+    width: 100% !important;
+    height: auto !important;
+    flex: none !important;
   }
   /* Remove dark mode styling */
   .dark {
     color-scheme: light;
+  }
+  [data-dashboard-root] {
+    background: white !important;
   }
   /* Force light text colors for print within main content area */
   main *:not([style*="background"]):not(svg):not(svg *) {

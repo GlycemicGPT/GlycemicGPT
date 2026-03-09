@@ -7,7 +7,7 @@
  * with previous-period comparison and delta indicator.
  */
 
-import { useState, useEffect } from "react";
+import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import clsx from "clsx";
 
 import type { TirBucket } from "@/lib/api";
@@ -175,12 +175,7 @@ export function TimeInRangeBar({
   onPeriodChange,
   className,
 }: TimeInRangeBarProps) {
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
-  useEffect(() => {
-    if (typeof window.matchMedia === "function") {
-      setPrefersReducedMotion(window.matchMedia("(prefers-reduced-motion: reduce)").matches);
-    }
-  }, []);
+  const prefersReducedMotion = useReducedMotion();
 
   // Loading skeleton
   if (isLoading) {
