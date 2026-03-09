@@ -17,7 +17,6 @@
  */
 
 import { useMemo, useState } from "react";
-import { motion, useReducedMotion } from "framer-motion";
 import clsx from "clsx";
 import {
   FileText,
@@ -191,7 +190,6 @@ export function AIInsightCard({ insight, onRespond, onFetchDetail }: AIInsightCa
   const [detail, setDetail] = useState<InsightDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
-  const prefersReducedMotion = useReducedMotion();
 
   const config = ANALYSIS_CONFIG[insight.analysis_type];
   const Icon = config.icon;
@@ -271,16 +269,13 @@ export function AIInsightCard({ insight, onRespond, onFetchDetail }: AIInsightCa
   };
 
   return (
-    <motion.article
+    <article
       className={clsx(
         "rounded-xl border p-5 transition-colors",
         "bg-white dark:bg-slate-900",
         config.border,
         "focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2 focus-within:ring-offset-white dark:focus-within:ring-offset-slate-950"
       )}
-      initial={prefersReducedMotion ? false : { opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
       aria-label={`${config.label}: ${insight.title}`}
     >
       {/* Screen reader announcement for status changes */}
@@ -524,6 +519,6 @@ export function AIInsightCard({ insight, onRespond, onFetchDetail }: AIInsightCa
           </button>
         </div>
       )}
-    </motion.article>
+    </article>
   );
 }

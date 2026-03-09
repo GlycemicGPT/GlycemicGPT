@@ -8,7 +8,7 @@
  * Can be used standalone or embedded in other components.
  */
 
-import { motion, useReducedMotion } from "framer-motion";
+import { useState, useEffect } from "react";
 import clsx from "clsx";
 
 /**
@@ -86,26 +86,12 @@ const SIZE_CLASSES: Record<TrendArrowSize, string> = {
   xl: "text-5xl",
 };
 
-/** Animation variants for the arrow */
-const arrowAnimation = {
-  RisingFast: {
-    y: [0, -3, 0],
-    transition: { duration: 0.8, repeat: Infinity, ease: "easeInOut" },
-  },
-  Rising: {
-    y: [0, -2, 0],
-    transition: { duration: 1.2, repeat: Infinity, ease: "easeInOut" },
-  },
-  Stable: undefined,
-  Falling: {
-    y: [0, 2, 0],
-    transition: { duration: 1.2, repeat: Infinity, ease: "easeInOut" },
-  },
-  FallingFast: {
-    y: [0, 3, 0],
-    transition: { duration: 0.8, repeat: Infinity, ease: "easeInOut" },
-  },
-  Unknown: undefined,
+/** CSS animation classes for trend arrow bounce (keyframes in globals.css) */
+const ARROW_ANIM_CLASS: Partial<Record<TrendDirection, string>> = {
+  RisingFast: "animate-trend-bounce-up-fast",
+  Rising: "animate-trend-bounce-up",
+  Falling: "animate-trend-bounce-down",
+  FallingFast: "animate-trend-bounce-down-fast",
 };
 
 /**
@@ -166,7 +152,12 @@ export function TrendArrow({
   animated = false,
   className,
 }: TrendArrowProps) {
-  const prefersReducedMotion = useReducedMotion();
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+  useEffect(() => {
+    if (typeof window.matchMedia === "function") {
+      setPrefersReducedMotion(window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+    }
+  }, []);
 
   const arrow = TREND_ARROWS[direction];
   const description = TREND_DESCRIPTIONS[direction];
@@ -175,7 +166,7 @@ export function TrendArrow({
   const color = colorClass ?? (useTrendColor ? TREND_COLORS[direction] : "");
 
   // Should we animate?
-  const shouldAnimate = animated && !prefersReducedMotion && arrowAnimation[direction];
+  const animClass = animated && !prefersReducedMotion ? ARROW_ANIM_CLASS[direction] : undefined;
 
   // Build common props
   const ariaProps = decorative
@@ -188,22 +179,9 @@ export function TrendArrow({
     ...ariaProps,
   };
 
-  // Wrap in motion.span if animated
-  if (shouldAnimate) {
-    return (
-      <motion.span
-        className={clsx(SIZE_CLASSES[size], color, className, "inline-block")}
-        animate={arrowAnimation[direction]}
-        {...commonProps}
-      >
-        {arrow}
-      </motion.span>
-    );
-  }
-
   return (
     <span
-      className={clsx(SIZE_CLASSES[size], color, className)}
+      className={clsx(SIZE_CLASSES[size], color, className, animClass && "inline-block", animClass)}
       {...commonProps}
     >
       {arrow}

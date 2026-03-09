@@ -7,7 +7,7 @@
  * with previous-period comparison and delta indicator.
  */
 
-import { motion, useReducedMotion } from "framer-motion";
+import { useState, useEffect } from "react";
 import clsx from "clsx";
 
 import type { TirBucket } from "@/lib/api";
@@ -175,7 +175,12 @@ export function TimeInRangeBar({
   onPeriodChange,
   className,
 }: TimeInRangeBarProps) {
-  const prefersReducedMotion = useReducedMotion();
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+  useEffect(() => {
+    if (typeof window.matchMedia === "function") {
+      setPrefersReducedMotion(window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+    }
+  }, []);
 
   // Loading skeleton
   if (isLoading) {
@@ -288,12 +293,6 @@ export function TimeInRangeBar({
   const ariaDescription = `Time in range for ${periodLabel}: ${ordered
     .map((b) => `${BUCKET_LABELS[b.label]} ${formatPercentage(b.pct)}`)
     .join(", ")}. ${readingsCount} readings. Target: ${targetRange}.`;
-
-  // Animation variants
-  const barVariants = {
-    hidden: { scaleX: 0 },
-    visible: { scaleX: 1, transition: { duration: 0.6, ease: "easeOut" } },
-  };
 
   const shouldAnimate = !prefersReducedMotion;
 
@@ -413,22 +412,10 @@ export function TimeInRangeBar({
       </div>
 
       {/* Bar */}
-      {shouldAnimate ? (
-        <motion.div
-          initial="hidden"
-          animate="visible"
-          variants={barVariants}
-          style={{ originX: 0 }}
-        >
-          {currentBar}
-          {previousBar}
-        </motion.div>
-      ) : (
-        <>
-          {currentBar}
-          {previousBar}
-        </>
-      )}
+      <div className={shouldAnimate ? "animate-tir-bar-expand origin-left" : undefined}>
+        {currentBar}
+        {previousBar}
+      </div>
 
       {/* Legend -- 5 items, flex-wrap for narrow screens */}
       <div

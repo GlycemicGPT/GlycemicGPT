@@ -278,7 +278,7 @@ export default function CaregiverDashboardPage() {
 
   if (isLoading) {
     return (
-      <main id="main-content" className="space-y-6">
+      <div className="space-y-6">
         <div>
           <h1 className="text-2xl font-bold">Caregiver Dashboard</h1>
           <p className="text-slate-500 dark:text-slate-400">Loading patient data</p>
@@ -291,13 +291,13 @@ export default function CaregiverDashboardPage() {
           <Loader2 className="h-8 w-8 text-blue-400 animate-spin mx-auto mb-3" />
           <p className="text-slate-500 dark:text-slate-400">Loading dashboard...</p>
         </div>
-      </main>
+      </div>
     );
   }
 
   if (patients.length === 0) {
     return (
-      <main id="main-content" className="space-y-6">
+      <div className="space-y-6">
         <div>
           <h1 className="text-2xl font-bold">Caregiver Dashboard</h1>
           <p className="text-slate-500 dark:text-slate-400">Monitor your patient&apos;s glucose</p>
@@ -310,12 +310,12 @@ export default function CaregiverDashboardPage() {
             GlycemicGPT web app.
           </p>
         </div>
-      </main>
+      </div>
     );
   }
 
   return (
-    <main id="main-content" className="space-y-6">
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -757,6 +757,6 @@ export default function CaregiverDashboardPage() {
           Data refreshes automatically every 60 seconds.
         </p>
       </div>
-    </main>
+    </div>
   );
 }
