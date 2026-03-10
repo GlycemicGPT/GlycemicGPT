@@ -6,6 +6,21 @@ object GlucoseDisplayUtils {
 
     fun isValidGlucose(mgDl: Int): Boolean = mgDl in 20..500
 
+    data class Thresholds(val low: Int, val high: Int, val urgentLow: Int, val urgentHigh: Int)
+
+    fun sanitizeThresholds(
+        rawLow: Int,
+        rawHigh: Int,
+        rawUrgentLow: Int,
+        rawUrgentHigh: Int,
+    ): Thresholds {
+        val low = rawLow.coerceIn(40, 200)
+        val high = rawHigh.coerceIn(maxOf(low + 1, 100), 400)
+        val urgentLow = rawUrgentLow.coerceIn(20, low)
+        val urgentHigh = rawUrgentHigh.coerceIn(high, 500)
+        return Thresholds(low, high, urgentLow, urgentHigh)
+    }
+
     fun bgColor(mgDl: Int, low: Int, high: Int, urgentLow: Int, urgentHigh: Int): Int {
         return when {
             mgDl <= urgentLow || mgDl >= urgentHigh -> 0xFFEF4444.toInt() // Red

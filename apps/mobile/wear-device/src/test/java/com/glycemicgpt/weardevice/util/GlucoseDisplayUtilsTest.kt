@@ -162,4 +162,38 @@ class GlucoseDisplayUtilsTest {
     fun `alertColor returns white for unknown type`() {
         assertEquals(Color.WHITE, GlucoseDisplayUtils.alertColor("unknown"))
     }
+
+    // sanitizeThresholds tests
+
+    @Test
+    fun `sanitizeThresholds passes through valid values unchanged`() {
+        val t = GlucoseDisplayUtils.sanitizeThresholds(70, 180, 55, 250)
+        assertEquals(70, t.low)
+        assertEquals(180, t.high)
+        assertEquals(55, t.urgentLow)
+        assertEquals(250, t.urgentHigh)
+    }
+
+    @Test
+    fun `sanitizeThresholds enforces ordering when low exceeds high`() {
+        val t = GlucoseDisplayUtils.sanitizeThresholds(200, 100, 55, 250)
+        assertTrue("low < high", t.low < t.high)
+        assertTrue("urgentLow <= low", t.urgentLow <= t.low)
+        assertTrue("urgentHigh >= high", t.urgentHigh >= t.high)
+    }
+
+    @Test
+    fun `sanitizeThresholds clamps extreme values`() {
+        val t = GlucoseDisplayUtils.sanitizeThresholds(10, 500, 5, 600)
+        assertEquals(40, t.low)
+        assertEquals(400, t.high)
+        assertEquals(20, t.urgentLow)
+        assertEquals(500, t.urgentHigh) // coerceIn(high=400, 500)
+    }
+
+    @Test
+    fun `sanitizeThresholds high is at least low plus 1`() {
+        val t = GlucoseDisplayUtils.sanitizeThresholds(150, 150, 55, 250)
+        assertTrue("high > low", t.high > t.low)
+    }
 }
