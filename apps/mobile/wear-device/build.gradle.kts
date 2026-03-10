@@ -44,7 +44,7 @@ android {
         }
 
         create("release") {
-            val ksFile = System.getenv("RELEASE_KEYSTORE_FILE")
+            val ksFile = System.getenv("RELEASE_KEYSTORE_FILE")?.takeIf { it.isNotBlank() }
             if (ksFile != null) {
                 storeFile = file(ksFile)
                 storePassword = requireNotNull(System.getenv("RELEASE_KEYSTORE_PASSWORD")) {
@@ -73,7 +73,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
-            val ksFile = System.getenv("RELEASE_KEYSTORE_FILE")
+            val ksFile = System.getenv("RELEASE_KEYSTORE_FILE")?.takeIf { it.isNotBlank() }
             signingConfig = if (ksFile != null) {
                 signingConfigs.getByName("release")
             } else {
