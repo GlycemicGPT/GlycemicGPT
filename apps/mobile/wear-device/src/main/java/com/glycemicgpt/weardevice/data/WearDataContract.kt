@@ -1,4 +1,4 @@
-package com.glycemicgpt.mobile.wear
+package com.glycemicgpt.weardevice.data
 
 object WearDataContract {
     // DataClient paths (persistent state sync)

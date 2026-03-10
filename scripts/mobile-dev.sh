@@ -63,7 +63,9 @@ case "${1:-help}" in
         echo "Debug APKs built:"
         [ -f "$PHONE_APK" ] && echo "  Phone: $PHONE_APK"
         [ -f "$MOBILE_DIR/wear/build/outputs/apk/debug/wear-debug.apk" ] && \
-            echo "  Wear:  $MOBILE_DIR/wear/build/outputs/apk/debug/wear-debug.apk"
+            echo "  Wear (legacy):  $MOBILE_DIR/wear/build/outputs/apk/debug/wear-debug.apk"
+        [ -f "$MOBILE_DIR/wear-device/build/outputs/apk/debug/wear-device-debug.apk" ] && \
+            echo "  Wear Device:    $MOBILE_DIR/wear-device/build/outputs/apk/debug/wear-device-debug.apk"
         ;;
 
     emulator)
