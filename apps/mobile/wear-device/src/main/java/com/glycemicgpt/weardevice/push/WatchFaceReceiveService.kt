@@ -10,9 +10,11 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeout
 import timber.log.Timber
 import java.io.File
-import java.io.FileOutputStream
+import java.io.InputStream
+import java.io.OutputStream
 
 /**
  * Receives watch face APK bytes from the phone app via ChannelClient
@@ -27,6 +29,15 @@ import java.io.FileOutputStream
  */
 class WatchFaceReceiveService : WearableListenerService() {
 
+    companion object {
+        /** Max APK size: 50 MB -- WFF faces are typically <5 MB */
+        private const val MAX_APK_SIZE_BYTES = 50L * 1024 * 1024
+        /** Timeout for receiving APK bytes from phone */
+        private const val RECEIVE_TIMEOUT_MS = 120_000L
+        /** APK magic bytes (PK zip header) */
+        private val APK_MAGIC = byteArrayOf(0x50, 0x4B, 0x03, 0x04)
+    }
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onChannelOpened(channel: ChannelClient.Channel) {
@@ -39,15 +50,18 @@ class WatchFaceReceiveService : WearableListenerService() {
     }
 
     private suspend fun receiveAndInstallWatchFace(channel: ChannelClient.Channel) {
-        val tempFile = File(cacheDir, "watchface-push.apk")
+        val tempFile = File.createTempFile("watchface-push-", ".apk", cacheDir)
         try {
-            // Read APK bytes from channel into temp file
+            // Read APK bytes from channel into temp file with timeout and size limit
             val channelClient = Wearable.getChannelClient(this)
             val inputStream = channelClient.getInputStream(channel).await()
-            FileOutputStream(tempFile).use { output ->
-                inputStream.copyTo(output, bufferSize = 8192)
+            inputStream.use { input ->
+                withTimeout(RECEIVE_TIMEOUT_MS) {
+                    tempFile.outputStream().use { output ->
+                        copyWithLimit(input, output, MAX_APK_SIZE_BYTES)
+                    }
+                }
             }
-            inputStream.close()
 
             val fileSize = tempFile.length()
             if (fileSize == 0L) {
@@ -55,6 +69,14 @@ class WatchFaceReceiveService : WearableListenerService() {
                 sendStatus("error", error = "Empty APK received")
                 return
             }
+
+            // Validate APK magic bytes (PK zip header)
+            if (!hasValidApkHeader(tempFile)) {
+                Timber.w("Received file is not a valid APK (bad magic bytes)")
+                sendStatus("error", error = "Invalid APK format")
+                return
+            }
+
             Timber.d("Received watch face APK: %d bytes", fileSize)
 
             // Install via Watch Face Push API
@@ -88,15 +110,47 @@ class WatchFaceReceiveService : WearableListenerService() {
         }
     }
 
+    /**
+     * Copy from input to output with a size limit to prevent disk exhaustion.
+     * Throws [IllegalStateException] if the limit is exceeded.
+     */
+    private fun copyWithLimit(input: InputStream, output: OutputStream, maxBytes: Long) {
+        val buffer = ByteArray(8192)
+        var totalBytes = 0L
+        var bytesRead: Int
+        while (input.read(buffer).also { bytesRead = it } != -1) {
+            totalBytes += bytesRead
+            if (totalBytes > maxBytes) {
+                throw IllegalStateException(
+                    "APK exceeds maximum size of ${maxBytes / (1024 * 1024)} MB",
+                )
+            }
+            output.write(buffer, 0, bytesRead)
+        }
+    }
+
+    /** Validate that the file starts with a PK zip header (APK is a zip file). */
+    private fun hasValidApkHeader(file: File): Boolean {
+        if (file.length() < APK_MAGIC.size) return false
+        val header = ByteArray(APK_MAGIC.size)
+        file.inputStream().use { it.read(header) }
+        return header.contentEquals(APK_MAGIC)
+    }
+
+    /**
+     * Send install status back to the phone via MessageClient.
+     * Uses a simple `key=value` format with newline separators to avoid
+     * delimiter injection (values are sanitized to remove newlines).
+     */
     private suspend fun sendStatus(status: String, slotId: String? = null, error: String? = null) {
         try {
             val messageClient = Wearable.getMessageClient(this)
             val nodeClient = Wearable.getNodeClient(this)
             val nodes = nodeClient.connectedNodes.await()
             val payload = buildString {
-                append(status)
-                slotId?.let { append("|slot=$it") }
-                error?.let { append("|error=$it") }
+                append("status=").appendLine(sanitize(status))
+                slotId?.let { append("slot=").appendLine(sanitize(it)) }
+                error?.let { append("error=").appendLine(sanitize(it)) }
             }.toByteArray()
 
             nodes.forEach { node ->
@@ -110,6 +164,10 @@ class WatchFaceReceiveService : WearableListenerService() {
             Timber.w(e, "Failed to send push status to phone")
         }
     }
+
+    /** Strip newlines and equals signs from values to prevent payload injection. */
+    private fun sanitize(value: String): String =
+        value.replace('\n', ' ').replace('\r', ' ').replace('=', '_')
 
     override fun onDestroy() {
         scope.cancel()

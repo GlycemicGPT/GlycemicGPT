@@ -78,12 +78,14 @@ class WatchFaceInstaller(private val context: Context) {
 
             val pfd = ParcelFileDescriptor.open(apkFile, ParcelFileDescriptor.MODE_READ_ONLY)
             val details = try {
+                // validationToken is empty: GlycemicGPT is sideloaded (not Play Store),
+                // so marketplace validation is not applicable.
                 if (existing != null) {
                     Timber.d("Updating existing watch face in slot: %s", existing.slotId)
-                    pushManager.updateWatchFace(existing.slotId, pfd, /* validationToken= */ "")
+                    pushManager.updateWatchFace(existing.slotId, pfd, "")
                 } else {
                     Timber.d("Installing new watch face")
-                    pushManager.addWatchFace(pfd, /* validationToken= */ "")
+                    pushManager.addWatchFace(pfd, "")
                 }
             } finally {
                 pfd.close()

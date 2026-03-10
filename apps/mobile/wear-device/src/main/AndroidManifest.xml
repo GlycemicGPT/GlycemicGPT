@@ -56,7 +56,10 @@
                 android:value="0" />
         </service>
 
-        <!-- Watch Face Push receiver (receives APK from phone via ChannelClient) -->
+        <!-- Watch Face Push receiver (receives APK from phone via ChannelClient).
+             Exported for Wearable Data Layer system dispatch. Channel events are
+             authenticated by Google Play Services node identity (paired device only).
+             APK content is validated before install (magic bytes + Push API validation). -->
         <service
             android:name=".push.WatchFaceReceiveService"
             android:exported="true">

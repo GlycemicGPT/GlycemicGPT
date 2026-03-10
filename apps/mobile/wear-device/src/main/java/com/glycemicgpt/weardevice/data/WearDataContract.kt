@@ -38,9 +38,6 @@ object WearDataContract {
 
     // Watch Face Push status paths (watch -> phone via MessageClient)
     const val WATCHFACE_PUSH_STATUS_PATH = "/glycemicgpt/watchface/status"
-    const val KEY_WATCHFACE_STATUS = "wf_status"
-    const val KEY_WATCHFACE_SLOT_ID = "wf_slot_id"
-    const val KEY_WATCHFACE_ERROR = "wf_error"
 
     // CapabilityClient capabilities
     const val CHAT_RELAY_CAPABILITY = "glycemicgpt_chat_relay"
