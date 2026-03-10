@@ -10,7 +10,7 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.glycemicgpt.weardevice"
+        applicationId = "com.glycemicgpt.mobile"
         minSdk = 33
         targetSdk = 34
 
