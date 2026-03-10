@@ -31,13 +31,19 @@ android {
         if (debugKsFile != null) {
             getByName("debug") {
                 storeFile = file(debugKsFile)
-                storePassword = requireNotNull(System.getenv("DEBUG_KEYSTORE_PASSWORD")) {
+                storePassword = requireNotNull(
+                    System.getenv("DEBUG_KEYSTORE_PASSWORD")?.takeIf { it.isNotBlank() },
+                ) {
                     "DEBUG_KEYSTORE_PASSWORD must be set when DEBUG_KEYSTORE_FILE is provided"
                 }
-                keyAlias = requireNotNull(System.getenv("DEBUG_KEY_ALIAS")) {
+                keyAlias = requireNotNull(
+                    System.getenv("DEBUG_KEY_ALIAS")?.takeIf { it.isNotBlank() },
+                ) {
                     "DEBUG_KEY_ALIAS must be set when DEBUG_KEYSTORE_FILE is provided"
                 }
-                keyPassword = requireNotNull(System.getenv("DEBUG_KEY_PASSWORD")) {
+                keyPassword = requireNotNull(
+                    System.getenv("DEBUG_KEY_PASSWORD")?.takeIf { it.isNotBlank() },
+                ) {
                     "DEBUG_KEY_PASSWORD must be set when DEBUG_KEYSTORE_FILE is provided"
                 }
             }
@@ -47,13 +53,19 @@ android {
             val ksFile = System.getenv("RELEASE_KEYSTORE_FILE")?.takeIf { it.isNotBlank() }
             if (ksFile != null) {
                 storeFile = file(ksFile)
-                storePassword = requireNotNull(System.getenv("RELEASE_KEYSTORE_PASSWORD")) {
+                storePassword = requireNotNull(
+                    System.getenv("RELEASE_KEYSTORE_PASSWORD")?.takeIf { it.isNotBlank() },
+                ) {
                     "RELEASE_KEYSTORE_PASSWORD must be set when RELEASE_KEYSTORE_FILE is provided"
                 }
-                keyAlias = requireNotNull(System.getenv("RELEASE_KEY_ALIAS")) {
+                keyAlias = requireNotNull(
+                    System.getenv("RELEASE_KEY_ALIAS")?.takeIf { it.isNotBlank() },
+                ) {
                     "RELEASE_KEY_ALIAS must be set when RELEASE_KEYSTORE_FILE is provided"
                 }
-                keyPassword = requireNotNull(System.getenv("RELEASE_KEY_PASSWORD")) {
+                keyPassword = requireNotNull(
+                    System.getenv("RELEASE_KEY_PASSWORD")?.takeIf { it.isNotBlank() },
+                ) {
                     "RELEASE_KEY_PASSWORD must be set when RELEASE_KEYSTORE_FILE is provided"
                 }
             }
