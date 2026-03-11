@@ -169,6 +169,7 @@ data class SettingsUiState(
 
 private const val AUTO_DISMISS_MS = 5_000L
 private const val PUSH_TIMEOUT_MS = 150_000L
+private const val TELEMETRY_TIMEOUT_MS = 10_000L
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
@@ -589,6 +590,7 @@ class SettingsViewModel @Inject constructor(
 
     private suspend fun loadWatchDataTelemetry() {
         try {
+            withTimeout(TELEMETRY_TIMEOUT_MS) {
             val dataClient = Wearable.getDataClient(appContext)
             var lastBg: Int? = null
             var lastBgTs: Long? = null
@@ -640,6 +642,7 @@ class SettingsViewModel @Inject constructor(
                     lastIoBTimestampMs = lastIoBTs,
                 ),
             )
+            } // withTimeout
         } catch (e: Exception) {
             Timber.w(e, "Failed to load watch data telemetry")
             _uiState.value = _uiState.value.copy(

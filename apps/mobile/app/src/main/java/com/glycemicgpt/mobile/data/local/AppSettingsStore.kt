@@ -145,7 +145,10 @@ class AppSettingsStore @Inject constructor(
 
     var watchFaceGraphRangeHours: Int
         get() = prefs.getInt(KEY_WATCHFACE_GRAPH_RANGE, 3)
-        set(value) { prefs.edit().putInt(KEY_WATCHFACE_GRAPH_RANGE, value.coerceIn(1, 6)).apply() }
+        set(value) {
+            val validated = if (value in VALID_WATCHFACE_GRAPH_RANGES) value else 3
+            prefs.edit().putInt(KEY_WATCHFACE_GRAPH_RANGE, validated).apply()
+        }
 
     var watchFaceTheme: String
         get() = prefs.getString(KEY_WATCHFACE_THEME, "Dark") ?: "Dark"
@@ -160,6 +163,7 @@ class AppSettingsStore @Inject constructor(
     }
 
     companion object {
+        private val VALID_WATCHFACE_GRAPH_RANGES = listOf(1, 3, 6)
         private const val OLD_PREFS_NAME = "app_settings"
         private const val ENCRYPTED_PREFS_NAME = "app_settings_encrypted"
         private const val KEY_ONBOARDING_COMPLETE = "onboarding_complete"
