@@ -79,12 +79,15 @@ class WatchFaceReceiveService : WearableListenerService() {
             val channelClient = Wearable.getChannelClient(this)
             val inputStream = channelClient.getInputStream(channel).await()
             val watchdog = launchTimeoutWatchdog(channelClient, channel)
-            inputStream.use { input ->
-                tempFile.outputStream().use { output ->
-                    copyWithLimit(input, output, MAX_APK_SIZE_BYTES)
+            try {
+                inputStream.use { input ->
+                    tempFile.outputStream().use { output ->
+                        copyWithLimit(input, output, MAX_APK_SIZE_BYTES)
+                    }
                 }
+            } finally {
+                watchdog.cancel()
             }
-            watchdog.cancel()
 
             val fileSize = tempFile.length()
             if (fileSize == 0L) {
