@@ -43,11 +43,13 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -168,14 +170,49 @@ fun SettingsScreen(
 
         // -- Watch Section --
         SectionHeader(title = "Watch")
-        WatchSection(
+        WatchConnectionCard(
             watchInstalled = state.watchAppInstalled,
             watchConnected = state.watchConnected,
-            watchFacePushState = state.watchFacePushState,
+            watchDeviceName = state.watchDeviceName,
             onCheckStatus = settingsViewModel::checkWatchStatus,
-            onPushWatchFace = settingsViewModel::pushWatchFace,
-            onDismissPushResult = settingsViewModel::dismissWatchFacePushResult,
         )
+        if (state.watchConnected) {
+            Spacer(modifier = Modifier.height(8.dp))
+            WatchFaceCard(
+                watchFacePushState = state.watchFacePushState,
+                onPushWatchFace = settingsViewModel::pushWatchFace,
+                onDismissPushResult = settingsViewModel::dismissWatchFacePushResult,
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            WatchFaceConfigCard(
+                config = state.watchFaceConfig,
+                onConfigChange = settingsViewModel::updateWatchFaceConfig,
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            WatchDataTelemetryCard(
+                telemetry = state.watchDataTelemetry,
+            )
+        } else if (state.watchAppInstalled == true) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "Watch app installed but not nearby. Bring your watch close to this phone and tap Check Watch Status.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(16.dp),
+                )
+            }
+        } else if (state.watchAppInstalled == false) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "Install the GlycemicGPT Wear app on your watch via sideloading. Download the Wear APK from GitHub Releases.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(16.dp),
+                )
+            }
+        }
 
         Spacer(modifier = Modifier.height(20.dp))
 
@@ -1455,13 +1492,11 @@ private fun InfoRow(label: String, value: String) {
 }
 
 @Composable
-private fun WatchSection(
+private fun WatchConnectionCard(
     watchInstalled: Boolean?,
     watchConnected: Boolean,
-    watchFacePushState: WatchFacePushState,
+    watchDeviceName: String?,
     onCheckStatus: () -> Unit,
-    onPushWatchFace: () -> Unit,
-    onDismissPushResult: () -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -1473,18 +1508,22 @@ private fun WatchSection(
                 Icon(
                     imageVector = Icons.Default.Watch,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = if (watchConnected) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
                     modifier = Modifier.size(24.dp),
                 )
                 Spacer(modifier = Modifier.width(12.dp))
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Wear OS Companion",
+                        text = watchDeviceName ?: "Wear OS Companion",
                         style = MaterialTheme.typography.titleSmall,
                     )
                     val statusText = when {
                         watchInstalled == null -> "Status unknown"
-                        watchConnected -> "Connected"
+                        watchConnected -> "Connected -- streaming BG, IoB, alerts"
                         watchInstalled -> "Installed (not nearby)"
                         else -> "Not installed"
                     }
@@ -1501,115 +1540,305 @@ private fun WatchSection(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            if (watchInstalled == true) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = if (watchConnected) Icons.Default.CheckCircle else Icons.Default.Info,
-                        contentDescription = null,
-                        tint = if (watchConnected) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        modifier = Modifier.size(16.dp),
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = if (watchConnected) {
-                            "Watch face receives BG, IoB, and alerts"
-                        } else {
-                            "Bring watch nearby to sync data"
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            } else if (watchInstalled == false) {
-                Text(
-                    text = "Install the GlycemicGPT Wear app on your watch via sideloading. Download the Wear APK from GitHub Releases.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
             OutlinedButton(
                 onClick = onCheckStatus,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text("Check Watch Status")
             }
+        }
+    }
+}
 
-            // Watch face push button (only when watch is connected)
-            if (watchConnected) {
-                Spacer(modifier = Modifier.height(8.dp))
-                val isPushing = watchFacePushState is WatchFacePushState.Pushing
-                Button(
-                    onClick = onPushWatchFace,
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !isPushing,
-                ) {
-                    if (isPushing) {
-                        CircularProgressIndicator(
+@Composable
+private fun WatchFaceCard(
+    watchFacePushState: WatchFacePushState,
+    onPushWatchFace: () -> Unit,
+    onDismissPushResult: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+        ) {
+            Text(
+                text = "Watch Face",
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Text(
+                text = "GlycemicGPT WFF -- BG, trend, IoB, sparkline",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            val isPushing = watchFacePushState is WatchFacePushState.Pushing
+            Button(
+                onClick = onPushWatchFace,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !isPushing,
+            ) {
+                if (isPushing) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Pushing Watch Face...")
+                } else {
+                    Text("Set Watch Face")
+                }
+            }
+
+            when (watchFacePushState) {
+                is WatchFacePushState.Success -> {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(16.dp),
-                            strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.onPrimary,
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Pushing Watch Face...")
-                    } else {
-                        Text("Push Watch Face")
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Watch face sent to watch",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = onDismissPushResult) {
+                            Text("Dismiss")
+                        }
                     }
                 }
+                is WatchFacePushState.Error -> {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Error,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = watchFacePushState.message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = onDismissPushResult) {
+                            Text("Dismiss")
+                        }
+                    }
+                }
+                else -> { /* Idle or Pushing -- no extra UI */ }
+            }
+        }
+    }
+}
 
-                when (watchFacePushState) {
-                    is WatchFacePushState.Success -> {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.CheckCircle,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(16.dp),
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Watch face sent to watch",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.weight(1f),
-                            )
-                            TextButton(onClick = onDismissPushResult) {
-                                Text("Dismiss")
-                            }
-                        }
-                    }
-                    is WatchFacePushState.Error -> {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Error,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.size(16.dp),
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = watchFacePushState.message,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.weight(1f),
-                            )
-                            TextButton(onClick = onDismissPushResult) {
-                                Text("Dismiss")
-                            }
-                        }
-                    }
-                    else -> { /* Idle or Pushing -- no extra UI */ }
+@Composable
+private fun WatchFaceConfigCard(
+    config: WatchFaceConfig,
+    onConfigChange: (WatchFaceConfig) -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+        ) {
+            Text(
+                text = "Watch Face Features",
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Text(
+                text = "Configure watch face display options",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            WatchToggleRow("Show IoB", config.showIoB) {
+                onConfigChange(config.copy(showIoB = it))
+            }
+            WatchToggleRow("Show Glucose Graph", config.showGraph) {
+                onConfigChange(config.copy(showGraph = it))
+            }
+            WatchToggleRow("Show Alert Indicator", config.showAlert) {
+                onConfigChange(config.copy(showAlert = it))
+            }
+            WatchToggleRow("Show Seconds", config.showSeconds) {
+                onConfigChange(config.copy(showSeconds = it))
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            Text(
+                text = "Graph Range",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                listOf(1, 3, 6).forEach { hours ->
+                    FilterChip(
+                        selected = config.graphRangeHours == hours,
+                        onClick = { onConfigChange(config.copy(graphRangeHours = hours)) },
+                        label = { Text("${hours}H") },
+                    )
+                }
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            Text(
+                text = "Theme",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            WatchFaceTheme.entries.forEach { theme ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(
+                        selected = config.theme == theme,
+                        onClick = { onConfigChange(config.copy(theme = theme)) },
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = theme.label,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun WatchToggleRow(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f),
+        )
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+        )
+    }
+}
+
+@Composable
+private fun WatchDataTelemetryCard(
+    telemetry: WatchDataTelemetry,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+        ) {
+            Text(
+                text = "Data Sync",
+                style = MaterialTheme.typography.titleSmall,
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            if (telemetry.loadError != null) {
+                Text(
+                    text = telemetry.loadError,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            } else {
+                TelemetryRow(
+                    label = "Last BG sent",
+                    value = telemetry.lastBgMgDl?.let { "$it mg/dL" },
+                    timestampMs = telemetry.lastBgTimestampMs,
+                )
+                TelemetryRow(
+                    label = "Last IoB sent",
+                    value = telemetry.lastIoB?.let { "%.2fU".format(it) },
+                    timestampMs = telemetry.lastIoBTimestampMs,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TelemetryRow(
+    label: String,
+    value: String?,
+    timestampMs: Long?,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        if (value != null) {
+            Text(
+                text = value,
+                style = MaterialTheme.typography.bodySmall,
+            )
+            if (timestampMs != null && timestampMs > 0) {
+                Spacer(modifier = Modifier.width(4.dp))
+                val ago = formatTimeAgo(timestampMs)
+                Text(
+                    text = "($ago)",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else {
+            Text(
+                text = "--",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+internal fun formatTimeAgo(timestampMs: Long): String {
+    val diff = System.currentTimeMillis() - timestampMs
+    if (diff < 0) return "just now"
+    return when {
+        diff < 60_000 -> "just now"
+        diff < 3_600_000 -> "${diff / 60_000}m ago"
+        diff < 86_400_000 -> "${diff / 3_600_000}h ago"
+        else -> "${diff / 86_400_000}d ago"
     }
 }
 

@@ -1,6 +1,6 @@
 # GlycemicGPT Implementation Progress
 
-> Last Updated: 2026-03-08
+> Last Updated: 2026-03-11
 
 ## Summary
 
@@ -37,12 +37,14 @@
 | 29 | App Icons & Branding | 3/3 | **Complete** |
 | 30 | Advanced Web Dashboard Visualization | 9/9 | **Complete** |
 | 31 | Mobile Dashboard Parity & Hub-and-Spoke Redesign | 5/8 | **In Progress** |
+| 32 | Wear OS Watch Face Management | 3/10 | **In Progress** |
 | 33 | Data Source Abstraction & CGM Intelligence | 0/12 | Planned |
 | 34 | Code Quality & Technical Debt Elimination | 0/17 | Planned |
 | 35 | AI Intelligence Pipeline | 0/19 | Planned |
 | 36 | Android App Distribution Strategy | 0/4 | Planned |
 | 37 | Longitudinal Reports & Data Visualization | 0/6 | Planned |
 | 38 | Historical Data Import & Platform Migration | 0/8 | Planned |
+| 39 | Backend-Driven Protocol Architecture & Play Store Adoption | 0/15 | Planned |
 
 **MVP Stories:** 54/54 complete (100%)
 **Post-MVP Fix Stories:** 13/13 complete (100%)
@@ -63,13 +65,15 @@
 **Epic 29 (App Icons & Branding):** 3/3 complete
 **Epic 30 (Web Dashboard Visualization):** 10/10 complete
 **Epic 31 (Mobile Dashboard Parity):** 5/8 complete (2 cancelled)
+**Epic 32 (Wear OS Watch Face Management):** 3/10 complete
 **Epic 33 (Data Source Abstraction):** 0/12 planned
 **Epic 34 (Code Quality):** 0/17 planned
 **Epic 35 (AI Intelligence Pipeline):** 0/19 planned
 **Epic 36 (Android Distribution Strategy):** 0/4 planned
 **Epic 37 (Longitudinal Reports):** 0/6 planned
 **Epic 38 (Historical Data Import):** 0/8 planned
-**Overall Progress:** 158/243 stories planned/complete
+**Epic 39 (Backend-Driven Protocol & Play Store):** 0/15 planned
+**Overall Progress:** 161/268 stories planned/complete
 
 ### Standalone Bug Fixes
 
@@ -1246,6 +1250,56 @@ Any new stats calculations (CGM summary, insulin summary, AGP percentiles, 5-buc
 
 ---
 
+## Epic 32: Wear OS Watch Face Management
+
+**Status:** In Progress (3/10 stories)
+
+**Goal:** Full watch face management from the phone app using the Watch Face Push API (Wear OS 6+). Single-app architecture -- all watch management lives in the main GlycemicGPT mobile app. No separate wear companion app.
+
+**Architecture doc:** `docs/wear-os-architecture.md`
+**Planning doc:** `_bmad-output/planning-artifacts/epic-32-wear-os-watch-face-push.md`
+
+| # | Title | Status | PR |
+|---|-------|--------|----|
+| 32.1 | Create :wear-device module, migrate watch services | Complete | #358 |
+| 32.2 | Watch Face Push integration (watch side) | Complete | #359 |
+| 32.3 | Phone-side face push (ChannelClient + WFF APK in assets) | Complete | #360 |
+| 32.4 | Settings > Watch full management UI | Complete | #361 |
+| 32.5 | Feature toggle sync (phone -> watch -> WFF UserConfiguration) | Planned | |
+| 32.6 | Watch face gallery (multiple WFF designs) | Planned | |
+| 32.7 | Ambient mode & battery optimization | Planned | |
+| 32.8 | Watch-to-phone AI chat & alert dismiss | Planned | |
+| 32.9 | Remove old wear/ module & cleanup | Planned | |
+| 32.10 | Update documentation & dev scripts | Planned | |
+
+### Story 32.1: Create :wear-device module, migrate watch services
+
+**Status:** Complete (PR #358)
+
+Migrated watch-side services from old `wear/` module to new `:wear-device` module. Established the module that runs on the watch with DataLayer listener, complications, and WatchFacePushManager.
+
+### Story 32.2: Watch Face Push integration (watch side)
+
+**Status:** Complete (PR #359)
+
+Watch-side implementation of the Watch Face Push API:
+- `WatchFaceReceiveService`: WearableListenerService that receives APK from phone via ChannelClient, validates (50MB limit, APK magic bytes), installs via WatchFaceInstaller
+- `WatchFaceInstaller`: Wraps WatchFacePushManager with runtime API 36 check, sealed Result class, findExistingFace by packageName prefix
+- 120s timeout with watchdog, Mutex serialization, cooperative cancellation
+- Verified on physical Galaxy Watch 5 (Wear OS 6, API 36)
+
+### Story 32.3: Phone-side face push (ChannelClient + WFF APK in assets)
+
+**Status:** Complete (PR #360)
+
+Phone-side implementation that streams the bundled watch face APK to the watch:
+- `WatchFacePusher`: Hilt @Singleton that discovers watch via CapabilityClient, verifies APK integrity (SHA-256), streams via ChannelClient with 120s send timeout watchdog, AtomicBoolean-coordinated channel close
+- Settings UI: "Push Watch Face" button in Watch section (visible when watch connected), progress/success/error feedback with dismiss button and 5s auto-dismiss
+- SettingsViewModel: WatchFacePushState sealed class, thread-safe push guard, 150s outer timeout, proper coroutine lifecycle (finally cleanup, CancellationException handling)
+- Bundled `glycemicgpt-watchface.apk` (31KB WFF) with .gitattributes entry
+
+---
+
 ## Epic 33: Data Source Abstraction & CGM Intelligence
 
 **Goal:** Replace hardcoded Tandem/Dexcom integration with a generic data source registry. Track sensor sessions, calibrations, and CGM health per source. Render per-source CGM Summary cards. Feed sensor intelligence into AI/alerting. Foundation for third-party platform connectors (Nightscout, Tidepool, LibreView).
@@ -1448,3 +1502,92 @@ Web UI on a new `/dashboard/settings/data/import` page. Drag-and-drop file uploa
 
 **38.8 -- Import Validation, Deduplication & Provenance Tracking**
 Cross-cutting concern applied to all parsers. Deduplication: match incoming records against existing data by (user_id, timestamp, source) with configurable tolerance window (default 2 minutes for glucose, exact match for events). Provenance: every imported record tagged with `import_job_id` and `original_source` (e.g., "medtronic_carelink", "dexcom_clarity"). Validation: reject physiologically impossible values (glucose < 20 or > 600 mg/dL), flag suspicious gaps (>24h with no data), warn on timezone inconsistencies. Undo support: delete all records associated with a specific import job (cascading, respects FK constraints).
+
+---
+
+## Epic 39: Backend-Driven Protocol Architecture & Play Store Adoption
+
+**Status:** Planned (0/15 stories)
+**Goal:** Restructure the mobile plugin architecture so that pump/device protocol definitions and UI configuration are served by the self-hosted backend (as JSON data, not executable code), enabling Google Play Store distribution. Preserve the full-featured sideload variant with DexClassLoader-based native plugins for power users who need bolus delivery capability.
+
+**Planning doc:** `_bmad-output/planning-artifacts/epic-39-backend-driven-protocol-playstore.md`
+
+**Key architectural decisions:**
+- Protocol definitions (JSON) describe BLE service maps, byte layouts, event types, auth module selection. The mobile app ships a generic BLE engine that executes these definitions locally. Backend serves updated definitions; mobile caches them in Room DB with three-tier fallback (server > cache > compiled default).
+- Server-Driven UI (SDUI) allows the backend to control what dashboard cards, detail screens, and settings panels the app displays based on the active device integration.
+- Android build variants (`playstore` vs `sideload`) from the same codebase. `playstore` disables DexClassLoader and restricts BLE writes to auth-only. `sideload` preserves full current architecture plus the new protocol engine.
+- BLE operations are always local -- no network dependency during pump communication. Backend connectivity only matters for definition updates and data sync.
+- Auth modules (EC-JPAKE, X25519+EAP-AKA, SAKE) are compiled-in native code selected by protocol definitions. Crypto is too complex for JSON.
+
+**Regulatory context:**
+- FDA: Read-only monitoring falls under MDDS enforcement discretion (deregulated 2015). AI insights framed as general wellness. Charging $1.99 has no impact on classification. Bolus delivery is sideload-only (user-as-manufacturer, OpenAPS precedent).
+- Google Play: JSON config downloads are explicitly permitted (Firebase Remote Config precedent). Organization account required for health apps (Jan 2026). Medical device disclaimer required. DexClassLoader from external sources is prohibited (hence the architecture shift). Watch Face Format required for watch faces (Jan 2026, already compliant).
+- FTC: Health Breach Notification Rule mandatory for commercial health apps. AI claims must be truthful (Operation AI Comply).
+- Legal: Reverse-engineered BLE is legal (DMCA Section 1201(f) interoperability exception). Juggluco on Play Store proves acceptance. Tandem: low legal risk. Omnipod DASH: medium-high risk (Insulet $452M EOFlow judgment). Medtronic 780G: low-medium risk.
+
+**Dependencies:** Complements Epic 32 (watch unaffected -- DataClient agnostic to data source), Epic 36 (sideload distribution). Related to Epic 33 (data source abstraction).
+
+| # | Title | Type | Status | PR |
+|---|-------|------|--------|----|
+| 39.1 | Protocol Definition Schema Design | Design/Spike | Planned | |
+| 39.2 | Generic BLE Protocol Engine (Core) | Mobile | Planned (blocked by 39.1) | |
+| 39.3 | Protocol Cache & Three-Tier Fallback | Mobile | Planned (blocked by 39.1) | |
+| 39.4 | Migrate Tandem X2 Protocol to JSON Definition & Validate | Mobile | Planned (blocked by 39.2, 39.3) | |
+| 39.5 | Backend Protocol Definition Service | Backend | Planned (blocked by 39.1) | |
+| 39.6 | Server-Driven UI (SDUI) Schema & Compose Renderer | Mobile | Planned | |
+| 39.7 | Backend SDUI Layout Service | Backend | Planned (blocked by 39.6) | |
+| 39.8 | Build Variant Split (playstore vs sideload) | Mobile/Build | Planned (blocked by 39.2, 39.6) | |
+| 39.9 | Integration Registry & Generic Device Setup Flow | Full Stack | Planned (blocked by 39.4, 39.5, 39.7) | |
+| 39.10 | Play Store Compliance Preparation | Admin/Legal | Planned | |
+| 39.11 | Play Store CI/CD Pipeline | DevOps | Planned (blocked by 39.8, 39.10) | |
+| 39.12 | Wear OS Play Store Publishing | DevOps/Mobile | Planned (blocked by 39.8) | |
+| 39.13 | Omnipod DASH Protocol Definition (Read-Only) | Mobile/Backend | Planned (blocked by 39.2) | |
+| 39.14 | Medtronic 780G Protocol Definition (Read-Only, Stretch) | Mobile/Backend | Planned (blocked by 39.2) | |
+| 39.15 | Closed Testing & Play Store Submission | Release | Planned (blocked by all) | |
+
+### Story Details
+
+**39.1 -- Protocol Definition Schema Design**
+Design the JSON schema for declarative BLE protocol definitions. Must express: device identification (BLE advertisement filters), GATT service/characteristic maps, auth module selection (EC-JPAKE for Tandem, X25519+EAP-AKA for Omnipod, SAKE for Medtronic), record/message byte layouts with typed field extraction, operation definitions (write opcode, wait for ACK, stream with idle timeout, multi-packet assembly), state machines for initialization/polling/shutdown, capability classification (monitoring vs control), and domain model mapping. Validate by writing example definitions for Tandem X2 (full), Omnipod DASH (read-only), and Medtronic 780G (partial). Produce JSON Schema validation file. Output: schema spec, validation file, three example definitions, design document.
+
+**39.2 -- Generic BLE Protocol Engine (Core)**
+Build the BLE execution engine that reads protocol definitions and executes GATT operations locally. Supports: service discovery by UUID, characteristic read/write/notify, byte parsing by offset/type/endianness, multi-packet assembly with configurable idle timeout, auth module dispatch (compiled-in modules selected by definition), state machine execution with conditional transitions. Implements the existing `DevicePlugin` interface so the PluginRegistry treats protocol-engine-backed devices identically to native plugins. Capability enforcement: `playstore` builds refuse `control` operations at the engine level (compile-time exclusion, not runtime check). Architecture: ProtocolDefinition (data) -> ProtocolEngine (orchestrator) -> AuthModuleRegistry + GattOperationExecutor + RecordParser + DomainMapper + StateMachineRunner. Unit tests with mock BLE stack.
+
+**39.3 -- Protocol Cache & Three-Tier Fallback**
+Room DB table for cached protocol definitions (deviceModel, version, definitionJson, fetchedAt, source). Three-tier resolution: server value > cached value > compiled-in default (JSON in assets/protocols/). Background sync via WorkManager checks backend every 24h for updated definitions. Never blocks on network fetch -- always uses best available local definition. Cache integrity validation against JSON Schema; corrupted entries fall back to compiled default. Version comparison via semantic versioning. Offline resilience: silent fallback, no error UI, no retry loop.
+
+**39.4 -- Migrate Tandem X2 Protocol to JSON Definition & Validate**
+Critical validation gate for the entire epic. Express the current Tandem X2 BLE protocol (FFF0/FFF6/FFF8, EC-JPAKE auth, opcode-ACK-stream pattern, 26-byte records, event types 399/280/16, status response parsing) as a JSON protocol definition. Place in assets/protocols/ as compiled-in default. Create integration test that feeds recorded BLE byte sequences to both the native TandemPlugin and the ProtocolEngine with the Tandem definition and asserts identical domain model output (same GlucoseReadings, BolusEvents, PumpStatus values). GO/NO-GO: if the engine cannot match the native plugin's output for 100% of test cases, the story fails and the epic requires redesign.
+
+**39.5 -- Backend Protocol Definition Service**
+FastAPI endpoints: GET /api/v1/protocols (list available), GET /api/v1/protocols/{device_model} (fetch definition with ETag), GET /api/v1/protocols/{device_model}/version (lightweight version check), POST/PUT/DELETE admin endpoints for CRUD. PostgreSQL model: ProtocolDefinition(device_model, display_name, version, schema_version, definition_json JSONB, capabilities ARRAY, is_active). Seed with Tandem X2 definition from 39.4. Validation: reject definitions that don't pass JSON Schema.
+
+**39.6 -- Server-Driven UI (SDUI) Schema & Compose Renderer**
+Design JSON schema for UI layout definitions (dashboard cards, detail screens, settings panels). Build Compose-based SDUI renderer that maps JSON component types to Compose composables (Card, Text, Row, Column, Chart, Toggle, etc.). Support data binding (references like "$cgm.glucose" resolved against current device data), conditional rendering (show/hide based on connection state), and theming via design system tokens. Offline fallback: cache layouts in Room DB, render from cache on launch, fetch fresh in background. Graceful degradation: unknown component types render as empty containers. This is additive -- existing native UI continues to work alongside SDUI components.
+
+**39.7 -- Backend SDUI Layout Service**
+FastAPI endpoints for UI layout definitions per device type: GET /api/v1/layouts/{device_model}/dashboard, /detail/{screen_id}, /settings. PostgreSQL model: UiLayout(device_model, screen_type, screen_id, version, layout_json JSONB). Seed with Tandem X2 layouts matching current native UI.
+
+**39.8 -- Build Variant Split (playstore vs sideload)**
+Add `distribution` flavor dimension to build.gradle.kts. `playstore` flavor: applicationId "com.glycemicgpt.mobile", disables DexClassLoader (RUNTIME_PLUGINS_ENABLED=false), restricts BLE writes (BLE_WRITE_RESTRICTED=true), enables protocol engine and SDUI. `sideload` flavor: applicationId "com.glycemicgpt.mobile.sideload", preserves full current architecture plus protocol engine. Source sets: app/src/playstore/ (no DexPluginLoader, BLE write enforcer), app/src/sideload/ (full plugin loading, no-op enforcer). CI builds and tests both variants. Key principle: playstore binary must not contain any code path for BLE control writes (verified by review and static analysis).
+
+**39.9 -- Integration Registry & Generic Device Setup Flow**
+Replace hardcoded Tandem pairing flow with generic flow driven by integration registry. Backend: UserIntegration model (user_id, device_model, protocol_version, device_address, configuration, is_active). Endpoints: list available integrations, register/update/remove user integrations. Mobile: Settings > Integrations > "Add Device" flow that fetches available integrations from backend, downloads protocol definition, shows protocol-specific setup UI (pairing code for Tandem, pod activation for Omnipod), executes BLE pairing via generic engine, confirms with backend. Backward compatible: native Tandem plugin still works in sideload variant.
+
+**39.10 -- Play Store Compliance Preparation**
+Administrative setup (no code): Register Organization account ($25), obtain D-U-N-S number (free, ~30 days), complete organization verification, generate upload keystore (separate from debug), enroll in Play App Signing, draft and host privacy policy (publicly accessible URL covering health data, BLE, backend sync, AI processing, retention), prepare Health Apps Declaration, write store listing with medical device disclaimer in first paragraph, complete Data Safety section, complete IARC content rating. Output: Play Console account ready for app upload.
+
+**39.11 -- Play Store CI/CD Pipeline**
+GitHub Actions workflow triggered on GitHub Release (from release-please). Builds playstoreRelease AAB, signs with upload key from GitHub Secrets (PLAY_SERVICE_ACCOUNT_JSON, UPLOAD_KEYSTORE_BASE64, passwords), uploads to Play Store internal track via r0adkll/upload-google-play. Includes mapping file and debug symbols. versionName from release-please, versionCode auto-derived (major*10000 + minor*100 + patch). Staged rollout support. Separate workflow for Wear OS AAB if published on separate track.
+
+**39.12 -- Wear OS Play Store Publishing**
+Configure :wear-device module for separate Wear OS form factor track on Play Store. Verify WFF compliance (already using Watch Face Format from Epic 32). Wear OS quality checklist: black backgrounds, time display, ongoing activity indicator, swipe-to-exit, crown/bezel support. Multi-device AAB publishing (phone track + wear track, same package name, offset versionCode). Add Wear OS AAB build to Play Store deploy workflow. Wear OS specific screenshots for store listing.
+
+**39.13 -- Omnipod DASH Protocol Definition (Read-Only)**
+LEGAL REVIEW CHECKPOINT before merge. Add X25519 + EAP-AKA auth module to BLE engine (X25519 ECDH key exchange, EAP-AKA session establishment with Milenage/AES-ECB, AES-CCM encryption). Reference: AndroidAPS pump/omnipod/common/bledriver/. Write omnipod-dash.protocol.json with read-only operations only (GetStatus, GetVersion). Explicitly exclude all control operations (ProgramBolus, ProgramBasal, StopDelivery, Deactivate). Service UUID 1a7e4024-..., CMD/DATA characteristics. Seed backend. Unit tests with mock Omnipod message formats. Legal context: Insulet won $452M against EOFlow (trade secret theft, not clean-room RE). AndroidAPS DASH driver exists without known challenge. Risk accepted for read-only monitoring only.
+
+**39.14 -- Medtronic 780G Protocol Definition (Read-Only, Stretch)**
+STRETCH GOAL -- may be deferred if OpenMinimed documentation is insufficient. Add SAKE v2.0 auth module (AES-ECB derivation, AES-CTR encryption, AES-CMAC auth, 6-message handshake, static key management). Write medtronic-780g.protocol.json with read-only operations (GET_HIGH_LOW_SG_SETTINGS 0x148e, CGM opcodes 0x81-0x91, pump status). Explicitly exclude SET_BOLUS (0x114b). BLE Service 0xfe82, Bluetooth SIG Insulin Delivery Service standard. Reference: OpenMinimed PythonPumpConnector, SAKE docs. Deferral criteria: if OpenMinimed hasn't documented sufficient command structure, defer to future epic.
+
+**39.15 -- Closed Testing & Play Store Submission**
+Recruit 12+ closed testers (Google requirement). Upload playstoreRelease AAB to internal track. Internal team testing of protocol engine, SDUI, monitoring, AI insights, watch integration in Play Store variant. Promote to closed testing track. Run 14-day closed testing period. Address issues. Submit to production track (staged rollout 10% -> 50% -> 100%). Monitor Google review (4-7 days for health apps). Address rejections and resubmit if needed. Success: app live on Google Play Store.

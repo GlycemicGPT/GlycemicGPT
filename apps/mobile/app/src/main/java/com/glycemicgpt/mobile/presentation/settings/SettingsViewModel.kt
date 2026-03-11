@@ -78,6 +78,33 @@ sealed class WatchFacePushState {
     data class Error(val message: String) : WatchFacePushState()
 }
 
+data class WatchFaceConfig(
+    val showIoB: Boolean = true,
+    val showGraph: Boolean = true,
+    val showAlert: Boolean = true,
+    val showSeconds: Boolean = false,
+    val graphRangeHours: Int = 3,
+    val theme: WatchFaceTheme = WatchFaceTheme.Dark,
+) {
+    companion object {
+        val VALID_GRAPH_RANGES = listOf(1, 3, 6)
+    }
+}
+
+enum class WatchFaceTheme(val label: String, val contractKey: String) {
+    Dark("Dark", WearDataContract.THEME_DARK),
+    ClinicalBlue("Clinical Blue", WearDataContract.THEME_CLINICAL_BLUE),
+    HighContrast("High Contrast", WearDataContract.THEME_HIGH_CONTRAST),
+}
+
+data class WatchDataTelemetry(
+    val lastBgMgDl: Int? = null,
+    val lastBgTimestampMs: Long? = null,
+    val lastIoB: Float? = null,
+    val lastIoBTimestampMs: Long? = null,
+    val loadError: String? = null,
+)
+
 data class SettingsUiState(
     // Account
     val baseUrl: String = "",
@@ -119,7 +146,10 @@ data class SettingsUiState(
     // Watch
     val watchAppInstalled: Boolean? = null,
     val watchConnected: Boolean = false,
+    val watchDeviceName: String? = null,
     val watchFacePushState: WatchFacePushState = WatchFacePushState.Idle,
+    val watchFaceConfig: WatchFaceConfig = WatchFaceConfig(),
+    val watchDataTelemetry: WatchDataTelemetry = WatchDataTelemetry(),
     // Battery optimization
     val isBatteryOptimized: Boolean = true,
     // Notification sounds
@@ -139,6 +169,7 @@ data class SettingsUiState(
 
 private const val AUTO_DISMISS_MS = 5_000L
 private const val PUSH_TIMEOUT_MS = 150_000L
+private const val TELEMETRY_TIMEOUT_MS = 10_000L
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
@@ -213,6 +244,7 @@ class SettingsViewModel @Inject constructor(
             runtimePlugins = pluginRegistry.runtimePlugins.value,
             showPumpLabels = appSettingsStore.showPumpLabels,
             themeMode = appSettingsStore.themeMode,
+            watchFaceConfig = loadPersistedWatchFaceConfig(),
         ).withActivePumpFields()
 
         checkBatteryOptimization()
@@ -534,18 +566,90 @@ class SettingsViewModel @Inject constructor(
                         CapabilityClient.FILTER_ALL,
                     )
                     .await()
-                val reachable = capInfo.nodes.any { it.isNearby }
+                val nearbyNode = capInfo.nodes.firstOrNull { it.isNearby }
+                val anyNode = nearbyNode ?: capInfo.nodes.firstOrNull()
                 _uiState.value = _uiState.value.copy(
                     watchAppInstalled = capInfo.nodes.isNotEmpty(),
-                    watchConnected = reachable,
+                    watchConnected = nearbyNode != null,
+                    watchDeviceName = anyNode?.displayName,
                 )
+                // Read last-sent data items for telemetry
+                if (capInfo.nodes.isNotEmpty()) {
+                    loadWatchDataTelemetry()
+                }
             } catch (e: Exception) {
                 Timber.w(e, "Failed to check watch status")
                 _uiState.value = _uiState.value.copy(
                     watchAppInstalled = null,
                     watchConnected = false,
+                    watchDeviceName = null,
                 )
             }
+        }
+    }
+
+    private suspend fun loadWatchDataTelemetry() {
+        try {
+            withTimeout(TELEMETRY_TIMEOUT_MS) {
+            val dataClient = Wearable.getDataClient(appContext)
+            var lastBg: Int? = null
+            var lastBgTs: Long? = null
+            var lastIoB: Float? = null
+            var lastIoBTs: Long? = null
+
+            // Read last CGM data item
+            val cgmItems = dataClient.getDataItems(
+                WearDataContract.dataUri(WearDataContract.CGM_PATH),
+            ).await()
+            try {
+                cgmItems.firstOrNull()?.let { item ->
+                    val map = com.google.android.gms.wearable.DataMapItem.fromDataItem(item).dataMap
+                    if (map.containsKey(WearDataContract.KEY_CGM_MG_DL)) {
+                        val rawBg = map.getInt(WearDataContract.KEY_CGM_MG_DL)
+                        lastBg = if (rawBg in 20..500) rawBg else null
+                    }
+                    if (map.containsKey(WearDataContract.KEY_CGM_TIMESTAMP)) {
+                        lastBgTs = map.getLong(WearDataContract.KEY_CGM_TIMESTAMP)
+                    }
+                }
+            } finally {
+                cgmItems.release()
+            }
+
+            // Read last IoB data item
+            val iobItems = dataClient.getDataItems(
+                WearDataContract.dataUri(WearDataContract.IOB_PATH),
+            ).await()
+            try {
+                iobItems.firstOrNull()?.let { item ->
+                    val map = com.google.android.gms.wearable.DataMapItem.fromDataItem(item).dataMap
+                    if (map.containsKey(WearDataContract.KEY_IOB_VALUE)) {
+                        lastIoB = map.getFloat(WearDataContract.KEY_IOB_VALUE)
+                    }
+                    if (map.containsKey(WearDataContract.KEY_IOB_TIMESTAMP)) {
+                        lastIoBTs = map.getLong(WearDataContract.KEY_IOB_TIMESTAMP)
+                    }
+                }
+            } finally {
+                iobItems.release()
+            }
+
+            _uiState.value = _uiState.value.copy(
+                watchDataTelemetry = WatchDataTelemetry(
+                    lastBgMgDl = lastBg,
+                    lastBgTimestampMs = lastBgTs,
+                    lastIoB = lastIoB,
+                    lastIoBTimestampMs = lastIoBTs,
+                ),
+            )
+            } // withTimeout
+        } catch (e: Exception) {
+            Timber.w(e, "Failed to load watch data telemetry")
+            _uiState.value = _uiState.value.copy(
+                watchDataTelemetry = WatchDataTelemetry(
+                    loadError = "Could not read watch data",
+                ),
+            )
         }
     }
 
@@ -593,6 +697,43 @@ class SettingsViewModel @Inject constructor(
         autoDismissJob?.cancel()
         autoDismissJob = null
         _uiState.value = _uiState.value.copy(watchFacePushState = WatchFacePushState.Idle)
+    }
+
+    fun updateWatchFaceConfig(config: WatchFaceConfig) {
+        val validated = config.copy(
+            graphRangeHours = if (config.graphRangeHours in WatchFaceConfig.VALID_GRAPH_RANGES) {
+                config.graphRangeHours
+            } else {
+                3
+            },
+        )
+        _uiState.value = _uiState.value.copy(watchFaceConfig = validated)
+        persistWatchFaceConfig(validated)
+        // TODO(Story 32.5): Sync config to watch via DataClient
+    }
+
+    private fun loadPersistedWatchFaceConfig(): WatchFaceConfig {
+        val themeName = appSettingsStore.watchFaceTheme
+        val theme = WatchFaceTheme.entries.find { it.label == themeName } ?: WatchFaceTheme.Dark
+        val rawGraphRange = appSettingsStore.watchFaceGraphRangeHours
+        val graphRange = if (rawGraphRange in WatchFaceConfig.VALID_GRAPH_RANGES) rawGraphRange else 3
+        return WatchFaceConfig(
+            showIoB = appSettingsStore.watchFaceShowIoB,
+            showGraph = appSettingsStore.watchFaceShowGraph,
+            showAlert = appSettingsStore.watchFaceShowAlert,
+            showSeconds = appSettingsStore.watchFaceShowSeconds,
+            graphRangeHours = graphRange,
+            theme = theme,
+        )
+    }
+
+    private fun persistWatchFaceConfig(config: WatchFaceConfig) {
+        appSettingsStore.watchFaceShowIoB = config.showIoB
+        appSettingsStore.watchFaceShowGraph = config.showGraph
+        appSettingsStore.watchFaceShowAlert = config.showAlert
+        appSettingsStore.watchFaceShowSeconds = config.showSeconds
+        appSettingsStore.watchFaceGraphRangeHours = config.graphRangeHours
+        appSettingsStore.watchFaceTheme = config.theme.label
     }
 
     fun checkBatteryOptimization() {
