@@ -126,6 +126,31 @@ class AppSettingsStore @Inject constructor(
             prefs.edit().putString(KEY_THEME_MODE, value.name).apply()
         }
 
+    // Watch face config persistence
+    var watchFaceShowIoB: Boolean
+        get() = prefs.getBoolean(KEY_WATCHFACE_SHOW_IOB, true)
+        set(value) { prefs.edit().putBoolean(KEY_WATCHFACE_SHOW_IOB, value).apply() }
+
+    var watchFaceShowGraph: Boolean
+        get() = prefs.getBoolean(KEY_WATCHFACE_SHOW_GRAPH, true)
+        set(value) { prefs.edit().putBoolean(KEY_WATCHFACE_SHOW_GRAPH, value).apply() }
+
+    var watchFaceShowAlert: Boolean
+        get() = prefs.getBoolean(KEY_WATCHFACE_SHOW_ALERT, true)
+        set(value) { prefs.edit().putBoolean(KEY_WATCHFACE_SHOW_ALERT, value).apply() }
+
+    var watchFaceShowSeconds: Boolean
+        get() = prefs.getBoolean(KEY_WATCHFACE_SHOW_SECONDS, false)
+        set(value) { prefs.edit().putBoolean(KEY_WATCHFACE_SHOW_SECONDS, value).apply() }
+
+    var watchFaceGraphRangeHours: Int
+        get() = prefs.getInt(KEY_WATCHFACE_GRAPH_RANGE, 3)
+        set(value) { prefs.edit().putInt(KEY_WATCHFACE_GRAPH_RANGE, value.coerceIn(1, 6)).apply() }
+
+    var watchFaceTheme: String
+        get() = prefs.getString(KEY_WATCHFACE_THEME, "Dark") ?: "Dark"
+        set(value) { prefs.edit().putString(KEY_WATCHFACE_THEME, value).apply() }
+
     fun registerListener(listener: SharedPreferences.OnSharedPreferenceChangeListener) {
         prefs.registerOnSharedPreferenceChangeListener(listener)
     }
@@ -146,5 +171,11 @@ class AppSettingsStore @Inject constructor(
         const val DEFAULT_RETENTION_DAYS = 7
         const val MIN_RETENTION_DAYS = 1
         const val MAX_RETENTION_DAYS = 30
+        private const val KEY_WATCHFACE_SHOW_IOB = "watchface_show_iob"
+        private const val KEY_WATCHFACE_SHOW_GRAPH = "watchface_show_graph"
+        private const val KEY_WATCHFACE_SHOW_ALERT = "watchface_show_alert"
+        private const val KEY_WATCHFACE_SHOW_SECONDS = "watchface_show_seconds"
+        private const val KEY_WATCHFACE_GRAPH_RANGE = "watchface_graph_range"
+        private const val KEY_WATCHFACE_THEME = "watchface_theme"
     }
 }

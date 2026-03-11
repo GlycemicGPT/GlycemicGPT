@@ -42,4 +42,13 @@ object WearDataContract {
     // CapabilityClient capabilities
     const val CHAT_RELAY_CAPABILITY = "glycemicgpt_chat_relay"
     const val WATCH_APP_CAPABILITY = "glycemicgpt_watch_app"
+
+    // Watch face theme keys (must match WFF UserConfiguration values)
+    const val THEME_DARK = "dark"
+    const val THEME_CLINICAL_BLUE = "clinical_blue"
+    const val THEME_HIGH_CONTRAST = "high_contrast"
+
+    /** Builds a DataClient URI for querying data items across all nodes. */
+    fun dataUri(path: String): android.net.Uri =
+        android.net.Uri.parse("wear://*$path")
 }

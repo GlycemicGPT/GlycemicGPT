@@ -1,6 +1,6 @@
 # GlycemicGPT Implementation Progress
 
-> Last Updated: 2026-03-08
+> Last Updated: 2026-03-11
 
 ## Summary
 
@@ -37,6 +37,7 @@
 | 29 | App Icons & Branding | 3/3 | **Complete** |
 | 30 | Advanced Web Dashboard Visualization | 9/9 | **Complete** |
 | 31 | Mobile Dashboard Parity & Hub-and-Spoke Redesign | 5/8 | **In Progress** |
+| 32 | Wear OS Watch Face Management | 3/10 | **In Progress** |
 | 33 | Data Source Abstraction & CGM Intelligence | 0/12 | Planned |
 | 34 | Code Quality & Technical Debt Elimination | 0/17 | Planned |
 | 35 | AI Intelligence Pipeline | 0/19 | Planned |
@@ -63,13 +64,14 @@
 **Epic 29 (App Icons & Branding):** 3/3 complete
 **Epic 30 (Web Dashboard Visualization):** 10/10 complete
 **Epic 31 (Mobile Dashboard Parity):** 5/8 complete (2 cancelled)
+**Epic 32 (Wear OS Watch Face Management):** 3/10 complete
 **Epic 33 (Data Source Abstraction):** 0/12 planned
 **Epic 34 (Code Quality):** 0/17 planned
 **Epic 35 (AI Intelligence Pipeline):** 0/19 planned
 **Epic 36 (Android Distribution Strategy):** 0/4 planned
 **Epic 37 (Longitudinal Reports):** 0/6 planned
 **Epic 38 (Historical Data Import):** 0/8 planned
-**Overall Progress:** 158/243 stories planned/complete
+**Overall Progress:** 161/253 stories planned/complete
 
 ### Standalone Bug Fixes
 
@@ -1243,6 +1245,56 @@ Any new stats calculations (CGM summary, insulin summary, AGP percentiles, 5-buc
 - **Tests:** Removed AGP tests (4 compute + 3 percentile + 3 ViewModel). Added retention state test.
 
 **Verified on physical phone:** All cards show correct period options based on retention setting. No AGP chart. Real pump data displays correctly.
+
+---
+
+## Epic 32: Wear OS Watch Face Management
+
+**Status:** In Progress (3/10 stories)
+
+**Goal:** Full watch face management from the phone app using the Watch Face Push API (Wear OS 6+). Single-app architecture -- all watch management lives in the main GlycemicGPT mobile app. No separate wear companion app.
+
+**Architecture doc:** `docs/wear-os-architecture.md`
+**Planning doc:** `_bmad-output/planning-artifacts/epic-32-wear-os-watch-face-push.md`
+
+| # | Title | Status | PR |
+|---|-------|--------|----|
+| 32.1 | Create :wear-device module, migrate watch services | Complete | #358 |
+| 32.2 | Watch Face Push integration (watch side) | Complete | #359 |
+| 32.3 | Phone-side face push (ChannelClient + WFF APK in assets) | Complete | #360 |
+| 32.4 | Settings > Watch full management UI | Planned | |
+| 32.5 | Feature toggle sync (phone -> watch -> WFF UserConfiguration) | Planned | |
+| 32.6 | Watch face gallery (multiple WFF designs) | Planned | |
+| 32.7 | Ambient mode & battery optimization | Planned | |
+| 32.8 | Watch-to-phone AI chat & alert dismiss | Planned | |
+| 32.9 | Remove old wear/ module & cleanup | Planned | |
+| 32.10 | Update documentation & dev scripts | Planned | |
+
+### Story 32.1: Create :wear-device module, migrate watch services
+
+**Status:** Complete (PR #358)
+
+Migrated watch-side services from old `wear/` module to new `:wear-device` module. Established the module that runs on the watch with DataLayer listener, complications, and WatchFacePushManager.
+
+### Story 32.2: Watch Face Push integration (watch side)
+
+**Status:** Complete (PR #359)
+
+Watch-side implementation of the Watch Face Push API:
+- `WatchFaceReceiveService`: WearableListenerService that receives APK from phone via ChannelClient, validates (50MB limit, APK magic bytes), installs via WatchFaceInstaller
+- `WatchFaceInstaller`: Wraps WatchFacePushManager with runtime API 36 check, sealed Result class, findExistingFace by packageName prefix
+- 120s timeout with watchdog, Mutex serialization, cooperative cancellation
+- Verified on physical Galaxy Watch 5 (Wear OS 6, API 36)
+
+### Story 32.3: Phone-side face push (ChannelClient + WFF APK in assets)
+
+**Status:** Complete (PR #360)
+
+Phone-side implementation that streams the bundled watch face APK to the watch:
+- `WatchFacePusher`: Hilt @Singleton that discovers watch via CapabilityClient, verifies APK integrity (SHA-256), streams via ChannelClient with 120s send timeout watchdog, AtomicBoolean-coordinated channel close
+- Settings UI: "Push Watch Face" button in Watch section (visible when watch connected), progress/success/error feedback with dismiss button and 5s auto-dismiss
+- SettingsViewModel: WatchFacePushState sealed class, thread-safe push guard, 150s outer timeout, proper coroutine lifecycle (finally cleanup, CancellationException handling)
+- Bundled `glycemicgpt-watchface.apk` (31KB WFF) with .gitattributes entry
 
 ---
 

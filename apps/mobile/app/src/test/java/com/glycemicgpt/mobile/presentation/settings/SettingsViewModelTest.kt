@@ -56,6 +56,12 @@ class SettingsViewModelTest {
     private val appSettingsStore = mockk<AppSettingsStore>(relaxed = true) {
         every { backendSyncEnabled } returns true
         every { dataRetentionDays } returns 7
+        every { watchFaceShowIoB } returns true
+        every { watchFaceShowGraph } returns true
+        every { watchFaceShowAlert } returns true
+        every { watchFaceShowSeconds } returns false
+        every { watchFaceGraphRangeHours } returns 3
+        every { watchFaceTheme } returns "Dark"
     }
     private val powerManager = mockk<PowerManager>(relaxed = true) {
         every { isIgnoringBatteryOptimizations(any()) } returns false
@@ -453,5 +459,71 @@ class SettingsViewModelTest {
         vm.dismissWatchFacePushResult()
 
         assertTrue(vm.uiState.value.watchFacePushState is WatchFacePushState.Idle)
+    }
+
+    @Test
+    fun `updateWatchFaceConfig persists to AppSettingsStore`() {
+        val vm = createViewModel()
+        val config = WatchFaceConfig(
+            showIoB = false,
+            showGraph = false,
+            showAlert = true,
+            showSeconds = true,
+            graphRangeHours = 6,
+            theme = WatchFaceTheme.HighContrast,
+        )
+
+        vm.updateWatchFaceConfig(config)
+
+        assertEquals(config, vm.uiState.value.watchFaceConfig)
+        verify { appSettingsStore.watchFaceShowIoB = false }
+        verify { appSettingsStore.watchFaceShowGraph = false }
+        verify { appSettingsStore.watchFaceShowSeconds = true }
+        verify { appSettingsStore.watchFaceGraphRangeHours = 6 }
+        verify { appSettingsStore.watchFaceTheme = "High Contrast" }
+    }
+
+    @Test
+    fun `updateWatchFaceConfig rejects invalid graphRangeHours`() {
+        val vm = createViewModel()
+        val config = WatchFaceConfig(graphRangeHours = 99)
+
+        vm.updateWatchFaceConfig(config)
+
+        assertEquals(3, vm.uiState.value.watchFaceConfig.graphRangeHours)
+    }
+
+    @Test
+    fun `loadState restores watchFaceConfig from AppSettingsStore`() {
+        every { appSettingsStore.watchFaceShowIoB } returns false
+        every { appSettingsStore.watchFaceShowGraph } returns false
+        every { appSettingsStore.watchFaceShowAlert } returns true
+        every { appSettingsStore.watchFaceShowSeconds } returns true
+        every { appSettingsStore.watchFaceGraphRangeHours } returns 6
+        every { appSettingsStore.watchFaceTheme } returns "High Contrast"
+        val vm = createViewModel()
+
+        val config = vm.uiState.value.watchFaceConfig
+        assertFalse(config.showIoB)
+        assertFalse(config.showGraph)
+        assertTrue(config.showSeconds)
+        assertEquals(6, config.graphRangeHours)
+        assertEquals(WatchFaceTheme.HighContrast, config.theme)
+    }
+
+    @Test
+    fun `WatchFaceTheme entries have contractKey linked to WearDataContract`() {
+        assertEquals(
+            com.glycemicgpt.mobile.wear.WearDataContract.THEME_DARK,
+            WatchFaceTheme.Dark.contractKey,
+        )
+        assertEquals(
+            com.glycemicgpt.mobile.wear.WearDataContract.THEME_CLINICAL_BLUE,
+            WatchFaceTheme.ClinicalBlue.contractKey,
+        )
+        assertEquals(
+            com.glycemicgpt.mobile.wear.WearDataContract.THEME_HIGH_CONTRAST,
+            WatchFaceTheme.HighContrast.contractKey,
+        )
     }
 }
