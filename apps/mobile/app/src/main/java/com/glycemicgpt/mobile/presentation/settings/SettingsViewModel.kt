@@ -562,6 +562,11 @@ class SettingsViewModel @Inject constructor(
                 }
             } catch (_: TimeoutCancellationException) {
                 WatchFacePusher.Result.Error("Push timed out")
+            } catch (e: kotlin.coroutines.cancellation.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.e(e, "Unexpected error during watch face push")
+                WatchFacePusher.Result.Error(e.message ?: "Push failed")
             }
             val newState = when (result) {
                 is WatchFacePusher.Result.Success -> WatchFacePushState.Success
