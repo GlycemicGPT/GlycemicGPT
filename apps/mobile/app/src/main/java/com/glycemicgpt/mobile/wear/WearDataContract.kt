@@ -33,6 +33,12 @@ object WearDataContract {
     // Alert dismiss path (watch -> phone)
     const val ALERT_DISMISS_PATH = "/glycemicgpt/alert/dismiss"
 
+    // ChannelClient paths (large data transfer)
+    const val WATCHFACE_PUSH_CHANNEL = "/glycemicgpt/watchface/push"
+
+    // Watch Face Push status paths (watch -> phone via MessageClient)
+    const val WATCHFACE_PUSH_STATUS_PATH = "/glycemicgpt/watchface/status"
+
     // CapabilityClient capabilities
     const val CHAT_RELAY_CAPABILITY = "glycemicgpt_chat_relay"
     const val WATCH_APP_CAPABILITY = "glycemicgpt_watch_app"

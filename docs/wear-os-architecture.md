@@ -162,7 +162,7 @@ GlycemicGPT is distributed via GitHub Releases (not Play Store -- open source di
 | Component | minSdk | targetSdk | Notes |
 |-----------|--------|-----------|-------|
 | `:app` (phone) | 26 | 35 | Standard Android phone app |
-| `:wear-device` (watch) | 33 | 34 | Wear OS 4+ for services/complications. Watch Face Push API requires Wear OS 6 (API 36) at runtime but does not require bumping minSdk. |
+| `:wear-device` (watch) | 35 | 35 | Wear OS 5+. Watch Face Push API requires Wear OS 6 (API 36) at runtime; guarded by `Build.VERSION.SDK_INT` check. `watchface-push` AAR's minSdk 36 is overridden via `tools:overrideLibrary`. On API 35 devices: core services (data listener, complications) work normally; watch face push is unavailable and `WatchFaceInstaller.isSupported()` returns false. Users on Wear OS 5 must install watch faces manually via ADB. All `WatchFacePushManager` references are isolated in `@RequiresApi(36)` methods to prevent class-loading failures on older API levels. |
 | `:watchface` (WFF) | 33 | 34 | WFF v1 for broadest compatibility |
 
 ## Migration from Old Architecture

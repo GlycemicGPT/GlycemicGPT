@@ -11,8 +11,8 @@ android {
 
     defaultConfig {
         applicationId = "com.glycemicgpt.mobile"
-        minSdk = 33
-        targetSdk = 34
+        minSdk = 35
+        targetSdk = 35
 
         val appVersionName = "0.1.82" // x-release-please-version
         val parts = appVersionName.split(".")
@@ -117,6 +117,9 @@ android {
 dependencies {
     // Wear OS Complications
     implementation(libs.wear.complications.data.source.ktx)
+
+    // Watch Face Push API (Wear OS 6+)
+    implementation(libs.wear.watchface.push)
 
     // Wearable Data Layer
     implementation(libs.play.services.wearable)

@@ -29,5 +29,8 @@ Thumbs.db
 # Nix shell Gradle home
 .gradle-home/
 
+# Local SDK extension (platform 36 for watch face push)
+.android/
+
 # Test outputs
 app/src/androidTest/outputs/

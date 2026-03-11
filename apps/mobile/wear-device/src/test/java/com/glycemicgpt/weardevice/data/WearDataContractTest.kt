@@ -16,6 +16,8 @@ class WearDataContractTest {
             WearDataContract.CHAT_RESPONSE_PATH,
             WearDataContract.CHAT_ERROR_PATH,
             WearDataContract.ALERT_DISMISS_PATH,
+            WearDataContract.WATCHFACE_PUSH_CHANNEL,
+            WearDataContract.WATCHFACE_PUSH_STATUS_PATH,
         )
         paths.forEach { path ->
             assertTrue("Path '$path' should start with /glycemicgpt/", path.startsWith("/glycemicgpt/"))
@@ -35,6 +37,12 @@ class WearDataContractTest {
     @Test
     fun `alert dismiss path is defined`() {
         assertEquals("/glycemicgpt/alert/dismiss", WearDataContract.ALERT_DISMISS_PATH)
+    }
+
+    @Test
+    fun `watch face push paths are defined`() {
+        assertEquals("/glycemicgpt/watchface/push", WearDataContract.WATCHFACE_PUSH_CHANNEL)
+        assertEquals("/glycemicgpt/watchface/status", WearDataContract.WATCHFACE_PUSH_STATUS_PATH)
     }
 
     @Test
