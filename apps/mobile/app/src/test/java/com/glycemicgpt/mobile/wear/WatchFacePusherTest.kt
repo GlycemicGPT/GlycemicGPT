@@ -1,7 +1,6 @@
 package com.glycemicgpt.mobile.wear
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -38,14 +37,8 @@ class WatchFacePusherTest {
     @Test
     fun `WATCHFACE_SHA256 is a valid 64-char hex string`() {
         val hash = WatchFacePusher.WATCHFACE_SHA256
-        assertNotNull(hash)
         assertEquals(64, hash.length)
         assertTrue("SHA-256 must be lowercase hex", hash.matches(Regex("[0-9a-f]{64}")))
     }
 
-    @Test
-    fun `WATCHFACE_ASSET constant name follows convention`() {
-        // Verify the asset name constant is accessible and non-empty
-        assertTrue(WatchFacePusher.WATCHFACE_SHA256.isNotEmpty())
-    }
 }

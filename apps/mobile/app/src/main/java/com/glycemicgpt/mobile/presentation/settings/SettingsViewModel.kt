@@ -41,6 +41,7 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -549,34 +550,38 @@ class SettingsViewModel @Inject constructor(
     }
 
     private val pushInProgress = AtomicBoolean(false)
+    private var autoDismissJob: Job? = null
 
     fun pushWatchFace() {
         if (!pushInProgress.compareAndSet(false, true)) return
         _uiState.value = _uiState.value.copy(watchFacePushState = WatchFacePushState.Pushing)
         viewModelScope.launch {
-            try {
-                val result = try {
-                    withTimeout(PUSH_TIMEOUT_MS) {
-                        watchFacePusher.pushWatchFace()
-                    }
-                } catch (_: TimeoutCancellationException) {
-                    WatchFacePusher.Result.Error("Push timed out")
+            val result = try {
+                withTimeout(PUSH_TIMEOUT_MS) {
+                    watchFacePusher.pushWatchFace()
                 }
-                val newState = when (result) {
-                    is WatchFacePusher.Result.Success -> WatchFacePushState.Success
-                    is WatchFacePusher.Result.Error -> WatchFacePushState.Error(result.message)
-                }
-                _uiState.value = _uiState.value.copy(watchFacePushState = newState)
-                // Auto-dismiss success/error after 5 seconds
+            } catch (_: TimeoutCancellationException) {
+                WatchFacePusher.Result.Error("Push timed out")
+            }
+            val newState = when (result) {
+                is WatchFacePusher.Result.Success -> WatchFacePushState.Success
+                is WatchFacePusher.Result.Error -> WatchFacePushState.Error(result.message)
+            }
+            _uiState.value = _uiState.value.copy(watchFacePushState = newState)
+            pushInProgress.set(false)
+            // Auto-dismiss success/error after 5 seconds
+            autoDismissJob?.cancel()
+            autoDismissJob = viewModelScope.launch {
                 delay(AUTO_DISMISS_MS)
                 dismissWatchFacePushResult()
-            } finally {
-                pushInProgress.set(false)
             }
         }
     }
 
     fun dismissWatchFacePushResult() {
+        autoDismissJob?.cancel()
+        autoDismissJob = null
+        pushInProgress.set(false)
         _uiState.value = _uiState.value.copy(watchFacePushState = WatchFacePushState.Idle)
     }
 
