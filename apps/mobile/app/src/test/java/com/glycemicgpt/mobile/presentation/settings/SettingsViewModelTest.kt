@@ -16,6 +16,7 @@ import com.glycemicgpt.mobile.data.update.AppUpdateChecker
 import com.glycemicgpt.mobile.data.update.DownloadResult
 import com.glycemicgpt.mobile.data.update.UpdateCheckResult
 import com.glycemicgpt.mobile.data.update.UpdateInfo
+import com.glycemicgpt.mobile.wear.WatchFacePusher
 import com.glycemicgpt.mobile.domain.plugin.DevicePlugin
 import com.glycemicgpt.mobile.domain.plugin.Plugin
 import com.glycemicgpt.mobile.domain.plugin.PluginMetadata
@@ -91,6 +92,7 @@ class SettingsViewModelTest {
         every { allActivePlugins } returns MutableStateFlow<List<Plugin>>(emptyList())
         every { runtimePlugins } returns MutableStateFlow<List<RuntimePluginInfo>>(emptyList())
     }
+    private val watchFacePusher = mockk<WatchFacePusher>(relaxed = true)
 
     @Before
     fun setup() {
@@ -103,7 +105,7 @@ class SettingsViewModelTest {
     }
 
     private fun createViewModel() =
-        SettingsViewModel(appContext, pumpCredentialStore, appSettingsStore, glucoseRangeStore, safetyLimitsStore, authRepository, appUpdateChecker, authManager, alertSoundStore, alertNotificationManager, pluginRegistry)
+        SettingsViewModel(appContext, pumpCredentialStore, appSettingsStore, glucoseRangeStore, safetyLimitsStore, authRepository, appUpdateChecker, authManager, alertSoundStore, alertNotificationManager, pluginRegistry, watchFacePusher)
 
     @Test
     fun `loadState initializes from stores`() {
@@ -420,5 +422,36 @@ class SettingsViewModelTest {
     fun `authState is exposed from AuthManager`() {
         val vm = createViewModel()
         assertEquals(AuthState.Unauthenticated, vm.authState.value)
+    }
+
+    @Test
+    fun `pushWatchFace transitions to Success on successful push`() = runTest {
+        coEvery { watchFacePusher.pushWatchFace() } returns WatchFacePusher.Result.Success("sent", null)
+        val vm = createViewModel()
+
+        vm.pushWatchFace()
+
+        assertTrue(vm.uiState.value.watchFacePushState is WatchFacePushState.Success)
+    }
+
+    @Test
+    fun `pushWatchFace transitions to Error on failure`() = runTest {
+        coEvery { watchFacePusher.pushWatchFace() } returns WatchFacePusher.Result.Error("No watch connected")
+        val vm = createViewModel()
+
+        vm.pushWatchFace()
+
+        val state = vm.uiState.value.watchFacePushState
+        assertTrue(state is WatchFacePushState.Error)
+        assertEquals("No watch connected", (state as WatchFacePushState.Error).message)
+    }
+
+    @Test
+    fun `dismissWatchFacePushResult resets to Idle`() {
+        val vm = createViewModel()
+
+        vm.dismissWatchFacePushResult()
+
+        assertTrue(vm.uiState.value.watchFacePushState is WatchFacePushState.Idle)
     }
 }

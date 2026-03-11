@@ -171,7 +171,10 @@ fun SettingsScreen(
         WatchSection(
             watchInstalled = state.watchAppInstalled,
             watchConnected = state.watchConnected,
+            watchFacePushState = state.watchFacePushState,
             onCheckStatus = settingsViewModel::checkWatchStatus,
+            onPushWatchFace = settingsViewModel::pushWatchFace,
+            onDismissPushResult = settingsViewModel::dismissWatchFacePushResult,
         )
 
         Spacer(modifier = Modifier.height(20.dp))
@@ -1455,7 +1458,10 @@ private fun InfoRow(label: String, value: String) {
 private fun WatchSection(
     watchInstalled: Boolean?,
     watchConnected: Boolean,
+    watchFacePushState: WatchFacePushState,
     onCheckStatus: () -> Unit,
+    onPushWatchFace: () -> Unit,
+    onDismissPushResult: () -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -1533,6 +1539,75 @@ private fun WatchSection(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text("Check Watch Status")
+            }
+
+            // Watch face push button (only when watch is connected)
+            if (watchConnected) {
+                Spacer(modifier = Modifier.height(8.dp))
+                val isPushing = watchFacePushState is WatchFacePushState.Pushing
+                Button(
+                    onClick = onPushWatchFace,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isPushing,
+                ) {
+                    if (isPushing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Pushing Watch Face...")
+                    } else {
+                        Text("Push Watch Face")
+                    }
+                }
+
+                when (watchFacePushState) {
+                    is WatchFacePushState.Success -> {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Watch face sent to watch",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(onClick = onDismissPushResult) {
+                                Text("Dismiss")
+                            }
+                        }
+                    }
+                    is WatchFacePushState.Error -> {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Error,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = watchFacePushState.message,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(onClick = onDismissPushResult) {
+                                Text("Dismiss")
+                            }
+                        }
+                    }
+                    else -> { /* Idle or Pushing -- no extra UI */ }
+                }
             }
         }
     }

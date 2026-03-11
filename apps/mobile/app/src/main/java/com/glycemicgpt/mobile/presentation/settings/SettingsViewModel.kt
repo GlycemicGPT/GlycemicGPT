@@ -27,6 +27,7 @@ import com.glycemicgpt.mobile.service.PumpConnectionService
 import android.media.RingtoneManager
 import com.glycemicgpt.mobile.data.update.DownloadResult
 import com.glycemicgpt.mobile.data.update.UpdateCheckResult
+import com.glycemicgpt.mobile.wear.WatchFacePusher
 import com.glycemicgpt.mobile.wear.WearDataContract
 import com.google.android.gms.wearable.CapabilityClient
 import com.google.android.gms.wearable.Wearable
@@ -40,9 +41,14 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import java.util.concurrent.atomic.AtomicBoolean
 import timber.log.Timber
 import java.io.File
 import javax.inject.Inject
@@ -63,6 +69,13 @@ sealed class UpdateUiState {
     object Downloading : UpdateUiState()
     data class ReadyToInstall(val apkFile: File) : UpdateUiState()
     data class Error(val message: String) : UpdateUiState()
+}
+
+sealed class WatchFacePushState {
+    object Idle : WatchFacePushState()
+    object Pushing : WatchFacePushState()
+    object Success : WatchFacePushState()
+    data class Error(val message: String) : WatchFacePushState()
 }
 
 data class SettingsUiState(
@@ -106,6 +119,7 @@ data class SettingsUiState(
     // Watch
     val watchAppInstalled: Boolean? = null,
     val watchConnected: Boolean = false,
+    val watchFacePushState: WatchFacePushState = WatchFacePushState.Idle,
     // Battery optimization
     val isBatteryOptimized: Boolean = true,
     // Notification sounds
@@ -123,6 +137,9 @@ data class SettingsUiState(
         com.glycemicgpt.mobile.presentation.theme.ThemeMode.System,
 )
 
+private const val AUTO_DISMISS_MS = 5_000L
+private const val PUSH_TIMEOUT_MS = 150_000L
+
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     @ApplicationContext private val appContext: Context,
@@ -136,6 +153,7 @@ class SettingsViewModel @Inject constructor(
     private val alertSoundStore: AlertSoundStore,
     private val alertNotificationManager: AlertNotificationManager,
     private val pluginRegistry: PluginRegistry,
+    private val watchFacePusher: WatchFacePusher,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SettingsUiState())
@@ -529,6 +547,52 @@ class SettingsViewModel @Inject constructor(
                 )
             }
         }
+    }
+
+    private val pushInProgress = AtomicBoolean(false)
+    private var autoDismissJob: Job? = null
+
+    fun pushWatchFace() {
+        if (!pushInProgress.compareAndSet(false, true)) return
+        autoDismissJob?.cancel()
+        autoDismissJob = null
+        _uiState.value = _uiState.value.copy(watchFacePushState = WatchFacePushState.Pushing)
+        viewModelScope.launch {
+            try {
+                val result = try {
+                    withTimeout(PUSH_TIMEOUT_MS) {
+                        watchFacePusher.pushWatchFace()
+                    }
+                } catch (_: TimeoutCancellationException) {
+                    WatchFacePusher.Result.Error("Push timed out")
+                } catch (e: kotlin.coroutines.cancellation.CancellationException) {
+                    _uiState.value = _uiState.value.copy(
+                        watchFacePushState = WatchFacePushState.Idle,
+                    )
+                    throw e
+                } catch (e: Exception) {
+                    Timber.e(e, "Unexpected error during watch face push")
+                    WatchFacePusher.Result.Error(e.message ?: "Push failed")
+                }
+                val newState = when (result) {
+                    is WatchFacePusher.Result.Success -> WatchFacePushState.Success
+                    is WatchFacePusher.Result.Error -> WatchFacePushState.Error(result.message)
+                }
+                _uiState.value = _uiState.value.copy(watchFacePushState = newState)
+                autoDismissJob = viewModelScope.launch {
+                    delay(AUTO_DISMISS_MS)
+                    dismissWatchFacePushResult()
+                }
+            } finally {
+                pushInProgress.set(false)
+            }
+        }
+    }
+
+    fun dismissWatchFacePushResult() {
+        autoDismissJob?.cancel()
+        autoDismissJob = null
+        _uiState.value = _uiState.value.copy(watchFacePushState = WatchFacePushState.Idle)
     }
 
     fun checkBatteryOptimization() {
