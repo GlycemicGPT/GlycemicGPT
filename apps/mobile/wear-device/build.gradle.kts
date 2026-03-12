@@ -10,11 +10,11 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.glycemicgpt.mobile"
+        applicationId = "com.glycemicgpt.weardevice"
         minSdk = 35
         targetSdk = 35
 
-        val appVersionName = "0.1.82" // x-release-please-version
+        val appVersionName = "0.1.99" // x-release-please-version
         val parts = appVersionName.split(".")
         val major = parts.getOrElse(0) { "0" }.toInt()
         val minor = parts.getOrElse(1) { "0" }.toInt()

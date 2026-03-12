@@ -32,7 +32,7 @@ PHONE (Single App)                             WATCH (Wear OS 6+)
 |    alerts, seconds, theme)           |----->| - WearableListenerService        |
 |  - Watch face preview                |      |   (receives BG/IoB/alerts/hist)  |
 |  - Connection status                 |      | - Complication providers          |
-|                                      |      |   (BG, IoB, Trend, Graph, Alert) |
+|                                      |      |   (BG, IoB)                      |
 |  Data Streaming:                     | Msgs | - WatchFacePushManager           |
 |  - WearDataSender (BG, IoB, alerts,  |<-----|   (installs/activates faces)     |
 |    CGM history, thresholds)          |      | - MessageClient relay            |
@@ -112,12 +112,8 @@ The phone app's Settings > Watch section provides full customization:
 ### Complication Providers
 | Provider | Type | Data |
 |----------|------|------|
-| `BgColorComplicationDataSource` | SMALL_IMAGE | Color-coded BG bitmap with trend arrow, delta, freshness |
-| `GraphComplicationDataSource` | SMALL_IMAGE | Sparkline glucose graph bitmap |
-| `IoBComplicationDataSource` | SHORT_TEXT | Insulin on board value |
-| `BgComplicationDataSource` | SHORT_TEXT | Plain BG text value |
-| `TrendComplicationDataSource` | SHORT_TEXT | Trend arrow symbol |
-| `AlertComplicationDataSource` | SHORT_TEXT | Alert status/message |
+| `BgComplicationDataSource` | SHORT_TEXT, LONG_TEXT | Plain BG text value |
+| `IoBComplicationDataSource` | SHORT_TEXT, LONG_TEXT | Insulin on board value |
 
 ### Services
 | Service | Purpose |
@@ -167,19 +163,17 @@ GlycemicGPT is distributed via GitHub Releases (not Play Store -- open source di
 
 ## Migration from Old Architecture
 
-The old `apps/mobile/wear/` module is being replaced by `:wear-device`. Story 32.1 creates the new module and migrates core services. Story 32.9 removes the old module after all functionality is migrated. Migration map:
+The old `apps/mobile/wear/` module was replaced by `:wear-device` in Stories 32.1--32.9. Story 32.1 created the new module and migrated core services. Story 32.9 removed the old module. Migration map:
 
 | Old (wear/) | New Location |
 |-------------|-------------|
 | `GlycemicDataListenerService` | `:wear-device` |
 | `WatchDataRepository` | `:wear-device` |
 | `GlucoseDisplayUtils` | `:wear-device` |
-| Complication providers (6) | `:wear-device` |
+| Complication providers (BG, IoB) | `:wear-device` |
 | `HomeActivity` (watch UI) | Removed -- phone Settings > Watch replaces this |
 | `ChatActivity` (watch STT) | Removed -- AI interactions go through watch face tap targets |
 | `IoBDetailActivity` | Removed -- IoB detail is a complication tap action |
-| `AlertsActivity` | `:wear-device` (simplified, launched from watch face tap) |
-| `GlycemicTileService` | `:wear-device` (optional, tile alongside watch face) |
 | `GlycemicWearApp` (Hilt app) | `:wear-device` |
 
 Phone-side components stay in `:app`:
