@@ -495,7 +495,8 @@ GlycemicGPT/
 │   │   └── __tests__/  # Jest tests
 │   └── mobile/         # Android app (Kotlin)
 │       ├── app/                 # Platform app module
-│       └── wear/               # Wear OS module
+│       ├── wear-device/         # Wear OS device module (runs on watch)
+│       └── watchface/           # Watch Face Format (WFF) resource APK
 ├── plugins/            # Plugin ecosystem
 │   ├── pump-driver-api/       # Plugin SDK (interfaces & domain models)
 │   ├── shipped/               # Built-in plugins (compiled into APK)
