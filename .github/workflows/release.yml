@@ -110,7 +110,8 @@ jobs:
           if [ -n "$WEAR_APK" ]; then
             cp "$WEAR_APK" "GlycemicGPT-Wear-${VERSION}-release.apk"
           else
-            echo "::warning::Wear device APK not found in build outputs"
+            echo "::error::Wear device APK not found in build outputs"
+            exit 1
           fi
 
       - name: Upload APK to GitHub Release

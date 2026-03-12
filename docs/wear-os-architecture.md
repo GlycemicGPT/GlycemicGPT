@@ -112,8 +112,8 @@ The phone app's Settings > Watch section provides full customization:
 ### Complication Providers
 | Provider | Type | Data |
 |----------|------|------|
-| `BgComplicationDataSource` | SHORT_TEXT | Plain BG text value |
-| `IoBComplicationDataSource` | SHORT_TEXT | Insulin on board value |
+| `BgComplicationDataSource` | SHORT_TEXT, LONG_TEXT | Plain BG text value |
+| `IoBComplicationDataSource` | SHORT_TEXT, LONG_TEXT | Insulin on board value |
 
 ### Services
 | Service | Purpose |
