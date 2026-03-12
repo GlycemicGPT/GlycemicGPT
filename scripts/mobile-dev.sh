@@ -7,7 +7,7 @@
 #
 # Commands:
 #   devices              List all connected ADB devices
-#   build                Build debug APKs (phone + wear)
+#   build                Build debug APKs (phone + wear-device)
 #   emulator start       Launch the test_pixel emulator (non-headless)
 #   emulator stop        Kill the running emulator
 #   emulator install     Install phone debug APK on emulator
@@ -62,8 +62,6 @@ case "${1:-help}" in
         echo ""
         echo "Debug APKs built:"
         [ -f "$PHONE_APK" ] && echo "  Phone: $PHONE_APK"
-        [ -f "$MOBILE_DIR/wear/build/outputs/apk/debug/wear-debug.apk" ] && \
-            echo "  Wear (legacy):  $MOBILE_DIR/wear/build/outputs/apk/debug/wear-debug.apk"
         [ -f "$MOBILE_DIR/wear-device/build/outputs/apk/debug/wear-device-debug.apk" ] && \
             echo "  Wear Device:    $MOBILE_DIR/wear-device/build/outputs/apk/debug/wear-device-debug.apk"
         ;;
@@ -167,8 +165,8 @@ case "${1:-help}" in
         echo ""
         echo "Commands:"
         echo "  devices              List all connected ADB devices"
-        echo "  build                Build debug APKs (phone + wear)"
-        echo "  emulator start       Launch the test_pixel emulator"
+        echo "  build                Build debug APKs (phone + wear-device)"
+        echo "  emulator start       Launch the $AVD_NAME emulator"
         echo "  emulator stop        Kill the running emulator"
         echo "  emulator install     Install debug APK on emulator"
         echo "  phone install        Install debug APK on physical phone"

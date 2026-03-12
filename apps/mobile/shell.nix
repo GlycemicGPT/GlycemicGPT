@@ -53,7 +53,7 @@ pkgs.mkShell {
     echo "  System images: google_apis (phone), android-wear (Wear OS)"
     echo ""
     echo "Available commands:"
-    echo "  ./gradlew assembleDebug          - Build phone + wear debug APKs"
+    echo "  ./gradlew assembleDebug          - Build phone + wear-device debug APKs"
     echo "  ./gradlew testDebugUnitTest      - Run all unit tests"
     echo "  ./gradlew lintDebug              - Run lint checks"
     echo "  emulator -list-avds              - List AVDs"

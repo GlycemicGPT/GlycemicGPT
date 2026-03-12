@@ -106,11 +106,12 @@ jobs:
           VERSION="${{ needs.release-please.outputs.version }}"
           APP_APK=$(find apps/mobile/app/build/outputs/apk/release -name "*.apk" | head -1)
           cp "$APP_APK" "GlycemicGPT-${VERSION}-release.apk"
-          WEAR_APK=$(find apps/mobile/wear/build/outputs/apk/release -name "*.apk" | head -1)
+          WEAR_APK=$(find apps/mobile/wear-device/build/outputs/apk/release -name "*.apk" | head -1)
           if [ -n "$WEAR_APK" ]; then
             cp "$WEAR_APK" "GlycemicGPT-Wear-${VERSION}-release.apk"
           else
-            echo "::warning::Wear APK not found in build outputs"
+            echo "::error::Wear device APK not found in build outputs"
+            exit 1
           fi
 
       - name: Upload APK to GitHub Release

@@ -3,7 +3,7 @@
 Generate all app icon assets from the source logo.
 
 Produces:
-  - Android adaptive icon foreground PNGs (main, debug w/ DEV badge, wear)
+  - Android adaptive icon foreground PNGs (main, debug w/ DEV badge, wear-device)
   - Android legacy launcher + round PNGs at all densities
   - Android monochrome icon PNGs for themed icons (Android 13+)
   - Web favicons (ICO, PNG 16/32, SVG), apple-touch-icon, PWA icons
@@ -27,7 +27,7 @@ ICON_ONLY_DIR = PROJECT_ROOT / "assets" / "icon-only"
 
 PHONE_MAIN_RES = PROJECT_ROOT / "apps" / "mobile" / "app" / "src" / "main" / "res"
 PHONE_DEBUG_RES = PROJECT_ROOT / "apps" / "mobile" / "app" / "src" / "debug" / "res"
-WEAR_MAIN_RES = PROJECT_ROOT / "apps" / "mobile" / "wear" / "src" / "main" / "res"
+WEAR_MAIN_RES = PROJECT_ROOT / "apps" / "mobile" / "wear-device" / "src" / "main" / "res"
 WEB_PUBLIC = PROJECT_ROOT / "apps" / "web" / "public"
 
 BG_COLOR = (15, 23, 42, 255)  # #0F172A navy

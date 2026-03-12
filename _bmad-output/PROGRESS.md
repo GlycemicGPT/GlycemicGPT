@@ -37,7 +37,7 @@
 | 29 | App Icons & Branding | 3/3 | **Complete** |
 | 30 | Advanced Web Dashboard Visualization | 9/9 | **Complete** |
 | 31 | Mobile Dashboard Parity & Hub-and-Spoke Redesign | 5/8 | **In Progress** |
-| 32 | Wear OS Watch Face Management | 3/10 | **In Progress** |
+| 32 | Wear OS Watch Face Management | 6/10 | **In Progress** |
 | 33 | Data Source Abstraction & CGM Intelligence | 0/12 | Planned |
 | 34 | Code Quality & Technical Debt Elimination | 0/17 | Planned |
 | 35 | AI Intelligence Pipeline | 0/19 | Planned |
@@ -65,7 +65,7 @@
 **Epic 29 (App Icons & Branding):** 3/3 complete
 **Epic 30 (Web Dashboard Visualization):** 10/10 complete
 **Epic 31 (Mobile Dashboard Parity):** 5/8 complete (2 cancelled)
-**Epic 32 (Wear OS Watch Face Management):** 3/10 complete
+**Epic 32 (Wear OS Watch Face Management):** 6/10 complete
 **Epic 33 (Data Source Abstraction):** 0/12 planned
 **Epic 34 (Code Quality):** 0/17 planned
 **Epic 35 (AI Intelligence Pipeline):** 0/19 planned
@@ -1252,7 +1252,7 @@ Any new stats calculations (CGM summary, insulin summary, AGP percentiles, 5-buc
 
 ## Epic 32: Wear OS Watch Face Management
 
-**Status:** In Progress (3/10 stories)
+**Status:** In Progress (6/10 stories)
 
 **Goal:** Full watch face management from the phone app using the Watch Face Push API (Wear OS 6+). Single-app architecture -- all watch management lives in the main GlycemicGPT mobile app. No separate wear companion app.
 
@@ -1265,11 +1265,11 @@ Any new stats calculations (CGM summary, insulin summary, AGP percentiles, 5-buc
 | 32.2 | Watch Face Push integration (watch side) | Complete | #359 |
 | 32.3 | Phone-side face push (ChannelClient + WFF APK in assets) | Complete | #360 |
 | 32.4 | Settings > Watch full management UI | Complete | #361 |
-| 32.5 | Feature toggle sync (phone -> watch -> WFF UserConfiguration) | Planned | |
+| 32.5 | Feature toggle sync (phone -> watch -> WFF UserConfiguration) | Complete | #363 |
 | 32.6 | Watch face gallery (multiple WFF designs) | Planned | |
 | 32.7 | Ambient mode & battery optimization | Planned | |
 | 32.8 | Watch-to-phone AI chat & alert dismiss | Planned | |
-| 32.9 | Remove old wear/ module & cleanup | Planned | |
+| 32.9 | Remove old wear/ module & cleanup | Complete | |
 | 32.10 | Update documentation & dev scripts | Planned | |
 
 ### Story 32.1: Create :wear-device module, migrate watch services
