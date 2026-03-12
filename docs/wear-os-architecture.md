@@ -32,7 +32,7 @@ PHONE (Single App)                             WATCH (Wear OS 6+)
 |    alerts, seconds, theme)           |----->| - WearableListenerService        |
 |  - Watch face preview                |      |   (receives BG/IoB/alerts/hist)  |
 |  - Connection status                 |      | - Complication providers          |
-|                                      |      |   (BG, IoB, Trend, Graph, Alert) |
+|                                      |      |   (BG, IoB)                      |
 |  Data Streaming:                     | Msgs | - WatchFacePushManager           |
 |  - WearDataSender (BG, IoB, alerts,  |<-----|   (installs/activates faces)     |
 |    CGM history, thresholds)          |      | - MessageClient relay            |
