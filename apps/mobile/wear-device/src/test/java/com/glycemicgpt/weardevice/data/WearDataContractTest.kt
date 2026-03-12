@@ -18,6 +18,7 @@ class WearDataContractTest {
             WearDataContract.ALERT_DISMISS_PATH,
             WearDataContract.WATCHFACE_PUSH_CHANNEL,
             WearDataContract.WATCHFACE_PUSH_STATUS_PATH,
+            WearDataContract.CONFIG_PATH,
         )
         paths.forEach { path ->
             assertTrue("Path '$path' should start with /glycemicgpt/", path.startsWith("/glycemicgpt/"))
@@ -49,5 +50,20 @@ class WearDataContractTest {
     fun `capability names are defined`() {
         assertEquals("glycemicgpt_chat_relay", WearDataContract.CHAT_RELAY_CAPABILITY)
         assertEquals("glycemicgpt_watch_app", WearDataContract.WATCH_APP_CAPABILITY)
+    }
+
+    @Test
+    fun `config path is defined`() {
+        assertEquals("/glycemicgpt/watchface/config", WearDataContract.CONFIG_PATH)
+    }
+
+    @Test
+    fun `config keys are defined`() {
+        assertEquals("cfg_show_iob", WearDataContract.KEY_CONFIG_SHOW_IOB)
+        assertEquals("cfg_show_graph", WearDataContract.KEY_CONFIG_SHOW_GRAPH)
+        assertEquals("cfg_show_alert", WearDataContract.KEY_CONFIG_SHOW_ALERT)
+        assertEquals("cfg_show_seconds", WearDataContract.KEY_CONFIG_SHOW_SECONDS)
+        assertEquals("cfg_graph_range_h", WearDataContract.KEY_CONFIG_GRAPH_RANGE_HOURS)
+        assertEquals("cfg_theme", WearDataContract.KEY_CONFIG_THEME)
     }
 }

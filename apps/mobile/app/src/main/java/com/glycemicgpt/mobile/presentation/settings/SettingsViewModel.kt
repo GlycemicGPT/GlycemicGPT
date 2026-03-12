@@ -29,6 +29,7 @@ import com.glycemicgpt.mobile.data.update.DownloadResult
 import com.glycemicgpt.mobile.data.update.UpdateCheckResult
 import com.glycemicgpt.mobile.wear.WatchFacePusher
 import com.glycemicgpt.mobile.wear.WearDataContract
+import com.glycemicgpt.mobile.wear.WearDataSender
 import com.google.android.gms.wearable.CapabilityClient
 import com.google.android.gms.wearable.Wearable
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -185,6 +186,7 @@ class SettingsViewModel @Inject constructor(
     private val alertNotificationManager: AlertNotificationManager,
     private val pluginRegistry: PluginRegistry,
     private val watchFacePusher: WatchFacePusher,
+    private val wearDataSender: WearDataSender,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SettingsUiState())
@@ -577,6 +579,10 @@ class SettingsViewModel @Inject constructor(
                 if (capInfo.nodes.isNotEmpty()) {
                     loadWatchDataTelemetry()
                 }
+                // Push current config to watch when connected
+                if (nearbyNode != null) {
+                    syncWatchFaceConfig(_uiState.value.watchFaceConfig)
+                }
             } catch (e: Exception) {
                 Timber.w(e, "Failed to check watch status")
                 _uiState.value = _uiState.value.copy(
@@ -709,7 +715,24 @@ class SettingsViewModel @Inject constructor(
         )
         _uiState.value = _uiState.value.copy(watchFaceConfig = validated)
         persistWatchFaceConfig(validated)
-        // TODO(Story 32.5): Sync config to watch via DataClient
+        syncWatchFaceConfig(validated)
+    }
+
+    private fun syncWatchFaceConfig(config: WatchFaceConfig) {
+        viewModelScope.launch {
+            try {
+                wearDataSender.sendWatchFaceConfig(
+                    showIoB = config.showIoB,
+                    showGraph = config.showGraph,
+                    showAlert = config.showAlert,
+                    showSeconds = config.showSeconds,
+                    graphRangeHours = config.graphRangeHours,
+                    theme = config.theme.contractKey,
+                )
+            } catch (e: Exception) {
+                Timber.w(e, "Failed to sync watch face config")
+            }
+        }
     }
 
     private fun loadPersistedWatchFaceConfig(): WatchFaceConfig {

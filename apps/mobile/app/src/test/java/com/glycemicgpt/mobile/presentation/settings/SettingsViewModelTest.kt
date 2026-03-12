@@ -17,6 +17,7 @@ import com.glycemicgpt.mobile.data.update.DownloadResult
 import com.glycemicgpt.mobile.data.update.UpdateCheckResult
 import com.glycemicgpt.mobile.data.update.UpdateInfo
 import com.glycemicgpt.mobile.wear.WatchFacePusher
+import com.glycemicgpt.mobile.wear.WearDataSender
 import com.glycemicgpt.mobile.domain.plugin.DevicePlugin
 import com.glycemicgpt.mobile.domain.plugin.Plugin
 import com.glycemicgpt.mobile.domain.plugin.PluginMetadata
@@ -99,6 +100,7 @@ class SettingsViewModelTest {
         every { runtimePlugins } returns MutableStateFlow<List<RuntimePluginInfo>>(emptyList())
     }
     private val watchFacePusher = mockk<WatchFacePusher>(relaxed = true)
+    private val wearDataSender = mockk<WearDataSender>(relaxed = true)
 
     @Before
     fun setup() {
@@ -111,7 +113,7 @@ class SettingsViewModelTest {
     }
 
     private fun createViewModel() =
-        SettingsViewModel(appContext, pumpCredentialStore, appSettingsStore, glucoseRangeStore, safetyLimitsStore, authRepository, appUpdateChecker, authManager, alertSoundStore, alertNotificationManager, pluginRegistry, watchFacePusher)
+        SettingsViewModel(appContext, pumpCredentialStore, appSettingsStore, glucoseRangeStore, safetyLimitsStore, authRepository, appUpdateChecker, authManager, alertSoundStore, alertNotificationManager, pluginRegistry, watchFacePusher, wearDataSender)
 
     @Test
     fun `loadState initializes from stores`() {
@@ -511,6 +513,51 @@ class SettingsViewModelTest {
         assertTrue(config.showSeconds)
         assertEquals(6, config.graphRangeHours)
         assertEquals(WatchFaceTheme.HighContrast, config.theme)
+    }
+
+    @Test
+    fun `updateWatchFaceConfig syncs to watch via WearDataSender`() = runTest {
+        val vm = createViewModel()
+        val config = WatchFaceConfig(
+            showIoB = false,
+            showGraph = true,
+            showAlert = false,
+            showSeconds = true,
+            graphRangeHours = 6,
+            theme = WatchFaceTheme.ClinicalBlue,
+        )
+
+        vm.updateWatchFaceConfig(config)
+
+        coVerify {
+            wearDataSender.sendWatchFaceConfig(
+                showIoB = false,
+                showGraph = true,
+                showAlert = false,
+                showSeconds = true,
+                graphRangeHours = 6,
+                theme = "clinical_blue",
+            )
+        }
+    }
+
+    @Test
+    fun `updateWatchFaceConfig sends theme contractKey not label`() = runTest {
+        val vm = createViewModel()
+        val config = WatchFaceConfig(theme = WatchFaceTheme.HighContrast)
+
+        vm.updateWatchFaceConfig(config)
+
+        coVerify {
+            wearDataSender.sendWatchFaceConfig(
+                showIoB = any(),
+                showGraph = any(),
+                showAlert = any(),
+                showSeconds = any(),
+                graphRangeHours = any(),
+                theme = "high_contrast",
+            )
+        }
     }
 
     @Test

@@ -1,8 +1,10 @@
 package com.glycemicgpt.weardevice.data
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -16,6 +18,10 @@ class WatchDataRepositoryTest {
             low = 70, high = 180, urgentLow = 55, urgentHigh = 250,
         )
         WatchDataRepository.updateAlert(type = "none", bgValue = 0, timestampMs = 0L, message = "")
+        WatchDataRepository.updateWatchFaceConfig(
+            showIoB = true, showGraph = true, showAlert = true,
+            showSeconds = false, graphRangeHours = 3, theme = "dark",
+        )
     }
 
     @Test
@@ -124,5 +130,72 @@ class WatchDataRepositoryTest {
         val state = WatchDataRepository.alert.value
         assertEquals("urgent_low", state!!.type)
         assertEquals(50, state.bgValue)
+    }
+
+    @Test
+    fun `resetState sets expected watchFaceConfig`() {
+        val config = WatchDataRepository.watchFaceConfig.value
+        assertTrue(config.showIoB)
+        assertTrue(config.showGraph)
+        assertTrue(config.showAlert)
+        assertFalse(config.showSeconds)
+        assertEquals(3, config.graphRangeHours)
+        assertEquals("dark", config.theme)
+    }
+
+    @Test
+    fun `updateWatchFaceConfig sets correct values`() {
+        WatchDataRepository.updateWatchFaceConfig(
+            showIoB = false,
+            showGraph = false,
+            showAlert = false,
+            showSeconds = true,
+            graphRangeHours = 6,
+            theme = "clinical_blue",
+        )
+
+        val config = WatchDataRepository.watchFaceConfig.value
+        assertFalse(config.showIoB)
+        assertFalse(config.showGraph)
+        assertFalse(config.showAlert)
+        assertTrue(config.showSeconds)
+        assertEquals(6, config.graphRangeHours)
+        assertEquals("clinical_blue", config.theme)
+    }
+
+    @Test
+    fun `updateWatchFaceConfig overwrites previous config`() {
+        WatchDataRepository.updateWatchFaceConfig(
+            showIoB = false, showGraph = false, showAlert = false,
+            showSeconds = true, graphRangeHours = 1, theme = "high_contrast",
+        )
+        WatchDataRepository.updateWatchFaceConfig(
+            showIoB = true, showGraph = true, showAlert = true,
+            showSeconds = false, graphRangeHours = 6, theme = "dark",
+        )
+
+        val config = WatchDataRepository.watchFaceConfig.value
+        assertTrue(config.showIoB)
+        assertTrue(config.showGraph)
+        assertEquals(6, config.graphRangeHours)
+        assertEquals("dark", config.theme)
+    }
+
+    @Test
+    fun `updateWatchFaceConfig clamps invalid graphRangeHours to default`() {
+        WatchDataRepository.updateWatchFaceConfig(
+            showIoB = true, showGraph = true, showAlert = true,
+            showSeconds = false, graphRangeHours = 99, theme = "dark",
+        )
+        assertEquals(3, WatchDataRepository.watchFaceConfig.value.graphRangeHours)
+    }
+
+    @Test
+    fun `updateWatchFaceConfig falls back to dark for unknown theme`() {
+        WatchDataRepository.updateWatchFaceConfig(
+            showIoB = true, showGraph = true, showAlert = true,
+            showSeconds = false, graphRangeHours = 3, theme = "neon_green",
+        )
+        assertEquals("dark", WatchDataRepository.watchFaceConfig.value.theme)
     }
 }

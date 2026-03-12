@@ -28,6 +28,15 @@ object WatchDataRepository {
         val message: String,
     )
 
+    data class WatchFaceConfigState(
+        val showIoB: Boolean = true,
+        val showGraph: Boolean = true,
+        val showAlert: Boolean = true,
+        val showSeconds: Boolean = false,
+        val graphRangeHours: Int = 3,
+        val theme: String = "dark",
+    )
+
     private val _iob = MutableStateFlow<IoBState?>(null)
     val iob: StateFlow<IoBState?> = _iob.asStateFlow()
 
@@ -36,6 +45,9 @@ object WatchDataRepository {
 
     private val _alert = MutableStateFlow<AlertState?>(null)
     val alert: StateFlow<AlertState?> = _alert.asStateFlow()
+
+    private val _watchFaceConfig = MutableStateFlow(WatchFaceConfigState())
+    val watchFaceConfig: StateFlow<WatchFaceConfigState> = _watchFaceConfig.asStateFlow()
 
     fun updateIoB(iob: Float, timestampMs: Long) {
         _iob.value = IoBState(iob, timestampMs)
@@ -55,5 +67,26 @@ object WatchDataRepository {
 
     fun updateAlert(type: String, bgValue: Int, timestampMs: Long, message: String) {
         _alert.value = if (type == "none") null else AlertState(type, bgValue, timestampMs, message)
+    }
+
+    private val VALID_GRAPH_RANGES = setOf(1, 3, 6)
+    private val VALID_THEMES = setOf("dark", "clinical_blue", "high_contrast")
+
+    fun updateWatchFaceConfig(
+        showIoB: Boolean,
+        showGraph: Boolean,
+        showAlert: Boolean,
+        showSeconds: Boolean,
+        graphRangeHours: Int,
+        theme: String,
+    ) {
+        _watchFaceConfig.value = WatchFaceConfigState(
+            showIoB = showIoB,
+            showGraph = showGraph,
+            showAlert = showAlert,
+            showSeconds = showSeconds,
+            graphRangeHours = if (graphRangeHours in VALID_GRAPH_RANGES) graphRangeHours else 3,
+            theme = if (theme in VALID_THEMES) theme else "dark",
+        )
     }
 }

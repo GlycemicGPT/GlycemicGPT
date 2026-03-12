@@ -19,10 +19,32 @@ class GlycemicDataListenerService : WearableListenerService() {
     override fun onDataChanged(dataEvents: DataEventBuffer) {
         var iobUpdated = false
         var cgmUpdated = false
+        var configUpdated = false
 
-        dataEvents.forEach { event ->
-            if (event.type != DataEvent.TYPE_CHANGED) return@forEach
+        // Two-pass processing: config events first so that data/alert events
+        // see the latest showAlert / showIoB state within the same batch.
+        val changedEvents = dataEvents.filter { it.type == DataEvent.TYPE_CHANGED }
 
+        // Pass 1 -- config
+        changedEvents.forEach { event ->
+            val path = event.dataItem.uri.path ?: return@forEach
+            if (path != WearDataContract.CONFIG_PATH) return@forEach
+            val dataMap = DataMapItem.fromDataItem(event.dataItem).dataMap
+
+            WatchDataRepository.updateWatchFaceConfig(
+                showIoB = dataMap.getBoolean(WearDataContract.KEY_CONFIG_SHOW_IOB, true),
+                showGraph = dataMap.getBoolean(WearDataContract.KEY_CONFIG_SHOW_GRAPH, true),
+                showAlert = dataMap.getBoolean(WearDataContract.KEY_CONFIG_SHOW_ALERT, true),
+                showSeconds = dataMap.getBoolean(WearDataContract.KEY_CONFIG_SHOW_SECONDS, false),
+                graphRangeHours = dataMap.getInt(WearDataContract.KEY_CONFIG_GRAPH_RANGE_HOURS, 3),
+                theme = dataMap.getString(WearDataContract.KEY_CONFIG_THEME, "dark"),
+            )
+            configUpdated = true
+            Timber.d("Received watch face config from phone")
+        }
+
+        // Pass 2 -- data and alert events
+        changedEvents.forEach { event ->
             val path = event.dataItem.uri.path ?: return@forEach
             val dataMap = DataMapItem.fromDataItem(event.dataItem).dataMap
 
@@ -63,20 +85,27 @@ class GlycemicDataListenerService : WearableListenerService() {
 
                 WearDataContract.ALERT_PATH -> {
                     val alertType = dataMap.getString(WearDataContract.KEY_ALERT_TYPE, "none")
+                    val alertsEnabled = WatchDataRepository.watchFaceConfig.value.showAlert
+                    val rawBg = dataMap.getInt(WearDataContract.KEY_ALERT_BG_VALUE, 0)
+                    val bgValue = if (GlucoseDisplayUtils.isValidGlucose(rawBg)) rawBg else 0
                     WatchDataRepository.updateAlert(
                         type = alertType,
-                        bgValue = dataMap.getInt(WearDataContract.KEY_ALERT_BG_VALUE, 0),
+                        bgValue = bgValue,
                         timestampMs = dataMap.getLong(WearDataContract.KEY_ALERT_TIMESTAMP),
                         message = dataMap.getString(WearDataContract.KEY_ALERT_MESSAGE, ""),
                     )
-                    if (alertType != "none") {
+                    if (alertType != "none" && alertsEnabled) {
                         vibrateForAlert(alertType)
                     }
-                    Timber.d("Received alert from phone: %s", alertType)
+                    Timber.d("Received alert from phone: %s (vibrate=%b)", alertType, alertsEnabled)
                 }
             }
         }
 
+        if (configUpdated) {
+            // Config change may affect which complications are visible
+            requestComplicationUpdate(IoBComplicationDataSource::class.java)
+        }
         if (iobUpdated) {
             requestComplicationUpdate(IoBComplicationDataSource::class.java)
         }

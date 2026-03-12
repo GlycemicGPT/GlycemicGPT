@@ -1,5 +1,7 @@
 package com.glycemicgpt.weardevice.data
 
+// MIRROR: This contract must stay in sync with
+// app/src/main/java/com/glycemicgpt/mobile/wear/WearDataContract.kt
 object WearDataContract {
     // DataClient paths (persistent state sync)
     const val IOB_PATH = "/glycemicgpt/iob"
@@ -38,6 +40,17 @@ object WearDataContract {
 
     // Watch Face Push status paths (watch -> phone via MessageClient)
     const val WATCHFACE_PUSH_STATUS_PATH = "/glycemicgpt/watchface/status"
+
+    // Watch face config sync path (phone -> watch via DataClient)
+    const val CONFIG_PATH = "/glycemicgpt/watchface/config"
+
+    // Watch face config keys
+    const val KEY_CONFIG_SHOW_IOB = "cfg_show_iob"
+    const val KEY_CONFIG_SHOW_GRAPH = "cfg_show_graph"
+    const val KEY_CONFIG_SHOW_ALERT = "cfg_show_alert"
+    const val KEY_CONFIG_SHOW_SECONDS = "cfg_show_seconds"
+    const val KEY_CONFIG_GRAPH_RANGE_HOURS = "cfg_graph_range_h"
+    const val KEY_CONFIG_THEME = "cfg_theme"
 
     // CapabilityClient capabilities
     const val CHAT_RELAY_CAPABILITY = "glycemicgpt_chat_relay"

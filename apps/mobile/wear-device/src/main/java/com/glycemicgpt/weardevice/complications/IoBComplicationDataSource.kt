@@ -34,6 +34,9 @@ class IoBComplicationDataSource : SuspendingComplicationDataSourceService() {
     }
 
     override suspend fun onComplicationRequest(request: ComplicationRequest): ComplicationData {
+        if (!WatchDataRepository.watchFaceConfig.value.showIoB) {
+            return NoDataComplicationData()
+        }
         val iobState = WatchDataRepository.iob.value
         val iobText = iobState?.let { "%.2f".format(it.iob) } ?: "--"
         val descriptionText = iobState?.let { "Insulin on Board: $iobText units" } ?: "No data"

@@ -1671,7 +1671,7 @@ private fun WatchFaceConfigCard(
             WatchToggleRow("Show Glucose Graph", config.showGraph) {
                 onConfigChange(config.copy(showGraph = it))
             }
-            WatchToggleRow("Show Alert Indicator", config.showAlert) {
+            WatchToggleRow("Alert Vibration", config.showAlert) {
                 onConfigChange(config.copy(showAlert = it))
             }
             WatchToggleRow("Show Seconds", config.showSeconds) {

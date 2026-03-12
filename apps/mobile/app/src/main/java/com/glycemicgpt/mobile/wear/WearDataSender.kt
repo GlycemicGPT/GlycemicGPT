@@ -4,6 +4,7 @@ import android.content.Context
 import com.google.android.gms.wearable.PutDataMapRequest
 import com.google.android.gms.wearable.Wearable
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.tasks.await
 import timber.log.Timber
 import javax.inject.Inject
@@ -74,5 +75,35 @@ class WearDataSender @Inject constructor(
 
     suspend fun clearAlert() {
         sendAlert(type = "none", bgValue = 0, timestampMs = System.currentTimeMillis(), message = "")
+    }
+
+    suspend fun sendWatchFaceConfig(
+        showIoB: Boolean,
+        showGraph: Boolean,
+        showAlert: Boolean,
+        showSeconds: Boolean,
+        graphRangeHours: Int,
+        theme: String,
+    ) {
+        try {
+            val request = PutDataMapRequest.create(WearDataContract.CONFIG_PATH).apply {
+                dataMap.putBoolean(WearDataContract.KEY_CONFIG_SHOW_IOB, showIoB)
+                dataMap.putBoolean(WearDataContract.KEY_CONFIG_SHOW_GRAPH, showGraph)
+                dataMap.putBoolean(WearDataContract.KEY_CONFIG_SHOW_ALERT, showAlert)
+                dataMap.putBoolean(WearDataContract.KEY_CONFIG_SHOW_SECONDS, showSeconds)
+                dataMap.putInt(WearDataContract.KEY_CONFIG_GRAPH_RANGE_HOURS, graphRangeHours)
+                dataMap.putString(WearDataContract.KEY_CONFIG_THEME, theme)
+                // Timestamp forces DataClient delivery even when config values are unchanged,
+                // preventing deduplication from swallowing re-syncs (e.g. on reconnect).
+                dataMap.putLong("_ts", System.currentTimeMillis())
+            }.asPutDataRequest().setUrgent()
+
+            dataClient.putDataItem(request).await()
+            Timber.d("Sent watch face config to watch: theme=%s, graph=%dh", theme, graphRangeHours)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "Failed to send watch face config to watch (no watch connected?)")
+        }
     }
 }
