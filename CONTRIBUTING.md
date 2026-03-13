@@ -124,8 +124,8 @@ You only need the tools for the component(s) you're working on:
 | 🌐 Web UI | Docker + Docker Compose |
 | 🐍 Backend API | Docker + Docker Compose (or Python 3.12+ with [UV](https://docs.astral.sh/uv/)) |
 | 🤖 AI Sidecar | Docker + Docker Compose (or Node.js 20+) |
-| 📱 Mobile App | JDK 17, Android SDK (API 34) |
-| ⌚ Wear OS | JDK 17, Android SDK (API 34), Wear OS system image |
+| 📱 Mobile App | JDK 17, Android SDK Platform 35 (targetSdk 35, minSdk 30) |
+| ⌚ Wear OS | JDK 17, Android SDK Platform 36, Wear OS system image. Requires phone + watch emulators paired via ADB. |
 | 📝 Docs only | Just a text editor! |
 
 ### 🚀 Quick Start (Web/API -- recommended for most contributors)

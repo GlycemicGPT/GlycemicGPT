@@ -8,12 +8,14 @@
 # Commands:
 #   devices              List all connected ADB devices
 #   build                Build debug APKs (phone + wear-device)
-#   emulator start       Launch the test_pixel emulator (non-headless)
+#   emulator start       Launch the test_device emulator (non-headless)
 #   emulator stop        Kill the running emulator
 #   emulator install     Install phone debug APK on emulator
 #   phone install        Install phone debug APK on physical phone
 #   phone logcat         Show filtered BLE + app logs from phone
 #   phone ble-raw        Show only BLE_RAW hex data logs from phone
+#   watch install        Install wear-device debug APK on connected watch
+#   watch logcat         Stream filtered watch service logs from watch
 
 set -euo pipefail
 
@@ -21,6 +23,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 MOBILE_DIR="$PROJECT_ROOT/apps/mobile"
 PHONE_APK="$MOBILE_DIR/app/build/outputs/apk/debug/app-debug.apk"
+WEAR_APK="$MOBILE_DIR/wear-device/build/outputs/apk/debug/wear-device-debug.apk"
 AVD_NAME="test_device"
 
 # Resolve ADB binary -- prefer ANDROID_HOME, fall back to PATH
@@ -51,6 +54,18 @@ get_phone_serial() {
     "$ADB" devices | grep -v '^List' | grep -v '^$' | grep -v '^emulator-' | head -1 | awk '{print $1}'
 }
 
+get_watch_serial() {
+    # Watch serial can be passed via WATCH_SERIAL env var, or auto-detected.
+    # Auto-detection finds the first IP-connected non-emulator device (WiFi-paired watches).
+    # If multiple devices are connected or the watch is USB-connected, set WATCH_SERIAL explicitly.
+    if [ -n "${WATCH_SERIAL:-}" ]; then
+        echo "$WATCH_SERIAL"
+        return
+    fi
+    # Try IP-connected watches (common for WiFi-paired watches like 10.x.x.x:5555)
+    "$ADB" devices | grep -v '^List' | grep -v '^$' | grep -v '^emulator-' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -1 | awk '{print $1}'
+}
+
 case "${1:-help}" in
     devices)
         "$ADB" devices -l
@@ -62,8 +77,7 @@ case "${1:-help}" in
         echo ""
         echo "Debug APKs built:"
         [ -f "$PHONE_APK" ] && echo "  Phone: $PHONE_APK"
-        [ -f "$MOBILE_DIR/wear-device/build/outputs/apk/debug/wear-device-debug.apk" ] && \
-            echo "  Wear Device:    $MOBILE_DIR/wear-device/build/outputs/apk/debug/wear-device-debug.apk"
+        [ -f "$WEAR_APK" ] && echo "  Wear Device: $WEAR_APK"
         ;;
 
     emulator)
@@ -158,6 +172,48 @@ case "${1:-help}" in
         esac
         ;;
 
+    watch)
+        case "${2:-help}" in
+            install)
+                if [ ! -f "$WEAR_APK" ]; then
+                    echo "Error: Wear APK not found at $WEAR_APK"
+                    echo "Run '$0 build' first."
+                    exit 1
+                fi
+                SERIAL=$(get_watch_serial)
+                if [ -z "$SERIAL" ]; then
+                    echo "Error: No watch found."
+                    echo "Connect your watch via ADB (WiFi or USB debug bridge)."
+                    echo "Or set WATCH_SERIAL=<serial> explicitly."
+                    exit 1
+                fi
+                echo "Installing wear-device APK on watch ($SERIAL)..."
+                "$ADB" -s "$SERIAL" install -r "$WEAR_APK"
+                ;;
+            logcat)
+                SERIAL=$(get_watch_serial)
+                if [ -z "$SERIAL" ]; then
+                    echo "Error: No watch found."
+                    exit 1
+                fi
+                echo "Streaming logs from watch ($SERIAL)..."
+                echo "Press Ctrl+C to stop."
+                "$ADB" -s "$SERIAL" logcat -v time \
+                    GlycemicDataListenerService:D \
+                    WatchDataRepository:D \
+                    WearMessageSender:D \
+                    ChatActivity:D \
+                    AlertsActivity:D \
+                    BgComplicationDataSource:D \
+                    IoBComplicationDataSource:D \
+                    *:S
+                ;;
+            *)
+                echo "Usage: $0 watch {install|logcat}"
+                ;;
+        esac
+        ;;
+
     help|*)
         echo "GlycemicGPT Mobile Development Helper"
         echo ""
@@ -172,6 +228,8 @@ case "${1:-help}" in
         echo "  phone install        Install debug APK on physical phone"
         echo "  phone logcat         Stream filtered BLE + app logs"
         echo "  phone ble-raw        Stream only BLE_RAW hex data logs"
+        echo "  watch install        Install wear-device APK on watch"
+        echo "  watch logcat         Stream filtered watch service logs"
         echo ""
         echo "Prerequisites:"
         echo "  Run inside nix-shell (cd apps/mobile && nix-shell)"
