@@ -21,6 +21,7 @@ dependencyResolutionManagement {
             url = uri("https://jitpack.io")
             content {
                 includeGroup("com.github.jeziellago")
+                includeModule("com.github.xgouchet", "AXML")
             }
         }
     }

@@ -7,3 +7,9 @@
 
 # Keep Hilt-generated Application class
 -keep class com.glycemicgpt.weardevice.GlycemicWearDeviceApp { *; }
+
+# Keep Watch Face Push receive service (instantiated by system)
+-keep class com.glycemicgpt.weardevice.push.WatchFaceReceiveService { *; }
+
+# DWF Validator -- AAR ships no consumer ProGuard rules; keep public API + factory
+-keep class com.google.android.wearable.watchface.validator.client.** { *; }

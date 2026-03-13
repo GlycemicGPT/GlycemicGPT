@@ -124,6 +124,7 @@ dependencies {
 
     // Watch Face Push API (Wear OS 6+)
     implementation(libs.wear.watchface.push)
+    implementation(libs.wear.watchface.validator)
 
     // Wearable Data Layer
     implementation(libs.play.services.wearable)

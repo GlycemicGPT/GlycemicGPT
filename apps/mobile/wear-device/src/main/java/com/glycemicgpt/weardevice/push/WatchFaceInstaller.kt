@@ -5,6 +5,9 @@ import android.os.Build
 import android.os.ParcelFileDescriptor
 import androidx.annotation.RequiresApi
 import androidx.wear.watchface.push.WatchFacePushManager
+import com.google.android.wearable.watchface.validator.client.DwfValidatorFactory
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.io.File
 
@@ -82,16 +85,19 @@ class WatchFaceInstaller(private val context: Context) {
                 return Result.Error("APK file not accessible: ${apkFile.name}")
             }
 
+            // Generate validation token using the DWF validator.
+            // The Watch Face Push API requires a non-empty token from the validator.
+            val token = generateValidationToken(apkFile)
+                ?: return Result.Error("Watch face APK failed validation")
+
             val pfd = ParcelFileDescriptor.open(apkFile, ParcelFileDescriptor.MODE_READ_ONLY)
             val details = try {
-                // validationToken is empty: GlycemicGPT is sideloaded (not Play Store),
-                // so marketplace validation is not applicable.
                 if (existing != null) {
                     Timber.d("Updating existing watch face in slot: %s", existing.slotId)
-                    pushManager.updateWatchFace(existing.slotId, pfd, "")
+                    pushManager.updateWatchFace(existing.slotId, pfd, token)
                 } else {
                     Timber.d("Installing new watch face")
-                    pushManager.addWatchFace(pfd, "")
+                    pushManager.addWatchFace(pfd, token)
                 }
             } finally {
                 pfd.close()
@@ -116,6 +122,45 @@ class WatchFaceInstaller(private val context: Context) {
             Result.Error("Unexpected error: ${e.message}")
         }
     }
+
+    /**
+     * Validate the WFF APK and obtain the validation token required by the Push API.
+     * Returns null if validation fails.
+     *
+     * Runs on [Dispatchers.IO] because the validator performs synchronous file I/O
+     * (APK zip extraction, XML parsing, image decoding) that would block the caller.
+     */
+    private suspend fun generateValidationToken(apkFile: File): String? =
+        withContext(Dispatchers.IO) {
+            try {
+                val validator = DwfValidatorFactory.create()
+                // Strip build-type suffix (.debug, .staging) so the validator sees the
+                // base applicationId. context.packageName includes the suffix in non-release
+                // builds, which can cause token mismatch during install.
+                val appPackageName = context.packageName
+                    .removeSuffix(".debug")
+                    .removeSuffix(".staging")
+                val result = validator.validate(apkFile, appPackageName)
+                val failures = result.failures()
+                if (failures.isEmpty()) {
+                    val token = result.validationToken()
+                    if (token.isNullOrEmpty()) {
+                        Timber.w("Validator returned empty token despite no failures")
+                        return@withContext null
+                    }
+                    Timber.d("Watch face validated, token obtained (%d chars)", token.length)
+                    token
+                } else {
+                    failures.forEach { failure ->
+                        Timber.w("Watch face validation failure: %s: %s", failure.name(), failure.failureMessage())
+                    }
+                    null
+                }
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to run watch face validator")
+                null
+            }
+        }
 
     @RequiresApi(WEAR_OS_6_API)
     private suspend fun listFacesInternal(): List<WatchFacePushManager.WatchFaceDetails> {

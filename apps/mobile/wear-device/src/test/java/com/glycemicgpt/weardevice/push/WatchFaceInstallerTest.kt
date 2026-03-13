@@ -1,9 +1,14 @@
 package com.glycemicgpt.weardevice.push
 
+import android.content.Context
+import io.mockk.every
+import io.mockk.mockk
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 class WatchFaceInstallerTest {
 
@@ -40,5 +45,17 @@ class WatchFaceInstallerTest {
     fun `isSupported returns false on API below 36`() {
         // In unit tests, Build.VERSION.SDK_INT is 0 (not a real device)
         assertFalse(WatchFaceInstaller.isSupported())
+    }
+
+    @Test
+    fun `installOrUpdate returns error on unsupported API`() = runTest {
+        // Build.VERSION.SDK_INT is 0 in unit tests -- below API 36 threshold
+        val context = mockk<Context>()
+        val installer = WatchFaceInstaller(context)
+        val result = installer.installOrUpdate(File("/nonexistent.apk"))
+
+        assertTrue(result is WatchFaceInstaller.Result.Error)
+        val error = result as WatchFaceInstaller.Result.Error
+        assertTrue(error.message.contains("Wear OS 6"))
     }
 }
