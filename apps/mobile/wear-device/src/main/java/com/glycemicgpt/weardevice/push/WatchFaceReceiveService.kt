@@ -1,5 +1,9 @@
 package com.glycemicgpt.weardevice.push
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.pm.ServiceInfo
 import com.glycemicgpt.weardevice.data.WearDataContract
 import com.google.android.gms.wearable.ChannelClient
 import com.google.android.gms.wearable.Wearable
@@ -41,6 +45,8 @@ class WatchFaceReceiveService : WearableListenerService() {
         private const val RECEIVE_TIMEOUT_MS = 120_000L
         /** APK magic bytes (PK zip header) */
         private val APK_MAGIC = byteArrayOf(0x50, 0x4B, 0x03, 0x04)
+        private const val NOTIFICATION_CHANNEL_ID = "watchface_push"
+        private const val FOREGROUND_ID = 9001
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -50,11 +56,37 @@ class WatchFaceReceiveService : WearableListenerService() {
         if (channel.path != WearDataContract.WATCHFACE_PUSH_CHANNEL) return
 
         Timber.d("Watch face push channel opened from phone")
+        // Promote to foreground so the system doesn't kill the service
+        // while the APK transfer and install are in progress.
+        promoteToForeground()
         scope.launch {
-            installMutex.withLock {
-                receiveAndInstallWatchFace(channel)
+            try {
+                installMutex.withLock {
+                    receiveAndInstallWatchFace(channel)
+                }
+            } finally {
+                stopForeground(STOP_FOREGROUND_REMOVE)
             }
         }
+    }
+
+    private fun promoteToForeground() {
+        val nm = getSystemService(NotificationManager::class.java)
+        if (nm.getNotificationChannel(NOTIFICATION_CHANNEL_ID) == null) {
+            nm.createNotificationChannel(
+                NotificationChannel(
+                    NOTIFICATION_CHANNEL_ID,
+                    "Watch Face Install",
+                    NotificationManager.IMPORTANCE_LOW,
+                ),
+            )
+        }
+        val notification = Notification.Builder(this, NOTIFICATION_CHANNEL_ID)
+            .setContentTitle("Installing watch face")
+            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setOngoing(true)
+            .build()
+        startForeground(FOREGROUND_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
     }
 
     private suspend fun receiveAndInstallWatchFace(channel: ChannelClient.Channel) {
