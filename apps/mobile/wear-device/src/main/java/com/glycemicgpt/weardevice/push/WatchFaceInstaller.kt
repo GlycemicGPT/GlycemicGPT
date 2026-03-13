@@ -134,12 +134,11 @@ class WatchFaceInstaller(private val context: Context) {
         withContext(Dispatchers.IO) {
             try {
                 val validator = DwfValidatorFactory.create()
-                // Strip build-type suffix (.debug, .staging) so the validator sees the
-                // base applicationId. context.packageName includes the suffix in non-release
+                // Strip build-type suffix so the validator sees the base applicationId.
+                // context.packageName includes the suffix (e.g., ".debug") in non-release
                 // builds, which can cause token mismatch during install.
                 val appPackageName = context.packageName
-                    .removeSuffix(".debug")
-                    .removeSuffix(".staging")
+                    .replace(Regex("\\.(debug|staging|beta)$"), "")
                 val result = validator.validate(apkFile, appPackageName)
                 val failures = result.failures()
                 if (failures.isEmpty()) {

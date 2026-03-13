@@ -24,6 +24,7 @@ import timber.log.Timber
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Receives watch face APK bytes from the phone app via ChannelClient
@@ -51,6 +52,7 @@ class WatchFaceReceiveService : WearableListenerService() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val installMutex = Mutex()
+    private val activePushCount = AtomicInteger(0)
 
     override fun onChannelOpened(channel: ChannelClient.Channel) {
         if (channel.path != WearDataContract.WATCHFACE_PUSH_CHANNEL) return
@@ -58,35 +60,42 @@ class WatchFaceReceiveService : WearableListenerService() {
         Timber.d("Watch face push channel opened from phone")
         // Promote to foreground so the system doesn't kill the service
         // while the APK transfer and install are in progress.
-        promoteToForeground()
+        tryPromoteToForeground()
+        activePushCount.incrementAndGet()
         scope.launch {
             try {
                 installMutex.withLock {
                     receiveAndInstallWatchFace(channel)
                 }
             } finally {
-                stopForeground(STOP_FOREGROUND_REMOVE)
+                if (activePushCount.decrementAndGet() == 0) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                }
             }
         }
     }
 
-    private fun promoteToForeground() {
-        val nm = getSystemService(NotificationManager::class.java)
-        if (nm.getNotificationChannel(NOTIFICATION_CHANNEL_ID) == null) {
-            nm.createNotificationChannel(
-                NotificationChannel(
-                    NOTIFICATION_CHANNEL_ID,
-                    "Watch Face Install",
-                    NotificationManager.IMPORTANCE_LOW,
-                ),
-            )
+    private fun tryPromoteToForeground() {
+        try {
+            val nm = getSystemService(NotificationManager::class.java)
+            if (nm.getNotificationChannel(NOTIFICATION_CHANNEL_ID) == null) {
+                nm.createNotificationChannel(
+                    NotificationChannel(
+                        NOTIFICATION_CHANNEL_ID,
+                        "Watch Face Install",
+                        NotificationManager.IMPORTANCE_LOW,
+                    ),
+                )
+            }
+            val notification = Notification.Builder(this, NOTIFICATION_CHANNEL_ID)
+                .setContentTitle("Installing watch face")
+                .setSmallIcon(android.R.drawable.stat_sys_download)
+                .setOngoing(true)
+                .build()
+            startForeground(FOREGROUND_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        } catch (e: Exception) {
+            Timber.w(e, "Failed to promote to foreground, continuing without protection")
         }
-        val notification = Notification.Builder(this, NOTIFICATION_CHANNEL_ID)
-            .setContentTitle("Installing watch face")
-            .setSmallIcon(android.R.drawable.stat_sys_download)
-            .setOngoing(true)
-            .build()
-        startForeground(FOREGROUND_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
     }
 
     private suspend fun receiveAndInstallWatchFace(channel: ChannelClient.Channel) {
