@@ -104,6 +104,8 @@ Two message paths use `MessageClient` (transient, bidirectional):
 4. Phone resets alert DataItem to `type="none"` via `WearDataSender.clearAlert()`
 5. Watch-side `GlycemicDataListenerService` receives the `none` type and sets `WatchDataRepository.alert` to null
 
+**Known limitation:** Alert dismiss sends an empty payload -- the phone acknowledges the latest unacknowledged alert by timestamp. If multiple alerts arrive in quick succession, the wrong alert could be dismissed. A future improvement should include the alert ID in the dismiss payload for exact matching.
+
 **Timeouts and error handling:**
 - All `Wearable.*Client` `await()` calls wrapped in `withTimeout(10_000L)`
 - Chat response timeout: 30s on watch side (shows "Request timed out" error)
