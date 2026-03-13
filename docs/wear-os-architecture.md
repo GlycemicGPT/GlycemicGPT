@@ -52,6 +52,12 @@ PHONE (Single App)                             WATCH (Wear OS 6+)
 | `:pump-driver-api` | `plugins/pump-driver-api/` | Phone | Plugin SDK interfaces |
 | `:tandem-pump-driver` | `plugins/shipped/tandem/` | Phone | Tandem BLE plugin |
 
+### CRITICAL: applicationId Must Match
+
+The `:wear-device` module MUST use the same `applicationId` as `:app` (`com.glycemicgpt.mobile`). The Wearable Data Layer (DataClient, MessageClient) routes messages by applicationId -- if the phone app uses `com.glycemicgpt.mobile` and the watch app uses a different applicationId, messages are silently dropped. The `namespace` (R class package) can differ (`com.glycemicgpt.weardevice`).
+
+This was discovered during Story 32.8 E2E testing when MessageClient messages from the watch were never delivered to the phone. Phone logcat showed `WearableService: Failed to deliver message to AppKey[...]` due to applicationId mismatch.
+
 ### Key: No separate wear companion phone app
 
 The old `apps/mobile/wear/` module (which was a watch-side app with tiny watch UIs like HomeActivity, ChatActivity) is **removed**. Its watch-side services are migrated to `:wear-device`. Its phone-side functionality is absorbed into `:app`.
@@ -77,12 +83,34 @@ The Watch Face Push API (`androidx.wear.watchface:watchface-push`) enables the p
 5. Triggers complication provider updates
 6. WFF watch face reads complication data and renders live glucose info
 
-### Watch-to-Phone Communication
-1. User taps AI chat or dismisses alert on watch face
-2. Watch-side `MessageClient` sends message to phone
-3. Phone-side `WearChatRelayService` (in `:app`) receives message
-4. Routes to appropriate handler (AI backend, alert service, etc.)
-5. Response flows back via DataLayer
+### Watch-to-Phone Communication (Story 32.8)
+
+Two message paths use `MessageClient` (transient, bidirectional):
+
+**AI Chat Flow:**
+1. User opens `ChatActivity` on watch (launched via explicit intent from complication tap target)
+2. Selects a quick query ("How am I doing?", "Breakfast advice", "Why is my BG high?")
+3. `WearMessageSender` discovers phone node via `CapabilityClient` (capability: `glycemicgpt_chat_relay`), falls back to `NodeClient`
+4. Sends message on `/glycemicgpt/chat/request` path via `MessageClient`
+5. Phone-side `WearChatRelayService` receives message, delegates to `ChatRepository` which calls the backend AI endpoint
+6. Backend response sent back on `/glycemicgpt/chat/response` (or `/glycemicgpt/chat/error`) via `MessageClient`
+7. Watch-side `GlycemicDataListenerService.onMessageReceived()` updates `WatchDataRepository.chatState`
+8. `ChatActivity` renders response with safety disclaimer ("Not medical advice. Consult your doctor.")
+
+**Alert Dismiss Flow:**
+1. User taps "Dismiss" on `AlertsActivity` on watch
+2. `WearMessageSender` sends empty message on `/glycemicgpt/alert/dismiss` path
+3. Phone-side `WearChatRelayService` receives dismiss, acknowledges latest unacknowledged alert in Room DB
+4. Phone resets alert DataItem to `type="none"` via `WearDataSender.clearAlert()`
+5. Watch-side `GlycemicDataListenerService` receives the `none` type and sets `WatchDataRepository.alert` to null
+
+**Known limitation:** Alert dismiss sends an empty payload -- the phone acknowledges the latest unacknowledged alert by timestamp. If multiple alerts arrive in quick succession, the wrong alert could be dismissed. A future improvement should include the alert ID in the dismiss payload for exact matching.
+
+**Timeouts and error handling:**
+- All `Wearable.*Client` `await()` calls wrapped in `withTimeout(10_000L)`
+- Chat response timeout: 30s on watch side (shows "Request timed out" error)
+- Blank/null message validation on both sides
+- `ChatState` sealed class: `Idle | Loading | Success(response, disclaimer) | Error(message)`
 
 ## Watch Face Customization
 
@@ -118,7 +146,18 @@ The phone app's Settings > Watch section provides full customization:
 ### Services
 | Service | Purpose |
 |---------|---------|
-| `GlycemicDataListenerService` | Receives DataLayer events from phone, updates WatchDataRepository, triggers complication refreshes |
+| `GlycemicDataListenerService` | Receives DataLayer events (DataClient) and messages (MessageClient) from phone. Updates WatchDataRepository, triggers complication refreshes. Handles chat response/error messages. |
+
+### Activities (Story 32.8)
+| Activity | Purpose |
+|----------|---------|
+| `ChatActivity` | Quick-query AI chat UI. Shows 3 preset questions, sends via `WearMessageSender`, displays response with safety disclaimer. 30s timeout. |
+| `AlertsActivity` | Displays active glucose alert with BG value (validated 20-500 range) and dismiss button. Sends dismiss to phone via `WearMessageSender`. |
+
+### Messaging
+| Component | Purpose |
+|-----------|---------|
+| `WearMessageSender` | Discovers phone node via CapabilityClient/NodeClient, sends messages with 10s timeout on all await() calls. Used by ChatActivity and AlertsActivity. |
 
 ### WatchFacePushManager Integration
 - Receives WFF APK bytes from phone via ChannelClient
@@ -172,7 +211,7 @@ The old `apps/mobile/wear/` module was replaced by `:wear-device` in Stories 32.
 | `GlucoseDisplayUtils` | `:wear-device` |
 | Complication providers (BG, IoB) | `:wear-device` |
 | `HomeActivity` (watch UI) | Removed -- phone Settings > Watch replaces this |
-| `ChatActivity` (watch STT) | Removed -- AI interactions go through watch face tap targets |
+| `ChatActivity` (watch STT) | Replaced -- new `ChatActivity` in `:wear-device` (Story 32.8) with quick-query buttons + AI response display via MessageClient relay |
 | `IoBDetailActivity` | Removed -- IoB detail is a complication tap action |
 | `GlycemicWearApp` (Hilt app) | `:wear-device` |
 
