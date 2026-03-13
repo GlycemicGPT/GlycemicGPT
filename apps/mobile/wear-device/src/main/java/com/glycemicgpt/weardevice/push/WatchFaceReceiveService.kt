@@ -53,23 +53,27 @@ class WatchFaceReceiveService : WearableListenerService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val installMutex = Mutex()
     private val activePushCount = AtomicInteger(0)
+    private val foregroundLock = Any()
 
     override fun onChannelOpened(channel: ChannelClient.Channel) {
         if (channel.path != WearDataContract.WATCHFACE_PUSH_CHANNEL) return
 
         Timber.d("Watch face push channel opened from phone")
-        // Promote to foreground so the system doesn't kill the service
-        // while the APK transfer and install are in progress.
-        tryPromoteToForeground()
-        activePushCount.incrementAndGet()
+        synchronized(foregroundLock) {
+            if (activePushCount.getAndIncrement() == 0) {
+                tryPromoteToForeground()
+            }
+        }
         scope.launch {
             try {
                 installMutex.withLock {
                     receiveAndInstallWatchFace(channel)
                 }
             } finally {
-                if (activePushCount.decrementAndGet() == 0) {
-                    stopForeground(STOP_FOREGROUND_REMOVE)
+                synchronized(foregroundLock) {
+                    if (activePushCount.decrementAndGet() == 0) {
+                        stopForeground(STOP_FOREGROUND_REMOVE)
+                    }
                 }
             }
         }
