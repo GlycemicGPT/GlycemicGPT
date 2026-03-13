@@ -130,16 +130,14 @@ private fun WearChatScreen(prefillQuery: String?) {
                             textAlign = TextAlign.Start,
                             modifier = Modifier.fillMaxWidth(),
                         )
-                        if (state.disclaimer.isNotBlank()) {
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = state.disclaimer,
-                                style = MaterialTheme.typography.caption3,
-                                color = Color(0xFF9CA3AF),
-                                textAlign = TextAlign.Start,
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = state.disclaimer.ifBlank { DEFAULT_AI_DISCLAIMER },
+                            style = MaterialTheme.typography.caption3,
+                            color = Color(0xFF9CA3AF),
+                            textAlign = TextAlign.Start,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     }
 
                     is ChatState.Idle -> {
@@ -192,10 +190,16 @@ private fun sendQuery(
     context: android.content.Context,
     query: String,
 ) {
+    val sanitizedQuery = query.trim().take(ChatActivity.MAX_QUERY_LENGTH)
+    if (sanitizedQuery.isBlank()) {
+        WatchDataRepository.setChatError("Please enter a question")
+        return
+    }
+
     WatchDataRepository.setChatLoading()
     scope.launch {
         try {
-            val sent = WearMessageSender.sendChatRequest(context, query)
+            val sent = WearMessageSender.sendChatRequest(context, sanitizedQuery)
             if (!sent) {
                 WatchDataRepository.setChatError("Phone not connected")
             }
@@ -213,3 +217,4 @@ private val QUICK_QUERIES = listOf(
 )
 
 private const val CHAT_TIMEOUT_MS = 30_000L
+private const val DEFAULT_AI_DISCLAIMER = "Not medical advice. Consult your doctor."

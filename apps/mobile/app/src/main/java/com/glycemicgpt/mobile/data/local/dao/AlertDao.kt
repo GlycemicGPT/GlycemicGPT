@@ -19,7 +19,12 @@ interface AlertDao {
     @Query("UPDATE alerts SET acknowledged = 1 WHERE server_id = :serverId")
     suspend fun markAcknowledged(serverId: String)
 
-    @Query("SELECT server_id FROM alerts WHERE acknowledged = 0 ORDER BY timestamp_ms DESC LIMIT 1")
+    @Query(
+        "SELECT server_id FROM alerts " +
+            "WHERE acknowledged = 0 " +
+            "ORDER BY timestamp_ms DESC, id DESC " +
+            "LIMIT 1",
+    )
     suspend fun getLatestUnacknowledgedServerId(): String?
 
     @Query("DELETE FROM alerts WHERE timestamp_ms < :cutoffMs")
