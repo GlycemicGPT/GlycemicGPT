@@ -69,6 +69,17 @@ class WatchFaceReceiveService : WearableListenerService() {
                 installMutex.withLock {
                     receiveAndInstallWatchFace(channel)
                 }
+            } catch (e: Exception) {
+                // Catches setup failures (e.g. createTempFile on full disk)
+                // that occur before receiveAndInstallWatchFace's internal try/finally.
+                Timber.e(e, "Watch face push failed before transfer started")
+                sendStatus("error", error = e.message ?: "Setup failed")
+                try {
+                    Wearable.getChannelClient(this@WatchFaceReceiveService)
+                        .close(channel).await()
+                } catch (ce: Exception) {
+                    Timber.w(ce, "Failed to close channel after setup failure")
+                }
             } finally {
                 synchronized(foregroundLock) {
                     if (activePushCount.decrementAndGet() == 0) {
