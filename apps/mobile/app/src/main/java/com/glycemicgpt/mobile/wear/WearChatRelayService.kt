@@ -1,6 +1,7 @@
 package com.glycemicgpt.mobile.wear
 
 import com.glycemicgpt.mobile.data.local.AuthTokenStore
+import com.glycemicgpt.mobile.data.repository.AlertRepository
 import com.glycemicgpt.mobile.data.repository.ChatRepository
 import com.google.android.gms.wearable.MessageEvent
 import com.google.android.gms.wearable.Wearable
@@ -20,15 +21,49 @@ import javax.inject.Inject
 class WearChatRelayService : WearableListenerService() {
 
     @Inject lateinit var chatRepository: ChatRepository
+    @Inject lateinit var alertRepository: AlertRepository
     @Inject lateinit var authTokenStore: AuthTokenStore
+    @Inject lateinit var wearDataSender: WearDataSender
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onMessageReceived(messageEvent: MessageEvent) {
-        if (messageEvent.path != WearDataContract.CHAT_REQUEST_PATH) return
+        when (messageEvent.path) {
+            WearDataContract.CHAT_REQUEST_PATH -> handleChatRequest(messageEvent)
+            WearDataContract.ALERT_DISMISS_PATH -> handleAlertDismiss()
+            else -> super.onMessageReceived(messageEvent)
+        }
+    }
 
-        val requestText = String(messageEvent.data, Charsets.UTF_8)
+    private fun handleAlertDismiss() {
+        Timber.d("Received alert dismiss from watch")
+        serviceScope.launch {
+            // Acknowledge the most recent alert in the phone's database/backend
+            try {
+                val serverId = alertRepository.getLatestUnacknowledgedServerId()
+                if (serverId != null) {
+                    alertRepository.acknowledgeAlert(serverId)
+                    Timber.d("Acknowledged alert %s from watch dismiss", serverId)
+                }
+            } catch (e: Exception) {
+                Timber.w(e, "Failed to acknowledge alert on phone side")
+            }
+            wearDataSender.clearAlert()
+        }
+    }
+
+    private fun handleChatRequest(messageEvent: MessageEvent) {
+
+        val requestText = messageEvent.data?.let { String(it, Charsets.UTF_8).trim() } ?: ""
         val sourceNodeId = messageEvent.sourceNodeId
+
+        if (requestText.isEmpty()) {
+            Timber.w("Empty chat request received, ignoring")
+            serviceScope.launch {
+                sendError(sourceNodeId, "Empty message")
+            }
+            return
+        }
 
         // Enforce max message length to prevent abuse
         if (requestText.length > MAX_MESSAGE_LENGTH) {
@@ -48,7 +83,7 @@ class WearChatRelayService : WearableListenerService() {
             return
         }
 
-        Timber.d("Received chat request from watch: %s", requestText.take(50))
+        Timber.d("Received chat request from watch (%d chars)", requestText.length)
 
         serviceScope.launch {
             chatRepository.sendMessage(requestText)

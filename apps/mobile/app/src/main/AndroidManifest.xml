@@ -118,7 +118,7 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
-        <!-- Watch chat relay service (receives voice chat requests from watch) -->
+        <!-- Watch message relay service (receives chat requests and alert dismiss from watch) -->
         <service
             android:name=".wear.WearChatRelayService"
             android:exported="true">
@@ -128,6 +128,13 @@
                     android:scheme="wear"
                     android:host="*"
                     android:pathPrefix="/glycemicgpt/chat/" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <data
+                    android:scheme="wear"
+                    android:host="*"
+                    android:path="/glycemicgpt/alert/dismiss" />
             </intent-filter>
         </service>
 

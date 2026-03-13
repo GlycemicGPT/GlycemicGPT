@@ -22,6 +22,7 @@ class WatchDataRepositoryTest {
             showIoB = true, showGraph = true, showAlert = true,
             showSeconds = false, graphRangeHours = 3, theme = "dark",
         )
+        WatchDataRepository.clearChat()
     }
 
     @Test
@@ -188,6 +189,61 @@ class WatchDataRepositoryTest {
             showSeconds = false, graphRangeHours = 99, theme = "dark",
         )
         assertEquals(3, WatchDataRepository.watchFaceConfig.value.graphRangeHours)
+    }
+
+    // --- clearAlert tests ---
+
+    @Test
+    fun `clearAlert clears active alert`() {
+        WatchDataRepository.updateAlert(
+            type = "high", bgValue = 200, timestampMs = 1000L, message = "HIGH",
+        )
+        assertNotNull(WatchDataRepository.alert.value)
+
+        WatchDataRepository.clearAlert()
+        assertNull(WatchDataRepository.alert.value)
+    }
+
+    // --- Chat state tests ---
+
+    @Test
+    fun `setChatResponse transitions to Success state`() {
+        WatchDataRepository.setChatLoading()
+        WatchDataRepository.setChatResponse("Your BG is stable", "Not medical advice")
+
+        val state = WatchDataRepository.chatState.value
+        assertTrue(state is WatchDataRepository.ChatState.Success)
+        val success = state as WatchDataRepository.ChatState.Success
+        assertEquals("Your BG is stable", success.response)
+        assertEquals("Not medical advice", success.disclaimer)
+    }
+
+    @Test
+    fun `setChatLoading transitions to Loading state`() {
+        WatchDataRepository.setChatResponse("old response", "disclaimer")
+
+        WatchDataRepository.setChatLoading()
+        val state = WatchDataRepository.chatState.value
+        assertTrue(state is WatchDataRepository.ChatState.Loading)
+    }
+
+    @Test
+    fun `setChatError transitions to Error state`() {
+        WatchDataRepository.setChatLoading()
+
+        WatchDataRepository.setChatError("Phone not connected")
+        val state = WatchDataRepository.chatState.value
+        assertTrue(state is WatchDataRepository.ChatState.Error)
+        assertEquals("Phone not connected", (state as WatchDataRepository.ChatState.Error).message)
+    }
+
+    @Test
+    fun `clearChat resets to Idle state`() {
+        WatchDataRepository.setChatResponse("response", "disc")
+        WatchDataRepository.clearChat()
+
+        val state = WatchDataRepository.chatState.value
+        assertTrue(state is WatchDataRepository.ChatState.Idle)
     }
 
     @Test

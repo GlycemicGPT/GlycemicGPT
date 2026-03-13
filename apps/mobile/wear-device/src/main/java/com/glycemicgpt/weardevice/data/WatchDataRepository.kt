@@ -28,6 +28,13 @@ object WatchDataRepository {
         val message: String,
     )
 
+    sealed class ChatState {
+        data object Idle : ChatState()
+        data object Loading : ChatState()
+        data class Success(val response: String, val disclaimer: String) : ChatState()
+        data class Error(val message: String) : ChatState()
+    }
+
     data class WatchFaceConfigState(
         val showIoB: Boolean = true,
         val showGraph: Boolean = true,
@@ -45,6 +52,9 @@ object WatchDataRepository {
 
     private val _alert = MutableStateFlow<AlertState?>(null)
     val alert: StateFlow<AlertState?> = _alert.asStateFlow()
+
+    private val _chatState = MutableStateFlow<ChatState>(ChatState.Idle)
+    val chatState: StateFlow<ChatState> = _chatState.asStateFlow()
 
     private val _watchFaceConfig = MutableStateFlow(WatchFaceConfigState())
     val watchFaceConfig: StateFlow<WatchFaceConfigState> = _watchFaceConfig.asStateFlow()
@@ -67,6 +77,26 @@ object WatchDataRepository {
 
     fun updateAlert(type: String, bgValue: Int, timestampMs: Long, message: String) {
         _alert.value = if (type == "none") null else AlertState(type, bgValue, timestampMs, message)
+    }
+
+    fun clearAlert() {
+        _alert.value = null
+    }
+
+    fun setChatResponse(response: String, disclaimer: String) {
+        _chatState.value = ChatState.Success(response, disclaimer)
+    }
+
+    fun setChatLoading() {
+        _chatState.value = ChatState.Loading
+    }
+
+    fun setChatError(error: String) {
+        _chatState.value = ChatState.Error(error)
+    }
+
+    fun clearChat() {
+        _chatState.value = ChatState.Idle
     }
 
     private val VALID_GRAPH_RANGES = setOf(1, 3, 6)

@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.hilt.android)
     alias(libs.plugins.ksp)
 }
@@ -10,7 +11,9 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.glycemicgpt.weardevice"
+        // Must match the phone app's applicationId for Wearable Data Layer routing.
+        // The namespace (com.glycemicgpt.weardevice) remains separate for R class isolation.
+        applicationId = "com.glycemicgpt.mobile"
         minSdk = 35
         targetSdk = 35
 
@@ -105,6 +108,7 @@ android {
 
     buildFeatures {
         buildConfig = true
+        compose = true
     }
 
     packaging {
@@ -126,6 +130,17 @@ dependencies {
 
     // AndroidX
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.activity.compose)
+
+    // Wear Compose UI
+    implementation(libs.wear.compose.material)
+    implementation(libs.wear.compose.foundation)
+
+    // Compose (platform BOM for UI primitives)
+    implementation(platform(libs.compose.bom))
+    implementation(libs.compose.ui)
+    implementation(libs.compose.ui.graphics)
+    implementation(libs.compose.foundation)
 
     // Hilt DI
     implementation(libs.hilt.android)
