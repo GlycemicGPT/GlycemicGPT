@@ -565,7 +565,7 @@ class SettingsViewModel @Inject constructor(
             try {
                 var nearbyNode: com.google.android.gms.wearable.Node? = null
                 var anyNode: com.google.android.gms.wearable.Node? = null
-                var appInstalled = false
+                var appInstalled: Boolean? = null
 
                 // Try CapabilityClient first (capability-advertised nodes)
                 try {
@@ -580,7 +580,7 @@ class SettingsViewModel @Inject constructor(
                     nearbyNode = capInfo.nodes.firstOrNull { it.isNearby }
                     anyNode = nearbyNode ?: capInfo.nodes.firstOrNull()
                     appInstalled = capInfo.nodes.isNotEmpty()
-                    Timber.d("CapabilityClient: %d nodes, nearby=%s", capInfo.nodes.size, nearbyNode?.displayName)
+                    Timber.d("CapabilityClient: %d nodes, nearby=%s", capInfo.nodes.size, nearbyNode?.id?.takeLast(4))
                 } catch (e: TimeoutCancellationException) {
                     Timber.w("CapabilityClient timed out")
                 } catch (e: kotlinx.coroutines.CancellationException) {
@@ -615,11 +615,11 @@ class SettingsViewModel @Inject constructor(
                     watchDeviceName = anyNode?.displayName,
                 )
                 // Read last-sent data items for telemetry
-                if (appInstalled) {
+                if (appInstalled == true) {
                     loadWatchDataTelemetry()
                 }
                 // Push current config to watch when connected and app is installed
-                if (nearbyNode != null && appInstalled) {
+                if (nearbyNode != null && appInstalled == true) {
                     syncWatchFaceConfig(_uiState.value.watchFaceConfig)
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {

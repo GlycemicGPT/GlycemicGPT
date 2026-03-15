@@ -134,7 +134,7 @@
         </DigitalClock>
 
         <!-- GlycemicGPT label: hidden in ambient -->
-        <PartText x="125" y="400" width="200" height="30" alpha="255">
+        <PartText x="125" y="393" width="200" height="25" alpha="255">
             <Variant mode="AMBIENT" target="alpha" value="0"/>
             <Text align="CENTER">
                 <Font family="SYNC_TO_DEVICE" size="14" weight="BOLD"

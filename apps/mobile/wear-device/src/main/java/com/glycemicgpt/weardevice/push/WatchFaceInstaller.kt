@@ -252,10 +252,12 @@ class WatchFaceInstaller(private val context: Context) {
                         pushManager.removeWatchFace(details.slotId)
                         Timber.d("Removed old watch face: slot=%s package=%s", details.slotId, details.packageName)
                     } catch (e: WatchFacePushManager.RemoveWatchFaceException) {
+                        rethrowIfCancellation(e)
                         Timber.w(e, "Failed to remove watch face slot %s", details.slotId)
                     }
                 }
         } catch (e: WatchFacePushManager.ListWatchFacesException) {
+            rethrowIfCancellation(e)
             Timber.w(e, "Failed to list watch faces for cleanup")
         }
     }

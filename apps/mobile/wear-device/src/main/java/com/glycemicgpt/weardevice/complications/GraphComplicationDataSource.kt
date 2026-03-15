@@ -31,7 +31,6 @@ class GraphComplicationDataSource : SuspendingComplicationDataSourceService() {
         if (type != ComplicationType.SMALL_IMAGE) return NoDataComplicationData()
         val bitmap = renderPreviewGraph()
         val icon = Icon.createWithBitmap(bitmap)
-        bitmap.recycle()
         return SmallImageComplicationData.Builder(
             smallImage = SmallImage.Builder(icon, SmallImageType.PHOTO).build(),
             contentDescription = PlainComplicationText.Builder("Glucose trend graph preview").build(),
@@ -54,12 +53,11 @@ class GraphComplicationDataSource : SuspendingComplicationDataSourceService() {
         val readings = history.filter { it.timestampMs >= cutoff }.sortedBy { it.timestampMs }
         if (readings.size < MIN_READINGS) return NoDataComplicationData()
 
-        val low = readings.first().low
-        val high = readings.first().high
+        val low = readings.last().low
+        val high = readings.last().high
         val bitmap = renderGraph(readings, low, high)
 
         val icon = Icon.createWithBitmap(bitmap)
-        bitmap.recycle()
         return SmallImageComplicationData.Builder(
             smallImage = SmallImage.Builder(icon, SmallImageType.PHOTO).build(),
             contentDescription = PlainComplicationText.Builder(
@@ -87,7 +85,7 @@ class GraphComplicationDataSource : SuspendingComplicationDataSourceService() {
         // Y-axis range: use glucose range with padding
         val values = readings.map { it.mgDl }
         val minY = minOf(values.min(), low - 10).coerceAtLeast(20)
-        val maxY = maxOf(values.max(), high + 10).coerceAtMost(400)
+        val maxY = maxOf(values.max(), high + 10).coerceAtMost(500)
         val yRange = (maxY - minY).toFloat().coerceAtLeast(1f)
 
         // X-axis range
