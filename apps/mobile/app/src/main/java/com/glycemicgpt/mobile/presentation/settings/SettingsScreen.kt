@@ -176,7 +176,7 @@ fun SettingsScreen(
             watchDeviceName = state.watchDeviceName,
             onCheckStatus = settingsViewModel::checkWatchStatus,
         )
-        if (state.watchConnected) {
+        if (state.watchConnected || state.watchDeviceName != null) {
             Spacer(modifier = Modifier.height(8.dp))
             WatchFaceCard(
                 watchFacePushState = state.watchFacePushState,

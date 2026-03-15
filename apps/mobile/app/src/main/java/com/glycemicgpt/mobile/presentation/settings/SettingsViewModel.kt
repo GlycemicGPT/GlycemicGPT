@@ -171,7 +171,7 @@ data class SettingsUiState(
 private const val AUTO_DISMISS_MS = 5_000L
 private const val PUSH_TIMEOUT_MS = 150_000L
 private const val TELEMETRY_TIMEOUT_MS = 10_000L
-private const val WATCH_DISCOVERY_TIMEOUT_MS = 5_000L
+private const val WATCH_DISCOVERY_TIMEOUT_MS = 15_000L
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(

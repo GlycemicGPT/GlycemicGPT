@@ -1,31 +1,116 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  GlycemicGPT Watch Face Format (WFF v2)
+  GlycemicGPT Watch Face Format (WFF v2) MVP
 
-  Minimal version for Watch Face Push API validation testing.
-  Displays time and GlycemicGPT branding label.
+  Layout (glucose-centric, inspired by xDrip):
+    [BG value + trend]     Large BG from complication (top)
+    [IoB: 2.45u]           Insulin on board from complication
+    10:08                  Time (prominent, bold interactive / thin ambient)
+    GlycemicGPT            Branding label (subtle, hidden in ambient)
 -->
-<WatchFace clipShape="CIRCLE" width="450" height="450">
+<WatchFace width="450" height="450" clipShape="CIRCLE">
 
     <Metadata key="CLOCK_TYPE" value="DIGITAL"/>
     <Metadata key="PREVIEW_TIME" value="10:08:32"/>
 
     <Scene backgroundColor="#ff000000">
 
-        <!-- Time Display: bold in active, thin in ambient to reduce burn-in -->
-        <DigitalClock x="0" y="150" width="450" height="100">
-            <TimeText format="h:mm" hourFormat="SYNC_TO_DEVICE" align="CENTER"
-                x="0" y="0" width="450" height="100">
-                <Font family="SYNC_TO_DEVICE" size="72" weight="BOLD"
-                    color="#ffffffff">
-                    <Variant mode="AMBIENT" target="weight" value="THIN"/>
-                    <Variant mode="AMBIENT" target="color" value="#99ffffff"/>
-                </Font>
+        <!-- BG Hero (slot 0): large top center, shows "120 ->" from BgComplicationDataSource -->
+        <ComplicationSlot
+            x="35" y="30" width="380" height="120"
+            slotId="0"
+            displayName="Blood Glucose"
+            supportedTypes="SHORT_TEXT LONG_TEXT EMPTY">
+            <BoundingOval x="0" y="0" width="380" height="120"/>
+            <Complication type="SHORT_TEXT">
+                <PartText x="0" y="10" width="380" height="70">
+                    <Text align="CENTER">
+                        <Font family="SYNC_TO_DEVICE" size="52" weight="BOLD"
+                            color="#ffffffff">
+                            <Template>%s<Parameter expression="[COMPLICATION.TEXT]"/></Template>
+                        </Font>
+                    </Text>
+                </PartText>
+                <PartText x="0" y="80" width="380" height="30">
+                    <Text align="CENTER">
+                        <Font family="SYNC_TO_DEVICE" size="14" weight="NORMAL"
+                            color="#ff9CA3AF">
+                            <Template>%s<Parameter expression="[COMPLICATION.TITLE]"/></Template>
+                        </Font>
+                    </Text>
+                </PartText>
+            </Complication>
+            <Complication type="LONG_TEXT">
+                <PartText x="0" y="20" width="380" height="80">
+                    <Text align="CENTER">
+                        <Font family="SYNC_TO_DEVICE" size="40" weight="BOLD"
+                            color="#ffffffff">
+                            <Template>%s<Parameter expression="[COMPLICATION.TEXT]"/></Template>
+                        </Font>
+                    </Text>
+                </PartText>
+            </Complication>
+            <DefaultProviderPolicy
+                defaultSystemProvider="EMPTY"
+                defaultSystemProviderType="EMPTY"
+                primaryProvider="com.glycemicgpt.mobile.debug/com.glycemicgpt.weardevice.complications.BgComplicationDataSource"
+                primaryProviderType="SHORT_TEXT"/>
+        </ComplicationSlot>
+
+        <!-- IoB (slot 1): below BG hero -->
+        <ComplicationSlot
+            x="100" y="155" width="250" height="40"
+            slotId="1"
+            displayName="Insulin on Board"
+            supportedTypes="SHORT_TEXT LONG_TEXT EMPTY">
+            <BoundingOval x="0" y="0" width="250" height="40"/>
+            <Complication type="SHORT_TEXT">
+                <PartText x="0" y="0" width="250" height="35">
+                    <Text align="CENTER">
+                        <Font family="SYNC_TO_DEVICE" size="18" weight="NORMAL"
+                            color="#ff9CA3AF">
+                            <Template>IoB: %s u<Parameter expression="[COMPLICATION.TEXT]"/></Template>
+                        </Font>
+                    </Text>
+                </PartText>
+            </Complication>
+            <Complication type="LONG_TEXT">
+                <PartText x="0" y="0" width="250" height="35">
+                    <Text align="CENTER">
+                        <Font family="SYNC_TO_DEVICE" size="18" weight="NORMAL"
+                            color="#ff9CA3AF">
+                            <Template>%s<Parameter expression="[COMPLICATION.TEXT]"/></Template>
+                        </Font>
+                    </Text>
+                </PartText>
+            </Complication>
+            <DefaultProviderPolicy
+                defaultSystemProvider="EMPTY"
+                defaultSystemProviderType="EMPTY"
+                primaryProvider="com.glycemicgpt.mobile.debug/com.glycemicgpt.weardevice.complications.IoBComplicationDataSource"
+                primaryProviderType="SHORT_TEXT"/>
+        </ComplicationSlot>
+
+        <!-- Time display: two TimeText elements for interactive/ambient swap -->
+        <DigitalClock x="0" y="200" width="450" height="130">
+            <!-- Interactive mode: bold white -->
+            <TimeText format="hh:mm" hourFormat="SYNC_TO_DEVICE" align="CENTER"
+                x="0" y="0" width="450" height="100" alpha="255">
+                <Variant mode="AMBIENT" target="alpha" value="0"/>
+                <Font family="SYNC_TO_DEVICE" size="56" weight="BOLD"
+                    color="#ffffffff"/>
+            </TimeText>
+            <!-- Ambient mode: thin dimmed -->
+            <TimeText format="hh:mm" hourFormat="SYNC_TO_DEVICE" align="CENTER"
+                x="0" y="0" width="450" height="100" alpha="0">
+                <Variant mode="AMBIENT" target="alpha" value="255"/>
+                <Font family="SYNC_TO_DEVICE" size="56" weight="THIN"
+                    color="#99ffffff"/>
             </TimeText>
         </DigitalClock>
 
-        <!-- GlycemicGPT label: hidden in ambient to reduce burn-in -->
-        <PartText x="125" y="350" width="200" height="30" alpha="255">
+        <!-- GlycemicGPT label: hidden in ambient -->
+        <PartText x="125" y="370" width="200" height="30" alpha="255">
             <Variant mode="AMBIENT" target="alpha" value="0"/>
             <Text align="CENTER">
                 <Font family="SYNC_TO_DEVICE" size="14" weight="BOLD"
