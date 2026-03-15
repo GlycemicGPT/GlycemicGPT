@@ -50,6 +50,9 @@
                     </Text>
                 </PartText>
             </Complication>
+            <!-- NOTE: primaryProvider uses the debug package name. When building
+                 release watchface APKs, update to com.glycemicgpt.mobile/...
+                 WFF XML does not support build-time variable substitution. -->
             <DefaultProviderPolicy
                 defaultSystemProvider="EMPTY"
                 defaultSystemProviderType="EMPTY"
@@ -84,6 +87,7 @@
                     </Text>
                 </PartText>
             </Complication>
+            <!-- NOTE: primaryProvider uses the debug package name. See slot 0 comment. -->
             <DefaultProviderPolicy
                 defaultSystemProvider="EMPTY"
                 defaultSystemProviderType="EMPTY"
