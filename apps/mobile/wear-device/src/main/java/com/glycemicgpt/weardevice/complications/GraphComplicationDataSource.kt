@@ -3,8 +3,6 @@ package com.glycemicgpt.weardevice.complications
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
-import android.graphics.Path
-import android.graphics.RectF
 import androidx.wear.watchface.complications.data.ComplicationData
 import androidx.wear.watchface.complications.data.ComplicationType
 import androidx.wear.watchface.complications.data.NoDataComplicationData
@@ -33,6 +31,7 @@ class GraphComplicationDataSource : SuspendingComplicationDataSourceService() {
         if (type != ComplicationType.SMALL_IMAGE) return NoDataComplicationData()
         val bitmap = renderPreviewGraph()
         val icon = Icon.createWithBitmap(bitmap)
+        bitmap.recycle()
         return SmallImageComplicationData.Builder(
             smallImage = SmallImage.Builder(icon, SmallImageType.PHOTO).build(),
             contentDescription = PlainComplicationText.Builder("Glucose trend graph preview").build(),
@@ -60,6 +59,7 @@ class GraphComplicationDataSource : SuspendingComplicationDataSourceService() {
         val bitmap = renderGraph(readings, low, high)
 
         val icon = Icon.createWithBitmap(bitmap)
+        bitmap.recycle()
         return SmallImageComplicationData.Builder(
             smallImage = SmallImage.Builder(icon, SmallImageType.PHOTO).build(),
             contentDescription = PlainComplicationText.Builder(
@@ -114,6 +114,12 @@ class GraphComplicationDataSource : SuspendingComplicationDataSourceService() {
         canvas.drawLine(graphLeft, highY, graphRight, highY, rangeLinePaint)
 
         // Draw glucose line with color segments
+        val linePaint = Paint().apply {
+            strokeWidth = LINE_WIDTH
+            isAntiAlias = true
+            style = Paint.Style.STROKE
+            strokeCap = Paint.Cap.ROUND
+        }
         for (i in 0 until readings.size - 1) {
             val r1 = readings[i]
             val r2 = readings[i + 1]
@@ -123,16 +129,9 @@ class GraphComplicationDataSource : SuspendingComplicationDataSourceService() {
             val x2 = graphLeft + ((r2.timestampMs - minX) / xRange) * graphWidth
             val y2 = graphBottom - ((r2.mgDl - minY) / yRange) * graphHeight
 
-            val segmentColor = GlucoseDisplayUtils.bgColor(
+            linePaint.color = GlucoseDisplayUtils.bgColor(
                 r1.mgDl, r1.low, r1.high, r1.urgentLow, r1.urgentHigh
             )
-            val linePaint = Paint().apply {
-                color = segmentColor
-                strokeWidth = LINE_WIDTH
-                isAntiAlias = true
-                style = Paint.Style.STROKE
-                strokeCap = Paint.Cap.ROUND
-            }
             canvas.drawLine(x1, y1, x2, y2, linePaint)
         }
 
