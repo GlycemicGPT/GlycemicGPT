@@ -6,6 +6,7 @@ import android.os.ParcelFileDescriptor
 import androidx.annotation.RequiresApi
 import androidx.wear.watchface.push.WatchFacePushManager
 import com.google.android.wearable.watchface.validator.client.DwfValidatorFactory
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import timber.log.Timber
@@ -28,8 +29,12 @@ class WatchFaceInstaller(private val context: Context) {
 
     companion object {
         private const val WEAR_OS_6_API = 36
-        /** Base package name for the GlycemicGPT watch face (without build-type suffix). */
-        private const val WATCHFACE_PACKAGE_PREFIX = "com.glycemicgpt.watchface"
+        /**
+         * Marker substring present in all GlycemicGPT watch face package names.
+         * Debug: com.glycemicgpt.mobile.debug.watchfacepush.glycemicgpt
+         * Release: com.glycemicgpt.mobile.watchfacepush.glycemicgpt
+         */
+        private const val WATCHFACE_PACKAGE_MARKER = ".watchfacepush."
 
         fun isSupported(): Boolean = Build.VERSION.SDK_INT >= WEAR_OS_6_API
     }
@@ -90,17 +95,42 @@ class WatchFaceInstaller(private val context: Context) {
             val token = generateValidationToken(apkFile)
                 ?: return Result.Error("Watch face APK failed validation")
 
-            val pfd = ParcelFileDescriptor.open(apkFile, ParcelFileDescriptor.MODE_READ_ONLY)
-            val details = try {
-                if (existing != null) {
-                    Timber.d("Updating existing watch face in slot: %s", existing.slotId)
+            val details = if (existing != null) {
+                Timber.d("Updating existing watch face in slot: %s", existing.slotId)
+                val pfd = ParcelFileDescriptor.open(apkFile, ParcelFileDescriptor.MODE_READ_ONLY)
+                try {
                     pushManager.updateWatchFace(existing.slotId, pfd, token)
-                } else {
-                    Timber.d("Installing new watch face")
-                    pushManager.addWatchFace(pfd, token)
+                } finally {
+                    pfd.close()
                 }
-            } finally {
-                pfd.close()
+            } else {
+                Timber.d("Installing new watch face")
+                try {
+                    val pfd = ParcelFileDescriptor.open(apkFile, ParcelFileDescriptor.MODE_READ_ONLY)
+                    try {
+                        pushManager.addWatchFace(pfd, token)
+                    } finally {
+                        pfd.close()
+                    }
+                } catch (e: WatchFacePushManager.AddWatchFaceException) {
+                    rethrowIfCancellation(e)
+                    // Slot limit reached: remove all our old faces and retry once.
+                    // Note: AddWatchFaceException does not expose error codes or subtypes,
+                    // so we rely on message text matching. This is fragile but is the only
+                    // detection method available in the current Wear OS Push API.
+                    if (e.message?.contains("limit", ignoreCase = true) == true) {
+                        Timber.w("Slot limit reached, removing old faces and retrying")
+                        removeAllOurFaces(pushManager)
+                        val pfd = ParcelFileDescriptor.open(apkFile, ParcelFileDescriptor.MODE_READ_ONLY)
+                        try {
+                            pushManager.addWatchFace(pfd, token)
+                        } finally {
+                            pfd.close()
+                        }
+                    } else {
+                        throw e
+                    }
+                }
             }
 
             val slotId = details.slotId
@@ -115,10 +145,15 @@ class WatchFaceInstaller(private val context: Context) {
 
             if (existing != null) Result.Updated(slotId) else Result.Installed(slotId)
         } catch (e: WatchFacePushManager.AddWatchFaceException) {
+            rethrowIfCancellation(e)
             Result.Error("Install failed: ${e.message}")
         } catch (e: WatchFacePushManager.UpdateWatchFaceException) {
+            rethrowIfCancellation(e)
             Result.Error("Update failed: ${e.message}")
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
+            rethrowIfCancellation(e)
             Result.Error("Unexpected error: ${e.message}")
         }
     }
@@ -134,12 +169,11 @@ class WatchFaceInstaller(private val context: Context) {
         withContext(Dispatchers.IO) {
             try {
                 val validator = DwfValidatorFactory.create()
-                // Strip build-type suffix so the validator sees the base applicationId.
-                // context.packageName includes the suffix (e.g., ".debug") in non-release
-                // builds, which can cause token mismatch during install.
-                val appPackageName = context.packageName
-                    .replace(Regex("\\.(debug|staging|beta)$"), "")
-                val result = validator.validate(apkFile, appPackageName)
+                // Use the actual package name (including .debug suffix for debug builds).
+                // The Watch Face Push API requires the watch face package to start with
+                // the client's actual package name, so both the validator and the Push API
+                // must see the same (unsanitized) package name.
+                val result = validator.validate(apkFile, context.packageName)
                 val failures = result.failures()
                 if (failures.isEmpty()) {
                     val token = result.validationToken()
@@ -195,10 +229,42 @@ class WatchFaceInstaller(private val context: Context) {
         }
     }
 
+    /** Rethrow if the exception's cause chain contains a [CancellationException]. */
+    private fun rethrowIfCancellation(e: Throwable) {
+        var cause: Throwable? = e.cause
+        while (cause != null) {
+            if (cause is CancellationException) throw cause
+            cause = cause.cause
+        }
+    }
+
     /**
-     * Find an existing GlycemicGPT watch face by matching [packageName] prefix.
-     * The list order from [WatchFacePushManager.listWatchFaces] is not guaranteed stable,
-     * so we match by package name rather than taking the first entry.
+     * Remove all GlycemicGPT watch faces to free up slots when the limit is reached.
+     */
+    @RequiresApi(WEAR_OS_6_API)
+    private suspend fun removeAllOurFaces(pushManager: WatchFacePushManager) {
+        try {
+            val response = pushManager.listWatchFaces()
+            response.installedWatchFaceDetails
+                .filter { it.packageName.contains(WATCHFACE_PACKAGE_MARKER) }
+                .forEach { details ->
+                    try {
+                        pushManager.removeWatchFace(details.slotId)
+                        Timber.d("Removed old watch face: slot=%s package=%s", details.slotId, details.packageName)
+                    } catch (e: WatchFacePushManager.RemoveWatchFaceException) {
+                        rethrowIfCancellation(e)
+                        Timber.w(e, "Failed to remove watch face slot %s", details.slotId)
+                    }
+                }
+        } catch (e: WatchFacePushManager.ListWatchFacesException) {
+            rethrowIfCancellation(e)
+            Timber.w(e, "Failed to list watch faces for cleanup")
+        }
+    }
+
+    /**
+     * Find an existing GlycemicGPT watch face by matching the [WATCHFACE_PACKAGE_MARKER]
+     * substring in the package name. This matches both debug and release variants.
      */
     @RequiresApi(WEAR_OS_6_API)
     private suspend fun findExistingFace(
@@ -206,8 +272,12 @@ class WatchFaceInstaller(private val context: Context) {
     ): WatchFacePushManager.WatchFaceDetails? {
         return try {
             val response = pushManager.listWatchFaces()
-            response.installedWatchFaceDetails.firstOrNull { details ->
-                details.packageName.startsWith(WATCHFACE_PACKAGE_PREFIX)
+            val faces = response.installedWatchFaceDetails
+            faces.forEach { details ->
+                Timber.d("Installed watch face: package=%s slot=%s", details.packageName, details.slotId)
+            }
+            faces.firstOrNull { details ->
+                details.packageName.contains(WATCHFACE_PACKAGE_MARKER)
             }
         } catch (e: WatchFacePushManager.ListWatchFacesException) {
             Timber.w(e, "Failed to list watch faces, treating as fresh install")

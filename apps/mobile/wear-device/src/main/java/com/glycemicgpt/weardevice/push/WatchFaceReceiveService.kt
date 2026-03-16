@@ -13,11 +13,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.tasks.await
@@ -76,12 +78,14 @@ class WatchFaceReceiveService : WearableListenerService() {
                 // Catches setup failures (e.g. createTempFile on full disk)
                 // that occur before receiveAndInstallWatchFace's internal try/finally.
                 Timber.e(e, "Watch face push failed before transfer started")
-                sendStatus("error", error = e.message ?: "Setup failed")
-                try {
-                    Wearable.getChannelClient(this@WatchFaceReceiveService)
-                        .close(channel).await()
-                } catch (ce: Exception) {
-                    Timber.w(ce, "Failed to close channel after setup failure")
+                withContext(NonCancellable) {
+                    sendStatus("error", error = e.message ?: "Setup failed")
+                    try {
+                        Wearable.getChannelClient(applicationContext)
+                            .close(channel).await()
+                    } catch (ce: Exception) {
+                        Timber.w(ce, "Failed to close channel after setup failure")
+                    }
                 }
             } finally {
                 synchronized(foregroundLock) {
@@ -164,35 +168,45 @@ class WatchFaceReceiveService : WearableListenerService() {
 
             Timber.d("Received watch face APK: %d bytes", fileSize)
 
-            // Install via Watch Face Push API
-            val installer = WatchFaceInstaller(this)
-            val result = installer.installOrUpdate(tempFile)
+            // Install, send status, and clean up under NonCancellable.
+            // The service scope may be cancelled (WearableListenerService.onDestroy)
+            // after the channel event is handled but before install + status complete.
+            // Use applicationContext since the service context may become stale.
+            withContext(NonCancellable) {
+                val installer = WatchFaceInstaller(applicationContext)
+                val result = installer.installOrUpdate(tempFile)
 
-            when (result) {
-                is WatchFaceInstaller.Result.Installed -> {
-                    Timber.d("Watch face installed: slot=%s", result.slotId)
-                    sendStatus("installed", slotId = result.slotId)
-                }
-                is WatchFaceInstaller.Result.Updated -> {
-                    Timber.d("Watch face updated: slot=%s", result.slotId)
-                    sendStatus("updated", slotId = result.slotId)
-                }
-                is WatchFaceInstaller.Result.Error -> {
-                    Timber.w("Watch face install failed: %s", result.message)
-                    sendStatus("error", error = result.message)
+                when (result) {
+                    is WatchFaceInstaller.Result.Installed -> {
+                        Timber.d("Watch face installed: slot=%s", result.slotId)
+                        sendStatus("installed", slotId = result.slotId)
+                    }
+                    is WatchFaceInstaller.Result.Updated -> {
+                        Timber.d("Watch face updated: slot=%s", result.slotId)
+                        sendStatus("updated", slotId = result.slotId)
+                    }
+                    is WatchFaceInstaller.Result.Error -> {
+                        Timber.w("Watch face install failed: %s", result.message)
+                        sendStatus("error", error = result.message)
+                    }
                 }
             }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             Timber.e(e, "Failed to receive/install watch face")
-            sendStatus("error", error = e.message ?: "Unknown error")
+            withContext(NonCancellable) {
+                sendStatus("error", error = e.message ?: "Unknown error")
+            }
         } finally {
             tempFile.delete()
-            try {
-                Wearable.getChannelClient(this).close(channel).await()
-            } catch (e: Exception) {
-                Timber.w(e, "Failed to close channel")
+            withContext(NonCancellable) {
+                try {
+                    Wearable.getChannelClient(applicationContext)
+                        .close(channel).await()
+                } catch (e: Exception) {
+                    Timber.w(e, "Failed to close channel")
+                }
             }
         }
     }
@@ -229,8 +243,8 @@ class WatchFaceReceiveService : WearableListenerService() {
         var totalBytes = 0L
         var bytesRead: Int
         while (input.read(buffer).also { bytesRead = it } != -1) {
-            currentCoroutineContext().ensureActive()
             totalBytes += bytesRead
+            currentCoroutineContext().ensureActive()
             if (totalBytes > maxBytes) {
                 throw IllegalStateException(
                     "APK exceeds maximum size of ${maxBytes / (1024 * 1024)} MB",
@@ -255,8 +269,11 @@ class WatchFaceReceiveService : WearableListenerService() {
      */
     private suspend fun sendStatus(status: String, slotId: String? = null, error: String? = null) {
         try {
-            val messageClient = Wearable.getMessageClient(this)
-            val nodeClient = Wearable.getNodeClient(this)
+            // Use applicationContext: this method may be called from NonCancellable
+            // blocks after the service scope is cancelled and onDestroy has run.
+            val ctx = applicationContext
+            val messageClient = Wearable.getMessageClient(ctx)
+            val nodeClient = Wearable.getNodeClient(ctx)
             val nodes = nodeClient.connectedNodes.await()
             val payload = buildString {
                 append("status=").appendLine(sanitize(status))
