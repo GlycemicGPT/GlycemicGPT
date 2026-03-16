@@ -21,6 +21,8 @@ class WearDataSender @Inject constructor(
             val request = PutDataMapRequest.create(WearDataContract.IOB_PATH).apply {
                 dataMap.putFloat(WearDataContract.KEY_IOB_VALUE, iob)
                 dataMap.putLong(WearDataContract.KEY_IOB_TIMESTAMP, timestampMs)
+                // Force delivery even when value is unchanged (DataLayer deduplicates identical data)
+                dataMap.putLong("_ts", System.currentTimeMillis())
             }.asPutDataRequest().setUrgent()
 
             dataClient.putDataItem(request).await()
@@ -48,6 +50,8 @@ class WearDataSender @Inject constructor(
                 dataMap.putInt(WearDataContract.KEY_GLUCOSE_HIGH, high)
                 dataMap.putInt(WearDataContract.KEY_GLUCOSE_URGENT_LOW, urgentLow)
                 dataMap.putInt(WearDataContract.KEY_GLUCOSE_URGENT_HIGH, urgentHigh)
+                // Force delivery even when CGM value is unchanged (DataLayer deduplicates identical data)
+                dataMap.putLong("_ts", System.currentTimeMillis())
             }.asPutDataRequest().setUrgent()
 
             dataClient.putDataItem(request).await()

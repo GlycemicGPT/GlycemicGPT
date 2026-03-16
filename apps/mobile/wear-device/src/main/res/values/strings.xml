@@ -3,4 +3,5 @@
     <string name="app_name">GlycemicGPT Watch</string>
     <string name="complication_iob_label">IoB (Insulin on Board)</string>
     <string name="complication_bg_label">BG (Blood Glucose)</string>
+    <string name="complication_graph_label">Glucose Graph</string>
 </resources>

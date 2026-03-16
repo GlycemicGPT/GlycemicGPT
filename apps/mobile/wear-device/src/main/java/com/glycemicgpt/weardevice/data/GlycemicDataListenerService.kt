@@ -5,6 +5,7 @@ import android.os.VibrationEffect
 import android.os.VibratorManager
 import androidx.wear.watchface.complications.datasource.ComplicationDataSourceUpdateRequester
 import com.glycemicgpt.weardevice.complications.BgComplicationDataSource
+import com.glycemicgpt.weardevice.complications.GraphComplicationDataSource
 import com.glycemicgpt.weardevice.complications.IoBComplicationDataSource
 import com.glycemicgpt.weardevice.util.GlucoseDisplayUtils
 import com.glycemicgpt.weardevice.util.GlucoseDisplayUtils.sanitizeThresholds
@@ -113,6 +114,7 @@ class GlycemicDataListenerService : WearableListenerService() {
         }
         if (cgmUpdated) {
             requestComplicationUpdate(BgComplicationDataSource::class.java)
+            requestComplicationUpdate(GraphComplicationDataSource::class.java)
         }
     }
 
