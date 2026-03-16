@@ -171,6 +171,7 @@ data class SettingsUiState(
 private const val AUTO_DISMISS_MS = 5_000L
 private const val PUSH_TIMEOUT_MS = 150_000L
 private const val TELEMETRY_TIMEOUT_MS = 10_000L
+private const val WATCH_DISCOVERY_TIMEOUT_MS = 15_000L
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
@@ -562,27 +563,67 @@ class SettingsViewModel @Inject constructor(
     fun checkWatchStatus() {
         viewModelScope.launch {
             try {
-                val capInfo = Wearable.getCapabilityClient(appContext)
-                    .getCapability(
-                        WearDataContract.WATCH_APP_CAPABILITY,
-                        CapabilityClient.FILTER_ALL,
-                    )
-                    .await()
-                val nearbyNode = capInfo.nodes.firstOrNull { it.isNearby }
-                val anyNode = nearbyNode ?: capInfo.nodes.firstOrNull()
+                var nearbyNode: com.google.android.gms.wearable.Node? = null
+                var anyNode: com.google.android.gms.wearable.Node? = null
+                var appInstalled: Boolean? = null
+
+                // Try CapabilityClient first (capability-advertised nodes)
+                try {
+                    val capInfo = withTimeout(WATCH_DISCOVERY_TIMEOUT_MS) {
+                        Wearable.getCapabilityClient(appContext)
+                            .getCapability(
+                                WearDataContract.WATCH_APP_CAPABILITY,
+                                CapabilityClient.FILTER_ALL,
+                            )
+                            .await()
+                    }
+                    nearbyNode = capInfo.nodes.firstOrNull { it.isNearby }
+                    anyNode = nearbyNode ?: capInfo.nodes.firstOrNull()
+                    appInstalled = capInfo.nodes.isNotEmpty()
+                    Timber.d("CapabilityClient: %d nodes, nearby=%s", capInfo.nodes.size, nearbyNode?.id?.takeLast(4))
+                } catch (e: TimeoutCancellationException) {
+                    Timber.w("CapabilityClient timed out")
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Timber.w(e, "CapabilityClient lookup failed")
+                }
+
+                // Fallback to NodeClient if no capability nodes found.
+                // NodeClient returns ALL connected watches, not just ones with our app,
+                // so we only use it for device name/connectivity -- NOT appInstalled.
+                if (anyNode == null) {
+                    try {
+                        val nodes = withTimeout(WATCH_DISCOVERY_TIMEOUT_MS) {
+                            Wearable.getNodeClient(appContext).connectedNodes.await()
+                        }
+                        Timber.d("NodeClient fallback: %d connected nodes", nodes.size)
+                        nearbyNode = nodes.firstOrNull { it.isNearby }
+                        anyNode = nearbyNode ?: nodes.firstOrNull()
+                    } catch (e: TimeoutCancellationException) {
+                        Timber.w("NodeClient timed out")
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Timber.w(e, "NodeClient fallback failed")
+                    }
+                }
+
                 _uiState.value = _uiState.value.copy(
-                    watchAppInstalled = capInfo.nodes.isNotEmpty(),
+                    watchAppInstalled = appInstalled,
                     watchConnected = nearbyNode != null,
                     watchDeviceName = anyNode?.displayName,
                 )
                 // Read last-sent data items for telemetry
-                if (capInfo.nodes.isNotEmpty()) {
+                if (appInstalled == true) {
                     loadWatchDataTelemetry()
                 }
-                // Push current config to watch when connected
-                if (nearbyNode != null) {
+                // Push current config to watch when connected and app is installed
+                if (nearbyNode != null && appInstalled == true) {
                     syncWatchFaceConfig(_uiState.value.watchFaceConfig)
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Timber.w(e, "Failed to check watch status")
                 _uiState.value = _uiState.value.copy(

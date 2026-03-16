@@ -3,6 +3,7 @@ package com.glycemicgpt.weardevice.data
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 
 object WatchDataRepository {
 
@@ -50,6 +51,13 @@ object WatchDataRepository {
     private val _cgm = MutableStateFlow<CgmState?>(null)
     val cgm: StateFlow<CgmState?> = _cgm.asStateFlow()
 
+    /** Circular buffer of recent CGM readings for sparkline graph (up to 6 hours at 5-min intervals). */
+    private val _cgmHistory = MutableStateFlow<List<CgmState>>(emptyList())
+    val cgmHistory: StateFlow<List<CgmState>> = _cgmHistory.asStateFlow()
+
+    private const val MAX_CGM_HISTORY = 72 // 6 hours at 5-min intervals
+    private const val DEDUP_WINDOW_MS = 30_000L // 30-second proximity window for timestamp dedup
+
     private val _alert = MutableStateFlow<AlertState?>(null)
     val alert: StateFlow<AlertState?> = _alert.asStateFlow()
 
@@ -72,7 +80,25 @@ object WatchDataRepository {
         urgentLow: Int,
         urgentHigh: Int,
     ) {
-        _cgm.value = CgmState(mgDl, trend, timestampMs, low, high, urgentLow, urgentHigh)
+        val state = CgmState(mgDl, trend, timestampMs, low, high, urgentLow, urgentHigh)
+        _cgm.value = state
+
+        // Atomically append to history buffer, dedup by timestamp proximity, keep most recent
+        _cgmHistory.update { current ->
+            val isDuplicate = current.any {
+                kotlin.math.abs(it.timestampMs - timestampMs) < DEDUP_WINDOW_MS
+            }
+            if (isDuplicate) {
+                current
+            } else {
+                val updated = current + state
+                if (updated.size > MAX_CGM_HISTORY) {
+                    updated.drop(updated.size - MAX_CGM_HISTORY)
+                } else {
+                    updated
+                }
+            }
+        }
     }
 
     fun updateAlert(type: String, bgValue: Int, timestampMs: Long, message: String) {
