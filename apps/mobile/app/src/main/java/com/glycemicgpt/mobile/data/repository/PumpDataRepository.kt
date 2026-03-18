@@ -65,6 +65,9 @@ class PumpDataRepository @Inject constructor(
             entities.map { it.toDomain() }
         }
 
+    suspend fun getIoBSince(since: Instant): List<IoBReading> =
+        pumpDao.getIoBSince(since.toEpochMilli()).map { it.toDomain() }
+
     // -- Basal ----------------------------------------------------------------
 
     suspend fun saveBasal(reading: BasalReading) {
@@ -105,6 +108,9 @@ class PumpDataRepository @Inject constructor(
             entities.map { it.toDomain() }
         }
 
+    suspend fun getBasalSince(since: Instant): List<BasalReading> =
+        pumpDao.getBasalSince(since.toEpochMilli()).map { it.toDomain() }
+
     // -- Bolus ----------------------------------------------------------------
 
     suspend fun saveBoluses(events: List<BolusEvent>) {
@@ -134,6 +140,9 @@ class PumpDataRepository @Inject constructor(
         pumpDao.observeBolusHistoryAll(since.toEpochMilli()).map { entities ->
             entities.mapNotNull { it.toDomain() }
         }
+
+    suspend fun getBolusesSince(since: Instant): List<BolusEvent> =
+        pumpDao.getBolusesSince(since.toEpochMilli()).mapNotNull { it.toDomain() }
 
     suspend fun getLatestBolusTimestamp(): Instant? {
         val ms = pumpDao.getLatestBolusTimestamp() ?: return null

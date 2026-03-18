@@ -49,12 +49,18 @@ class WatchFacePusher @Inject constructor(
         private const val SEND_TIMEOUT_MS = 120_000L
 
         /**
-         * SHA-256 hex digest of the bundled watch face APK.
-         * Update this value whenever the APK in assets is replaced.
-         * Generate with: sha256sum apps/mobile/app/src/main/assets/glycemicgpt-watchface.apk
+         * SHA-256 hex digests of the bundled watch face APKs.
+         * Update these values whenever APKs in assets are replaced.
+         * Generate with: sha256sum apps/mobile/app/src/main/assets/glycemicgpt-watchface-*.apk
          */
         internal const val WATCHFACE_SHA256 =
             "b253772fc26598466e6b643186104cb616fb7b55e022a2109517aee05e7e1d55"
+
+        internal val VARIANT_SHA256 = mapOf(
+            WatchFaceVariant.DIGITAL_FULL to WATCHFACE_SHA256,
+            // Add SHA-256 hashes for new variants when APKs are built.
+            // Until then, skip integrity check for variants without a known hash.
+        )
     }
 
     /**
@@ -68,16 +74,32 @@ class WatchFacePusher @Inject constructor(
      * is logged on the watch side. Story 32.4 will add real-time status
      * listening via MessageClient.
      */
-    suspend fun pushWatchFace(): Result = withContext(Dispatchers.IO) {
+    suspend fun pushWatchFace(
+        variant: WatchFaceVariant = WatchFaceVariant.DIGITAL_FULL,
+    ): Result = withContext(Dispatchers.IO) {
         try {
-            if (!verifyAssetIntegrity()) {
+            val assetName = variant.assetFilename
+            // Fall back to legacy asset name for DIGITAL_FULL if variant asset doesn't exist
+            val effectiveAsset = if (hasAsset(assetName)) {
+                assetName
+            } else if (variant == WatchFaceVariant.DIGITAL_FULL && hasAsset(WATCHFACE_ASSET)) {
+                WATCHFACE_ASSET
+            } else {
+                return@withContext Result.Error("Watch face APK not found: $assetName")
+            }
+
+            val expectedHash = VARIANT_SHA256[variant]
+            if (expectedHash != null && !verifyAssetIntegrity(effectiveAsset, expectedHash)) {
                 return@withContext Result.Error("Watch face APK integrity check failed")
             }
 
             val watchNode = findWatchNode()
                 ?: return@withContext Result.Error("No watch connected")
 
-            Timber.d("Pushing watch face to node: %s (%s)", watchNode.displayName, watchNode.id)
+            Timber.d(
+                "Pushing watch face %s to node: %s (%s)",
+                variant.name, watchNode.displayName, watchNode.id,
+            )
 
             val channelClient = Wearable.getChannelClient(context)
             val channel = channelClient.openChannel(
@@ -87,18 +109,22 @@ class WatchFacePusher @Inject constructor(
 
             val channelClosed = AtomicBoolean(false)
             try {
-                streamApkToChannel(channelClient, channel, channelClosed)
+                streamApkToChannel(channelClient, channel, channelClosed, effectiveAsset)
             } finally {
                 closeChannelOnce(channelClient, channel, channelClosed)
             }
 
-            // Channel send completed without error.
-            // TODO(Story 32.4): Register a MessageClient listener for real-time install status.
             Result.Success(status = "sent", slotId = null)
         } catch (e: Exception) {
             Timber.e(e, "Failed to push watch face")
             Result.Error(e.message ?: "Unknown error")
         }
+    }
+
+    private fun hasAsset(name: String): Boolean = try {
+        context.assets.open(name).use { true }
+    } catch (_: Exception) {
+        false
     }
 
     /**
@@ -127,10 +153,13 @@ class WatchFacePusher @Inject constructor(
      * Verify the bundled APK asset has not been tampered with by checking
      * its SHA-256 digest against the expected value.
      */
-    internal fun verifyAssetIntegrity(): Boolean {
+    internal fun verifyAssetIntegrity(
+        assetName: String = WATCHFACE_ASSET,
+        expectedHash: String = WATCHFACE_SHA256,
+    ): Boolean {
         return try {
             val digest = MessageDigest.getInstance("SHA-256")
-            context.assets.open(WATCHFACE_ASSET).use { input ->
+            context.assets.open(assetName).use { input ->
                 val buffer = ByteArray(8192)
                 var bytesRead: Int
                 while (input.read(buffer).also { bytesRead = it } != -1) {
@@ -138,9 +167,9 @@ class WatchFacePusher @Inject constructor(
                 }
             }
             val actualHash = digest.digest().joinToString("") { "%02x".format(it) }
-            val matches = actualHash == WATCHFACE_SHA256
+            val matches = actualHash == expectedHash
             if (!matches) {
-                Timber.e("APK integrity mismatch: expected=%s actual=%s", WATCHFACE_SHA256, actualHash)
+                Timber.e("APK integrity mismatch: expected=%s actual=%s", expectedHash, actualHash)
             }
             matches
         } catch (e: Exception) {
@@ -153,16 +182,17 @@ class WatchFacePusher @Inject constructor(
         channelClient: ChannelClient,
         channel: ChannelClient.Channel,
         channelClosed: AtomicBoolean,
+        assetName: String = WATCHFACE_ASSET,
     ) = coroutineScope {
         val watchdog = launchSendWatchdog(channelClient, channel, channelClosed)
         try {
             val outputStream = channelClient.getOutputStream(channel).await()
             outputStream.use { output ->
-                context.assets.open(WATCHFACE_ASSET).use { input ->
+                context.assets.open(assetName).use { input ->
                     copyToOutput(input, output)
                 }
             }
-            Timber.d("Watch face APK streamed successfully")
+            Timber.d("Watch face APK streamed successfully (%s)", assetName)
         } finally {
             watchdog.cancel()
         }
