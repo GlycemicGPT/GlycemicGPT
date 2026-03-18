@@ -167,6 +167,9 @@ class WearAppUpdateChecker @Inject constructor(
                 DownloadResult.Success(apkFile)
             }
         } catch (e: Exception) {
+            try {
+                File(apkDir, AppUpdateChecker.sanitizeFileName(fileName)).delete()
+            } catch (_: Exception) { /* ignore cleanup failure */ }
             Timber.w(e, "Wear APK download failed")
             DownloadResult.Error(e.message ?: "Download failed")
         }

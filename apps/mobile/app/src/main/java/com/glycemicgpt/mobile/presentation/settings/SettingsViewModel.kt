@@ -785,12 +785,16 @@ class SettingsViewModel @Inject constructor(
                 versionItems.firstOrNull()?.let { item ->
                     val map = DataMapItem.fromDataItem(item).dataMap
                     val versionName = map.getString(WearDataContract.KEY_WATCH_VERSION_NAME)
-                    val versionCode = map.getInt(WearDataContract.KEY_WATCH_VERSION_CODE)
+                    val versionCode = if (map.containsKey(WearDataContract.KEY_WATCH_VERSION_CODE)) {
+                        map.getInt(WearDataContract.KEY_WATCH_VERSION_CODE)
+                    } else {
+                        null
+                    }
                     _uiState.value = _uiState.value.copy(
                         watchVersionName = versionName,
                         watchVersionCode = versionCode,
                     )
-                    Timber.d("Watch version: %s (code=%d)", versionName, versionCode)
+                    Timber.d("Watch version: %s (code=%s)", versionName, versionCode)
                 }
             } finally {
                 versionItems.release()
