@@ -24,6 +24,15 @@ android {
         versionName = appVersionName
     }
 
+    // Flavor-specific applicationIds are set in the androidComponents.onVariants block below.
+    flavorDimensions += "style"
+    productFlavors {
+        create("digitalFull") { dimension = "style" }
+        create("digitalClinical") { dimension = "style" }
+        create("digitalMinimal") { dimension = "style" }
+        create("analogMechanical") { dimension = "style" }
+    }
+
     signingConfigs {
         val debugKsFile = System.getenv("DEBUG_KEYSTORE_FILE")?.takeIf { it.isNotBlank() }
         if (debugKsFile != null) {
@@ -79,11 +88,30 @@ android {
 // <wear-device-package>.watchfacepush.<name>
 // Debug wear-device has package com.glycemicgpt.mobile.debug, so the debug
 // watch face must use com.glycemicgpt.mobile.debug.watchfacepush.glycemicgpt.
+// Set applicationId per variant to match the Watch Face Push API requirement:
+// <wear-device-package>.watchfacepush.<name>
+// Debug wear-device = com.glycemicgpt.mobile.debug -> debug prefix
+// Release wear-device = com.glycemicgpt.mobile -> release prefix
+// Flavor suffix appended to differentiate face variants.
 androidComponents {
     onVariants { variant ->
-        if (variant.buildType == "debug") {
-            variant.applicationId.set("com.glycemicgpt.mobile.debug.watchfacepush.glycemicgpt")
+        val flavorSuffix = variant.productFlavors
+            .firstOrNull { it.first == "style" }
+            ?.second?.let { flavor ->
+                when (flavor) {
+                    "digitalFull" -> ""
+                    "digitalClinical" -> "_clinical"
+                    "digitalMinimal" -> "_minimal"
+                    "analogMechanical" -> "_mechanical"
+                    else -> ""
+                }
+            } ?: ""
+        val basePrefix = if (variant.buildType == "debug") {
+            "com.glycemicgpt.mobile.debug.watchfacepush.glycemicgpt"
+        } else {
+            "com.glycemicgpt.mobile.watchfacepush.glycemicgpt"
         }
+        variant.applicationId.set("$basePrefix$flavorSuffix")
     }
 }
 

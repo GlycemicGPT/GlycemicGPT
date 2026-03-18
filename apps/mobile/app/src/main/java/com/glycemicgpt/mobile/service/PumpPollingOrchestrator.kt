@@ -3,6 +3,7 @@ package com.glycemicgpt.mobile.service
 import com.glycemicgpt.mobile.data.local.GlucoseRangeStore
 import com.glycemicgpt.mobile.data.local.SafetyLimitsStore
 import com.glycemicgpt.mobile.data.local.dao.RawHistoryLogDao
+import com.glycemicgpt.mobile.domain.model.PumpActivityMode
 import com.glycemicgpt.mobile.data.local.entity.RawHistoryLogEntity
 import com.glycemicgpt.mobile.data.repository.PumpDataRepository
 import com.glycemicgpt.mobile.data.repository.SyncQueueEnqueuer
@@ -10,6 +11,8 @@ import com.glycemicgpt.mobile.domain.model.ConnectionState
 import com.glycemicgpt.mobile.domain.pump.HistoryLogParser
 import com.glycemicgpt.mobile.domain.pump.PumpDriver
 import com.glycemicgpt.mobile.wear.WearDataSender
+import com.glycemicgpt.mobile.wear.WearHistorySerializer
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -185,7 +188,7 @@ class PumpPollingOrchestrator @Inject constructor(
         }
     }
 
-    /** Slow loop: battery + reservoir + raw history logs at least every ~5 min. */
+    /** Slow loop: battery + reservoir + raw history logs + watch history at least every ~5 min. */
     private suspend fun pollSlowLoop(initialDelayMs: Long = SLOW_LOOP_INITIAL_DELAY_MS) {
         delay(initialDelayMs)
         while (true) {
@@ -196,6 +199,8 @@ class PumpPollingOrchestrator @Inject constructor(
             pollHistoryLogs()
             delay(REQUEST_STAGGER_MS)
             cacheHardwareInfoOnce()
+            delay(REQUEST_STAGGER_MS)
+            sendWatchHistoryOverlays()
             delay(effectiveInterval(INTERVAL_SLOW_MS))
         }
     }
@@ -321,6 +326,16 @@ class PumpPollingOrchestrator @Inject constructor(
         // When phone battery is low, slow everything down by this factor
         const val LOW_BATTERY_MULTIPLIER = 3
 
+        /** Max history records per type sent to watch. Prevents exceeding DataItem size limit. */
+        const val MAX_HISTORY_RECORDS = 500
+
+        /** Explicit mapping to avoid ordinal-dependence on PumpActivityMode enum order. */
+        fun activityModeToInt(mode: PumpActivityMode): Int = when (mode) {
+            PumpActivityMode.NONE -> 0
+            PumpActivityMode.SLEEP -> 1
+            PumpActivityMode.EXERCISE -> 2
+        }
+
         fun alertLabel(type: String): String = when (type) {
             "urgent_low" -> "URGENT LOW"
             "urgent_high" -> "URGENT HIGH"
@@ -411,6 +426,65 @@ class PumpPollingOrchestrator @Inject constructor(
                 }
             }
             .onFailure { Timber.w(it, "Failed to poll history logs") }
+    }
+
+    private suspend fun sendWatchHistoryOverlays() {
+        try {
+            val sixHoursAgo = Instant.now().minus(6, ChronoUnit.HOURS)
+
+            // Cap records per type to stay well under the 100KB DataItem limit.
+            // 500 basal * 13B = 6.5KB, 500 bolus * 21B = 10.5KB, 500 IoB * 12B = 6KB
+            val basalReadings = repository.getBasalSince(sixHoursAgo).takeLast(MAX_HISTORY_RECORDS)
+            if (basalReadings.isNotEmpty()) {
+                val records = basalReadings.map { r ->
+                    WearHistorySerializer.BasalRecord(
+                        rate = r.rate,
+                        timestampMs = r.timestamp.toEpochMilli(),
+                        isAutomated = r.isAutomated,
+                        activityMode = activityModeToInt(r.activityMode),
+                    )
+                }
+                val data = WearHistorySerializer.encodeBasalHistory(records)
+                wearDataSender.sendBasalHistory(data, records.size)
+            }
+
+            val bolusEvents = repository.getBolusesSince(sixHoursAgo).takeLast(MAX_HISTORY_RECORDS)
+            if (bolusEvents.isNotEmpty()) {
+                val records = bolusEvents.map { e ->
+                    WearHistorySerializer.BolusRecord(
+                        units = e.units,
+                        correctionUnits = e.correctionUnits,
+                        mealUnits = e.mealUnits,
+                        timestampMs = e.timestamp.toEpochMilli(),
+                        isAutomated = e.isAutomated,
+                        isCorrection = e.isCorrection,
+                    )
+                }
+                val data = WearHistorySerializer.encodeBolusHistory(records)
+                wearDataSender.sendBolusHistory(data, records.size)
+            }
+
+            val iobReadings = repository.getIoBSince(sixHoursAgo).takeLast(MAX_HISTORY_RECORDS)
+            if (iobReadings.isNotEmpty()) {
+                val records = iobReadings.map { r ->
+                    WearHistorySerializer.IoBRecord(
+                        iob = r.iob,
+                        timestampMs = r.timestamp.toEpochMilli(),
+                    )
+                }
+                val data = WearHistorySerializer.encodeIoBHistory(records)
+                wearDataSender.sendIoBHistory(data, records.size)
+            }
+
+            Timber.d(
+                "Sent watch history overlays: %d basal, %d bolus, %d IoB",
+                basalReadings.size, bolusEvents.size, iobReadings.size,
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "Failed to send watch history overlays")
+        }
     }
 
     private suspend fun cacheHardwareInfoOnce() {

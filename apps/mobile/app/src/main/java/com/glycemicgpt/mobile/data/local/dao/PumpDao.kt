@@ -53,6 +53,9 @@ interface PumpDao {
     @Query("SELECT * FROM basal_readings WHERE timestampMs >= :sinceMs ORDER BY timestampMs ASC LIMIT 50000")
     fun observeBasalHistoryAll(sinceMs: Long): Flow<List<BasalReadingEntity>>
 
+    @Query("SELECT * FROM basal_readings WHERE timestampMs >= :sinceMs ORDER BY timestampMs ASC")
+    suspend fun getBasalSince(sinceMs: Long): List<BasalReadingEntity>
+
     @Query("DELETE FROM basal_readings WHERE timestampMs < :beforeMs")
     suspend fun deleteBasalBefore(beforeMs: Long): Int
 

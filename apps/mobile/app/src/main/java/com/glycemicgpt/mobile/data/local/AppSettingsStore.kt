@@ -154,6 +154,26 @@ class AppSettingsStore @Inject constructor(
         get() = prefs.getString(KEY_WATCHFACE_THEME, "Dark") ?: "Dark"
         set(value) { prefs.edit().putString(KEY_WATCHFACE_THEME, value).apply() }
 
+    var watchFaceVariant: String
+        get() = prefs.getString(KEY_WATCHFACE_VARIANT, "DIGITAL_FULL") ?: "DIGITAL_FULL"
+        set(value) { prefs.edit().putString(KEY_WATCHFACE_VARIANT, value).apply() }
+
+    var watchFaceShowBasalOverlay: Boolean
+        get() = prefs.getBoolean(KEY_WATCHFACE_SHOW_BASAL, true)
+        set(value) { prefs.edit().putBoolean(KEY_WATCHFACE_SHOW_BASAL, value).apply() }
+
+    var watchFaceShowBolusMarkers: Boolean
+        get() = prefs.getBoolean(KEY_WATCHFACE_SHOW_BOLUS, true)
+        set(value) { prefs.edit().putBoolean(KEY_WATCHFACE_SHOW_BOLUS, value).apply() }
+
+    var watchFaceShowIoBOverlay: Boolean
+        get() = prefs.getBoolean(KEY_WATCHFACE_SHOW_IOB_OVERLAY, true)
+        set(value) { prefs.edit().putBoolean(KEY_WATCHFACE_SHOW_IOB_OVERLAY, value).apply() }
+
+    var watchFaceShowModeBands: Boolean
+        get() = prefs.getBoolean(KEY_WATCHFACE_SHOW_MODES, true)
+        set(value) { prefs.edit().putBoolean(KEY_WATCHFACE_SHOW_MODES, value).apply() }
+
     fun registerListener(listener: SharedPreferences.OnSharedPreferenceChangeListener) {
         prefs.registerOnSharedPreferenceChangeListener(listener)
     }
@@ -181,5 +201,10 @@ class AppSettingsStore @Inject constructor(
         private const val KEY_WATCHFACE_SHOW_SECONDS = "watchface_show_seconds"
         private const val KEY_WATCHFACE_GRAPH_RANGE = "watchface_graph_range"
         private const val KEY_WATCHFACE_THEME = "watchface_theme"
+        private const val KEY_WATCHFACE_VARIANT = "watchface_variant"
+        private const val KEY_WATCHFACE_SHOW_BASAL = "watchface_show_basal"
+        private const val KEY_WATCHFACE_SHOW_BOLUS = "watchface_show_bolus"
+        private const val KEY_WATCHFACE_SHOW_IOB_OVERLAY = "watchface_show_iob_overlay"
+        private const val KEY_WATCHFACE_SHOW_MODES = "watchface_show_modes"
     }
 }

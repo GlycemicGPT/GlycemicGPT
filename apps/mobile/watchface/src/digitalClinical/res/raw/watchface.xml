@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  GlycemicGPT Clinical Watch Face (WFF v2)
+
+  High-contrast clinical design:
+    [BG value + trend]     Very large BG (top, 64pt bold)
+    [1H Graph]             Compact sparkline
+    10:08                  Time (bottom, smaller)
+  No branding, no IoB -- maximum BG visibility.
+-->
+<WatchFace width="450" height="450" clipShape="CIRCLE">
+
+    <Metadata key="CLOCK_TYPE" value="DIGITAL"/>
+    <Metadata key="PREVIEW_TIME" value="10:08:32"/>
+
+    <Scene backgroundColor="#ff000000">
+
+        <!-- BG Hero (slot 0): extra large top center -->
+        <ComplicationSlot
+            x="25" y="20" width="400" height="150"
+            slotId="0"
+            displayName="Blood Glucose"
+            supportedTypes="SHORT_TEXT LONG_TEXT EMPTY">
+            <BoundingOval x="0" y="0" width="400" height="150"/>
+            <Complication type="SHORT_TEXT">
+                <PartText x="0" y="10" width="400" height="90">
+                    <Text align="CENTER">
+                        <Font family="SYNC_TO_DEVICE" size="64" weight="BOLD"
+                            color="#ffffffff">
+                            <Template>%s<Parameter expression="[COMPLICATION.TEXT]"/></Template>
+                        </Font>
+                    </Text>
+                </PartText>
+                <PartText x="0" y="100" width="400" height="40">
+                    <Text align="CENTER">
+                        <Font family="SYNC_TO_DEVICE" size="16" weight="NORMAL"
+                            color="#ffBBBBBB">
+                            <Template>%s<Parameter expression="[COMPLICATION.TITLE]"/></Template>
+                        </Font>
+                    </Text>
+                </PartText>
+            </Complication>
+            <Complication type="LONG_TEXT">
+                <PartText x="0" y="20" width="400" height="100">
+                    <Text align="CENTER">
+                        <Font family="SYNC_TO_DEVICE" size="56" weight="BOLD"
+                            color="#ffffffff">
+                            <Template>%s<Parameter expression="[COMPLICATION.TEXT]"/></Template>
+                        </Font>
+                    </Text>
+                </PartText>
+            </Complication>
+            <DefaultProviderPolicy
+                defaultSystemProvider="EMPTY"
+                defaultSystemProviderType="EMPTY"
+                primaryProvider="com.glycemicgpt.mobile.debug/com.glycemicgpt.weardevice.complications.BgComplicationDataSource"
+                primaryProviderType="SHORT_TEXT"/>
+        </ComplicationSlot>
+
+        <!-- Glucose Graph (slot 2): wide sparkline -->
+        <ComplicationSlot
+            x="25" y="180" width="400" height="100"
+            slotId="2"
+            displayName="Glucose Graph"
+            supportedTypes="SMALL_IMAGE EMPTY">
+            <BoundingOval x="0" y="0" width="400" height="100"/>
+            <Complication type="SMALL_IMAGE">
+                <PartImage x="0" y="0" width="400" height="100">
+                    <Image resource="[COMPLICATION.SMALL_IMAGE]"/>
+                </PartImage>
+            </Complication>
+            <DefaultProviderPolicy
+                defaultSystemProvider="EMPTY"
+                defaultSystemProviderType="EMPTY"
+                primaryProvider="com.glycemicgpt.mobile.debug/com.glycemicgpt.weardevice.complications.GraphComplicationDataSource"
+                primaryProviderType="SMALL_IMAGE"/>
+        </ComplicationSlot>
+
+        <!-- Time display: bottom, smaller -->
+        <DigitalClock x="0" y="300" width="450" height="80">
+            <TimeText format="hh:mm" hourFormat="SYNC_TO_DEVICE" align="CENTER"
+                x="0" y="0" width="450" height="80" alpha="255">
+                <Variant mode="AMBIENT" target="alpha" value="0"/>
+                <Font family="SYNC_TO_DEVICE" size="40" weight="BOLD"
+                    color="#ffffffff"/>
+            </TimeText>
+            <TimeText format="hh:mm" hourFormat="SYNC_TO_DEVICE" align="CENTER"
+                x="0" y="0" width="450" height="80" alpha="0">
+                <Variant mode="AMBIENT" target="alpha" value="255"/>
+                <Font family="SYNC_TO_DEVICE" size="40" weight="THIN"
+                    color="#99ffffff"/>
+            </TimeText>
+        </DigitalClock>
+
+    </Scene>
+
+</WatchFace>

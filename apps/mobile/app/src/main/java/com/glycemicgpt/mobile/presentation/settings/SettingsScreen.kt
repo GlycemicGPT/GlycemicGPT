@@ -19,6 +19,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -78,6 +81,7 @@ import com.glycemicgpt.mobile.data.local.AlertSoundCategory
 import com.glycemicgpt.mobile.domain.plugin.PluginMetadata
 import com.glycemicgpt.mobile.plugin.RuntimePluginInfo
 import com.glycemicgpt.mobile.presentation.theme.ThemeMode
+import com.glycemicgpt.mobile.wear.WatchFaceVariant
 import java.io.File
 import kotlin.math.roundToInt
 
@@ -178,8 +182,20 @@ fun SettingsScreen(
         )
         if (state.watchConnected || state.watchDeviceName != null) {
             Spacer(modifier = Modifier.height(8.dp))
-            WatchFaceCard(
+            WatchFaceGalleryCard(
                 watchFacePushState = state.watchFacePushState,
+                selectedVariant = state.watchFaceConfig.selectedVariant,
+                onVariantSelected = { variant ->
+                    settingsViewModel.updateWatchFaceConfig(
+                        state.watchFaceConfig.copy(
+                            selectedVariant = variant,
+                            showBasalOverlay = variant.defaultShowBasalOverlay,
+                            showBolusMarkers = variant.defaultShowBolusMarkers,
+                            showIoBOverlay = variant.defaultShowIoBOverlay,
+                            showModeBands = variant.defaultShowModeBands,
+                        ),
+                    )
+                },
                 onPushWatchFace = settingsViewModel::pushWatchFace,
                 onDismissPushResult = settingsViewModel::dismissWatchFacePushResult,
             )
@@ -1559,8 +1575,10 @@ private fun WatchConnectionCard(
 }
 
 @Composable
-private fun WatchFaceCard(
+private fun WatchFaceGalleryCard(
     watchFacePushState: WatchFacePushState,
+    selectedVariant: WatchFaceVariant,
+    onVariantSelected: (WatchFaceVariant) -> Unit,
     onPushWatchFace: () -> Unit,
     onDismissPushResult: () -> Unit,
 ) {
@@ -1571,14 +1589,62 @@ private fun WatchFaceCard(
                 .padding(16.dp),
         ) {
             Text(
-                text = "Watch Face",
+                text = "Watch Face Gallery",
                 style = MaterialTheme.typography.titleSmall,
             )
             Text(
-                text = "GlycemicGPT WFF -- BG, trend, IoB, sparkline",
+                text = "Select a watch face design and push to your watch",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                WatchFaceVariant.entries.forEach { variant ->
+                    val isSelected = variant == selectedVariant
+                    Column(
+                        modifier = Modifier
+                            .width(100.dp)
+                            .clickable { onVariantSelected(variant) }
+                            .then(
+                                if (isSelected) {
+                                    Modifier.border(
+                                        width = 2.dp,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        shape = MaterialTheme.shapes.medium,
+                                    )
+                                } else {
+                                    Modifier
+                                },
+                            )
+                            .padding(8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(
+                            text = variant.displayName,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (isSelected) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            },
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = variant.description,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 3,
+                        )
+                    }
+                }
+            }
 
             Spacer(modifier = Modifier.height(12.dp))
 
@@ -1595,9 +1661,9 @@ private fun WatchFaceCard(
                         color = MaterialTheme.colorScheme.onPrimary,
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Pushing Watch Face...")
+                    Text("Pushing ${selectedVariant.displayName}...")
                 } else {
-                    Text("Set Watch Face")
+                    Text("Push ${selectedVariant.displayName} Face")
                 }
             }
 
@@ -1728,6 +1794,35 @@ private fun WatchFaceConfigCard(
                         text = theme.label,
                         style = MaterialTheme.typography.bodyMedium,
                     )
+                }
+            }
+
+            if (config.showGraph && config.selectedVariant.hasGraph) {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+                Text(
+                    text = "Graph Overlays",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                    text = "Toggle data layers on the graph complication",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                WatchToggleRow("Basal Rate Area", config.showBasalOverlay) {
+                    onConfigChange(config.copy(showBasalOverlay = it))
+                }
+                WatchToggleRow("Bolus Markers", config.showBolusMarkers) {
+                    onConfigChange(config.copy(showBolusMarkers = it))
+                }
+                WatchToggleRow("IoB Overlay", config.showIoBOverlay) {
+                    onConfigChange(config.copy(showIoBOverlay = it))
+                }
+                WatchToggleRow("Activity Mode Bands", config.showModeBands) {
+                    onConfigChange(config.copy(showModeBands = it))
                 }
             }
         }

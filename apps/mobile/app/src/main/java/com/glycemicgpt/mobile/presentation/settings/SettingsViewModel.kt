@@ -29,6 +29,7 @@ import com.glycemicgpt.mobile.data.update.DownloadResult
 import com.glycemicgpt.mobile.data.update.UpdateCheckResult
 import com.glycemicgpt.mobile.data.update.WearAppUpdateChecker
 import com.glycemicgpt.mobile.wear.WatchFacePusher
+import com.glycemicgpt.mobile.wear.WatchFaceVariant
 import com.glycemicgpt.mobile.wear.WearApkPusher
 import com.glycemicgpt.mobile.wear.WearDataContract
 import com.glycemicgpt.mobile.wear.WearDataSender
@@ -105,6 +106,11 @@ data class WatchFaceConfig(
     val showSeconds: Boolean = false,
     val graphRangeHours: Int = 3,
     val theme: WatchFaceTheme = WatchFaceTheme.Dark,
+    val selectedVariant: WatchFaceVariant = WatchFaceVariant.DIGITAL_FULL,
+    val showBasalOverlay: Boolean = true,
+    val showBolusMarkers: Boolean = true,
+    val showIoBOverlay: Boolean = true,
+    val showModeBands: Boolean = true,
 ) {
     companion object {
         val VALID_GRAPH_RANGES = listOf(1, 3, 6)
@@ -739,9 +745,10 @@ class SettingsViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(watchFacePushState = WatchFacePushState.Pushing)
         viewModelScope.launch {
             try {
+                val variant = _uiState.value.watchFaceConfig.selectedVariant
                 val result = try {
                     withTimeout(PUSH_TIMEOUT_MS) {
-                        watchFacePusher.pushWatchFace()
+                        watchFacePusher.pushWatchFace(variant)
                     }
                 } catch (_: TimeoutCancellationException) {
                     WatchFacePusher.Result.Error("Push timed out")
@@ -968,6 +975,10 @@ class SettingsViewModel @Inject constructor(
                     showSeconds = config.showSeconds,
                     graphRangeHours = config.graphRangeHours,
                     theme = config.theme.contractKey,
+                    showBasalOverlay = config.showBasalOverlay,
+                    showBolusMarkers = config.showBolusMarkers,
+                    showIoBOverlay = config.showIoBOverlay,
+                    showModeBands = config.showModeBands,
                 )
             } catch (e: Exception) {
                 Timber.w(e, "Failed to sync watch face config")
@@ -980,6 +991,12 @@ class SettingsViewModel @Inject constructor(
         val theme = WatchFaceTheme.entries.find { it.label == themeName } ?: WatchFaceTheme.Dark
         val rawGraphRange = appSettingsStore.watchFaceGraphRangeHours
         val graphRange = if (rawGraphRange in WatchFaceConfig.VALID_GRAPH_RANGES) rawGraphRange else 3
+        val variantName = appSettingsStore.watchFaceVariant
+        val variant = try {
+            WatchFaceVariant.valueOf(variantName)
+        } catch (_: IllegalArgumentException) {
+            WatchFaceVariant.DIGITAL_FULL
+        }
         return WatchFaceConfig(
             showIoB = appSettingsStore.watchFaceShowIoB,
             showGraph = appSettingsStore.watchFaceShowGraph,
@@ -987,6 +1004,11 @@ class SettingsViewModel @Inject constructor(
             showSeconds = appSettingsStore.watchFaceShowSeconds,
             graphRangeHours = graphRange,
             theme = theme,
+            selectedVariant = variant,
+            showBasalOverlay = appSettingsStore.watchFaceShowBasalOverlay,
+            showBolusMarkers = appSettingsStore.watchFaceShowBolusMarkers,
+            showIoBOverlay = appSettingsStore.watchFaceShowIoBOverlay,
+            showModeBands = appSettingsStore.watchFaceShowModeBands,
         )
     }
 
@@ -997,6 +1019,11 @@ class SettingsViewModel @Inject constructor(
         appSettingsStore.watchFaceShowSeconds = config.showSeconds
         appSettingsStore.watchFaceGraphRangeHours = config.graphRangeHours
         appSettingsStore.watchFaceTheme = config.theme.label
+        appSettingsStore.watchFaceVariant = config.selectedVariant.name
+        appSettingsStore.watchFaceShowBasalOverlay = config.showBasalOverlay
+        appSettingsStore.watchFaceShowBolusMarkers = config.showBolusMarkers
+        appSettingsStore.watchFaceShowIoBOverlay = config.showIoBOverlay
+        appSettingsStore.watchFaceShowModeBands = config.showModeBands
     }
 
     fun checkBatteryOptimization() {
