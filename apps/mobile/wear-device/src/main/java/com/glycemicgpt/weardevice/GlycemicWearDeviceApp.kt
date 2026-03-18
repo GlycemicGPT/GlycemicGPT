@@ -2,6 +2,7 @@ package com.glycemicgpt.weardevice
 
 import android.app.Application
 import com.glycemicgpt.weardevice.data.WatchDataRepository
+import com.glycemicgpt.weardevice.data.WatchVersionPublisher
 import com.glycemicgpt.weardevice.data.WearDataContract
 import com.glycemicgpt.weardevice.util.GlucoseDisplayUtils
 import com.glycemicgpt.weardevice.util.GlucoseDisplayUtils.sanitizeThresholds
@@ -24,6 +25,13 @@ class GlycemicWearDeviceApp : Application() {
             Timber.plant(Timber.DebugTree())
         }
         bootstrapDataFromDataLayer()
+        publishVersion()
+    }
+
+    private fun publishVersion() {
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            WatchVersionPublisher.publish(this@GlycemicWearDeviceApp)
+        }
     }
 
     private fun bootstrapDataFromDataLayer() {

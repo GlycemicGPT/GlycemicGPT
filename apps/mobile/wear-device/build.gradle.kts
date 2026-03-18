@@ -80,8 +80,16 @@ android {
             isDebuggable = true
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
+            buildConfigField("String", "UPDATE_CHANNEL", "\"dev\"")
+            buildConfigField(
+                "int",
+                "DEV_BUILD_NUMBER",
+                project.findProperty("devBuildNumber")?.toString() ?: "0",
+            )
         }
         release {
+            buildConfigField("String", "UPDATE_CHANNEL", "\"stable\"")
+            buildConfigField("int", "DEV_BUILD_NUMBER", "0")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(

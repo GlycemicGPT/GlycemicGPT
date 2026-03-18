@@ -27,9 +27,12 @@ import com.glycemicgpt.mobile.service.PumpConnectionService
 import android.media.RingtoneManager
 import com.glycemicgpt.mobile.data.update.DownloadResult
 import com.glycemicgpt.mobile.data.update.UpdateCheckResult
+import com.glycemicgpt.mobile.data.update.WearAppUpdateChecker
 import com.glycemicgpt.mobile.wear.WatchFacePusher
+import com.glycemicgpt.mobile.wear.WearApkPusher
 import com.glycemicgpt.mobile.wear.WearDataContract
 import com.glycemicgpt.mobile.wear.WearDataSender
+import com.google.android.gms.wearable.DataMapItem
 import com.google.android.gms.wearable.CapabilityClient
 import com.google.android.gms.wearable.Wearable
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -70,6 +73,22 @@ sealed class UpdateUiState {
     object Downloading : UpdateUiState()
     data class ReadyToInstall(val apkFile: File) : UpdateUiState()
     data class Error(val message: String) : UpdateUiState()
+}
+
+sealed class WatchAppUpdateState {
+    object Idle : WatchAppUpdateState()
+    object Checking : WatchAppUpdateState()
+    data class Available(
+        val version: String,
+        val downloadUrl: String,
+        val sizeBytes: Long,
+    ) : WatchAppUpdateState()
+    object UpToDate : WatchAppUpdateState()
+    object Downloading : WatchAppUpdateState()
+    object Pushing : WatchAppUpdateState()
+    object Installing : WatchAppUpdateState()
+    object Success : WatchAppUpdateState()
+    data class Error(val message: String) : WatchAppUpdateState()
 }
 
 sealed class WatchFacePushState {
@@ -151,6 +170,9 @@ data class SettingsUiState(
     val watchFacePushState: WatchFacePushState = WatchFacePushState.Idle,
     val watchFaceConfig: WatchFaceConfig = WatchFaceConfig(),
     val watchDataTelemetry: WatchDataTelemetry = WatchDataTelemetry(),
+    val watchVersionName: String? = null,
+    val watchVersionCode: Int? = null,
+    val watchAppUpdateState: WatchAppUpdateState = WatchAppUpdateState.Idle,
     // Battery optimization
     val isBatteryOptimized: Boolean = true,
     // Notification sounds
@@ -172,6 +194,7 @@ private const val AUTO_DISMISS_MS = 5_000L
 private const val PUSH_TIMEOUT_MS = 150_000L
 private const val TELEMETRY_TIMEOUT_MS = 10_000L
 private const val WATCH_DISCOVERY_TIMEOUT_MS = 15_000L
+private const val WATCH_UPDATE_CHECK_COOLDOWN_MS = 10_000L
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
@@ -188,6 +211,8 @@ class SettingsViewModel @Inject constructor(
     private val pluginRegistry: PluginRegistry,
     private val watchFacePusher: WatchFacePusher,
     private val wearDataSender: WearDataSender,
+    private val wearAppUpdateChecker: WearAppUpdateChecker,
+    private val wearApkPusher: WearApkPusher,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SettingsUiState())
@@ -614,6 +639,10 @@ class SettingsViewModel @Inject constructor(
                     watchConnected = nearbyNode != null,
                     watchDeviceName = anyNode?.displayName,
                 )
+                // Read watch version from DataLayer
+                if (appInstalled == true) {
+                    loadWatchVersion()
+                }
                 // Read last-sent data items for telemetry
                 if (appInstalled == true) {
                     loadWatchDataTelemetry()
@@ -744,6 +773,176 @@ class SettingsViewModel @Inject constructor(
         autoDismissJob?.cancel()
         autoDismissJob = null
         _uiState.value = _uiState.value.copy(watchFacePushState = WatchFacePushState.Idle)
+    }
+
+    private suspend fun loadWatchVersion() {
+        try {
+            val dataClient = Wearable.getDataClient(appContext)
+            val versionItems = dataClient.getDataItems(
+                WearDataContract.dataUri(WearDataContract.WATCH_VERSION_PATH),
+            ).await()
+            try {
+                versionItems.firstOrNull()?.let { item ->
+                    val map = DataMapItem.fromDataItem(item).dataMap
+                    val versionName = map.getString(WearDataContract.KEY_WATCH_VERSION_NAME)
+                    val versionCode = if (map.containsKey(WearDataContract.KEY_WATCH_VERSION_CODE)) {
+                        map.getInt(WearDataContract.KEY_WATCH_VERSION_CODE)
+                    } else {
+                        null
+                    }
+                    _uiState.value = _uiState.value.copy(
+                        watchVersionName = versionName,
+                        watchVersionCode = versionCode,
+                    )
+                    Timber.d("Watch version: %s (code=%s)", versionName, versionCode)
+                }
+            } finally {
+                versionItems.release()
+            }
+        } catch (e: Exception) {
+            Timber.w(e, "Failed to load watch version from DataLayer")
+        }
+    }
+
+    private var lastWatchUpdateCheckMs = 0L
+
+    fun checkForWatchUpdate() {
+        if (_uiState.value.watchAppUpdateState is WatchAppUpdateState.Checking) return
+        val now = System.currentTimeMillis()
+        if (now - lastWatchUpdateCheckMs < WATCH_UPDATE_CHECK_COOLDOWN_MS) return
+        lastWatchUpdateCheckMs = now
+        val state = _uiState.value
+        val versionCode = state.watchVersionCode
+        if (versionCode == null) {
+            _uiState.value = state.copy(
+                watchAppUpdateState = WatchAppUpdateState.Error("Watch version not available"),
+            )
+            return
+        }
+
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                watchAppUpdateState = WatchAppUpdateState.Checking,
+            )
+
+            // Read all version info from DataLayer in a single read
+            var watchChannel = "stable"
+            var watchDevBuild = 0
+            var freshVersionCode: Int = versionCode
+            try {
+                val dataClient = Wearable.getDataClient(appContext)
+                val items = dataClient.getDataItems(
+                    WearDataContract.dataUri(WearDataContract.WATCH_VERSION_PATH),
+                ).await()
+                try {
+                    items.firstOrNull()?.let { item ->
+                        val map = DataMapItem.fromDataItem(item).dataMap
+                        watchChannel = map.getString(
+                            WearDataContract.KEY_WATCH_UPDATE_CHANNEL,
+                            "stable",
+                        )
+                        watchDevBuild = map.getInt(
+                            WearDataContract.KEY_WATCH_DEV_BUILD_NUMBER,
+                            0,
+                        )
+                        freshVersionCode = map.getInt(
+                            WearDataContract.KEY_WATCH_VERSION_CODE,
+                            versionCode,
+                        )
+                    }
+                } finally {
+                    items.release()
+                }
+            } catch (e: Exception) {
+                Timber.w(e, "Failed to read watch update channel")
+            }
+
+            val resolvedVersionCode = freshVersionCode
+            when (val result = wearAppUpdateChecker.check(resolvedVersionCode, watchChannel, watchDevBuild)) {
+                is UpdateCheckResult.UpdateAvailable -> {
+                    _uiState.value = _uiState.value.copy(
+                        watchAppUpdateState = WatchAppUpdateState.Available(
+                            version = result.info.latestVersion,
+                            downloadUrl = result.info.downloadUrl,
+                            sizeBytes = result.info.apkSizeBytes,
+                        ),
+                    )
+                }
+                is UpdateCheckResult.UpToDate -> {
+                    _uiState.value = _uiState.value.copy(
+                        watchAppUpdateState = WatchAppUpdateState.UpToDate,
+                    )
+                }
+                is UpdateCheckResult.Error -> {
+                    _uiState.value = _uiState.value.copy(
+                        watchAppUpdateState = WatchAppUpdateState.Error(result.message),
+                    )
+                }
+            }
+        }
+    }
+
+    private val watchUpdateInProgress = AtomicBoolean(false)
+    private var watchInstallTimerJob: Job? = null
+
+    fun downloadAndPushWatchUpdate(url: String, expectedSize: Long) {
+        if (!watchUpdateInProgress.compareAndSet(false, true)) return
+        watchInstallTimerJob?.cancel()
+        watchInstallTimerJob = null
+        viewModelScope.launch {
+            try {
+                _uiState.value = _uiState.value.copy(
+                    watchAppUpdateState = WatchAppUpdateState.Downloading,
+                )
+
+                val fileName = url.substringAfterLast("/")
+                when (val downloadResult = wearAppUpdateChecker.downloadWearApk(url, fileName, expectedSize)) {
+                    is DownloadResult.Success -> {
+                        try {
+                            _uiState.value = _uiState.value.copy(
+                                watchAppUpdateState = WatchAppUpdateState.Pushing,
+                            )
+
+                            when (val pushResult = wearApkPusher.pushApk(downloadResult.apkFile)) {
+                                is WearApkPusher.Result.Success -> {
+                                    _uiState.value = _uiState.value.copy(
+                                        watchAppUpdateState = WatchAppUpdateState.Installing,
+                                    )
+                                    watchInstallTimerJob = viewModelScope.launch {
+                                        delay(15_000L)
+                                        if (_uiState.value.watchAppUpdateState is WatchAppUpdateState.Installing) {
+                                            _uiState.value = _uiState.value.copy(
+                                                watchAppUpdateState = WatchAppUpdateState.Success,
+                                            )
+                                        }
+                                    }
+                                }
+                                is WearApkPusher.Result.Error -> {
+                                    _uiState.value = _uiState.value.copy(
+                                        watchAppUpdateState = WatchAppUpdateState.Error(pushResult.message),
+                                    )
+                                }
+                            }
+                        } finally {
+                            downloadResult.apkFile.delete()
+                        }
+                    }
+                    is DownloadResult.Error -> {
+                        _uiState.value = _uiState.value.copy(
+                            watchAppUpdateState = WatchAppUpdateState.Error(downloadResult.message),
+                        )
+                    }
+                }
+            } finally {
+                watchUpdateInProgress.set(false)
+            }
+        }
+    }
+
+    fun dismissWatchAppUpdateState() {
+        _uiState.value = _uiState.value.copy(
+            watchAppUpdateState = WatchAppUpdateState.Idle,
+        )
     }
 
     fun updateWatchFaceConfig(config: WatchFaceConfig) {

@@ -52,3 +52,9 @@ reason = "Fix only in canary channel; mitigated by CSP and backend SSRF preventi
 [[IgnoredVulns]]
 id = "GHSA-mw96-cpmx-2vgc"
 reason = "Dev-only sidecar build dependency; DOM clobbering not exploitable in Node.js"
+
+# next 15.5.13 -- fix requires Next.js 16 (major version). Upgrade to v16
+# is a breaking change requiring migration. Will track in a separate story.
+[[IgnoredVulns]]
+id = "GHSA-3x4c-7xq6-9pq8"
+reason = "Fix requires Next.js 16 (major upgrade); will address in separate migration story"

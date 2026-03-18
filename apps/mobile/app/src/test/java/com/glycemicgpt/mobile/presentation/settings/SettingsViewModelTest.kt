@@ -16,7 +16,9 @@ import com.glycemicgpt.mobile.data.update.AppUpdateChecker
 import com.glycemicgpt.mobile.data.update.DownloadResult
 import com.glycemicgpt.mobile.data.update.UpdateCheckResult
 import com.glycemicgpt.mobile.data.update.UpdateInfo
+import com.glycemicgpt.mobile.data.update.WearAppUpdateChecker
 import com.glycemicgpt.mobile.wear.WatchFacePusher
+import com.glycemicgpt.mobile.wear.WearApkPusher
 import com.glycemicgpt.mobile.wear.WearDataSender
 import com.glycemicgpt.mobile.domain.plugin.DevicePlugin
 import com.glycemicgpt.mobile.domain.plugin.Plugin
@@ -101,6 +103,8 @@ class SettingsViewModelTest {
     }
     private val watchFacePusher = mockk<WatchFacePusher>(relaxed = true)
     private val wearDataSender = mockk<WearDataSender>(relaxed = true)
+    private val wearAppUpdateChecker = mockk<WearAppUpdateChecker>()
+    private val wearApkPusher = mockk<WearApkPusher>(relaxed = true)
 
     @Before
     fun setup() {
@@ -113,7 +117,7 @@ class SettingsViewModelTest {
     }
 
     private fun createViewModel() =
-        SettingsViewModel(appContext, pumpCredentialStore, appSettingsStore, glucoseRangeStore, safetyLimitsStore, authRepository, appUpdateChecker, authManager, alertSoundStore, alertNotificationManager, pluginRegistry, watchFacePusher, wearDataSender)
+        SettingsViewModel(appContext, pumpCredentialStore, appSettingsStore, glucoseRangeStore, safetyLimitsStore, authRepository, appUpdateChecker, authManager, alertSoundStore, alertNotificationManager, pluginRegistry, watchFacePusher, wearDataSender, wearAppUpdateChecker, wearApkPusher)
 
     @Test
     fun `loadState initializes from stores`() {
@@ -558,6 +562,26 @@ class SettingsViewModelTest {
                 theme = "high_contrast",
             )
         }
+    }
+
+    @Test
+    fun `dismissWatchAppUpdateState resets to Idle`() {
+        val vm = createViewModel()
+
+        vm.dismissWatchAppUpdateState()
+
+        assertTrue(vm.uiState.value.watchAppUpdateState is WatchAppUpdateState.Idle)
+    }
+
+    @Test
+    fun `checkForWatchUpdate returns error when version not available`() {
+        val vm = createViewModel()
+
+        vm.checkForWatchUpdate()
+
+        val state = vm.uiState.value.watchAppUpdateState
+        assertTrue(state is WatchAppUpdateState.Error)
+        assertEquals("Watch version not available", (state as WatchAppUpdateState.Error).message)
     }
 
     @Test

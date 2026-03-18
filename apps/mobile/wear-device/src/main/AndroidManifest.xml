@@ -15,6 +15,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="com.google.wear.permission.PUSH_WATCH_FACES" />
     <uses-permission android:name="com.google.wear.permission.SET_PUSHED_WATCH_FACE_AS_ACTIVE" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:name=".GlycemicWearDeviceApp"
@@ -94,6 +95,28 @@
                     android:pathPrefix="/glycemicgpt/watchface/" />
             </intent-filter>
         </service>
+
+        <!-- Watch APK self-update receiver (receives APK from phone via ChannelClient).
+             Exported for Wearable Data Layer system dispatch. The framework restricts
+             communication to paired devices; the service validates channel path.
+             APK content is validated before install (magic bytes + package name). -->
+        <service
+            android:name=".update.WatchApkReceiveService"
+            android:exported="true"
+            android:foregroundServiceType="dataSync">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.CHANNEL_EVENT" />
+                <data
+                    android:scheme="wear"
+                    android:host="*"
+                    android:pathPrefix="/glycemicgpt/watch/apk/" />
+            </intent-filter>
+        </service>
+
+        <!-- PackageInstaller result receiver for APK self-update -->
+        <receiver
+            android:name=".update.UpdateInstallReceiver"
+            android:exported="false" />
 
         <!-- BG Complication Provider -->
         <service

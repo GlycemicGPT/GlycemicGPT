@@ -189,6 +189,14 @@ fun SettingsScreen(
                 onConfigChange = settingsViewModel::updateWatchFaceConfig,
             )
             Spacer(modifier = Modifier.height(8.dp))
+            WatchAppUpdateCard(
+                watchVersionName = state.watchVersionName,
+                updateState = state.watchAppUpdateState,
+                onCheckForUpdate = settingsViewModel::checkForWatchUpdate,
+                onDownloadAndPush = settingsViewModel::downloadAndPushWatchUpdate,
+                onDismiss = settingsViewModel::dismissWatchAppUpdateState,
+            )
+            Spacer(modifier = Modifier.height(8.dp))
             WatchDataTelemetryCard(
                 telemetry = state.watchDataTelemetry,
             )
@@ -1747,6 +1755,152 @@ private fun WatchToggleRow(
             checked = checked,
             onCheckedChange = onCheckedChange,
         )
+    }
+}
+
+@Composable
+private fun WatchAppUpdateCard(
+    watchVersionName: String?,
+    updateState: WatchAppUpdateState,
+    onCheckForUpdate: () -> Unit,
+    onDownloadAndPush: (url: String, size: Long) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+        ) {
+            Text(
+                text = "Watch App Update",
+                style = MaterialTheme.typography.titleSmall,
+            )
+            if (watchVersionName != null) {
+                Text(
+                    text = "Current version: $watchVersionName",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            when (updateState) {
+                is WatchAppUpdateState.Idle -> {
+                    Button(
+                        onClick = onCheckForUpdate,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Check for Watch Update")
+                    }
+                }
+                is WatchAppUpdateState.Checking -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Checking for updates...", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                is WatchAppUpdateState.Available -> {
+                    Text(
+                        text = "Version ${updateState.version} available (${formatSize(updateState.sizeBytes)})",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(
+                        onClick = { onDownloadAndPush(updateState.downloadUrl, updateState.sizeBytes) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Download & Install on Watch")
+                    }
+                }
+                is WatchAppUpdateState.UpToDate -> {
+                    Text(
+                        text = "Watch app is up to date",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    TextButton(onClick = onDismiss) {
+                        Text("Dismiss")
+                    }
+                }
+                is WatchAppUpdateState.Downloading -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Downloading wear APK...", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                is WatchAppUpdateState.Pushing -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Sending to watch...", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                is WatchAppUpdateState.Installing -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Installing on watch...", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                is WatchAppUpdateState.Success -> {
+                    Text(
+                        text = "Watch app updated successfully",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    TextButton(onClick = onDismiss) {
+                        Text("Dismiss")
+                    }
+                }
+                is WatchAppUpdateState.Error -> {
+                    Text(
+                        text = updateState.message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row {
+                        TextButton(onClick = onDismiss) {
+                            Text("Dismiss")
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        TextButton(onClick = onCheckForUpdate) {
+                            Text("Retry")
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun formatSize(bytes: Long): String {
+    return when {
+        bytes >= 1_048_576 -> String.format(java.util.Locale.US, "%.1f MB", bytes / 1_048_576.0)
+        bytes >= 1024 -> String.format(java.util.Locale.US, "%.0f KB", bytes / 1024.0)
+        else -> "$bytes B"
     }
 }
 

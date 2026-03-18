@@ -37,9 +37,22 @@ object WearDataContract {
 
     // ChannelClient paths (large data transfer)
     const val WATCHFACE_PUSH_CHANNEL = "/glycemicgpt/watchface/push"
+    const val WATCH_APK_PUSH_CHANNEL = "/glycemicgpt/watch/apk/push"
 
     // Watch Face Push status paths (watch -> phone via MessageClient)
     const val WATCHFACE_PUSH_STATUS_PATH = "/glycemicgpt/watchface/status"
+
+    // Watch APK self-update status path (watch -> phone via MessageClient)
+    const val WATCH_APK_PUSH_STATUS_PATH = "/glycemicgpt/watch/apk/status"
+
+    // Watch version sync path (watch -> phone via DataClient)
+    const val WATCH_VERSION_PATH = "/glycemicgpt/watch/version"
+
+    // Watch version keys
+    const val KEY_WATCH_VERSION_NAME = "watch_ver_name"
+    const val KEY_WATCH_VERSION_CODE = "watch_ver_code"
+    const val KEY_WATCH_UPDATE_CHANNEL = "watch_update_ch"
+    const val KEY_WATCH_DEV_BUILD_NUMBER = "watch_dev_build"
 
     // Watch face config sync path (phone -> watch via DataClient)
     const val CONFIG_PATH = "/glycemicgpt/watchface/config"
