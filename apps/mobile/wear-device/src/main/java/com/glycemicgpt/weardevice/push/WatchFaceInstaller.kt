@@ -8,6 +8,7 @@ import androidx.wear.watchface.push.WatchFacePushManager
 import com.google.android.wearable.watchface.validator.client.DwfValidatorFactory
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.io.File
@@ -143,6 +144,17 @@ class WatchFaceInstaller(private val context: Context) {
                 Timber.w(e, "Failed to auto-activate watch face (user may need to set manually)")
             }
 
+            // Workaround: On Samsung Wear OS 6, addWatchFace() evaluates the WFF XML's
+            // DefaultProviderPolicy and creates complication bindings, but they are
+            // immediately deactivated because the face isn't active yet.
+            // setWatchFaceAsActive() activates the face but doesn't re-trigger the policy.
+            // Fix: after activation, do an updateWatchFace() with the same APK. This
+            // re-evaluates DefaultProviderPolicy while the face IS the active face,
+            // so the complication bindings persist.
+            if (existing == null) {
+                rebindComplications(pushManager, slotId, apkFile, token)
+            }
+
             if (existing != null) Result.Updated(slotId) else Result.Installed(slotId)
         } catch (e: WatchFacePushManager.AddWatchFaceException) {
             rethrowIfCancellation(e)
@@ -226,6 +238,38 @@ class WatchFaceInstaller(private val context: Context) {
         } catch (e: WatchFacePushManager.RemoveWatchFaceException) {
             Timber.w(e, "Failed to remove watch face")
             false
+        }
+    }
+
+    /**
+     * After a fresh install + activation, re-update the face to trigger
+     * DefaultProviderPolicy re-evaluation while the face is active.
+     * This is a workaround for Samsung Wear OS 6 where addWatchFace()
+     * evaluates the policy before the face is active, causing complication
+     * bindings to be immediately deactivated.
+     */
+    @RequiresApi(WEAR_OS_6_API)
+    private suspend fun rebindComplications(
+        pushManager: WatchFacePushManager,
+        slotId: String,
+        apkFile: File,
+        token: String,
+    ) {
+        try {
+            // Brief delay for the system to fully process the activation
+            delay(1000)
+            Timber.d("Re-updating watch face to rebind complications (slot=%s)", slotId)
+            val pfd = ParcelFileDescriptor.open(apkFile, ParcelFileDescriptor.MODE_READ_ONLY)
+            try {
+                pushManager.updateWatchFace(slotId, pfd, token)
+            } finally {
+                pfd.close()
+            }
+            Timber.d("Complication rebind update complete")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "Failed to rebind complications (face works but may need manual complication setup)")
         }
     }
 
