@@ -995,6 +995,7 @@ class SettingsViewModel @Inject constructor(
         val variant = try {
             WatchFaceVariant.valueOf(variantName)
         } catch (_: IllegalArgumentException) {
+            Timber.w("Persisted watch face variant '%s' no longer exists, falling back to DIGITAL_FULL", variantName)
             WatchFaceVariant.DIGITAL_FULL
         }
         return WatchFaceConfig(

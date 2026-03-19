@@ -11,28 +11,13 @@ enum class WatchFaceVariant(
     val hasGraph: Boolean = true,
 ) {
     DIGITAL_FULL(
-        displayName = "Full",
+        displayName = "Digital",
         description = "BG, IoB, graph, and time with all overlays",
         assetFilename = "glycemicgpt-watchface-digitalFull.apk",
     ),
-    DIGITAL_CLINICAL(
-        displayName = "Clinical",
-        description = "Large BG and graph, high contrast, no branding",
-        assetFilename = "glycemicgpt-watchface-digitalClinical.apk",
-    ),
-    DIGITAL_MINIMAL(
-        displayName = "Minimal",
-        description = "BG and large centered time, no graph",
-        assetFilename = "glycemicgpt-watchface-digitalMinimal.apk",
-        defaultShowBasalOverlay = false,
-        defaultShowBolusMarkers = false,
-        defaultShowIoBOverlay = false,
-        defaultShowModeBands = false,
-        hasGraph = false,
-    ),
     ANALOG_MECHANICAL(
-        displayName = "Mechanical",
-        description = "Classic analog with dark navy dial and gold hands",
+        displayName = "Analog",
+        description = "Classic analog with deep navy dial and silver hands",
         assetFilename = "glycemicgpt-watchface-analogMechanical.apk",
         defaultShowBasalOverlay = false,
         defaultShowBolusMarkers = false,

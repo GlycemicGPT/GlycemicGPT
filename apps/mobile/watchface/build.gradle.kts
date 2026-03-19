@@ -28,8 +28,6 @@ android {
     flavorDimensions += "style"
     productFlavors {
         create("digitalFull") { dimension = "style" }
-        create("digitalClinical") { dimension = "style" }
-        create("digitalMinimal") { dimension = "style" }
         create("analogMechanical") { dimension = "style" }
     }
 
@@ -100,10 +98,8 @@ androidComponents {
             ?.second?.let { flavor ->
                 when (flavor) {
                     "digitalFull" -> ""
-                    "digitalClinical" -> "_clinical"
-                    "digitalMinimal" -> "_minimal"
                     "analogMechanical" -> "_mechanical"
-                    else -> ""
+                    else -> "" // Defensive fallback for future flavors
                 }
             } ?: ""
         val basePrefix = if (variant.buildType == "debug") {

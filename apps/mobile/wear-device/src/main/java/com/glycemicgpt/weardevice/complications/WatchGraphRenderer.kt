@@ -17,11 +17,11 @@ object WatchGraphRenderer {
     // Overlay regions
     private const val BASAL_AREA_HEIGHT = 15f
     private const val IOB_AREA_HEIGHT = 20f
-    private const val BOLUS_MARKER_HEIGHT = 8f
+    private const val BOLUS_MARKER_HEIGHT = 12f
 
     // Line widths
-    private const val GLUCOSE_LINE_WIDTH = 2f
-    private const val GLUCOSE_DOT_RADIUS = 2f
+    private const val GLUCOSE_LINE_WIDTH = 1f
+    private const val GLUCOSE_DOT_RADIUS = 3.5f
     private const val THRESHOLD_LINE_WIDTH = 0.5f
 
     // Basal colors
@@ -177,16 +177,23 @@ object WatchGraphRenderer {
         if (sorted.isEmpty()) return
 
         val maxRate = sorted.maxOf { it.rate }.coerceAtLeast(0.1f)
-        val basalTop = graphBottom - BASAL_AREA_HEIGHT
 
         val fillPaint = Paint().apply {
             style = Paint.Style.FILL
             alpha = 38 // ~0.15
         }
+        // Reused for top-edge and vertical step strokes. Color/alpha are set
+        // before each draw call (color resets alpha to 0xFF, then alpha overrides).
+        val strokePaint = Paint().apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 1f
+            isAntiAlias = true
+        }
 
         for (i in sorted.indices) {
             val record = sorted[i]
-            fillPaint.color = basalColor(record.isAutomated, record.activityMode)
+            val color = basalColor(record.isAutomated, record.activityMode)
+            fillPaint.color = color
             fillPaint.alpha = 38
 
             val height = (record.rate / maxRate) * BASAL_AREA_HEIGHT
@@ -200,6 +207,22 @@ object WatchGraphRenderer {
             }
             if (x2 > x1) {
                 canvas.drawRect(x1, y, x2, graphBottom, fillPaint)
+
+                // Top edge stroke (matches phone chart)
+                strokePaint.color = color
+                strokePaint.alpha = 153 // 0.6 alpha
+                canvas.drawLine(x1, y, x2, y, strokePaint)
+            }
+
+            // Vertical step line between segments where rate changes
+            if (i > 0) {
+                val prevHeight = (sorted[i - 1].rate / maxRate) * BASAL_AREA_HEIGHT
+                val prevY = graphBottom - prevHeight
+                if (kotlin.math.abs(prevY - y) > 0.5f) {
+                    strokePaint.color = color
+                    strokePaint.alpha = 102 // 0.4 alpha
+                    canvas.drawLine(x1, prevY, x1, y, strokePaint)
+                }
             }
         }
     }
@@ -276,7 +299,7 @@ object WatchGraphRenderer {
         }
 
         val markerCenterY = graphTop + BOLUS_MARKER_HEIGHT / 2f
-        val halfSize = 1.5f // diamond half-width
+        val halfSize = 2.5f // diamond half-width
 
         for (record in bolusHistory) {
             paint.color = bolusColor(record.isAutomated, record.isCorrection, record.mealUnits)
