@@ -84,7 +84,12 @@ class GlycemicDataListenerService : WearableListenerService() {
                     if (data != null && count > 0 && count <= MAX_HISTORY_RECORDS) {
                         val records = WearHistorySerializer.decodeBolusHistory(data, count)
                         WatchDataRepository.updateBolusHistory(
-                            records.filter { it.timestampMs > 0 && it.units >= 0f }
+                            records.filter {
+                                it.timestampMs > 0 &&
+                                    it.units >= 0f &&
+                                    it.correctionUnits >= 0f &&
+                                    it.mealUnits >= 0f
+                            }
                                 .map {
                                     WatchDataRepository.BolusHistoryRecord(
                                         units = it.units,
