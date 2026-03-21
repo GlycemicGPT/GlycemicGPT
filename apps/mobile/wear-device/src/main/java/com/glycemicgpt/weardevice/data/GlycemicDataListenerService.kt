@@ -60,7 +60,7 @@ class GlycemicDataListenerService : WearableListenerService() {
                 WearDataContract.BASAL_HISTORY_PATH -> {
                     val data = dataMap.getByteArray(WearDataContract.KEY_HISTORY_DATA)
                     val count = dataMap.getInt(WearDataContract.KEY_HISTORY_COUNT, 0)
-                    if (data != null && count > 0 && count <= MAX_HISTORY_RECORDS) {
+                    if (data != null && count >= 0 && count <= MAX_HISTORY_RECORDS) {
                         val records = WearHistorySerializer.decodeBasalHistory(data, count)
                         WatchDataRepository.updateBasalHistory(
                             records.filter { it.timestampMs > 0 && it.rate in 0f..MAX_BASAL_RATE }
@@ -81,7 +81,7 @@ class GlycemicDataListenerService : WearableListenerService() {
                 WearDataContract.BOLUS_HISTORY_PATH -> {
                     val data = dataMap.getByteArray(WearDataContract.KEY_HISTORY_DATA)
                     val count = dataMap.getInt(WearDataContract.KEY_HISTORY_COUNT, 0)
-                    if (data != null && count > 0 && count <= MAX_HISTORY_RECORDS) {
+                    if (data != null && count >= 0 && count <= MAX_HISTORY_RECORDS) {
                         val records = WearHistorySerializer.decodeBolusHistory(data, count)
                         WatchDataRepository.updateBolusHistory(
                             records.filter {
@@ -109,7 +109,7 @@ class GlycemicDataListenerService : WearableListenerService() {
                 WearDataContract.IOB_HISTORY_PATH -> {
                     val data = dataMap.getByteArray(WearDataContract.KEY_HISTORY_DATA)
                     val count = dataMap.getInt(WearDataContract.KEY_HISTORY_COUNT, 0)
-                    if (data != null && count > 0 && count <= MAX_HISTORY_RECORDS) {
+                    if (data != null && count >= 0 && count <= MAX_HISTORY_RECORDS) {
                         val records = WearHistorySerializer.decodeIoBHistory(data, count)
                         WatchDataRepository.updateIoBHistory(
                             records.filter { it.timestampMs > 0 && it.iob >= 0f }
@@ -179,8 +179,9 @@ class GlycemicDataListenerService : WearableListenerService() {
         }
 
         if (configUpdated) {
-            // Config change may affect which complications are visible
+            // Config change may affect which complications are visible or how the graph renders
             requestComplicationUpdate(IoBComplicationDataSource::class.java)
+            requestComplicationUpdate(GraphComplicationDataSource::class.java)
         }
         if (iobUpdated) {
             requestComplicationUpdate(IoBComplicationDataSource::class.java)
