@@ -133,6 +133,24 @@ class WatchFaceReceiveService : WearableListenerService() {
             return
         }
 
+        // Ensure SET_PUSHED_WATCH_FACE_AS_ACTIVE permission is granted before proceeding.
+        // This is a dangerous permission on Wear OS 6 that must be requested at runtime.
+        if (!WatchFacePermissionActivity.hasPermission(applicationContext)) {
+            Timber.d("Requesting SET_PUSHED_WATCH_FACE_AS_ACTIVE permission before push install")
+            applicationContext.startActivity(WatchFacePermissionActivity.createIntent(applicationContext))
+            delay(3000)
+            if (!WatchFacePermissionActivity.hasPermission(applicationContext)) {
+                Timber.w("SET_PUSHED_WATCH_FACE_AS_ACTIVE permission not granted after prompt")
+                sendStatus("error", error = "Permission denied -- cannot activate watch face")
+                try {
+                    Wearable.getChannelClient(this).close(channel).await()
+                } catch (e: Exception) {
+                    Timber.w(e, "Failed to close channel")
+                }
+                return
+            }
+        }
+
         val tempFile = File.createTempFile("watchface-push-", ".apk", cacheDir)
         try {
             // Read APK bytes from channel into temp file with size limit.

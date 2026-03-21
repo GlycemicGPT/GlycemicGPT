@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  GlycemicGPT Mechanical Watch Face (WFF v2)
+
+  Classic analog dressy design:
+    - Dark navy dial with gold indices
+    - Gold hour/minute hands, thin second hand
+    - BG at 12 o'clock, graph at 6, IoB at 9
+-->
+<WatchFace width="450" height="450" clipShape="CIRCLE">
+
+    <Metadata key="CLOCK_TYPE" value="ANALOG"/>
+    <Metadata key="PREVIEW_TIME" value="10:08:32"/>
+
+    <Scene backgroundColor="#ff1a1a2e">
+
+        <!-- Dial background -->
+        <PartImage x="0" y="0" width="450" height="450">
+            <Image resource="dial_bg"/>
+        </PartImage>
+
+        <!-- BG (slot 0): at 12 o'clock position -->
+        <ComplicationSlot
+            x="150" y="40" width="150" height="70"
+            slotId="0"
+            displayName="Blood Glucose"
+            supportedTypes="SHORT_TEXT LONG_TEXT EMPTY">
+            <BoundingOval x="0" y="0" width="150" height="70"/>
+            <Complication type="SHORT_TEXT">
+                <PartText x="0" y="5" width="150" height="45">
+                    <Text align="CENTER">
+                        <Font family="SYNC_TO_DEVICE" size="32" weight="BOLD"
+                            color="#ffffffff">
+                            <Template>%s<Parameter expression="[COMPLICATION.TEXT]"/></Template>
+                        </Font>
+                    </Text>
+                </PartText>
+                <PartText x="0" y="48" width="150" height="22">
+                    <Text align="CENTER">
+                        <Font family="SYNC_TO_DEVICE" size="12" weight="NORMAL"
+                            color="#ffCCB87C">
+                            <Template>%s<Parameter expression="[COMPLICATION.TITLE]"/></Template>
+                        </Font>
+                    </Text>
+                </PartText>
+            </Complication>
+            <Complication type="LONG_TEXT">
+                <PartText x="0" y="10" width="150" height="50">
+                    <Text align="CENTER">
+                        <Font family="SYNC_TO_DEVICE" size="28" weight="BOLD"
+                            color="#ffffffff">
+                            <Template>%s<Parameter expression="[COMPLICATION.TEXT]"/></Template>
+                        </Font>
+                    </Text>
+                </PartText>
+            </Complication>
+            <DefaultProviderPolicy
+                defaultSystemProvider="EMPTY"
+                defaultSystemProviderType="EMPTY"
+                primaryProvider="com.glycemicgpt.mobile.debug/com.glycemicgpt.weardevice.complications.BgComplicationDataSource"
+                primaryProviderType="SHORT_TEXT"/>
+        </ComplicationSlot>
+
+        <!-- IoB (slot 1): at 9 o'clock position -->
+        <ComplicationSlot
+            x="25" y="200" width="140" height="50"
+            slotId="1"
+            displayName="Insulin on Board"
+            supportedTypes="SHORT_TEXT EMPTY">
+            <BoundingOval x="0" y="0" width="140" height="50"/>
+            <Complication type="SHORT_TEXT">
+                <PartText x="0" y="5" width="140" height="40">
+                    <Text align="CENTER">
+                        <Font family="SYNC_TO_DEVICE" size="16" weight="NORMAL"
+                            color="#ffCCB87C">
+                            <Template>IoB: %s u<Parameter expression="[COMPLICATION.TEXT]"/></Template>
+                        </Font>
+                    </Text>
+                </PartText>
+            </Complication>
+            <DefaultProviderPolicy
+                defaultSystemProvider="EMPTY"
+                defaultSystemProviderType="EMPTY"
+                primaryProvider="com.glycemicgpt.mobile.debug/com.glycemicgpt.weardevice.complications.IoBComplicationDataSource"
+                primaryProviderType="SHORT_TEXT"/>
+        </ComplicationSlot>
+
+        <!-- Glucose Graph (slot 2): at 6 o'clock position -->
+        <ComplicationSlot
+            x="100" y="320" width="250" height="70"
+            slotId="2"
+            displayName="Glucose Graph"
+            supportedTypes="SMALL_IMAGE EMPTY">
+            <BoundingOval x="0" y="0" width="250" height="70"/>
+            <Complication type="SMALL_IMAGE">
+                <PartImage x="0" y="0" width="250" height="70">
+                    <Image resource="[COMPLICATION.SMALL_IMAGE]"/>
+                </PartImage>
+            </Complication>
+            <DefaultProviderPolicy
+                defaultSystemProvider="EMPTY"
+                defaultSystemProviderType="EMPTY"
+                primaryProvider="com.glycemicgpt.mobile.debug/com.glycemicgpt.weardevice.complications.GraphComplicationDataSource"
+                primaryProviderType="SMALL_IMAGE"/>
+        </ComplicationSlot>
+
+        <!-- Analog clock hands -->
+        <AnalogClock x="0" y="0" width="450" height="450">
+            <HourHand resource="hour_hand"
+                x="210" y="110" width="30" height="130"
+                pivotX="0.5" pivotY="1.0"/>
+            <MinuteHand resource="minute_hand"
+                x="215" y="70" width="20" height="170"
+                pivotX="0.5" pivotY="1.0"/>
+            <SecondHand resource="second_hand"
+                x="220" y="50" width="10" height="195"
+                pivotX="0.5" pivotY="1.0">
+                <!-- Hide second hand in ambient mode -->
+                <Variant mode="AMBIENT" target="alpha" value="0"/>
+            </SecondHand>
+        </AnalogClock>
+
+    </Scene>
+
+</WatchFace>

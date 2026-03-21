@@ -8,6 +8,15 @@ object WearDataContract {
     const val CGM_PATH = "/glycemicgpt/cgm"
     const val ALERT_PATH = "/glycemicgpt/alert"
 
+    // DataClient paths for history overlays (phone -> watch)
+    const val BASAL_HISTORY_PATH = "/glycemicgpt/history/basal"
+    const val BOLUS_HISTORY_PATH = "/glycemicgpt/history/bolus"
+    const val IOB_HISTORY_PATH = "/glycemicgpt/history/iob"
+
+    // History payload keys (compact byte arrays)
+    const val KEY_HISTORY_DATA = "history_data"
+    const val KEY_HISTORY_COUNT = "history_count"
+
     // IoB keys
     const val KEY_IOB_VALUE = "iob"
     const val KEY_IOB_TIMESTAMP = "iob_ts"
@@ -64,6 +73,10 @@ object WearDataContract {
     const val KEY_CONFIG_SHOW_SECONDS = "cfg_show_seconds"
     const val KEY_CONFIG_GRAPH_RANGE_HOURS = "cfg_graph_range_h"
     const val KEY_CONFIG_THEME = "cfg_theme"
+    const val KEY_CONFIG_SHOW_BASAL = "cfg_show_basal"
+    const val KEY_CONFIG_SHOW_BOLUS = "cfg_show_bolus"
+    const val KEY_CONFIG_SHOW_IOB_OVERLAY = "cfg_show_iob_ovl"
+    const val KEY_CONFIG_SHOW_MODES = "cfg_show_modes"
 
     // CapabilityClient capabilities
     const val CHAT_RELAY_CAPABILITY = "glycemicgpt_chat_relay"

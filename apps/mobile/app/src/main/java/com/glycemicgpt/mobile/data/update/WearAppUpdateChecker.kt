@@ -107,6 +107,8 @@ class WearAppUpdateChecker @Inject constructor(
                     }
                 }
             }
+        } catch (e: kotlin.coroutines.cancellation.CancellationException) {
+            throw e
         } catch (e: Exception) {
             Timber.w(e, "Wear update check failed")
             UpdateCheckResult.Error(e.message ?: "Unknown error")
@@ -166,6 +168,8 @@ class WearAppUpdateChecker @Inject constructor(
 
                 DownloadResult.Success(apkFile)
             }
+        } catch (e: kotlin.coroutines.cancellation.CancellationException) {
+            throw e
         } catch (e: Exception) {
             try {
                 File(apkDir, AppUpdateChecker.sanitizeFileName(fileName)).delete()

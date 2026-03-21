@@ -41,17 +41,90 @@ class GlycemicDataListenerService : WearableListenerService() {
                 showSeconds = dataMap.getBoolean(WearDataContract.KEY_CONFIG_SHOW_SECONDS, false),
                 graphRangeHours = dataMap.getInt(WearDataContract.KEY_CONFIG_GRAPH_RANGE_HOURS, 3),
                 theme = dataMap.getString(WearDataContract.KEY_CONFIG_THEME, "dark"),
+                showBasalOverlay = dataMap.getBoolean(WearDataContract.KEY_CONFIG_SHOW_BASAL, true),
+                showBolusMarkers = dataMap.getBoolean(WearDataContract.KEY_CONFIG_SHOW_BOLUS, true),
+                showIoBOverlay = dataMap.getBoolean(WearDataContract.KEY_CONFIG_SHOW_IOB_OVERLAY, true),
+                showModeBands = dataMap.getBoolean(WearDataContract.KEY_CONFIG_SHOW_MODES, true),
             )
             configUpdated = true
             Timber.d("Received watch face config from phone")
         }
 
-        // Pass 2 -- data and alert events
+        // Pass 2 -- data, alert, and history events
+        var historyUpdated = false
         changedEvents.forEach { event ->
             val path = event.dataItem.uri.path ?: return@forEach
             val dataMap = DataMapItem.fromDataItem(event.dataItem).dataMap
 
             when (path) {
+                WearDataContract.BASAL_HISTORY_PATH -> {
+                    val data = dataMap.getByteArray(WearDataContract.KEY_HISTORY_DATA)
+                    val count = dataMap.getInt(WearDataContract.KEY_HISTORY_COUNT, 0)
+                    if (data != null && count >= 0 && count <= MAX_HISTORY_RECORDS) {
+                        val records = WearHistorySerializer.decodeBasalHistory(data, count)
+                        WatchDataRepository.updateBasalHistory(
+                            records.filter { it.timestampMs > 0 && it.rate in 0f..MAX_BASAL_RATE }
+                                .map {
+                                    WatchDataRepository.BasalHistoryRecord(
+                                        rate = it.rate,
+                                        timestampMs = it.timestampMs,
+                                        isAutomated = it.isAutomated,
+                                        activityMode = it.activityMode.coerceIn(0, 2),
+                                    )
+                                },
+                        )
+                        historyUpdated = true
+                        Timber.d("Received basal history: %d records", count)
+                    }
+                }
+
+                WearDataContract.BOLUS_HISTORY_PATH -> {
+                    val data = dataMap.getByteArray(WearDataContract.KEY_HISTORY_DATA)
+                    val count = dataMap.getInt(WearDataContract.KEY_HISTORY_COUNT, 0)
+                    if (data != null && count >= 0 && count <= MAX_HISTORY_RECORDS) {
+                        val records = WearHistorySerializer.decodeBolusHistory(data, count)
+                        WatchDataRepository.updateBolusHistory(
+                            records.filter {
+                                it.timestampMs > 0 &&
+                                    it.units in 0f..MAX_BOLUS_UNITS &&
+                                    it.correctionUnits in 0f..MAX_BOLUS_UNITS &&
+                                    it.mealUnits in 0f..MAX_BOLUS_UNITS
+                            }
+                                .map {
+                                    WatchDataRepository.BolusHistoryRecord(
+                                        units = it.units,
+                                        correctionUnits = it.correctionUnits,
+                                        mealUnits = it.mealUnits,
+                                        timestampMs = it.timestampMs,
+                                        isAutomated = it.isAutomated,
+                                        isCorrection = it.isCorrection,
+                                    )
+                                },
+                        )
+                        historyUpdated = true
+                        Timber.d("Received bolus history: %d records", count)
+                    }
+                }
+
+                WearDataContract.IOB_HISTORY_PATH -> {
+                    val data = dataMap.getByteArray(WearDataContract.KEY_HISTORY_DATA)
+                    val count = dataMap.getInt(WearDataContract.KEY_HISTORY_COUNT, 0)
+                    if (data != null && count >= 0 && count <= MAX_HISTORY_RECORDS) {
+                        val records = WearHistorySerializer.decodeIoBHistory(data, count)
+                        WatchDataRepository.updateIoBHistory(
+                            records.filter { it.timestampMs > 0 && it.iob >= 0f }
+                                .map {
+                                    WatchDataRepository.IoBHistoryRecord(
+                                        iob = it.iob,
+                                        timestampMs = it.timestampMs,
+                                    )
+                                },
+                        )
+                        historyUpdated = true
+                        Timber.d("Received IoB history: %d records", count)
+                    }
+                }
+
                 WearDataContract.IOB_PATH -> {
                     WatchDataRepository.updateIoB(
                         iob = dataMap.getFloat(WearDataContract.KEY_IOB_VALUE),
@@ -106,14 +179,18 @@ class GlycemicDataListenerService : WearableListenerService() {
         }
 
         if (configUpdated) {
-            // Config change may affect which complications are visible
+            // Config change may affect which complications are visible or how the graph renders
             requestComplicationUpdate(IoBComplicationDataSource::class.java)
+            requestComplicationUpdate(GraphComplicationDataSource::class.java)
         }
         if (iobUpdated) {
             requestComplicationUpdate(IoBComplicationDataSource::class.java)
         }
         if (cgmUpdated) {
             requestComplicationUpdate(BgComplicationDataSource::class.java)
+            requestComplicationUpdate(GraphComplicationDataSource::class.java)
+        }
+        if (historyUpdated) {
             requestComplicationUpdate(GraphComplicationDataSource::class.java)
         }
     }
@@ -183,6 +260,11 @@ class GlycemicDataListenerService : WearableListenerService() {
 
     private companion object {
         const val MAX_ERROR_LENGTH = 200
+        const val MAX_HISTORY_RECORDS = 500
+        /** Hard cap per Tandem pump safety limits (max single bolus 25U). */
+        const val MAX_BOLUS_UNITS = 25f
+        /** Hard cap per Tandem pump safety limits (max basal 15 U/hr). */
+        const val MAX_BASAL_RATE = 15f
     }
 
     private fun requestComplicationUpdate(dataSourceClass: Class<*>) {

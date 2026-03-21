@@ -81,6 +81,57 @@ class WearDataSender @Inject constructor(
         sendAlert(type = "none", bgValue = 0, timestampMs = System.currentTimeMillis(), message = "")
     }
 
+    suspend fun sendBasalHistory(data: ByteArray, count: Int) {
+        try {
+            val request = PutDataMapRequest.create(WearDataContract.BASAL_HISTORY_PATH).apply {
+                dataMap.putByteArray(WearDataContract.KEY_HISTORY_DATA, data)
+                dataMap.putInt(WearDataContract.KEY_HISTORY_COUNT, count)
+                dataMap.putLong("_ts", System.currentTimeMillis())
+            }.asPutDataRequest().setUrgent()
+
+            dataClient.putDataItem(request).await()
+            Timber.d("Sent basal history to watch: %d records", count)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "Failed to send basal history to watch")
+        }
+    }
+
+    suspend fun sendBolusHistory(data: ByteArray, count: Int) {
+        try {
+            val request = PutDataMapRequest.create(WearDataContract.BOLUS_HISTORY_PATH).apply {
+                dataMap.putByteArray(WearDataContract.KEY_HISTORY_DATA, data)
+                dataMap.putInt(WearDataContract.KEY_HISTORY_COUNT, count)
+                dataMap.putLong("_ts", System.currentTimeMillis())
+            }.asPutDataRequest().setUrgent()
+
+            dataClient.putDataItem(request).await()
+            Timber.d("Sent bolus history to watch: %d records", count)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "Failed to send bolus history to watch")
+        }
+    }
+
+    suspend fun sendIoBHistory(data: ByteArray, count: Int) {
+        try {
+            val request = PutDataMapRequest.create(WearDataContract.IOB_HISTORY_PATH).apply {
+                dataMap.putByteArray(WearDataContract.KEY_HISTORY_DATA, data)
+                dataMap.putInt(WearDataContract.KEY_HISTORY_COUNT, count)
+                dataMap.putLong("_ts", System.currentTimeMillis())
+            }.asPutDataRequest().setUrgent()
+
+            dataClient.putDataItem(request).await()
+            Timber.d("Sent IoB history to watch: %d records", count)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "Failed to send IoB history to watch")
+        }
+    }
+
     suspend fun sendWatchFaceConfig(
         showIoB: Boolean,
         showGraph: Boolean,
@@ -88,6 +139,10 @@ class WearDataSender @Inject constructor(
         showSeconds: Boolean,
         graphRangeHours: Int,
         theme: String,
+        showBasalOverlay: Boolean = true,
+        showBolusMarkers: Boolean = true,
+        showIoBOverlay: Boolean = true,
+        showModeBands: Boolean = true,
     ) {
         try {
             val request = PutDataMapRequest.create(WearDataContract.CONFIG_PATH).apply {
@@ -97,6 +152,10 @@ class WearDataSender @Inject constructor(
                 dataMap.putBoolean(WearDataContract.KEY_CONFIG_SHOW_SECONDS, showSeconds)
                 dataMap.putInt(WearDataContract.KEY_CONFIG_GRAPH_RANGE_HOURS, graphRangeHours)
                 dataMap.putString(WearDataContract.KEY_CONFIG_THEME, theme)
+                dataMap.putBoolean(WearDataContract.KEY_CONFIG_SHOW_BASAL, showBasalOverlay)
+                dataMap.putBoolean(WearDataContract.KEY_CONFIG_SHOW_BOLUS, showBolusMarkers)
+                dataMap.putBoolean(WearDataContract.KEY_CONFIG_SHOW_IOB_OVERLAY, showIoBOverlay)
+                dataMap.putBoolean(WearDataContract.KEY_CONFIG_SHOW_MODES, showModeBands)
                 // Timestamp forces DataClient delivery even when config values are unchanged,
                 // preventing deduplication from swallowing re-syncs (e.g. on reconnect).
                 dataMap.putLong("_ts", System.currentTimeMillis())

@@ -36,6 +36,27 @@ object WatchDataRepository {
         data class Error(val message: String) : ChatState()
     }
 
+    data class BasalHistoryRecord(
+        val rate: Float,
+        val timestampMs: Long,
+        val isAutomated: Boolean,
+        val activityMode: Int, // 0=NONE, 1=SLEEP, 2=EXERCISE
+    )
+
+    data class BolusHistoryRecord(
+        val units: Float,
+        val correctionUnits: Float,
+        val mealUnits: Float,
+        val timestampMs: Long,
+        val isAutomated: Boolean,
+        val isCorrection: Boolean,
+    )
+
+    data class IoBHistoryRecord(
+        val iob: Float,
+        val timestampMs: Long,
+    )
+
     data class WatchFaceConfigState(
         val showIoB: Boolean = true,
         val showGraph: Boolean = true,
@@ -43,6 +64,10 @@ object WatchDataRepository {
         val showSeconds: Boolean = false,
         val graphRangeHours: Int = 3,
         val theme: String = "dark",
+        val showBasalOverlay: Boolean = true,
+        val showBolusMarkers: Boolean = true,
+        val showIoBOverlay: Boolean = true,
+        val showModeBands: Boolean = true,
     )
 
     private val _iob = MutableStateFlow<IoBState?>(null)
@@ -57,6 +82,15 @@ object WatchDataRepository {
 
     private const val MAX_CGM_HISTORY = 72 // 6 hours at 5-min intervals
     private const val DEDUP_WINDOW_MS = 30_000L // 30-second proximity window for timestamp dedup
+
+    private val _basalHistory = MutableStateFlow<List<BasalHistoryRecord>>(emptyList())
+    val basalHistory: StateFlow<List<BasalHistoryRecord>> = _basalHistory.asStateFlow()
+
+    private val _bolusHistory = MutableStateFlow<List<BolusHistoryRecord>>(emptyList())
+    val bolusHistory: StateFlow<List<BolusHistoryRecord>> = _bolusHistory.asStateFlow()
+
+    private val _iobHistory = MutableStateFlow<List<IoBHistoryRecord>>(emptyList())
+    val iobHistory: StateFlow<List<IoBHistoryRecord>> = _iobHistory.asStateFlow()
 
     private val _alert = MutableStateFlow<AlertState?>(null)
     val alert: StateFlow<AlertState?> = _alert.asStateFlow()
@@ -101,6 +135,18 @@ object WatchDataRepository {
         }
     }
 
+    fun updateBasalHistory(records: List<BasalHistoryRecord>) {
+        _basalHistory.value = records
+    }
+
+    fun updateBolusHistory(records: List<BolusHistoryRecord>) {
+        _bolusHistory.value = records
+    }
+
+    fun updateIoBHistory(records: List<IoBHistoryRecord>) {
+        _iobHistory.value = records
+    }
+
     fun updateAlert(type: String, bgValue: Int, timestampMs: Long, message: String) {
         _alert.value = if (type == "none") null else AlertState(type, bgValue, timestampMs, message)
     }
@@ -135,6 +181,10 @@ object WatchDataRepository {
         showSeconds: Boolean,
         graphRangeHours: Int,
         theme: String,
+        showBasalOverlay: Boolean = true,
+        showBolusMarkers: Boolean = true,
+        showIoBOverlay: Boolean = true,
+        showModeBands: Boolean = true,
     ) {
         _watchFaceConfig.value = WatchFaceConfigState(
             showIoB = showIoB,
@@ -143,6 +193,10 @@ object WatchDataRepository {
             showSeconds = showSeconds,
             graphRangeHours = if (graphRangeHours in VALID_GRAPH_RANGES) graphRangeHours else 3,
             theme = if (theme in VALID_THEMES) theme else "dark",
+            showBasalOverlay = showBasalOverlay,
+            showBolusMarkers = showBolusMarkers,
+            showIoBOverlay = showIoBOverlay,
+            showModeBands = showModeBands,
         )
     }
 }
