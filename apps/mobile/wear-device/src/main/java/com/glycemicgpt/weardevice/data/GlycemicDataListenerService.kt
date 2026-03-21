@@ -63,7 +63,7 @@ class GlycemicDataListenerService : WearableListenerService() {
                     if (data != null && count > 0 && count <= MAX_HISTORY_RECORDS) {
                         val records = WearHistorySerializer.decodeBasalHistory(data, count)
                         WatchDataRepository.updateBasalHistory(
-                            records.filter { it.timestampMs > 0 && it.rate >= 0f }
+                            records.filter { it.timestampMs > 0 && it.rate in 0f..MAX_BASAL_RATE }
                                 .map {
                                     WatchDataRepository.BasalHistoryRecord(
                                         rate = it.rate,
@@ -262,6 +262,8 @@ class GlycemicDataListenerService : WearableListenerService() {
         const val MAX_HISTORY_RECORDS = 500
         /** Hard cap per Tandem pump safety limits (max single bolus 25U). */
         const val MAX_BOLUS_UNITS = 25f
+        /** Hard cap per Tandem pump safety limits (max basal 15 U/hr). */
+        const val MAX_BASAL_RATE = 15f
     }
 
     private fun requestComplicationUpdate(dataSourceClass: Class<*>) {
