@@ -73,7 +73,7 @@ private fun WearAlertScreen(onFinish: () -> Unit) {
                 }
             } else {
                 val currentAlert = alert!!
-                val isUrgent = currentAlert.type.startsWith("urgent")
+                val isUrgent = currentAlert.type.startsWith("urgent", ignoreCase = true)
                 val alertColor = if (isUrgent) Color(0xFFEF4444) else Color(0xFFFBBF24)
 
                 Column(

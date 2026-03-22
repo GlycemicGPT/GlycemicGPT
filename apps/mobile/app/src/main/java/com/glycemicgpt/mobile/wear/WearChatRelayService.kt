@@ -7,12 +7,16 @@ import com.google.android.gms.wearable.MessageEvent
 import com.google.android.gms.wearable.Wearable
 import com.google.android.gms.wearable.WearableListenerService
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 import timber.log.Timber
 import javax.inject.Inject
@@ -52,6 +56,7 @@ class WearChatRelayService : WearableListenerService() {
         }
     }
 
+    @Suppress("TooGenericExceptionCaught")
     private fun handleChatRequest(messageEvent: MessageEvent) {
 
         val requestText = messageEvent.data?.let { String(it, Charsets.UTF_8).trim() } ?: ""
@@ -85,32 +90,61 @@ class WearChatRelayService : WearableListenerService() {
 
         Timber.d("Received chat request from watch (%d chars)", requestText.length)
 
-        serviceScope.launch {
-            chatRepository.sendMessage(requestText)
-                .onSuccess { chatResponse ->
-                    val responseJson = JSONObject().apply {
-                        put("response", chatResponse.response)
-                        put("disclaimer", chatResponse.disclaimer)
-                    }.toString()
+        // Use runBlocking so the WearableListenerService binder thread stays alive
+        // until the API call completes or times out. The timeout wraps only the
+        // network call; response delivery happens outside the timeout.
+        runBlocking {
+            withContext(Dispatchers.IO) {
+                val result = withTimeoutOrNull(CHAT_API_TIMEOUT_MS) {
+                    chatRepository.sendMessage(requestText)
+                }
 
-                    try {
-                        Wearable.getMessageClient(this@WearChatRelayService)
-                            .sendMessage(
-                                sourceNodeId,
-                                WearDataContract.CHAT_RESPONSE_PATH,
-                                responseJson.toByteArray(Charsets.UTF_8),
-                            )
-                            .await()
-                        Timber.d("Sent chat response to watch")
-                    } catch (e: Exception) {
-                        Timber.w(e, "Failed to send chat response to watch")
+                if (result == null) {
+                    Timber.w("Chat API call timed out after %dms", CHAT_API_TIMEOUT_MS)
+                    sendError(sourceNodeId, "Request timed out. Try again later.")
+                    return@withContext
+                }
+
+                result
+                    .onSuccess { chatResponse ->
+                        val responseJson = JSONObject().apply {
+                            put("response", chatResponse.response)
+                            put("disclaimer", chatResponse.disclaimer)
+                        }.toString()
+
+                        try {
+                            Wearable.getMessageClient(this@WearChatRelayService)
+                                .sendMessage(
+                                    sourceNodeId,
+                                    WearDataContract.CHAT_RESPONSE_PATH,
+                                    responseJson.toByteArray(Charsets.UTF_8),
+                                )
+                                .await()
+                            Timber.d("Sent chat response to watch")
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            Timber.w(e, "Failed to send chat response to watch")
+                        }
                     }
-                }
-                .onFailure { error ->
-                    val errorMsg = error.message ?: "Unknown error"
-                    Timber.w(error, "Chat request failed: %s", errorMsg)
-                    sendError(sourceNodeId, errorMsg)
-                }
+                    .onFailure { error ->
+                        Timber.w(error, "Chat request failed")
+                        sendError(sourceNodeId, sanitizeErrorMessage(error))
+                    }
+            }
+        }
+    }
+
+    /** Strip internal details from error messages before sending to the watch. */
+    private fun sanitizeErrorMessage(error: Throwable): String {
+        val raw = error.message ?: "Unknown error"
+        // Don't leak backend URLs, stack traces, or implementation details
+        return when {
+            raw.contains("timeout", ignoreCase = true) -> "Request timed out. Try again later."
+            raw.contains("Unable to resolve host", ignoreCase = true) -> "No internet connection."
+            raw.contains("401", ignoreCase = true) -> "Session expired. Open phone app to sign in."
+            raw.contains("500", ignoreCase = true) -> "Server error. Try again later."
+            else -> "Something went wrong. Try again later."
         }
     }
 
@@ -123,6 +157,8 @@ class WearChatRelayService : WearableListenerService() {
                     message.toByteArray(Charsets.UTF_8),
                 )
                 .await()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Timber.w(e, "Failed to send error to watch")
         }
@@ -135,5 +171,6 @@ class WearChatRelayService : WearableListenerService() {
 
     companion object {
         const val MAX_MESSAGE_LENGTH = 500
+        private const val CHAT_API_TIMEOUT_MS = 90_000L
     }
 }

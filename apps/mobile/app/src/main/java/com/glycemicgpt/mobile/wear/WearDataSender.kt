@@ -6,6 +6,7 @@ import com.google.android.gms.wearable.Wearable
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.tasks.await
+import org.json.JSONObject
 import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -129,6 +130,23 @@ class WearDataSender @Inject constructor(
             throw e
         } catch (e: Exception) {
             Timber.w(e, "Failed to send IoB history to watch")
+        }
+    }
+
+    suspend fun sendCategoryLabels(labels: Map<String, String>) {
+        try {
+            val json = JSONObject(labels).toString()
+            val request = PutDataMapRequest.create(WearDataContract.CATEGORY_LABELS_PATH).apply {
+                dataMap.putString(WearDataContract.KEY_CATEGORY_LABELS_JSON, json)
+                dataMap.putLong("_ts", System.currentTimeMillis())
+            }.asPutDataRequest().setUrgent()
+
+            dataClient.putDataItem(request).await()
+            Timber.d("Sent category labels to watch: %d entries", labels.size)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "Failed to send category labels to watch")
         }
     }
 

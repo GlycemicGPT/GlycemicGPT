@@ -50,6 +50,7 @@ object WatchDataRepository {
         val timestampMs: Long,
         val isAutomated: Boolean,
         val isCorrection: Boolean,
+        val category: String = "",
     )
 
     data class IoBHistoryRecord(
@@ -97,6 +98,9 @@ object WatchDataRepository {
 
     private val _chatState = MutableStateFlow<ChatState>(ChatState.Idle)
     val chatState: StateFlow<ChatState> = _chatState.asStateFlow()
+
+    private val _categoryLabels = MutableStateFlow<Map<String, String>>(emptyMap())
+    val categoryLabels: StateFlow<Map<String, String>> = _categoryLabels.asStateFlow()
 
     private val _watchFaceConfig = MutableStateFlow(WatchFaceConfigState())
     val watchFaceConfig: StateFlow<WatchFaceConfigState> = _watchFaceConfig.asStateFlow()
@@ -169,6 +173,10 @@ object WatchDataRepository {
 
     fun clearChat() {
         _chatState.value = ChatState.Idle
+    }
+
+    fun updateCategoryLabels(labels: Map<String, String>) {
+        _categoryLabels.value = labels
     }
 
     private val VALID_GRAPH_RANGES = setOf(1, 3, 6)

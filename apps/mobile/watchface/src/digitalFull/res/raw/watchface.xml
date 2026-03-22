@@ -115,6 +115,46 @@
                 primaryProviderType="SMALL_IMAGE"/>
         </ComplicationSlot>
 
+        <!-- Alerts (slot 3): bell icon bottom-left, tap opens AlertsActivity -->
+        <ComplicationSlot
+            x="30" y="310" width="50" height="50"
+            slotId="3"
+            displayName="Alerts"
+            supportedTypes="SMALL_IMAGE EMPTY">
+            <BoundingOval x="0" y="0" width="50" height="50"/>
+            <Complication type="SMALL_IMAGE">
+                <PartImage x="0" y="0" width="50" height="50">
+                    <Image resource="[COMPLICATION.SMALL_IMAGE]"/>
+                </PartImage>
+            </Complication>
+            <!-- NOTE: primaryProvider uses the debug package name. See slot 0 comment. -->
+            <DefaultProviderPolicy
+                defaultSystemProvider="EMPTY"
+                defaultSystemProviderType="EMPTY"
+                primaryProvider="com.glycemicgpt.mobile.debug/com.glycemicgpt.weardevice.complications.AlertsComplicationDataSource"
+                primaryProviderType="SMALL_IMAGE"/>
+        </ComplicationSlot>
+
+        <!-- AI Chat (slot 4): chat bubble icon bottom-right, tap opens ChatActivity -->
+        <ComplicationSlot
+            x="370" y="310" width="50" height="50"
+            slotId="4"
+            displayName="AI Chat"
+            supportedTypes="SMALL_IMAGE EMPTY">
+            <BoundingOval x="0" y="0" width="50" height="50"/>
+            <Complication type="SMALL_IMAGE">
+                <PartImage x="0" y="0" width="50" height="50">
+                    <Image resource="[COMPLICATION.SMALL_IMAGE]"/>
+                </PartImage>
+            </Complication>
+            <!-- NOTE: primaryProvider uses the debug package name. See slot 0 comment. -->
+            <DefaultProviderPolicy
+                defaultSystemProvider="EMPTY"
+                defaultSystemProviderType="EMPTY"
+                primaryProvider="com.glycemicgpt.mobile.debug/com.glycemicgpt.weardevice.complications.ChatComplicationDataSource"
+                primaryProviderType="SMALL_IMAGE"/>
+        </ComplicationSlot>
+
         <!-- Time display: two TimeText elements for interactive/ambient swap -->
         <DigitalClock x="0" y="295" width="450" height="100">
             <!-- Interactive mode: bold white -->

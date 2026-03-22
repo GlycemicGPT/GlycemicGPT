@@ -4,4 +4,6 @@
     <string name="complication_iob_label">IoB (Insulin on Board)</string>
     <string name="complication_bg_label">BG (Blood Glucose)</string>
     <string name="complication_graph_label">Glucose Graph</string>
+    <string name="complication_alerts_label">Alerts</string>
+    <string name="complication_chat_label">AI Chat</string>
 </resources>

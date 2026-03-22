@@ -1,8 +1,13 @@
 package com.glycemicgpt.weardevice.presentation
 
+import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.os.Bundle
+import android.speech.RecognizerIntent
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -28,6 +33,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.wear.compose.material.Button
+import androidx.wear.compose.material.ButtonDefaults
 import androidx.wear.compose.material.CircularProgressIndicator
 import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Scaffold
@@ -38,6 +44,7 @@ import com.glycemicgpt.weardevice.data.WatchDataRepository.ChatState
 import com.glycemicgpt.weardevice.messaging.WearMessageSender
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import timber.log.Timber
 
 class ChatActivity : ComponentActivity() {
 
@@ -58,12 +65,56 @@ class ChatActivity : ComponentActivity() {
     }
 }
 
+/**
+ * Pre-compiled regex patterns for stripping common Markdown formatting
+ * from AI responses so they render cleanly on the small watch screen.
+ */
+private object MarkdownPatterns {
+    val bold = Regex("""\*\*(.+?)\*\*""")
+    val italic = Regex("""\*(.+?)\*""")
+    val heading = Regex("""^#{1,6}\s+""", RegexOption.MULTILINE)
+    val bullet = Regex("""^[-*]\s+""", RegexOption.MULTILINE)
+    val numberedList = Regex("""^\d+\.\s+""", RegexOption.MULTILINE)
+    val link = Regex("""\[(.+?)]\(.+?\)""")
+    val inlineCode = Regex("""`(.+?)`""")
+}
+
+private fun stripMarkdown(text: String): String {
+    var result = text
+    result = MarkdownPatterns.bold.replace(result, "$1")
+    result = MarkdownPatterns.italic.replace(result, "$1")
+    result = MarkdownPatterns.heading.replace(result, "")
+    result = MarkdownPatterns.bullet.replace(result, "- ")
+    result = MarkdownPatterns.numberedList.replace(result, "")
+    result = MarkdownPatterns.link.replace(result, "$1")
+    result = MarkdownPatterns.inlineCode.replace(result, "$1")
+    return result.trim()
+}
+
 @Composable
 private fun WearChatScreen(prefillQuery: String?) {
     val chatState by WatchDataRepository.chatState.collectAsState()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var hasSent by remember { mutableStateOf(false) }
+    var voiceError by remember { mutableStateOf<String?>(null) }
+
+    val voiceLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val matches = result.data
+                ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+            val spokenText = matches?.firstOrNull()?.take(ChatActivity.MAX_QUERY_LENGTH)
+            if (!spokenText.isNullOrBlank()) {
+                hasSent = true
+                voiceError = null
+                sendQuery(scope, context, spokenText)
+            } else {
+                voiceError = "Couldn't understand. Try again."
+            }
+        }
+    }
 
     // Timeout: if loading for more than 30s, show error
     LaunchedEffect(chatState) {
@@ -125,8 +176,8 @@ private fun WearChatScreen(prefillQuery: String?) {
 
                     is ChatState.Success -> {
                         Text(
-                            text = state.response,
-                            style = MaterialTheme.typography.body2,
+                            text = stripMarkdown(state.response),
+                            style = MaterialTheme.typography.caption1,
                             textAlign = TextAlign.Start,
                             modifier = Modifier.fillMaxWidth(),
                         )
@@ -136,7 +187,9 @@ private fun WearChatScreen(prefillQuery: String?) {
                             style = MaterialTheme.typography.caption3,
                             color = Color(0xFF9CA3AF),
                             textAlign = TextAlign.Start,
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 16.dp),
                         )
                     }
 
@@ -164,6 +217,47 @@ private fun WearChatScreen(prefillQuery: String?) {
                                 textAlign = TextAlign.Center,
                             )
                             Spacer(modifier = Modifier.height(8.dp))
+
+                            // Voice input button
+                            Button(
+                                onClick = {
+                                    val intent = android.content.Intent(
+                                        RecognizerIntent.ACTION_RECOGNIZE_SPEECH,
+                                    ).apply {
+                                        putExtra(
+                                            RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                                            RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
+                                        )
+                                        putExtra(
+                                            RecognizerIntent.EXTRA_PROMPT,
+                                            "Ask a question...",
+                                        )
+                                    }
+                                    try {
+                                        voiceLauncher.launch(intent)
+                                    } catch (_: ActivityNotFoundException) {
+                                        voiceError = "Voice input not available"
+                                        Timber.w("Speech recognizer not available on this device")
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(0.9f),
+                                colors = ButtonDefaults.buttonColors(
+                                    backgroundColor = Color(0xFF3B82F6),
+                                ),
+                            ) {
+                                Text("Ask a question...", textAlign = TextAlign.Center)
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            if (voiceError != null) {
+                                Text(
+                                    text = voiceError!!,
+                                    style = MaterialTheme.typography.caption3,
+                                    color = Color(0xFFEF4444),
+                                    textAlign = TextAlign.Center,
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                            }
 
                             for (query in QUICK_QUERIES) {
                                 Button(
@@ -204,7 +298,7 @@ private fun sendQuery(
                 WatchDataRepository.setChatError("Phone not connected")
             }
         } catch (e: Exception) {
-            timber.log.Timber.w(e, "Failed to send chat request")
+            Timber.w(e, "Failed to send chat request")
             WatchDataRepository.setChatError("Failed to send request")
         }
     }

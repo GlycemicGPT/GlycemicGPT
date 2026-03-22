@@ -1,5 +1,8 @@
 package com.glycemicgpt.weardevice.complications
 
+import android.app.PendingIntent
+import android.content.Intent
+import android.graphics.drawable.Icon
 import androidx.wear.watchface.complications.data.ComplicationData
 import androidx.wear.watchface.complications.data.ComplicationType
 import androidx.wear.watchface.complications.data.NoDataComplicationData
@@ -7,15 +10,16 @@ import androidx.wear.watchface.complications.data.PlainComplicationText
 import androidx.wear.watchface.complications.data.SmallImage
 import androidx.wear.watchface.complications.data.SmallImageComplicationData
 import androidx.wear.watchface.complications.data.SmallImageType
-import android.graphics.drawable.Icon
 import androidx.wear.watchface.complications.datasource.ComplicationRequest
 import androidx.wear.watchface.complications.datasource.SuspendingComplicationDataSourceService
 import com.glycemicgpt.weardevice.data.WatchDataRepository
+import com.glycemicgpt.weardevice.presentation.GraphDetailActivity
 
 class GraphComplicationDataSource : SuspendingComplicationDataSourceService() {
 
     companion object {
         private const val MIN_READINGS = 3
+        private const val GRAPH_REQUEST_CODE = 2000
     }
 
     override fun getPreviewData(type: ComplicationType): ComplicationData {
@@ -72,11 +76,24 @@ class GraphComplicationDataSource : SuspendingComplicationDataSourceService() {
         )
 
         val icon = Icon.createWithBitmap(bitmap)
+
+        val tapIntent = Intent(this, GraphDetailActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        }
+        val tapAction = PendingIntent.getActivity(
+            this,
+            GRAPH_REQUEST_CODE,
+            tapIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
         return SmallImageComplicationData.Builder(
             smallImage = SmallImage.Builder(icon, SmallImageType.PHOTO).build(),
             contentDescription = PlainComplicationText.Builder(
                 "Glucose trend: ${readings.size} readings over ${config.graphRangeHours}h"
             ).build(),
-        ).build()
+        )
+            .setTapAction(tapAction)
+            .build()
     }
 }

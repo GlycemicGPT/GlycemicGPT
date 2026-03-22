@@ -19,6 +19,7 @@ class WearDataContractTest {
             WearDataContract.WATCHFACE_PUSH_CHANNEL,
             WearDataContract.WATCHFACE_PUSH_STATUS_PATH,
             WearDataContract.CONFIG_PATH,
+            WearDataContract.CATEGORY_LABELS_PATH,
         )
         paths.forEach { path ->
             assertTrue("Path '$path' should start with /glycemicgpt/", path.startsWith("/glycemicgpt/"))
@@ -55,6 +56,12 @@ class WearDataContractTest {
     @Test
     fun `config path is defined`() {
         assertEquals("/glycemicgpt/watchface/config", WearDataContract.CONFIG_PATH)
+    }
+
+    @Test
+    fun `category labels path and key are defined`() {
+        assertEquals("/glycemicgpt/category_labels", WearDataContract.CATEGORY_LABELS_PATH)
+        assertEquals("cat_labels_json", WearDataContract.KEY_CATEGORY_LABELS_JSON)
     }
 
     @Test

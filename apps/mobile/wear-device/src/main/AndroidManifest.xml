@@ -62,6 +62,12 @@
             android:exported="false"
             android:theme="@android:style/Theme.DeviceDefault" />
 
+        <!-- Full-screen interactive graph (launched via graph complication tap) -->
+        <activity
+            android:name=".presentation.GraphDetailActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.DeviceDefault" />
+
         <!-- IoB Complication Provider -->
         <service
             android:name=".complications.IoBComplicationDataSource"
@@ -146,6 +152,40 @@
             android:name=".complications.GraphComplicationDataSource"
             android:exported="true"
             android:label="@string/complication_graph_label"
+            android:permission="com.google.android.wearable.permission.BIND_COMPLICATION_PROVIDER">
+            <intent-filter>
+                <action android:name="android.support.wearable.complications.ACTION_COMPLICATION_UPDATE_REQUEST" />
+            </intent-filter>
+            <meta-data
+                android:name="android.support.wearable.complications.SUPPORTED_TYPES"
+                android:value="SMALL_IMAGE" />
+            <meta-data
+                android:name="android.support.wearable.complications.UPDATE_PERIOD_SECONDS"
+                android:value="0" />
+        </service>
+
+        <!-- Alerts Complication Provider -->
+        <service
+            android:name=".complications.AlertsComplicationDataSource"
+            android:exported="true"
+            android:label="@string/complication_alerts_label"
+            android:permission="com.google.android.wearable.permission.BIND_COMPLICATION_PROVIDER">
+            <intent-filter>
+                <action android:name="android.support.wearable.complications.ACTION_COMPLICATION_UPDATE_REQUEST" />
+            </intent-filter>
+            <meta-data
+                android:name="android.support.wearable.complications.SUPPORTED_TYPES"
+                android:value="SMALL_IMAGE" />
+            <meta-data
+                android:name="android.support.wearable.complications.UPDATE_PERIOD_SECONDS"
+                android:value="0" />
+        </service>
+
+        <!-- AI Chat Complication Provider -->
+        <service
+            android:name=".complications.ChatComplicationDataSource"
+            android:exported="true"
+            android:label="@string/complication_chat_label"
             android:permission="com.google.android.wearable.permission.BIND_COMPLICATION_PROVIDER">
             <intent-filter>
                 <action android:name="android.support.wearable.complications.ACTION_COMPLICATION_UPDATE_REQUEST" />

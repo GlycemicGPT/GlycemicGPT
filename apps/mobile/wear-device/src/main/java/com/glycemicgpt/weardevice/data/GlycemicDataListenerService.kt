@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.os.VibrationEffect
 import android.os.VibratorManager
 import androidx.wear.watchface.complications.datasource.ComplicationDataSourceUpdateRequester
+import com.glycemicgpt.weardevice.complications.AlertsComplicationDataSource
 import com.glycemicgpt.weardevice.complications.BgComplicationDataSource
 import com.glycemicgpt.weardevice.complications.GraphComplicationDataSource
 import com.glycemicgpt.weardevice.complications.IoBComplicationDataSource
@@ -23,31 +24,46 @@ class GlycemicDataListenerService : WearableListenerService() {
         var iobUpdated = false
         var cgmUpdated = false
         var configUpdated = false
+        var alertUpdated = false
+        var categoryLabelsUpdated = false
 
         // Two-pass processing: config events first so that data/alert events
         // see the latest showAlert / showIoB state within the same batch.
         val changedEvents = dataEvents.filter { it.type == DataEvent.TYPE_CHANGED }
 
-        // Pass 1 -- config
+        // Pass 1 -- config and category labels
         changedEvents.forEach { event ->
             val path = event.dataItem.uri.path ?: return@forEach
-            if (path != WearDataContract.CONFIG_PATH) return@forEach
             val dataMap = DataMapItem.fromDataItem(event.dataItem).dataMap
 
-            WatchDataRepository.updateWatchFaceConfig(
-                showIoB = dataMap.getBoolean(WearDataContract.KEY_CONFIG_SHOW_IOB, true),
-                showGraph = dataMap.getBoolean(WearDataContract.KEY_CONFIG_SHOW_GRAPH, true),
-                showAlert = dataMap.getBoolean(WearDataContract.KEY_CONFIG_SHOW_ALERT, true),
-                showSeconds = dataMap.getBoolean(WearDataContract.KEY_CONFIG_SHOW_SECONDS, false),
-                graphRangeHours = dataMap.getInt(WearDataContract.KEY_CONFIG_GRAPH_RANGE_HOURS, 3),
-                theme = dataMap.getString(WearDataContract.KEY_CONFIG_THEME, "dark"),
-                showBasalOverlay = dataMap.getBoolean(WearDataContract.KEY_CONFIG_SHOW_BASAL, true),
-                showBolusMarkers = dataMap.getBoolean(WearDataContract.KEY_CONFIG_SHOW_BOLUS, true),
-                showIoBOverlay = dataMap.getBoolean(WearDataContract.KEY_CONFIG_SHOW_IOB_OVERLAY, true),
-                showModeBands = dataMap.getBoolean(WearDataContract.KEY_CONFIG_SHOW_MODES, true),
-            )
-            configUpdated = true
-            Timber.d("Received watch face config from phone")
+            when (path) {
+                WearDataContract.CONFIG_PATH -> {
+                    WatchDataRepository.updateWatchFaceConfig(
+                        showIoB = dataMap.getBoolean(WearDataContract.KEY_CONFIG_SHOW_IOB, true),
+                        showGraph = dataMap.getBoolean(WearDataContract.KEY_CONFIG_SHOW_GRAPH, true),
+                        showAlert = dataMap.getBoolean(WearDataContract.KEY_CONFIG_SHOW_ALERT, true),
+                        showSeconds = dataMap.getBoolean(WearDataContract.KEY_CONFIG_SHOW_SECONDS, false),
+                        graphRangeHours = dataMap.getInt(WearDataContract.KEY_CONFIG_GRAPH_RANGE_HOURS, 3),
+                        theme = dataMap.getString(WearDataContract.KEY_CONFIG_THEME, "dark"),
+                        showBasalOverlay = dataMap.getBoolean(WearDataContract.KEY_CONFIG_SHOW_BASAL, true),
+                        showBolusMarkers = dataMap.getBoolean(WearDataContract.KEY_CONFIG_SHOW_BOLUS, true),
+                        showIoBOverlay = dataMap.getBoolean(WearDataContract.KEY_CONFIG_SHOW_IOB_OVERLAY, true),
+                        showModeBands = dataMap.getBoolean(WearDataContract.KEY_CONFIG_SHOW_MODES, true),
+                    )
+                    configUpdated = true
+                    Timber.d("Received watch face config from phone")
+                }
+
+                WearDataContract.CATEGORY_LABELS_PATH -> {
+                    val json = dataMap.getString(WearDataContract.KEY_CATEGORY_LABELS_JSON, "")
+                    val labels = parseCategoryLabelsJson(json)
+                    if (labels != null) {
+                        WatchDataRepository.updateCategoryLabels(labels)
+                        categoryLabelsUpdated = true
+                        Timber.d("Received category labels from phone: %d entries", labels.size)
+                    }
+                }
+            }
         }
 
         // Pass 2 -- data, alert, and history events
@@ -170,7 +186,8 @@ class GlycemicDataListenerService : WearableListenerService() {
                         timestampMs = dataMap.getLong(WearDataContract.KEY_ALERT_TIMESTAMP),
                         message = dataMap.getString(WearDataContract.KEY_ALERT_MESSAGE, ""),
                     )
-                    if (alertType != "none" && alertsEnabled) {
+                    alertUpdated = true
+                    if (!alertType.equals("none", ignoreCase = true) && alertsEnabled) {
                         vibrateForAlert(alertType)
                     }
                     Timber.d("Received alert from phone: %s (vibrate=%b)", alertType, alertsEnabled)
@@ -191,6 +208,12 @@ class GlycemicDataListenerService : WearableListenerService() {
             requestComplicationUpdate(GraphComplicationDataSource::class.java)
         }
         if (historyUpdated) {
+            requestComplicationUpdate(GraphComplicationDataSource::class.java)
+        }
+        if (alertUpdated) {
+            requestComplicationUpdate(AlertsComplicationDataSource::class.java)
+        }
+        if (categoryLabelsUpdated) {
             requestComplicationUpdate(GraphComplicationDataSource::class.java)
         }
     }
@@ -247,7 +270,7 @@ class GlycemicDataListenerService : WearableListenerService() {
             val manager = getSystemService(VIBRATOR_MANAGER_SERVICE) as VibratorManager
             val vibrator = manager.defaultVibrator
 
-            val effect = if (alertType.startsWith("urgent")) {
+            val effect = if (alertType.startsWith("urgent", ignoreCase = true)) {
                 VibrationEffect.createWaveform(longArrayOf(0, 500, 200, 500), -1)
             } else {
                 VibrationEffect.createOneShot(300, VibrationEffect.DEFAULT_AMPLITUDE)
@@ -255,6 +278,21 @@ class GlycemicDataListenerService : WearableListenerService() {
             vibrator.vibrate(effect)
         } catch (e: Exception) {
             Timber.w(e, "Failed to vibrate for alert")
+        }
+    }
+
+    private fun parseCategoryLabelsJson(json: String): Map<String, String>? {
+        if (json.isBlank()) return emptyMap()
+        return try {
+            val obj = JSONObject(json)
+            buildMap {
+                for (key in obj.keys()) {
+                    put(key, obj.getString(key))
+                }
+            }
+        } catch (e: Exception) {
+            Timber.w(e, "Failed to parse category labels JSON")
+            null
         }
     }
 

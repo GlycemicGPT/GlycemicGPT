@@ -12,6 +12,7 @@ import com.glycemicgpt.mobile.data.auth.AuthManager
 import com.glycemicgpt.mobile.data.auth.AuthState
 import com.glycemicgpt.mobile.data.local.AlertSoundCategory
 import com.glycemicgpt.mobile.data.local.AlertSoundStore
+import com.glycemicgpt.mobile.data.local.AnalyticsSettingsStore
 import com.glycemicgpt.mobile.data.local.AppSettingsStore
 import com.glycemicgpt.mobile.domain.plugin.PluginMetadata
 import com.glycemicgpt.mobile.plugin.PluginRegistry
@@ -219,6 +220,7 @@ class SettingsViewModel @Inject constructor(
     private val wearDataSender: WearDataSender,
     private val wearAppUpdateChecker: WearAppUpdateChecker,
     private val wearApkPusher: WearApkPusher,
+    private val analyticsSettingsStore: AnalyticsSettingsStore,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SettingsUiState())
@@ -980,8 +982,19 @@ class SettingsViewModel @Inject constructor(
                     showIoBOverlay = config.showIoBOverlay,
                     showModeBands = config.showModeBands,
                 )
+            } catch (e: kotlin.coroutines.cancellation.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Timber.w(e, "Failed to sync watch face config")
+            }
+
+            // Also sync category labels so the watch can display bolus categories
+            try {
+                wearDataSender.sendCategoryLabels(analyticsSettingsStore.categoryLabels)
+            } catch (e: kotlin.coroutines.cancellation.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.w(e, "Failed to sync category labels to watch")
             }
         }
     }
