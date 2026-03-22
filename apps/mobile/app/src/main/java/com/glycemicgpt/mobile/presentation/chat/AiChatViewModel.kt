@@ -67,6 +67,7 @@ data class AiChatUiState(
 class AiChatViewModel @Inject constructor(
     private val chatRepository: ChatRepository,
     private val appSettingsStore: AppSettingsStore,
+    private val wearDataSender: com.glycemicgpt.mobile.wear.WearDataSender,
 ) : ViewModel() {
 
     companion object {
@@ -146,6 +147,22 @@ class AiChatViewModel @Inject constructor(
         val newValue = !appSettingsStore.aiTtsEnabled
         appSettingsStore.aiTtsEnabled = newValue
         _ttsEnabled.value = newValue
+        // Sync TTS setting to watch immediately
+        viewModelScope.launch {
+            try {
+                wearDataSender.sendWatchFaceConfig(
+                    showIoB = appSettingsStore.watchFaceShowIoB,
+                    showGraph = appSettingsStore.watchFaceShowGraph,
+                    showAlert = appSettingsStore.watchFaceShowAlert,
+                    showSeconds = appSettingsStore.watchFaceShowSeconds,
+                    graphRangeHours = appSettingsStore.watchFaceGraphRangeHours,
+                    theme = appSettingsStore.watchFaceTheme,
+                    aiTtsEnabled = newValue,
+                )
+            } catch (e: Exception) {
+                Timber.w(e, "Failed to sync TTS setting to watch")
+            }
+        }
     }
 
     fun stopSpeaking() {

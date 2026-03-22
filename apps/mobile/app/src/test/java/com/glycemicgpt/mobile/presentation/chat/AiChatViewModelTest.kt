@@ -28,12 +28,14 @@ class AiChatViewModelTest {
     private val testDispatcher = UnconfinedTestDispatcher()
     private lateinit var repository: ChatRepository
     private lateinit var appSettingsStore: AppSettingsStore
+    private lateinit var wearDataSender: com.glycemicgpt.mobile.wear.WearDataSender
 
     @Before
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
         repository = mockk(relaxed = true)
         appSettingsStore = mockk(relaxed = true)
+        wearDataSender = mockk(relaxed = true)
         io.mockk.every { appSettingsStore.aiTtsEnabled } returns false
     }
 
@@ -43,7 +45,7 @@ class AiChatViewModelTest {
     }
 
     private fun createViewModel(): AiChatViewModel {
-        return AiChatViewModel(repository, appSettingsStore)
+        return AiChatViewModel(repository, appSettingsStore, wearDataSender)
     }
 
     // --- Provider check tests ---
