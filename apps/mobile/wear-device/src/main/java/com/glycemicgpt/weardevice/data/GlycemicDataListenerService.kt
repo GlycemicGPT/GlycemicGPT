@@ -187,7 +187,7 @@ class GlycemicDataListenerService : WearableListenerService() {
                         message = dataMap.getString(WearDataContract.KEY_ALERT_MESSAGE, ""),
                     )
                     alertUpdated = true
-                    if (alertType != "none" && alertsEnabled) {
+                    if (!alertType.equals("none", ignoreCase = true) && alertsEnabled) {
                         vibrateForAlert(alertType)
                     }
                     Timber.d("Received alert from phone: %s (vibrate=%b)", alertType, alertsEnabled)
