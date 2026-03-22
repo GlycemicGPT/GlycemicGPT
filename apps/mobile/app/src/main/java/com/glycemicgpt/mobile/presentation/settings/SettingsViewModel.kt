@@ -982,7 +982,7 @@ class SettingsViewModel @Inject constructor(
                     showBolusMarkers = config.showBolusMarkers,
                     showIoBOverlay = config.showIoBOverlay,
                     showModeBands = config.showModeBands,
-                    aiTtsEnabled = config.aiTtsEnabled,
+                    aiTtsEnabled = appSettingsStore.aiTtsEnabled,
                 )
             } catch (e: kotlin.coroutines.cancellation.CancellationException) {
                 throw e
@@ -1041,7 +1041,8 @@ class SettingsViewModel @Inject constructor(
         appSettingsStore.watchFaceShowBolusMarkers = config.showBolusMarkers
         appSettingsStore.watchFaceShowIoBOverlay = config.showIoBOverlay
         appSettingsStore.watchFaceShowModeBands = config.showModeBands
-        appSettingsStore.aiTtsEnabled = config.aiTtsEnabled
+        // Read aiTtsEnabled from the canonical store rather than the config copy
+        // to avoid overwriting a value set from the chat screen with a stale snapshot.
     }
 
     fun checkBatteryOptimization() {

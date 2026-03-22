@@ -108,6 +108,7 @@ class AiChatViewModel @Inject constructor(
             } else {
                 Timber.w("TTS init failed with status %d", status)
                 ttsReady = false
+                tts = null
             }
         }
     }
@@ -227,7 +228,7 @@ class AiChatViewModel @Inject constructor(
                         )
                     }
                     if (appSettingsStore.aiTtsEnabled) {
-                        speakText(response.response)
+                        speakText(response.response + "\n\n" + response.disclaimer)
                     }
                 }
                 .onFailure { e ->

@@ -67,6 +67,7 @@ class ChatActivity : ComponentActivity() {
                 } else {
                     Timber.w("Watch TTS init failed with status %d", status)
                     ttsReady = false
+                    tts = null
                 }
             }
         }
@@ -160,7 +161,7 @@ private fun WearChatScreen(prefillQuery: String?, onSpeakText: (String) -> Unit 
         val state = chatState
         if (state is ChatState.Success && state.response != spokenResponseId) {
             spokenResponseId = state.response
-            onSpeakText(state.response)
+            onSpeakText(state.response + ". " + state.disclaimer.ifBlank { "Not medical advice. Consult your doctor." })
         }
     }
 
