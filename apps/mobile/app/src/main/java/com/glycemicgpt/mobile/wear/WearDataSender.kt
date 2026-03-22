@@ -161,6 +161,7 @@ class WearDataSender @Inject constructor(
         showBolusMarkers: Boolean = true,
         showIoBOverlay: Boolean = true,
         showModeBands: Boolean = true,
+        aiTtsEnabled: Boolean = false,
     ) {
         try {
             val request = PutDataMapRequest.create(WearDataContract.CONFIG_PATH).apply {
@@ -174,6 +175,7 @@ class WearDataSender @Inject constructor(
                 dataMap.putBoolean(WearDataContract.KEY_CONFIG_SHOW_BOLUS, showBolusMarkers)
                 dataMap.putBoolean(WearDataContract.KEY_CONFIG_SHOW_IOB_OVERLAY, showIoBOverlay)
                 dataMap.putBoolean(WearDataContract.KEY_CONFIG_SHOW_MODES, showModeBands)
+                dataMap.putBoolean(WearDataContract.KEY_CONFIG_AI_TTS, aiTtsEnabled)
                 // Timestamp forces DataClient delivery even when config values are unchanged,
                 // preventing deduplication from swallowing re-syncs (e.g. on reconnect).
                 dataMap.putLong("_ts", System.currentTimeMillis())

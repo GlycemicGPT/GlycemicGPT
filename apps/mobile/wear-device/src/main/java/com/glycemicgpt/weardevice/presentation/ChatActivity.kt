@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.os.Bundle
 import android.speech.RecognizerIntent
+import android.speech.tts.TextToSpeech
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -45,18 +46,56 @@ import com.glycemicgpt.weardevice.messaging.WearMessageSender
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import timber.log.Timber
+import java.util.Locale
+import java.util.UUID
 
 class ChatActivity : ComponentActivity() {
+
+    private var tts: TextToSpeech? = null
+    @Volatile private var ttsReady = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WatchDataRepository.clearChat()
 
+        if (WatchDataRepository.watchFaceConfig.value.aiTtsEnabled) {
+            tts = TextToSpeech(applicationContext) { status ->
+                if (status == TextToSpeech.SUCCESS) {
+                    tts?.language = Locale.getDefault()
+                    ttsReady = true
+                    Timber.d("Watch TTS engine initialized")
+                } else {
+                    Timber.w("Watch TTS init failed with status %d", status)
+                    ttsReady = false
+                    tts = null
+                }
+            }
+        }
+
         val prefillQuery = intent?.getStringExtra(EXTRA_QUERY)?.take(MAX_QUERY_LENGTH)
 
         setContent {
-            WearChatScreen(prefillQuery = prefillQuery)
+            WearChatScreen(
+                prefillQuery = prefillQuery,
+                onSpeakText = { text -> speakIfEnabled(text) },
+            )
         }
+    }
+
+    private fun speakIfEnabled(text: String) {
+        if (!ttsReady || tts == null) return
+        if (!WatchDataRepository.watchFaceConfig.value.aiTtsEnabled) return
+        val stripped = stripMarkdown(text)
+        if (stripped.isBlank()) return
+        tts?.speak(stripped, TextToSpeech.QUEUE_FLUSH, null, UUID.randomUUID().toString())
+    }
+
+    override fun onDestroy() {
+        tts?.stop()
+        tts?.shutdown()
+        tts = null
+        ttsReady = false
+        super.onDestroy()
     }
 
     companion object {
@@ -92,12 +131,13 @@ private fun stripMarkdown(text: String): String {
 }
 
 @Composable
-private fun WearChatScreen(prefillQuery: String?) {
+private fun WearChatScreen(prefillQuery: String?, onSpeakText: (String) -> Unit = {}) {
     val chatState by WatchDataRepository.chatState.collectAsState()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var hasSent by remember { mutableStateOf(false) }
     var voiceError by remember { mutableStateOf<String?>(null) }
+    var spokenResponseId by remember { mutableStateOf<String?>(null) }
 
     val voiceLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult(),
@@ -113,6 +153,15 @@ private fun WearChatScreen(prefillQuery: String?) {
             } else {
                 voiceError = "Couldn't understand. Try again."
             }
+        }
+    }
+
+    // Speak response via TTS when a new Success state arrives (guard against re-speak)
+    LaunchedEffect(chatState) {
+        val state = chatState
+        if (state is ChatState.Success && state.response != spokenResponseId) {
+            spokenResponseId = state.response
+            onSpeakText(state.response + ". " + state.disclaimer.ifBlank { "Not medical advice. Consult your doctor." })
         }
     }
 
