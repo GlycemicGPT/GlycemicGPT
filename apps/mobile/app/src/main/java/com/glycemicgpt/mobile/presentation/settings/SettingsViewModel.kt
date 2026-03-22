@@ -112,6 +112,7 @@ data class WatchFaceConfig(
     val showBolusMarkers: Boolean = true,
     val showIoBOverlay: Boolean = true,
     val showModeBands: Boolean = true,
+    val aiTtsEnabled: Boolean = false,
 ) {
     companion object {
         val VALID_GRAPH_RANGES = listOf(1, 3, 6)
@@ -981,6 +982,7 @@ class SettingsViewModel @Inject constructor(
                     showBolusMarkers = config.showBolusMarkers,
                     showIoBOverlay = config.showIoBOverlay,
                     showModeBands = config.showModeBands,
+                    aiTtsEnabled = appSettingsStore.aiTtsEnabled,
                 )
             } catch (e: kotlin.coroutines.cancellation.CancellationException) {
                 throw e
@@ -1023,6 +1025,7 @@ class SettingsViewModel @Inject constructor(
             showBolusMarkers = appSettingsStore.watchFaceShowBolusMarkers,
             showIoBOverlay = appSettingsStore.watchFaceShowIoBOverlay,
             showModeBands = appSettingsStore.watchFaceShowModeBands,
+            aiTtsEnabled = appSettingsStore.aiTtsEnabled,
         )
     }
 
@@ -1038,6 +1041,8 @@ class SettingsViewModel @Inject constructor(
         appSettingsStore.watchFaceShowBolusMarkers = config.showBolusMarkers
         appSettingsStore.watchFaceShowIoBOverlay = config.showIoBOverlay
         appSettingsStore.watchFaceShowModeBands = config.showModeBands
+        // Read aiTtsEnabled from the canonical store rather than the config copy
+        // to avoid overwriting a value set from the chat screen with a stale snapshot.
     }
 
     fun checkBatteryOptimization() {

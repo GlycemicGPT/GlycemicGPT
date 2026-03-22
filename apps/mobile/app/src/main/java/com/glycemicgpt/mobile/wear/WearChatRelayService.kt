@@ -79,14 +79,10 @@ class WearChatRelayService : WearableListenerService() {
             return
         }
 
-        // Check auth state before making API call
-        if (!authTokenStore.isLoggedIn()) {
-            Timber.w("Chat request received but user is not logged in")
-            serviceScope.launch {
-                sendError(sourceNodeId, "Not signed in. Open the phone app to sign in.")
-            }
-            return
-        }
+        // Skip pre-checking authTokenStore.isLoggedIn() -- the token may appear
+        // expired but the TokenRefreshInterceptor will refresh it during the API call.
+        // If truly not authenticated, the API will return 401 and sanitizeErrorMessage
+        // will produce a user-friendly error.
 
         Timber.d("Received chat request from watch (%d chars)", requestText.length)
 
