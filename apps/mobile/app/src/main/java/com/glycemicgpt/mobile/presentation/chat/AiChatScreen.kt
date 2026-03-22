@@ -26,6 +26,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
@@ -44,6 +46,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -56,6 +59,12 @@ fun AiChatScreen(
     viewModel: AiChatViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val ttsEnabled by viewModel.ttsEnabled.collectAsState()
+    val context = LocalContext.current
+
+    LaunchedEffect(Unit) {
+        viewModel.initTts(context)
+    }
 
     Column(
         modifier = Modifier
@@ -69,11 +78,13 @@ fun AiChatScreen(
             is ChatPageState.Offline -> OfflineContent(onRetry = viewModel::checkProvider)
             is ChatPageState.Ready -> ReadyChatContent(
                 uiState = uiState,
+                ttsEnabled = ttsEnabled,
                 onInputChanged = viewModel::onInputChanged,
                 onSend = viewModel::sendMessage,
                 onClearChat = viewModel::clearChat,
                 onClearError = viewModel::clearError,
                 onSuggestionClicked = viewModel::onSuggestionClicked,
+                onToggleTts = viewModel::toggleTts,
             )
         }
     }
@@ -181,11 +192,13 @@ private fun OfflineContent(onRetry: () -> Unit) {
 @Composable
 private fun ColumnScope.ReadyChatContent(
     uiState: AiChatUiState,
+    ttsEnabled: Boolean,
     onInputChanged: (String) -> Unit,
     onSend: () -> Unit,
     onClearChat: () -> Unit,
     onClearError: () -> Unit,
     onSuggestionClicked: (String) -> Unit,
+    onToggleTts: () -> Unit,
 ) {
     val listState = rememberLazyListState()
 
@@ -213,6 +226,20 @@ private fun ColumnScope.ReadyChatContent(
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1f),
         )
+        IconButton(
+            onClick = onToggleTts,
+            modifier = Modifier.testTag("ai_chat_tts_toggle"),
+        ) {
+            Icon(
+                imageVector = if (ttsEnabled) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff,
+                contentDescription = if (ttsEnabled) "Disable TTS" else "Enable TTS",
+                tint = if (ttsEnabled) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
+        }
         if (uiState.messages.isNotEmpty()) {
             IconButton(
                 onClick = onClearChat,

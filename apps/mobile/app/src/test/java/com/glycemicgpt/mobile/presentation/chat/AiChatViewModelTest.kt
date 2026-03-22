@@ -1,5 +1,6 @@
 package com.glycemicgpt.mobile.presentation.chat
 
+import com.glycemicgpt.mobile.data.local.AppSettingsStore
 import com.glycemicgpt.mobile.data.remote.dto.ChatResponse
 import com.glycemicgpt.mobile.data.repository.ChatRepository
 import com.glycemicgpt.mobile.data.repository.NoProviderException
@@ -26,11 +27,14 @@ class AiChatViewModelTest {
 
     private val testDispatcher = UnconfinedTestDispatcher()
     private lateinit var repository: ChatRepository
+    private lateinit var appSettingsStore: AppSettingsStore
 
     @Before
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
         repository = mockk(relaxed = true)
+        appSettingsStore = mockk(relaxed = true)
+        io.mockk.every { appSettingsStore.aiTtsEnabled } returns false
     }
 
     @After
@@ -39,7 +43,7 @@ class AiChatViewModelTest {
     }
 
     private fun createViewModel(): AiChatViewModel {
-        return AiChatViewModel(repository)
+        return AiChatViewModel(repository, appSettingsStore)
     }
 
     // --- Provider check tests ---
