@@ -246,6 +246,7 @@ class AiChatViewModel @Inject constructor(
     }
 
     fun clearChat() {
+        tts?.stop()
         _uiState.update { it.copy(messages = emptyList(), error = null) }
     }
 

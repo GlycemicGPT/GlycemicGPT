@@ -58,14 +58,16 @@ class ChatActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         WatchDataRepository.clearChat()
 
-        tts = TextToSpeech(this) { status ->
-            if (status == TextToSpeech.SUCCESS) {
-                tts?.language = Locale.getDefault()
-                ttsReady = true
-                Timber.d("Watch TTS engine initialized")
-            } else {
-                Timber.w("Watch TTS init failed with status %d", status)
-                ttsReady = false
+        if (WatchDataRepository.watchFaceConfig.value.aiTtsEnabled) {
+            tts = TextToSpeech(applicationContext) { status ->
+                if (status == TextToSpeech.SUCCESS) {
+                    tts?.language = Locale.getDefault()
+                    ttsReady = true
+                    Timber.d("Watch TTS engine initialized")
+                } else {
+                    Timber.w("Watch TTS init failed with status %d", status)
+                    ttsReady = false
+                }
             }
         }
 
@@ -134,6 +136,7 @@ private fun WearChatScreen(prefillQuery: String?, onSpeakText: (String) -> Unit 
     val scope = rememberCoroutineScope()
     var hasSent by remember { mutableStateOf(false) }
     var voiceError by remember { mutableStateOf<String?>(null) }
+    var spokenResponseId by remember { mutableStateOf<String?>(null) }
 
     val voiceLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult(),
@@ -152,10 +155,11 @@ private fun WearChatScreen(prefillQuery: String?, onSpeakText: (String) -> Unit 
         }
     }
 
-    // Speak response via TTS when a new Success state arrives
+    // Speak response via TTS when a new Success state arrives (guard against re-speak)
     LaunchedEffect(chatState) {
         val state = chatState
-        if (state is ChatState.Success) {
+        if (state is ChatState.Success && state.response != spokenResponseId) {
+            spokenResponseId = state.response
             onSpeakText(state.response)
         }
     }
