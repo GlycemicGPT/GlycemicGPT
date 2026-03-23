@@ -19,6 +19,7 @@ import java.net.SocketTimeoutException
 import java.util.Locale
 import java.util.UUID
 import javax.inject.Inject
+import kotlin.coroutines.cancellation.CancellationException
 
 data class TtsVoiceOption(
     val name: String,
@@ -113,8 +114,10 @@ class AiChatViewModel @Inject constructor(
             if (status == TextToSpeech.SUCCESS) {
                 tts?.language = Locale.getDefault()
                 ttsReady = true
-                loadAvailableVoices()
-                applySelectedVoice()
+                viewModelScope.launch {
+                    loadAvailableVoices()
+                    applySelectedVoice()
+                }
                 Timber.d("TTS engine initialized")
             } else {
                 Timber.w("TTS init failed with status %d", status)
@@ -159,6 +162,7 @@ class AiChatViewModel @Inject constructor(
     }
 
     fun selectVoice(voiceName: String) {
+        if (_availableVoices.value.none { it.name == voiceName }) return
         appSettingsStore.aiTtsVoice = voiceName
         _selectedVoiceName.value = voiceName
         applySelectedVoice()
@@ -172,9 +176,15 @@ class AiChatViewModel @Inject constructor(
                     showSeconds = appSettingsStore.watchFaceShowSeconds,
                     graphRangeHours = appSettingsStore.watchFaceGraphRangeHours,
                     theme = appSettingsStore.watchFaceTheme,
+                    showBasalOverlay = appSettingsStore.watchFaceShowBasalOverlay,
+                    showBolusMarkers = appSettingsStore.watchFaceShowBolusMarkers,
+                    showIoBOverlay = appSettingsStore.watchFaceShowIoBOverlay,
+                    showModeBands = appSettingsStore.watchFaceShowModeBands,
                     aiTtsEnabled = appSettingsStore.aiTtsEnabled,
                     aiTtsVoice = voiceName,
                 )
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Timber.w(e, "Failed to sync TTS voice to watch")
             }
@@ -195,9 +205,15 @@ class AiChatViewModel @Inject constructor(
                     showSeconds = appSettingsStore.watchFaceShowSeconds,
                     graphRangeHours = appSettingsStore.watchFaceGraphRangeHours,
                     theme = appSettingsStore.watchFaceTheme,
+                    showBasalOverlay = appSettingsStore.watchFaceShowBasalOverlay,
+                    showBolusMarkers = appSettingsStore.watchFaceShowBolusMarkers,
+                    showIoBOverlay = appSettingsStore.watchFaceShowIoBOverlay,
+                    showModeBands = appSettingsStore.watchFaceShowModeBands,
                     aiTtsEnabled = newValue,
                     aiTtsVoice = appSettingsStore.aiTtsVoice,
                 )
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Timber.w(e, "Failed to sync TTS setting to watch")
             }

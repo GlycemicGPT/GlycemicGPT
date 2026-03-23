@@ -93,6 +93,7 @@ class ChatActivity : ComponentActivity() {
                 Timber.d("Watch TTS voice set to %s", voiceName)
                 return
             }
+            Timber.w("Configured TTS voice '%s' not available on watch, using default", voiceName)
         }
         engine.language = Locale.getDefault()
     }
