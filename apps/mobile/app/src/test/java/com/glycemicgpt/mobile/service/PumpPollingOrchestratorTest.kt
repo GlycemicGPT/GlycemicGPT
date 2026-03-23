@@ -61,6 +61,7 @@ class PumpPollingOrchestratorTest {
         )
         coEvery { getBolusHistory(any(), any()) } returns Result.success(emptyList())
         coEvery { getHistoryLogs(any()) } returns Result.success(emptyList())
+        coEvery { getFullHistoryLogs(any()) } returns Result.success(emptyList())
         coEvery { getPumpHardwareInfo() } returns Result.failure(RuntimeException("not connected"))
     }
     private val repository = mockk<PumpDataRepository>(relaxed = true) {
@@ -458,6 +459,7 @@ class PumpPollingOrchestratorTest {
             ),
         )
         coEvery { pumpDriver.getHistoryLogs(any()) } returns Result.success(fakeRecords)
+        coEvery { pumpDriver.getFullHistoryLogs(any()) } returns Result.success(fakeRecords)
         every { historyLogParser.extractCgmFromHistoryLogs(any(), any()) } returns emptyList()
         every { historyLogParser.extractBolusesFromHistoryLogs(any(), any()) } returns emptyList()
         every { historyLogParser.extractBasalFromHistoryLogs(any(), any()) } returns emptyList()
