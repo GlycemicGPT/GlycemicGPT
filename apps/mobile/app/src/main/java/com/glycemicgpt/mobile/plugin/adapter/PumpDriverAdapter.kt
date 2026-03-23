@@ -94,6 +94,10 @@ class PumpDriverAdapter @Inject constructor(
         registry.activePumpPlugin.value?.asPumpStatus()?.getHistoryLogs(sinceSequence)
             ?: Result.failure(NoActivePluginException())
 
+    override suspend fun getFullHistoryLogs(sinceSequence: Int): Result<List<HistoryLogRecord>> =
+        registry.activePumpPlugin.value?.asPumpStatus()?.getFullHistoryLogs(sinceSequence)
+            ?: Result.failure(NoActivePluginException())
+
     override suspend fun getPumpHardwareInfo(): Result<PumpHardwareInfo> =
         registry.activePumpPlugin.value?.asPumpStatus()?.getPumpHardwareInfo()
             ?: Result.failure(NoActivePluginException())

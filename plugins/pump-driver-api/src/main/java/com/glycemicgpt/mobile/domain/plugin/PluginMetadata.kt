@@ -2,8 +2,9 @@ package com.glycemicgpt.mobile.domain.plugin
 
 /** Current plugin API version. Plugins with a different version are rejected.
  *  v3: BasalReading.controlIqMode renamed to activityMode (PumpActivityMode enum).
- *  v4: BolusEvent.category field + BolusCategoryProvider capability. */
-const val PLUGIN_API_VERSION = 4
+ *  v4: BolusEvent.category field + BolusCategoryProvider capability.
+ *  v5: getFullHistoryLogs() overload added to PumpDriver and PumpStatus. */
+const val PLUGIN_API_VERSION = 5
 
 /**
  * Immutable metadata describing a plugin. Available before the plugin is created.

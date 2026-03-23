@@ -36,6 +36,11 @@ interface PumpDriver {
     suspend fun getReservoirLevel(): Result<ReservoirReading>
     suspend fun getCgmStatus(): Result<CgmReading>
     suspend fun getHistoryLogs(sinceSequence: Int): Result<List<HistoryLogRecord>>
+
+    /** Full sync variant that fetches all available history without lookback limits.
+     *  Default implementation delegates to the standard incremental fetch. */
+    suspend fun getFullHistoryLogs(sinceSequence: Int): Result<List<HistoryLogRecord>> =
+        getHistoryLogs(sinceSequence)
     suspend fun getPumpHardwareInfo(): Result<PumpHardwareInfo>
     fun observeConnectionState(): Flow<ConnectionState>
 }
