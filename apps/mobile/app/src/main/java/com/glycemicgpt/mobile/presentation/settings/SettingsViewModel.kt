@@ -983,6 +983,7 @@ class SettingsViewModel @Inject constructor(
                     showIoBOverlay = config.showIoBOverlay,
                     showModeBands = config.showModeBands,
                     aiTtsEnabled = appSettingsStore.aiTtsEnabled,
+                    aiTtsVoice = appSettingsStore.aiTtsVoice,
                 )
             } catch (e: kotlin.coroutines.cancellation.CancellationException) {
                 throw e

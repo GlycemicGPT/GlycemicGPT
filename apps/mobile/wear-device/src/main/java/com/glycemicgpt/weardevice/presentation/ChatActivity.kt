@@ -63,6 +63,7 @@ class ChatActivity : ComponentActivity() {
                 if (status == TextToSpeech.SUCCESS) {
                     tts?.language = Locale.getDefault()
                     ttsReady = true
+                    applyConfiguredVoice()
                     Timber.d("Watch TTS engine initialized")
                 } else {
                     Timber.w("Watch TTS init failed with status %d", status)
@@ -80,6 +81,20 @@ class ChatActivity : ComponentActivity() {
                 onSpeakText = { text -> speakIfEnabled(text) },
             )
         }
+    }
+
+    private fun applyConfiguredVoice() {
+        val engine = tts ?: return
+        val voiceName = WatchDataRepository.watchFaceConfig.value.aiTtsVoice
+        if (voiceName.isNotEmpty()) {
+            val voice = engine.voices?.find { it.name == voiceName }
+            if (voice != null) {
+                engine.voice = voice
+                Timber.d("Watch TTS voice set to %s", voiceName)
+                return
+            }
+        }
+        engine.language = Locale.getDefault()
     }
 
     private fun speakIfEnabled(text: String) {
@@ -161,7 +176,7 @@ private fun WearChatScreen(prefillQuery: String?, onSpeakText: (String) -> Unit 
         val state = chatState
         if (state is ChatState.Success && state.response != spokenResponseId) {
             spokenResponseId = state.response
-            onSpeakText(state.response + ". " + state.disclaimer.ifBlank { "Not medical advice. Consult your doctor." })
+            onSpeakText(state.response)
         }
     }
 

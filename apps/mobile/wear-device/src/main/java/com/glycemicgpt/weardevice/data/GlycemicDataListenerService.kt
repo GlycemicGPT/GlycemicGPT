@@ -50,6 +50,7 @@ class GlycemicDataListenerService : WearableListenerService() {
                         showIoBOverlay = dataMap.getBoolean(WearDataContract.KEY_CONFIG_SHOW_IOB_OVERLAY, true),
                         showModeBands = dataMap.getBoolean(WearDataContract.KEY_CONFIG_SHOW_MODES, true),
                         aiTtsEnabled = dataMap.getBoolean(WearDataContract.KEY_CONFIG_AI_TTS, false),
+                        aiTtsVoice = dataMap.getString(WearDataContract.KEY_CONFIG_AI_TTS_VOICE, ""),
                     )
                     configUpdated = true
                     Timber.d("Received watch face config from phone")

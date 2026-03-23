@@ -70,6 +70,7 @@ object WatchDataRepository {
         val showIoBOverlay: Boolean = true,
         val showModeBands: Boolean = true,
         val aiTtsEnabled: Boolean = false,
+        val aiTtsVoice: String = "",
     )
 
     private val _iob = MutableStateFlow<IoBState?>(null)
@@ -195,6 +196,7 @@ object WatchDataRepository {
         showIoBOverlay: Boolean = true,
         showModeBands: Boolean = true,
         aiTtsEnabled: Boolean = false,
+        aiTtsVoice: String = "",
     ) {
         _watchFaceConfig.value = WatchFaceConfigState(
             showIoB = showIoB,
@@ -208,6 +210,7 @@ object WatchDataRepository {
             showIoBOverlay = showIoBOverlay,
             showModeBands = showModeBands,
             aiTtsEnabled = aiTtsEnabled,
+            aiTtsVoice = aiTtsVoice,
         )
     }
 }

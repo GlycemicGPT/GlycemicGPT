@@ -78,6 +78,7 @@ object WearDataContract {
     const val KEY_CONFIG_SHOW_IOB_OVERLAY = "cfg_show_iob_ovl"
     const val KEY_CONFIG_SHOW_MODES = "cfg_show_modes"
     const val KEY_CONFIG_AI_TTS = "cfg_ai_tts"
+    const val KEY_CONFIG_AI_TTS_VOICE = "cfg_ai_tts_voice"
 
     // Category labels sync path (phone -> watch via DataClient)
     const val CATEGORY_LABELS_PATH = "/glycemicgpt/category_labels"

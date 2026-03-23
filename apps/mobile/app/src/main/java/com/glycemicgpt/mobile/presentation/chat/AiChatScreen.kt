@@ -24,6 +24,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
@@ -34,6 +35,9 @@ import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -44,10 +48,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -60,6 +67,8 @@ fun AiChatScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val ttsEnabled by viewModel.ttsEnabled.collectAsState()
+    val availableVoices by viewModel.availableVoices.collectAsState()
+    val selectedVoiceName by viewModel.selectedVoiceName.collectAsState()
     val context = LocalContext.current
 
     LaunchedEffect(Unit) {
@@ -79,12 +88,15 @@ fun AiChatScreen(
             is ChatPageState.Ready -> ReadyChatContent(
                 uiState = uiState,
                 ttsEnabled = ttsEnabled,
+                availableVoices = availableVoices,
+                selectedVoiceName = selectedVoiceName,
                 onInputChanged = viewModel::onInputChanged,
                 onSend = viewModel::sendMessage,
                 onClearChat = viewModel::clearChat,
                 onClearError = viewModel::clearError,
                 onSuggestionClicked = viewModel::onSuggestionClicked,
                 onToggleTts = viewModel::toggleTts,
+                onSelectVoice = viewModel::selectVoice,
             )
         }
     }
@@ -193,14 +205,18 @@ private fun OfflineContent(onRetry: () -> Unit) {
 private fun ColumnScope.ReadyChatContent(
     uiState: AiChatUiState,
     ttsEnabled: Boolean,
+    availableVoices: List<TtsVoiceOption>,
+    selectedVoiceName: String?,
     onInputChanged: (String) -> Unit,
     onSend: () -> Unit,
     onClearChat: () -> Unit,
     onClearError: () -> Unit,
     onSuggestionClicked: (String) -> Unit,
     onToggleTts: () -> Unit,
+    onSelectVoice: (String) -> Unit,
 ) {
     val listState = rememberLazyListState()
+    val (showVoiceMenu, setShowVoiceMenu) = remember { mutableStateOf(false) }
 
     // Auto-scroll to bottom when messages change
     val itemCount = uiState.messages.size +
@@ -226,19 +242,70 @@ private fun ColumnScope.ReadyChatContent(
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1f),
         )
-        IconButton(
-            onClick = onToggleTts,
-            modifier = Modifier.testTag("ai_chat_tts_toggle"),
-        ) {
-            Icon(
-                imageVector = if (ttsEnabled) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff,
-                contentDescription = if (ttsEnabled) "Disable TTS" else "Enable TTS",
-                tint = if (ttsEnabled) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
+        Box {
+            IconButton(
+                onClick = {
+                    if (!ttsEnabled) {
+                        onToggleTts()
+                    } else {
+                        setShowVoiceMenu(true)
+                    }
                 },
-            )
+                modifier = Modifier.testTag("ai_chat_tts_toggle"),
+            ) {
+                Icon(
+                    imageVector = if (ttsEnabled) {
+                        Icons.AutoMirrored.Filled.VolumeUp
+                    } else {
+                        Icons.AutoMirrored.Filled.VolumeOff
+                    },
+                    contentDescription = if (ttsEnabled) "Voice picker" else "Enable TTS",
+                    tint = if (ttsEnabled) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
+            DropdownMenu(
+                expanded = showVoiceMenu,
+                onDismissRequest = { setShowVoiceMenu(false) },
+            ) {
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            text = "Disable TTS",
+                            fontWeight = FontWeight.Medium,
+                        )
+                    },
+                    onClick = {
+                        setShowVoiceMenu(false)
+                        onToggleTts()
+                    },
+                )
+                HorizontalDivider()
+                availableVoices.forEach { voice ->
+                    val isSelected = voice.name == selectedVoiceName
+                    DropdownMenuItem(
+                        text = { Text(voice.displayName) },
+                        onClick = {
+                            onSelectVoice(voice.name)
+                            setShowVoiceMenu(false)
+                        },
+                        trailingIcon = if (isSelected) {
+                            {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = "Selected",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        } else {
+                            null
+                        },
+                    )
+                }
+            }
         }
         if (uiState.messages.isNotEmpty()) {
             IconButton(
