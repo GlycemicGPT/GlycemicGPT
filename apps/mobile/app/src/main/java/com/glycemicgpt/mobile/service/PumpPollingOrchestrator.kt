@@ -328,6 +328,10 @@ class PumpPollingOrchestrator @Inject constructor(
          *  complete catch-up within a single cycle for typical gaps (< 2 hours). */
         const val MAX_BACKFILL_DURATION_MS = 120_000L     // 2 minutes
 
+        /** Max time for initial pump history sync on fresh install.
+         *  Allows downloading the full pump history (months of data) in one pass. */
+        const val MAX_INITIAL_SYNC_DURATION_MS = 600_000L  // 10 minutes for full pump download
+
         /** Pause between consecutive history log batch fetches during catch-up.
          *  Gives fast loop (IoB/CGM) a window to fire between batches. */
         const val BACKFILL_BATCH_STAGGER_MS = 1_000L      // 1 second
@@ -390,11 +394,21 @@ class PumpPollingOrchestrator @Inject constructor(
      * after a single 200-record batch. This ensures gaps are filled completely on
      * reconnect instead of taking 5 minutes per 200 records. Each batch is capped
      * at 200 records / 15 seconds by the BLE driver to keep the connection alive.
+     *
+     * On fresh installs (lastSequenceNumber == 0), performs a full initial sync
+     * with extended duration (10 minutes) and requests the full pump history
+     * from the BLE driver (no lookback limit, larger batch caps).
      */
     private suspend fun pollHistoryLogs() {
         val limits = safetyLimitsStore.toSafetyLimits()
         if (safetyLimitsStore.isStale()) {
             Timber.w("Safety limits are stale (>%d ms old), using cached values", SafetyLimitsStore.STALE_THRESHOLD_MS)
+        }
+
+        val isInitialSync = lastSequenceNumber == 0
+        val deadline = if (isInitialSync) MAX_INITIAL_SYNC_DURATION_MS else MAX_BACKFILL_DURATION_MS
+        if (isInitialSync) {
+            Timber.i("Initial pump history sync starting (no prior data, full download)")
         }
 
         var totalRecords = 0
@@ -404,8 +418,12 @@ class PumpPollingOrchestrator @Inject constructor(
         var batchCount = 0
         val startNanos = System.nanoTime()
 
-        while ((System.nanoTime() - startNanos) / 1_000_000 < MAX_BACKFILL_DURATION_MS) {
-            val result = pumpDriver.getHistoryLogs(sinceSequence = lastSequenceNumber)
+        while ((System.nanoTime() - startNanos) / 1_000_000 < deadline) {
+            val result = if (isInitialSync) {
+                pumpDriver.getFullHistoryLogs(sinceSequence = lastSequenceNumber)
+            } else {
+                pumpDriver.getHistoryLogs(sinceSequence = lastSequenceNumber)
+            }
 
             if (result.isFailure) {
                 Timber.w(result.exceptionOrNull(), "Failed to poll history logs (batch %d)", batchCount)
@@ -415,6 +433,9 @@ class PumpPollingOrchestrator @Inject constructor(
 
             if (records.isEmpty()) {
                 if (batchCount > 0) {
+                    if (isInitialSync) {
+                        Timber.i("Initial pump history sync complete")
+                    }
                     Timber.d("History backfill complete: %d records (%d CGM, %d bolus, %d basal) in %d batches",
                         totalRecords, totalCgm, totalBolus, totalBasal, batchCount)
                 }
@@ -463,6 +484,11 @@ class PumpPollingOrchestrator @Inject constructor(
                 repository.saveBasalBatch(basalReadings)
                 syncEnqueuer.enqueueBasalBatch(basalReadings)
                 totalBasal += basalReadings.size
+            }
+
+            if (isInitialSync) {
+                Timber.i("Initial sync: fetched %d records total (%d CGM, %d bolus, %d basal) in %d batches",
+                    totalRecords, totalCgm, totalBolus, totalBasal, batchCount)
             }
 
             // Trigger backend sync after each batch so data is uploaded incrementally

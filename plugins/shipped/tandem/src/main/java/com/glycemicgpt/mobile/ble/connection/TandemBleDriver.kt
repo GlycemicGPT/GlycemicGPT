@@ -174,7 +174,13 @@ class TandemBleDriver @Inject constructor(
         return Result.success(egv.copy(trendArrow = trend))
     }
 
-    override suspend fun getHistoryLogs(sinceSequence: Int): Result<List<HistoryLogRecord>> {
+    override suspend fun getHistoryLogs(sinceSequence: Int): Result<List<HistoryLogRecord>> =
+        fetchHistoryLogs(sinceSequence, fullSync = false)
+
+    override suspend fun getFullHistoryLogs(sinceSequence: Int): Result<List<HistoryLogRecord>> =
+        fetchHistoryLogs(sinceSequence, fullSync = true)
+
+    private suspend fun fetchHistoryLogs(sinceSequence: Int, fullSync: Boolean): Result<List<HistoryLogRecord>> {
         // Step 1: Get the available index range from the pump (opcode 58).
         // IMPORTANT: The pump's firstSeq/lastSeq are record INDICES, not event
         // sequence numbers. Opcode 60 takes a start INDEX. Records returned
@@ -188,17 +194,23 @@ class TandemBleDriver @Inject constructor(
         if (rangeResult.isFailure) return Result.failure(rangeResult.exceptionOrNull()!!)
 
         val range = rangeResult.getOrThrow()
-        val windowStart = maxOf(range.firstSeq, range.lastSeq - HISTORY_LOOKBACK_INDICES + 1)
-        // Resume from previous scan position if still within the lookback window,
+        // Full sync: start from the very first available index (no lookback limit).
+        // Normal sync: cap lookback to ~24h of indices.
+        val windowStart = if (fullSync) {
+            range.firstSeq
+        } else {
+            maxOf(range.firstSeq, range.lastSeq - HISTORY_LOOKBACK_INDICES + 1)
+        }
+        // Resume from previous scan position if still within the window,
         // otherwise start from the beginning of the window (new session / range shift).
         val fetchStart = if (nextHistoryIndex in windowStart..range.lastSeq) {
             nextHistoryIndex
         } else {
             windowStart
         }
-        Timber.d("History log range: firstIdx=%d lastIdx=%d numEntries=%d windowStart=%d fetchStart=%d resumed=%s sinceSeq=%d",
+        Timber.d("History log range: firstIdx=%d lastIdx=%d numEntries=%d windowStart=%d fetchStart=%d resumed=%s sinceSeq=%d fullSync=%s",
             range.firstSeq, range.lastSeq, range.lastSeq - range.firstSeq + 1,
-            windowStart, fetchStart, fetchStart != windowStart, sinceSequence)
+            windowStart, fetchStart, fetchStart != windowStart, sinceSequence, fullSync)
 
         if (range.lastSeq < range.firstSeq) return Result.success(emptyList())
 
@@ -206,12 +218,14 @@ class TandemBleDriver @Inject constructor(
         // Opcode 60 sends a 2-byte ACK on FFF6 and streams records on FFF8.
         // Cap total time to avoid blocking the slow poll loop (pump drops
         // idle connections at ~30s; other reads need time to execute too).
+        val maxRecords = if (fullSync) MAX_FULL_SYNC_RECORDS_PER_POLL else MAX_HISTORY_RECORDS_PER_POLL
+        val maxDurationMs = if (fullSync) MAX_FULL_SYNC_FETCH_DURATION_MS else MAX_HISTORY_FETCH_DURATION_MS
         val allRecords = mutableListOf<HistoryLogRecord>()
         var currentIndex = fetchStart
-        val deadline = System.currentTimeMillis() + MAX_HISTORY_FETCH_DURATION_MS
+        val deadline = System.currentTimeMillis() + maxDurationMs
 
         while (currentIndex <= range.lastSeq &&
-            allRecords.size < MAX_HISTORY_RECORDS_PER_POLL &&
+            allRecords.size < maxRecords &&
             System.currentTimeMillis() < deadline
         ) {
             val batchSize = minOf(HISTORY_BATCH_SIZE, range.lastSeq - currentIndex + 1)
@@ -296,6 +310,13 @@ class TandemBleDriver @Inject constructor(
          *  Control-IQ activity. Progressive scanning across poll cycles ensures
          *  the entire window is covered even with the 200 records/cycle cap. */
         const val HISTORY_LOOKBACK_INDICES = 2000
+
+        /** Safety cap on total records fetched per poll cycle during full sync. */
+        const val MAX_FULL_SYNC_RECORDS_PER_POLL = 500
+
+        /** Max time (ms) to spend fetching history logs per poll cycle during
+         *  full sync. Allows more time to download the full pump history. */
+        const val MAX_FULL_SYNC_FETCH_DURATION_MS = 25_000L
 
         /**
          * Build the 5-byte cargo for opcode 60 (HistoryLogRequest).

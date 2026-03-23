@@ -21,6 +21,11 @@ interface PumpStatus : PluginCapabilityInterface {
     suspend fun getPumpHardwareInfo(): Result<PumpHardwareInfo>
     suspend fun getHistoryLogs(sinceSequence: Int): Result<List<HistoryLogRecord>>
 
+    /** Full sync variant that fetches all available history without lookback limits.
+     *  Default implementation delegates to the standard incremental fetch. */
+    suspend fun getFullHistoryLogs(sinceSequence: Int): Result<List<HistoryLogRecord>> =
+        getHistoryLogs(sinceSequence)
+
     /**
      * Extracts CGM readings from [records], applying [limits] to filter out any reading
      * whose glucose value falls outside [SafetyLimits.glucoseLow]..[SafetyLimits.glucoseHigh]
