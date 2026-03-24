@@ -173,6 +173,7 @@ class AiChatViewModel @Inject constructor(
         val newValue = !appSettingsStore.aiTtsEnabled
         appSettingsStore.aiTtsEnabled = newValue
         _ttsEnabled.value = newValue
+        if (!newValue) tts?.stop()
         syncWatchConfig()
     }
 
