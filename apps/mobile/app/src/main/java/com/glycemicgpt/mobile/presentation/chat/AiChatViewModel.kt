@@ -166,7 +166,17 @@ class AiChatViewModel @Inject constructor(
         appSettingsStore.aiTtsVoice = voiceName
         _selectedVoiceName.value = voiceName
         applySelectedVoice()
-        // Sync voice selection to watch
+        syncWatchConfig()
+    }
+
+    fun toggleTts() {
+        val newValue = !appSettingsStore.aiTtsEnabled
+        appSettingsStore.aiTtsEnabled = newValue
+        _ttsEnabled.value = newValue
+        syncWatchConfig()
+    }
+
+    private fun syncWatchConfig() {
         viewModelScope.launch {
             try {
                 wearDataSender.sendWatchFaceConfig(
@@ -181,41 +191,12 @@ class AiChatViewModel @Inject constructor(
                     showIoBOverlay = appSettingsStore.watchFaceShowIoBOverlay,
                     showModeBands = appSettingsStore.watchFaceShowModeBands,
                     aiTtsEnabled = appSettingsStore.aiTtsEnabled,
-                    aiTtsVoice = voiceName,
-                )
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Timber.w(e, "Failed to sync TTS voice to watch")
-            }
-        }
-    }
-
-    fun toggleTts() {
-        val newValue = !appSettingsStore.aiTtsEnabled
-        appSettingsStore.aiTtsEnabled = newValue
-        _ttsEnabled.value = newValue
-        // Sync TTS setting to watch immediately
-        viewModelScope.launch {
-            try {
-                wearDataSender.sendWatchFaceConfig(
-                    showIoB = appSettingsStore.watchFaceShowIoB,
-                    showGraph = appSettingsStore.watchFaceShowGraph,
-                    showAlert = appSettingsStore.watchFaceShowAlert,
-                    showSeconds = appSettingsStore.watchFaceShowSeconds,
-                    graphRangeHours = appSettingsStore.watchFaceGraphRangeHours,
-                    theme = appSettingsStore.watchFaceTheme,
-                    showBasalOverlay = appSettingsStore.watchFaceShowBasalOverlay,
-                    showBolusMarkers = appSettingsStore.watchFaceShowBolusMarkers,
-                    showIoBOverlay = appSettingsStore.watchFaceShowIoBOverlay,
-                    showModeBands = appSettingsStore.watchFaceShowModeBands,
-                    aiTtsEnabled = newValue,
                     aiTtsVoice = appSettingsStore.aiTtsVoice,
                 )
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Timber.w(e, "Failed to sync TTS setting to watch")
+                Timber.w(e, "Failed to sync config to watch")
             }
         }
     }
@@ -282,7 +263,7 @@ class AiChatViewModel @Inject constructor(
                         )
                     }
                     if (appSettingsStore.aiTtsEnabled) {
-                        speakText(response.response)
+                        speakText(response.response + ". This is not medical advice.")
                     }
                 }
                 .onFailure { e ->

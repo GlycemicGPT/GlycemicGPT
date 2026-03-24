@@ -177,7 +177,7 @@ private fun WearChatScreen(prefillQuery: String?, onSpeakText: (String) -> Unit 
         val state = chatState
         if (state is ChatState.Success && state.response != spokenResponseId) {
             spokenResponseId = state.response
-            onSpeakText(state.response)
+            onSpeakText(state.response + ". This is not medical advice.")
         }
     }
 
