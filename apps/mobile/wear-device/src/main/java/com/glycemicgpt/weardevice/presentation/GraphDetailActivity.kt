@@ -167,18 +167,22 @@ private fun GraphDetailScreen() {
     val now = remember(cgmHistory, config.graphRangeHours) {
         System.currentTimeMillis()
     }
-    val cutoff = now - rangeMs
-    val readings = remember(cgmHistory, cutoff) {
-        cgmHistory.filter { it.timestampMs >= cutoff }.sortedBy { it.timestampMs }
+
+    // Use all available history (not just rangeMs) so there is data to pan into.
+    val readings = remember(cgmHistory) {
+        cgmHistory.sortedBy { it.timestampMs }
     }
-    val filteredBasal = remember(basalHistory, cutoff) {
-        basalHistory.filter { it.timestampMs >= cutoff }.sortedBy { it.timestampMs }
+    val dataStartMs = remember(readings) {
+        readings.firstOrNull()?.timestampMs ?: (now - rangeMs)
     }
-    val filteredBolus = remember(bolusHistory, cutoff) {
-        bolusHistory.filter { it.timestampMs >= cutoff }.sortedBy { it.timestampMs }
+    val filteredBasal = remember(basalHistory) {
+        basalHistory.sortedBy { it.timestampMs }
     }
-    val filteredIoB = remember(iobHistory, cutoff) {
-        iobHistory.filter { it.timestampMs >= cutoff }.sortedBy { it.timestampMs }
+    val filteredBolus = remember(bolusHistory) {
+        bolusHistory.sortedBy { it.timestampMs }
+    }
+    val filteredIoB = remember(iobHistory) {
+        iobHistory.sortedBy { it.timestampMs }
     }
 
     var tooltip by remember { mutableStateOf<TooltipData?>(null) }
@@ -225,7 +229,7 @@ private fun GraphDetailScreen() {
                                         val graphW = size.width.toFloat() -
                                             GRAPH_PADDING - GRAPH_PADDING_RIGHT
                                         val maxPanPx = if (graphW > 0f) {
-                                            val scrollableMs = now - cutoff - rangeMs
+                                            val scrollableMs = now - dataStartMs - rangeMs
                                             if (scrollableMs > 0L) {
                                                 (scrollableMs.toFloat() /
                                                     rangeMs.toFloat()) * graphW
@@ -247,7 +251,7 @@ private fun GraphDetailScreen() {
                                             canvasHeight = size.height.toFloat(),
                                             panOffsetPx = panOffsetPx,
                                             viewportRangeMs = rangeMs,
-                                            dataStartMs = cutoff,
+                                            dataStartMs = dataStartMs,
                                             nowMs = now,
                                         )
                                     }
@@ -265,7 +269,7 @@ private fun GraphDetailScreen() {
                                 panOffsetPx = panOffsetPx,
                                 graphWidth = graphWidth,
                                 viewportRangeMs = rangeMs,
-                                dataStartMs = cutoff,
+                                dataStartMs = dataStartMs,
                                 nowMs = now,
                             )
 
@@ -414,15 +418,16 @@ private fun computeViewport(
     // Positive pan = drag right = scroll backward in time
     val panMs = (panOffsetPx / graphWidth * viewportRangeMs).toLong()
 
-    // Default viewport end is now; panning right shifts it earlier
-    val viewportEnd = (nowMs - panMs).coerceIn(dataStartMs + viewportRangeMs, nowMs)
+    // Default viewport end is now; panning right shifts it earlier.
+    // Lower bound: ensure the viewport start doesn't go before the earliest data point.
+    val minViewportEnd = dataStartMs + viewportRangeMs
+    val viewportEnd = (nowMs - panMs).coerceIn(minViewportEnd.coerceAtMost(nowMs), nowMs)
     val viewportStart = viewportEnd - viewportRangeMs
 
-    val clampedStart = viewportStart.coerceAtLeast(dataStartMs)
     return ViewportInfo(
-        startMs = clampedStart,
+        startMs = viewportStart,
         endMs = viewportEnd,
-        rangeMs = viewportEnd - clampedStart,
+        rangeMs = viewportRangeMs,
     )
 }
 
@@ -747,14 +752,17 @@ private fun DrawScope.drawTimeAxis(
         else -> 7_200_000L // 2-hour marks for 6h
     }
 
-    // Find the first interval mark after the viewport start
+    // Find the first interval mark after the viewport start, rounding in local time
+    // so tick marks align to clean minute boundaries regardless of UTC offset.
+    val intervalMinutes = (intervalMs / 60_000L).toInt()
     val cal = Calendar.getInstance()
     cal.timeInMillis = viewportInfo.startMs
-    // Round up to next interval boundary
-    val remainder = cal.timeInMillis % intervalMs
-    if (remainder != 0L) {
-        cal.timeInMillis += intervalMs - remainder
-    }
+    cal.set(Calendar.SECOND, 0)
+    cal.set(Calendar.MILLISECOND, 0)
+    val currentMinute = cal.get(Calendar.MINUTE)
+    val nextMinute = ((currentMinute / intervalMinutes) + 1) * intervalMinutes
+    cal.set(Calendar.MINUTE, 0)
+    cal.add(Calendar.MINUTE, nextMinute)
 
     val canvas = drawContext.canvas.nativeCanvas
     while (cal.timeInMillis <= viewportInfo.endMs) {

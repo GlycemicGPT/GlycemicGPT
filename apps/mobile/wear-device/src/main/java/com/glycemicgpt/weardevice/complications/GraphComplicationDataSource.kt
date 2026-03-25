@@ -59,12 +59,17 @@ class GraphComplicationDataSource : SuspendingComplicationDataSourceService() {
         val low = readings.last().low
         val high = readings.last().high
 
-        val basalHistory = WatchDataRepository.basalHistory.value
-            .filter { it.timestampMs >= cutoff }
-        val bolusHistory = WatchDataRepository.bolusHistory.value
-            .filter { it.timestampMs >= cutoff }
-        val iobHistory = WatchDataRepository.iobHistory.value
-            .filter { it.timestampMs >= cutoff }
+        val basalHistory = if (config.showBasalOverlay || config.showModeBands) {
+            WatchDataRepository.basalHistory.value.filter { it.timestampMs >= cutoff }
+        } else {
+            emptyList()
+        }
+        val bolusHistory = emptyList<WatchDataRepository.BolusHistoryRecord>() // too small at 400x100
+        val iobHistory = if (config.showIoBOverlay) {
+            WatchDataRepository.iobHistory.value.filter { it.timestampMs >= cutoff }
+        } else {
+            emptyList()
+        }
 
         val graphConfig = WatchGraphRenderer.GraphConfig(
             showBasalOverlay = config.showBasalOverlay,
@@ -74,8 +79,15 @@ class GraphComplicationDataSource : SuspendingComplicationDataSourceService() {
         )
 
         // Cache the rendered bitmap and only re-render when data changes.
+        // Only include data that the renderer actually uses based on config
+        // to avoid unnecessary re-renders when non-visible data changes.
         val dataHash = Objects.hash(
-            readings, basalHistory, bolusHistory, iobHistory, graphConfig, low, high,
+            readings,
+            if (config.showBasalOverlay || config.showModeBands) basalHistory else null,
+            if (config.showIoBOverlay) iobHistory else null,
+            graphConfig,
+            low,
+            high,
         )
 
         val bitmap = if (dataHash == cachedDataHash && cachedBitmap != null) {

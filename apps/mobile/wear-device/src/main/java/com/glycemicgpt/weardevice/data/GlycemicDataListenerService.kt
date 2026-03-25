@@ -201,29 +201,62 @@ class GlycemicDataListenerService : WearableListenerService() {
             }
         }
 
+        // Collect all providers that need updating into a set so each fires at most once.
+        val providersToUpdate = mutableSetOf<Class<*>>()
+        val now = System.currentTimeMillis()
+
         if (configUpdated) {
-            // Config change may affect which complications are visible -- update immediately
-            requestComplicationUpdate(IoBComplicationDataSource::class.java)
-            requestComplicationUpdate(GraphComplicationDataSource::class.java)
+            // Config change may affect which complications are visible -- update immediately.
+            // Also update throttle timestamps so subsequent throttled paths don't double-fire.
+            providersToUpdate += IoBComplicationDataSource::class.java
+            providersToUpdate += GraphComplicationDataSource::class.java
+            providersToUpdate += AlertsComplicationDataSource::class.java
+            lastIoBUpdateMs = now
+            lastGraphUpdateMs = now
         }
-        if (iobUpdated) {
-            requestThrottledIoBUpdate()
+        if (iobUpdated && IoBComplicationDataSource::class.java !in providersToUpdate) {
+            if (now - lastIoBUpdateMs >= IOB_UPDATE_THROTTLE_MS) {
+                lastIoBUpdateMs = now
+                providersToUpdate += IoBComplicationDataSource::class.java
+            }
         }
         if (cgmUpdated) {
-            requestThrottledBgUpdate()
-            requestThrottledGraphUpdate()
+            if (BgComplicationDataSource::class.java !in providersToUpdate) {
+                if (now - lastBgUpdateMs >= BG_UPDATE_THROTTLE_MS) {
+                    lastBgUpdateMs = now
+                    providersToUpdate += BgComplicationDataSource::class.java
+                }
+            }
+            if (GraphComplicationDataSource::class.java !in providersToUpdate) {
+                val historySize = WatchDataRepository.cgmHistory.value.size
+                val effectiveThrottle = if (historySize < 10) 15_000L else GRAPH_UPDATE_THROTTLE_MS
+                if (now - lastGraphUpdateMs >= effectiveThrottle) {
+                    lastGraphUpdateMs = now
+                    providersToUpdate += GraphComplicationDataSource::class.java
+                }
+            }
         }
-        if (historyUpdated) {
+        if (historyUpdated && GraphComplicationDataSource::class.java !in providersToUpdate) {
             // Backfill data should render immediately
-            requestComplicationUpdate(GraphComplicationDataSource::class.java)
-            lastGraphUpdateMs = System.currentTimeMillis()
+            providersToUpdate += GraphComplicationDataSource::class.java
+            lastGraphUpdateMs = now
         }
         if (alertUpdated) {
             // Alerts are safety-critical -- always update immediately
-            requestComplicationUpdate(AlertsComplicationDataSource::class.java)
+            providersToUpdate += AlertsComplicationDataSource::class.java
         }
-        if (categoryLabelsUpdated) {
-            requestThrottledGraphUpdate()
+        if (categoryLabelsUpdated && GraphComplicationDataSource::class.java !in providersToUpdate) {
+            val historySize = WatchDataRepository.cgmHistory.value.size
+            val effectiveThrottle = if (historySize < 10) 15_000L else GRAPH_UPDATE_THROTTLE_MS
+            if (now - lastGraphUpdateMs >= effectiveThrottle) {
+                lastGraphUpdateMs = now
+                providersToUpdate += GraphComplicationDataSource::class.java
+            }
+        }
+
+        // Fire each provider exactly once
+        for (provider in providersToUpdate) {
+            requestComplicationUpdate(provider)
         }
     }
 
@@ -316,36 +349,6 @@ class GlycemicDataListenerService : WearableListenerService() {
         const val BG_UPDATE_THROTTLE_MS = 30_000L    // max once per 30s
         const val IOB_UPDATE_THROTTLE_MS = 60_000L   // max once per 60s
         const val GRAPH_UPDATE_THROTTLE_MS = 120_000L // max once per 2 min
-    }
-
-    private fun requestThrottledBgUpdate() {
-        val now = System.currentTimeMillis()
-        if (now - lastBgUpdateMs >= BG_UPDATE_THROTTLE_MS) {
-            lastBgUpdateMs = now
-            requestComplicationUpdate(BgComplicationDataSource::class.java)
-        }
-    }
-
-    private fun requestThrottledIoBUpdate() {
-        val now = System.currentTimeMillis()
-        if (now - lastIoBUpdateMs >= IOB_UPDATE_THROTTLE_MS) {
-            lastIoBUpdateMs = now
-            requestComplicationUpdate(IoBComplicationDataSource::class.java)
-        }
-    }
-
-    private fun requestThrottledGraphUpdate() {
-        val now = System.currentTimeMillis()
-        // Bypass throttle when the graph doesn't have enough data yet (< 10 readings).
-        // This ensures the sparkline renders as soon as enough CGM readings accumulate
-        // after a fresh install or service restart, rather than waiting for the full
-        // throttle window.
-        val historySize = WatchDataRepository.cgmHistory.value.size
-        val effectiveThrottle = if (historySize < 10) 15_000L else GRAPH_UPDATE_THROTTLE_MS
-        if (now - lastGraphUpdateMs >= effectiveThrottle) {
-            lastGraphUpdateMs = now
-            requestComplicationUpdate(GraphComplicationDataSource::class.java)
-        }
     }
 
     private fun requestComplicationUpdate(dataSourceClass: Class<*>) {

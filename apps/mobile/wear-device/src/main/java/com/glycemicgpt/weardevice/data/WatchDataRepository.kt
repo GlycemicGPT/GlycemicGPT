@@ -17,12 +17,13 @@ object WatchDataRepository {
 
     private var prefs: SharedPreferences? = null
 
+    @Synchronized
     fun init(context: Context) {
         if (prefs != null) return
         prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        restoreCgmHistory()
-        restoreCurrentCgm()
-        restoreCurrentIoB()
+        if (_cgmHistory.value.isEmpty()) restoreCgmHistory()
+        if (_cgm.value == null) restoreCurrentCgm()
+        if (_iob.value == null) restoreCurrentIoB()
         Timber.d("WatchDataRepository initialized with persisted data")
     }
 
@@ -320,7 +321,7 @@ object WatchDataRepository {
                 urgentLow = parts[5].toInt(),
                 urgentHigh = parts[6].toInt(),
             )
-            Timber.d("Restored current CGM from cache: %d mg/dL", parts[1].toInt())
+            Timber.d("Restored current CGM from cache")
         } catch (e: Exception) {
             Timber.w(e, "Failed to restore current CGM from cache")
             p.edit().remove(KEY_CURRENT_CGM).apply()
@@ -350,7 +351,7 @@ object WatchDataRepository {
                 iob = parts[0].toFloat(),
                 timestampMs = parts[1].toLong(),
             )
-            Timber.d("Restored current IoB from cache: %.2f", parts[0].toFloat())
+            Timber.d("Restored current IoB from cache")
         } catch (e: Exception) {
             Timber.w(e, "Failed to restore current IoB from cache")
             p.edit().remove(KEY_CURRENT_IOB).apply()
