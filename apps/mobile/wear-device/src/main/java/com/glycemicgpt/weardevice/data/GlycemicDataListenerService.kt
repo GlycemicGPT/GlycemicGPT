@@ -336,7 +336,13 @@ class GlycemicDataListenerService : WearableListenerService() {
 
     private fun requestThrottledGraphUpdate() {
         val now = System.currentTimeMillis()
-        if (now - lastGraphUpdateMs >= GRAPH_UPDATE_THROTTLE_MS) {
+        // Bypass throttle when the graph doesn't have enough data yet (< 10 readings).
+        // This ensures the sparkline renders as soon as enough CGM readings accumulate
+        // after a fresh install or service restart, rather than waiting for the full
+        // throttle window.
+        val historySize = WatchDataRepository.cgmHistory.value.size
+        val effectiveThrottle = if (historySize < 10) 15_000L else GRAPH_UPDATE_THROTTLE_MS
+        if (now - lastGraphUpdateMs >= effectiveThrottle) {
             lastGraphUpdateMs = now
             requestComplicationUpdate(GraphComplicationDataSource::class.java)
         }
