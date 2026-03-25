@@ -1,11 +1,31 @@
 package com.glycemicgpt.weardevice.data
 
+import android.content.Context
+import android.content.SharedPreferences
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import timber.log.Timber
 
 object WatchDataRepository {
+
+    private const val PREFS_NAME = "watch_data_cache"
+    private const val KEY_CGM_HISTORY = "cgm_history"
+    private const val KEY_CURRENT_CGM = "current_cgm"
+    private const val KEY_CURRENT_IOB = "current_iob"
+
+    private var prefs: SharedPreferences? = null
+
+    @Synchronized
+    fun init(context: Context) {
+        if (prefs != null) return
+        prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        if (_cgmHistory.value.isEmpty()) restoreCgmHistory()
+        if (_cgm.value == null) restoreCurrentCgm()
+        if (_iob.value == null) restoreCurrentIoB()
+        Timber.d("WatchDataRepository initialized with persisted data")
+    }
 
     data class IoBState(
         val iob: Float,
@@ -109,6 +129,7 @@ object WatchDataRepository {
 
     fun updateIoB(iob: Float, timestampMs: Long) {
         _iob.value = IoBState(iob, timestampMs)
+        persistCurrentIoB()
     }
 
     fun updateCgm(
@@ -122,6 +143,7 @@ object WatchDataRepository {
     ) {
         val state = CgmState(mgDl, trend, timestampMs, low, high, urgentLow, urgentHigh)
         _cgm.value = state
+        persistCurrentCgm()
 
         // Atomically append to history buffer, dedup by timestamp proximity, keep most recent
         _cgmHistory.update { current ->
@@ -139,6 +161,7 @@ object WatchDataRepository {
                 }
             }
         }
+        persistCgmHistory()
     }
 
     fun updateBasalHistory(records: List<BasalHistoryRecord>) {
@@ -212,5 +235,126 @@ object WatchDataRepository {
             aiTtsEnabled = aiTtsEnabled,
             aiTtsVoice = aiTtsVoice,
         )
+    }
+
+    // --- Persistence helpers (SharedPreferences, survives process kill) ---
+
+    /**
+     * Serialize cgmHistory to a compact string: "ts,mgDl,trend,low,high,uLow,uHigh;..."
+     * No JSON library -- just string concat for minimal overhead on every 15s update.
+     */
+    private fun persistCgmHistory() {
+        val p = prefs ?: return
+        val history = _cgmHistory.value
+        if (history.isEmpty()) {
+            p.edit().remove(KEY_CGM_HISTORY).apply()
+            return
+        }
+        val sb = StringBuilder(history.size * 40) // pre-size ~40 chars per record
+        history.forEachIndexed { i, r ->
+            if (i > 0) sb.append(';')
+            sb.append(r.timestampMs).append(',')
+                .append(r.mgDl).append(',')
+                .append(r.trend).append(',')
+                .append(r.low).append(',')
+                .append(r.high).append(',')
+                .append(r.urgentLow).append(',')
+                .append(r.urgentHigh)
+        }
+        p.edit().putString(KEY_CGM_HISTORY, sb.toString()).apply()
+    }
+
+    private fun restoreCgmHistory() {
+        val p = prefs ?: return
+        val raw = p.getString(KEY_CGM_HISTORY, null) ?: return
+        try {
+            val records = raw.split(';').mapNotNull { record ->
+                val parts = record.split(',')
+                if (parts.size < 7) return@mapNotNull null
+                CgmState(
+                    timestampMs = parts[0].toLong(),
+                    mgDl = parts[1].toInt(),
+                    trend = parts[2],
+                    low = parts[3].toInt(),
+                    high = parts[4].toInt(),
+                    urgentLow = parts[5].toInt(),
+                    urgentHigh = parts[6].toInt(),
+                )
+            }
+            if (records.isNotEmpty()) {
+                _cgmHistory.value = records.takeLast(MAX_CGM_HISTORY)
+                Timber.d("Restored %d CGM history records from cache", records.size)
+            }
+        } catch (e: Exception) {
+            Timber.w(e, "Failed to restore CGM history from cache")
+            p.edit().remove(KEY_CGM_HISTORY).apply()
+        }
+    }
+
+    /**
+     * Persist current CGM reading: "ts,mgDl,trend,low,high,uLow,uHigh"
+     */
+    private fun persistCurrentCgm() {
+        val p = prefs ?: return
+        val state = _cgm.value
+        if (state == null) {
+            p.edit().remove(KEY_CURRENT_CGM).apply()
+            return
+        }
+        val s = "${state.timestampMs},${state.mgDl},${state.trend}," +
+            "${state.low},${state.high},${state.urgentLow},${state.urgentHigh}"
+        p.edit().putString(KEY_CURRENT_CGM, s).apply()
+    }
+
+    private fun restoreCurrentCgm() {
+        val p = prefs ?: return
+        val raw = p.getString(KEY_CURRENT_CGM, null) ?: return
+        try {
+            val parts = raw.split(',')
+            if (parts.size < 7) return
+            _cgm.value = CgmState(
+                timestampMs = parts[0].toLong(),
+                mgDl = parts[1].toInt(),
+                trend = parts[2],
+                low = parts[3].toInt(),
+                high = parts[4].toInt(),
+                urgentLow = parts[5].toInt(),
+                urgentHigh = parts[6].toInt(),
+            )
+            Timber.d("Restored current CGM from cache")
+        } catch (e: Exception) {
+            Timber.w(e, "Failed to restore current CGM from cache")
+            p.edit().remove(KEY_CURRENT_CGM).apply()
+        }
+    }
+
+    /**
+     * Persist current IoB: "iob,timestampMs"
+     */
+    private fun persistCurrentIoB() {
+        val p = prefs ?: return
+        val state = _iob.value
+        if (state == null) {
+            p.edit().remove(KEY_CURRENT_IOB).apply()
+            return
+        }
+        p.edit().putString(KEY_CURRENT_IOB, "${state.iob},${state.timestampMs}").apply()
+    }
+
+    private fun restoreCurrentIoB() {
+        val p = prefs ?: return
+        val raw = p.getString(KEY_CURRENT_IOB, null) ?: return
+        try {
+            val parts = raw.split(',')
+            if (parts.size < 2) return
+            _iob.value = IoBState(
+                iob = parts[0].toFloat(),
+                timestampMs = parts[1].toLong(),
+            )
+            Timber.d("Restored current IoB from cache")
+        } catch (e: Exception) {
+            Timber.w(e, "Failed to restore current IoB from cache")
+            p.edit().remove(KEY_CURRENT_IOB).apply()
+        }
     }
 }

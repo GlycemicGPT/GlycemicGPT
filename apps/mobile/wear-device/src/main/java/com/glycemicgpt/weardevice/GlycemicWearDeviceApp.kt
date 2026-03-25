@@ -24,6 +24,9 @@ class GlycemicWearDeviceApp : Application() {
         if (BuildConfig.DEBUG) {
             Timber.plant(Timber.DebugTree())
         }
+        // Initialize persistent cache before DataLayer bootstrap so
+        // complication providers see restored data immediately on cold start.
+        WatchDataRepository.init(this)
         bootstrapDataFromDataLayer()
         publishVersion()
     }

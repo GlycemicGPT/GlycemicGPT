@@ -14,6 +14,7 @@ import androidx.wear.watchface.complications.datasource.ComplicationRequest
 import androidx.wear.watchface.complications.datasource.SuspendingComplicationDataSourceService
 import com.glycemicgpt.weardevice.data.WatchDataRepository
 import com.glycemicgpt.weardevice.presentation.GraphDetailActivity
+import java.util.Objects
 
 class GraphComplicationDataSource : SuspendingComplicationDataSourceService() {
 
@@ -21,6 +22,9 @@ class GraphComplicationDataSource : SuspendingComplicationDataSourceService() {
         private const val MIN_READINGS = 3
         private const val GRAPH_REQUEST_CODE = 2000
     }
+
+    private var cachedBitmap: android.graphics.Bitmap? = null
+    private var cachedDataHash: Int = 0
 
     override fun getPreviewData(type: ComplicationType): ComplicationData {
         if (type != ComplicationType.SMALL_IMAGE) return NoDataComplicationData()
@@ -37,6 +41,10 @@ class GraphComplicationDataSource : SuspendingComplicationDataSourceService() {
             return NoDataComplicationData()
         }
 
+        // Ensure persisted data is restored -- the complication service may be
+        // invoked in a fresh process before Application.onCreate() runs.
+        WatchDataRepository.init(applicationContext)
+
         val config = WatchDataRepository.watchFaceConfig.value
         if (!config.showGraph) return NoDataComplicationData()
 
@@ -51,29 +59,53 @@ class GraphComplicationDataSource : SuspendingComplicationDataSourceService() {
         val low = readings.last().low
         val high = readings.last().high
 
-        val basalHistory = WatchDataRepository.basalHistory.value
-            .filter { it.timestampMs >= cutoff }
-        val bolusHistory = WatchDataRepository.bolusHistory.value
-            .filter { it.timestampMs >= cutoff }
-        val iobHistory = WatchDataRepository.iobHistory.value
-            .filter { it.timestampMs >= cutoff }
+        val basalHistory = if (config.showBasalOverlay || config.showModeBands) {
+            WatchDataRepository.basalHistory.value.filter { it.timestampMs >= cutoff }
+        } else {
+            emptyList()
+        }
+        val bolusHistory = emptyList<WatchDataRepository.BolusHistoryRecord>() // too small at 400x100
+        val iobHistory = if (config.showIoBOverlay) {
+            WatchDataRepository.iobHistory.value.filter { it.timestampMs >= cutoff }
+        } else {
+            emptyList()
+        }
 
         val graphConfig = WatchGraphRenderer.GraphConfig(
             showBasalOverlay = config.showBasalOverlay,
-            showBolusMarkers = config.showBolusMarkers,
+            showBolusMarkers = false, // too small for bolus markers at 400x100
             showIoBOverlay = config.showIoBOverlay,
             showModeBands = config.showModeBands,
         )
 
-        val bitmap = WatchGraphRenderer.render(
-            cgmReadings = readings,
-            basalHistory = basalHistory,
-            bolusHistory = bolusHistory,
-            iobHistory = iobHistory,
-            low = low,
-            high = high,
-            config = graphConfig,
+        // Cache the rendered bitmap and only re-render when data changes.
+        // Only include data that the renderer actually uses based on config
+        // to avoid unnecessary re-renders when non-visible data changes.
+        val dataHash = Objects.hash(
+            readings,
+            if (config.showBasalOverlay || config.showModeBands) basalHistory else null,
+            if (config.showIoBOverlay) iobHistory else null,
+            graphConfig,
+            low,
+            high,
         )
+
+        val bitmap = if (dataHash == cachedDataHash && cachedBitmap != null) {
+            cachedBitmap!!
+        } else {
+            WatchGraphRenderer.render(
+                cgmReadings = readings,
+                basalHistory = basalHistory,
+                bolusHistory = bolusHistory,
+                iobHistory = iobHistory,
+                low = low,
+                high = high,
+                config = graphConfig,
+            ).also {
+                cachedBitmap = it
+                cachedDataHash = dataHash
+            }
+        }
 
         val icon = Icon.createWithBitmap(bitmap)
 

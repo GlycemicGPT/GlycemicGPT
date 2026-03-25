@@ -20,6 +20,10 @@ import timber.log.Timber
 
 class GlycemicDataListenerService : WearableListenerService() {
 
+    @Volatile private var lastBgUpdateMs = 0L
+    @Volatile private var lastIoBUpdateMs = 0L
+    @Volatile private var lastGraphUpdateMs = 0L
+
     override fun onDataChanged(dataEvents: DataEventBuffer) {
         var iobUpdated = false
         var cgmUpdated = false
@@ -197,26 +201,62 @@ class GlycemicDataListenerService : WearableListenerService() {
             }
         }
 
+        // Collect all providers that need updating into a set so each fires at most once.
+        val providersToUpdate = mutableSetOf<Class<*>>()
+        val now = System.currentTimeMillis()
+
         if (configUpdated) {
-            // Config change may affect which complications are visible or how the graph renders
-            requestComplicationUpdate(IoBComplicationDataSource::class.java)
-            requestComplicationUpdate(GraphComplicationDataSource::class.java)
+            // Config change may affect which complications are visible -- update immediately.
+            // Also update throttle timestamps so subsequent throttled paths don't double-fire.
+            providersToUpdate += IoBComplicationDataSource::class.java
+            providersToUpdate += GraphComplicationDataSource::class.java
+            providersToUpdate += AlertsComplicationDataSource::class.java
+            lastIoBUpdateMs = now
+            lastGraphUpdateMs = now
         }
-        if (iobUpdated) {
-            requestComplicationUpdate(IoBComplicationDataSource::class.java)
+        if (iobUpdated && IoBComplicationDataSource::class.java !in providersToUpdate) {
+            if (now - lastIoBUpdateMs >= IOB_UPDATE_THROTTLE_MS) {
+                lastIoBUpdateMs = now
+                providersToUpdate += IoBComplicationDataSource::class.java
+            }
         }
         if (cgmUpdated) {
-            requestComplicationUpdate(BgComplicationDataSource::class.java)
-            requestComplicationUpdate(GraphComplicationDataSource::class.java)
+            if (BgComplicationDataSource::class.java !in providersToUpdate) {
+                if (now - lastBgUpdateMs >= BG_UPDATE_THROTTLE_MS) {
+                    lastBgUpdateMs = now
+                    providersToUpdate += BgComplicationDataSource::class.java
+                }
+            }
+            if (GraphComplicationDataSource::class.java !in providersToUpdate) {
+                val historySize = WatchDataRepository.cgmHistory.value.size
+                val effectiveThrottle = if (historySize < 10) 15_000L else GRAPH_UPDATE_THROTTLE_MS
+                if (now - lastGraphUpdateMs >= effectiveThrottle) {
+                    lastGraphUpdateMs = now
+                    providersToUpdate += GraphComplicationDataSource::class.java
+                }
+            }
         }
-        if (historyUpdated) {
-            requestComplicationUpdate(GraphComplicationDataSource::class.java)
+        if (historyUpdated && GraphComplicationDataSource::class.java !in providersToUpdate) {
+            // Backfill data should render immediately
+            providersToUpdate += GraphComplicationDataSource::class.java
+            lastGraphUpdateMs = now
         }
         if (alertUpdated) {
-            requestComplicationUpdate(AlertsComplicationDataSource::class.java)
+            // Alerts are safety-critical -- always update immediately
+            providersToUpdate += AlertsComplicationDataSource::class.java
         }
-        if (categoryLabelsUpdated) {
-            requestComplicationUpdate(GraphComplicationDataSource::class.java)
+        if (categoryLabelsUpdated && GraphComplicationDataSource::class.java !in providersToUpdate) {
+            val historySize = WatchDataRepository.cgmHistory.value.size
+            val effectiveThrottle = if (historySize < 10) 15_000L else GRAPH_UPDATE_THROTTLE_MS
+            if (now - lastGraphUpdateMs >= effectiveThrottle) {
+                lastGraphUpdateMs = now
+                providersToUpdate += GraphComplicationDataSource::class.java
+            }
+        }
+
+        // Fire each provider exactly once
+        for (provider in providersToUpdate) {
+            requestComplicationUpdate(provider)
         }
     }
 
@@ -305,6 +345,10 @@ class GlycemicDataListenerService : WearableListenerService() {
         const val MAX_BOLUS_UNITS = 25f
         /** Hard cap per Tandem pump safety limits (max basal 15 U/hr). */
         const val MAX_BASAL_RATE = 15f
+        /** Complication update throttle intervals to reduce battery drain. */
+        const val BG_UPDATE_THROTTLE_MS = 30_000L    // max once per 30s
+        const val IOB_UPDATE_THROTTLE_MS = 60_000L   // max once per 60s
+        const val GRAPH_UPDATE_THROTTLE_MS = 120_000L // max once per 2 min
     }
 
     private fun requestComplicationUpdate(dataSourceClass: Class<*>) {
