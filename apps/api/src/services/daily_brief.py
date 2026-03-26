@@ -15,9 +15,14 @@ from src.models.glucose import GlucoseReading
 from src.models.pump_data import PumpEvent, PumpEventType
 from src.models.user import User
 from src.schemas.ai_response import AIMessage
-from src.schemas.daily_brief import DailyBriefMetrics
+from src.schemas.daily_brief import DailyBriefMetrics, InsulinBreakdown
 from src.services.ai_client import get_ai_client
 from src.services.brief_notifier import notify_user_of_brief
+from src.services.diabetes_context import (
+    format_iob_for_prompt,
+    format_pump_profile_for_prompt,
+    get_pump_profile_summary,
+)
 from src.services.safety_validation import log_safety_validation, validate_ai_suggestion
 
 logger = get_logger(__name__)
@@ -38,6 +43,9 @@ Guidelines:
 - Be concise but informative (3-5 paragraphs)
 - Highlight patterns (post-meal spikes, overnight trends, time-in-range)
 - Note Control-IQ corrections and what they suggest
+- When pump profile data is provided, reference the user's actual basal rates, \
+correction factors, and carb ratios when discussing patterns
+- When IoB data is provided, factor current insulin on board into your analysis
 - Use encouraging, non-judgmental language
 - Do NOT recommend specific insulin dose changes (that is for their endocrinologist)
 - Focus on actionable observations the user can discuss with their care team
@@ -45,12 +53,19 @@ Guidelines:
 """
 
 
-def _build_analysis_prompt(metrics: DailyBriefMetrics, hours: int) -> str:
+def _build_analysis_prompt(
+    metrics: DailyBriefMetrics,
+    hours: int,
+    profile_context: str | None = None,
+    iob_context: str | None = None,
+) -> str:
     """Build the user prompt with glucose and pump metrics.
 
     Args:
         metrics: Calculated metrics for the period.
         hours: Number of hours analyzed.
+        profile_context: Optional pump profile text block.
+        iob_context: Optional IoB text block.
 
     Returns:
         Formatted prompt string for the AI provider.
@@ -66,8 +81,27 @@ def _build_analysis_prompt(metrics: DailyBriefMetrics, hours: int) -> str:
         f"- Control-IQ auto-corrections: {metrics.correction_count}",
     ]
 
-    if metrics.total_insulin is not None:
+    if metrics.insulin_breakdown:
+        bd = metrics.insulin_breakdown
+        lines.append(f"- Total insulin delivered: {bd.total_units:.1f} units")
+        lines.append(f"  - Manual boluses: {bd.bolus_count} ({bd.bolus_units:.1f}u)")
+        lines.append(
+            f"  - Manual corrections: {bd.correction_count} ({bd.correction_units:.1f}u)"
+        )
+        lines.append(
+            f"  - Auto-corrections (Control-IQ): {bd.auto_correction_count} ({bd.auto_correction_units:.1f}u)"
+        )
+        lines.append(f"  - Basal delivery (estimated): {bd.basal_units:.1f}u")
+    elif metrics.total_insulin is not None:
         lines.append(f"- Total insulin delivered: {metrics.total_insulin:.1f} units")
+
+    if profile_context:
+        lines.append("")
+        lines.append(profile_context)
+
+    if iob_context:
+        lines.append("")
+        lines.append(iob_context)
 
     lines.append("")
     lines.append(
@@ -135,16 +169,111 @@ async def calculate_metrics(
     )
     correction_count = correction_result.scalar() or 0
 
-    # Query total insulin delivered
-    insulin_result = await db.execute(
-        select(func.sum(PumpEvent.units)).where(
+    # ── Insulin breakdown ──
+    # Bolus + correction events have discrete delivery amounts in units.
+    # Basal events store the *rate* (u/hr) not doses, so we integrate
+    # rate x time between consecutive events to estimate basal delivery.
+
+    # Manual boluses
+    bolus_result = await db.execute(
+        select(func.count(), func.coalesce(func.sum(PumpEvent.units), 0.0)).where(
             PumpEvent.user_id == user_id,
             PumpEvent.event_timestamp >= period_start,
             PumpEvent.event_timestamp < period_end,
+            PumpEvent.event_type == PumpEventType.BOLUS,
             PumpEvent.units.is_not(None),
         )
     )
-    total_insulin = insulin_result.scalar()
+    bolus_row = bolus_result.one()
+    bolus_count = bolus_row[0] or 0
+    bolus_units = float(bolus_row[1] or 0)
+
+    # Manual corrections (user-initiated, not automated)
+    manual_corr_result = await db.execute(
+        select(func.count(), func.coalesce(func.sum(PumpEvent.units), 0.0)).where(
+            PumpEvent.user_id == user_id,
+            PumpEvent.event_timestamp >= period_start,
+            PumpEvent.event_timestamp < period_end,
+            PumpEvent.event_type == PumpEventType.CORRECTION,
+            PumpEvent.is_automated.is_(False),
+            PumpEvent.units.is_not(None),
+        )
+    )
+    manual_corr_row = manual_corr_result.one()
+    manual_corr_count = manual_corr_row[0] or 0
+    manual_corr_units = float(manual_corr_row[1] or 0)
+
+    # Auto-corrections (Control-IQ)
+    auto_corr_result = await db.execute(
+        select(func.count(), func.coalesce(func.sum(PumpEvent.units), 0.0)).where(
+            PumpEvent.user_id == user_id,
+            PumpEvent.event_timestamp >= period_start,
+            PumpEvent.event_timestamp < period_end,
+            PumpEvent.event_type == PumpEventType.CORRECTION,
+            PumpEvent.is_automated.is_(True),
+            PumpEvent.units.is_not(None),
+        )
+    )
+    auto_corr_row = auto_corr_result.one()
+    auto_corr_count = auto_corr_row[0] or 0
+    auto_corr_units = float(auto_corr_row[1] or 0)
+
+    # Basal delivery: integrate rate (u/hr) x time across the window.
+    # Fetch the last basal event BEFORE the window to seed the active rate,
+    # then all in-window events. Each segment runs until the next event or
+    # period_end, clamped to the window boundaries.
+    seed_result = await db.execute(
+        select(PumpEvent.event_timestamp, PumpEvent.units)
+        .where(
+            PumpEvent.user_id == user_id,
+            PumpEvent.event_timestamp < period_start,
+            PumpEvent.event_type == PumpEventType.BASAL,
+            PumpEvent.units.is_not(None),
+        )
+        .order_by(PumpEvent.event_timestamp.desc())
+        .limit(1)
+    )
+    basal_result = await db.execute(
+        select(PumpEvent.event_timestamp, PumpEvent.units)
+        .where(
+            PumpEvent.user_id == user_id,
+            PumpEvent.event_timestamp >= period_start,
+            PumpEvent.event_timestamp < period_end,
+            PumpEvent.event_type == PumpEventType.BASAL,
+            PumpEvent.units.is_not(None),
+        )
+        .order_by(PumpEvent.event_timestamp)
+    )
+    basal_events = list(basal_result.all())
+    seed = seed_result.first()
+    if seed:
+        basal_events.insert(0, seed)
+
+    basal_units = 0.0
+    for i, (event_ts, rate) in enumerate(basal_events):
+        t_start = max(event_ts, period_start)
+        next_ts = basal_events[i + 1][0] if i + 1 < len(basal_events) else period_end
+        t_end = min(next_ts, period_end)
+        if t_end <= t_start:
+            continue
+        duration_hours = (t_end - t_start).total_seconds() / 3600
+        # Cap individual segment to 1 hour to handle gaps in data
+        duration_hours = min(duration_hours, 1.0)
+        basal_units += rate * duration_hours
+
+    total_bolus_corr = bolus_units + manual_corr_units + auto_corr_units
+    total_insulin = total_bolus_corr + basal_units
+
+    breakdown = InsulinBreakdown(
+        bolus_units=round(bolus_units, 1),
+        bolus_count=bolus_count,
+        correction_units=round(manual_corr_units, 1),
+        correction_count=manual_corr_count,
+        auto_correction_units=round(auto_corr_units, 1),
+        auto_correction_count=auto_corr_count,
+        basal_units=round(basal_units, 1),
+        total_units=round(total_insulin, 1),
+    )
 
     return DailyBriefMetrics(
         time_in_range_pct=round(time_in_range_pct, 1),
@@ -153,7 +282,8 @@ async def calculate_metrics(
         high_count=high_count,
         readings_count=readings_count,
         correction_count=correction_count,
-        total_insulin=round(total_insulin, 1) if total_insulin is not None else None,
+        total_insulin=round(total_insulin, 1) if total_insulin > 0 else None,
+        insulin_breakdown=breakdown,
     )
 
 
@@ -196,8 +326,31 @@ async def generate_daily_brief(
     # Get AI client (raises 404 if not configured)
     ai_client = await get_ai_client(user, db)
 
+    # Fetch pump profile and IoB context (graceful -- missing data is fine)
+    profile_context = None
+    iob_context = None
+    try:
+        profile_summary = await get_pump_profile_summary(db, user.id)
+        if profile_summary:
+            profile_context = format_pump_profile_for_prompt(profile_summary)
+    except Exception:
+        logger.warning(
+            "Failed to fetch pump profile for daily brief",
+            user_id=str(user.id),
+            exc_info=True,
+        )
+
+    try:
+        iob_context = await format_iob_for_prompt(db, user.id)
+    except Exception:
+        logger.warning(
+            "Failed to fetch IoB for daily brief",
+            user_id=str(user.id),
+            exc_info=True,
+        )
+
     # Build prompt and generate
-    user_prompt = _build_analysis_prompt(metrics, hours)
+    user_prompt = _build_analysis_prompt(metrics, hours, profile_context, iob_context)
 
     logger.info(
         "Generating daily brief",
