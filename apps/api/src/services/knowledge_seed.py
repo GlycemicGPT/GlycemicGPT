@@ -71,7 +71,7 @@ async def seed_knowledge_base(db: AsyncSession) -> int:
     # Check if already seeded
     count_result = await db.execute(
         select(func.count()).where(
-            KnowledgeChunk.trust_tier == "AUTHORITATIVE",
+            KnowledgeChunk.trust_tier == "CURATED",
             KnowledgeChunk.user_id.is_(None),
         )
     )
@@ -108,7 +108,7 @@ async def seed_knowledge_base(db: AsyncSession) -> int:
                     "source_type": "bootstrap",
                     "content": chunk_text,
                     "content_hash": content_hash,
-                    "trust_tier": "AUTHORITATIVE",
+                    "trust_tier": "CURATED",
                     "file": file_path.name,
                 }
             )

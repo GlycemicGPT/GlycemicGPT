@@ -64,7 +64,14 @@ async def lifespan(app: FastAPI):
     start_scheduler()
     logger.info("Background scheduler started")
 
-    # Seed knowledge base on first startup (Story 35.9)
+    # Preload embedding model + seed knowledge base on first startup (Story 35.9)
+    try:
+        from src.services.embedding import preload_model
+
+        preload_model()
+    except Exception:
+        logger.warning("Embedding model preload failed", exc_info=True)
+
     try:
         from src.database import get_session_maker
         from src.services.knowledge_seed import seed_knowledge_base
