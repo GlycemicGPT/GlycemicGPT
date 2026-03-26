@@ -9,6 +9,30 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 
+class InsulinBreakdown(BaseModel):
+    """Breakdown of insulin delivery by type."""
+
+    bolus_units: float = Field(default=0.0, description="Manual bolus insulin (units)")
+    bolus_count: int = Field(default=0, description="Number of manual boluses")
+    correction_units: float = Field(
+        default=0.0, description="Correction bolus insulin (units)"
+    )
+    correction_count: int = Field(default=0, description="Number of correction boluses")
+    auto_correction_units: float = Field(
+        default=0.0, description="Control-IQ auto-correction insulin (units)"
+    )
+    auto_correction_count: int = Field(
+        default=0, description="Number of auto-corrections"
+    )
+    basal_units: float = Field(
+        default=0.0,
+        description="Estimated basal delivery (rate x time integration)",
+    )
+    total_units: float = Field(
+        default=0.0, description="Total insulin delivered (all types)"
+    )
+
+
 class DailyBriefMetrics(BaseModel):
     """Calculated glucose metrics for a 24-hour period."""
 
@@ -23,7 +47,10 @@ class DailyBriefMetrics(BaseModel):
         default=0, description="Number of Control-IQ corrections"
     )
     total_insulin: float | None = Field(
-        default=None, description="Total insulin delivered in units"
+        default=None, description="Total insulin delivered in units (all types)"
+    )
+    insulin_breakdown: InsulinBreakdown | None = Field(
+        default=None, description="Detailed insulin delivery breakdown"
     )
 
 

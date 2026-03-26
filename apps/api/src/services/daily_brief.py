@@ -15,7 +15,7 @@ from src.models.glucose import GlucoseReading
 from src.models.pump_data import PumpEvent, PumpEventType
 from src.models.user import User
 from src.schemas.ai_response import AIMessage
-from src.schemas.daily_brief import DailyBriefMetrics
+from src.schemas.daily_brief import DailyBriefMetrics, InsulinBreakdown
 from src.services.ai_client import get_ai_client
 from src.services.brief_notifier import notify_user_of_brief
 from src.services.diabetes_context import (
@@ -81,7 +81,18 @@ def _build_analysis_prompt(
         f"- Control-IQ auto-corrections: {metrics.correction_count}",
     ]
 
-    if metrics.total_insulin is not None:
+    if metrics.insulin_breakdown:
+        bd = metrics.insulin_breakdown
+        lines.append(f"- Total insulin delivered: {bd.total_units:.1f} units")
+        lines.append(f"  - Manual boluses: {bd.bolus_count} ({bd.bolus_units:.1f}u)")
+        lines.append(
+            f"  - Manual corrections: {bd.correction_count} ({bd.correction_units:.1f}u)"
+        )
+        lines.append(
+            f"  - Auto-corrections (Control-IQ): {bd.auto_correction_count} ({bd.auto_correction_units:.1f}u)"
+        )
+        lines.append(f"  - Basal delivery (estimated): {bd.basal_units:.1f}u")
+    elif metrics.total_insulin is not None:
         lines.append(f"- Total insulin delivered: {metrics.total_insulin:.1f} units")
 
     if profile_context:
@@ -158,24 +169,92 @@ async def calculate_metrics(
     )
     correction_count = correction_result.scalar() or 0
 
-    # Query total insulin delivered via discrete bolus/correction events.
-    # Basal events store the *rate* (u/hr), not delivered doses, so they
-    # must be excluded to avoid wildly inflated totals.  Reservoir and
-    # battery events also carry a units field (level / percentage).
-    insulin_delivery_types = [
-        PumpEventType.BOLUS,
-        PumpEventType.CORRECTION,
-    ]
-    insulin_result = await db.execute(
-        select(func.sum(PumpEvent.units)).where(
+    # ── Insulin breakdown ──
+    # Bolus + correction events have discrete delivery amounts in units.
+    # Basal events store the *rate* (u/hr) not doses, so we integrate
+    # rate x time between consecutive events to estimate basal delivery.
+
+    # Manual boluses
+    bolus_result = await db.execute(
+        select(func.count(), func.coalesce(func.sum(PumpEvent.units), 0.0)).where(
             PumpEvent.user_id == user_id,
             PumpEvent.event_timestamp >= period_start,
             PumpEvent.event_timestamp < period_end,
+            PumpEvent.event_type == PumpEventType.BOLUS,
             PumpEvent.units.is_not(None),
-            PumpEvent.event_type.in_(insulin_delivery_types),
         )
     )
-    total_insulin = insulin_result.scalar()
+    bolus_row = bolus_result.one()
+    bolus_count = bolus_row[0] or 0
+    bolus_units = float(bolus_row[1] or 0)
+
+    # Manual corrections (user-initiated, not automated)
+    manual_corr_result = await db.execute(
+        select(func.count(), func.coalesce(func.sum(PumpEvent.units), 0.0)).where(
+            PumpEvent.user_id == user_id,
+            PumpEvent.event_timestamp >= period_start,
+            PumpEvent.event_timestamp < period_end,
+            PumpEvent.event_type == PumpEventType.CORRECTION,
+            PumpEvent.is_automated.is_(False),
+            PumpEvent.units.is_not(None),
+        )
+    )
+    manual_corr_row = manual_corr_result.one()
+    manual_corr_count = manual_corr_row[0] or 0
+    manual_corr_units = float(manual_corr_row[1] or 0)
+
+    # Auto-corrections (Control-IQ)
+    auto_corr_result = await db.execute(
+        select(func.count(), func.coalesce(func.sum(PumpEvent.units), 0.0)).where(
+            PumpEvent.user_id == user_id,
+            PumpEvent.event_timestamp >= period_start,
+            PumpEvent.event_timestamp < period_end,
+            PumpEvent.event_type == PumpEventType.CORRECTION,
+            PumpEvent.is_automated.is_(True),
+            PumpEvent.units.is_not(None),
+        )
+    )
+    auto_corr_row = auto_corr_result.one()
+    auto_corr_count = auto_corr_row[0] or 0
+    auto_corr_units = float(auto_corr_row[1] or 0)
+
+    # Basal delivery: integrate rate (u/hr) x time between consecutive events
+    basal_result = await db.execute(
+        select(PumpEvent.event_timestamp, PumpEvent.units)
+        .where(
+            PumpEvent.user_id == user_id,
+            PumpEvent.event_timestamp >= period_start,
+            PumpEvent.event_timestamp < period_end,
+            PumpEvent.event_type == PumpEventType.BASAL,
+            PumpEvent.units.is_not(None),
+        )
+        .order_by(PumpEvent.event_timestamp)
+    )
+    basal_events = basal_result.all()
+
+    basal_units = 0.0
+    for i in range(len(basal_events) - 1):
+        rate = basal_events[i][1]  # u/hr
+        t_start = basal_events[i][0]
+        t_end = basal_events[i + 1][0]
+        duration_hours = (t_end - t_start).total_seconds() / 3600
+        # Cap individual segment to 1 hour to handle gaps in data
+        duration_hours = min(duration_hours, 1.0)
+        basal_units += rate * duration_hours
+
+    total_bolus_corr = bolus_units + manual_corr_units + auto_corr_units
+    total_insulin = total_bolus_corr + basal_units
+
+    breakdown = InsulinBreakdown(
+        bolus_units=round(bolus_units, 1),
+        bolus_count=bolus_count,
+        correction_units=round(manual_corr_units, 1),
+        correction_count=manual_corr_count,
+        auto_correction_units=round(auto_corr_units, 1),
+        auto_correction_count=auto_corr_count,
+        basal_units=round(basal_units, 1),
+        total_units=round(total_insulin, 1),
+    )
 
     return DailyBriefMetrics(
         time_in_range_pct=round(time_in_range_pct, 1),
@@ -184,7 +263,8 @@ async def calculate_metrics(
         high_count=high_count,
         readings_count=readings_count,
         correction_count=correction_count,
-        total_insulin=round(total_insulin, 1) if total_insulin is not None else None,
+        total_insulin=round(total_insulin, 1) if total_insulin > 0 else None,
+        insulin_breakdown=breakdown,
     )
 
 
