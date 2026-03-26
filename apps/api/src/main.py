@@ -64,28 +64,14 @@ async def lifespan(app: FastAPI):
     start_scheduler()
     logger.info("Background scheduler started")
 
-    # Preload embedding model + seed knowledge base on first startup (Story 35.9)
-    # Model preload runs BEFORE opening DB session to avoid connection timeouts
+    # Preload embedding model for RAG retrieval (Story 35.9)
+    # Model downloads ~500MB on first run, then caches in Docker volume.
     try:
         from src.services.embedding import preload_model
 
         preload_model()
     except Exception:
         logger.warning("Embedding model preload failed", exc_info=True)
-
-    try:
-        from src.database import get_session_maker
-        from src.services.knowledge_seed import seed_knowledge_base
-
-        # Open a fresh session for the seed. The embedding step runs in a
-        # thread (asyncio.to_thread) so it doesn't block the event loop,
-        # and the DB session is only used for the quick check + insert.
-        async with get_session_maker()() as db:
-            seeded = await seed_knowledge_base(db)
-            if seeded > 0:
-                logger.info("Knowledge base bootstrap complete", chunks=seeded)
-    except Exception:
-        logger.warning("Knowledge base seed skipped", exc_info=True)
 
     yield
 
