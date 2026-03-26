@@ -18,6 +18,11 @@ from src.schemas.ai_response import AIMessage
 from src.schemas.daily_brief import DailyBriefMetrics
 from src.services.ai_client import get_ai_client
 from src.services.brief_notifier import notify_user_of_brief
+from src.services.diabetes_context import (
+    format_iob_for_prompt,
+    format_pump_profile_for_prompt,
+    get_pump_profile_summary,
+)
 from src.services.safety_validation import log_safety_validation, validate_ai_suggestion
 
 logger = get_logger(__name__)
@@ -38,6 +43,9 @@ Guidelines:
 - Be concise but informative (3-5 paragraphs)
 - Highlight patterns (post-meal spikes, overnight trends, time-in-range)
 - Note Control-IQ corrections and what they suggest
+- When pump profile data is provided, reference the user's actual basal rates, \
+correction factors, and carb ratios when discussing patterns
+- When IoB data is provided, factor current insulin on board into your analysis
 - Use encouraging, non-judgmental language
 - Do NOT recommend specific insulin dose changes (that is for their endocrinologist)
 - Focus on actionable observations the user can discuss with their care team
@@ -45,12 +53,19 @@ Guidelines:
 """
 
 
-def _build_analysis_prompt(metrics: DailyBriefMetrics, hours: int) -> str:
+def _build_analysis_prompt(
+    metrics: DailyBriefMetrics,
+    hours: int,
+    profile_context: str | None = None,
+    iob_context: str | None = None,
+) -> str:
     """Build the user prompt with glucose and pump metrics.
 
     Args:
         metrics: Calculated metrics for the period.
         hours: Number of hours analyzed.
+        profile_context: Optional pump profile text block.
+        iob_context: Optional IoB text block.
 
     Returns:
         Formatted prompt string for the AI provider.
@@ -68,6 +83,14 @@ def _build_analysis_prompt(metrics: DailyBriefMetrics, hours: int) -> str:
 
     if metrics.total_insulin is not None:
         lines.append(f"- Total insulin delivered: {metrics.total_insulin:.1f} units")
+
+    if profile_context:
+        lines.append("")
+        lines.append(profile_context)
+
+    if iob_context:
+        lines.append("")
+        lines.append(iob_context)
 
     lines.append("")
     lines.append(
@@ -196,8 +219,31 @@ async def generate_daily_brief(
     # Get AI client (raises 404 if not configured)
     ai_client = await get_ai_client(user, db)
 
+    # Fetch pump profile and IoB context (graceful -- missing data is fine)
+    profile_context = None
+    iob_context = None
+    try:
+        profile_summary = await get_pump_profile_summary(db, user.id)
+        if profile_summary:
+            profile_context = format_pump_profile_for_prompt(profile_summary)
+    except Exception:
+        logger.warning(
+            "Failed to fetch pump profile for daily brief",
+            user_id=str(user.id),
+            exc_info=True,
+        )
+
+    try:
+        iob_context = await format_iob_for_prompt(db, user.id)
+    except Exception:
+        logger.warning(
+            "Failed to fetch IoB for daily brief",
+            user_id=str(user.id),
+            exc_info=True,
+        )
+
     # Build prompt and generate
-    user_prompt = _build_analysis_prompt(metrics, hours)
+    user_prompt = _build_analysis_prompt(metrics, hours, profile_context, iob_context)
 
     logger.info(
         "Generating daily brief",

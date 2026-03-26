@@ -18,6 +18,11 @@ from src.models.user import User
 from src.schemas.ai_response import AIMessage
 from src.schemas.meal_analysis import MealPeriodData
 from src.services.ai_client import get_ai_client
+from src.services.diabetes_context import (
+    PumpProfileSummary,
+    format_pump_profile_for_prompt,
+    get_pump_profile_summary,
+)
 from src.services.safety_validation import log_safety_validation, validate_ai_suggestion
 
 logger = get_logger(__name__)
@@ -49,10 +54,15 @@ period, you have the number of boluses analyzed, the number of post-meal spikes 
 (>180 mg/dL within 2 hours), the average peak glucose, and the average glucose \
 at 2 hours post-bolus.
 
+When the user's pump profile is provided, compare observed spike patterns \
+against the user's current carb ratios for each time period. Reference the \
+actual configured ratios in your suggestions (e.g., "Your current breakfast \
+ratio is 1:8 but your consistent post-meal spikes suggest trying 1:7").
+
 Guidelines:
 - Identify which meal periods have consistent post-meal spikes
-- For problematic periods, suggest a specific carb ratio direction \
-(e.g., "consider a stronger ratio for breakfast, such as moving from 1:8 to 1:7")
+- For problematic periods, suggest a specific carb ratio direction using \
+the user's actual current ratios as the starting point
 - Explain reasoning: "Your breakfast peaks average X mg/dL despite Control-IQ corrections"
 - Use encouraging, non-judgmental language
 - Clearly state that these are observations to discuss with their endocrinologist
@@ -83,6 +93,7 @@ def _build_meal_prompt(
     meal_periods: list[MealPeriodData],
     total_boluses: int,
     days: int,
+    profile_summary: PumpProfileSummary | None = None,
 ) -> str:
     """Build the analysis prompt with meal period data.
 
@@ -90,6 +101,7 @@ def _build_meal_prompt(
         meal_periods: Per-period metrics.
         total_boluses: Total boluses analyzed.
         days: Number of days in the analysis window.
+        profile_summary: Optional pump profile for carb ratio context.
 
     Returns:
         Formatted prompt string.
@@ -110,6 +122,10 @@ def _build_meal_prompt(
         if mp.bolus_count > 0:
             spike_pct = (mp.spike_count / mp.bolus_count) * 100
             lines.append(f"  - Spike rate: {spike_pct:.0f}%")
+        lines.append("")
+
+    if profile_summary:
+        lines.append(format_pump_profile_for_prompt(profile_summary))
         lines.append("")
 
     lines.append(
@@ -285,8 +301,19 @@ async def generate_meal_analysis(
     # Get AI client
     ai_client = await get_ai_client(user, db)
 
+    # Fetch pump profile for carb ratio context (graceful -- missing is fine)
+    profile_summary = None
+    try:
+        profile_summary = await get_pump_profile_summary(db, user.id)
+    except Exception:
+        logger.warning(
+            "Failed to fetch pump profile for meal analysis",
+            user_id=str(user.id),
+            exc_info=True,
+        )
+
     # Build prompt and generate
-    user_prompt = _build_meal_prompt(meal_periods, total_boluses, days)
+    user_prompt = _build_meal_prompt(meal_periods, total_boluses, days, profile_summary)
 
     logger.info(
         "Generating meal pattern analysis",

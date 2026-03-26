@@ -10,18 +10,20 @@ from src.models.ai_provider import AIProviderType
 from src.models.glucose import GlucoseReading, TrendDirection
 from src.models.user import User
 from src.schemas.ai_response import AIResponse, AIUsage
+from src.services.diabetes_context import (
+    build_control_iq_section,
+    build_diabetes_context,
+    build_glucose_section,
+    build_iob_section,
+    build_pump_profile_section,
+    build_pump_section,
+    build_settings_section,
+)
 from src.services.iob_projection import IoBProjection
 from src.services.telegram_chat import (
     MAX_USER_MESSAGE_LENGTH,
     SAFETY_DISCLAIMER,
     TELEGRAM_MAX_LENGTH,
-    _build_control_iq_section,
-    _build_diabetes_context,
-    _build_glucose_section,
-    _build_iob_section,
-    _build_pump_profile_section,
-    _build_pump_section,
-    _build_settings_section,
     _build_system_prompt,
     _truncate_response,
     handle_chat,
@@ -134,7 +136,7 @@ def make_ciq_summary(**kwargs) -> MagicMock:
 # Individual section builder tests (Story 15.7)
 # ---------------------------------------------------------------------------
 class TestBuildGlucoseSection:
-    """Tests for _build_glucose_section."""
+    """Tests for build_glucose_section."""
 
     @pytest.mark.asyncio
     async def test_no_readings_returns_none(self):
@@ -143,7 +145,7 @@ class TestBuildGlucoseSection:
         mock_result.scalars.return_value.all.return_value = []
         db.execute.return_value = mock_result
 
-        result = await _build_glucose_section(db, uuid.uuid4())
+        result = await build_glucose_section(db, uuid.uuid4())
         assert result is None
 
     @pytest.mark.asyncio
@@ -156,7 +158,7 @@ class TestBuildGlucoseSection:
         mock_result.scalars.return_value.all.return_value = readings
         db.execute = AsyncMock(side_effect=[mock_result, _mock_none_scalar()])
 
-        result = await _build_glucose_section(db, uuid.uuid4())
+        result = await build_glucose_section(db, uuid.uuid4())
 
         assert result is not None
         assert "[Glucose - last 6h]" in result
@@ -178,7 +180,7 @@ class TestBuildGlucoseSection:
         mock_range_result.scalar_one_or_none.return_value = mock_range
         db.execute = AsyncMock(side_effect=[mock_readings_result, mock_range_result])
 
-        result = await _build_glucose_section(db, uuid.uuid4())
+        result = await build_glucose_section(db, uuid.uuid4())
 
         assert "80-120" in result
         assert "100%" in result  # All readings are in range 80-120
@@ -192,7 +194,7 @@ class TestBuildGlucoseSection:
         mock_result.scalars.return_value.all.return_value = readings
         db.execute = AsyncMock(side_effect=[mock_result, _mock_none_scalar()])
 
-        result = await _build_glucose_section(db, uuid.uuid4())
+        result = await build_glucose_section(db, uuid.uuid4())
 
         assert "200-200" in result  # min==max for single reading
         assert "Avg: 200" in result
@@ -200,16 +202,16 @@ class TestBuildGlucoseSection:
 
 
 class TestBuildIobSection:
-    """Tests for _build_iob_section."""
+    """Tests for build_iob_section."""
 
     @pytest.mark.asyncio
-    @patch("src.services.telegram_chat.get_iob_projection", new_callable=AsyncMock)
-    @patch("src.services.telegram_chat.get_user_dia", new_callable=AsyncMock)
+    @patch("src.services.diabetes_context.get_iob_projection", new_callable=AsyncMock)
+    @patch("src.services.diabetes_context.get_user_dia", new_callable=AsyncMock)
     async def test_formats_iob(self, mock_dia, mock_iob):
         mock_dia.return_value = 4.0
         mock_iob.return_value = make_iob(projected_iob=2.5)
 
-        result = await _build_iob_section(AsyncMock(), uuid.uuid4())
+        result = await build_iob_section(AsyncMock(), uuid.uuid4())
 
         assert "[Insulin on Board]" in result
         assert "2.5 units" in result
@@ -217,35 +219,35 @@ class TestBuildIobSection:
         assert "60min" in result
 
     @pytest.mark.asyncio
-    @patch("src.services.telegram_chat.get_iob_projection", new_callable=AsyncMock)
-    @patch("src.services.telegram_chat.get_user_dia", new_callable=AsyncMock)
+    @patch("src.services.diabetes_context.get_iob_projection", new_callable=AsyncMock)
+    @patch("src.services.diabetes_context.get_user_dia", new_callable=AsyncMock)
     async def test_stale_iob_shows_warning(self, mock_dia, mock_iob):
         mock_dia.return_value = 4.0
         mock_iob.return_value = make_iob(projected_iob=1.0, is_stale=True)
 
-        result = await _build_iob_section(AsyncMock(), uuid.uuid4())
+        result = await build_iob_section(AsyncMock(), uuid.uuid4())
 
         assert "stale" in result.lower()
 
     @pytest.mark.asyncio
-    @patch("src.services.telegram_chat.get_iob_projection", new_callable=AsyncMock)
-    @patch("src.services.telegram_chat.get_user_dia", new_callable=AsyncMock)
+    @patch("src.services.diabetes_context.get_iob_projection", new_callable=AsyncMock)
+    @patch("src.services.diabetes_context.get_user_dia", new_callable=AsyncMock)
     async def test_no_iob_returns_none(self, mock_dia, mock_iob):
         mock_dia.return_value = 4.0
         mock_iob.return_value = None
 
-        result = await _build_iob_section(AsyncMock(), uuid.uuid4())
+        result = await build_iob_section(AsyncMock(), uuid.uuid4())
         assert result is None
 
 
 class TestBuildPumpSection:
-    """Tests for _build_pump_section."""
+    """Tests for build_pump_section."""
 
     @pytest.mark.asyncio
     @patch("src.services.tandem_sync.get_pump_events", new_callable=AsyncMock)
     async def test_no_events_returns_none(self, mock_get_events):
         mock_get_events.return_value = []
-        result = await _build_pump_section(AsyncMock(), uuid.uuid4())
+        result = await build_pump_section(AsyncMock(), uuid.uuid4())
         assert result is None
 
     @pytest.mark.asyncio
@@ -255,7 +257,7 @@ class TestBuildPumpSection:
             make_pump_event("bolus", units=3.0, is_automated=False),
             make_pump_event("bolus", units=5.0, is_automated=False),
         ]
-        result = await _build_pump_section(AsyncMock(), uuid.uuid4())
+        result = await build_pump_section(AsyncMock(), uuid.uuid4())
 
         assert "Manual boluses: 2" in result
         assert "8.0u total" in result
@@ -266,7 +268,7 @@ class TestBuildPumpSection:
         mock_get_events.return_value = [
             make_pump_event("correction", units=0.5, is_automated=True, minutes_ago=10),
         ]
-        result = await _build_pump_section(AsyncMock(), uuid.uuid4())
+        result = await build_pump_section(AsyncMock(), uuid.uuid4())
 
         assert "Auto-corrections (Control-IQ): 1" in result
         assert "0.5u total" in result
@@ -280,7 +282,7 @@ class TestBuildPumpSection:
             make_pump_event("basal", is_automated=True, basal_adjustment_pct=-10.0),
             make_pump_event("basal", is_automated=True, basal_adjustment_pct=20.0),
         ]
-        result = await _build_pump_section(AsyncMock(), uuid.uuid4())
+        result = await build_pump_section(AsyncMock(), uuid.uuid4())
 
         assert "2 increases" in result
         assert "1 decreases" in result
@@ -291,26 +293,26 @@ class TestBuildPumpSection:
         mock_get_events.return_value = [
             make_pump_event("suspend", units=None),
         ]
-        result = await _build_pump_section(AsyncMock(), uuid.uuid4())
+        result = await build_pump_section(AsyncMock(), uuid.uuid4())
 
         assert "Suspends: 1" in result
 
 
 class TestBuildControlIqSection:
-    """Tests for _build_control_iq_section."""
+    """Tests for build_control_iq_section."""
 
     @pytest.mark.asyncio
     @patch("src.services.tandem_sync.get_control_iq_activity", new_callable=AsyncMock)
     async def test_no_events_returns_none(self, mock_activity):
         mock_activity.return_value = make_ciq_summary(total_events=0)
-        result = await _build_control_iq_section(AsyncMock(), uuid.uuid4())
+        result = await build_control_iq_section(AsyncMock(), uuid.uuid4())
         assert result is None
 
     @pytest.mark.asyncio
     @patch("src.services.tandem_sync.get_control_iq_activity", new_callable=AsyncMock)
     async def test_formats_summary(self, mock_activity):
         mock_activity.return_value = make_ciq_summary()
-        result = await _build_control_iq_section(AsyncMock(), uuid.uuid4())
+        result = await build_control_iq_section(AsyncMock(), uuid.uuid4())
 
         assert "[Control-IQ Activity - last 24h]" in result
         assert "Total events: 50" in result
@@ -325,7 +327,7 @@ class TestBuildControlIqSection:
         mock_activity.return_value = make_ciq_summary(
             sleep_mode_events=10, standard_mode_events=25
         )
-        result = await _build_control_iq_section(AsyncMock(), uuid.uuid4())
+        result = await build_control_iq_section(AsyncMock(), uuid.uuid4())
 
         assert "Sleep: 10" in result
         assert "Standard: 25" in result
@@ -336,7 +338,7 @@ class TestBuildControlIqSection:
         mock_activity.return_value = make_ciq_summary(
             suspend_count=3, automated_suspend_count=2
         )
-        result = await _build_control_iq_section(AsyncMock(), uuid.uuid4())
+        result = await build_control_iq_section(AsyncMock(), uuid.uuid4())
 
         assert "Suspends: 3 (2 automated)" in result
 
@@ -344,19 +346,19 @@ class TestBuildControlIqSection:
     @patch("src.services.tandem_sync.get_control_iq_activity", new_callable=AsyncMock)
     async def test_includes_avg_basal_adjustment(self, mock_activity):
         mock_activity.return_value = make_ciq_summary(avg_basal_adjustment_pct=12.3)
-        result = await _build_control_iq_section(AsyncMock(), uuid.uuid4())
+        result = await build_control_iq_section(AsyncMock(), uuid.uuid4())
 
         assert "+12.3%" in result
 
 
 class TestBuildSettingsSection:
-    """Tests for _build_settings_section."""
+    """Tests for build_settings_section."""
 
     @pytest.mark.asyncio
     async def test_no_settings_returns_none(self):
         db = AsyncMock()
         db.execute = AsyncMock(side_effect=[_mock_none_scalar(), _mock_none_scalar()])
-        result = await _build_settings_section(db, uuid.uuid4())
+        result = await build_settings_section(db, uuid.uuid4())
         assert result is None
 
     @pytest.mark.asyncio
@@ -372,7 +374,7 @@ class TestBuildSettingsSection:
         mock_insulin_result.scalar_one_or_none.return_value = None
         db.execute = AsyncMock(side_effect=[mock_range_result, mock_insulin_result])
 
-        result = await _build_settings_section(db, uuid.uuid4())
+        result = await build_settings_section(db, uuid.uuid4())
 
         assert "[User Settings]" in result
         assert "70-180 mg/dL" in result
@@ -391,7 +393,7 @@ class TestBuildSettingsSection:
         mock_config_result.scalar_one_or_none.return_value = mock_config
         db.execute = AsyncMock(side_effect=[mock_range_result, mock_config_result])
 
-        result = await _build_settings_section(db, uuid.uuid4())
+        result = await build_settings_section(db, uuid.uuid4())
 
         assert "humalog" in result
         assert "DIA: 4.0h" in result
@@ -455,17 +457,17 @@ def _mock_scalars_first(value: object) -> MagicMock:
 
 
 # ---------------------------------------------------------------------------
-# _build_pump_profile_section tests (Story 15.8)
+# build_pump_profile_section tests (Story 15.8)
 # ---------------------------------------------------------------------------
 class TestBuildPumpProfileSection:
-    """Tests for _build_pump_profile_section."""
+    """Tests for build_pump_profile_section."""
 
     @pytest.mark.asyncio
     async def test_no_profile_returns_none(self):
         db = AsyncMock()
         db.execute = AsyncMock(return_value=_mock_scalars_first(None))
 
-        result = await _build_pump_profile_section(db, uuid.uuid4())
+        result = await build_pump_profile_section(db, uuid.uuid4())
         assert result is None
 
     @pytest.mark.asyncio
@@ -475,7 +477,7 @@ class TestBuildPumpProfileSection:
         db = AsyncMock()
         db.execute = AsyncMock(return_value=_mock_scalars_first(profile))
 
-        result = await _build_pump_profile_section(db, uuid.uuid4())
+        result = await build_pump_profile_section(db, uuid.uuid4())
 
         assert result is not None
         assert '[Pump Profile - "Default" (active)]' in result
@@ -494,7 +496,7 @@ class TestBuildPumpProfileSection:
         db = AsyncMock()
         db.execute = AsyncMock(return_value=_mock_scalars_first(profile))
 
-        result = await _build_pump_profile_section(db, uuid.uuid4())
+        result = await build_pump_profile_section(db, uuid.uuid4())
 
         assert "Insulin duration: 5hr" in result
         assert "Max bolus: 30.0u" in result
@@ -506,7 +508,7 @@ class TestBuildPumpProfileSection:
         db = AsyncMock()
         db.execute = AsyncMock(return_value=_mock_scalars_first(profile))
 
-        result = await _build_pump_profile_section(db, uuid.uuid4())
+        result = await build_pump_profile_section(db, uuid.uuid4())
 
         assert "CGM alerts:" in result
         assert "High 240 mg/dL" in result
@@ -519,7 +521,7 @@ class TestBuildPumpProfileSection:
         db = AsyncMock()
         db.execute = AsyncMock(return_value=_mock_scalars_first(profile))
 
-        result = await _build_pump_profile_section(db, uuid.uuid4())
+        result = await build_pump_profile_section(db, uuid.uuid4())
 
         assert "CGM alerts" not in result
 
@@ -530,7 +532,7 @@ class TestBuildPumpProfileSection:
         db = AsyncMock()
         db.execute = AsyncMock(return_value=_mock_scalars_first(profile))
 
-        result = await _build_pump_profile_section(db, uuid.uuid4())
+        result = await build_pump_profile_section(db, uuid.uuid4())
 
         assert result is not None
         assert '[Pump Profile - "Default" (active)]' in result
@@ -539,23 +541,27 @@ class TestBuildPumpProfileSection:
 
 
 # ---------------------------------------------------------------------------
-# _build_diabetes_context tests (Story 15.7)
+# build_diabetes_context tests (Story 15.7)
 # ---------------------------------------------------------------------------
 class TestBuildDiabetesContext:
-    """Tests for _build_diabetes_context with 6 section builders."""
+    """Tests for build_diabetes_context with 6 section builders."""
 
     @pytest.mark.asyncio
     @patch(
-        "src.services.telegram_chat._build_pump_profile_section",
+        "src.services.diabetes_context.build_pump_profile_section",
         new_callable=AsyncMock,
     )
-    @patch("src.services.telegram_chat._build_settings_section", new_callable=AsyncMock)
     @patch(
-        "src.services.telegram_chat._build_control_iq_section", new_callable=AsyncMock
+        "src.services.diabetes_context.build_settings_section", new_callable=AsyncMock
     )
-    @patch("src.services.telegram_chat._build_pump_section", new_callable=AsyncMock)
-    @patch("src.services.telegram_chat._build_iob_section", new_callable=AsyncMock)
-    @patch("src.services.telegram_chat._build_glucose_section", new_callable=AsyncMock)
+    @patch(
+        "src.services.diabetes_context.build_control_iq_section", new_callable=AsyncMock
+    )
+    @patch("src.services.diabetes_context.build_pump_section", new_callable=AsyncMock)
+    @patch("src.services.diabetes_context.build_iob_section", new_callable=AsyncMock)
+    @patch(
+        "src.services.diabetes_context.build_glucose_section", new_callable=AsyncMock
+    )
     async def test_assembles_all_sections(
         self, mock_glucose, mock_iob, mock_pump, mock_ciq, mock_settings, mock_profile
     ):
@@ -569,7 +575,7 @@ class TestBuildDiabetesContext:
         )
 
         db = AsyncMock()
-        context = await _build_diabetes_context(db, uuid.uuid4())
+        context = await build_diabetes_context(db, uuid.uuid4())
 
         assert "[Glucose" in context
         assert "[Insulin on Board]" in context
@@ -582,16 +588,20 @@ class TestBuildDiabetesContext:
 
     @pytest.mark.asyncio
     @patch(
-        "src.services.telegram_chat._build_pump_profile_section",
+        "src.services.diabetes_context.build_pump_profile_section",
         new_callable=AsyncMock,
     )
-    @patch("src.services.telegram_chat._build_settings_section", new_callable=AsyncMock)
     @patch(
-        "src.services.telegram_chat._build_control_iq_section", new_callable=AsyncMock
+        "src.services.diabetes_context.build_settings_section", new_callable=AsyncMock
     )
-    @patch("src.services.telegram_chat._build_pump_section", new_callable=AsyncMock)
-    @patch("src.services.telegram_chat._build_iob_section", new_callable=AsyncMock)
-    @patch("src.services.telegram_chat._build_glucose_section", new_callable=AsyncMock)
+    @patch(
+        "src.services.diabetes_context.build_control_iq_section", new_callable=AsyncMock
+    )
+    @patch("src.services.diabetes_context.build_pump_section", new_callable=AsyncMock)
+    @patch("src.services.diabetes_context.build_iob_section", new_callable=AsyncMock)
+    @patch(
+        "src.services.diabetes_context.build_glucose_section", new_callable=AsyncMock
+    )
     async def test_skips_none_sections(
         self, mock_glucose, mock_iob, mock_pump, mock_ciq, mock_settings, mock_profile
     ):
@@ -603,7 +613,7 @@ class TestBuildDiabetesContext:
         mock_profile.return_value = None  # No pump profile
 
         db = AsyncMock()
-        context = await _build_diabetes_context(db, uuid.uuid4())
+        context = await build_diabetes_context(db, uuid.uuid4())
 
         assert "[Glucose]" in context
         assert "[User Settings]" in context
@@ -613,16 +623,20 @@ class TestBuildDiabetesContext:
 
     @pytest.mark.asyncio
     @patch(
-        "src.services.telegram_chat._build_pump_profile_section",
+        "src.services.diabetes_context.build_pump_profile_section",
         new_callable=AsyncMock,
     )
-    @patch("src.services.telegram_chat._build_settings_section", new_callable=AsyncMock)
     @patch(
-        "src.services.telegram_chat._build_control_iq_section", new_callable=AsyncMock
+        "src.services.diabetes_context.build_settings_section", new_callable=AsyncMock
     )
-    @patch("src.services.telegram_chat._build_pump_section", new_callable=AsyncMock)
-    @patch("src.services.telegram_chat._build_iob_section", new_callable=AsyncMock)
-    @patch("src.services.telegram_chat._build_glucose_section", new_callable=AsyncMock)
+    @patch(
+        "src.services.diabetes_context.build_control_iq_section", new_callable=AsyncMock
+    )
+    @patch("src.services.diabetes_context.build_pump_section", new_callable=AsyncMock)
+    @patch("src.services.diabetes_context.build_iob_section", new_callable=AsyncMock)
+    @patch(
+        "src.services.diabetes_context.build_glucose_section", new_callable=AsyncMock
+    )
     async def test_all_sections_none_returns_fallback(
         self, mock_glucose, mock_iob, mock_pump, mock_ciq, mock_settings, mock_profile
     ):
@@ -634,22 +648,26 @@ class TestBuildDiabetesContext:
         mock_profile.return_value = None
 
         db = AsyncMock()
-        context = await _build_diabetes_context(db, uuid.uuid4())
+        context = await build_diabetes_context(db, uuid.uuid4())
 
         assert "No data available" in context
 
     @pytest.mark.asyncio
     @patch(
-        "src.services.telegram_chat._build_pump_profile_section",
+        "src.services.diabetes_context.build_pump_profile_section",
         new_callable=AsyncMock,
     )
-    @patch("src.services.telegram_chat._build_settings_section", new_callable=AsyncMock)
     @patch(
-        "src.services.telegram_chat._build_control_iq_section", new_callable=AsyncMock
+        "src.services.diabetes_context.build_settings_section", new_callable=AsyncMock
     )
-    @patch("src.services.telegram_chat._build_pump_section", new_callable=AsyncMock)
-    @patch("src.services.telegram_chat._build_iob_section", new_callable=AsyncMock)
-    @patch("src.services.telegram_chat._build_glucose_section", new_callable=AsyncMock)
+    @patch(
+        "src.services.diabetes_context.build_control_iq_section", new_callable=AsyncMock
+    )
+    @patch("src.services.diabetes_context.build_pump_section", new_callable=AsyncMock)
+    @patch("src.services.diabetes_context.build_iob_section", new_callable=AsyncMock)
+    @patch(
+        "src.services.diabetes_context.build_glucose_section", new_callable=AsyncMock
+    )
     async def test_section_error_doesnt_crash(
         self, mock_glucose, mock_iob, mock_pump, mock_ciq, mock_settings, mock_profile
     ):
@@ -662,7 +680,7 @@ class TestBuildDiabetesContext:
         mock_profile.return_value = None
 
         db = AsyncMock()
-        context = await _build_diabetes_context(db, uuid.uuid4())
+        context = await build_diabetes_context(db, uuid.uuid4())
 
         # Glucose and pump still present despite IoB and CIQ failures
         assert "[Glucose]" in context
@@ -739,7 +757,7 @@ class TestHandleChat:
     """Tests for handle_chat."""
 
     @pytest.mark.asyncio
-    @patch("src.services.telegram_chat._build_diabetes_context", new_callable=AsyncMock)
+    @patch("src.services.telegram_chat.build_diabetes_context", new_callable=AsyncMock)
     @patch("src.services.telegram_chat.get_ai_client", new_callable=AsyncMock)
     async def test_successful_response(self, mock_get_client, mock_context):
         mock_context.return_value = "[Glucose]\n- Current: 120 mg/dL"
@@ -783,7 +801,7 @@ class TestHandleChat:
         assert "Settings" in msg
 
     @pytest.mark.asyncio
-    @patch("src.services.telegram_chat._build_diabetes_context", new_callable=AsyncMock)
+    @patch("src.services.telegram_chat.build_diabetes_context", new_callable=AsyncMock)
     @patch("src.services.telegram_chat.get_ai_client", new_callable=AsyncMock)
     async def test_ai_error_caught_gracefully(self, mock_get_client, mock_context):
         mock_context.return_value = ""
@@ -803,7 +821,7 @@ class TestHandleChat:
         assert "Unable to get a response" in msg
 
     @pytest.mark.asyncio
-    @patch("src.services.telegram_chat._build_diabetes_context", new_callable=AsyncMock)
+    @patch("src.services.telegram_chat.build_diabetes_context", new_callable=AsyncMock)
     @patch("src.services.telegram_chat.get_ai_client", new_callable=AsyncMock)
     async def test_safety_disclaimer_appended(self, mock_get_client, mock_context):
         mock_context.return_value = ""
@@ -824,7 +842,7 @@ class TestHandleChat:
         assert msg.endswith(SAFETY_DISCLAIMER)
 
     @pytest.mark.asyncio
-    @patch("src.services.telegram_chat._build_diabetes_context", new_callable=AsyncMock)
+    @patch("src.services.telegram_chat.build_diabetes_context", new_callable=AsyncMock)
     @patch("src.services.telegram_chat.get_ai_client", new_callable=AsyncMock)
     async def test_long_response_truncated(self, mock_get_client, mock_context):
         mock_context.return_value = ""
@@ -847,7 +865,7 @@ class TestHandleChat:
         assert "Not medical advice" in msg
 
     @pytest.mark.asyncio
-    @patch("src.services.telegram_chat._build_diabetes_context", new_callable=AsyncMock)
+    @patch("src.services.telegram_chat.build_diabetes_context", new_callable=AsyncMock)
     @patch("src.services.telegram_chat.get_ai_client", new_callable=AsyncMock)
     async def test_empty_response_handled(self, mock_get_client, mock_context):
         mock_context.return_value = ""
@@ -878,7 +896,7 @@ class TestHandleChat:
         assert "Something went wrong" in msg
 
     @pytest.mark.asyncio
-    @patch("src.services.telegram_chat._build_diabetes_context", new_callable=AsyncMock)
+    @patch("src.services.telegram_chat.build_diabetes_context", new_callable=AsyncMock)
     @patch("src.services.telegram_chat.get_ai_client", new_callable=AsyncMock)
     async def test_diabetes_context_passed_to_system_prompt(
         self, mock_get_client, mock_context
@@ -905,7 +923,7 @@ class TestHandleChat:
         assert "180 mg/dL" in system_prompt
 
     @pytest.mark.asyncio
-    @patch("src.services.telegram_chat._build_diabetes_context", new_callable=AsyncMock)
+    @patch("src.services.telegram_chat.build_diabetes_context", new_callable=AsyncMock)
     @patch("src.services.telegram_chat.get_ai_client", new_callable=AsyncMock)
     async def test_html_in_ai_response_is_escaped(self, mock_get_client, mock_context):
         mock_context.return_value = ""
@@ -928,7 +946,7 @@ class TestHandleChat:
         assert "&lt;script&gt;" in msg
 
     @pytest.mark.asyncio
-    @patch("src.services.telegram_chat._build_diabetes_context", new_callable=AsyncMock)
+    @patch("src.services.telegram_chat.build_diabetes_context", new_callable=AsyncMock)
     @patch("src.services.telegram_chat.get_ai_client", new_callable=AsyncMock)
     async def test_whitespace_only_response_treated_as_empty(
         self, mock_get_client, mock_context
@@ -950,7 +968,7 @@ class TestHandleChat:
         assert "empty response" in msg.lower()
 
     @pytest.mark.asyncio
-    @patch("src.services.telegram_chat._build_diabetes_context", new_callable=AsyncMock)
+    @patch("src.services.telegram_chat.build_diabetes_context", new_callable=AsyncMock)
     @patch("src.services.telegram_chat.get_ai_client", new_callable=AsyncMock)
     async def test_user_message_passed_to_ai(self, mock_get_client, mock_context):
         """Verify user's question text reaches the AI provider."""
@@ -977,7 +995,7 @@ class TestHandleChat:
         assert messages[0].role == "user"
 
     @pytest.mark.asyncio
-    @patch("src.services.telegram_chat._build_diabetes_context", new_callable=AsyncMock)
+    @patch("src.services.telegram_chat.build_diabetes_context", new_callable=AsyncMock)
     @patch("src.services.telegram_chat.get_ai_client", new_callable=AsyncMock)
     async def test_long_user_message_truncated(self, mock_get_client, mock_context):
         """Overly long user messages are truncated before sending to AI."""
@@ -1003,7 +1021,7 @@ class TestHandleChat:
         assert len(messages[0].content) == MAX_USER_MESSAGE_LENGTH
 
     @pytest.mark.asyncio
-    @patch("src.services.telegram_chat._build_diabetes_context", new_callable=AsyncMock)
+    @patch("src.services.telegram_chat.build_diabetes_context", new_callable=AsyncMock)
     @patch("src.services.telegram_chat.get_ai_client", new_callable=AsyncMock)
     async def test_diabetes_context_error_uses_fallback(
         self, mock_get_client, mock_context
