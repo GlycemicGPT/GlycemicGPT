@@ -8,6 +8,7 @@ from src.models.base import Base, TimestampMixin
 from src.models.brief_delivery_config import BriefDeliveryConfig
 from src.models.caregiver_invitation import CaregiverInvitation, InvitationStatus
 from src.models.caregiver_link import CaregiverLink
+from src.models.chat_message import ChatMessage
 from src.models.correction_analysis import CorrectionAnalysis
 from src.models.daily_brief import DailyBrief
 from src.models.data_retention_config import DataRetentionConfig
@@ -57,6 +58,7 @@ __all__ = [
     "BriefDeliveryConfig",
     "CaregiverInvitation",
     "CaregiverLink",
+    "ChatMessage",
     "ContactPriority",
     "CorrectionAnalysis",
     "DailyBrief",

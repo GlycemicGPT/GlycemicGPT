@@ -2221,6 +2221,23 @@ export async function getSidecarHealth(): Promise<SidecarHealthResponse> {
 export interface AIChatResponse {
   response: string;
   disclaimer: string;
+  conversation_id?: string;
+  message_id?: string;
+}
+
+export interface ChatHistoryMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  timestamp: string;
+  model?: string | null;
+  disclaimer?: string | null;
+}
+
+export interface ChatHistoryResponse {
+  conversation_id: string | null;
+  messages: ChatHistoryMessage[];
+  total: number;
 }
 
 export async function sendAIChat(message: string): Promise<AIChatResponse> {
@@ -2236,6 +2253,29 @@ export async function sendAIChat(message: string): Promise<AIChatResponse> {
     );
   }
   return response.json();
+}
+
+export async function getChatHistory(): Promise<ChatHistoryResponse> {
+  const response = await apiFetch(`${API_BASE_URL}/api/ai/chat/history`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to load chat history: ${response.status}`
+    );
+  }
+  return response.json();
+}
+
+export async function clearChatHistory(): Promise<void> {
+  const response = await apiFetch(`${API_BASE_URL}/api/ai/chat/history`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to clear chat history: ${response.status}`
+    );
+  }
 }
 
 // ============================================================================
