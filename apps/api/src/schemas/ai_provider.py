@@ -251,6 +251,10 @@ class AIChatResponse(BaseModel):
         default="Not medical advice. Consult your healthcare provider.",
         description="Safety disclaimer",
     )
+    conversation_id: str | None = Field(
+        default=None, description="Conversation UUID for multi-turn context"
+    )
+    message_id: str | None = Field(default=None, description="Assistant message UUID")
 
 
 # ── Story 15.4: Subscription Configuration ──

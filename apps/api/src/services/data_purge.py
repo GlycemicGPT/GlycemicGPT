@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.logging_config import get_logger
 from src.models.alert import Alert
+from src.models.chat_message import ChatMessage
 from src.models.correction_analysis import CorrectionAnalysis
 from src.models.daily_brief import DailyBrief
 from src.models.escalation_event import EscalationEvent
@@ -107,6 +108,12 @@ async def purge_all_user_data(
 
         result = await db.execute(delete(Alert).where(Alert.user_id == user_id))
         deleted["alerts"] = result.rowcount
+
+        # ── Chat data (Story 35.3) ──
+        result = await db.execute(
+            delete(ChatMessage).where(ChatMessage.user_id == user_id)
+        )
+        deleted["chat_messages"] = result.rowcount
 
         await db.commit()
     except Exception:
