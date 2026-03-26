@@ -106,6 +106,10 @@ class Settings(BaseSettings):
     # run on the same LAN. Cloud deployments should set ALLOW_PRIVATE_AI_URLS=false.
     allow_private_ai_urls: bool = True
 
+    # AI Research Pipeline (Story 35.12)
+    research_pipeline_interval_hours: int = Field(default=168, ge=1)  # Weekly default
+    research_pipeline_enabled: bool = True
+
     # Testing
     testing: bool = False  # Set to True during tests to disable connection pooling
 

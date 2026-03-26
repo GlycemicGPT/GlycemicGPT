@@ -2279,6 +2279,78 @@ export async function clearChatHistory(): Promise<void> {
 }
 
 // ============================================================================
+// AI Research Sources (Story 35.12)
+// ============================================================================
+
+export interface ResearchSource {
+  id: string;
+  url: string;
+  name: string;
+  category: string | null;
+  is_active: boolean;
+  last_researched_at: string | null;
+  created_at: string;
+}
+
+export interface ResearchSuggestion {
+  url: string;
+  name: string;
+  category: string;
+}
+
+export async function getResearchSources(): Promise<{ sources: ResearchSource[]; total: number }> {
+  const response = await apiFetch(`${API_BASE_URL}/api/ai/research/sources`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || `Failed to load research sources: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function addResearchSource(url: string, name: string, category?: string): Promise<ResearchSource> {
+  const response = await apiFetch(`${API_BASE_URL}/api/ai/research/sources`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url, name, category }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || `Failed to add source: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function deleteResearchSource(sourceId: string): Promise<void> {
+  const response = await apiFetch(`${API_BASE_URL}/api/ai/research/sources/${sourceId}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || `Failed to delete source: ${response.status}`);
+  }
+}
+
+export async function triggerResearch(): Promise<{ sources: number; updated: number; new: number; unchanged: number; errors: number }> {
+  const response = await apiFetch(`${API_BASE_URL}/api/ai/research/run`, {
+    method: "POST",
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || `Research failed: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function getResearchSuggestions(): Promise<{ suggestions: ResearchSuggestion[]; based_on: Record<string, string> }> {
+  const response = await apiFetch(`${API_BASE_URL}/api/ai/research/suggestions`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || `Failed to load suggestions: ${response.status}`);
+  }
+  return response.json();
+}
+
+// ============================================================================
 // Glucose History
 // ============================================================================
 
