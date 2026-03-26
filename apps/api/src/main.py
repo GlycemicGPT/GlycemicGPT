@@ -65,6 +65,7 @@ async def lifespan(app: FastAPI):
     logger.info("Background scheduler started")
 
     # Preload embedding model + seed knowledge base on first startup (Story 35.9)
+    # Model preload runs BEFORE opening DB session to avoid connection timeouts
     try:
         from src.services.embedding import preload_model
 
@@ -76,7 +77,10 @@ async def lifespan(app: FastAPI):
         from src.database import get_session_maker
         from src.services.knowledge_seed import seed_knowledge_base
 
-        async with get_session_maker()() as db:
+        # Use a fresh session with a longer timeout for the seed operation.
+        # The embedding step (CPU-heavy) runs first, then the DB insert is fast.
+        session_maker = get_session_maker()
+        async with session_maker() as db:
             seeded = await seed_knowledge_base(db)
             if seeded > 0:
                 logger.info("Knowledge base bootstrap complete", chunks=seeded)

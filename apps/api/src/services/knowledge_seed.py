@@ -68,7 +68,9 @@ def _chunk_text(
 async def seed_knowledge_base(db: AsyncSession) -> int:
     """Seed the knowledge base with bootstrap clinical content.
 
-    Skips if knowledge_chunks already has authoritative content.
+    Skips if knowledge_chunks already has CURATED content.
+    Embedding is done BEFORE opening the DB session for INSERT to avoid
+    connection timeouts during the CPU-heavy embedding step.
     Returns the number of chunks inserted.
     """
     # Check if already seeded
@@ -121,7 +123,8 @@ async def seed_knowledge_base(db: AsyncSession) -> int:
         logger.warning("No content to seed")
         return 0
 
-    # Batch embed all chunks
+    # Batch embed all chunks FIRST (CPU-heavy, can take minutes on first run)
+    # This happens outside DB transaction to avoid connection timeouts
     logger.info("Embedding knowledge chunks", count=len(all_texts))
     try:
         embeddings = embed_texts(all_texts)
@@ -129,7 +132,7 @@ async def seed_knowledge_base(db: AsyncSession) -> int:
         logger.error("Failed to embed knowledge chunks", exc_info=True)
         return 0
 
-    # Store chunks
+    # Now store chunks in a quick DB operation (embeddings already computed)
     for chunk_data, embedding in zip(all_chunks, embeddings, strict=True):
         db.add(
             KnowledgeChunk(

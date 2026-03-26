@@ -43,6 +43,7 @@ RUN uv pip install --system --no-cache . && \
 COPY migrations/ ./migrations/
 COPY alembic.ini ./
 COPY scripts/ ./scripts/
+COPY knowledge/ ./knowledge/
 
 # Make start script executable
 RUN chmod +x ./scripts/start.sh
