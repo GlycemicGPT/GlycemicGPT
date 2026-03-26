@@ -11,7 +11,7 @@ Story 15.4: Subscription configure endpoint (no API key needed).
 import asyncio
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -381,12 +381,93 @@ async def ai_chat(
     Uses the user's configured AI provider and recent glucose data
     to generate a contextual response.
     """
-    response_text = await handle_chat_web(db, current_user.id, request.message)
+    chat_result = await handle_chat_web(db, current_user.id, request.message)
 
     return AIChatResponse(
-        response=response_text,
+        response=chat_result.content,
         disclaimer="Not medical advice. Consult your healthcare provider.",
+        conversation_id=str(chat_result.conversation_id),
+        message_id=str(chat_result.assistant_message_id)
+        if chat_result.assistant_message_id
+        else None,
     )
+
+
+# ── Story 35.3: Chat History Endpoints ──
+
+
+@router.get(
+    "/chat/history",
+    responses={
+        200: {"description": "Chat history for current conversation"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+    },
+)
+async def get_chat_history(
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+) -> dict:
+    """Get chat history for the user's most recent conversation."""
+    from src.models.chat_message import ChatMessage
+    from src.services.chat_history import get_conversation_messages
+
+    # Find the most recent conversation that has messages (not phantom)
+    result = await db.execute(
+        select(ChatMessage.conversation_id)
+        .where(ChatMessage.user_id == current_user.id)
+        .order_by(ChatMessage.created_at.desc())
+        .limit(1)
+    )
+    row = result.first()
+    if row is None:
+        return {"conversation_id": None, "messages": [], "total": 0}
+
+    conversation_id = row[0]
+    messages, total = await get_conversation_messages(
+        db, current_user.id, conversation_id, limit=limit, offset=offset
+    )
+
+    return {
+        "conversation_id": str(conversation_id),
+        "messages": [
+            {
+                "id": str(msg.id),
+                "role": msg.role.value,
+                "content": msg.content,
+                "timestamp": msg.created_at.isoformat(),
+                "model": msg.model,
+                "disclaimer": (
+                    "Not medical advice. Consult your healthcare provider."
+                    if msg.role.value == "assistant"
+                    else None
+                ),
+            }
+            for msg in messages
+        ],
+        "total": total,
+    }
+
+
+@router.delete(
+    "/chat/history",
+    responses={
+        200: {"description": "Chat history cleared"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+    },
+)
+async def delete_chat_history(
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Clear the user's chat history. Starts a fresh conversation."""
+    from src.services.chat_history import clear_conversation
+
+    deleted = await clear_conversation(db, current_user.id)
+    await db.commit()
+
+    return {"message": "Chat history cleared", "deleted": deleted}
 
 
 # ── Story 15.4: Subscription Configure Endpoint ──

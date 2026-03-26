@@ -757,6 +757,27 @@ class TestTruncateResponse:
 class TestHandleChat:
     """Tests for handle_chat."""
 
+    @pytest.fixture(autouse=True)
+    def _mock_chat_history(self):
+        """Mock chat history functions for all handle_chat tests."""
+        with (
+            patch(
+                "src.services.telegram_chat.get_or_create_conversation",
+                new_callable=AsyncMock,
+                return_value=uuid.uuid4(),
+            ),
+            patch(
+                "src.services.telegram_chat.get_recent_messages",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "src.services.telegram_chat.store_message",
+                new_callable=AsyncMock,
+            ),
+        ):
+            yield
+
     @pytest.mark.asyncio
     @patch("src.services.telegram_chat.build_diabetes_context", new_callable=AsyncMock)
     @patch("src.services.telegram_chat.get_ai_client", new_callable=AsyncMock)

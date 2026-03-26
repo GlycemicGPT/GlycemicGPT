@@ -11,7 +11,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { MessageSquare, Send, AlertTriangle, Settings, Loader2, Trash2 } from "lucide-react";
 import Link from "next/link";
-import { sendAIChat, getAIProvider } from "@/lib/api";
+import { sendAIChat, getAIProvider, getChatHistory, clearChatHistory } from "@/lib/api";
 import { MarkdownContent } from "@/components/ui/markdown-content";
 
 interface ChatMessage {
@@ -41,13 +41,35 @@ export default function AIChatPage() {
     scrollToBottom();
   }, [messages, scrollToBottom]);
 
-  // Check if AI provider is configured on mount
+  // Check if AI provider is configured and load chat history on mount
   useEffect(() => {
     let cancelled = false;
-    async function checkProvider() {
+    async function init() {
       try {
         await getAIProvider();
-        if (!cancelled) setPageState("ready");
+        if (cancelled) return;
+        setPageState("ready");
+
+        // Load conversation history from server
+        try {
+          const history = await getChatHistory();
+          if (!cancelled && history.messages?.length > 0) {
+            setMessages(
+              history.messages.map((msg) => ({
+                id: msg.id,
+                role: msg.role,
+                content: msg.content,
+                timestamp: new Date(msg.timestamp),
+                disclaimer:
+                  msg.role === "assistant"
+                    ? "Not medical advice. Consult your healthcare provider."
+                    : undefined,
+              }))
+            );
+          }
+        } catch {
+          // History load failure is non-fatal -- just start fresh
+        }
       } catch (err) {
         if (cancelled) return;
         const message = err instanceof Error ? err.message : "";
@@ -58,7 +80,7 @@ export default function AIChatPage() {
         }
       }
     }
-    checkProvider();
+    init();
     return () => { cancelled = true; };
   }, []);
 
@@ -97,7 +119,7 @@ export default function AIChatPage() {
     try {
       const response = await sendAIChat(trimmed);
       const assistantMessage: ChatMessage = {
-        id: `assistant-${Date.now()}`,
+        id: response.message_id || `assistant-${Date.now()}`,
         role: "assistant",
         content: response.response,
         timestamp: new Date(),
@@ -123,7 +145,12 @@ export default function AIChatPage() {
     [handleSend]
   );
 
-  const handleClearChat = useCallback(() => {
+  const handleClearChat = useCallback(async () => {
+    try {
+      await clearChatHistory();
+    } catch {
+      // Clear locally even if server clear fails
+    }
     setMessages([]);
     setError(null);
   }, []);

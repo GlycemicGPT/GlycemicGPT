@@ -1,8 +1,7 @@
-"""Stories 7.5, 7.6, & 15.7: AI chat via Telegram and web.
+"""Stories 7.5, 7.6, 15.7, & 35.3: AI chat via Telegram and web.
 
 Handles natural language messages from Telegram/web by routing them
 to the user's configured AI provider with comprehensive diabetes context.
-Each message is a standalone Q&A (no conversation history).
 
 Story 7.6 adds caregiver chat: uses the patient's AI provider and
 glucose context with a caregiver-specific system prompt.
@@ -11,19 +10,29 @@ Story 15.7: Expanded from glucose-only context to full diabetes context
 including pump activity, Control-IQ summary, and user settings.
 
 Story 35.1: Context builders extracted to diabetes_context.py shared module.
+
+Story 35.3: Multi-turn conversation memory. Messages are persisted and
+the last N turns are included as context in every AI request.
 """
 
 import html
 import uuid
+from dataclasses import dataclass
 
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.logging_config import get_logger
+from src.models.chat_message import ChatRole
 from src.models.user import User
 from src.schemas.ai_response import AIMessage
 from src.services.ai_client import get_ai_client
+from src.services.chat_history import (
+    get_or_create_conversation,
+    get_recent_messages,
+    store_message,
+)
 from src.services.diabetes_context import build_diabetes_context
 
 logger = get_logger(__name__)
@@ -59,6 +68,19 @@ Guidelines:
 
 # Maximum characters we accept from user input before truncating
 MAX_USER_MESSAGE_LENGTH = 2000
+
+
+@dataclass
+class ChatResult:
+    """Structured result from a web chat exchange."""
+
+    content: str
+    conversation_id: uuid.UUID
+    user_message_id: uuid.UUID | None
+    assistant_message_id: uuid.UUID | None
+    model: str
+    input_tokens: int
+    output_tokens: int
 
 
 def _build_system_prompt(diabetes_context: str) -> str:
@@ -146,6 +168,12 @@ async def handle_chat(
     # Truncate overly long user messages to limit token usage
     truncated_text = text[:MAX_USER_MESSAGE_LENGTH]
 
+    # Get or create conversation for multi-turn context
+    conversation_id = await get_or_create_conversation(db, user_id)
+
+    # Load conversation history
+    history = await get_recent_messages(db, user_id, conversation_id)
+
     # Build context and prompt
     try:
         diabetes_context = await build_diabetes_context(db, user_id)
@@ -158,10 +186,13 @@ async def handle_chat(
         diabetes_context = "Recent diabetes data: unavailable due to a temporary error."
     system_prompt = _build_system_prompt(diabetes_context)
 
+    # Build messages array: history + current user message
+    messages = history + [AIMessage(role="user", content=truncated_text)]
+
     # Generate AI response
     try:
         ai_response = await ai_client.generate(
-            messages=[AIMessage(role="user", content=truncated_text)],
+            messages=messages,
             system_prompt=system_prompt,
             max_tokens=TELEGRAM_MAX_RESPONSE_TOKENS,
         )
@@ -183,16 +214,40 @@ async def handle_chat(
             "Please try rephrasing your question." + SAFETY_DISCLAIMER
         )
 
+    # Persist both messages (non-fatal -- still return the AI response on failure)
+    try:
+        await store_message(db, user_id, conversation_id, ChatRole.USER, truncated_text)
+        await store_message(
+            db,
+            user_id,
+            conversation_id,
+            ChatRole.ASSISTANT,
+            content,
+            token_count=ai_response.usage.output_tokens,
+            model=ai_response.model,
+        )
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        logger.warning(
+            "Failed to persist chat messages",
+            user_id=str(user_id),
+            conversation_id=str(conversation_id),
+            exc_info=True,
+        )
+
     # Escape any HTML in the AI response to prevent injection
     safe_content = html.escape(content)
 
     logger.info(
         "Telegram AI chat response generated",
         user_id=str(user_id),
+        conversation_id=str(conversation_id),
         model=ai_response.model,
         provider=ai_response.provider.value,
         input_tokens=ai_response.usage.input_tokens,
         output_tokens=ai_response.usage.output_tokens,
+        history_turns=len(history) // 2,
     )
 
     return _truncate_response(safe_content)
@@ -221,12 +276,12 @@ async def handle_chat_web(
     db: AsyncSession,
     user_id: uuid.UUID,
     text: str,
-) -> str:
+) -> ChatResult:
     """Process a user's AI query for the web interface.
 
-    Similar to handle_chat() but returns plain text without HTML
-    escaping or Telegram-specific formatting, and raises HTTPException
-    on errors instead of returning error strings.
+    Similar to handle_chat() but returns a ChatResult with structured
+    metadata, and raises HTTPException on errors instead of returning
+    error strings.
 
     Args:
         db: Database session.
@@ -234,7 +289,7 @@ async def handle_chat_web(
         text: The user's message text.
 
     Returns:
-        Plain text AI response content.
+        ChatResult with response content, conversation_id, and message IDs.
 
     Raises:
         HTTPException: If user not found (404), no AI provider (404),
@@ -258,6 +313,12 @@ async def handle_chat_web(
 
     truncated_text = text[:MAX_USER_MESSAGE_LENGTH]
 
+    # Get or create conversation for multi-turn context
+    conversation_id = await get_or_create_conversation(db, user_id)
+
+    # Load conversation history
+    history = await get_recent_messages(db, user_id, conversation_id)
+
     try:
         diabetes_context = await build_diabetes_context(db, user_id)
     except Exception:
@@ -273,9 +334,12 @@ async def handle_chat_web(
     else:
         system_prompt = _WEB_SYSTEM_PROMPT_PREFIX.rstrip()
 
+    # Build messages array: history + current user message
+    messages = history + [AIMessage(role="user", content=truncated_text)]
+
     try:
         ai_response = await ai_client.generate(
-            messages=[AIMessage(role="user", content=truncated_text)],
+            messages=messages,
             system_prompt=system_prompt,
             max_tokens=WEB_MAX_RESPONSE_TOKENS,
         )
@@ -297,16 +361,54 @@ async def handle_chat_web(
             detail="The AI returned an empty response",
         )
 
+    # Persist both messages (non-fatal -- still return the AI response on failure)
+    user_msg_id: uuid.UUID | None = None
+    assistant_msg_id: uuid.UUID | None = None
+    try:
+        user_msg = await store_message(
+            db, user_id, conversation_id, ChatRole.USER, truncated_text
+        )
+        assistant_msg = await store_message(
+            db,
+            user_id,
+            conversation_id,
+            ChatRole.ASSISTANT,
+            content,
+            token_count=ai_response.usage.output_tokens,
+            model=ai_response.model,
+        )
+        await db.commit()
+        user_msg_id = user_msg.id
+        assistant_msg_id = assistant_msg.id
+    except Exception:
+        await db.rollback()
+        logger.warning(
+            "Failed to persist web chat messages",
+            user_id=str(user_id),
+            conversation_id=str(conversation_id),
+            exc_info=True,
+        )
+
     logger.info(
         "Web AI chat response generated",
         user_id=str(user_id),
+        conversation_id=str(conversation_id),
         model=ai_response.model,
         provider=ai_response.provider.value,
         input_tokens=ai_response.usage.input_tokens,
         output_tokens=ai_response.usage.output_tokens,
+        history_turns=len(history) // 2,
     )
 
-    return content
+    return ChatResult(
+        content=content,
+        conversation_id=conversation_id,
+        user_message_id=user_msg_id,
+        assistant_message_id=assistant_msg_id,
+        model=ai_response.model,
+        input_tokens=ai_response.usage.input_tokens,
+        output_tokens=ai_response.usage.output_tokens,
+    )
 
 
 # ── Story 7.6: Caregiver AI chat ──
