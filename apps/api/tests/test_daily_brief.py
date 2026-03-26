@@ -92,14 +92,26 @@ class TestCalculateMetrics:
         correction_result = MagicMock()
         correction_result.scalar.return_value = 0
 
-        # Mock total insulin query
-        insulin_result = MagicMock()
-        insulin_result.scalar.return_value = 25.5
+        # Mock insulin breakdown queries: bolus, manual_corr, auto_corr, seed_basal, basal
+        bolus_result = MagicMock()
+        bolus_result.one.return_value = (2, 10.0)
+        manual_corr_result = MagicMock()
+        manual_corr_result.one.return_value = (1, 5.0)
+        auto_corr_result = MagicMock()
+        auto_corr_result.one.return_value = (1, 2.5)
+        seed_basal_result = MagicMock()
+        seed_basal_result.first.return_value = None  # no pre-window basal
+        basal_result = MagicMock()
+        basal_result.all.return_value = []  # no basal events
 
         mock_db.execute.side_effect = [
             glucose_result,
             correction_result,
-            insulin_result,
+            bolus_result,
+            manual_corr_result,
+            auto_corr_result,
+            seed_basal_result,
+            basal_result,
         ]
 
         user_id = uuid.uuid4()
@@ -113,7 +125,12 @@ class TestCalculateMetrics:
         assert metrics.average_glucose == 120.0
         assert metrics.low_count == 0
         assert metrics.high_count == 0
-        assert metrics.total_insulin == 25.5
+        assert metrics.total_insulin == 17.5
+        assert metrics.insulin_breakdown is not None
+        assert metrics.insulin_breakdown.bolus_units == 10.0
+        assert metrics.insulin_breakdown.correction_units == 5.0
+        assert metrics.insulin_breakdown.auto_correction_units == 2.5
+        assert metrics.insulin_breakdown.basal_units == 0.0
 
     async def test_mixed_readings_with_lows_and_highs(self):
         """Test metrics with a mix of low, in-range, and high readings."""
@@ -126,13 +143,26 @@ class TestCalculateMetrics:
         correction_result = MagicMock()
         correction_result.scalar.return_value = 3
 
-        insulin_result = MagicMock()
-        insulin_result.scalar.return_value = None
+        # All zero insulin
+        bolus_result = MagicMock()
+        bolus_result.one.return_value = (0, 0.0)
+        manual_corr_result = MagicMock()
+        manual_corr_result.one.return_value = (0, 0.0)
+        auto_corr_result = MagicMock()
+        auto_corr_result.one.return_value = (0, 0.0)
+        seed_basal_result = MagicMock()
+        seed_basal_result.first.return_value = None
+        basal_result = MagicMock()
+        basal_result.all.return_value = []
 
         mock_db.execute.side_effect = [
             glucose_result,
             correction_result,
-            insulin_result,
+            bolus_result,
+            manual_corr_result,
+            auto_corr_result,
+            seed_basal_result,
+            basal_result,
         ]
 
         user_id = uuid.uuid4()
@@ -146,7 +176,7 @@ class TestCalculateMetrics:
         assert metrics.low_count == 2
         assert metrics.high_count == 1
         assert metrics.correction_count == 3
-        assert metrics.total_insulin is None
+        assert metrics.total_insulin is None  # 0 total -> None
 
     async def test_boundary_values(self):
         """Test that boundary values are classified correctly."""
@@ -159,13 +189,25 @@ class TestCalculateMetrics:
         correction_result = MagicMock()
         correction_result.scalar.return_value = 0
 
-        insulin_result = MagicMock()
-        insulin_result.scalar.return_value = None
+        bolus_result = MagicMock()
+        bolus_result.one.return_value = (0, 0.0)
+        manual_corr_result = MagicMock()
+        manual_corr_result.one.return_value = (0, 0.0)
+        auto_corr_result = MagicMock()
+        auto_corr_result.one.return_value = (0, 0.0)
+        seed_basal_result = MagicMock()
+        seed_basal_result.first.return_value = None
+        basal_result = MagicMock()
+        basal_result.all.return_value = []
 
         mock_db.execute.side_effect = [
             glucose_result,
             correction_result,
-            insulin_result,
+            bolus_result,
+            manual_corr_result,
+            auto_corr_result,
+            seed_basal_result,
+            basal_result,
         ]
 
         user_id = uuid.uuid4()
