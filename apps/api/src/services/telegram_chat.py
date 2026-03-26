@@ -214,18 +214,26 @@ async def handle_chat(
             "Please try rephrasing your question." + SAFETY_DISCLAIMER
         )
 
-    # Persist both messages
-    await store_message(db, user_id, conversation_id, ChatRole.USER, truncated_text)
-    await store_message(
-        db,
-        user_id,
-        conversation_id,
-        ChatRole.ASSISTANT,
-        content,
-        token_count=ai_response.usage.output_tokens,
-        model=ai_response.model,
-    )
-    await db.commit()
+    # Persist both messages (non-fatal -- still return the AI response on failure)
+    try:
+        await store_message(db, user_id, conversation_id, ChatRole.USER, truncated_text)
+        await store_message(
+            db,
+            user_id,
+            conversation_id,
+            ChatRole.ASSISTANT,
+            content,
+            token_count=ai_response.usage.output_tokens,
+            model=ai_response.model,
+        )
+        await db.commit()
+    except Exception:
+        logger.warning(
+            "Failed to persist chat messages",
+            user_id=str(user_id),
+            conversation_id=str(conversation_id),
+            exc_info=True,
+        )
 
     # Escape any HTML in the AI response to prevent injection
     safe_content = html.escape(content)
@@ -352,20 +360,32 @@ async def handle_chat_web(
             detail="The AI returned an empty response",
         )
 
-    # Persist both messages
-    user_msg = await store_message(
-        db, user_id, conversation_id, ChatRole.USER, truncated_text
-    )
-    assistant_msg = await store_message(
-        db,
-        user_id,
-        conversation_id,
-        ChatRole.ASSISTANT,
-        content,
-        token_count=ai_response.usage.output_tokens,
-        model=ai_response.model,
-    )
-    await db.commit()
+    # Persist both messages (non-fatal -- still return the AI response on failure)
+    user_msg_id = uuid.uuid4()
+    assistant_msg_id = uuid.uuid4()
+    try:
+        user_msg = await store_message(
+            db, user_id, conversation_id, ChatRole.USER, truncated_text
+        )
+        assistant_msg = await store_message(
+            db,
+            user_id,
+            conversation_id,
+            ChatRole.ASSISTANT,
+            content,
+            token_count=ai_response.usage.output_tokens,
+            model=ai_response.model,
+        )
+        await db.commit()
+        user_msg_id = user_msg.id
+        assistant_msg_id = assistant_msg.id
+    except Exception:
+        logger.warning(
+            "Failed to persist web chat messages",
+            user_id=str(user_id),
+            conversation_id=str(conversation_id),
+            exc_info=True,
+        )
 
     logger.info(
         "Web AI chat response generated",
@@ -381,8 +401,8 @@ async def handle_chat_web(
     return ChatResult(
         content=content,
         conversation_id=conversation_id,
-        user_message_id=user_msg.id,
-        assistant_message_id=assistant_msg.id,
+        user_message_id=user_msg_id,
+        assistant_message_id=assistant_msg_id,
         model=ai_response.model,
         input_tokens=ai_response.usage.input_tokens,
         output_tokens=ai_response.usage.output_tokens,

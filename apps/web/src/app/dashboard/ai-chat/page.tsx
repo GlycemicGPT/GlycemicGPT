@@ -53,7 +53,7 @@ export default function AIChatPage() {
         // Load conversation history from server
         try {
           const history = await getChatHistory();
-          if (!cancelled && history.messages.length > 0) {
+          if (!cancelled && history.messages?.length > 0) {
             setMessages(
               history.messages.map((msg) => ({
                 id: msg.id,

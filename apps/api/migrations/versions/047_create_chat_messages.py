@@ -17,7 +17,12 @@ depends_on = None
 def upgrade() -> None:
     op.create_table(
         "chat_messages",
-        sa.Column("id", sa.dialects.postgresql.UUID(as_uuid=True), primary_key=True),
+        sa.Column(
+            "id",
+            sa.dialects.postgresql.UUID(as_uuid=True),
+            primary_key=True,
+            server_default=sa.text("gen_random_uuid()"),
+        ),
         sa.Column(
             "user_id",
             sa.dialects.postgresql.UUID(as_uuid=True),

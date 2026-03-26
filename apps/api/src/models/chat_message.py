@@ -8,7 +8,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -61,7 +61,7 @@ class ChatMessage(Base):
     )
 
     role: Mapped[ChatRole] = mapped_column(
-        String(20),
+        Enum(ChatRole, native_enum=False, length=20),
         nullable=False,
     )
 
