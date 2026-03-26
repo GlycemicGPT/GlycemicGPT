@@ -4,6 +4,7 @@ Seeds the knowledge_chunks table with authoritative clinical content
 on first startup. Skipped if content already exists.
 """
 
+import asyncio
 import hashlib
 from pathlib import Path
 
@@ -123,17 +124,29 @@ async def seed_knowledge_base(db: AsyncSession) -> int:
         logger.warning("No content to seed")
         return 0
 
-    # Batch embed all chunks FIRST (CPU-heavy, can take minutes on first run)
-    # This happens outside DB transaction to avoid connection timeouts
+    # Batch embed all chunks FIRST (CPU-heavy, can take minutes on first run).
+    # Run in thread to avoid blocking the async event loop.
     logger.info("Embedding knowledge chunks", count=len(all_texts))
     try:
-        embeddings = embed_texts(all_texts)
+        embeddings = await asyncio.to_thread(embed_texts, all_texts)
     except Exception:
         logger.error("Failed to embed knowledge chunks", exc_info=True)
         return 0
 
-    # Now store chunks in a quick DB operation (embeddings already computed)
+    # Now store chunks in a quick DB operation (embeddings already computed).
+    # Use content_hash to skip chunks that already exist (idempotency).
+    inserted = 0
     for chunk_data, embedding in zip(all_chunks, embeddings, strict=True):
+        # Check for existing chunk with same hash (handles race conditions)
+        existing = await db.execute(
+            select(func.count()).where(
+                KnowledgeChunk.content_hash == chunk_data["content_hash"],
+                KnowledgeChunk.user_id.is_(None),
+            )
+        )
+        if (existing.scalar() or 0) > 0:
+            continue
+
         db.add(
             KnowledgeChunk(
                 user_id=None,  # Shared system knowledge
@@ -146,13 +159,15 @@ async def seed_knowledge_base(db: AsyncSession) -> int:
                 metadata_json={"file": chunk_data["file"]},
             )
         )
+        inserted += 1
 
     await db.commit()
 
     logger.info(
         "Knowledge base seeded",
-        chunks_inserted=len(all_chunks),
+        chunks_inserted=inserted,
+        chunks_skipped=len(all_chunks) - inserted,
         files_processed=len(files),
     )
 
-    return len(all_chunks)
+    return inserted

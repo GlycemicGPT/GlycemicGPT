@@ -77,10 +77,10 @@ async def lifespan(app: FastAPI):
         from src.database import get_session_maker
         from src.services.knowledge_seed import seed_knowledge_base
 
-        # Use a fresh session with a longer timeout for the seed operation.
-        # The embedding step (CPU-heavy) runs first, then the DB insert is fast.
-        session_maker = get_session_maker()
-        async with session_maker() as db:
+        # Open a fresh session for the seed. The embedding step runs in a
+        # thread (asyncio.to_thread) so it doesn't block the event loop,
+        # and the DB session is only used for the quick check + insert.
+        async with get_session_maker()() as db:
             seeded = await seed_knowledge_base(db)
             if seeded > 0:
                 logger.info("Knowledge base bootstrap complete", chunks=seeded)

@@ -8,9 +8,9 @@
 - Peak: 1-2 hours
 - Duration: 3-5 hours
 - Available concentrations: U-100, U-200
-- Compatible pumps: All standard insulin pumps including Tandem t:slim X2, Tandem Mobi, Medtronic 780G, Omnipod 5
+- Pump compatibility: U-100 ONLY for insulin pumps. U-200 must NOT be used in insulin pumps (per Lilly prescribing information). Compatible pumps (U-100): Tandem t:slim X2, Tandem Mobi, Medtronic 780G, Omnipod 5
 - Storage: Refrigerate unopened; room temperature for up to 28 days once opened
-- Key consideration: Most widely used rapid-acting insulin in pump therapy
+- Key consideration: Most widely used rapid-acting insulin in pump therapy. Always verify U-100 concentration when filling pump reservoir
 
 ### Novolog (insulin aspart)
 - Manufacturer: Novo Nordisk
@@ -31,7 +31,7 @@
 - Peak: 45-90 minutes (earlier peak than standard rapid-acting)
 - Duration: 3-5 hours
 - Available concentrations: U-100
-- Compatible pumps: Approved for use in insulin pumps; may require infusion set changes every 2 days instead of 3 due to site irritation in some users
+- Pump compatibility: Follow your specific pump manufacturer's manual for Fiasp compatibility and handling. Approved for pump use but some users report increased site irritation requiring infusion set changes every 2 days instead of 3
 - Key consideration: Faster onset can reduce post-meal spikes but some users experience site discomfort; particularly beneficial for people with significant post-meal glucose excursions
 
 ### Lyumjev (insulin lispro-aabc)
@@ -40,7 +40,7 @@
 - Peak: 45-90 minutes
 - Duration: 3-5 hours
 - Available concentrations: U-100, U-200
-- Compatible pumps: Approved for pump use
+- Pump compatibility: U-100 ONLY for insulin pumps. U-200 must NOT be used in insulin pumps (per Lilly prescribing information)
 - Key consideration: Ultra-rapid formulation of insulin lispro; may cause injection site reactions in some users
 
 ## Long-Acting Insulin (Basal)

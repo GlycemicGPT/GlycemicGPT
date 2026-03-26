@@ -15,7 +15,10 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Enable pgvector extension
+    # Enable pgvector extension.
+    # NOTE: On managed PostgreSQL (RDS, Cloud SQL, Azure), the pgvector
+    # extension must be pre-provisioned by the cloud provider. The
+    # IF NOT EXISTS clause handles the case where it's already enabled.
     op.execute("CREATE EXTENSION IF NOT EXISTS vector")
 
     # Knowledge chunks with vector embeddings
