@@ -141,7 +141,7 @@ async def get_recent_messages(
             ChatMessage.user_id == user_id,
             ChatMessage.conversation_id == conversation_id,
         )
-        .order_by(ChatMessage.created_at.desc())
+        .order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc())
         .limit(max_messages)
     )
     rows = result.all()
@@ -199,7 +199,7 @@ async def get_conversation_messages(
             ChatMessage.user_id == user_id,
             ChatMessage.conversation_id == conversation_id,
         )
-        .order_by(ChatMessage.created_at.asc())
+        .order_by(ChatMessage.created_at.asc(), ChatMessage.id.asc())
         .limit(limit)
         .offset(offset)
     )

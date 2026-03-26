@@ -387,7 +387,9 @@ async def ai_chat(
         response=chat_result.content,
         disclaimer="Not medical advice. Consult your healthcare provider.",
         conversation_id=str(chat_result.conversation_id),
-        message_id=str(chat_result.assistant_message_id),
+        message_id=str(chat_result.assistant_message_id)
+        if chat_result.assistant_message_id
+        else None,
     )
 
 
@@ -436,6 +438,11 @@ async def get_chat_history(
                 "content": msg.content,
                 "timestamp": msg.created_at.isoformat(),
                 "model": msg.model,
+                "disclaimer": (
+                    "Not medical advice. Consult your healthcare provider."
+                    if msg.role.value == "assistant"
+                    else None
+                ),
             }
             for msg in messages
         ],

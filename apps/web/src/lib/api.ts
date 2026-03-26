@@ -2230,11 +2230,12 @@ export interface ChatHistoryMessage {
   role: "user" | "assistant";
   content: string;
   timestamp: string;
-  model?: string;
+  model?: string | null;
+  disclaimer?: string | null;
 }
 
 export interface ChatHistoryResponse {
-  conversation_id: string;
+  conversation_id: string | null;
   messages: ChatHistoryMessage[];
   total: number;
 }

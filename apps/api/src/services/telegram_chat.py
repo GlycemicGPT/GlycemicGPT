@@ -76,8 +76,8 @@ class ChatResult:
 
     content: str
     conversation_id: uuid.UUID
-    user_message_id: uuid.UUID
-    assistant_message_id: uuid.UUID
+    user_message_id: uuid.UUID | None
+    assistant_message_id: uuid.UUID | None
     model: str
     input_tokens: int
     output_tokens: int
@@ -228,6 +228,7 @@ async def handle_chat(
         )
         await db.commit()
     except Exception:
+        await db.rollback()
         logger.warning(
             "Failed to persist chat messages",
             user_id=str(user_id),
@@ -361,8 +362,8 @@ async def handle_chat_web(
         )
 
     # Persist both messages (non-fatal -- still return the AI response on failure)
-    user_msg_id = uuid.uuid4()
-    assistant_msg_id = uuid.uuid4()
+    user_msg_id: uuid.UUID | None = None
+    assistant_msg_id: uuid.UUID | None = None
     try:
         user_msg = await store_message(
             db, user_id, conversation_id, ChatRole.USER, truncated_text
@@ -380,6 +381,7 @@ async def handle_chat_web(
         user_msg_id = user_msg.id
         assistant_msg_id = assistant_msg.id
     except Exception:
+        await db.rollback()
         logger.warning(
             "Failed to persist web chat messages",
             user_id=str(user_id),
