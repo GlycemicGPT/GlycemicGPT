@@ -352,9 +352,13 @@ async def research_for_user(
 
     for source in sources:
         try:
-            status = await research_source(db, source)
+            result_status = await research_source(db, source)
             await db.commit()  # Commit after each source for isolation
-            summary[status["status"]] = summary.get(status["status"], 0) + 1
+            # Normalize "error" -> "errors" to match summary dict keys
+            key = result_status["status"]
+            if key == "error":
+                key = "errors"
+            summary[key] = summary.get(key, 0) + 1
         except Exception:
             await db.rollback()
             logger.error(
