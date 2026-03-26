@@ -64,6 +64,15 @@ async def lifespan(app: FastAPI):
     start_scheduler()
     logger.info("Background scheduler started")
 
+    # Preload embedding model for RAG retrieval (Story 35.9)
+    # Model downloads ~500MB on first run, then caches in Docker volume.
+    try:
+        from src.services.embedding import preload_model
+
+        preload_model()
+    except Exception:
+        logger.warning("Embedding model preload failed", exc_info=True)
+
     yield
 
     # Shutdown

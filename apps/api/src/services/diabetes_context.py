@@ -290,25 +290,55 @@ async def build_pump_profile_section(
 # ── Composite context builder ──
 
 
-async def build_diabetes_context(
+async def build_knowledge_section(
     db: AsyncSession,
     user_id: uuid.UUID,
-) -> str:
-    """Build comprehensive diabetes context from all available data.
+    query: str,
+) -> str | None:
+    """Build clinical knowledge section from RAG retrieval.
 
-    Assembles 6 independent sections: glucose, IoB, pump activity,
-    Control-IQ summary, user settings, and pump profile. Each section
-    is independently resilient -- if one fails, the others still populate.
+    Retrieves relevant knowledge chunks based on the user's query
+    and formats them with trust-tier labels for the AI prompt.
 
     Args:
         db: Database session.
         user_id: User's UUID.
+        query: The user's question text.
+
+    Returns:
+        Formatted knowledge text, or None if no relevant chunks found.
+    """
+    from src.services.knowledge_retrieval import (
+        format_knowledge_for_prompt,
+        retrieve_knowledge,
+    )
+
+    chunks = await retrieve_knowledge(db, user_id, query)
+    return format_knowledge_for_prompt(chunks)
+
+
+async def build_diabetes_context(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    query: str | None = None,
+) -> str:
+    """Build comprehensive diabetes context from all available data.
+
+    Assembles independent sections: glucose, IoB, pump activity,
+    Control-IQ summary, user settings, pump profile, and optionally
+    clinical knowledge (when a query is provided). Each section is
+    independently resilient -- if one fails, the others still populate.
+
+    Args:
+        db: Database session.
+        user_id: User's UUID.
+        query: Optional user question for knowledge retrieval.
 
     Returns:
         A formatted string describing all available diabetes data,
         or a fallback message if no data is available.
     """
-    builders = [
+    builders: list[tuple[str, object]] = [
         ("glucose", build_glucose_section),
         ("iob", build_iob_section),
         ("pump", build_pump_section),
@@ -327,6 +357,19 @@ async def build_diabetes_context(
             logger.warning(
                 "Failed to build context section",
                 section=name,
+                user_id=str(user_id),
+                exc_info=True,
+            )
+
+    # Knowledge retrieval section (only when a user query is provided)
+    if query:
+        try:
+            knowledge = await build_knowledge_section(db, user_id, query)
+            if knowledge:
+                sections.append(knowledge)
+        except Exception:
+            logger.warning(
+                "Failed to build knowledge section",
                 user_id=str(user_id),
                 exc_info=True,
             )

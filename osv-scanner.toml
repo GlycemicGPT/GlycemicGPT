@@ -58,3 +58,10 @@ reason = "Dev-only sidecar build dependency; DOM clobbering not exploitable in N
 [[IgnoredVulns]]
 id = "GHSA-3x4c-7xq6-9pq8"
 reason = "Fix requires Next.js 16 (major upgrade); will address in separate migration story"
+
+# pygments 2.19.2 -- latest available version, no fix released yet.
+# Low severity (CVSS 3.3). ReDoS in specific lexer patterns; not
+# exploitable in our usage (server-side syntax highlighting only).
+[[IgnoredVulns]]
+id = "GHSA-5239-wwwm-4pmq"
+reason = "No fix available (2.19.2 is latest); low severity ReDoS; not exploitable in our server-side usage"

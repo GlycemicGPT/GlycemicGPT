@@ -28,12 +28,14 @@ from src.models.integration import (
     IntegrationStatus,
     IntegrationType,
 )
+from src.models.knowledge_chunk import KnowledgeChunk
 from src.models.meal_analysis import MealAnalysis
 from src.models.plugin_declaration import PluginDeclaration
 from src.models.pump_data import PumpEvent, PumpEventType
 from src.models.pump_hardware_info import PumpHardwareInfo
 from src.models.pump_profile import PumpProfile
 from src.models.pump_raw_event import PumpRawEvent
+from src.models.research_source import ResearchSource
 from src.models.safety_limits import SafetyLimits
 from src.models.safety_log import SafetyLog
 from src.models.security_audit_log import SecurityAuditLog
@@ -43,6 +45,7 @@ from src.models.target_glucose_range import TargetGlucoseRange
 from src.models.telegram_link import TelegramLink
 from src.models.telegram_verification import TelegramVerificationCode
 from src.models.user import User, UserRole
+from src.models.user_document import UserDocument
 
 __all__ = [
     "AIProviderConfig",
@@ -75,6 +78,7 @@ __all__ = [
     "IntegrationCredential",
     "IntegrationStatus",
     "IntegrationType",
+    "KnowledgeChunk",
     "MealAnalysis",
     "NotificationStatus",
     "PluginDeclaration",
@@ -83,6 +87,7 @@ __all__ = [
     "PumpHardwareInfo",
     "PumpProfile",
     "PumpRawEvent",
+    "ResearchSource",
     "SafetyLimits",
     "SafetyLog",
     "SecurityAuditLog",
@@ -94,5 +99,6 @@ __all__ = [
     "TimestampMixin",
     "TrendDirection",
     "User",
+    "UserDocument",
     "UserRole",
 ]

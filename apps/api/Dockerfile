@@ -17,8 +17,11 @@ LABEL org.opencontainers.image.licenses="MIT"
 WORKDIR /app
 
 # Install system dependencies
+# build-essential + cargo needed for fastembed's Rust-based tokenizers dependency
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    build-essential \
+    cargo \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv for fast package management

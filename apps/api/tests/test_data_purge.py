@@ -94,13 +94,14 @@ class TestPurgeAllUserData:
 
         result = await purge_all_user_data(user_id, db)
 
-        # 10 delete calls (glucose, pump, brief, meal, correction,
-        # suggestion, safety, escalation, alert, chat_messages)
-        assert db.execute.call_count == 10
+        # 13 delete calls (glucose, pump, brief, meal, correction,
+        # suggestion, safety, escalation, alert, chat_messages,
+        # knowledge_chunks, user_documents, research_sources)
+        assert db.execute.call_count == 13
         assert db.commit.call_count == 1
 
-        # All 10 categories should be in result
-        assert len(result) == 10
+        # All 13 categories should be in result
+        assert len(result) == 13
         assert result["glucose_readings"] == 10
         assert result["pump_events"] == 10
         assert result["daily_briefs"] == 10

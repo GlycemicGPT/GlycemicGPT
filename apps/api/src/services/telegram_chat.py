@@ -176,7 +176,9 @@ async def handle_chat(
 
     # Build context and prompt
     try:
-        diabetes_context = await build_diabetes_context(db, user_id)
+        diabetes_context = await build_diabetes_context(
+            db, user_id, query=truncated_text
+        )
     except Exception:
         logger.error(
             "Failed to build diabetes context for AI chat",
@@ -320,7 +322,9 @@ async def handle_chat_web(
     history = await get_recent_messages(db, user_id, conversation_id)
 
     try:
-        diabetes_context = await build_diabetes_context(db, user_id)
+        diabetes_context = await build_diabetes_context(
+            db, user_id, query=truncated_text
+        )
     except Exception:
         logger.error(
             "Failed to build diabetes context for web chat",
@@ -509,7 +513,9 @@ async def handle_caregiver_chat(
 
     # Build context from patient's data
     try:
-        diabetes_context = await build_diabetes_context(db, patient_id)
+        diabetes_context = await build_diabetes_context(
+            db, patient_id, query=truncated_text
+        )
     except Exception:
         logger.error(
             "Failed to build diabetes context for caregiver chat",
@@ -606,7 +612,9 @@ async def handle_caregiver_chat_web(
     truncated_text = text[:MAX_USER_MESSAGE_LENGTH]
 
     try:
-        diabetes_context = await build_diabetes_context(db, patient_id)
+        diabetes_context = await build_diabetes_context(
+            db, patient_id, query=truncated_text
+        )
     except Exception:
         logger.error(
             "Failed to build diabetes context for web caregiver chat",
