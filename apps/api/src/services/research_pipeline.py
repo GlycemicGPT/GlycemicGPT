@@ -162,17 +162,22 @@ async def fetch_source_content(url: str) -> str | None:
     try:
         async with httpx.AsyncClient(
             timeout=FETCH_TIMEOUT_SECONDS,
-            follow_redirects=False,  # Redirects disabled to prevent SSRF
+            follow_redirects=True,  # Follow redirects but validate each hop
+            max_redirects=5,
             headers={"User-Agent": "GlycemicGPT Research Bot/1.0"},
         ) as client:
             response = await client.get(url)
 
-            # Reject redirects explicitly
-            if response.is_redirect:
+            # Validate the final URL after redirects (defense against
+            # redirect-based SSRF to internal services)
+            final_url = str(response.url)
+            try:
+                _validate_research_url(final_url)
+            except ValueError:
                 logger.warning(
-                    "Research source returned redirect (blocked)",
-                    url=url,
-                    location=response.headers.get("location", ""),
+                    "Research redirect target failed validation (blocked)",
+                    original_url=url,
+                    final_url=final_url,
                 )
                 return None
 
