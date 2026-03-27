@@ -116,6 +116,28 @@ class KnowledgeChunk(Base):
         nullable=False,
     )
 
+    # Audit columns (Story 35.10)
+    added_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    update_source: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+    )
+
+    change_summary: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
     def __repr__(self) -> str:
         return (
             f"<KnowledgeChunk(id={self.id}, tier={self.trust_tier}, "

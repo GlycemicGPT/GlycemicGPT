@@ -2351,6 +2351,102 @@ export async function getResearchSuggestions(): Promise<{ suggestions: ResearchS
 }
 
 // ============================================================================
+// Knowledge Base (Story 35.10)
+// ============================================================================
+
+export interface KnowledgeDocument {
+  source_name: string;
+  source_url: string | null;
+  source_type: string;
+  trust_tier: string;
+  chunk_count: number;
+  total_content_length: number;
+  first_created: string;
+  last_updated: string | null;
+  injection_risk_count: number;
+  update_source: string | null;
+  change_summary: string | null;
+}
+
+export interface KnowledgeChunkItem {
+  id: string;
+  content: string;
+  content_preview: string;
+  content_length: number;
+  source_url: string | null;
+  retrieved_at: string | null;
+  created_at: string;
+  injection_risk: boolean;
+}
+
+export interface KnowledgeStats {
+  total_documents: number;
+  total_chunks: number;
+  by_tier: Record<string, number>;
+}
+
+export async function getKnowledgeDocuments(params?: {
+  trust_tier?: string;
+  search?: string;
+  page?: number;
+  page_size?: number;
+}): Promise<{ documents: KnowledgeDocument[]; total_documents: number; total_chunks: number }> {
+  const searchParams = new URLSearchParams();
+  if (params?.trust_tier) searchParams.set("trust_tier", params.trust_tier);
+  if (params?.search) searchParams.set("search", params.search);
+  if (params?.page) searchParams.set("page", String(params.page));
+  if (params?.page_size) searchParams.set("page_size", String(params.page_size));
+  const qs = searchParams.toString();
+  const response = await apiFetch(`${API_BASE_URL}/api/knowledge/documents${qs ? `?${qs}` : ""}`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || `Failed to load knowledge base: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function getKnowledgeDocumentChunks(
+  sourceName: string,
+  sourceUrl?: string | null,
+  page?: number,
+): Promise<{ chunks: KnowledgeChunkItem[]; total: number; source_name: string }> {
+  const searchParams = new URLSearchParams({ source_name: sourceName });
+  if (sourceUrl) searchParams.set("source_url", sourceUrl);
+  if (page) searchParams.set("page", String(page));
+  const response = await apiFetch(`${API_BASE_URL}/api/knowledge/documents/chunks?${searchParams}`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || `Failed to load chunks: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function deleteKnowledgeDocument(
+  sourceName: string,
+  sourceUrl?: string | null,
+): Promise<{ message: string; chunks_invalidated: number }> {
+  const searchParams = new URLSearchParams({ source_name: sourceName });
+  if (sourceUrl) searchParams.set("source_url", sourceUrl);
+  const response = await apiFetch(`${API_BASE_URL}/api/knowledge/documents?${searchParams}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || `Failed to delete document: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function getKnowledgeStats(): Promise<KnowledgeStats> {
+  const response = await apiFetch(`${API_BASE_URL}/api/knowledge/stats`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || `Failed to load stats: ${response.status}`);
+  }
+  return response.json();
+}
+
+// ============================================================================
 // Glucose History
 // ============================================================================
 

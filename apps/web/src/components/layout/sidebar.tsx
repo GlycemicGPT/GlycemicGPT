@@ -22,6 +22,7 @@ import {
   FileText,
   Bell,
   MessageSquare,
+  BookOpen,
   Settings,
   Menu,
   X,
@@ -41,6 +42,7 @@ const diabeticNavigation: NavItem[] = [
   { name: "Daily Briefs", href: "/dashboard/briefs", icon: FileText, badgeKey: "briefs" },
   { name: "Alerts", href: "/dashboard/alerts", icon: Bell },
   { name: "AI Chat", href: "/dashboard/ai-chat", icon: MessageSquare },
+  { name: "Knowledge Base", href: "/dashboard/knowledge-base", icon: BookOpen },
   { name: "Settings", href: "/dashboard/settings", icon: Settings },
 ];
 

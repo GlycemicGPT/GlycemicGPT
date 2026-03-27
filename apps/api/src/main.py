@@ -32,6 +32,7 @@ from src.routers import (
     health,
     insights,
     integrations,
+    knowledge,
     meal_analysis,
     research,
     safety,
@@ -146,6 +147,7 @@ app.include_router(alert_stream.router)
 app.include_router(alert_api.router)
 app.include_router(treatment.router)
 app.include_router(research.router)
+app.include_router(knowledge.router)
 
 
 @app.get("/")
