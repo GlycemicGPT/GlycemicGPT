@@ -113,7 +113,7 @@ async def add_research_source(
     logger.info(
         "Research source added",
         user_id=str(current_user.id),
-        url=request.url,
+        source_id=str(source.id),
         name=request.name,
     )
 
@@ -239,7 +239,7 @@ async def get_suggestions(
         select(InsulinConfig).where(InsulinConfig.user_id == current_user.id)
     )
     insulin = insulin_result.scalar_one_or_none()
-    if insulin:
+    if insulin and insulin.insulin_type:
         based_on["insulin"] = insulin.insulin_type
 
     pump_result = await db.execute(

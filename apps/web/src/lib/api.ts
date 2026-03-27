@@ -2321,7 +2321,7 @@ export async function addResearchSource(url: string, name: string, category?: st
 }
 
 export async function deleteResearchSource(sourceId: string): Promise<void> {
-  const response = await apiFetch(`${API_BASE_URL}/api/ai/research/sources/${sourceId}`, {
+  const response = await apiFetch(`${API_BASE_URL}/api/ai/research/sources/${encodeURIComponent(sourceId)}`, {
     method: "DELETE",
   });
   if (!response.ok) {

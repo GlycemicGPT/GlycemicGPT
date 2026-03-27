@@ -427,19 +427,7 @@ async def ai_research_source(
             "pages_fetched": pages_fetched,
         }
 
-    # Invalidate old chunks
-    if existing_chunks:
-        old_result = await db.execute(
-            select(KnowledgeChunk).where(
-                KnowledgeChunk.user_id == source.user_id,
-                KnowledgeChunk.source_url == source.url,
-                KnowledgeChunk.valid_to.is_(None),
-            )
-        )
-        for old_chunk in old_result.scalars().all():
-            old_chunk.valid_to = now
-
-    # Process findings into chunks
+    # Process findings into chunks (invalidation happens AFTER embedding succeeds)
     all_texts = []
     all_metadata = []
     for finding in all_findings[:MAX_FINDINGS_PER_SOURCE]:
@@ -487,6 +475,19 @@ async def ai_research_source(
             "recommendations": recommendations,
             "pages_fetched": pages_fetched,
         }
+
+    # Invalidate old chunks only AFTER new embeddings are ready
+    # (prevents leaving source with no active knowledge on embedding failure)
+    if existing_chunks:
+        old_result = await db.execute(
+            select(KnowledgeChunk).where(
+                KnowledgeChunk.user_id == source.user_id,
+                KnowledgeChunk.source_url == source.url,
+                KnowledgeChunk.valid_to.is_(None),
+            )
+        )
+        for old_chunk in old_result.scalars().all():
+            old_chunk.valid_to = now
 
     # Store chunks (with injection risk scanning)
     for text, embedding, metadata in zip(
