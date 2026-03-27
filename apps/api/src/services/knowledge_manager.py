@@ -257,12 +257,19 @@ async def get_knowledge_stats(
     )
     by_tier = {row[0]: row[1] for row in tier_result.all()}
 
-    # Document count (distinct source_name)
-    doc_result = await db.execute(
-        select(func.count(func.distinct(KnowledgeChunk.source_name))).where(
-            *base_filters
+    # Document count (matching grouped definition from list_documents)
+    stats_subq = (
+        select(KnowledgeChunk.source_name)
+        .where(*base_filters)
+        .group_by(
+            KnowledgeChunk.source_name,
+            KnowledgeChunk.source_url,
+            KnowledgeChunk.source_type,
+            KnowledgeChunk.trust_tier,
         )
+        .subquery()
     )
+    doc_result = await db.execute(select(func.count()).select_from(stats_subq))
     total_documents = doc_result.scalar() or 0
 
     return KnowledgeStatsResponse(

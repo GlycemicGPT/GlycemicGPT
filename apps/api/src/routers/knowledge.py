@@ -94,6 +94,11 @@ async def get_document_chunks(
 
     from src.models.knowledge_chunk import KnowledgeChunk
 
+    source_url_filter = (
+        KnowledgeChunk.source_url == source_url
+        if source_url
+        else KnowledgeChunk.source_url.is_(None)
+    )
     meta_result = await db.execute(
         select(KnowledgeChunk.source_type, KnowledgeChunk.trust_tier)
         .where(
@@ -103,6 +108,7 @@ async def get_document_chunks(
             ),
             KnowledgeChunk.valid_to.is_(None),
             KnowledgeChunk.source_name == source_name,
+            source_url_filter,
         )
         .limit(1)
     )

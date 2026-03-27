@@ -222,16 +222,26 @@ export default function KnowledgeBasePage() {
     loadData();
   }, [loadData]);
 
-  const handleToggleExpand = useCallback(async (doc: KnowledgeDocument) => {
+  const handleToggleExpand = useCallback((doc: KnowledgeDocument) => {
     const key = docKey(doc);
+
     setExpandedDocs((prev) => {
       const next = new Set(prev);
       if (next.has(key)) {
         next.delete(key);
       } else {
         next.add(key);
-        // Load chunks if not already loaded
-        if (!docChunks[key]) {
+      }
+      return next;
+    });
+
+    // Load chunks if expanding and not already loaded (uses functional update to avoid stale closure)
+    setDocChunks((currentChunks) => {
+      if (currentChunks[key]) return currentChunks; // Already loaded
+
+      // Check if we're expanding (not collapsing)
+      setExpandedDocs((currentExpanded) => {
+        if (currentExpanded.has(key) && !currentChunks[key]) {
           setLoadingChunks((prev) => new Set(prev).add(key));
           getKnowledgeDocumentChunks(doc.source_name, doc.source_url)
             .then((data) => {
@@ -248,10 +258,12 @@ export default function KnowledgeBasePage() {
               });
             });
         }
-      }
-      return next;
+        return currentExpanded; // Don't modify, just read
+      });
+
+      return currentChunks; // Don't modify, just trigger the check
     });
-  }, [docChunks]);
+  }, []);
 
   const handleDelete = useCallback(async (doc: KnowledgeDocument) => {
     const key = docKey(doc);
