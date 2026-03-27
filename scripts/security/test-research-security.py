@@ -19,7 +19,7 @@ import uuid
 import httpx
 
 API_URL = os.environ.get("API_URL", "http://localhost:8001")
-TEST_PASSWORD = "ResearchSec-2026!"
+TEST_PASSWORD = os.environ.get("TEST_PASSWORD", f"RsrchSec-{uuid.uuid4().hex[:8]}!")
 
 passed = 0
 failed = 0
