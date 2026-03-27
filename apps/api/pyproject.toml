@@ -26,6 +26,7 @@ dependencies = [
     "slowapi>=0.1.9",
     "fastembed>=0.4.0,<1.0",
     "pgvector>=0.3.0",
+    "beautifulsoup4>=4.12.0",
 ]
 
 [project.optional-dependencies]

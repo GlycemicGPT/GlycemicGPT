@@ -7,6 +7,7 @@ fetch clinical documentation from.
 import uuid
 from datetime import datetime
 
+import sqlalchemy as sa
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -24,7 +25,10 @@ class ResearchSource(Base):
 
     __tablename__ = "research_sources"
 
-    __table_args__ = (Index("ix_research_user_active", "user_id", "is_active"),)
+    __table_args__ = (
+        Index("ix_research_user_active", "user_id", "is_active"),
+        sa.UniqueConstraint("user_id", "url", name="uq_research_source_user_url"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
