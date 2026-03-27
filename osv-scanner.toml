@@ -59,6 +59,13 @@ reason = "Dev-only sidecar build dependency; DOM clobbering not exploitable in N
 id = "GHSA-3x4c-7xq6-9pq8"
 reason = "Fix requires Next.js 16 (major upgrade); will address in separate migration story"
 
+# brace-expansion 1.1.12 / 2.0.2 -- dev-only transitive dependency
+# (minimatch -> brace-expansion in jest/eslint toolchain). Fix requires
+# major version jump to 5.0.5 which breaks parent packages. Not in production.
+[[IgnoredVulns]]
+id = "GHSA-f886-m6hf-6m8v"
+reason = "Dev-only transitive dependency (jest/eslint toolchain); fix requires breaking major version upgrade; not in production builds"
+
 # pygments 2.19.2 -- latest available version, no fix released yet.
 # Low severity (CVSS 3.3). ReDoS in specific lexer patterns; not
 # exploitable in our usage (server-side syntax highlighting only).

@@ -535,6 +535,23 @@ def start_scheduler() -> AsyncIOScheduler:
             interval_seconds=settings.telegram_polling_interval_seconds,
         )
 
+    # Add AI Research Pipeline job (Story 35.12)
+    if settings.research_pipeline_enabled:
+        from src.services.research_scheduler import run_research_pipeline_all_users
+
+        scheduler.add_job(
+            run_research_pipeline_all_users,
+            trigger=IntervalTrigger(hours=settings.research_pipeline_interval_hours),
+            id="research_pipeline",
+            name="AI Research Pipeline",
+            replace_existing=True,
+            max_instances=1,
+        )
+        logger.info(
+            "Scheduled AI research pipeline job",
+            interval_hours=settings.research_pipeline_interval_hours,
+        )
+
     scheduler.start()
     logger.info("Background scheduler started")
 

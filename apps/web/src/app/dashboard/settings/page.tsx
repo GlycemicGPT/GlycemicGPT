@@ -8,7 +8,7 @@
  */
 
 import Link from "next/link";
-import { Settings, User, Bell, Database, Link2, Users, Radio, UserPlus, Target, Clock, Brain, Syringe, ShieldCheck } from "lucide-react";
+import { Settings, User, Bell, Database, Link2, Users, Radio, UserPlus, Target, Clock, Brain, Syringe, ShieldCheck, BookOpen } from "lucide-react";
 import { useUserContext } from "@/providers";
 import { AnimatedCard } from "@/components/ui/animated-card";
 import { PageTransition } from "@/components/ui/page-transition";
@@ -40,6 +40,12 @@ const settingsSections: SettingsSection[] = [
     description: "Configure Claude or OpenAI for glucose analysis and insights",
     icon: Brain,
     href: "/dashboard/settings/ai-provider",
+  },
+  {
+    title: "AI Research Sources",
+    description: "Configure what clinical documentation the AI researches for your devices and medications",
+    icon: BookOpen,
+    href: "/dashboard/settings/research-sources",
   },
   {
     title: "Glucose Range",
