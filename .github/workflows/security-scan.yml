@@ -121,6 +121,16 @@ jobs:
           export TEST_SECRET_KEY
           python scripts/security/test-auth-flows.py
 
+      - name: Run data isolation tests (IDOR)
+        env:
+          API_URL: http://localhost:8001
+        run: python scripts/security/test-data-isolation.py
+
+      - name: Run research security tests (SSRF, rate limiting)
+        env:
+          API_URL: http://localhost:8001
+        run: python scripts/security/test-research-security.py
+
       - name: Run API fuzzer
         env:
           API_URL: http://localhost:8001

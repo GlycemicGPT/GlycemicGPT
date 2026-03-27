@@ -33,16 +33,19 @@ def _get_real_client_ip(request: Request) -> str:
 
 limiter = Limiter(
     key_func=_get_real_client_ip,
+    default_limits=["120/minute"],  # Global default: 120 req/min per IP
     storage_uri=_storage_uri,
     enabled=not settings.testing,
 )
 
-# Rate limits are applied per-endpoint via @limiter.limit() decorators:
-# Auth login endpoints: 10/minute
+# Rate limits:
+# Global default: 120/minute per IP (catches general abuse)
+# Auth login endpoints: 10/minute (stricter)
 # Refresh endpoint: 30/minute
 # Device registration: 10/minute
 # Pump push: 60/minute
 # API key creation: 5/minute
+# Research trigger: 2/hour (very strict -- expensive AI operation)
 
 
 def is_debug_build(request: Request) -> bool:
