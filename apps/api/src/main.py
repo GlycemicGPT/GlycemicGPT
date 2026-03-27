@@ -33,6 +33,7 @@ from src.routers import (
     insights,
     integrations,
     meal_analysis,
+    research,
     safety,
     system,
     telegram,
@@ -144,6 +145,7 @@ app.include_router(api_keys.router)
 app.include_router(alert_stream.router)
 app.include_router(alert_api.router)
 app.include_router(treatment.router)
+app.include_router(research.router)
 
 
 @app.get("/")
