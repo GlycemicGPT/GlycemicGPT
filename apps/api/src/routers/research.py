@@ -98,7 +98,7 @@ async def add_research_source(
         raise HTTPException(
             status_code=400,
             detail="Invalid URL. Research sources must use HTTPS and target public addresses.",
-        )
+        ) from None
 
     source = ResearchSource(
         user_id=current_user.id,
@@ -203,7 +203,7 @@ async def trigger_research(
         if r.get("domain") and r.get("url")
     ]
     return ResearchRunResponse(
-        sources=result["sources"],
+        sources=result.get("sources", 0),
         updated=result.get("updated", 0),
         new=result.get("new", 0),
         unchanged=result.get("unchanged", 0),

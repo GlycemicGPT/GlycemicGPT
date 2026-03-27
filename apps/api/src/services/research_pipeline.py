@@ -183,15 +183,18 @@ async def fetch_source_content(url: str) -> str | None:
 
             response.raise_for_status()
 
-            # Check Content-Length before reading body (prevent OOM)
+            # Check Content-Length before reading body
             content_length = response.headers.get("content-length")
-            if content_length and int(content_length) > MAX_CONTENT_BYTES:
-                logger.warning(
-                    "Research source content too large (Content-Length)",
-                    url=url,
-                    size=content_length,
-                )
-                return None
+            try:
+                if content_length and int(content_length) > MAX_CONTENT_BYTES:
+                    logger.warning(
+                        "Research source content too large (Content-Length)",
+                        url=url,
+                        size=content_length,
+                    )
+                    return None
+            except (ValueError, TypeError):
+                pass  # Malformed Content-Length header, skip check
 
             # Check actual body size
             if len(response.content) > MAX_CONTENT_BYTES:

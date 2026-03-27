@@ -15,11 +15,19 @@ Phase 1: Two-step approach (plan + evaluate) without tool-use API.
 Phase 2: Full agentic with tool-use API calls.
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
 import uuid
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
+
+if TYPE_CHECKING:
+    from src.models.user import User
+
+import re
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,11 +44,32 @@ from src.services.research_pipeline import (
     fetch_source_content,
 )
 
+# Patterns that suggest prompt injection in research findings
+_INJECTION_PATTERNS = [
+    re.compile(r"ignore\s+(all\s+)?previous\s+instructions", re.IGNORECASE),
+    re.compile(r"you\s+are\s+now", re.IGNORECASE),
+    re.compile(r"system\s*prompt\s*:", re.IGNORECASE),
+    re.compile(r"override\s+(safety|guidelines|protocol)", re.IGNORECASE),
+    re.compile(r"do\s+not\s+mention\s+this", re.IGNORECASE),
+    re.compile(r"new\s+instructions?\s*:", re.IGNORECASE),
+]
+
+
+def _check_injection_risk(text: str) -> bool:
+    """Check if text contains potential prompt injection patterns."""
+    return any(pattern.search(text) for pattern in _INJECTION_PATTERNS)
+
+
 logger = get_logger(__name__)
 
 # Limits
-MAX_PAGES_PER_SESSION = 20
+MAX_PAGES_PER_SESSION = 10
 MAX_FINDINGS_PER_SOURCE = 10
+MAX_RECOMMENDATIONS_PER_SOURCE = 5
+MAX_RECOMMENDATIONS_TOTAL = 20
+MAX_PAGE_CONTENT_CHARS = 15_000  # Per-page cap for AI context
+MAX_TOTAL_CONTENT_CHARS = 30_000  # Total cap for evaluation call
+VALID_STATUSES = {"new", "updated", "unchanged", "error"}
 
 # Research system prompt
 RESEARCH_SYSTEM_PROMPT = """\
@@ -157,8 +186,17 @@ def _get_allowed_domains(sources: list[ResearchSource]) -> set[str]:
 
 
 def _is_url_in_allowed_domains(url: str, allowed_domains: set[str]) -> bool:
-    """Check if a URL is within the user's allowed domains."""
+    """Check if a URL is within the user's allowed domains.
+
+    Also rejects non-HTTPS URLs and URLs with embedded credentials.
+    """
     parsed = urlparse(url)
+    # Must be HTTPS
+    if parsed.scheme != "https":
+        return False
+    # Reject URLs with embedded credentials (userinfo)
+    if parsed.username or parsed.password:
+        return False
     hostname = (parsed.hostname or "").lower()
     return hostname in allowed_domains
 
@@ -173,20 +211,22 @@ def _parse_ai_json(text: str) -> dict | None:
 
     # Try extracting from markdown code block
     if "```json" in text:
-        start = text.index("```json") + 7
-        end = text.index("```", start)
-        try:
-            return json.loads(text[start:end].strip())
-        except (json.JSONDecodeError, ValueError):
-            pass
+        start = text.find("```json") + 7
+        end = text.find("```", start)
+        if end > start:
+            try:
+                return json.loads(text[start:end].strip())
+            except (json.JSONDecodeError, ValueError):
+                pass
 
     if "```" in text:
-        start = text.index("```") + 3
-        end = text.index("```", start)
-        try:
-            return json.loads(text[start:end].strip())
-        except (json.JSONDecodeError, ValueError):
-            pass
+        start = text.find("```") + 3
+        end = text.find("```", start)
+        if end > start:
+            try:
+                return json.loads(text[start:end].strip())
+            except (json.JSONDecodeError, ValueError):
+                pass
 
     # Try finding JSON object in text
     for i, char in enumerate(text):
@@ -210,7 +250,7 @@ def _parse_ai_json(text: str) -> dict | None:
 
 async def ai_research_source(
     db: AsyncSession,
-    user: object,
+    user: User,
     source: ResearchSource,
     all_sources: list[ResearchSource],
 ) -> dict:
@@ -277,7 +317,7 @@ async def ai_research_source(
         allowed_domains_list=", ".join(sorted(allowed_domains)),
         start_url=source.url,
         existing_knowledge=existing_summary,
-        page_content=start_content[:30000],  # Cap content sent to AI
+        page_content=start_content[:MAX_PAGE_CONTENT_CHARS],
         max_pages=MAX_PAGES_PER_SESSION,
     )
 
@@ -312,7 +352,7 @@ async def ai_research_source(
 
     # Collect findings from the first page
     all_findings = plan.get("findings_from_this_page", [])
-    recommendations = plan.get("recommendations", [])
+    recommendations = plan.get("recommendations", [])[:MAX_RECOMMENDATIONS_PER_SOURCE]
     pages_fetched = 1
 
     # Step 3: Fetch additional pages the AI requested (within allowed domains only)
@@ -340,7 +380,7 @@ async def ai_research_source(
                 {
                     "url": url,
                     "reason": page_req.get("reason", ""),
-                    "content": content[:20000],  # Cap per-page content
+                    "content": content[:MAX_PAGE_CONTENT_CHARS],
                 }
             )
 
@@ -356,7 +396,7 @@ async def ai_research_source(
         eval_prompt = EVALUATE_PROMPT.format(
             topic=source.name,
             page_count=len(fetched_pages),
-            pages_content=pages_content[:40000],  # Cap total content
+            pages_content=pages_content[:MAX_TOTAL_CONTENT_CHARS],
         )
 
         try:
@@ -448,22 +488,28 @@ async def ai_research_source(
             "pages_fetched": pages_fetched,
         }
 
-    # Store chunks
+    # Store chunks (with injection risk scanning)
     for text, embedding, metadata in zip(
         all_texts, embeddings, all_metadata, strict=True
     ):
+        # Validate source_url is within allowed domains (AI controls this field)
+        finding_url = metadata["source_url"]
+        if not _is_url_in_allowed_domains(finding_url, allowed_domains):
+            finding_url = source.url  # Fall back to source URL
+
         db.add(
             KnowledgeChunk(
                 user_id=source.user_id,
                 trust_tier="RESEARCHED",
                 source_type="ai_research",
-                source_url=metadata["source_url"],
+                source_url=finding_url,
                 source_name=source.name,
                 content=text,
                 embedding=embedding,
                 content_hash=_compute_hash(text),
                 retrieved_at=now,
                 metadata_json=metadata,
+                injection_risk=_check_injection_risk(text),
             )
         )
 
@@ -546,13 +592,17 @@ async def ai_research_for_user(
             result = await ai_research_source(db, user, source, sources)
             await db.commit()
 
-            key = result["status"]
+            key = result.get("status", "error")
+            if key not in VALID_STATUSES:
+                key = "error"
             if key == "error":
                 key = "errors"
             summary[key] = summary.get(key, 0) + 1
             summary["total_chunks"] += result.get("chunks", 0)
             summary["total_pages"] += result.get("pages_fetched", 0)
-            summary["recommendations"].extend(result.get("recommendations", []))
+            new_recs = result.get("recommendations", [])
+            remaining = MAX_RECOMMENDATIONS_TOTAL - len(summary["recommendations"])
+            summary["recommendations"].extend(new_recs[:remaining])
         except Exception:
             await db.rollback()
             logger.error(
