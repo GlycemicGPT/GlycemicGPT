@@ -121,6 +121,11 @@ jobs:
           export TEST_SECRET_KEY
           python scripts/security/test-auth-flows.py
 
+      - name: Rate limit cooldown
+        run: |
+          echo "Waiting 15s for rate limiter to reset between test suites..."
+          sleep 15
+
       - name: Run data isolation tests (IDOR)
         env:
           API_URL: http://localhost:8001

@@ -29,16 +29,30 @@ def unique_email() -> str:
     return f"rsrchsec_{uuid.uuid4().hex[:12]}@example.com"
 
 
-def register_and_login(client: httpx.Client, email: str) -> str:
-    """Register, login, acknowledge disclaimer, return CSRF token."""
-    client.post(
+def register_and_login(client: httpx.Client, email: str, max_retries: int = 3) -> str:
+    """Register, login, acknowledge disclaimer, return CSRF token.
+
+    Retries on rate limit (429) with exponential backoff.
+    """
+    resp = client.post(
         f"{API_URL}/api/auth/register",
         json={"email": email, "password": TEST_PASSWORD},
     )
-    client.post(
-        f"{API_URL}/api/auth/login",
-        json={"email": email, "password": TEST_PASSWORD},
-    )
+    assert resp.status_code in (200, 201), f"Register failed: {resp.status_code}"
+
+    for attempt in range(max_retries):
+        resp = client.post(
+            f"{API_URL}/api/auth/login",
+            json={"email": email, "password": TEST_PASSWORD},
+        )
+        if resp.status_code == 429:
+            wait = 2 ** attempt
+            print(f"    (rate limited on login, waiting {wait}s...)")
+            time.sleep(wait)
+            continue
+        break
+    assert resp.status_code == 200, f"Login failed: {resp.status_code}"
+
     csrf = get_csrf(client)
     client.post(
         f"{API_URL}/api/disclaimer/acknowledge",
