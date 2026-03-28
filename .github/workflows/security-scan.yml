@@ -490,6 +490,10 @@ jobs:
           rm -f "$COOKIE_JAR"
           echo "ZAP auth session established"
 
+          # Pre-create results dir and make scripts/security writable for ZAP containers (run as UID 1000)
+          mkdir -p scripts/security/results
+          chmod 777 scripts/security/ scripts/security/results/
+
       - name: Run ZAP API active scan
         id: zap-api
         if: |
@@ -497,8 +501,6 @@ jobs:
           needs.detect-changes.outputs.run_all == 'true' ||
           github.event_name == 'workflow_dispatch'
         run: |
-          mkdir -p scripts/security/results
-          chmod 777 scripts/security/results
           # ZAP exit codes: 0=clean, 1=errors (including OpenAPI parse issues), 2=warnings
           # The exitStatus job in the plan handles severity-based pass/fail.
           # Exit code 1 from OpenAPI schema errors (pre-existing API spec bugs) should
@@ -533,9 +535,6 @@ jobs:
           needs.detect-changes.outputs.run_all == 'true' ||
           github.event_name == 'workflow_dispatch'
         run: |
-          mkdir -p scripts/security/results
-          # zap-baseline.py writes temp files to /zap/wrk/ -- must be writable by zap user (UID 1000)
-          chmod -R 777 scripts/security/
           ZAP_EXIT=0
           docker run --rm --network="host" \
             -v "$(pwd)/scripts/security:/zap/wrk/:rw" \
