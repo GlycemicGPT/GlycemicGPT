@@ -207,12 +207,7 @@ jobs:
           for f in semgrep-python.json semgrep-typescript.json semgrep-kotlin.json; do
             if [ ! -f "$f" ]; then continue; fi
             LANG=$(echo "$f" | sed 's/semgrep-//;s/.json//')
-            COUNT=$(python3 -c "
-import json, sys
-d = json.load(open('$f'))
-errors = [r for r in d.get('results',[]) if r.get('extra',{}).get('severity') == 'ERROR']
-print(len(errors))
-" 2>/dev/null || echo "0")
+            COUNT=$(python3 -c "import json; d=json.load(open('$f')); print(len([r for r in d.get('results',[]) if r.get('extra',{}).get('severity')=='ERROR']))" 2>/dev/null || echo "0")
             if [ "$COUNT" -gt 0 ]; then
               echo "$LANG SAST: $COUNT ERROR-severity findings"
               FAILED=true
