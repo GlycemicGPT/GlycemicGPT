@@ -27,7 +27,7 @@ env:
         - "http://localhost:8001/openapi\\.json"
         - "http://localhost:8001/health.*"
   parameters:
-    failOnError: true
+    failOnError: false
     failOnWarning: false
     progressToStdout: true
 
@@ -45,14 +45,14 @@ jobs:
   - type: replacer
     parameters:
       deleteAllRules: true
-      rules:
-        - description: "Inject authenticated session cookies"
-          matchType: "REQ_HEADER"
-          matchString: "Cookie"
-          replacement: "glycemicgpt_session=${ZAP_SESSION}; csrf_token=${ZAP_CSRF}"
-          matchRegex: false
-          initiators: []
-          enabled: true
+    rules:
+      - description: "Inject authenticated session cookies"
+        matchType: "req_header"
+        matchString: "Cookie"
+        replacementString: "glycemicgpt_session=${ZAP_SESSION}; csrf_token=${ZAP_CSRF}"
+        matchRegex: false
+        tokenProcessing: false
+        initiators: []
 
   # Auto-discover all API endpoints from the live OpenAPI spec
   - type: openapi

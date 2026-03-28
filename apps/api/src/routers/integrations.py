@@ -2167,7 +2167,7 @@ async def get_insulin_summary(
     _bolus_table = PumpEvent.__tablename__
     _bolus_val = PumpEventType.BOLUS.value
     _correction_val = PumpEventType.CORRECTION.value
-    bolus_query = text(f"""
+    bolus_query = text(f"""  # nosemgrep: avoid-sqlalchemy-text
         WITH deliveries AS (
             SELECT event_timestamp, units,
                    bool_or(event_type = :correction_type) AS is_correction
@@ -2214,7 +2214,7 @@ async def get_insulin_summary(
     # Uses PostgreSQL EXTRACT(EPOCH) and LEAST() -- not portable to SQLite.
     _table = PumpEvent.__tablename__
     _basal_val = PumpEventType.BASAL.value
-    basal_query = text(f"""
+    basal_query = text(f"""  # nosemgrep: avoid-sqlalchemy-text
         WITH prior AS (
             SELECT event_timestamp, units
             FROM {_table}

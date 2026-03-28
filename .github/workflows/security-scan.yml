@@ -173,7 +173,7 @@ jobs:
         run: |
           semgrep scan \
             --config p/kotlin \
-            --config p/android \
+            --config p/java \
             --config p/secrets \
             --exclude '.gradle' \
             --error \

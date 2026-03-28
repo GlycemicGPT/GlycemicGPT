@@ -188,7 +188,7 @@ def test_token_tampering_wrong_key() -> None:
         "type": "access",
         "jti": str(uuid.uuid4()),
     }
-    token = jwt.encode(payload, "wrong-secret", algorithm=JWT_ALGORITHM)
+    token = jwt.encode(payload, "wrong-secret", algorithm=JWT_ALGORITHM)  # nosemgrep: jwt-python-hardcoded-secret
     with httpx.Client(timeout=10) as client:
         resp = client.get(
             f"{API_URL}/api/auth/me",
@@ -218,7 +218,7 @@ def test_token_tampering_alg_confusion() -> None:
     }
 
     # Sub-test A: HS384 with wrong key (different algorithm than expected HS256)
-    token_384 = jwt.encode(payload, "wrong-secret", algorithm="HS384")
+    token_384 = jwt.encode(payload, "wrong-secret", algorithm="HS384")  # nosemgrep: jwt-python-hardcoded-secret
     with httpx.Client(timeout=10) as client:
         resp = client.get(
             f"{API_URL}/api/auth/me",
