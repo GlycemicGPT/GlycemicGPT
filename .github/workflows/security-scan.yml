@@ -443,15 +443,16 @@ jobs:
           TEST_PASSWORD: ${{ secrets.SECURITY_TEST_PASSWORD }}
         run: |
           ZAP_EMAIL="zap_$(date +%s)_${RANDOM}@example.com"
+          AUTH_BODY=$(jq -nc --arg e "$ZAP_EMAIL" --arg p "$TEST_PASSWORD" '{email:$e,password:$p}')
 
           curl -sf -X POST "$API_URL/api/auth/register" \
             -H "Content-Type: application/json" \
-            -d "{\"email\":\"$ZAP_EMAIL\",\"password\":\"$TEST_PASSWORD\"}" > /dev/null
+            -d "$AUTH_BODY" > /dev/null
 
           COOKIE_JAR=$(mktemp)
           curl -sf -c "$COOKIE_JAR" -X POST "$API_URL/api/auth/login" \
             -H "Content-Type: application/json" \
-            -d "{\"email\":\"$ZAP_EMAIL\",\"password\":\"$TEST_PASSWORD\"}" > /dev/null
+            -d "$AUTH_BODY" > /dev/null
 
           SESSION=$(awk '/glycemicgpt_session/ {print $NF}' "$COOKIE_JAR")
           CSRF=$(awk '/csrf_token/ {print $NF}' "$COOKIE_JAR")

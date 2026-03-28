@@ -152,6 +152,17 @@ jobs:
       handleAntiCSRFTokens: true
       scanHeadersAllRequests: false
 
+  # Suppress known CSP findings that are inherent to Next.js runtime.
+  # Next.js requires unsafe-inline and unsafe-eval for its client-side
+  # hydration and hot-reload. Fixing this requires CSP nonce generation
+  # (a separate frontend story). These are documented as accepted risk.
+  # ZAP alert IDs: 10055 = CSP violations
+  - type: alertFilter
+    rules:
+      - ruleId: 10055
+        newRisk: "Low"
+        context: "glycemicgpt-web"
+
   # Generate JSON report (distinct filename from API report)
   - type: report
     parameters:
