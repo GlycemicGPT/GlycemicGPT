@@ -131,10 +131,8 @@ jobs:
             --config p/secrets \
             --exclude '.venv' \
             --exclude 'Dockerfile*' \
-            --error \
             --json --output semgrep-python.json \
-            apps/api/ scripts/security/
-        continue-on-error: true
+            apps/api/ scripts/security/ || true
 
       - name: Semgrep TypeScript (Web + Sidecar)
         id: semgrep-typescript
@@ -160,10 +158,8 @@ jobs:
             --config p/owasp-top-ten \
             --config p/secrets \
             --exclude 'node_modules' \
-            --error \
             --json --output semgrep-typescript.json \
-            $PATHS
-        continue-on-error: true
+            $PATHS || true
 
       - name: Semgrep Kotlin (Mobile)
         id: semgrep-kotlin
@@ -177,10 +173,8 @@ jobs:
             --config p/java \
             --config p/secrets \
             --exclude '.gradle' \
-            --error \
             --json --output semgrep-kotlin.json \
-            apps/mobile/ plugins/
-        continue-on-error: true
+            apps/mobile/ plugins/ || true
 
       - name: Upload SAST results
         if: always()

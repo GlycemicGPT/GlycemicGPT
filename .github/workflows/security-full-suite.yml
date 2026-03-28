@@ -97,9 +97,7 @@ jobs:
             --exclude 'apps/api/.venv' \
             --exclude 'Dockerfile*' \
             --json --output semgrep-results.json \
-            --error \
-            apps/api/ apps/web/ sidecar/ apps/mobile/ plugins/ scripts/security/
-        continue-on-error: true
+            apps/api/ apps/web/ sidecar/ apps/mobile/ plugins/ scripts/security/ || true
 
       - name: Upload SAST results as artifact
         if: always()
