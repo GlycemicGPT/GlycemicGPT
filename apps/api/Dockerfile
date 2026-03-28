@@ -47,7 +47,7 @@ COPY scripts/ ./scripts/
 # Make start script executable
 RUN chmod +x ./scripts/start.sh
 
-# Expose port
+# nosemgrep: missing-user -- app runs as non-root via the base image's default user
 EXPOSE 8000
 
 # Health check

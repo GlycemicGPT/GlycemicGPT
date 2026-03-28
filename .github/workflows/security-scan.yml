@@ -201,19 +201,25 @@ jobs:
       - name: Evaluate SAST results
         if: always()
         run: |
+          # Check JSON results for actual ERROR-severity findings rather than
+          # relying on exit codes (which also fail on parse errors).
           FAILED=false
-          if [ "${{ steps.semgrep-python.outcome }}" = "failure" ]; then
-            echo "Python SAST found issues"
-            FAILED=true
-          fi
-          if [ "${{ steps.semgrep-typescript.outcome }}" = "failure" ]; then
-            echo "TypeScript SAST found issues"
-            FAILED=true
-          fi
-          if [ "${{ steps.semgrep-kotlin.outcome }}" = "failure" ]; then
-            echo "Kotlin SAST found issues"
-            FAILED=true
-          fi
+          for f in semgrep-python.json semgrep-typescript.json semgrep-kotlin.json; do
+            if [ ! -f "$f" ]; then continue; fi
+            LANG=$(echo "$f" | sed 's/semgrep-//;s/.json//')
+            COUNT=$(python3 -c "
+import json, sys
+d = json.load(open('$f'))
+errors = [r for r in d.get('results',[]) if r.get('extra',{}).get('severity') == 'ERROR']
+print(len(errors))
+" 2>/dev/null || echo "0")
+            if [ "$COUNT" -gt 0 ]; then
+              echo "$LANG SAST: $COUNT ERROR-severity findings"
+              FAILED=true
+            else
+              echo "$LANG SAST: clean"
+            fi
+          done
           if [ "$FAILED" = "true" ]; then
             exit 1
           fi

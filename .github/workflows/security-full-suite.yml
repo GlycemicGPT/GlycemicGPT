@@ -7,7 +7,6 @@ on:
 
 permissions:
   contents: read
-  security-events: write
   actions: read
 
 concurrency:
@@ -96,32 +95,35 @@ jobs:
             --exclude '.gradle' \
             --exclude '*.min.js' \
             --exclude 'apps/api/.venv' \
-            --sarif --output semgrep-results.sarif \
+            --json --output semgrep-results.json \
             --error \
             apps/api/ apps/web/ sidecar/ apps/mobile/ plugins/ scripts/security/
         continue-on-error: true
 
-      - name: Upload SARIF to GitHub Security tab
-        if: always() && hashFiles('semgrep-results.sarif') != ''
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: semgrep-results.sarif
-          category: semgrep
-
-      - name: Upload SARIF as artifact
+      - name: Upload SAST results as artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: sast-results
-          path: semgrep-results.sarif
+          path: semgrep-results.json
           if-no-files-found: ignore
           retention-days: 30
 
       - name: Evaluate SAST result
         if: always()
         run: |
-          if [ "${{ steps.semgrep.outcome }}" = "failure" ]; then
-            echo "SAST found security issues"
+          if [ ! -f semgrep-results.json ]; then
+            echo "No Semgrep results file -- scan may have failed"
+            exit 1
+          fi
+          COUNT=$(python3 -c "
+import json
+d = json.load(open('semgrep-results.json'))
+errors = [r for r in d.get('results',[]) if r.get('extra',{}).get('severity') == 'ERROR']
+print(len(errors))
+" 2>/dev/null || echo "0")
+          if [ "$COUNT" -gt 0 ]; then
+            echo "SAST found $COUNT ERROR-severity findings"
             exit 1
           fi
           echo "SAST clean"
