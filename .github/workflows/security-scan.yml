@@ -474,6 +474,21 @@ jobs:
           mkdir -p scripts/security/results
           chmod 777 scripts/security/ scripts/security/results/
 
+          # Resolve ZAP plan templates -- bake actual cookie values into YAML
+          # ZAP's AF does NOT expand ${ENV_VAR} in YAML files
+          export ZAP_SESSION ZAP_CSRF
+          envsubst '${ZAP_SESSION} ${ZAP_CSRF}' < scripts/security/zap-api-plan.yaml > scripts/security/zap-api-plan.resolved.yaml
+          envsubst '${ZAP_SESSION} ${ZAP_CSRF}' < scripts/security/zap-web-plan.yaml > scripts/security/zap-web-plan.resolved.yaml
+
+          # Validate resolution succeeded
+          for plan in scripts/security/zap-api-plan.resolved.yaml scripts/security/zap-web-plan.resolved.yaml; do
+            if grep -qF '${ZAP_SESSION}' "$plan" || grep -qF '${ZAP_CSRF}' "$plan"; then
+              echo "FATAL: envsubst failed -- unresolved variables in $plan"
+              exit 1
+            fi
+          done
+          echo "ZAP plans resolved successfully"
+
       - name: Run ZAP API active scan
         id: zap-api
         if: |
@@ -481,55 +496,32 @@ jobs:
           needs.detect-changes.outputs.run_all == 'true' ||
           github.event_name == 'workflow_dispatch'
         run: |
-          # ZAP exit codes: 0=clean, 1=errors (including OpenAPI parse issues), 2=warnings
-          # The exitStatus job in the plan handles severity-based pass/fail.
-          # Exit code 1 from OpenAPI schema errors (pre-existing API spec bugs) should
-          # not fail CI -- only Medium+ security findings matter.
-          ZAP_EXIT=0
           docker run --rm --network="host" \
             -v "$(pwd)/scripts/security:/zap/wrk/:rw" \
-            -e "ZAP_SESSION=$ZAP_SESSION" \
-            -e "ZAP_CSRF=$ZAP_CSRF" \
             ghcr.io/zaproxy/zaproxy:stable \
-            zap.sh -cmd -autorun /zap/wrk/zap-api-plan.yaml || ZAP_EXIT=$?
-          echo "ZAP exit code: $ZAP_EXIT"
-          # Check if ZAP produced a report with actual security findings
-          if [ -f scripts/security/results/zap-report.json ]; then
-            HIGHS=$(python3 -c "import json; d=json.load(open('scripts/security/results/zap-report.json')); print(sum(1 for a in d.get('site',[{}])[0].get('alerts',[]) if a.get('riskcode','0') in ('2','3')))" 2>/dev/null || echo "0")
-            if [ "$HIGHS" -gt 0 ]; then
-              echo "ZAP found $HIGHS Medium/High severity alerts"
-              exit 1
-            fi
-            echo "ZAP report clean (no Medium+ findings)"
-          else
-            echo "No ZAP report generated"
-            if [ "$ZAP_EXIT" -eq 1 ]; then
-              echo "ZAP failed but no report -- likely OpenAPI parsing issues (non-blocking)"
-            fi
-          fi
+            zap.sh -cmd -autorun /zap/wrk/zap-api-plan.resolved.yaml || true
 
-      - name: Run ZAP Web baseline scan
+      - name: Evaluate ZAP API results
+        id: eval-zap-api
+        if: always() && steps.zap-api.outcome != 'skipped'
+        run: python scripts/security/evaluate-zap.py --report scripts/security/results/zap-report.json --name api
+
+      - name: Run ZAP Web scan
         id: zap-web
         if: |
           needs.detect-changes.outputs.web == 'true' ||
           needs.detect-changes.outputs.run_all == 'true' ||
           github.event_name == 'workflow_dispatch'
         run: |
-          ZAP_EXIT=0
           docker run --rm --network="host" \
             -v "$(pwd)/scripts/security:/zap/wrk/:rw" \
-            -e "ZAP_SESSION=$ZAP_SESSION" \
-            -e "ZAP_CSRF=$ZAP_CSRF" \
             ghcr.io/zaproxy/zaproxy:stable \
-            zap-baseline.py -t http://localhost:3001 \
-              -J results/zap-web-baseline.json \
-              -I || ZAP_EXIT=$?
-          echo "ZAP Web baseline exit: $ZAP_EXIT"
-          # zap-baseline.py: exit 0=pass, 1=warn (with -I), 2=fail
-          if [ "$ZAP_EXIT" -gt 1 ]; then
-            echo "ZAP Web baseline found failures"
-            exit 1
-          fi
+            zap.sh -cmd -autorun /zap/wrk/zap-web-plan.resolved.yaml || true
+
+      - name: Evaluate ZAP Web results
+        id: eval-zap-web
+        if: always() && steps.zap-web.outcome != 'skipped'
+        run: python scripts/security/evaluate-zap.py --report scripts/security/results/zap-web-report.json --name web
 
       # ---- Export outcomes + cleanup ----
 
@@ -543,8 +535,8 @@ jobs:
           echo "fuzzer=${{ steps.fuzzer.outcome || 'skipped' }}" >> "$GITHUB_OUTPUT"
           echo "nuclei_api=${{ steps.nuclei-api.outcome || 'skipped' }}" >> "$GITHUB_OUTPUT"
           echo "nuclei_web=${{ steps.nuclei-web.outcome || 'skipped' }}" >> "$GITHUB_OUTPUT"
-          echo "zap_api=${{ steps.zap-api.outcome || 'skipped' }}" >> "$GITHUB_OUTPUT"
-          echo "zap_web=${{ steps.zap-web.outcome || 'skipped' }}" >> "$GITHUB_OUTPUT"
+          echo "zap_api=${{ steps.eval-zap-api.outcome || 'skipped' }}" >> "$GITHUB_OUTPUT"
+          echo "zap_web=${{ steps.eval-zap-web.outcome || 'skipped' }}" >> "$GITHUB_OUTPUT"
 
       - name: Upload scan results
         if: always()

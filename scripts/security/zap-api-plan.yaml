@@ -10,9 +10,9 @@
 #   ZAP_SESSION  - glycemicgpt_session cookie value
 #   ZAP_CSRF     - csrf_token cookie value
 #
-# Usage:
-#   ZAP_SESSION=... ZAP_CSRF=... \
-#     zap.sh -cmd -autorun /zap/wrk/zap-api-plan.yaml
+# IMPORTANT: ZAP does NOT expand ${VAR} in YAML. CI must run envsubst first:
+#   envsubst '${ZAP_SESSION} ${ZAP_CSRF}' < zap-api-plan.yaml > zap-api-plan.resolved.yaml
+#   zap.sh -cmd -autorun /zap/wrk/zap-api-plan.resolved.yaml
 
 env:
   contexts:
