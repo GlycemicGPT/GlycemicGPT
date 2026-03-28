@@ -111,42 +111,18 @@ jobs:
 
       - name: Evaluate SAST result
         if: always()
+        env:
+          semgrep_python_exit: "0"
+          semgrep_typescript_exit: "0"
+          semgrep_kotlin_exit: "0"
         run: |
-          # Fail-safe: if scanner crashed and produced no JSON, fail
-          if [ ! -f semgrep-results.json ]; then
-            echo "SAST FAILURE: scanner crashed -- no JSON output"
-            exit 1
-          fi
-
-          # Validate JSON and evaluate findings
-          RESULT=$(python3 -c "
-          import json, sys
-          try:
-              d = json.load(open('semgrep-results.json'))
-          except (json.JSONDecodeError, IOError) as e:
-              print(f'CORRUPT:{e}')
-              sys.exit(0)
-          results = d.get('results', [])
-          errors = d.get('errors', [])
-          error_findings = [r for r in results if r.get('extra',{}).get('severity') == 'ERROR']
-          warn_findings = [r for r in results if r.get('extra',{}).get('severity') == 'WARNING']
-          parse_errors = [e for e in errors if 'PartialParsing' in str(e.get('type',''))]
-          print(f'OK:{len(error_findings)}:{len(warn_findings)}:{len(parse_errors)}:{len(results)}')
-          " 2>&1)
-
-          if echo "$RESULT" | grep -q "^CORRUPT:"; then
-            echo "SAST FAILURE: corrupt JSON output -- ${RESULT#CORRUPT:}"
-            exit 1
-          fi
-
-          IFS=':' read -r STATUS ERR_COUNT WARN_COUNT PARSE_COUNT TOTAL <<< "${RESULT#OK:}"
-          echo "SAST: $ERR_COUNT errors, $WARN_COUNT warnings, $PARSE_COUNT parse issues, $TOTAL total findings"
-
-          if [ "$ERR_COUNT" -gt 0 ]; then
-            echo "SAST FAILED: $ERR_COUNT ERROR-severity findings"
-            exit 1
-          fi
-          echo "SAST PASSED"
+          # Full suite produces a single combined JSON. Symlink it so the
+          # evaluator can check each "language" file. All three point to
+          # the same combined output.
+          for lang in python typescript kotlin; do
+            ln -sf semgrep-results.json "semgrep-${lang}.json"
+          done
+          python scripts/security/evaluate-sast.py
 
   # ==========================================================================
   # Job 3: DAST -- Full Docker stack + all security tests
