@@ -730,7 +730,13 @@ def reconcile_findings(
             if dry_run:
                 print(f"  [DRY RUN] Would reopen #{existing['number']}: {title}")
             else:
-                body = build_issue_body(finding, run_id, run_url, branch, sha, pr_number=pr_number)
+                # Preserve existing source-pr tag if no new pr_number provided
+                effective_pr = pr_number
+                if not effective_pr:
+                    existing_pr_match = SOURCE_PR_RE.search(existing.get("body", ""))
+                    if existing_pr_match:
+                        effective_pr = existing_pr_match.group(1)
+                body = build_issue_body(finding, run_id, run_url, branch, sha, pr_number=effective_pr)
                 comment = (
                     f"This finding was **re-detected** in security scan "
                     f"run [#{run_id}]({run_url}) on branch `{branch}` "
@@ -757,7 +763,13 @@ def reconcile_findings(
         else:
             # Already open -- refresh content if changed
             if not dry_run:
-                body = build_issue_body(finding, run_id, run_url, branch, sha, pr_number=pr_number)
+                # Preserve existing source-pr tag if no new pr_number provided
+                effective_pr = pr_number
+                if not effective_pr:
+                    existing_pr_match = SOURCE_PR_RE.search(existing.get("body", ""))
+                    if existing_pr_match:
+                        effective_pr = existing_pr_match.group(1)
+                body = build_issue_body(finding, run_id, run_url, branch, sha, pr_number=effective_pr)
                 existing_body = existing.get("body", "")
                 existing_labels = {l["name"] for l in existing.get("labels", [])}
                 new_labels = set(labels)

