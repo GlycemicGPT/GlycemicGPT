@@ -98,7 +98,7 @@ def register_and_login(client: httpx.Client, email: str, max_retries: int = 5) -
 
     csrf = get_csrf(client)
     resp = client.post(
-        f"{API_URL}/api/disclaimer/acknowledge",
+        f"{API_URL}/api/disclaimer/acknowledge-auth",
         headers={"X-CSRF-Token": csrf},
     )
     assert resp.status_code == 200, f"Disclaimer ack failed: {resp.status_code}\n{resp.text[:500]}"
