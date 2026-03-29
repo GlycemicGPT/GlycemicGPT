@@ -98,7 +98,7 @@ jobs:
 
       - name: Install nuclei
         run: |
-          go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@v3.3.7
+          go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@v3.7.1
           echo "$HOME/go/bin" >> "$GITHUB_PATH"
 
       - name: Build & start Docker test stack

@@ -45,6 +45,19 @@
     "labels": ["security", "dependencies"],
     "minimumReleaseAge": "0 days"
   },
+  // Custom managers for CI tool versions that Renovate can't auto-detect.
+  // These track `go install` version pins in workflow YAML files.
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Track go install version pins in GitHub Actions workflows",
+      "fileMatch": ["^\\.github/workflows/.+\\.yml$"],
+      "matchStrings": [
+        "go install -v? ?(?<depName>[^@]+)@(?<currentValue>v[^\\s\"]+)"
+      ],
+      "datasourceTemplate": "go"
+    }
+  ],
   // Package rules
   "packageRules": [
     // Auto-merge patch and minor updates into develop via PR.
