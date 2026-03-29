@@ -644,14 +644,63 @@ jobs:
           echo "Security scan passed"
           echo "passed=true" >> "$GITHUB_OUTPUT"
 
-      - name: Generate bot token for PR comment
-        if: always() && github.event_name == 'pull_request'
+      - name: Checkout (for issue creation script)
+        if: always()
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/security
+
+      - name: Set up Python (for issue creation)
+        if: always()
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      - name: Install dependencies
+        if: always()
+        run: pip install -r scripts/security/requirements.txt
+
+      - name: Download SAST results
+        if: always()
+        uses: actions/download-artifact@v4
+        with:
+          name: sast-results
+          path: sast-results/
+        continue-on-error: true
+
+      - name: Download DAST results
+        if: always()
+        uses: actions/download-artifact@v4
+        with:
+          name: dast-results
+          path: dast-results/
+        continue-on-error: true
+
+      - name: Generate bot token
+        if: always()
         id: bot-token
         continue-on-error: true
         uses: actions/create-github-app-token@v1
         with:
           app-id: ${{ secrets.BOT_APP_ID }}
           private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Create/update security finding issues
+        if: always() && steps.bot-token.outputs.token
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          python scripts/security/create-finding-issues.py \
+            --sast-results sast-results/ \
+            --dast-results dast-results/ \
+            --scan-type pr \
+            --run-id "${{ github.run_id }}" \
+            --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --repo "${{ github.repository }}" \
+            --pr-author "${{ github.event.pull_request.user.login }}" \
+            --branch "${{ github.head_ref || github.ref_name }}" \
+            --sha "${{ github.sha }}"
 
       - name: Post security scan results to PR
         if: always() && github.event_name == 'pull_request'
