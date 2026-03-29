@@ -413,9 +413,9 @@ Every PR must pass these checks before it can be merged:
 
 Additionally, PRs that modify `apps/mobile/**` will trigger the **Android Gate** (unit tests, lint, debug APK build).
 
-### Security Scan (Smart Targeting)
+### 🔒 Security Scan (Smart Targeting)
 
-The Security Scan Gate runs **targeted security tests based on what your PR changes**. It won't waste time scanning components you didn't touch:
+This is a medical platform. We take security seriously. The Security Scan Gate runs **targeted security tests based on what your PR actually changes** -- it won't waste 25 minutes scanning the API if you only changed a Kotlin file.
 
 | If you changed... | What runs |
 |-------------------|-----------|
@@ -425,31 +425,30 @@ The Security Scan Gate runs **targeted security tests based on what your PR chan
 | `apps/mobile/` or `plugins/` | Semgrep Kotlin |
 | `docker-compose*`, `Dockerfile*` | Everything (infra changes affect all services) |
 | `scripts/security/` | Everything |
+| Docs, config, or other non-code files | Nothing -- security gate reports green instantly |
 
-If your PR only changes documentation or mobile code, the Docker-based DAST tests are skipped entirely (~2 min instead of ~25 min).
+Mobile-only PRs skip the Docker stack entirely (~2 min instead of ~25 min). For the full breakdown of what each test suite does, see [docs/security-testing.md](docs/security-testing.md).
 
-For details on each test suite, see [docs/security-testing.md](docs/security-testing.md).
+### 🚨 What If the Security Scan Finds Something?
 
-### Handling Security Findings in Your PR
+Don't panic. The homebot.0 bot posts a comment on your PR showing exactly what failed and why.
 
-If the security scan finds issues in your PR, the homebot.0 bot will post a comment on the PR with results showing exactly what failed. Here's how to handle findings:
-
-**Real findings (your code introduced a vulnerability):** Fix them. The scan won't pass until they're resolved. Common findings include:
+**If your code caused the finding:** Fix it. The scan won't pass until you do. Common things it catches:
 - Semgrep flagging hardcoded secrets, injection patterns, or insecure crypto
-- ZAP finding injection vulnerabilities or missing security headers
+- ZAP finding SQL injection, XSS, or missing security headers
 - IDOR tests detecting cross-user data leaks
 
-**Pre-existing findings (the finding exists in code you didn't write):** If the scan catches a pre-existing issue that your PR didn't introduce, you have two options:
-1. **Fix it** (preferred) -- even if you didn't cause it, fixing it is welcome
-2. **Suppress it with a documented reason** -- see [Security Exceptions](#security-exceptions) below
+**If the finding is pre-existing (not your fault):** Sometimes the scan catches something in code you didn't write. You have two options:
+1. **Fix it anyway** (preferred -- we appreciate it even if you didn't cause it)
+2. **Add a documented exception** -- see below
 
-### Security Exceptions
+### 🛡️ Security Exceptions
 
-Sometimes a finding is a known limitation, an accepted risk, or a false positive. We have a formal process for handling these:
+Sometimes a finding is a known limitation, an accepted risk, or a false positive. That's fine -- but you can't just ignore it. We have a formal process.
 
-**Semgrep (SAST):** Add `# nosemgrep: rule-id` on the line. The comment must be on a Python/JS comment line, not inside a string.
+**Semgrep (code-level findings):** Add `# nosemgrep: rule-id` as a comment on the flagged line. Must be a real code comment, not inside a string.
 
-**ZAP (DAST):** Add an entry to `scripts/security/zap-suppressions.json`:
+**ZAP (runtime findings):** Add an entry to `scripts/security/zap-suppressions.json`:
 ```json
 {
   "pluginId": "10055",
@@ -458,19 +457,19 @@ Sometimes a finding is a known limitation, an accepted risk, or a false positive
 }
 ```
 
-**OSV-Scanner (Dependencies):** Add an entry to `osv-scanner.toml`:
+**OSV-Scanner (dependency vulnerabilities):** Add an entry to `osv-scanner.toml`:
 ```toml
 [[IgnoredVulns]]
 id = "GHSA-xxxx-yyyy-zzzz"
 reason = "Not exploitable -- only affects feature X which we don't use"
 ```
 
-**Rules for all exceptions:**
-- Every exception **must** include a reason explaining why it's acceptable
-- Exceptions should reference the issue or story that will fix the underlying problem
-- Suppressed findings are still visible in CI logs -- they're not hidden, just non-blocking
-- Exceptions are reviewed quarterly by maintainers
-- Adding an exception without a reason will not be merged
+**The rules (non-negotiable):**
+- Every exception **must** include a reason. No reason = no merge.
+- Reference the issue that will fix the underlying problem (e.g., `Fix tracked in #123`).
+- Suppressed findings still show up in CI logs -- they're visible, just non-blocking.
+- Maintainers review all exceptions quarterly. Stale ones get removed.
+- If you're not sure whether something is a real finding or a false positive, ask in the PR -- that's what code review is for.
 
 > **Note:** There is a separate [Promotion PR Template](.github/PROMOTION_PR_TEMPLATE.md) used only for develop-to-main releases. Regular contributors don't need to worry about this.
 

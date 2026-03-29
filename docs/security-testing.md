@@ -121,7 +121,7 @@ Two suppression mechanisms exist:
 | `osv-scanner.toml` | OSV-Scanner | TOML `[[IgnoredVulns]]` with `id` and `reason` |
 | `scripts/security/zap-suppressions.json` | ZAP evaluator | JSON with `pluginId`, `scan`, and `reason` |
 
-Every suppression **must** include a reason and should reference the story that will fix the underlying issue. Suppressed findings are still logged in CI output (visible, not hidden) but don't fail the build. Review suppressions quarterly.
+Every suppression **must** include a reason and should reference the issue that will fix the underlying problem (e.g., `Fix tracked in #123`). Suppressed findings are still logged in CI output (visible, not hidden) but don't fail the build. Review suppressions quarterly.
 
 ### Test results
 
