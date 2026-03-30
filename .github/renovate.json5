@@ -23,6 +23,15 @@
   // Stability settings
   "minimumReleaseAge": "3 days",
   "internalChecksFilter": "strict",
+  // Lockfile maintenance: periodically refresh all lockfiles (uv.lock,
+  // package-lock.json) to pick up transitive dependency updates that
+  // don't require changes to pyproject.toml or package.json constraints.
+  // This catches CVE fixes in pinned transitive deps that Renovate's
+  // normal version-bump flow would skip.
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 9am on monday"]
+  },
   // Labels for PRs
   "labels": ["dependencies"],
   // Ignore paths
