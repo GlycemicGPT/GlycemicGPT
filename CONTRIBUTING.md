@@ -431,7 +431,15 @@ Mobile-only PRs skip the Docker stack entirely (~2 min instead of ~25 min). For 
 
 ### 🚨 What If the Security Scan Finds Something?
 
-Don't panic. The homebot.0 bot posts a comment on your PR showing exactly what failed and why.
+Don't panic. Here's what happens automatically:
+
+1. **homebot.0 posts a comment** on your PR showing exactly what failed and why
+2. **GitHub Issues are created** for each finding, assigned to you, with severity labels and remediation guidance
+3. **You fix the issue** in your PR -- push a new commit with the fix
+4. **CI runs again** -- if the finding is resolved, the issue **auto-closes** with a "resolved in PR #X" comment
+5. **You're done** -- green CI, closed issues, ready for review
+
+The whole cycle happens within your PR. You don't need to manually close issues or wait for a maintainer.
 
 **If your code caused the finding:** Fix it. The scan won't pass until you do. Common things it catches:
 - Semgrep flagging hardcoded secrets, injection patterns, or insecure crypto
@@ -441,6 +449,8 @@ Don't panic. The homebot.0 bot posts a comment on your PR showing exactly what f
 **If the finding is pre-existing (not your fault):** Sometimes the scan catches something in code you didn't write. You have two options:
 1. **Fix it anyway** (preferred -- we appreciate it even if you didn't cause it)
 2. **Add a documented exception** -- see below
+
+**If you close your PR without fixing:** No worries -- the issues are automatically cleaned up. They only existed on your branch.
 
 ### 🛡️ Security Exceptions
 

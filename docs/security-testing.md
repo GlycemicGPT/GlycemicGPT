@@ -129,6 +129,28 @@ Scan results are uploaded as GitHub Actions artifacts with 30-day retention:
 - `sast-results` -- Semgrep JSON output
 - `dast-results` -- ZAP reports, nuclei JSON, custom test output
 
+### Issue automation
+
+Security findings are automatically tracked as GitHub Issues via homebot.0. The full lifecycle:
+
+| Event | What happens |
+|-------|-------------|
+| PR scan finds a vulnerability | Issue created, assigned to PR author, tagged with PR number |
+| Contributor pushes a fix | Next scan auto-closes the issue ("resolved in PR #X") |
+| PR merged, finding still present | Full suite keeps the issue open |
+| PR merged, finding resolved | Full suite auto-closes the issue |
+| PR closed without merging | Cleanup job closes issues tagged with that PR |
+| Finding reappears after fix reverted | Full suite reopens the closed issue |
+| Full suite runs, finding still present | "Still detected" comment added (throttled to once per 7 days) |
+
+**Tool-aware guards:** Auto-close only applies to findings from tools that actually produced results in the current run. If SAST crashes but DAST succeeds, only DAST-sourced issues are eligible for closure.
+
+**Deduplication:** Each finding gets a deterministic fingerprint stored as an HTML comment in the issue body. Before creating, the script checks all existing automated issues to prevent duplicates.
+
+**Suppressed findings** still get issues created, but labeled `accepted-risk` with the suppression reason. This creates a paper trail -- every known risk has a visible issue.
+
+**Script:** `scripts/security/create-finding-issues.py` -- runs in the gate/summary job of both workflows. Supports `--dry-run` for local testing.
+
 ## Dependency Vulnerability Scanning
 
 **Workflow:** `.github/workflows/dependency-scan.yml`
