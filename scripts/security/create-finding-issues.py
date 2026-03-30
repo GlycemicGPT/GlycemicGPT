@@ -10,9 +10,12 @@ in each issue body. Existing issues are found by bulk-fetching all issues
 with the 'security' + 'automated' labels and extracting fingerprints.
 
 Lifecycle:
-  - PR scan: create new issues, reopen closed ones. Never close.
-  - Full suite: same, plus auto-close open issues whose findings are
-    no longer detected.
+  - PR scan: create new issues, reopen closed ones. Auto-close issues
+    tagged with the current PR when the finding is no longer detected
+    (scoped: only closes this PR's issues, never other PRs' or full-suite's).
+  - Full suite: same create/reopen, plus auto-close open issues whose
+    findings are no longer detected (guarded: only closes issues from
+    tools that actually produced results this run).
 
 This script ALWAYS exits 0. It must never block CI.
 
@@ -675,6 +678,52 @@ def dedup_findings(findings: list[SecurityFinding]) -> list[SecurityFinding]:
 
 
 FINGERPRINT_RE = re.compile(r"<!-- security-finding:(.+?) -->")
+SOURCE_PR_RE = re.compile(r"<!-- source-pr:(\d+) -->")
+
+
+def detect_tools_with_results(sast_dir: str, dast_dir: str) -> set[str]:
+    """Detect which security tools produced valid output files.
+
+    A tool that ran and found 0 results still counts as "present" --
+    the file exists with valid structure. This is used to prevent
+    auto-closing issues from tools that didn't run (e.g., SAST crashed
+    but DAST succeeded).
+    """
+    tools = set()
+
+    # SAST: check for valid Semgrep JSON files
+    if os.path.isdir(sast_dir):
+        for f in glob.glob(os.path.join(sast_dir, "semgrep-*.json")):
+            try:
+                data = json.loads(Path(f).read_text())
+                if isinstance(data, dict) and "results" in data:
+                    tools.add("semgrep")
+                    break
+            except (json.JSONDecodeError, IOError):
+                continue
+
+    # DAST: check for valid ZAP reports
+    if os.path.isdir(dast_dir):
+        for name, tool in [("zap-report.json", "zap-api"), ("zap-web-report.json", "zap-web")]:
+            path = os.path.join(dast_dir, name)
+            if os.path.isfile(path):
+                try:
+                    data = json.loads(Path(path).read_text())
+                    if isinstance(data, dict) and "site" in data:
+                        tools.add(tool)
+                except (json.JSONDecodeError, IOError):
+                    continue
+
+        # Nuclei: file presence = tool ran (even empty [] is valid)
+        for name, tool in [("nuclei-api.json", "nuclei-api"), ("nuclei-web.json", "nuclei-web")]:
+            if os.path.isfile(os.path.join(dast_dir, name)):
+                tools.add(tool)
+        # Also check timestamped nuclei files from run-dast.sh
+        for f in glob.glob(os.path.join(dast_dir, "nuclei-2*.json")):
+            tools.add("nuclei-api")  # Timestamped files cover both targets
+            break
+
+    return tools
 
 
 def extract_fingerprint(body: str) -> str | None:
@@ -695,6 +744,7 @@ def reconcile_findings(
     pr_number: str | None,
     dry_run: bool,
     reports_present: bool = True,
+    tools_with_results: set[str] | None = None,
 ) -> dict:
     """Core orchestration: create, reopen, comment, close issues."""
     stats = {"created": 0, "reopened": 0, "commented": 0, "closed": 0, "skipped": 0, "issues": []}
@@ -822,6 +872,19 @@ def reconcile_findings(
                     print(f"  Updated #{existing['number']}: {title} (labels/title changed)")
                     stats["commented"] += 1
 
+                # PR scan: update source-pr tag if it changed (prevents orphan cleanup bugs)
+                elif scan_type == "pr" and pr_number:
+                    existing_body = existing.get("body", "")
+                    existing_pr_match = SOURCE_PR_RE.search(existing_body)
+                    existing_pr_num = existing_pr_match.group(1) if existing_pr_match else None
+                    if existing_pr_num != str(pr_number):
+                        body = build_issue_body(finding, run_id, run_url, branch, sha, pr_number=pr_number)
+                        client.update_issue(existing["number"], body=body)
+                        print(f"  Updated source-pr on #{existing['number']} from PR #{existing_pr_num} to PR #{pr_number}")
+                        stats["commented"] += 1
+                    else:
+                        stats["skipped"] += 1
+
                 # Full-suite: add throttled "still detected" comment (max once per 7 days)
                 elif scan_type == "full-suite":
                     age = client.last_bot_comment_age_days(existing["number"])
@@ -849,25 +912,72 @@ def reconcile_findings(
             else:
                 stats["skipped"] += 1
 
-    # Auto-close stale issues (full-suite only)
+    # Auto-close: full-suite closes any resolved finding (guarded by tool check)
     if scan_type == "full-suite" and not dry_run:
         for fp, issue in fingerprint_to_issue.items():
-            if issue["state"] == "open" and fp not in current_fingerprints:
-                comment = (
-                    f"This finding was **not detected** in the latest full security suite "
-                    f"run [#{run_id}]({run_url}) on branch `{branch}` "
-                    f"(commit `{sha[:7]}`). Auto-closing.\n\n"
-                    f"If this was closed in error, please reopen this issue."
-                )
-                client.add_comment(issue["number"], comment)
-                client.update_issue(issue["number"], state="closed")
-                print(f"  Auto-closed #{issue['number']}: {issue['title']} (no longer detected)")
-                stats["closed"] += 1
+            if issue["state"] != "open" or fp in current_fingerprints:
+                continue
+            # Only close if the tool that found this issue actually ran
+            tool_prefix = fp.split(":")[0]
+            if tools_with_results and tool_prefix not in tools_with_results:
+                print(f"  Skipped auto-close #{issue['number']}: {tool_prefix} did not produce results this run")
+                stats["skipped"] += 1
+                continue
+            comment = (
+                f"This finding was **not detected** in the latest full security suite "
+                f"run [#{run_id}]({run_url}) on branch `{branch}` "
+                f"(commit `{sha[:7]}`). Auto-closing.\n\n"
+                f"If this was closed in error, please reopen this issue."
+            )
+            client.add_comment(issue["number"], comment)
+            client.update_issue(issue["number"], state="closed")
+            print(f"  Auto-closed #{issue['number']}: {issue['title']} (no longer detected)")
+            stats["closed"] += 1
     elif scan_type == "full-suite" and dry_run:
         for fp, issue in fingerprint_to_issue.items():
-            if issue["state"] == "open" and fp not in current_fingerprints:
-                print(f"  [DRY RUN] Would auto-close #{issue['number']}: {issue['title']}")
-                stats["closed"] += 1
+            if issue["state"] != "open" or fp in current_fingerprints:
+                continue
+            tool_prefix = fp.split(":")[0]
+            if tools_with_results and tool_prefix not in tools_with_results:
+                continue
+            print(f"  [DRY RUN] Would auto-close #{issue['number']}: {issue['title']}")
+            stats["closed"] += 1
+
+    # Auto-close: PR scans close issues tagged with THIS PR when finding is resolved
+    if scan_type == "pr" and pr_number and not dry_run:
+        for fp, issue in fingerprint_to_issue.items():
+            if issue["state"] != "open" or fp in current_fingerprints:
+                continue
+            body = issue.get("body", "")
+            pr_match = SOURCE_PR_RE.search(body)
+            if not pr_match or pr_match.group(1) != str(pr_number):
+                continue  # Not tagged with this PR -- hands off
+            tool_prefix = fp.split(":")[0]
+            if tools_with_results and tool_prefix not in tools_with_results:
+                print(f"  Skipped PR auto-close #{issue['number']}: {tool_prefix} did not run")
+                stats["skipped"] += 1
+                continue
+            comment = (
+                f"This finding was resolved in PR #{pr_number}. "
+                f"Verified by security scan run [#{run_id}]({run_url}). Auto-closing."
+            )
+            client.add_comment(issue["number"], comment)
+            client.update_issue(issue["number"], state="closed")
+            print(f"  Resolved #{issue['number']}: {issue['title']} (fixed in PR #{pr_number})")
+            stats["closed"] += 1
+    elif scan_type == "pr" and pr_number and dry_run:
+        for fp, issue in fingerprint_to_issue.items():
+            if issue["state"] != "open" or fp in current_fingerprints:
+                continue
+            body = issue.get("body", "")
+            pr_match = SOURCE_PR_RE.search(body)
+            if not pr_match or pr_match.group(1) != str(pr_number):
+                continue
+            tool_prefix = fp.split(":")[0]
+            if tools_with_results and tool_prefix not in tools_with_results:
+                continue
+            print(f"  [DRY RUN] Would auto-close #{issue['number']}: {issue['title']} (resolved in PR #{pr_number})")
+            stats["closed"] += 1
 
     return stats
 
@@ -875,8 +985,6 @@ def reconcile_findings(
 # ---------------------------------------------------------------------------
 # PR Orphan Cleanup
 # ---------------------------------------------------------------------------
-
-SOURCE_PR_RE = re.compile(r"<!-- source-pr:(\d+) -->")
 
 
 def cleanup_pr_issues(client: GitHubIssueClient, pr_number: str) -> None:
@@ -964,11 +1072,10 @@ def main() -> None:
         print(f"  PR: #{pr_number}")
     print()
 
-    # Check if scan reports actually exist (guards against auto-close on empty artifacts)
-    sast_files = glob.glob(os.path.join(args.sast_results, "semgrep-*.json")) if os.path.isdir(args.sast_results) else []
-    dast_files = glob.glob(os.path.join(args.dast_results, "zap-*.json")) if os.path.isdir(args.dast_results) else []
-    reports_present = bool(sast_files or dast_files)
-    print(f"  Reports present: {reports_present} ({len(sast_files)} SAST, {len(dast_files)} DAST files)")
+    # Check which tools produced valid results (guards against false auto-close)
+    tools_with_results = detect_tools_with_results(args.sast_results, args.dast_results)
+    reports_present = bool(tools_with_results)
+    print(f"  Tools with results: {sorted(tools_with_results) or 'none'}")
 
     # Parse all findings
     findings = []
@@ -1009,6 +1116,7 @@ def main() -> None:
         pr_number=pr_number,
         dry_run=args.dry_run,
         reports_present=reports_present,
+        tools_with_results=tools_with_results,
     )
 
     # Export issue metadata as step output for PR comment
