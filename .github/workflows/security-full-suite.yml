@@ -364,14 +364,14 @@ jobs:
           path: dast-results/
         continue-on-error: true
 
-      - name: Generate bot token
+      - name: Generate token for glycemicgpt-security
         if: always()
         id: bot-token
         continue-on-error: true
         uses: actions/create-github-app-token@v1
         with:
-          app-id: ${{ secrets.BOT_APP_ID }}
-          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          app-id: ${{ secrets.SECURITY_APP_ID }}
+          private-key: ${{ secrets.SECURITY_APP_PRIVATE_KEY }}
 
       - name: Create/update/close security finding issues
         if: always() && steps.bot-token.outputs.token

@@ -429,7 +429,7 @@ class GitHubIssueClient:
                     return None
                 if e.code == 403:
                     err_body = e.read().decode("utf-8", errors="replace")[:200]
-                    print(f"    API 403: Permission denied. Ensure homebot.0 has 'issues: write' permission.\n    Response: {err_body}")
+                    print(f"    API 403: Permission denied. Ensure glycemicgpt-security has 'issues: write' permission.\n    Response: {err_body}")
                     return None
                 err_body = e.read().decode("utf-8", errors="replace")[:200]
                 print(f"    API error {e.code}: {e.reason}\n    Response: {err_body}")
@@ -479,7 +479,7 @@ class GitHubIssueClient:
         return self._request("PATCH", f"/issues/{issue_number}", json_data=kwargs)
 
     def last_bot_comment_age_days(self, issue_number: int) -> float:
-        """Return days since last homebot.0 comment on an issue.
+        """Return days since last glycemicgpt-security comment on an issue.
 
         Returns:
             float >= 0: days since last bot comment
@@ -499,7 +499,7 @@ class GitHubIssueClient:
             if not comments:
                 break
             for comment in comments:
-                if comment.get("user", {}).get("login") == "homebot-0[bot]":
+                if comment.get("user", {}).get("login") == "glycemicgpt-security[bot]":
                     created = comment.get("created_at", "")
                     if created:
                         comment_time = datetime.fromisoformat(created.replace("Z", "+00:00"))
@@ -614,7 +614,7 @@ def build_issue_body(
         f"> Detected by security scan run [#{run_id}]({run_url})",
         f"> Branch: `{branch}` | Commit: `{sha[:7]}`",
         ">",
-        "> *Auto-created by [homebot.0](https://github.com/apps/homebot-0) security scanner.*",
+        "> *Auto-created by [glycemicgpt-security](https://github.com/apps/glycemicgpt-security) security scanner.*",
         "> *If this is a false positive, close the issue with a comment explaining why.*",
     ])
 
