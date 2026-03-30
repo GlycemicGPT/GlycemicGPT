@@ -5,6 +5,32 @@
 # when a pull request modifies files matching the patterns below.
 #
 # Order matters -- later rules take precedence over earlier ones.
+# See GOVERNANCE.md for role definitions and the path to becoming a maintainer.
 
 # Default: project maintainer owns everything
 * @jlengelbrecht
+
+# Governance & project policy: maintainer-only changes
+/.github/CODEOWNERS @jlengelbrecht
+/GOVERNANCE.md @jlengelbrecht
+/CONTRIBUTING.md @jlengelbrecht
+/LICENSE @jlengelbrecht
+
+# Security infrastructure: maintainer-only changes
+/scripts/security/ @jlengelbrecht
+/.github/workflows/security-scan.yml @jlengelbrecht
+/.github/workflows/security-full-suite.yml @jlengelbrecht
+
+# Release & CI configuration: maintainer-only changes
+/.github/workflows/release.yml @jlengelbrecht
+/.github/renovate.json5 @jlengelbrecht
+
+# Component ownership -- ready for future collaborators.
+# Uncomment and add usernames when committers are granted component ownership.
+# See GOVERNANCE.md for the process.
+#
+# /apps/api/ @jlengelbrecht @future-backend-committer
+# /apps/web/ @jlengelbrecht @future-frontend-committer
+# /apps/mobile/ @jlengelbrecht @future-mobile-committer
+# /plugins/ @jlengelbrecht @future-mobile-committer
+# /sidecar/ @jlengelbrecht @future-backend-committer
