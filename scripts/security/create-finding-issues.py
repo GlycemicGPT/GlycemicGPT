@@ -37,7 +37,7 @@ import re
 import sys
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from html import unescape
 from pathlib import Path
 
@@ -475,6 +475,41 @@ class GitHubIssueClient:
         """Update issue fields (state, labels, etc)."""
         return self._request("PATCH", f"/issues/{issue_number}", json_data=kwargs)
 
+    def last_bot_comment_age_days(self, issue_number: int) -> float:
+        """Return days since last homebot.0 comment on an issue.
+
+        Returns:
+            float >= 0: days since last bot comment
+            float('inf'): no bot comment found (safe to comment)
+            -1.0: lookup failed (caller should skip commenting)
+        """
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(days=7)
+        page = 1
+        while True:
+            comments = self._request(
+                "GET",
+                f"/issues/{issue_number}/comments?per_page=50&page={page}&sort=created&direction=desc",
+            )
+            if comments is None:
+                return -1.0
+            if not comments:
+                break
+            for comment in comments:
+                if comment.get("user", {}).get("login") == "homebot-0[bot]":
+                    created = comment.get("created_at", "")
+                    if created:
+                        comment_time = datetime.fromisoformat(created.replace("Z", "+00:00"))
+                        return (now - comment_time).total_seconds() / 86400
+                # Newest-first: once we pass the 7-day cutoff, stop paging
+                created = comment.get("created_at", "")
+                if created:
+                    comment_time = datetime.fromisoformat(created.replace("Z", "+00:00"))
+                    if comment_time < cutoff:
+                        return float("inf")
+            page += 1
+        return float("inf")
+
     def ensure_labels(self, labels: list[str]) -> None:
         """Create any labels that don't exist yet."""
         if self._existing_labels is None:
@@ -761,7 +796,7 @@ def reconcile_findings(
             stats["reopened"] += 1
 
         else:
-            # Already open -- refresh content if changed
+            # Already open -- refresh content if changed, add "still detected" for full-suite
             if not dry_run:
                 # Preserve existing source-pr tag if no new pr_number provided
                 effective_pr = pr_number
@@ -770,11 +805,9 @@ def reconcile_findings(
                     if existing_pr_match:
                         effective_pr = existing_pr_match.group(1)
                 body = build_issue_body(finding, run_id, run_url, branch, sha, pr_number=effective_pr)
-                existing_body = existing.get("body", "")
                 existing_labels = {l["name"] for l in existing.get("labels", [])}
-                new_labels = set(labels)
 
-                # Only update if something meaningful changed
+                # Refresh title/body/labels if changed
                 needs_update = (
                     set(labels) != existing_labels
                     or existing.get("title", "") != title
@@ -788,6 +821,29 @@ def reconcile_findings(
                     )
                     print(f"  Updated #{existing['number']}: {title} (labels/title changed)")
                     stats["commented"] += 1
+
+                # Full-suite: add throttled "still detected" comment (max once per 7 days)
+                elif scan_type == "full-suite":
+                    age = client.last_bot_comment_age_days(existing["number"])
+                    if age < 0:
+                        # Lookup failed -- skip commenting to avoid duplicates
+                        print(f"  Skipped #{existing['number']}: comment lookup failed")
+                        stats["skipped"] += 1
+                    elif age >= 7:
+                        comment = (
+                            f"Still detected in full security suite "
+                            f"run [#{run_id}]({run_url}) on branch `{branch}` "
+                            f"(commit `{sha[:7]}`)."
+                        )
+                        result = client.add_comment(existing["number"], comment)
+                        if result:
+                            print(f"  Commented #{existing['number']}: still detected")
+                            stats["commented"] += 1
+                        else:
+                            print(f"  Failed to comment #{existing['number']}: API error")
+                            stats["skipped"] += 1
+                    else:
+                        stats["skipped"] += 1
                 else:
                     stats["skipped"] += 1
             else:
