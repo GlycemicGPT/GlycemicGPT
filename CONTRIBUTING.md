@@ -446,7 +446,7 @@ Mobile-only PRs skip the Docker stack entirely (~2 min instead of ~25 min). For 
 
 Don't panic. Here's what happens automatically:
 
-1. **homebot.0 posts a comment** on your PR showing exactly what failed and why
+1. **glycemicgpt-security posts a comment** on your PR showing exactly what failed and why
 2. **GitHub Issues are created** for each finding, assigned to you, with severity labels and remediation guidance
 3. **You fix the issue** in your PR -- push a new commit with the fix
 4. **CI runs again** -- if the finding is resolved, the issue **auto-closes** with a "resolved in PR #X" comment

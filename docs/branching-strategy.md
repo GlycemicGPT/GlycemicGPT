@@ -19,7 +19,7 @@
 7. CI runs on the promotion PR
 8. Merge with "Rebase and merge" (individual commits land on main)
 9. (Automated) release-please creates version bump PR on main
-10. (Automated) homebot auto-merges the version bump PR
+10. (Automated) glycemicgpt-merge auto-merges the version bump PR
 11. (Automated) GitHub Release created, signed APK uploaded, Docker images tagged with version + "latest"
 12. Sync develop: rebase onto main to pick up version bump
 ```
@@ -48,7 +48,7 @@ gh pr create --base main --head develop \
 
 After the promotion PR merges:
 - **release-please** sees the individual commits and creates a version bump PR
-- homebot auto-merges the version bump PR
+- glycemicgpt-merge auto-merges the version bump PR
 - A GitHub Release is created with signed APKs and versioned Docker images
 
 ### Post-merge: restore develop branch
