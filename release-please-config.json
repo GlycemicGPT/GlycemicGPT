@@ -9,7 +9,7 @@
       "bump-minor-pre-major": true,
       "draft": false,
       "prerelease": false,
-      "changelog-path": "CHANGELOG.md",
+      "changelog-path": ".release-please-changelog.md",
       "changelog-type": "default",
       "include-component-in-tag": false,
       "include-v-in-tag": true,
