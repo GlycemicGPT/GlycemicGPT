@@ -29,7 +29,7 @@ class WearAppUpdateCheckerTest {
     fun `isAllowedDownloadHost accepts github domains`() {
         assertTrue(
             AppUpdateChecker.isAllowedDownloadHost(
-                "https://github.com/jlengelbrecht/GlycemicGPT/releases/download/v1.0.0/test.apk",
+                "https://github.com/GlycemicGPT/GlycemicGPT/releases/download/v1.0.0/test.apk",
             ),
         )
         assertTrue(

@@ -49,7 +49,7 @@ services:
       retries: 5
 
   ai-sidecar:
-    image: ghcr.io/jlengelbrecht/glycemicgpt-sidecar:${IMAGE_TAG:-latest}
+    image: ghcr.io/glycemicgpt/glycemicgpt-sidecar:${IMAGE_TAG:-latest}
     restart: unless-stopped
     volumes:
       - sidecar_auth:/home/sidecar/.config
@@ -65,7 +65,7 @@ services:
       start_period: 10s
 
   api:
-    image: ghcr.io/jlengelbrecht/glycemicgpt-api:${IMAGE_TAG:-latest}
+    image: ghcr.io/glycemicgpt/glycemicgpt-api:${IMAGE_TAG:-latest}
     restart: unless-stopped
     # No ports exposed -- cloudflared tunnel handles ingress
     environment:
@@ -92,7 +92,7 @@ services:
       start_period: 40s
 
   web:
-    image: ghcr.io/jlengelbrecht/glycemicgpt-web:${IMAGE_TAG:-latest}
+    image: ghcr.io/glycemicgpt/glycemicgpt-web:${IMAGE_TAG:-latest}
     restart: unless-stopped
     # No ports exposed -- cloudflared tunnel handles ingress
     environment:

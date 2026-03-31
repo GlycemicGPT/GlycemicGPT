@@ -678,14 +678,14 @@ jobs:
           path: dast-results/
         continue-on-error: true
 
-      - name: Generate bot token
+      - name: Generate token for glycemicgpt-security
         if: always()
         id: bot-token
         continue-on-error: true
         uses: actions/create-github-app-token@v1
         with:
-          app-id: ${{ secrets.BOT_APP_ID }}
-          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          app-id: ${{ secrets.SECURITY_APP_ID }}
+          private-key: ${{ secrets.SECURITY_APP_PRIVATE_KEY }}
 
       - name: Create/update security finding issues
         id: create-issues
@@ -813,12 +813,12 @@ jobs:
           </details>
 
           ---
-          *Posted by [homebot.0](https://github.com/apps/homebot-0) -- GlycemicGPT Security Scanner*"
+          *Posted by [glycemicgpt-security](https://github.com/apps/glycemicgpt-security) -- GlycemicGPT Security Scanner*"
 
           # Post or update the comment
-          # Find existing comment posted by homebot-0 (not CodeRabbit or other bots)
+          # Find existing comment posted by glycemicgpt-security (not CodeRabbit or other bots)
           EXISTING=$(gh api repos/${{ github.repository }}/issues/${PR_NUMBER}/comments \
-            --jq '.[] | select(.user.login == "homebot-0[bot]" and (.body | contains("Security Scan Results"))) | .id' | head -1)
+            --jq '.[] | select(.user.login == "glycemicgpt-security[bot]" and (.body | contains("Security Scan Results"))) | .id' | head -1)
 
           if [ -n "$EXISTING" ]; then
             gh api repos/${{ github.repository }}/issues/comments/${EXISTING} \
@@ -852,13 +852,13 @@ jobs:
       - name: Install dependencies
         run: pip install -r scripts/security/requirements.txt
 
-      - name: Generate bot token
+      - name: Generate token for glycemicgpt-security
         id: bot-token
         continue-on-error: true
         uses: actions/create-github-app-token@v1
         with:
-          app-id: ${{ secrets.BOT_APP_ID }}
-          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          app-id: ${{ secrets.SECURITY_APP_ID }}
+          private-key: ${{ secrets.SECURITY_APP_PRIVATE_KEY }}
 
       - name: Cleanup orphaned issues
         if: steps.bot-token.outputs.token
