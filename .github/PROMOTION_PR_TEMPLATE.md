@@ -19,7 +19,7 @@
 ### Post-merge steps
 
 1. Wait for release-please to create a version bump PR on main
-2. homebot auto-merges it (or merge manually)
+2. glycemicgpt-merge auto-merges it (or merge manually)
 3. Verify stable container images are published with new version tag
 4. Verify signed release APK is uploaded to the GitHub release
 5. Sync develop with the version bump:

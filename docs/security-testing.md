@@ -70,7 +70,7 @@ detect-changes  -->  sast (if code changed)     -->  gate (always)
 - **detect-changes**: Uses `dorny/paths-filter@v3` with 6 granular component filters. Computes derived flags (`needs_sast`, `needs_docker`, `run_all`).
 - **sast**: Runs Semgrep on changed components. No Docker stack needed. Runs in parallel with DAST.
 - **dast**: Builds Docker stack and runs targeted DAST tests based on which components changed.
-- **gate**: Runs `if: always()`. Evaluates both SAST and DAST results. Posts unified PR comment via homebot.0.
+- **gate**: Runs `if: always()`. Evaluates both SAST and DAST results. Posts unified PR comment via glycemicgpt-security.
 
 ## SAST (Static Analysis Security Testing)
 
@@ -131,7 +131,7 @@ Scan results are uploaded as GitHub Actions artifacts with 30-day retention:
 
 ### Issue automation
 
-Security findings are automatically tracked as GitHub Issues via homebot.0. The full lifecycle:
+Security findings are automatically tracked as GitHub Issues via glycemicgpt-security. The full lifecycle:
 
 | Event | What happens |
 |-------|-------------|
