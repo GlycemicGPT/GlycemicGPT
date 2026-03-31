@@ -11,7 +11,7 @@ LABEL org.opencontainers.image.description="FastAPI backend for GlycemicGPT diab
 LABEL org.opencontainers.image.version="${VERSION}"
 LABEL org.opencontainers.image.created="${BUILD_DATE}"
 LABEL org.opencontainers.image.revision="${GIT_SHA}"
-LABEL org.opencontainers.image.source="https://github.com/jlengelbrecht/GlycemicGPT"
+LABEL org.opencontainers.image.source="https://github.com/GlycemicGPT/GlycemicGPT"
 LABEL org.opencontainers.image.licenses="MIT"
 
 WORKDIR /app

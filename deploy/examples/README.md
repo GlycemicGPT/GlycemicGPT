@@ -71,7 +71,7 @@ CORS_ORIGINS=["https://glycemicgpt.example.com"]
 
 These examples target Docker Compose. For Kubernetes:
 
-- Use the container images directly (`ghcr.io/jlengelbrecht/glycemicgpt-{api,web,sidecar}`)
+- Use the container images directly (`ghcr.io/glycemicgpt/glycemicgpt-{api,web,sidecar}`)
 - Point `REDIS_URL` at your cluster's Redis/Valkey service
 - Use Kubernetes Secrets for `SECRET_KEY`, `POSTGRES_PASSWORD`, etc.
 - Add an Ingress resource with TLS termination (cert-manager, etc.)

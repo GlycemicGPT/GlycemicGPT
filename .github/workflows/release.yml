@@ -20,12 +20,12 @@ jobs:
       pr: ${{ steps.release.outputs.pr }}
 
     steps:
-      - name: Generate token for homebot.0
+      - name: Generate token for glycemicgpt-release
         id: generate-token
         uses: actions/create-github-app-token@v1
         with:
-          app-id: ${{ secrets.BOT_APP_ID }}
-          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 
       - name: Release Please
         id: release
@@ -42,12 +42,12 @@ jobs:
     if: needs.release-please.outputs.pr != ''
 
     steps:
-      - name: Generate token for homebot.0
+      - name: Generate token for glycemicgpt-merge
         id: generate-token
         uses: actions/create-github-app-token@v1
         with:
-          app-id: ${{ secrets.BOT_APP_ID }}
-          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          app-id: ${{ secrets.MERGE_APP_ID }}
+          private-key: ${{ secrets.MERGE_APP_PRIVATE_KEY }}
 
       - name: Auto-merge release PR
         env:

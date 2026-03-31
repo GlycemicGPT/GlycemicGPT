@@ -57,9 +57,9 @@ The repo has "auto-delete head branches" enabled, which is great for cleaning up
 
 ```bash
 # Recreate develop from main via API
-gh api repos/jlengelbrecht/GlycemicGPT/git/refs \
+gh api repos/GlycemicGPT/GlycemicGPT/git/refs \
   -f ref="refs/heads/develop" \
-  -f sha="$(gh api repos/jlengelbrecht/GlycemicGPT/git/ref/heads/main --jq '.object.sha')"
+  -f sha="$(gh api repos/GlycemicGPT/GlycemicGPT/git/ref/heads/main --jq '.object.sha')"
 ```
 
 This also handles the post-release sync since `develop` is recreated from `main` (which includes the version bump commit).

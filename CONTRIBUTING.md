@@ -101,28 +101,28 @@ For the full details -- including how decisions are made, what each role can and
 
 There are many ways to help, not all of them involve writing code:
 
-- 🐛 **Report bugs** -- Use the [Bug Report](https://github.com/jlengelbrecht/GlycemicGPT/issues/new?template=bug_report.yml) or [Mobile App Issue](https://github.com/jlengelbrecht/GlycemicGPT/issues/new?template=mobile_report.yml) template
-- ✨ **Request features** -- Use the [Feature Request](https://github.com/jlengelbrecht/GlycemicGPT/issues/new?template=feature_request.yml) template
+- 🐛 **Report bugs** -- Use the [Bug Report](https://github.com/GlycemicGPT/GlycemicGPT/issues/new?template=bug_report.yml) or [Mobile App Issue](https://github.com/GlycemicGPT/GlycemicGPT/issues/new?template=mobile_report.yml) template
+- ✨ **Request features** -- Use the [Feature Request](https://github.com/GlycemicGPT/GlycemicGPT/issues/new?template=feature_request.yml) template
 - 📝 **Improve documentation** -- Typos, unclear instructions, missing guides
 - 🧪 **Write tests** -- More coverage is always welcome
 - 🔍 **Review PRs** -- Fresh eyes catch things automated checks can't
-- 💬 **Answer questions** -- Help others in [Discussions](https://github.com/jlengelbrecht/GlycemicGPT/discussions)
+- 💬 **Answer questions** -- Help others in [Discussions](https://github.com/GlycemicGPT/GlycemicGPT/discussions)
 
-Before opening an issue, please search [existing issues](https://github.com/jlengelbrecht/GlycemicGPT/issues?q=is%3Aissue) to avoid duplicates. For general questions and support, use [Discussions](https://github.com/jlengelbrecht/GlycemicGPT/discussions/categories/q-a) instead of creating an issue.
+Before opening an issue, please search [existing issues](https://github.com/GlycemicGPT/GlycemicGPT/issues?q=is%3Aissue) to avoid duplicates. For general questions and support, use [Discussions](https://github.com/GlycemicGPT/GlycemicGPT/discussions/categories/q-a) instead of creating an issue.
 
 ---
 
 ## 🔍 Finding Something to Work On
 
-Not sure where to start? Browse [open issues](https://github.com/jlengelbrecht/GlycemicGPT/issues) and look for these labels:
+Not sure where to start? Browse [open issues](https://github.com/GlycemicGPT/GlycemicGPT/issues) and look for these labels:
 
 - 🏷️ **`good first issue`** -- Small, well-scoped tasks ideal for new contributors
 - 🏷️ **`help wanted`** -- We'd love community help on these
 - 🏷️ **`bug`** -- Known bugs waiting for a fix
 
-> **Tip:** Not every label will have open issues at all times. If none are tagged yet, browse the full [issue list](https://github.com/jlengelbrecht/GlycemicGPT/issues) or check the [Ideas discussion board](https://github.com/jlengelbrecht/GlycemicGPT/discussions/categories/ideas) for inspiration.
+> **Tip:** Not every label will have open issues at all times. If none are tagged yet, browse the full [issue list](https://github.com/GlycemicGPT/GlycemicGPT/issues) or check the [Ideas discussion board](https://github.com/GlycemicGPT/GlycemicGPT/discussions/categories/ideas) for inspiration.
 
-If you'd like to work on something, comment on the issue to let others know. For larger changes, please open an issue or start a [discussion](https://github.com/jlengelbrecht/GlycemicGPT/discussions) first to discuss the approach before investing time in a PR.
+If you'd like to work on something, comment on the issue to let others know. For larger changes, please open an issue or start a [discussion](https://github.com/GlycemicGPT/GlycemicGPT/discussions) first to discuss the approach before investing time in a PR.
 
 ---
 
@@ -151,7 +151,7 @@ git clone https://github.com/<your-username>/GlycemicGPT.git
 cd GlycemicGPT
 
 # 2. Add upstream remote
-git remote add upstream https://github.com/jlengelbrecht/GlycemicGPT.git
+git remote add upstream https://github.com/GlycemicGPT/GlycemicGPT.git
 
 # 3. Install the git commit-msg hook (strips prohibited attribution lines)
 #    If scripts/hooks/commit-msg doesn't exist, skip this step -- CI enforces it too
@@ -659,10 +659,10 @@ GlycemicGPT is licensed under the [GNU General Public License v3.0](LICENSE). By
 
 ## 💬 Questions?
 
-- 🙏 **General questions & help** -- Post in [Q&A Discussions](https://github.com/jlengelbrecht/GlycemicGPT/discussions/categories/q-a)
-- 💡 **Feature ideas & brainstorming** -- Post in [Ideas Discussions](https://github.com/jlengelbrecht/GlycemicGPT/discussions/categories/ideas)
-- 🐛 **Bug reports** -- Open an [Issue](https://github.com/jlengelbrecht/GlycemicGPT/issues/new/choose) using the appropriate template
-- 🙌 **Show off your setup** -- Post in [Show and Tell](https://github.com/jlengelbrecht/GlycemicGPT/discussions/categories/show-and-tell)
+- 🙏 **General questions & help** -- Post in [Q&A Discussions](https://github.com/GlycemicGPT/GlycemicGPT/discussions/categories/q-a)
+- 💡 **Feature ideas & brainstorming** -- Post in [Ideas Discussions](https://github.com/GlycemicGPT/GlycemicGPT/discussions/categories/ideas)
+- 🐛 **Bug reports** -- Open an [Issue](https://github.com/GlycemicGPT/GlycemicGPT/issues/new/choose) using the appropriate template
+- 🙌 **Show off your setup** -- Post in [Show and Tell](https://github.com/GlycemicGPT/GlycemicGPT/discussions/categories/show-and-tell)
 
 Please **do not** open Issues for general questions -- use Discussions instead. Issues are for actionable bugs and feature requests.
 

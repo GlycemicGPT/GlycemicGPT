@@ -205,9 +205,9 @@ class AppUpdateChecker @Inject constructor(
 
     companion object {
         private const val STABLE_RELEASES_URL =
-            "https://api.github.com/repos/jlengelbrecht/GlycemicGPT/releases/latest"
+            "https://api.github.com/repos/GlycemicGPT/GlycemicGPT/releases/latest"
         private const val DEV_RELEASES_URL =
-            "https://api.github.com/repos/jlengelbrecht/GlycemicGPT/releases/tags/dev-latest"
+            "https://api.github.com/repos/GlycemicGPT/GlycemicGPT/releases/tags/dev-latest"
         private const val APK_PREFIX = "GlycemicGPT-"
         private const val APK_SUBDIR = "apk_updates"
 

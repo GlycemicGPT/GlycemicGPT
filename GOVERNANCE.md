@@ -80,7 +80,7 @@ Maintainers make routine decisions: merging PRs, triaging issues, choosing imple
 
 Major changes that affect the platform's architecture or safety properties should be discussed before implementation:
 
-1. Open a [Discussion](https://github.com/jlengelbrecht/GlycemicGPT/discussions) in the Ideas category describing the proposal
+1. Open a [Discussion](https://github.com/GlycemicGPT/GlycemicGPT/discussions) in the Ideas category describing the proposal
 2. Tag relevant maintainers and committers
 3. Allow at least 7 days for feedback on safety-critical proposals
 4. Document the decision in the PR that implements it
@@ -151,7 +151,7 @@ Security findings are handled automatically by CI (see [docs/security-testing.md
 
 - **Suppression decisions** (accepting a known risk) require maintainer approval
 - **Security infrastructure changes** (scan workflows, evaluator scripts) require maintainer review
-- **Vulnerability reports** from external researchers should use the [Security Finding](https://github.com/jlengelbrecht/GlycemicGPT/issues/new?template=security-finding.yml) issue template
+- **Vulnerability reports** from external researchers should use the [Security Finding](https://github.com/GlycemicGPT/GlycemicGPT/issues/new?template=security-finding.yml) issue template
 
 ## Changes to This Document
 

@@ -2,9 +2,9 @@
 # Usage: docker compose -f docker-compose.prod.yml up -d
 #
 # Pull latest images:
-#   docker pull ghcr.io/jlengelbrecht/glycemicgpt-api:latest
-#   docker pull ghcr.io/jlengelbrecht/glycemicgpt-web:latest
-#   docker pull ghcr.io/jlengelbrecht/glycemicgpt-sidecar:latest
+#   docker pull ghcr.io/glycemicgpt/glycemicgpt-api:latest
+#   docker pull ghcr.io/glycemicgpt/glycemicgpt-web:latest
+#   docker pull ghcr.io/glycemicgpt/glycemicgpt-sidecar:latest
 #
 # Or use a specific version:
 #   IMAGE_TAG=0.1.2 docker compose -f docker-compose.prod.yml up -d
@@ -41,7 +41,7 @@ services:
       retries: 5
 
   ai-sidecar:
-    image: ghcr.io/jlengelbrecht/glycemicgpt-sidecar:${IMAGE_TAG:-latest}
+    image: ghcr.io/glycemicgpt/glycemicgpt-sidecar:${IMAGE_TAG:-latest}
     restart: unless-stopped
     volumes:
       - sidecar_auth:/home/sidecar/.config
@@ -57,7 +57,7 @@ services:
       start_period: 10s
 
   api:
-    image: ghcr.io/jlengelbrecht/glycemicgpt-api:${IMAGE_TAG:-latest}
+    image: ghcr.io/glycemicgpt/glycemicgpt-api:${IMAGE_TAG:-latest}
     restart: unless-stopped
     ports:
       - "${API_PORT:-8000}:8000"
@@ -85,7 +85,7 @@ services:
       start_period: 40s
 
   web:
-    image: ghcr.io/jlengelbrecht/glycemicgpt-web:${IMAGE_TAG:-latest}
+    image: ghcr.io/glycemicgpt/glycemicgpt-web:${IMAGE_TAG:-latest}
     restart: unless-stopped
     ports:
       - "${WEB_PORT:-3000}:3000"
