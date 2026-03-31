@@ -114,9 +114,16 @@ jobs:
             exit 1
           fi
 
+      - name: Generate token for glycemicgpt-release
+        id: release-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
       - name: Upload APK to GitHub Release
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.release-token.outputs.token }}
         run: |
           TAG="${{ needs.release-please.outputs.tag_name }}"
           gh release upload "$TAG" GlycemicGPT-*-release.apk --repo ${{ github.repository }}

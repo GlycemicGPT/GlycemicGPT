@@ -190,7 +190,7 @@ The repository enforces these protections via org-level rulesets that apply to a
 - Stale reviews dismissed on push (must re-approve after changes)
 - Rebase merge only (preserves commit history for changelog generation)
 - No force push, no deletion
-- Bypass: org admins + glycemicgpt-merge (for automated release-please version bumps only)
+- Bypass: org admins + glycemicgpt-merge (for release-please version bumps and changelog PRs)
 
 ### `develop` (integration branch)
 - All changes must go through a pull request
@@ -198,7 +198,7 @@ The repository enforces these protections via org-level rulesets that apply to a
 - Squash merge only
 - 10 required status checks (CI, security scan, linting, etc.)
 - No force push, no deletion
-- Bypass: org admins + glycemicgpt-merge (for automated dependency updates)
+- Bypass: org admins + glycemicgpt-renovate (for automated dependency updates)
 
 ### Why project lead approval is required on `main`
 
@@ -223,6 +223,20 @@ As the project grows, component-specific committer teams will be added:
 /apps/api/ @GlycemicGPT/maintainers @GlycemicGPT/backend-committers
 /apps/mobile/ @GlycemicGPT/maintainers @GlycemicGPT/mobile-committers
 ```
+
+## Automation
+
+All automated actions use named GlycemicGPT bot identities. No workflow posts as the default `github-actions[bot]`.
+
+| Bot | Purpose | What it does |
+|-----|---------|-------------|
+| **glycemicgpt-security** | Security scanning | Posts security scan PR comments, creates/closes/reopens finding issues, throttled "still detected" comments |
+| **glycemicgpt-release** | Release management | Creates release-please version bump PRs, creates changelog PRs, uploads signed release APKs |
+| **glycemicgpt-merge** | Automated merging | Approves and merges automated PRs (release-please, changelog). Only bot with admin bypass on main. |
+| **glycemicgpt-renovate** | Dependency management | Creates and merges dependency update PRs on develop. Automerges patches/minors after CI passes. |
+| **glycemicgpt-ci** | CI/CD operations | Pushes container images to GHCR, creates dev pre-releases, labels PRs based on file changes and conventions |
+
+Each bot has least-privilege permissions scoped to its function. Bot credentials are stored as org-level secrets.
 
 ## Security
 
