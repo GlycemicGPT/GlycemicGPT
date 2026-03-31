@@ -30,9 +30,10 @@ jobs:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 
-      - name: Checkout
+      - name: Checkout main
         uses: actions/checkout@v4
         with:
+          ref: main
           token: ${{ steps.release-token.outputs.token }}
           fetch-depth: 0
 
@@ -61,12 +62,14 @@ jobs:
           GH_TOKEN: ${{ steps.release-token.outputs.token }}
         run: |
           SINCE="${{ steps.last-date.outputs.cutoff }}"
-          # Upper bound: use the push commit timestamp to exclude PRs merged after this promotion
-          UNTIL="${{ github.event.head_commit.timestamp || '' }}"
-          if [ -z "$UNTIL" ]; then
-            UNTIL=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          # Upper bound: use main's HEAD commit time to exclude PRs merged after this promotion
+          # For push events, github.event.head_commit.timestamp is available.
+          # For workflow_dispatch, fall back to main's latest commit time (not wall clock).
+          UNTIL="${{ github.event.head_commit.timestamp }}"
+          if [ -z "$UNTIL" ] || [ "$UNTIL" = "" ]; then
+            UNTIL=$(git log -1 --format=%aI origin/main)
           fi
-          TODAY=$(date -u +%Y-%m-%d)
+          TODAY=$(echo "$UNTIL" | cut -dT -f1)
           NOW="$UNTIL"
 
           echo "Collecting PRs merged to develop since $SINCE..."
@@ -199,14 +202,8 @@ jobs:
           git config user.name "glycemicgpt-release[bot]"
           git config user.email "glycemicgpt-release[bot]@users.noreply.github.com"
 
-          # Create or reset the branch BEFORE modifying files
-          if git ls-remote --heads origin "$BRANCH" | grep -q "$BRANCH"; then
-            git fetch origin "$BRANCH"
-            # Reset to main to avoid checkout conflicts
-            git checkout -B "$BRANCH" origin/main
-          else
-            git checkout -b "$BRANCH"
-          fi
+          # Always create/reset branch from origin/main to ensure correct base
+          git checkout -B "$BRANCH" origin/main
 
       - name: Update CHANGELOG.md
         if: steps.changelog.outputs.has_changes == 'true'
