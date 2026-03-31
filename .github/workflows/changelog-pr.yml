@@ -68,7 +68,7 @@ jobs:
           # For workflow_dispatch, fall back to main's latest commit time (not wall clock).
           UNTIL="${{ github.event.head_commit.timestamp }}"
           if [ -z "$UNTIL" ] || [ "$UNTIL" = "" ]; then
-            UNTIL=$(git log -1 --format=%aI origin/main)
+            UNTIL=$(git log -1 --format=%cI origin/main)
           fi
           TODAY=$(echo "$UNTIL" | cut -dT -f1)
           NOW="$UNTIL"
@@ -289,8 +289,8 @@ jobs:
           PR_FILES=$(echo "$PR_DATA" | jq -r '.files[].path')
 
           # Safety checks: only merge if PR matches expected changelog pattern
-          if [ "$PR_AUTHOR" != "glycemicgpt-release" ]; then
-            echo "::error::PR author is '$PR_AUTHOR', expected 'glycemicgpt-release'. Refusing to merge."
+          if [ "$PR_AUTHOR" != "glycemicgpt-release[bot]" ]; then
+            echo "::error::PR author is '$PR_AUTHOR', expected 'glycemicgpt-release[bot]'. Refusing to merge."
             exit 1
           fi
 
@@ -308,5 +308,5 @@ jobs:
 
           echo "Validation passed. Approving and merging changelog PR #$PR_NUMBER"
           gh pr review "$PR_NUMBER" --approve --repo ${{ github.repository }}
-          gh pr merge "$PR_NUMBER" --squash --admin --repo ${{ github.repository }}
+          gh pr merge "$PR_NUMBER" --rebase --admin --repo ${{ github.repository }}
           echo "Changelog PR #$PR_NUMBER merged"
