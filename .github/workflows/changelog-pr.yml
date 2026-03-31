@@ -18,8 +18,14 @@ jobs:
       pr_number: ${{ steps.create-pr.outputs.pr_number }}
       has_changes: ${{ steps.changelog.outputs.has_changes }}
       today: ${{ steps.changelog.outputs.today }}
-    # Skip if this push was from the changelog or release-please bot
+    # Only run on promotion merges (develop -> main), skip bot commits.
+    # Promotion PRs use "chore: promote develop to main" title pattern.
+    # workflow_dispatch is allowed for manual reruns.
     if: >-
+      (
+        github.event_name == 'workflow_dispatch' ||
+        contains(github.event.head_commit.message, 'promote develop to main')
+      ) &&
       !contains(github.event.head_commit.message, '[Changelog]') &&
       !contains(github.event.head_commit.message, 'chore: release')
 
