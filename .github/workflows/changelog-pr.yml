@@ -17,6 +17,7 @@ jobs:
     outputs:
       pr_number: ${{ steps.create-pr.outputs.pr_number }}
       has_changes: ${{ steps.changelog.outputs.has_changes }}
+      today: ${{ steps.changelog.outputs.today }}
     # Skip if this push was from the changelog or release-please bot
     if: >-
       !contains(github.event.head_commit.message, '[Changelog]') &&
@@ -187,6 +188,7 @@ jobs:
           fi
 
           echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          echo "today=$TODAY" >> "$GITHUB_OUTPUT"
 
           # Save to temp file for the next step
           echo "$CHANGELOG" > /tmp/new-changelog-section.md
@@ -196,7 +198,7 @@ jobs:
       - name: Prepare changelog branch
         if: steps.changelog.outputs.has_changes == 'true'
         run: |
-          BRANCH="changelog/$(date -u +%Y-%m-%d)"
+          BRANCH="changelog/${{ steps.changelog.outputs.today }}"
 
           # Configure git as glycemicgpt-release bot
           git config user.name "glycemicgpt-release[bot]"
@@ -234,8 +236,8 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.release-token.outputs.token }}
         run: |
-          BRANCH="changelog/$(date -u +%Y-%m-%d)"
-          TODAY=$(date -u +%Y-%m-%d)
+          TODAY="${{ steps.changelog.outputs.today }}"
+          BRANCH="changelog/$TODAY"
 
           git add CHANGELOG.md
           git commit -m "[Changelog] Update CHANGELOG.md for $TODAY" || {
