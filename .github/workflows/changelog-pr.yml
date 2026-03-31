@@ -52,22 +52,44 @@ jobs:
 
           # Fetch merged PRs to develop since last changelog date
           # Use search API to get PRs merged after the date
-          PRS=$(gh api graphql -f query='
-            query($searchQuery: String!) {
-              search(query: $searchQuery, type: ISSUE, first: 100) {
-                nodes {
-                  ... on PullRequest {
-                    number
-                    title
-                    mergedAt
-                    author { login }
-                    labels(first: 20) { nodes { name } }
+          # Paginate through all merged PRs (handles >100 PRs between changelog updates)
+          ALL_PRS="[]"
+          CURSOR=""
+          while true; do
+            CURSOR_ARG=""
+            if [ -n "$CURSOR" ]; then
+              CURSOR_ARG="-f cursor=$CURSOR"
+            fi
+
+            PAGE=$(gh api graphql -f query='
+              query($searchQuery: String!, $cursor: String) {
+                search(query: $searchQuery, type: ISSUE, first: 100, after: $cursor) {
+                  pageInfo { hasNextPage endCursor }
+                  nodes {
+                    ... on PullRequest {
+                      number
+                      title
+                      mergedAt
+                      author { login }
+                      labels(first: 20) { nodes { name } }
+                    }
                   }
                 }
               }
-            }
-          ' -f searchQuery="repo:${{ github.repository }} is:pr is:merged base:develop merged:>=$SINCE" \
-            --jq '.data.search.nodes')
+            ' -f searchQuery="repo:${{ github.repository }} is:pr is:merged base:develop merged:>=$SINCE" \
+              $CURSOR_ARG)
+
+            NODES=$(echo "$PAGE" | jq '.data.search.nodes')
+            ALL_PRS=$(echo "$ALL_PRS $NODES" | jq -s '.[0] + .[1]')
+
+            HAS_NEXT=$(echo "$PAGE" | jq -r '.data.search.pageInfo.hasNextPage')
+            if [ "$HAS_NEXT" != "true" ]; then
+              break
+            fi
+            CURSOR=$(echo "$PAGE" | jq -r '.data.search.pageInfo.endCursor')
+          done
+
+          PRS="$ALL_PRS"
 
           if [ -z "$PRS" ] || [ "$PRS" = "[]" ] || [ "$PRS" = "null" ]; then
             echo "No PRs found since $SINCE"
@@ -171,7 +193,11 @@ jobs:
           if git ls-remote --heads origin "$BRANCH" | grep -q "$BRANCH"; then
             git fetch origin "$BRANCH"
             git checkout "$BRANCH"
-            git merge origin/main --no-edit || true
+            if ! git merge origin/main --no-edit; then
+              echo "::warning::Merge conflict with main -- recreating branch from main"
+              git merge --abort
+              git checkout -B "$BRANCH" origin/main
+            fi
           else
             git checkout -b "$BRANCH"
           fi
