@@ -61,8 +61,13 @@ jobs:
           GH_TOKEN: ${{ steps.release-token.outputs.token }}
         run: |
           SINCE="${{ steps.last-date.outputs.cutoff }}"
+          # Upper bound: use the push commit timestamp to exclude PRs merged after this promotion
+          UNTIL="${{ github.event.head_commit.timestamp || '' }}"
+          if [ -z "$UNTIL" ]; then
+            UNTIL=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          fi
           TODAY=$(date -u +%Y-%m-%d)
-          NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          NOW="$UNTIL"
 
           echo "Collecting PRs merged to develop since $SINCE..."
 
@@ -90,7 +95,7 @@ jobs:
                   }
                 }
               }
-            ' -f searchQuery="repo:${{ github.repository }} is:pr is:merged base:develop merged:>=$SINCE" \
+            ' -f searchQuery="repo:${{ github.repository }} is:pr is:merged base:develop merged:$SINCE..$UNTIL" \
               $CURSOR_ARG)
 
             NODES=$(echo "$PAGE" | jq '.data.search.nodes')
@@ -115,6 +120,9 @@ jobs:
           # Automated PRs with "dependencies" label go to Dependencies section
           # Other automated PRs (autorelease, invalid) are excluded
           CHANGELOG=$(echo "$PRS" | jq -r --arg today "$TODAY" --arg now "$NOW" '
+            # Section mapping covers both semantic labels (from conventional commits)
+            # and component labels (from auto-labeler path matching).
+            # Priority: semantic type > component type > Other
             def section_for_labels:
               [.[] | .name] as $labels |
               if ($labels | any(. == "breaking-change")) then "Breaking Changes"
@@ -126,6 +134,12 @@ jobs:
               elif ($labels | any(. == "ci" or . == "docker" or . == "k8s" or . == "build")) then "Infrastructure"
               elif ($labels | any(. == "refactor")) then "Refactoring"
               elif ($labels | any(. == "dependencies")) then "Dependencies"
+              elif ($labels | any(. == "tests")) then "Infrastructure"
+              elif ($labels | any(. == "api" or . == "component: api")) then "Features"
+              elif ($labels | any(. == "web" or . == "component: web")) then "Features"
+              elif ($labels | any(. == "component: mobile")) then "Features"
+              elif ($labels | any(. == "database")) then "Infrastructure"
+              elif ($labels | any(. == "chore")) then "Infrastructure"
               else "Other"
               end;
 
