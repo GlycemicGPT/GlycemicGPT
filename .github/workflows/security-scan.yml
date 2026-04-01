@@ -451,6 +451,18 @@ jobs:
           COMPOSE_PROJECT_NAME: glycemicgpt-test
         run: docker compose -f docker-compose.yml -f docker-compose.test.yml exec -T redis redis-cli FLUSHDB || true
 
+      - name: Prepare ZAP workspace
+        if: |
+          always() && (
+            needs.detect-changes.outputs.api == 'true' ||
+            needs.detect-changes.outputs.web == 'true' ||
+            needs.detect-changes.outputs.run_all == 'true' ||
+            github.event_name == 'workflow_dispatch'
+          )
+        run: |
+          mkdir -p scripts/security/results
+          chmod 777 scripts/security/ scripts/security/results/
+
       - name: Setup ZAP authenticated session
         id: zap-setup
         if: |
@@ -490,10 +502,6 @@ jobs:
           echo "ZAP_CSRF=$CSRF" >> "$GITHUB_ENV"
           rm -f "$COOKIE_JAR"
           echo "ZAP auth session established"
-
-          # Pre-create results dir and make scripts/security writable for ZAP containers (run as UID 1000)
-          mkdir -p scripts/security/results
-          chmod 777 scripts/security/ scripts/security/results/
 
           # Resolve ZAP plan templates -- bake actual cookie values into YAML
           # ZAP's AF does NOT expand ${ENV_VAR} in YAML files
@@ -549,9 +557,11 @@ jobs:
       - name: Run ZAP Unauthenticated API scan
         id: zap-unauth-api
         if: |
-          needs.detect-changes.outputs.api == 'true' ||
-          needs.detect-changes.outputs.run_all == 'true' ||
-          github.event_name == 'workflow_dispatch'
+          always() && (
+            needs.detect-changes.outputs.api == 'true' ||
+            needs.detect-changes.outputs.run_all == 'true' ||
+            github.event_name == 'workflow_dispatch'
+          )
         run: |
           docker run --rm --network="host" \
             -v "$(pwd)/scripts/security:/zap/wrk/:rw" \
@@ -566,9 +576,11 @@ jobs:
       - name: Run ZAP Unauthenticated Web scan
         id: zap-unauth-web
         if: |
-          needs.detect-changes.outputs.web == 'true' ||
-          needs.detect-changes.outputs.run_all == 'true' ||
-          github.event_name == 'workflow_dispatch'
+          always() && (
+            needs.detect-changes.outputs.web == 'true' ||
+            needs.detect-changes.outputs.run_all == 'true' ||
+            github.event_name == 'workflow_dispatch'
+          )
         run: |
           docker run --rm --network="host" \
             -v "$(pwd)/scripts/security:/zap/wrk/:rw" \
@@ -742,10 +754,12 @@ jobs:
           COMMIT_SHA: ${{ github.sha }}
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
           PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         run: |
-          # Detect promotion PRs (develop->main) to prevent false issue re-tagging
+          # Detect promotion PRs (develop->main, same repo only -- not forks)
           PR_TYPE="feature"
-          if [ "$PR_HEAD_REF" = "develop" ] && [ "$PR_BASE_REF" = "main" ]; then
+          if [ "$PR_HEAD_REF" = "develop" ] && [ "$PR_BASE_REF" = "main" ] && \
+             [ "$PR_HEAD_REPO" = "${{ github.repository }}" ]; then
             PR_TYPE="promotion"
             echo "Detected promotion PR -- skipping source-pr re-tagging"
           fi
@@ -921,10 +935,12 @@ jobs:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
           PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         run: |
-          # Detect promotion PRs (develop->main) to prevent false issue closure
+          # Detect promotion PRs (develop->main, same repo only -- not forks)
           PR_TYPE="feature"
-          if [ "$PR_HEAD_REF" = "develop" ] && [ "$PR_BASE_REF" = "main" ]; then
+          if [ "$PR_HEAD_REF" = "develop" ] && [ "$PR_BASE_REF" = "main" ] && \
+             [ "$PR_HEAD_REPO" = "${{ github.repository }}" ]; then
             PR_TYPE="promotion"
             echo "Detected promotion PR -- skipping orphan cleanup"
           fi

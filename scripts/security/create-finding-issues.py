@@ -851,9 +851,13 @@ def reconcile_findings(
             if dry_run:
                 print(f"  [DRY RUN] Would reopen #{existing['number']}: {title}")
             else:
-                # Preserve existing source-pr tag if no new pr_number provided
+                # Determine effective source-pr tag.
+                # Promotion PRs preserve the existing tag (they don't own findings).
                 effective_pr = pr_number
-                if not effective_pr:
+                if pr_type == "promotion":
+                    existing_pr_match = SOURCE_PR_RE.search(existing.get("body", ""))
+                    effective_pr = existing_pr_match.group(1) if existing_pr_match else None
+                elif not effective_pr:
                     existing_pr_match = SOURCE_PR_RE.search(existing.get("body", ""))
                     if existing_pr_match:
                         effective_pr = existing_pr_match.group(1)
@@ -884,9 +888,13 @@ def reconcile_findings(
         else:
             # Already open -- refresh content if changed, add "still detected" for full-suite
             if not dry_run:
-                # Preserve existing source-pr tag if no new pr_number provided
+                # Determine effective source-pr tag.
+                # Promotion PRs preserve the existing tag (they don't own findings).
                 effective_pr = pr_number
-                if not effective_pr:
+                if pr_type == "promotion":
+                    existing_pr_match = SOURCE_PR_RE.search(existing.get("body", ""))
+                    effective_pr = existing_pr_match.group(1) if existing_pr_match else None
+                elif not effective_pr:
                     existing_pr_match = SOURCE_PR_RE.search(existing.get("body", ""))
                     if existing_pr_match:
                         effective_pr = existing_pr_match.group(1)

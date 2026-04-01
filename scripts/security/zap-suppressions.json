@@ -4,6 +4,11 @@
       "pluginId": "10055",
       "scan": "web",
       "reason": "Next.js requires unsafe-inline/unsafe-eval for client-side hydration. Fix tracked in story-35.11b (CSP nonce generation)."
+    },
+    {
+      "pluginId": "10055",
+      "scan": "unauth-web",
+      "reason": "Next.js requires unsafe-inline/unsafe-eval for client-side hydration. Same root cause as authenticated web scan. Fix tracked in story-35.11b."
     }
   ]
 }

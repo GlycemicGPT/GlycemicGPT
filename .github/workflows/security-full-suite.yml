@@ -218,6 +218,11 @@ jobs:
           COMPOSE_PROJECT_NAME: glycemicgpt-test
         run: docker compose -f docker-compose.yml -f docker-compose.test.yml exec -T redis redis-cli FLUSHDB || true
 
+      - name: Prepare ZAP workspace
+        run: |
+          mkdir -p scripts/security/results
+          chmod 777 scripts/security/ scripts/security/results/
+
       - name: Setup ZAP authenticated session
         id: zap-setup
         env:
@@ -252,10 +257,6 @@ jobs:
           echo "ZAP_CSRF=$CSRF" >> "$GITHUB_ENV"
           rm -f "$COOKIE_JAR"
           echo "ZAP auth session established"
-
-          # Pre-create results dir writable for ZAP containers (run as UID 1000)
-          mkdir -p scripts/security/results
-          chmod 777 scripts/security/ scripts/security/results/
 
           # Resolve ZAP plan templates -- bake actual cookie values into YAML
           export ZAP_SESSION ZAP_CSRF

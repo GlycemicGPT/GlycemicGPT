@@ -32,6 +32,18 @@ env:
 jobs:
   # No script or replacer jobs -- this scan runs without authentication
 
+  # Pre-seed endpoints that may not appear in the OpenAPI spec.
+  # The openapi job only imports endpoints listed in /openapi.json;
+  # /health and /openapi.json itself may be undocumented.
+  - type: requestor
+    parameters:
+      user: ""
+    requests:
+      - url: "http://localhost:8001/health"
+        method: "GET"
+      - url: "http://localhost:8001/openapi.json"
+        method: "GET"
+
   # Auto-discover all API endpoints from the live OpenAPI spec.
   # Context includePaths limits active scanning to public endpoints only.
   - type: openapi
