@@ -56,6 +56,12 @@
         android:networkSecurityConfig="@xml/network_security_config"
         tools:targetApi="35">
 
+        <!-- nosemgrep: java.android.security.exported_activity.exported_activity
+             Intentional: MAIN/LAUNCHER activity must be exported (required since API 31).
+             Safe because: no incoming intent data/extras are processed, auth is enforced
+             in GlycemicGptNavHost before any sensitive data is shown.
+             RE-EVALUATE THIS SUPPRESSION if deep-link handling, intent extras, or
+             custom URI schemes are added to this activity in the future. -->
         <activity
             android:name=".presentation.MainActivity"
             android:exported="true"
