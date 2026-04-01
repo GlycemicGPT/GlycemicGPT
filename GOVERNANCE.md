@@ -226,7 +226,7 @@ As the project grows, component-specific committer teams will be added:
 
 ## Automation
 
-All automated actions use named GlycemicGPT bot identities. No workflow posts as the default `github-actions[bot]`.
+All automated actions use named GlycemicGPT bot identities where possible. Each bot has least-privilege permissions scoped to its function. Bot credentials are stored as org-level secrets.
 
 | Bot | Purpose | What it does |
 |-----|---------|-------------|
@@ -234,9 +234,11 @@ All automated actions use named GlycemicGPT bot identities. No workflow posts as
 | **glycemicgpt-release** | Release management | Creates release-please version bump PRs, creates changelog PRs, uploads signed release APKs |
 | **glycemicgpt-merge** | Automated merging | Approves and merges automated PRs (release-please, changelog). Only bot with admin bypass on main. |
 | **glycemicgpt-renovate** | Dependency management | Creates and merges dependency update PRs on develop. Automerges patches/minors after CI passes. |
-| **glycemicgpt-ci** | CI/CD operations | Pushes container images to GHCR, creates dev pre-releases, labels PRs based on file changes and conventions |
+| **glycemicgpt-ci** | CI/CD operations | Creates dev pre-releases, labels PRs based on file changes and conventions |
 
-Each bot has least-privilege permissions scoped to its function. Bot credentials are stored as org-level secrets.
+### Container image publishing
+
+Container images pushed to GHCR (`ghcr.io/glycemicgpt/*`) use the built-in `GITHUB_TOKEN` instead of a custom bot token. This is a [GitHub platform limitation](https://github.com/orgs/community/discussions/26920): GHCR does not accept GitHub App installation tokens for read or write operations. The `packages: write` permission on custom apps is not honored by GHCR's authentication layer. This limitation has been open since 2020 with no published timeline for resolution. `GITHUB_TOKEN` is the only supported authentication method for GHCR within GitHub Actions.
 
 ## Security
 
