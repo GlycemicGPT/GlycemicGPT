@@ -92,7 +92,7 @@ app = FastAPI(
     title="GlycemicGPT API",
     description="AI-powered diabetes management API",
     lifespan=lifespan,
-    docs_url=None,   # Disabled: custom self-hosted route below
+    docs_url=None,  # Disabled: custom self-hosted route below
     redoc_url=None,  # Disabled: custom self-hosted route below
 )
 
@@ -174,12 +174,19 @@ async def root() -> dict[str, Any]:
 # Assets are vendored in the Docker image (downloaded at build time from pinned
 # CDN versions). This eliminates cross-domain script loading, adds CSP headers,
 # and removes the CDN supply chain dependency.
+# CSP for /docs and /redoc pages. FastAPI's get_swagger_ui_html() generates an
+# inline <script> block to initialize SwaggerUIBundle, requiring 'unsafe-inline'.
+# All directives are explicit (no fallback to default-src) per ZAP best practice.
 _CSP_DOCS = (
-    "default-src 'self'; "
+    "default-src 'none'; "
     "script-src 'self' 'unsafe-inline'; "
     "style-src 'self' 'unsafe-inline'; "
     "img-src 'self' data:; "
-    "font-src 'self'"
+    "font-src 'self'; "
+    "connect-src 'self'; "
+    "frame-ancestors 'none'; "
+    "form-action 'self'; "
+    "base-uri 'self'"
 )
 
 
