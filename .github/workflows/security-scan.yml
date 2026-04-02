@@ -831,6 +831,8 @@ jobs:
           CREATED_ISSUES: ${{ steps.create-issues.outputs.created_issues || '' }}
           ISSUES_JSON: ${{ steps.create-issues.outputs.issues_json || '[]' }}
           SUPPRESSED_COUNT: ${{ steps.create-issues.outputs.suppressed_count || '0' }}
+          REPO_NAME: ${{ github.repository }}
+          HEAD_BRANCH: ${{ github.head_ref || github.ref_name }}
         run: |
           # Helper: convert outcome to icon
           icon() {
@@ -888,7 +890,7 @@ jobs:
           echo ""
           fi)
           $(if [ "$SUPPRESSED_COUNT" -gt 0 ] 2>/dev/null; then
-          echo "> :information_source: **${SUPPRESSED_COUNT} finding(s) suppressed** as accepted risks. See [zap-suppressions.json](https://github.com/${{ github.repository }}/blob/${{ github.head_ref || github.ref_name }}/scripts/security/zap-suppressions.json)."
+          echo "> :information_source: **${SUPPRESSED_COUNT} finding(s) suppressed** as accepted risks. See [zap-suppressions.json](https://github.com/${REPO_NAME}/blob/${HEAD_BRANCH}/scripts/security/zap-suppressions.json)."
           echo ""
           fi)
           <details>

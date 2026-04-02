@@ -973,40 +973,42 @@ def reconcile_findings(
                 stats["skipped"] += 1
 
     # Close open issues for findings that are now suppressed (accepted risk).
-    # This runs for both PR and full-suite scans.
-    suppression_config_url = (
-        f"https://github.com/{repo}/blob/{branch}/scripts/security/zap-suppressions.json"
-        if repo else "scripts/security/zap-suppressions.json"
-    )
-    for sf in suppressed_findings:
-        existing = fingerprint_to_issue.get(sf.fingerprint)
-        if existing is None or existing["state"] != "open":
-            continue
+    # Only runs for full-suite scans: PR scans may contain unmerged suppressions
+    # that shouldn't close repo-wide issues before landing on develop/main.
+    if scan_type == "full-suite" and suppressed_findings:
+        suppression_config_url = (
+            f"https://github.com/{repo}/blob/{branch}/scripts/security/zap-suppressions.json"
+            if repo else "scripts/security/zap-suppressions.json"
+        )
+        for sf in suppressed_findings:
+            existing = fingerprint_to_issue.get(sf.fingerprint)
+            if existing is None or existing["state"] != "open":
+                continue
 
-        if dry_run:
-            print(f"  [DRY RUN] Would suppression-close #{existing['number']}: {existing['title']}")
-        else:
-            comment = (
-                f"This finding has been **accepted as a known risk** and suppressed in CI.\n\n"
-                f"**Reason:** {sf.suppression_reason or 'No reason given'}\n"
-                f"**Suppression config:** "
-                f"[zap-suppressions.json]({suppression_config_url})\n\n"
-                f"If this risk is no longer accepted, remove the suppression entry "
-                f"and this issue will be reopened on the next scan."
-            )
-            client.add_comment(existing["number"], comment)
-            existing_labels = [l["name"] for l in existing.get("labels", [])]
-            if "accepted-risk" not in existing_labels:
-                existing_labels.append("accepted-risk")
-            client.update_issue(
-                existing["number"],
-                state="closed",
-                labels=existing_labels,
-            )
-            print(f"  Suppression-closed #{existing['number']}: {existing['title']}")
-        stats["closed"] += 1
-        # Remove from map to prevent double-close by auto-close below
-        fingerprint_to_issue.pop(sf.fingerprint, None)
+            if dry_run:
+                print(f"  [DRY RUN] Would suppression-close #{existing['number']}: {existing['title']}")
+            else:
+                comment = (
+                    f"This finding has been **accepted as a known risk** and suppressed in CI.\n\n"
+                    f"**Reason:** {sf.suppression_reason or 'No reason given'}\n"
+                    f"**Suppression config:** "
+                    f"[zap-suppressions.json]({suppression_config_url})\n\n"
+                    f"If this risk is no longer accepted, remove the suppression entry "
+                    f"and this issue will be reopened on the next scan."
+                )
+                client.add_comment(existing["number"], comment)
+                existing_labels = [l["name"] for l in existing.get("labels", [])]
+                if "accepted-risk" not in existing_labels:
+                    existing_labels.append("accepted-risk")
+                client.update_issue(
+                    existing["number"],
+                    state="closed",
+                    labels=existing_labels,
+                )
+                print(f"  Suppression-closed #{existing['number']}: {existing['title']}")
+            stats["closed"] += 1
+            # Remove from map to prevent double-close by auto-close below
+            fingerprint_to_issue.pop(sf.fingerprint, None)
 
     # Auto-close: full-suite closes any resolved finding (guarded by tool check)
     if scan_type == "full-suite" and not dry_run:
