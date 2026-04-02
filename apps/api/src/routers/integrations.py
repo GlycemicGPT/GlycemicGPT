@@ -821,21 +821,8 @@ async def get_glucose_history(
 
 @router.get(
     "/glucose/time-in-range",
-    response_model=None,
+    response_model=TimeInRangeResponse | TimeInRangeDetailResponse,
     responses={
-        200: {
-            "description": "Time in range statistics",
-            "content": {
-                "application/json": {
-                    "schema": {
-                        "oneOf": [
-                            {"$ref": "#/components/schemas/TimeInRangeResponse"},
-                            {"$ref": "#/components/schemas/TimeInRangeDetailResponse"},
-                        ]
-                    }
-                }
-            },
-        },
         401: {"model": ErrorResponse, "description": "Not authenticated"},
         403: {"model": ErrorResponse, "description": "Permission denied"},
     },
