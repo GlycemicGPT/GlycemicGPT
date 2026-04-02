@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Story 28.11: Automated auth flow & security penetration tests.
 
-Runs 15 security tests against a live Docker stack to verify that
+Runs 16 security tests against a live Docker stack to verify that
 rate limiting, token handling, CSRF, CORS, security headers, and
 input validation all work correctly at the HTTP level.
 
@@ -646,6 +646,35 @@ def test_expired_token_rejection() -> None:
         log_fail(name, f"expected 401, got {resp.status_code}")
 
 
+def test_open_redirect_prevention() -> None:
+    """Verify login redirect param rejects external URLs."""
+    name = "Open redirect prevention"
+    errors = []
+
+    evil_targets = [
+        "https://evil.com",
+        "//evil.com",
+        "https://evil.com/steal-creds",
+        "/\\evil.com",
+    ]
+
+    with httpx.Client(timeout=10, follow_redirects=False) as client:
+        for target in evil_targets:
+            resp = client.get(f"{WEB_URL}/login?redirect={target}")
+            # Check that no redirect header points to the evil domain
+            location = resp.headers.get("location", "")
+            body = resp.text if resp.status_code == 200 else ""
+            if "evil.com" in location:
+                errors.append(f"Location header contains evil.com for redirect={target}")
+            if "evil.com" in body and "window.location" in body:
+                errors.append(f"Response body redirects to evil.com for redirect={target}")
+
+    if errors:
+        log_fail(name, "; ".join(errors))
+    else:
+        log_pass(name)
+
+
 # ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
@@ -663,6 +692,7 @@ AUTH_TESTS = [
     test_password_change_invalidates_session,
     test_email_enumeration_prevention,
     test_expired_token_rejection,
+    test_open_redirect_prevention,
 ]
 
 # Rate limit tests (run last -- they intentionally exhaust quotas)
