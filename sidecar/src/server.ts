@@ -39,19 +39,24 @@ app.use(express.json({ limit: "256kb" }));
 app.use((_req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
+  res.removeHeader("X-Powered-By");
   next();
 });
 
-// CORS
+// CORS -- only set headers when origin matches whitelist
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   if (origin && ALLOWED_ORIGINS.includes(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   }
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   if (req.method === "OPTIONS") {
-    res.sendStatus(204);
+    if (origin && ALLOWED_ORIGINS.includes(origin)) {
+      res.sendStatus(204);
+    } else {
+      res.sendStatus(403);
+    }
     return;
   }
   next();
