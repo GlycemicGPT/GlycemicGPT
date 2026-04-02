@@ -977,7 +977,7 @@ def reconcile_findings(
     # that shouldn't close repo-wide issues before landing on develop/main.
     if scan_type == "full-suite" and suppressed_findings:
         suppression_config_url = (
-            f"https://github.com/{repo}/blob/{branch}/scripts/security/zap-suppressions.json"
+            f"https://github.com/{repo}/blob/{sha}/scripts/security/zap-suppressions.json"
             if repo else "scripts/security/zap-suppressions.json"
         )
         for sf in suppressed_findings:
@@ -987,6 +987,7 @@ def reconcile_findings(
 
             if dry_run:
                 print(f"  [DRY RUN] Would suppression-close #{existing['number']}: {existing['title']}")
+                stats["closed"] += 1
             else:
                 comment = (
                     f"This finding has been **accepted as a known risk** and suppressed in CI.\n\n"
@@ -1000,13 +1001,18 @@ def reconcile_findings(
                 existing_labels = [l["name"] for l in existing.get("labels", [])]
                 if "accepted-risk" not in existing_labels:
                     existing_labels.append("accepted-risk")
-                client.update_issue(
+                result = client.update_issue(
                     existing["number"],
                     state="closed",
                     labels=existing_labels,
                 )
-                print(f"  Suppression-closed #{existing['number']}: {existing['title']}")
-            stats["closed"] += 1
+                if result:
+                    print(f"  Suppression-closed #{existing['number']}: {existing['title']}")
+                    stats["closed"] += 1
+                else:
+                    print(f"  Failed to suppression-close #{existing['number']}: API error")
+                    stats["skipped"] += 1
+                    continue
             # Remove from map to prevent double-close by auto-close below
             fingerprint_to_issue.pop(sf.fingerprint, None)
 
