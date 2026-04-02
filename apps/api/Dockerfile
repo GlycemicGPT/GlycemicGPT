@@ -39,9 +39,10 @@ COPY src/ ./src/
 RUN uv pip install --system --no-cache . && \
     python -c "import pkg_resources"
 
-# Download vendored API docs assets (self-hosted, no CDN dependency)
-# Pinned versions + SHA-256 verification for supply chain integrity.
-# To update: change version, download new file, update hash.
+# Vendored API docs assets -- self-hosted for CSP compliance and supply chain integrity.
+# Versions tracked by Renovate (regex manager in .github/renovate.json5).
+# When Renovate bumps a version, the SHA-256 hash will mismatch and the build
+# will fail. To fix: download the new file, compute sha256sum, update the hash below.
 RUN mkdir -p src/static/swagger-ui src/static/redoc && \
     curl -sfL -o src/static/swagger-ui/swagger-ui-bundle.js \
       "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.18.2/swagger-ui-bundle.js" && \

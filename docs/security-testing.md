@@ -91,7 +91,7 @@ In the full suite workflow, SARIF results are uploaded to the GitHub Security ta
 1. **Auth flow tests** (`test-auth-flows.py`) -- 15 behavior-based tests covering registration, login, token handling, RBAC, and logout.
 2. **Data isolation tests** (`test-data-isolation.py`) -- OpenAPI-driven. Auto-discovers ALL endpoints. Tests unauthenticated access (401), CSRF enforcement (403), and cross-user data isolation (IDOR).
 3. **Research security tests** (`test-research-security.py`) -- SSRF prevention, rate limiting, source limits, input validation, CSRF enforcement on research endpoints.
-4. **API fuzzer** (`fuzz-api.py`) -- OpenAPI-driven. Auto-discovers all endpoints. Sends SQL injection, XSS, path traversal, type confusion, and oversized payloads. Asserts no 500 errors.
+4. **API fuzzer** (`fuzz-api.py`) -- OpenAPI-driven. Runs two passes: authenticated (with session) and unauthenticated (attacker perspective). Sends SQL injection, XSS, path traversal, type confusion, and oversized payloads to all discovered endpoints. Asserts no 500 errors in either pass.
 5. **Nuclei DAST** -- Known vulnerability templates against API and Web surfaces.
 6. **ZAP API active scan** (`zap-api-plan.yaml`) -- Authenticated, OpenAPI-driven injection testing (SQLi, XSS, SSTI, CRLF, path traversal). Auto-discovers all endpoints.
 7. **ZAP Web scan** (`zap-web-plan.yaml`) -- Pre-seeds all known page URLs + standard spider + passive/active scanning on the web frontend. Tests security headers, cookie flags, CSP, and injection through the proxy path.

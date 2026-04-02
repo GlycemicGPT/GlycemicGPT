@@ -54,8 +54,7 @@
     "labels": ["security", "dependencies"],
     "minimumReleaseAge": "0 days"
   },
-  // Custom managers for CI tool versions that Renovate can't auto-detect.
-  // These track `go install` version pins in workflow YAML files.
+  // Custom managers for versions that Renovate can't auto-detect.
   "customManagers": [
     {
       "customType": "regex",
@@ -65,6 +64,31 @@
         "go install -v? ?(?<depName>[^@]+)@(?<currentValue>v[^\\s\"]+)"
       ],
       "datasourceTemplate": "go"
+    },
+    // Vendored API docs assets downloaded via curl in the Dockerfile.
+    // When Renovate bumps the version, the SHA-256 hash will mismatch and
+    // the Docker build will fail -- update the hash manually in the same PR.
+    {
+      "customType": "regex",
+      "description": "Track vendored swagger-ui-dist version in API Dockerfile",
+      "fileMatch": ["^apps/api/Dockerfile$"],
+      "matchStrings": [
+        "swagger-ui-dist@(?<currentValue>[\\d.]+)"
+      ],
+      "depNameTemplate": "swagger-ui-dist",
+      "datasourceTemplate": "npm",
+      "packageNameTemplate": "swagger-ui-dist"
+    },
+    {
+      "customType": "regex",
+      "description": "Track vendored redoc version in API Dockerfile",
+      "fileMatch": ["^apps/api/Dockerfile$"],
+      "matchStrings": [
+        "redoc@(?<currentValue>[\\d.]+)"
+      ],
+      "depNameTemplate": "redoc",
+      "datasourceTemplate": "npm",
+      "packageNameTemplate": "redoc"
     }
   ],
   // Package rules
