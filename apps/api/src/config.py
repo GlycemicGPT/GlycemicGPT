@@ -106,6 +106,12 @@ class Settings(BaseSettings):
     # run on the same LAN. Cloud deployments should set ALLOW_PRIVATE_AI_URLS=false.
     allow_private_ai_urls: bool = True
 
+    # Proxy Trust (Story 28.11 -- rate limit XFF bypass prevention)
+    # Only trust X-Forwarded-For from these CIDR ranges.
+    # Default: RFC 1918 private ranges + loopback (Docker internal networks).
+    # Production behind a known load balancer should restrict this further.
+    trusted_proxy_cidrs: str = "172.16.0.0/12,10.0.0.0/8,192.168.0.0/16,127.0.0.0/8"
+
     # AI Research Pipeline (Story 35.12)
     research_pipeline_interval_hours: int = Field(default=168, ge=1)  # Weekly default
     research_pipeline_enabled: bool = True

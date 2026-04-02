@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Story 28.11: Automated auth flow & security penetration tests.
 
-Runs 17 security tests against a live Docker stack to verify that
+Runs 18 security tests against a live Docker stack to verify that
 rate limiting, token handling, CSRF, CORS, security headers, and
 input validation all work correctly at the HTTP level.
 
@@ -178,6 +178,29 @@ def test_rate_limit_refresh() -> None:
         log_pass(name)
     else:
         log_fail(name, "no 429 after 32 rapid requests")
+
+
+# ---------------------------------------------------------------------------
+# Test 3b: Rate limit XFF bypass prevention
+# ---------------------------------------------------------------------------
+def test_rate_limit_xff_bypass() -> None:
+    """Verify spoofed X-Forwarded-For headers don't bypass rate limits."""
+    name = "Rate limit: XFF bypass prevention"
+    got_429 = False
+    with httpx.Client(timeout=10) as client:
+        for i in range(12):
+            resp = client.post(
+                f"{API_URL}/api/auth/login",
+                json={"email": "nobody@example.com", "password": "wrong"},
+                headers={"X-Forwarded-For": f"10.99.{i}.{i}"},
+            )
+            if resp.status_code == 429:
+                got_429 = True
+                break
+    if got_429:
+        log_pass(name)
+    else:
+        log_fail(name, "no 429 after 12 requests with spoofed XFF (bypass possible)")
 
 
 # ---------------------------------------------------------------------------
@@ -772,6 +795,7 @@ RATE_LIMIT_TESTS = [
     test_rate_limit_login,
     test_rate_limit_mobile_login,
     test_rate_limit_refresh,
+    test_rate_limit_xff_bypass,
 ]
 
 ALL_TESTS = AUTH_TESTS + RATE_LIMIT_TESTS
