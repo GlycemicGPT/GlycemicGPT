@@ -818,6 +818,7 @@ def reconcile_findings(
     # Suppressed findings do NOT create/reopen/update issues.
     active_findings = [f for f in findings if not f.suppressed]
     suppressed_findings = [f for f in findings if f.suppressed]
+    suppressed_fingerprints = {f.fingerprint for f in suppressed_findings}
     stats["suppressed"] = len(suppressed_findings)
 
     if suppressed_findings:
@@ -1019,7 +1020,7 @@ def reconcile_findings(
     # Auto-close: full-suite closes any resolved finding (guarded by tool check)
     if scan_type == "full-suite" and not dry_run:
         for fp, issue in fingerprint_to_issue.items():
-            if issue["state"] != "open" or fp in current_fingerprints:
+            if issue["state"] != "open" or fp in current_fingerprints or fp in suppressed_fingerprints:
                 continue
             # Only close if the tool that found this issue actually ran
             tool_prefix = fp.split(":")[0]
@@ -1039,7 +1040,7 @@ def reconcile_findings(
             stats["closed"] += 1
     elif scan_type == "full-suite" and dry_run:
         for fp, issue in fingerprint_to_issue.items():
-            if issue["state"] != "open" or fp in current_fingerprints:
+            if issue["state"] != "open" or fp in current_fingerprints or fp in suppressed_fingerprints:
                 continue
             tool_prefix = fp.split(":")[0]
             if tools_with_results and tool_prefix not in tools_with_results:
@@ -1050,7 +1051,7 @@ def reconcile_findings(
     # Auto-close: PR scans close issues tagged with THIS PR when finding is resolved
     if scan_type == "pr" and pr_number and not dry_run:
         for fp, issue in fingerprint_to_issue.items():
-            if issue["state"] != "open" or fp in current_fingerprints:
+            if issue["state"] != "open" or fp in current_fingerprints or fp in suppressed_fingerprints:
                 continue
             body = issue.get("body", "")
             pr_match = SOURCE_PR_RE.search(body)
@@ -1071,7 +1072,7 @@ def reconcile_findings(
             stats["closed"] += 1
     elif scan_type == "pr" and pr_number and dry_run:
         for fp, issue in fingerprint_to_issue.items():
-            if issue["state"] != "open" or fp in current_fingerprints:
+            if issue["state"] != "open" or fp in current_fingerprints or fp in suppressed_fingerprints:
                 continue
             body = issue.get("body", "")
             pr_match = SOURCE_PR_RE.search(body)
