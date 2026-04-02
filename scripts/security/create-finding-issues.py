@@ -55,14 +55,15 @@ def write_output(key: str, value: str) -> None:
         with open(GITHUB_OUTPUT, "a") as f:
             f.write(f"{key}={value}\n")
 
-# Severity threshold: create issues for Low and above, skip Informational
-ISSUE_SEVERITIES = {"critical", "high", "medium", "low"}
+# Severity threshold: create issues for all severities including Informational
+ISSUE_SEVERITIES = {"critical", "high", "medium", "low", "info"}
 
 SEVERITY_EMOJI = {
     "critical": ":purple_circle:",
     "high": ":red_circle:",
     "medium": ":orange_circle:",
     "low": ":yellow_circle:",
+    "info": ":information_source:",
 }
 
 SEVERITY_LABELS = {
@@ -70,6 +71,7 @@ SEVERITY_LABELS = {
     "high": "severity: high",
     "medium": "severity: medium",
     "low": "severity: low",
+    "info": "severity: info",
 }
 
 LABEL_COLORS = {
@@ -80,6 +82,7 @@ LABEL_COLORS = {
     "severity: high": "d93f0b",
     "severity: medium": "fbca04",
     "severity: low": "e4e669",
+    "severity: info": "d4c5f9",
     "component: api": "1d76db",
     "component: web": "5319e7",
     "component: mobile": "006b75",
@@ -249,8 +252,10 @@ def parse_zap_results(results_dir: str) -> list[SecurityFinding]:
                     severity = "medium"
                 elif riskcode == 1:
                     severity = "low"
+                elif riskcode == 0:
+                    severity = "info"
                 else:
-                    continue  # skip Informational
+                    continue
 
                 plugin_id = str(alert.get("pluginid", ""))
                 fingerprint = f"zap-{scan_name}:{plugin_id}"
