@@ -487,13 +487,7 @@ jobs:
         run: docker compose -f docker-compose.yml -f docker-compose.test.yml exec -T redis redis-cli FLUSHDB || true
 
       - name: Prepare ZAP workspace
-        if: |
-          always() && (
-            needs.detect-changes.outputs.api == 'true' ||
-            needs.detect-changes.outputs.web == 'true' ||
-            needs.detect-changes.outputs.run_all == 'true' ||
-            github.event_name == 'workflow_dispatch'
-          )
+        if: always()
         run: |
           mkdir -p scripts/security/results
           chmod 777 scripts/security/ scripts/security/results/
