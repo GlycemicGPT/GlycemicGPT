@@ -48,6 +48,7 @@ app.use((req, res, next) => {
   const origin = req.headers.origin;
   if (origin && ALLOWED_ORIGINS.includes(origin)) {
     res.setHeader("Vary", "Origin");
+    // nosemgrep: javascript.express.security.cors-misconfiguration.cors-misconfiguration -- origin validated against ALLOWED_ORIGINS whitelist
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
