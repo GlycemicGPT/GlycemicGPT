@@ -1,10 +1,13 @@
 """GlycemicGPT FastAPI Application."""
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
+from fastapi.staticfiles import StaticFiles
 from slowapi.errors import RateLimitExceeded
 
 from src.config import settings, validate_secret_key
@@ -89,7 +92,15 @@ app = FastAPI(
     title="GlycemicGPT API",
     description="AI-powered diabetes management API",
     lifespan=lifespan,
+    docs_url=None,  # Disabled: custom self-hosted route below
+    redoc_url=None,  # Disabled: custom self-hosted route below
 )
+
+# Mount static files for self-hosted API docs assets (Swagger UI, ReDoc).
+# Eliminates CDN dependency and resolves CSP/SRI/cross-domain findings.
+_static_dir = Path(__file__).resolve().parent / "static"
+if _static_dir.is_dir():
+    app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
 
 # Rate limiting (Story 16.12)
 app.state.limiter = limiter
@@ -157,3 +168,49 @@ async def root() -> dict[str, Any]:
         "name": "GlycemicGPT API",
         "docs": "/docs",
     }
+
+
+# Self-hosted API documentation routes.
+# Assets are vendored in the Docker image (downloaded at build time from pinned
+# CDN versions). This eliminates cross-domain script loading, adds CSP headers,
+# and removes the CDN supply chain dependency.
+# CSP for /docs and /redoc pages. FastAPI's get_swagger_ui_html() generates an
+# inline <script> block to initialize SwaggerUIBundle, requiring 'unsafe-inline'.
+# All directives are explicit (no fallback to default-src) per ZAP best practice.
+_CSP_DOCS = (
+    "default-src 'none'; "
+    "script-src 'self' 'unsafe-inline'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data:; "
+    "font-src 'self'; "
+    "connect-src 'self'; "
+    "frame-ancestors 'none'; "
+    "form-action 'self'; "
+    "base-uri 'self'"
+)
+
+
+@app.get("/docs", include_in_schema=False)
+async def custom_swagger_ui():
+    """Swagger UI with self-hosted assets and CSP header."""
+    response = get_swagger_ui_html(
+        openapi_url=app.openapi_url or "/openapi.json",
+        title=f"{app.title} - Swagger UI",
+        swagger_js_url="/static/swagger-ui/swagger-ui-bundle.js",
+        swagger_css_url="/static/swagger-ui/swagger-ui.css",
+    )
+    response.headers["Content-Security-Policy"] = _CSP_DOCS
+    return response
+
+
+@app.get("/redoc", include_in_schema=False)
+async def custom_redoc():
+    """ReDoc with self-hosted assets and CSP header."""
+    response = get_redoc_html(
+        openapi_url=app.openapi_url or "/openapi.json",
+        title=f"{app.title} - ReDoc",
+        redoc_js_url="/static/redoc/redoc.standalone.js",
+        with_google_fonts=False,
+    )
+    response.headers["Content-Security-Policy"] = _CSP_DOCS
+    return response

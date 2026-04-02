@@ -89,6 +89,8 @@ TOOL_COMPONENT = {
     "semgrep": None,  # derived from file path
     "zap-api": "component: api",
     "zap-web": "component: web",
+    "zap-unauth-api": "component: api",
+    "zap-unauth-web": "component: web",
     "nuclei-api": "component: api",
     "nuclei-web": "component: web",
 }
@@ -141,17 +143,25 @@ def component_from_path(path: str) -> str | None:
     return None
 
 
-def load_zap_suppressions() -> dict[str, str]:
-    """Load ZAP suppressions. Returns {pluginid: reason}."""
+def load_zap_suppressions() -> dict[tuple[str, str | None], str]:
+    """Load ZAP suppressions. Returns {(pluginid, scan_name|None): reason}.
+
+    Scan-aware: a suppression with "scan": "web" only matches the "web" scan,
+    not "unauth-web". Global suppressions (no "scan" field) match all scans.
+    This matches the behavior of evaluate-zap.py's is_suppressed().
+    """
     if not SUPPRESSIONS_FILE.is_file():
         return {}
     try:
         data = json.loads(SUPPRESSIONS_FILE.read_text())
-        result = {}
+        result: dict[tuple[str, str | None], str] = {}
         for s in data.get("suppressions", []):
             pid = str(s.get("pluginId", ""))
+            scan = s.get("scan")  # None means global (matches all scans)
             reason = s.get("reason", "no reason given")
-            result[pid] = reason
+            # Key is (pluginId, scan_name_or_None). Lookup checks
+            # (pid, scan_name) first, then (pid, None) for global match.
+            result[(pid, scan)] = reason
         return result
     except (json.JSONDecodeError, IOError):
         return {}
@@ -217,6 +227,8 @@ def parse_zap_results(results_dir: str) -> list[SecurityFinding]:
     for report_name, scan_name in [
         ("zap-report.json", "api"),
         ("zap-web-report.json", "web"),
+        ("zap-unauth-api-report.json", "unauth-api"),
+        ("zap-unauth-web-report.json", "unauth-web"),
     ]:
         report_path = os.path.join(results_dir, report_name)
         if not os.path.isfile(report_path):
@@ -243,9 +255,11 @@ def parse_zap_results(results_dir: str) -> list[SecurityFinding]:
                 plugin_id = str(alert.get("pluginid", ""))
                 fingerprint = f"zap-{scan_name}:{plugin_id}"
 
-                # Check suppression
-                suppressed = plugin_id in suppressions
-                suppression_reason = suppressions.get(plugin_id)
+                # Check suppression: scan-specific first, then global
+                suppression_reason = suppressions.get((plugin_id, scan_name))
+                if not suppression_reason:
+                    suppression_reason = suppressions.get((plugin_id, None))
+                suppressed = suppression_reason is not None
 
                 # Build locations from instances
                 locations = []
@@ -704,7 +718,12 @@ def detect_tools_with_results(sast_dir: str, dast_dir: str) -> set[str]:
 
     # DAST: check for valid ZAP reports
     if os.path.isdir(dast_dir):
-        for name, tool in [("zap-report.json", "zap-api"), ("zap-web-report.json", "zap-web")]:
+        for name, tool in [
+            ("zap-report.json", "zap-api"),
+            ("zap-web-report.json", "zap-web"),
+            ("zap-unauth-api-report.json", "zap-unauth-api"),
+            ("zap-unauth-web-report.json", "zap-unauth-web"),
+        ]:
             path = os.path.join(dast_dir, name)
             if os.path.isfile(path):
                 try:
@@ -761,6 +780,7 @@ def reconcile_findings(
     dry_run: bool,
     reports_present: bool = True,
     tools_with_results: set[str] | None = None,
+    pr_type: str = "feature",
 ) -> dict:
     """Core orchestration: create, reopen, comment, close issues."""
     stats = {"created": 0, "reopened": 0, "commented": 0, "closed": 0, "skipped": 0, "issues": []}
@@ -831,9 +851,13 @@ def reconcile_findings(
             if dry_run:
                 print(f"  [DRY RUN] Would reopen #{existing['number']}: {title}")
             else:
-                # Preserve existing source-pr tag if no new pr_number provided
+                # Determine effective source-pr tag.
+                # Promotion PRs preserve the existing tag (they don't own findings).
                 effective_pr = pr_number
-                if not effective_pr:
+                if pr_type == "promotion":
+                    existing_pr_match = SOURCE_PR_RE.search(existing.get("body", ""))
+                    effective_pr = existing_pr_match.group(1) if existing_pr_match else None
+                elif not effective_pr:
                     existing_pr_match = SOURCE_PR_RE.search(existing.get("body", ""))
                     if existing_pr_match:
                         effective_pr = existing_pr_match.group(1)
@@ -864,9 +888,13 @@ def reconcile_findings(
         else:
             # Already open -- refresh content if changed, add "still detected" for full-suite
             if not dry_run:
-                # Preserve existing source-pr tag if no new pr_number provided
+                # Determine effective source-pr tag.
+                # Promotion PRs preserve the existing tag (they don't own findings).
                 effective_pr = pr_number
-                if not effective_pr:
+                if pr_type == "promotion":
+                    existing_pr_match = SOURCE_PR_RE.search(existing.get("body", ""))
+                    effective_pr = existing_pr_match.group(1) if existing_pr_match else None
+                elif not effective_pr:
                     existing_pr_match = SOURCE_PR_RE.search(existing.get("body", ""))
                     if existing_pr_match:
                         effective_pr = existing_pr_match.group(1)
@@ -888,8 +916,10 @@ def reconcile_findings(
                     print(f"  Updated #{existing['number']}: {title} (labels/title changed)")
                     stats["commented"] += 1
 
-                # PR scan: update source-pr tag if it changed (prevents orphan cleanup bugs)
-                elif scan_type == "pr" and pr_number:
+                # PR scan: update source-pr tag if it changed (prevents orphan cleanup bugs).
+                # Skip for promotion PRs -- they don't own findings, so re-tagging would
+                # cause false closures when the promotion PR is closed without merging.
+                elif scan_type == "pr" and pr_number and pr_type != "promotion":
                     existing_body = existing.get("body", "")
                     existing_pr_match = SOURCE_PR_RE.search(existing_body)
                     existing_pr_num = existing_pr_match.group(1) if existing_pr_match else None
@@ -1003,12 +1033,20 @@ def reconcile_findings(
 # ---------------------------------------------------------------------------
 
 
-def cleanup_pr_issues(client: GitHubIssueClient, pr_number: str) -> None:
+def cleanup_pr_issues(client: GitHubIssueClient, pr_number: str, pr_type: str = "feature") -> None:
     """Close all open automated issues that originated from a specific PR.
 
     Called when a PR is closed without merging -- the findings only existed
     on the feature branch and were never merged to main/develop.
+
+    Promotion PRs (develop->main) are skipped: their findings originate from
+    develop, not from the promotion branch itself.
     """
+    if pr_type == "promotion":
+        print(f"  Skipping cleanup for promotion PR #{pr_number} -- "
+              f"promotion PRs don't own findings, they originate from develop")
+        return
+
     print(f"  Cleaning up issues from closed PR #{pr_number}...")
 
     existing_issues = client.list_automated_issues()
@@ -1050,6 +1088,9 @@ def main() -> None:
     parser.add_argument("--branch", default="unknown")
     parser.add_argument("--sha", default="unknown")
     parser.add_argument("--cleanup-pr", default=None, help="Close issues tagged with this PR number (orphan cleanup)")
+    parser.add_argument("--pr-type", default="feature", choices=["feature", "promotion"],
+                        help="PR type: 'feature' (default) or 'promotion' (develop->main). "
+                             "Promotion PRs skip re-tagging and cleanup to avoid false closures.")
     parser.add_argument("--dry-run", action="store_true", help="Print actions without calling API")
     args = parser.parse_args()
 
@@ -1060,12 +1101,12 @@ def main() -> None:
 
     # Cleanup mode: close orphaned issues from a closed PR
     if args.cleanup_pr:
-        print(f"=== Security Issue Cleanup (PR #{args.cleanup_pr}) ===")
+        print(f"=== Security Issue Cleanup (PR #{args.cleanup_pr}, type={args.pr_type}) ===")
         if args.dry_run:
             print("  DRY RUN -- no API calls")
             return
         client = GitHubIssueClient(token, args.repo)
-        cleanup_pr_issues(client, args.cleanup_pr)
+        cleanup_pr_issues(client, args.cleanup_pr, pr_type=args.pr_type)
         print("==========================================")
         return
 
@@ -1085,7 +1126,7 @@ def main() -> None:
     print(f"  Branch: {args.branch}")
     print(f"  Run: #{args.run_id}")
     if pr_number:
-        print(f"  PR: #{pr_number}")
+        print(f"  PR: #{pr_number} (type: {args.pr_type})")
     print()
 
     # Check which tools produced valid results (guards against false auto-close)
@@ -1133,6 +1174,7 @@ def main() -> None:
         dry_run=args.dry_run,
         reports_present=reports_present,
         tools_with_results=tools_with_results,
+        pr_type=args.pr_type,
     )
 
     # Export issue metadata as step output for PR comment

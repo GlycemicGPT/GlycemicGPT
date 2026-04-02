@@ -25,12 +25,17 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         hashed_password: The bcrypt hash to verify against
 
     Returns:
-        True if password matches, False otherwise
+        True if password matches, False otherwise.
+        Returns False (never raises) on malformed input to prevent
+        leaking 500 errors that could reveal timing or internal state.
     """
-    return bcrypt.checkpw(
-        plain_password.encode("utf-8"),
-        hashed_password.encode("utf-8"),
-    )
+    try:
+        return bcrypt.checkpw(
+            plain_password.encode("utf-8"),
+            hashed_password.encode("utf-8"),
+        )
+    except (ValueError, TypeError):
+        return False
 
 
 def hash_password(password: str) -> str:
@@ -45,6 +50,13 @@ def hash_password(password: str) -> str:
     salt = bcrypt.gensalt()
     hashed = bcrypt.hashpw(password.encode("utf-8"), salt)
     return hashed.decode("utf-8")
+
+
+# Pre-computed bcrypt hash for constant-time login responses.
+# When a login attempt targets a non-existing user, we still run bcrypt
+# against this dummy hash so the response time matches a real user lookup.
+# This prevents timing-based user enumeration (CWE-208).
+_DUMMY_HASH = hash_password("dummy-timing-cover-" + "x" * 32)
 
 
 def validate_password_strength(password: str) -> tuple[bool, str | None]:

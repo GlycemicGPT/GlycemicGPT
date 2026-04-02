@@ -4,6 +4,8 @@ Protects auth and data push endpoints from abuse.
 Debug builds get relaxed limits via configuration.
 """
 
+import ipaddress
+
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from starlette.requests import Request
@@ -18,17 +20,52 @@ _storage_uri = (
     else (settings.redis_url if settings.redis_url else "memory://")
 )
 
+# Pre-parse trusted proxy CIDRs at module load for performance.
+# Only requests from these networks may set X-Forwarded-For / X-Real-IP.
+_TRUSTED_NETWORKS: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
+for _cidr in settings.trusted_proxy_cidrs.split(","):
+    _cidr = _cidr.strip()
+    if _cidr:
+        _TRUSTED_NETWORKS.append(ipaddress.ip_network(_cidr, strict=False))
+
+
+def _is_trusted_proxy(ip: str) -> bool:
+    """Check if an IP address belongs to a trusted proxy network."""
+    try:
+        addr = ipaddress.ip_address(ip)
+        return any(addr in net for net in _TRUSTED_NETWORKS)
+    except ValueError:
+        return False
+
 
 def _get_real_client_ip(request: Request) -> str:
-    """Extract real client IP, respecting X-Forwarded-For behind reverse proxies."""
+    """Extract real client IP, respecting X-Forwarded-For only from trusted proxies.
+
+    Only trusts X-Forwarded-For / X-Real-IP headers when the direct connection
+    comes from a trusted proxy CIDR (e.g. Docker internal network, load balancer).
+    This prevents attackers from spoofing headers to bypass rate limits.
+    """
+    client_ip = request.client.host if request.client else "unknown"
+
+    if client_ip == "unknown" or not _is_trusted_proxy(client_ip):
+        return client_ip
+
+    # Walk XFF right-to-left to find the first untrusted hop (the real client).
+    # Rightmost entries are added by our infrastructure; leftmost may be
+    # attacker-supplied if the proxy appends rather than overwrites.
     forwarded_for = request.headers.get("x-forwarded-for")
     if forwarded_for:
-        # Take the first (leftmost) IP -- the original client
-        return forwarded_for.split(",")[0].strip()
+        hops = [h.strip() for h in forwarded_for.split(",") if h.strip()]
+        for hop in reversed(hops):
+            if not _is_trusted_proxy(hop):
+                return hop
+        # All hops are trusted -- use leftmost as last resort
+        if hops:
+            return hops[0]
     real_ip = request.headers.get("x-real-ip")
     if real_ip:
         return real_ip.strip()
-    return request.client.host if request.client else "unknown"
+    return client_ip
 
 
 limiter = Limiter(

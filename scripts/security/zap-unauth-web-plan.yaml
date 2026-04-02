@@ -1,0 +1,155 @@
+---
+# ZAP Automation Framework Plan: Unauthenticated Web Pentest
+#
+# Simulates an external attacker browsing the web application without
+# credentials. Probes public pages, protected pages (tests redirect/block
+# behavior), error handlers, and invalid routes for info disclosure,
+# injection, and security misconfigurations.
+#
+# No auth cookies. Dashboard pages are intentionally included to test
+# what an attacker sees when probing protected routes.
+#
+# No envsubst needed -- this plan has no template variables.
+#
+# Usage:
+#   zap.sh -cmd -autorun /zap/wrk/zap-unauth-web-plan.yaml
+
+env:
+  contexts:
+    - name: "glycemicgpt-unauth-web"
+      urls:
+        - "http://localhost:3001"
+      includePaths:
+        - "http://localhost:3001.*"
+      excludePaths:
+        # Static webpack assets (no security value)
+        - "http://localhost:3001/_next/.*"
+        - "http://localhost:3001/__next.*"
+        # API calls covered by the unauthenticated API scan
+        - "http://localhost:3001/api/.*"
+  parameters:
+    failOnError: false
+    failOnWarning: false
+    progressToStdout: true
+
+jobs:
+  # No script or replacer jobs -- this scan runs without authentication
+
+  # Seed all known URLs an attacker would discover or try.
+  # Protected pages are included -- attacker probes these to test
+  # redirect behavior, info leakage, and auth enforcement.
+  - type: requestor
+    parameters:
+      user: ""
+    requests:
+      # Public pages
+      - url: "http://localhost:3001/"
+        method: "GET"
+      - url: "http://localhost:3001/login"
+        method: "GET"
+      - url: "http://localhost:3001/register"
+        method: "GET"
+      # Protected pages (attacker probes, expects redirect/403)
+      - url: "http://localhost:3001/dashboard"
+        method: "GET"
+      - url: "http://localhost:3001/dashboard/ai-chat"
+        method: "GET"
+      - url: "http://localhost:3001/dashboard/alerts"
+        method: "GET"
+      - url: "http://localhost:3001/dashboard/briefs"
+        method: "GET"
+      - url: "http://localhost:3001/dashboard/caregiver"
+        method: "GET"
+      - url: "http://localhost:3001/dashboard/knowledge-base"
+        method: "GET"
+      - url: "http://localhost:3001/dashboard/reports/clinical"
+        method: "GET"
+      - url: "http://localhost:3001/dashboard/settings"
+        method: "GET"
+      - url: "http://localhost:3001/dashboard/settings/glucose-range"
+        method: "GET"
+      - url: "http://localhost:3001/dashboard/settings/insulin"
+        method: "GET"
+      - url: "http://localhost:3001/dashboard/settings/alerts"
+        method: "GET"
+      - url: "http://localhost:3001/dashboard/settings/ai-provider"
+        method: "GET"
+      - url: "http://localhost:3001/dashboard/settings/research-sources"
+        method: "GET"
+      - url: "http://localhost:3001/dashboard/settings/data"
+        method: "GET"
+      - url: "http://localhost:3001/dashboard/settings/profile"
+        method: "GET"
+      - url: "http://localhost:3001/dashboard/settings/caregivers"
+        method: "GET"
+      - url: "http://localhost:3001/dashboard/settings/communications"
+        method: "GET"
+      - url: "http://localhost:3001/dashboard/settings/emergency-contacts"
+        method: "GET"
+      - url: "http://localhost:3001/dashboard/settings/safety-limits"
+        method: "GET"
+      - url: "http://localhost:3001/dashboard/settings/integrations"
+        method: "GET"
+      - url: "http://localhost:3001/dashboard/settings/telegram"
+        method: "GET"
+      - url: "http://localhost:3001/dashboard/settings/brief-delivery"
+        method: "GET"
+      # Error handling probes
+      - url: "http://localhost:3001/invite/fake-token-probe-12345"
+        method: "GET"
+      - url: "http://localhost:3001/nonexistent-page-probe"
+        method: "GET"
+
+  # Spider from public pages, follow redirects, discover linked routes
+  - type: spider
+    parameters:
+      context: "glycemicgpt-unauth-web"
+      url: "http://localhost:3001/"
+      maxDuration: 5
+      maxDepth: 5
+
+  # Passive scan: security headers, cookie flags, CSP, information disclosure
+  - type: passiveScan-config
+    parameters:
+      maxAlertsPerRule: 10
+      scanOnlyInScope: true
+
+  - type: passiveScan-wait
+    parameters:
+      maxDuration: 3
+
+  # Active scan: injection on all discovered pages including redirect responses.
+  # scanHeadersAllRequests: tests Host header injection, X-Forwarded-For spoofing
+  - type: activeScan
+    parameters:
+      context: "glycemicgpt-unauth-web"
+      maxScanDurationInMins: 15
+      maxRuleDurationInMins: 3
+      addQueryParam: false
+      handleAntiCSRFTokens: false
+      scanHeadersAllRequests: true
+
+  # Report includes info-level findings for maximum visibility.
+  - type: report
+    parameters:
+      template: "traditional-json"
+      reportDir: "/zap/wrk/results"
+      reportFile: "zap-unauth-web-report"
+      reportTitle: "GlycemicGPT Unauthenticated Web Pentest"
+    risks:
+      - high
+      - medium
+      - low
+      - info
+    confidences:
+      - high
+      - medium
+      - low
+      - confirmed
+
+  # Fail CI on Medium+ severity findings, warn on Low
+  - type: exitStatus
+    parameters:
+      errorLevel: "Medium"
+      warnLevel: "Low"
+    alwaysRun: true

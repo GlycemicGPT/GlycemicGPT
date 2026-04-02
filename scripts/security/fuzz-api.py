@@ -4,10 +4,17 @@
 Fetches /openapi.json from the live API, iterates endpoints, and sends
 malicious payloads.  Asserts that no endpoint returns HTTP 500.
 
+Supports authenticated and unauthenticated modes:
+  - authenticated: fuzzes with a valid session (default behavior)
+  - unauthenticated: fuzzes without cookies (attacker perspective)
+  - both: runs both passes sequentially
+
 Usage:
-    API_URL=http://localhost:8001 python fuzz-api.py
+    python fuzz-api.py http://localhost:8001
+    python fuzz-api.py http://localhost:8001 --mode both
 """
 
+import argparse
 import os
 import re
 import sys
@@ -248,34 +255,46 @@ def fuzz_endpoint(
     return True
 
 
-def main() -> int:
-    global ENDPOINTS_TESTED
-
-    print("=== OpenAPI Endpoint Fuzzer ===")
-    print(f"API: {API_URL}")
-    print()
-
+def fetch_openapi(api_url: str) -> dict | None:
+    """Fetch and return the OpenAPI spec, or None on failure."""
+    print("Fetching /openapi.json ...")
     with httpx.Client(timeout=10) as client:
-        # Fetch OpenAPI spec
-        print("Fetching /openapi.json ...")
-        resp = client.get(f"{API_URL}/openapi.json")
+        resp = client.get(f"{api_url}/openapi.json")
         if resp.status_code != 200:
             print(f"Failed to fetch OpenAPI spec: {resp.status_code}")
-            return 1
-
+            return None
         openapi = resp.json()
-        paths = openapi.get("paths", {})
-        print(f"Found {len(paths)} paths")
+        print(f"Found {len(openapi.get('paths', {}))} paths")
+        return openapi
+
+
+def run_fuzz_pass(
+    api_url: str,
+    openapi: dict,
+    pass_name: str,
+    authenticated: bool,
+) -> tuple[int, int, int, bool]:
+    """Run a single fuzzing pass. Returns (endpoints, requests, errors_500, server_alive)."""
+    global TOTAL_REQUESTS, ERROR_500_COUNT, CONNECT_ERROR_COUNT, ENDPOINTS_TESTED
+    # Reset counters for this pass
+    TOTAL_REQUESTS = 0
+    ERROR_500_COUNT = 0
+    CONNECT_ERROR_COUNT = 0
+    ENDPOINTS_TESTED = 0
+
+    print(f"--- {pass_name} ---")
+    paths = openapi.get("paths", {})
+
+    with httpx.Client(timeout=10) as client:
+        if authenticated:
+            print("Creating test session ...")
+            if not setup_session(client):
+                print("WARNING: Could not get session cookie; "
+                      "some endpoints may return 401")
+        else:
+            print("Running without authentication (attacker perspective)")
         print()
 
-        # Get authenticated session
-        print("Creating test session ...")
-        if not setup_session(client):
-            print("WARNING: Could not get session cookie; "
-                  "some endpoints may return 401")
-        print()
-
-        # Fuzz each endpoint
         server_alive = True
         for path, methods in paths.items():
             if should_skip(path):
@@ -299,22 +318,64 @@ def main() -> int:
                     break
 
     print()
-    print(f"Endpoints tested: {ENDPOINTS_TESTED}")
-    print(f"Total requests: {TOTAL_REQUESTS}")
-    print(f"500 errors: {ERROR_500_COUNT}")
+    print(f"  Endpoints tested: {ENDPOINTS_TESTED}")
+    print(f"  Total requests: {TOTAL_REQUESTS}")
+    print(f"  500 errors: {ERROR_500_COUNT}")
     if CONNECT_ERROR_COUNT > 0:
-        print(f"Connection errors: {CONNECT_ERROR_COUNT}")
+        print(f"  Connection errors: {CONNECT_ERROR_COUNT}")
 
-    if ERROR_500_COUNT > 0 or not server_alive:
+    return ENDPOINTS_TESTED, TOTAL_REQUESTS, ERROR_500_COUNT, server_alive
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="OpenAPI-driven endpoint fuzzer")
+    parser.add_argument("api_url", nargs="?", default=API_URL, help="API base URL")
+    parser.add_argument(
+        "--mode",
+        default="both",
+        choices=["authenticated", "unauthenticated", "both"],
+        help="Fuzzing mode: authenticated, unauthenticated, or both (default: both)",
+    )
+    args = parser.parse_args()
+    api_url = args.api_url
+
+    print("=== OpenAPI Endpoint Fuzzer ===")
+    print(f"API: {api_url}")
+    print(f"Mode: {args.mode}")
+    print()
+
+    openapi = fetch_openapi(api_url)
+    if not openapi:
+        return 1
+    print()
+
+    total_500s = 0
+    all_alive = True
+
+    if args.mode in ("authenticated", "both"):
+        _, _, errors, alive = run_fuzz_pass(
+            api_url, openapi, "Authenticated Fuzzing Pass", authenticated=True,
+        )
+        total_500s += errors
+        all_alive = all_alive and alive
         print()
-        if not server_alive:
+
+    if args.mode in ("unauthenticated", "both"):
+        _, _, errors, alive = run_fuzz_pass(
+            api_url, openapi, "Unauthenticated Fuzzing Pass", authenticated=False,
+        )
+        total_500s += errors
+        all_alive = all_alive and alive
+        print()
+
+    if total_500s > 0 or not all_alive:
+        if not all_alive:
             print("FAIL: Server became unreachable during fuzzing")
         else:
-            print("FAIL: Server returned 500 errors on fuzzed input")
+            print(f"FAIL: {total_500s} total 500 errors across all passes")
         return 1
 
-    print()
-    print("PASS: No 500 errors detected")
+    print("PASS: No 500 errors detected in any pass")
     return 0
 
 
