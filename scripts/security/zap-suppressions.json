@@ -18,6 +18,32 @@
     {
       "pluginId": "10010",
       "reason": "csrf_token cookie is intentionally non-HttpOnly (httponly=False). Double-submit CSRF pattern requires JavaScript to read the cookie and echo it in the X-CSRF-Token header. Making it HttpOnly would break CSRF protection entirely. This is the OWASP-recommended double-submit cookie pattern."
+    },
+    {
+      "pluginId": "10024",
+      "reason": "session_id is a non-sensitive client-generated UUID for disclaimer acknowledgment tracking, not an auth session token. Cannot impersonate users or access protected resources."
+    },
+    {
+      "pluginId": "10112",
+      "reason": "CSRF token cookie is intentionally set on all responses (including public endpoints) as part of the double-submit cookie CSRF protection pattern. Clients need the token before their first POST request. ZAP remediation confirms: 'informational alert, nothing to fix.'"
+    },
+    {
+      "pluginId": "10104",
+      "reason": "No User-Agent-based conditional logic exists in the platform. Response differences detected by ZAP are from path-based routing (mobile vs web endpoints), timing variations, and correlation IDs. No UA-based attack surface."
+    },
+    {
+      "pluginId": "10019",
+      "scan": "web",
+      "reason": "Content-Type is not required on 302 redirect responses with empty bodies (RFC 7231 Section 3.1.1.1). HTML pages get Content-Type automatically from Next.js. ZAP flags the redirect responses from the auth middleware."
+    },
+    {
+      "pluginId": "10019",
+      "scan": "unauth-web",
+      "reason": "Content-Type is not required on 302 redirect responses with empty bodies (RFC 7231 Section 3.1.1.1). ZAP flags redirect responses from Next.js middleware when unauthenticated users hit protected pages."
+    },
+    {
+      "pluginId": "10109",
+      "reason": "Scanner classification note, not a security finding. ZAP detected modern SPA patterns. Remediation text confirms: 'informational alert, no changes required.'"
     }
   ]
 }

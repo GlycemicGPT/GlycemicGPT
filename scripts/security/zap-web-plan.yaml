@@ -163,9 +163,11 @@ jobs:
       - high
       - medium
       - low
+      - info
     confidences:
       - high
       - medium
+      - low
       - confirmed
 
   # Fail CI on Medium+ severity findings, warn on Low

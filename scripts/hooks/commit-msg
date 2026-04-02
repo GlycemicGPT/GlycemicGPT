@@ -1,12 +1,23 @@
-#!/bin/sh
+#!/bin/bash
 # Strips AI tool co-author attribution from commit messages.
+# Covers all known AI coding tools. Portable across macOS and Linux.
 # Install: cp scripts/hooks/commit-msg .git/hooks/commit-msg && chmod +x .git/hooks/commit-msg
 
 MSG_FILE="$1"
-if [ -f "$MSG_FILE" ]; then
-    sed -i '/^Co-[Aa]uthored-[Bb]y:.*\([Cc]laude\|[Aa]nthropic\|noreply@anthropic\)/d' "$MSG_FILE"
-    # Remove trailing blank lines
-    while [ "$(tail -c 2 "$MSG_FILE" | od -An -tx1 | tr -d ' ')" = "0a0a" ]; do
-        truncate -s -1 "$MSG_FILE"
-    done
+if [ ! -f "$MSG_FILE" ]; then
+    exit 0
 fi
+
+# AI tool names (keep in sync with .github/workflows/ci.yml Attribution Check)
+# Uses character-class case handling because sed -E doesn't support -i flag
+# for case-insensitive matching portably across macOS/Linux.
+AI_TOOLS="[Cc]laude|[Aa]nthropic|[Cc]opilot|[Cc]hat[Gg][Pp][Tt]|[Oo]pen[Aa][Ii]|[Cc]ursor|[Ww]indsurf|[Cc]odeium|[Cc]ode[Ww]hisperer|[Aa]mazon\.[Qq]|[Gg]emini|[Jj]et[Bb]rains\.[Aa][Ii]|[Tt]abnine|[Ss]ourcegraph|[Cc]ody|[Dd]evin|[Aa]ider|[Cc]odex|\\[bot\\]|noreply@"
+
+# Strip Co-Authored-By lines referencing AI tools (-E for extended regex)
+sed -E -i.bak "/^Co-[Aa]uthored-[Bb]y:.*(${AI_TOOLS})/d" "$MSG_FILE" && rm -f "$MSG_FILE.bak"
+
+# Strip alternative attribution trailer formats
+sed -E -i.bak '/^([Aa]uthored-[Bb]y:|[Gg]enerated-[Bb]y:|AI-[Gg]enerated-[Bb]y:)/d' "$MSG_FILE" && rm -f "$MSG_FILE.bak"
+
+# Remove trailing blank lines (portable -- perl ships with macOS, Linux, and Git)
+perl -0777 -pi -e 's/\n{2,}\z/\n/' "$MSG_FILE"
