@@ -84,6 +84,7 @@ async function injectRequest(
 
     const res = {
       setHeader: (name: string, value: string) => { headers[name.toLowerCase()] = value; },
+      removeHeader: (name: string) => { delete headers[name.toLowerCase()]; },
       status: (code: number) => { statusCode = code; return res; },
       json: (data: unknown) => {
         resolve({ status: statusCode, body: data, headers });
