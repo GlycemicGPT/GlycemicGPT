@@ -47,6 +47,13 @@ def hash_password(password: str) -> str:
     return hashed.decode("utf-8")
 
 
+# Pre-computed bcrypt hash for constant-time login responses.
+# When a login attempt targets a non-existing user, we still run bcrypt
+# against this dummy hash so the response time matches a real user lookup.
+# This prevents timing-based user enumeration (CWE-208).
+_DUMMY_HASH = hash_password("dummy-timing-cover-" + "x" * 32)
+
+
 def validate_password_strength(password: str) -> tuple[bool, str | None]:
     """Validate password meets strength requirements.
 

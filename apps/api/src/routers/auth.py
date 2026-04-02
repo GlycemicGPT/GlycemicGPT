@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.config import settings
 from src.core.auth import CurrentUser
 from src.core.security import (
+    _DUMMY_HASH,
     create_access_token,
     create_refresh_token,
     decode_access_token,
@@ -198,8 +199,21 @@ async def login(
     result = await db.execute(select(User).where(User.email == body.email.lower()))
     user = result.scalar_one_or_none()
 
-    # Check if user exists and password is correct
-    if not user or not verify_password(body.password, user.hashed_password):
+    # Constant-time credential check: always run bcrypt even for non-existing
+    # users to prevent timing-based user enumeration (CWE-208).
+    if not user:
+        verify_password(body.password, _DUMMY_HASH)
+        logger.warning(
+            "Failed login attempt",
+            email=body.email,
+            client_ip=client_ip,
+            reason="invalid_credentials",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password",
+        )
+    if not verify_password(body.password, user.hashed_password):
         logger.warning(
             "Failed login attempt",
             email=body.email,
@@ -284,7 +298,20 @@ async def mobile_login(
     result = await db.execute(select(User).where(User.email == body.email.lower()))
     user = result.scalar_one_or_none()
 
-    if not user or not verify_password(body.password, user.hashed_password):
+    # Constant-time credential check (same pattern as web login)
+    if not user:
+        verify_password(body.password, _DUMMY_HASH)
+        logger.warning(
+            "Failed mobile login attempt",
+            email=body.email,
+            client_ip=client_ip,
+            reason="invalid_credentials",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password",
+        )
+    if not verify_password(body.password, user.hashed_password):
         logger.warning(
             "Failed mobile login attempt",
             email=body.email,
