@@ -14,6 +14,13 @@
 
 ---
 
+## [0.1.100](https://github.com/jlengelbrecht/GlycemicGPT/compare/v0.1.99...v0.1.100) (2026-02-21)
+
+
+### 🐛 Bug Fixes
+
+* align Renovate config with develop-first branching strategy ([#273](https://github.com/jlengelbrecht/GlycemicGPT/issues/273)) ([46879a3](https://github.com/jlengelbrecht/GlycemicGPT/commit/46879a3f86a7450ceecd0ffb5fff374f0776919d))
+
 ## [0.1.99](https://github.com/jlengelbrecht/GlycemicGPT/compare/v0.1.98...v0.1.99) (2026-02-21)
 
 

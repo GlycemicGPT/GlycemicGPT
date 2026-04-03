@@ -1,6 +1,6 @@
 [project]
 name = "glycemicgpt-api"
-version = "0.1.99" # x-release-please-version
+version = "0.1.100" # x-release-please-version
 description = "GlycemicGPT FastAPI Backend"
 readme = "README.md"
 requires-python = ">=3.12"
