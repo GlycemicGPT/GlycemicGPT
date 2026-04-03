@@ -44,11 +44,17 @@ gh pr create --base main --head develop \
   --body-file .github/PROMOTION_PR_TEMPLATE.md
 ```
 
-**IMPORTANT: Use "Rebase and merge", not "Squash and merge".** Rebase merge preserves each feature as an individual commit on main. This is critical for the CHANGELOG -- release-please needs to see each `feat:` and `fix:` commit separately to generate granular changelog entries. Squash merge would collapse everything into one unhelpful entry.
+**Merge method:**
+- **≤100 commits:** Use "Rebase and merge" to preserve individual commits on main
+- **>100 commits:** Use "Squash and merge" (GitHub hard-limits rebase merge to 100 commits)
+
+Both methods are allowed on main. Squash merge produces a single commit, but our label-based changelog (`changelog-pr.yml`) generates granular entries from PR titles and labels regardless of the merge method used.
 
 After the promotion PR merges:
-- **release-please** sees the individual commits and creates a version bump PR
-- glycemicgpt-merge auto-merges the version bump PR
+- **changelog-pr.yml** detects the promotion and generates a changelog from PR labels
+- glycemicgpt-merge auto-merges the changelog PR
+- If release-please detects releasable commits, it creates a version bump PR
+- The `sync-main-to-develop` workflow cherry-picks any version changes back to develop
 - A GitHub Release is created with signed APKs and versioned Docker images
 
 ### Post-merge: automated version sync
