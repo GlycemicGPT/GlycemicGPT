@@ -179,7 +179,7 @@ jobs:
           FINDINGS=""
 
           # --- Bot whitelist (these never trigger findings) ---
-          ALLOWED_BOTS="github-actions\[bot\]|coderabbitai\[bot\]|glycemicgpt-security\[bot\]|glycemicgpt-ci\[bot\]|glycemicgpt-release\[bot\]|glycemicgpt-merge\[bot\]|glycemicgpt-renovate\[bot\]|dependabot\[bot\]"
+          ALLOWED_BOTS="github-actions\[bot\]|coderabbitai\[bot\]|glycemicgpt-security\[bot\]|glycemicgpt-ci\[bot\]|glycemicgpt-release\[bot\]|glycemicgpt-merge\[bot\]|glycemicgpt-renovate\[bot\]|dependabot\[bot\]|homebot-0\[bot\]|gitguardian\[bot\]"
 
           # --- AI tool names ---
           AI_TOOLS="claude|anthropic|copilot|chatgpt|openai|cursor|windsurf|codeium|codewhisperer|amazon\\.q|gemini|gemini\\.code\\.assist|jetbrains\\.ai|tabnine|sourcegraph|cody|devin|aider|codex"
@@ -342,13 +342,14 @@ jobs:
               let instructions = '';
               if (severity === 'CRITICAL') {
                 instructions = [
-                  '**CRITICAL findings cannot be fixed on this PR.** An AI tool has been linked as a commit co-author, making it a permanent participant in the PR history.',
+                  '**This PR has been automatically closed** due to CRITICAL attribution violations. A non-whitelisted bot or AI tool was detected as a commit co-author, which becomes a permanent participant in the PR history and cannot be removed.',
                   '',
-                  'Please:',
-                  '1. Close this PR',
-                  '2. Create a new branch from `develop`',
-                  '3. Cherry-pick your changes **without** the AI co-author trailers',
-                  '4. Open a new PR',
+                  'To resubmit your changes:',
+                  '1. Create a new branch from `develop`',
+                  '2. Cherry-pick your changes **without** the prohibited co-author trailers',
+                  '3. Open a new PR',
+                  '',
+                  'If this bot is legitimate project infrastructure (not an AI coding tool), request it be added to the [attribution whitelist](https://github.com/' + repo.owner + '/' + repo.repo + '/blob/develop/CONTRIBUTING.md#bot-whitelist) by opening an issue.',
                 ].join('\n');
               } else {
                 const parts = [];
@@ -363,7 +364,7 @@ jobs:
 
               body = [
                 marker,
-                `## ${emoji} Attribution Check: ${severity}`,
+                `## ${emoji} Attribution Check: ${severity === 'CRITICAL' ? 'PR Closed (CRITICAL)' : severity}`,
                 '',
                 `AI tool attribution detected in this PR. See our [attribution policy](https://github.com/${repo.owner}/${repo.repo}/blob/develop/CONTRIBUTING.md#no-ai-attribution-in-code).`,
                 '',
@@ -399,7 +400,10 @@ jobs:
             }
 
       - name: Auto-close PR on CRITICAL attribution violation
-        if: always() && steps.detect.outputs.severity == 'CRITICAL' && github.event_name == 'pull_request'
+        if: >-
+          always() && steps.detect.outputs.severity == 'CRITICAL' &&
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.ref != 'develop'
         uses: actions/github-script@v7
         with:
           github-token: ${{ steps.ci-token.outputs.token || secrets.GITHUB_TOKEN }}
