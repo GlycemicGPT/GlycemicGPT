@@ -51,6 +51,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.merge-token.outputs.token }}
           COMMIT_SHA: ${{ github.sha }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
           git fetch origin main
 
@@ -63,7 +64,16 @@ jobs:
           echo "Main version: $MAIN_VERSION"
           echo "Develop version: $DEV_VERSION"
 
-          if [ "$MAIN_VERSION" = "$DEV_VERSION" ]; then
+          if [ "$MAIN_VERSION" != "$DEV_VERSION" ]; then
+            # Versions differ -- this is a version bump sync or versions are out of sync
+            # If this was triggered by a changelog commit (not version bump), skip.
+            # The version bump sync must land first.
+            if echo "$COMMIT_MSG" | grep -q "\[Changelog\]"; then
+              echo "Versions out of sync ($DEV_VERSION vs $MAIN_VERSION) but this is a changelog trigger. Waiting for version sync first."
+              echo "needed=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          else
             # Versions match -- check if CHANGELOG also matches
             MAIN_CL=$(git show origin/main:CHANGELOG.md 2>/dev/null | sha256sum | cut -d' ' -f1 || echo "none")
             DEV_CL=$(git show origin/develop:CHANGELOG.md 2>/dev/null | sha256sum | cut -d' ' -f1 || echo "none")
