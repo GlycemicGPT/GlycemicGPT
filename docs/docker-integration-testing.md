@@ -1,7 +1,5 @@
 # Docker Integration Testing
 
-Story 13.2: Docker Container Integration Testing
-
 ## Overview
 
 The Docker integration test verifies the full GlycemicGPT stack works correctly when deployed as Docker containers. It builds all services, waits for health checks, exercises the full API through the container network, and validates cross-service connectivity.
@@ -128,5 +126,5 @@ COMPOSE_PROJECT_NAME=glycemicgpt-test \
 
 ### Web returns 502 or can't reach API
 - Verify `API_URL=http://api:8000` is set (internal Docker network name)
-- `NEXT_PUBLIC_API_URL=http://localhost:8001` is for browser-side requests
+- Browser API requests are proxied through the web server via Next.js rewrites (no cross-origin calls)
 - Check API container is healthy before web starts (compose dependency)

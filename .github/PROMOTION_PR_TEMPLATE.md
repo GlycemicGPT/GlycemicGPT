@@ -19,13 +19,9 @@
 ### Post-merge steps
 
 1. Wait for release-please to create a version bump PR on main
-2. homebot auto-merges it (or merge manually)
+2. glycemicgpt-merge auto-merges it (or merge manually)
 3. Verify stable container images are published with new version tag
 4. Verify signed release APK is uploaded to the GitHub release
-5. Sync develop with the version bump:
-   ```bash
-   git fetch origin && git checkout develop && git rebase origin/main
-   # Temporarily disable non_fast_forward rule on develop ruleset, then:
-   git push origin develop --force-with-lease
-   # Re-enable the rule immediately after
-   ```
+5. Version sync happens automatically -- the `sync-main-to-develop` workflow
+   cherry-picks the version bump back to develop via PR. Verify it completed
+   in the [Actions tab](../../actions/workflows/sync-main-to-develop.yml).

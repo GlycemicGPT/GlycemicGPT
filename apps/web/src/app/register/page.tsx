@@ -25,10 +25,10 @@ import { registerUser, loginUser, getCurrentUser } from "@/lib/api";
 
 function LoadingSpinner() {
   return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center">
       <div className="text-center">
         <Loader2 className="h-8 w-8 text-blue-400 animate-spin mx-auto mb-3" />
-        <p className="text-slate-400">Loading...</p>
+        <p className="text-slate-500 dark:text-slate-400">Loading...</p>
       </div>
     </div>
   );
@@ -151,8 +151,8 @@ function RegisterForm() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
-      <div className="max-w-md w-full bg-slate-900 rounded-xl border border-slate-800 p-8">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center p-4">
+      <div className="max-w-md w-full bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-8">
         {/* Branding */}
         <div className="text-center mb-6">
           <div className="flex justify-center mb-4">
@@ -165,8 +165,8 @@ function RegisterForm() {
               priority
             />
           </div>
-          <h1 className="text-2xl font-bold text-slate-200">Create Account</h1>
-          <p className="text-sm text-slate-400 mt-1">
+          <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-200">Create Account</h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
             Get started with GlycemicGPT
           </p>
         </div>
@@ -189,7 +189,7 @@ function RegisterForm() {
           <div>
             <label
               htmlFor="email"
-              className="block text-sm font-medium text-slate-300 mb-1"
+              className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
             >
               Email Address
             </label>
@@ -202,7 +202,7 @@ function RegisterForm() {
               onChange={(e) => setEmail(e.target.value)}
               className={clsx(
                 "w-full rounded-lg border px-3 py-2 text-sm",
-                "bg-slate-800 border-slate-700 text-slate-200",
+                "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200",
                 "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                 "placeholder:text-slate-500"
               )}
@@ -213,7 +213,7 @@ function RegisterForm() {
           <div>
             <label
               htmlFor="password"
-              className="block text-sm font-medium text-slate-300 mb-1"
+              className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
             >
               Password
             </label>
@@ -228,7 +228,7 @@ function RegisterForm() {
                 onFocus={() => setPasswordTouched(true)}
                 className={clsx(
                   "w-full rounded-lg border px-3 py-2 pr-10 text-sm",
-                  "bg-slate-800 border-slate-700 text-slate-200",
+                  "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200",
                   "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                   "placeholder:text-slate-500"
                 )}
@@ -237,7 +237,7 @@ function RegisterForm() {
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-200"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
                 aria-label={showPassword ? "Hide password" : "Show password"}
               >
                 {showPassword ? (
@@ -255,7 +255,7 @@ function RegisterForm() {
           <div>
             <label
               htmlFor="confirmPassword"
-              className="block text-sm font-medium text-slate-300 mb-1"
+              className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
             >
               Confirm Password
             </label>
@@ -269,7 +269,7 @@ function RegisterForm() {
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 className={clsx(
                   "w-full rounded-lg border px-3 py-2 pr-10 text-sm",
-                  "bg-slate-800 border-slate-700 text-slate-200",
+                  "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200",
                   "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                   "placeholder:text-slate-500"
                 )}
@@ -278,7 +278,7 @@ function RegisterForm() {
               <button
                 type="button"
                 onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-200"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
                 aria-label={
                   showConfirmPassword
                     ? "Hide confirm password"
@@ -321,7 +321,7 @@ function RegisterForm() {
 
         {/* Navigation links */}
         <div className="mt-6 text-center space-y-2">
-          <p className="text-sm text-slate-400">
+          <p className="text-sm text-slate-500 dark:text-slate-400">
             Already have an account?{" "}
             <Link
               href="/login"
@@ -331,7 +331,7 @@ function RegisterForm() {
             </Link>
           </p>
           <p className="text-xs text-slate-500">
-            <Link href="/" className="hover:text-slate-400">
+            <Link href="/" className="hover:text-slate-500 dark:hover:text-slate-400">
               Back to home
             </Link>
           </p>

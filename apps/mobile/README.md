@@ -1,6 +1,6 @@
 # GlycemicGPT Android App
 
-Android mobile app with BLE connectivity to Tandem t:slim X2 insulin pumps for real-time data monitoring.
+Android mobile app with BLE connectivity to Tandem insulin pumps for real-time data monitoring.
 
 ## What This App Does
 

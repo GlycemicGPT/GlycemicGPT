@@ -5,6 +5,7 @@ import com.glycemicgpt.mobile.data.auth.RefreshClientProvider
 import com.glycemicgpt.mobile.data.local.AuthTokenStore
 import com.glycemicgpt.mobile.data.remote.dto.LoginResponse
 import com.glycemicgpt.mobile.data.remote.dto.RefreshTokenRequest
+import com.squareup.moshi.JsonDataException
 import com.squareup.moshi.Moshi
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
@@ -127,21 +128,27 @@ class TokenRefreshInterceptor @Inject constructor(
                     authTokenStore.saveRefreshToken(loginResponse.refreshToken)
 
                     Timber.d("Token refreshed successfully via interceptor")
-                    authManagerProvider.get().onInterceptorRefreshSuccess(
-                        kotlinx.coroutines.MainScope(),
-                    )
+                    authManagerProvider.get().onInterceptorRefreshSuccess()
                     loginResponse.accessToken
-                } else {
-                    Timber.w("Token refresh failed with HTTP ${resp.code}")
+                } else if (resp.code == 401 || resp.code == 403) {
+                    // Definitive auth rejection -- refresh token is invalid/revoked
+                    Timber.w("Token refresh rejected with HTTP ${resp.code}, clearing session")
                     authTokenStore.clearToken()
                     authManagerProvider.get().onRefreshFailed()
                     null
+                } else {
+                    // Transient server error (5xx, etc.) -- preserve tokens for retry
+                    Timber.w("Token refresh got HTTP ${resp.code}, preserving session for retry")
+                    null
                 }
             }
-        } catch (e: Exception) {
-            Timber.w(e, "Token refresh failed")
-            authTokenStore.clearToken()
-            authManagerProvider.get().onRefreshFailed()
+        } catch (e: java.io.IOException) {
+            // Network error -- preserve tokens; connectivity will return
+            Timber.w(e, "Token refresh failed due to network error, preserving session")
+            null
+        } catch (e: JsonDataException) {
+            // Malformed refresh response -- don't crash the OkHttp chain
+            Timber.w(e, "Token refresh failed: malformed response, preserving session")
             null
         }
     }

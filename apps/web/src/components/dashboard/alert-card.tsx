@@ -162,8 +162,8 @@ export function AlertCard({
           "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
           "disabled:opacity-50 disabled:cursor-not-allowed",
           isExpired
-            ? "bg-slate-800/30 text-slate-500"
-            : "bg-slate-800/50 text-slate-200 hover:bg-slate-700"
+            ? "bg-slate-100/30 dark:bg-slate-800/30 text-slate-500"
+            : "bg-slate-100/50 dark:bg-slate-800/50 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700"
         )}
         aria-label={`Acknowledge ${alert.alert_type.replace(/_/g, " ")} alert`}
       >

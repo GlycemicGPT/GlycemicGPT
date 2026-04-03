@@ -1,0 +1,71 @@
+name: "Security Finding"
+description: Report a security vulnerability found manually or by external testing
+title: "[Security]: "
+labels: ["security", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Security Finding Report
+
+        For findings detected by automated CI scans, issues are created automatically by glycemicgpt-security.
+        Use this template for manually discovered vulnerabilities or reports from external security researchers.
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - Critical
+        - High
+        - Medium
+        - Low
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - API (Backend)
+        - Web UI (Frontend)
+        - Mobile App
+        - AI Sidecar
+        - Infrastructure / CI
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Detailed description of the vulnerability.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: How can this vulnerability be reproduced?
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: What is the potential impact if this vulnerability is exploited?
+
+  - type: textarea
+    id: remediation
+    attributes:
+      label: Suggested Remediation
+      description: If you have a suggested fix, describe it here.
+
+  - type: input
+    id: cwe
+    attributes:
+      label: CWE ID
+      placeholder: "e.g., CWE-89"

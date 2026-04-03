@@ -5,26 +5,28 @@
 <h1 align="center">GlycemicGPT</h1>
 
 <p align="center">
-  <strong>AI-powered diabetes management platform - your on-call endo at home.</strong>
+  <strong>Open source AI-powered diabetes management platform.</strong><br/>
+  <em>Built by patients who got tired of waiting.</em>
 </p>
 
 <p align="center">
-  <a href="https://github.com/jlengelbrecht/GlycemicGPT/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jlengelbrecht/GlycemicGPT/ci.yml?branch=develop&style=for-the-badge&labelColor=1e293b&label=CI&logo=githubactions&logoColor=white" alt="CI"></a>
-  <a href="https://github.com/jlengelbrecht/GlycemicGPT/actions/workflows/container-build.yml"><img src="https://img.shields.io/github/actions/workflow/status/jlengelbrecht/GlycemicGPT/container-build.yml?branch=develop&style=for-the-badge&labelColor=1e293b&label=Containers&logo=docker&logoColor=white" alt="Container Build"></a>
-  <a href="https://github.com/jlengelbrecht/GlycemicGPT/actions/workflows/android.yml"><img src="https://img.shields.io/github/actions/workflow/status/jlengelbrecht/GlycemicGPT/android.yml?branch=develop&style=for-the-badge&labelColor=1e293b&label=Android&logo=android&logoColor=white" alt="Android Build"></a>
+  <a href="https://github.com/GlycemicGPT/GlycemicGPT/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/GlycemicGPT/GlycemicGPT/ci.yml?branch=develop&style=for-the-badge&labelColor=1e293b&label=CI&logo=githubactions&logoColor=white" alt="CI"></a>
+  <a href="https://github.com/GlycemicGPT/GlycemicGPT/actions/workflows/container-build.yml"><img src="https://img.shields.io/github/actions/workflow/status/GlycemicGPT/GlycemicGPT/container-build.yml?branch=develop&style=for-the-badge&labelColor=1e293b&label=Containers&logo=docker&logoColor=white" alt="Container Build"></a>
+  <a href="https://github.com/GlycemicGPT/GlycemicGPT/actions/workflows/android.yml"><img src="https://img.shields.io/github/actions/workflow/status/GlycemicGPT/GlycemicGPT/android.yml?branch=develop&style=for-the-badge&labelColor=1e293b&label=Android&logo=android&logoColor=white" alt="Android Build"></a>
+  <a href="https://github.com/GlycemicGPT/GlycemicGPT/actions/workflows/security-full-suite.yml"><img src="https://img.shields.io/github/actions/workflow/status/GlycemicGPT/GlycemicGPT/security-full-suite.yml?branch=main&style=for-the-badge&labelColor=1e293b&label=Security&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IndoaXRlIiBzdHJva2Utd2lkdGg9IjIiPjxwYXRoIGQ9Ik0xMiAyMnM4LTQgOC0xMFY1bC04LTMtOCAzdjdjMCA2IDggMTAgOCAxMCIvPjwvc3ZnPg==&logoColor=white" alt="Security Suite"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/jlengelbrecht/GlycemicGPT/releases/tag/dev-latest"><img src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.github.com%2Frepos%2Fjlengelbrecht%2FGlycemicGPT%2Freleases%2Ftags%2Fdev-latest&query=%24.name&style=for-the-badge&labelColor=1e293b&label=Dev+Build&color=f59e0b&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IndoaXRlIiBzdHJva2Utd2lkdGg9IjIiPjxwYXRoIGQ9Ik0xMiAyMnM4LTQgOC0xMFY1bC04LTMtOCAzdjdjMCA2IDggMTAgOCAxMCIvPjwvc3ZnPg==&logoColor=white" alt="Dev Build"></a>
-  <a href="https://github.com/jlengelbrecht/GlycemicGPT/releases/latest"><img src="https://img.shields.io/github/v/release/jlengelbrecht/GlycemicGPT?style=for-the-badge&labelColor=1e293b&label=Stable&color=22c55e&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IndoaXRlIiBzdHJva2Utd2lkdGg9IjIiPjxwYXRoIGQ9Im0xMiAyLTMuMDQgNi4zNkg3LjUyTDEyIDE0bDQuNDgtNS42NEgxNC4zTDEyIDJ6Ii8+PHBhdGggZD0iTTE1LjUgMTQgMTkgMjBINWw0LTYiLz48L3N2Zz4=&logoColor=white" alt="Stable Release"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/jlengelbrecht/GlycemicGPT?style=for-the-badge&labelColor=1e293b&color=6366f1" alt="License"></a>
+  <a href="https://github.com/GlycemicGPT/GlycemicGPT/releases/tag/dev-latest"><img src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.github.com%2Frepos%2FGlycemicGPT%2FGlycemicGPT%2Freleases%2Ftags%2Fdev-latest&query=%24.name&style=for-the-badge&labelColor=1e293b&label=Dev+Build&color=f59e0b&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IndoaXRlIiBzdHJva2Utd2lkdGg9IjIiPjxwYXRoIGQ9Ik0xMiAyMnM4LTQgOC0xMFY1bC04LTMtOCAzdjdjMCA2IDggMTAgOCAxMCIvPjwvc3ZnPg==&logoColor=white" alt="Dev Build"></a>
+  <a href="https://github.com/GlycemicGPT/GlycemicGPT/releases/latest"><img src="https://img.shields.io/github/v/release/GlycemicGPT/GlycemicGPT?style=for-the-badge&labelColor=1e293b&label=Stable&color=22c55e&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IndoaXRlIiBzdHJva2Utd2lkdGg9IjIiPjxwYXRoIGQ9Im0xMiAyLTMuMDQgNi4zNkg3LjUyTDEyIDE0bDQuNDgtNS42NEgxNC4zTDEyIDJ6Ii8+PHBhdGggZD0iTTE1LjUgMTQgMTkgMjBINWw0LTYiLz48L3N2Zz4=&logoColor=white" alt="Stable Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/GlycemicGPT/GlycemicGPT?style=for-the-badge&labelColor=1e293b&color=6366f1" alt="License"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/jlengelbrecht/GlycemicGPT/issues"><img src="https://img.shields.io/github/issues/jlengelbrecht/GlycemicGPT?style=for-the-badge&labelColor=1e293b&color=64748b&logo=github&logoColor=white" alt="Issues"></a>
-  <a href="https://github.com/jlengelbrecht/GlycemicGPT/pulls"><img src="https://img.shields.io/github/issues-pr/jlengelbrecht/GlycemicGPT?style=for-the-badge&labelColor=1e293b&color=64748b&logo=github&logoColor=white&label=PRs" alt="Pull Requests"></a>
+  <a href="https://github.com/GlycemicGPT/GlycemicGPT/issues"><img src="https://img.shields.io/github/issues/GlycemicGPT/GlycemicGPT?style=for-the-badge&labelColor=1e293b&color=64748b&logo=github&logoColor=white" alt="Issues"></a>
+  <a href="https://github.com/GlycemicGPT/GlycemicGPT/pulls"><img src="https://img.shields.io/github/issues-pr/GlycemicGPT/GlycemicGPT?style=for-the-badge&labelColor=1e293b&color=64748b&logo=github&logoColor=white&label=PRs" alt="Pull Requests"></a>
   <a href="https://docs.renovatebot.com" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/Renovate-enabled-0ea5e9?style=for-the-badge&labelColor=1e293b&logo=renovate&logoColor=white" alt="Renovate"></a>
-  <a href="https://www.coderabbit.ai" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/coderabbit/prs/github/jlengelbrecht/GlycemicGPT?style=for-the-badge&labelColor=1e293b&color=7c3aed&label=CodeRabbit+Reviews&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IndoaXRlIiBzdHJva2Utd2lkdGg9IjIiPjxjaXJjbGUgY3g9IjEyIiBjeT0iMTIiIHI9IjEwIi8+PHBhdGggZD0iTTggOWg4TTkgMTVjLjkuNiAxLjkgMSAzIDFzMi4xLS40IDMtMSIvPjxjaXJjbGUgY3g9IjkiIGN5PSIxMiIgcj0iMSIgZmlsbD0id2hpdGUiLz48Y2lyY2xlIGN4PSIxNSIgY3k9IjEyIiByPSIxIiBmaWxsPSJ3aGl0ZSIvPjwvc3ZnPg==&logoColor=white" alt="CodeRabbit Reviews"></a>
+  <a href="https://www.coderabbit.ai" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/coderabbit/prs/github/GlycemicGPT/GlycemicGPT?style=for-the-badge&labelColor=1e293b&color=7c3aed&label=CodeRabbit+Reviews&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IndoaXRlIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI+PHBhdGggZD0iTTEzIDE2YTMgMyAwIDAgMSAyLjI0IDEiLz48cGF0aCBkPSJNMTggMTJoLjAxIi8+PHBhdGggZD0iTTE4IDIxaC04YTQgNCAwIDAgMS00LTQgNyA3IDAgMCAxIDctN2guMkw5LjYgNi40YTEuOTMgMS45MyAwIDEgMSAyLjgtMi44TDE1LjggN2guMmMzLjMgMCA2IDIuNyA2IDZ2MWEyIDIgMCAwIDEtMiAyaC0xYTMgMyAwIDAgMC0zIDMiLz48cGF0aCBkPSJNMjAgOC41NFY0YTIgMiAwIDEgMC00IDB2MyIvPjxwYXRoIGQ9Ik03LjYxMiAxMi41MjRhMyAzIDAgMSAwLTEuNiA0LjMiLz48L3N2Zz4=&logoColor=white" alt="CodeRabbit Reviews"></a>
 </p>
 
 <p align="center">
@@ -33,6 +35,7 @@
   <a href="#architecture">Architecture</a> •
   <a href="#development">Development</a> •
   <a href="#contributing">Contributing</a> •
+  <a href="#support-the-project">Support</a> •
   <a href="#disclaimer">Disclaimer</a>
 </p>
 
@@ -50,21 +53,24 @@
 
 ## Overview
 
-GlycemicGPT bridges the gap between diabetes device data and actionable AI-powered insights. It connects to your Dexcom G7 CGM and Tandem t:slim insulin pump via BLE, displays real-time glucose trends, and provides AI-generated analysis of your diabetes data.
+GlycemicGPT bridges the gap between diabetes device data and actionable AI-powered insights. It connects to your Dexcom G7 CGM and Tandem insulin pump via BLE, displays real-time glucose trends, and provides AI-generated analysis of your diabetes data.
 
 **Currently supported devices:**
 
-| Device | Type | Connection |
-|--------|------|------------|
-| Dexcom G7 | CGM | Cloud API |
-| Tandem t:slim X2 | Insulin Pump | BLE (direct) + Cloud API |
+| Device | Type | Connection | Status |
+|--------|------|------------|--------|
+| Dexcom G7 | CGM | Cloud API | Verified |
+| Tandem t:slim X2 | Insulin Pump | BLE (direct) + Cloud API | Verified |
+| Tandem Mobi | Insulin Pump | BLE (direct) + Cloud API | Protocol-compatible (see note) |
 
-> Support for additional pumps and CGMs is planned for future releases. The architecture is designed to be extensible -- see [CONTRIBUTING.md](CONTRIBUTING.md) if you'd like to help add support for your device.
+> **Tandem Mobi note:** The Mobi uses the same BLE protocol, authentication, and data formats as the t:slim X2. Our Tandem plugin is protocol-compatible with both models, but **Mobi support has not been verified against physical hardware**. Protocol compatibility does not guarantee correct operation on untested devices. Use with Mobi hardware is entirely at your own risk -- see [MEDICAL-DISCLAIMER.md](MEDICAL-DISCLAIMER.md) for full liability terms. Insulin delivery (bolus/control) requires a user-built plugin compiled from source (see [CONTRIBUTING.md](CONTRIBUTING.md#device-control-plugins)). If you have a Mobi and can help validate, please open an issue.
+
+Support for additional pumps and CGMs is planned for future releases. The mobile app uses a [capability-based plugin architecture](docs/plugin-architecture.md) designed for extensibility -- see [CONTRIBUTING.md](CONTRIBUTING.md) if you'd like to help add support for your device.
 
 **What it does:**
 
 - Real-time glucose monitoring with trend charts and Time in Range tracking
-- BLE connectivity to Tandem t:slim pumps (basal, bolus, IoB, reservoir, battery)
+- BLE connectivity to Tandem pumps (basal, bolus, IoB, reservoir, battery)
 - AI-powered daily briefs, meal analysis, and pattern recognition (BYOAI -- bring your own AI key)
 - Configurable alerts with Telegram delivery and caregiver escalation
 - Android phone app + Wear OS companion with watch face complications
@@ -81,7 +87,7 @@ GlycemicGPT bridges the gap between diabetes device data and actionable AI-power
 
 ```bash
 # Clone the repository
-git clone https://github.com/jlengelbrecht/GlycemicGPT.git
+git clone https://github.com/GlycemicGPT/GlycemicGPT.git
 cd GlycemicGPT
 
 # Copy environment file
@@ -105,6 +111,7 @@ Services will be available at:
 | Backend | FastAPI, Python 3.12 |
 | Mobile | Kotlin, Jetpack Compose, BLE |
 | Wear OS | Kotlin, Wear Compose, Watch Face |
+| Plugin System | Extensible device support via [plugin architecture](docs/plugin-architecture.md) |
 | AI Sidecar | TypeScript, Express, multi-provider proxy |
 | Database | PostgreSQL 16, SQLAlchemy 2.0 |
 | Cache | Redis 7 |
@@ -127,10 +134,21 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for full development setup, branching str
 
 We welcome contributions! Please read our [Contributing Guide](CONTRIBUTING.md) before submitting a pull request.
 
-- [Bug Reports](https://github.com/jlengelbrecht/GlycemicGPT/issues/new?template=bug_report.yml)
-- [Feature Requests](https://github.com/jlengelbrecht/GlycemicGPT/issues/new?template=feature_request.yml)
-- [Mobile App Issues](https://github.com/jlengelbrecht/GlycemicGPT/issues/new?template=mobile_report.yml)
-- [Discussions](https://github.com/jlengelbrecht/GlycemicGPT/discussions) (questions, ideas, show & tell)
+- [Bug Reports](https://github.com/GlycemicGPT/GlycemicGPT/issues/new?template=bug_report.yml)
+- [Feature Requests](https://github.com/GlycemicGPT/GlycemicGPT/issues/new?template=feature_request.yml)
+- [Mobile App Issues](https://github.com/GlycemicGPT/GlycemicGPT/issues/new?template=mobile_report.yml)
+- [Discussions](https://github.com/GlycemicGPT/GlycemicGPT/discussions) (questions, ideas, show & tell)
+
+## Support the Project
+
+GlycemicGPT is free, open source, and built by volunteers. If you find it useful, consider supporting the project:
+
+<p align="center">
+  <a href="https://github.com/sponsors/GlycemicGPT"><strong>GitHub Sponsors</strong></a> &middot;
+  <a href="https://opencollective.com/glycemicgpt"><strong>Open Collective</strong></a>
+</p>
+
+Your support helps cover infrastructure costs (hosting, domain, CI, signing certificates), org seats for committers and maintainers, and future maintainer stipends. All Open Collective transactions are public. See [GOVERNANCE.md](GOVERNANCE.md#compensation) for how funding is managed.
 
 ## License
 
@@ -139,6 +157,8 @@ This project is licensed under the **GNU General Public License v3.0 (GPL-3.0)**
 ---
 
 ## Disclaimer
+
+> See [MEDICAL-DISCLAIMER.md](MEDICAL-DISCLAIMER.md) for the complete medical and regulatory disclaimer.
 
 > **USE AT YOUR OWN RISK**
 

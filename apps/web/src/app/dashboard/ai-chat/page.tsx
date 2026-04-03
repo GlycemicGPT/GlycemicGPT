@@ -11,7 +11,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { MessageSquare, Send, AlertTriangle, Settings, Loader2, Trash2 } from "lucide-react";
 import Link from "next/link";
-import { sendAIChat, getAIProvider } from "@/lib/api";
+import { sendAIChat, getAIProvider, getChatHistory, clearChatHistory } from "@/lib/api";
 import { MarkdownContent } from "@/components/ui/markdown-content";
 
 interface ChatMessage {
@@ -41,13 +41,35 @@ export default function AIChatPage() {
     scrollToBottom();
   }, [messages, scrollToBottom]);
 
-  // Check if AI provider is configured on mount
+  // Check if AI provider is configured and load chat history on mount
   useEffect(() => {
     let cancelled = false;
-    async function checkProvider() {
+    async function init() {
       try {
         await getAIProvider();
-        if (!cancelled) setPageState("ready");
+        if (cancelled) return;
+        setPageState("ready");
+
+        // Load conversation history from server
+        try {
+          const history = await getChatHistory();
+          if (!cancelled && history.messages?.length > 0) {
+            setMessages(
+              history.messages.map((msg) => ({
+                id: msg.id,
+                role: msg.role,
+                content: msg.content,
+                timestamp: new Date(msg.timestamp),
+                disclaimer:
+                  msg.role === "assistant"
+                    ? "Not medical advice. Consult your healthcare provider."
+                    : undefined,
+              }))
+            );
+          }
+        } catch {
+          // History load failure is non-fatal -- just start fresh
+        }
       } catch (err) {
         if (cancelled) return;
         const message = err instanceof Error ? err.message : "";
@@ -58,7 +80,7 @@ export default function AIChatPage() {
         }
       }
     }
-    checkProvider();
+    init();
     return () => { cancelled = true; };
   }, []);
 
@@ -97,7 +119,7 @@ export default function AIChatPage() {
     try {
       const response = await sendAIChat(trimmed);
       const assistantMessage: ChatMessage = {
-        id: `assistant-${Date.now()}`,
+        id: response.message_id || `assistant-${Date.now()}`,
         role: "assistant",
         content: response.response,
         timestamp: new Date(),
@@ -123,7 +145,12 @@ export default function AIChatPage() {
     [handleSend]
   );
 
-  const handleClearChat = useCallback(() => {
+  const handleClearChat = useCallback(async () => {
+    try {
+      await clearChatHistory();
+    } catch {
+      // Clear locally even if server clear fails
+    }
     setMessages([]);
     setError(null);
   }, []);
@@ -133,7 +160,7 @@ export default function AIChatPage() {
     return (
       <div className="flex flex-col h-full items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-blue-400" />
-        <p className="mt-4 text-slate-400">Checking AI provider...</p>
+        <p className="mt-4 text-slate-500 dark:text-slate-400">Checking AI provider...</p>
       </div>
     );
   }
@@ -143,11 +170,11 @@ export default function AIChatPage() {
     return (
       <div className="flex flex-col h-full items-center justify-center px-4">
         <div className="max-w-md text-center space-y-6">
-          <div className="mx-auto w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center">
-            <MessageSquare className="h-8 w-8 text-slate-500" />
+          <div className="mx-auto w-16 h-16 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+            <MessageSquare className="h-8 w-8 text-slate-400 dark:text-slate-500" />
           </div>
-          <h1 className="text-2xl font-bold text-white">AI Chat</h1>
-          <p className="text-slate-400">
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">AI Chat</h1>
+          <p className="text-slate-500 dark:text-slate-400">
             To use AI Chat, you need to configure an AI provider first. Set up your
             Claude or OpenAI API key in Settings.
           </p>
@@ -168,11 +195,11 @@ export default function AIChatPage() {
     return (
       <div className="flex flex-col h-full items-center justify-center px-4">
         <div className="max-w-md text-center space-y-6">
-          <div className="mx-auto w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center">
+          <div className="mx-auto w-16 h-16 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
             <AlertTriangle className="h-8 w-8 text-yellow-500" />
           </div>
-          <h1 className="text-2xl font-bold text-white">Unable to Connect</h1>
-          <p className="text-slate-400">
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Unable to Connect</h1>
+          <p className="text-slate-500 dark:text-slate-400">
             Cannot reach the server. Please check your connection and try again.
           </p>
           <button
@@ -188,16 +215,16 @@ export default function AIChatPage() {
 
   // Ready state - main chat interface
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)]">
+    <div className="flex flex-col h-full -m-4 lg:-m-6">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center">
             <MessageSquare className="h-5 w-5 text-white" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-white">AI Chat</h1>
-            <p className="text-sm text-slate-400">
+            <h1 className="text-xl font-bold text-slate-900 dark:text-white">AI Chat</h1>
+            <p className="text-sm text-slate-500 dark:text-slate-400">
               Ask questions about your glucose data
             </p>
           </div>
@@ -205,7 +232,7 @@ export default function AIChatPage() {
         {messages.length > 0 && (
           <button
             onClick={handleClearChat}
-            className="flex items-center gap-2 px-3 py-2 text-sm text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+            className="flex items-center gap-2 px-3 py-2 text-sm text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
             aria-label="Clear chat history"
           >
             <Trash2 className="h-4 w-4" />
@@ -218,14 +245,14 @@ export default function AIChatPage() {
       <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6" role="log" aria-live="polite" aria-label="Chat messages">
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-center space-y-4">
-            <div className="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center">
-              <MessageSquare className="h-8 w-8 text-slate-500" />
+            <div className="w-16 h-16 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+              <MessageSquare className="h-8 w-8 text-slate-400 dark:text-slate-500" />
             </div>
             <div>
-              <p className="text-lg font-medium text-white">
+              <p className="text-lg font-medium text-slate-900 dark:text-white">
                 Start a conversation
               </p>
-              <p className="text-sm text-slate-400 mt-1">
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
                 Ask about your glucose patterns, trends, or any diabetes-related questions.
               </p>
             </div>
@@ -242,7 +269,7 @@ export default function AIChatPage() {
                     setInput(suggestion);
                     inputRef.current?.focus();
                   }}
-                  className="px-3 py-2 text-sm text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 transition-colors"
+                  className="px-3 py-2 text-sm text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg border border-slate-300 dark:border-slate-700 transition-colors"
                 >
                   {suggestion}
                 </button>
@@ -260,7 +287,7 @@ export default function AIChatPage() {
               className={`max-w-[80%] rounded-2xl px-4 py-3 ${
                 msg.role === "user"
                   ? "bg-blue-600 text-white"
-                  : "bg-slate-800 text-slate-200"
+                  : "bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200"
               }`}
             >
               {msg.role === "assistant" ? (
@@ -271,7 +298,7 @@ export default function AIChatPage() {
                 </div>
               )}
               {msg.disclaimer && (
-                <p className="mt-2 pt-2 border-t border-slate-700 text-xs text-slate-400 flex items-center gap-1">
+                <p className="mt-2 pt-2 border-t border-slate-300 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
                   <AlertTriangle className="h-3 w-3" />
                   {msg.disclaimer}
                 </p>
@@ -289,8 +316,8 @@ export default function AIChatPage() {
         {/* Typing indicator */}
         {isSending && (
           <div className="flex justify-start" role="status" aria-label="AI is generating a response">
-            <div className="bg-slate-800 rounded-2xl px-4 py-3">
-              <div className="flex items-center gap-2 text-sm text-slate-400">
+            <div className="bg-slate-100 dark:bg-slate-800 rounded-2xl px-4 py-3">
+              <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 AI is thinking...
               </div>
@@ -321,7 +348,7 @@ export default function AIChatPage() {
       </div>
 
       {/* Input area */}
-      <div className="px-6 py-4 border-t border-slate-800">
+      <div className="px-6 py-4 border-t border-slate-200 dark:border-slate-800">
         <div className="flex items-end gap-3">
           <textarea
             ref={inputRef}
@@ -333,7 +360,7 @@ export default function AIChatPage() {
             disabled={isSending}
             rows={1}
             maxLength={2000}
-            className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 resize-none text-sm"
+            className="flex-1 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 resize-none text-sm"
             style={{ maxHeight: "120px" }}
           />
           <button

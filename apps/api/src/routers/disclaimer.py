@@ -184,9 +184,14 @@ async def acknowledge_disclaimer_auth(
     await db.commit()
     await db.refresh(current_user)
 
+    # Redact email: show first char + masked domain (e.g., j***@gmail.com)
+    email = current_user.email or ""
+    local, _, domain = email.partition("@")
+    redacted_email = f"{local[0]}***@{domain}" if local and domain else "***"
+
     logger.info(
         "Authenticated disclaimer acknowledged",
-        extra={"user_id": str(current_user.id), "email": current_user.email},
+        extra={"user_id": str(current_user.id), "email": redacted_email},
     )
 
     return {"success": True, "message": "Disclaimer acknowledged successfully"}

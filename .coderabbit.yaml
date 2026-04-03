@@ -1,13 +1,16 @@
 # yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
 
 language: "en-US"
-tone_instructions: "Be direct, technically precise, and concise. Focus on correctness and safety."
+tone_instructions: >
+  Be direct and precise. Focus on correctness, security, safety, performance,
+  and maintainability. Ignore style, naming, and formatting unless they cause
+  ambiguity or defects. Suggest refactors only for clear defects.
 early_access: false
 enable_free_tier: true
 
 reviews:
-  profile: "assertive"
-  request_changes_workflow: false
+  profile: "chill"
+  request_changes_workflow: true
   high_level_summary: true
   high_level_summary_placeholder: "@coderabbitai summary"
   high_level_summary_in_walkthrough: false
@@ -50,7 +53,13 @@ reviews:
     - label: "ble"
       instructions: >
         Apply when PR modifies Bluetooth Low Energy code under
-        apps/mobile/**/ble/**
+        {apps/mobile,plugins/shipped}/**/ble/**
+    - label: "plugin-api"
+      instructions: >
+        Apply when PR modifies files under plugins/pump-driver-api/
+    - label: "plugin-driver"
+      instructions: >
+        Apply when PR modifies files under plugins/shipped/tandem/
 
   path_filters:
     - "!**/*.png"
@@ -142,9 +151,40 @@ reviews:
           insulin doses must have hard caps, no auto-bolus without explicit user
           confirmation.
 
-    - path: "apps/mobile/**/ble/**"
+    - path: "plugins/pump-driver-api/**/*.kt"
       instructions: |
-        BLE code communicates with Tandem t:slim X2 insulin pumps.
+        Plugin API module defining interfaces and domain models for all plugins.
+
+        Critical review points:
+        - Interface stability: changes here affect all plugins. Avoid breaking changes.
+        - No implementation leakage: this module must not import from :app or any
+          plugin module. Only stdlib, AndroidX, and kotlinx dependencies allowed.
+        - API version compatibility: if interfaces change, PLUGIN_API_VERSION must
+          be incremented in PluginMetadata.kt.
+        - Safety contract KDoc: all capability methods that accept SafetyLimits
+          must document the filtering/rejection behavior in KDoc.
+        - PluginCapabilityInterface marker: all new capability interfaces must
+          extend this marker.
+
+    - path: "plugins/shipped/tandem/**/*.kt"
+      instructions: |
+        Tandem plugin implementation (t:slim X2 + Mobi, reference plugin for the architecture).
+
+        Critical review points:
+        - Delegation patterns: capability classes (TandemGlucoseSource, TandemInsulinSource,
+          TandemPumpStatus) should be thin wrappers delegating to BLE components.
+        - No :app imports: this module depends on :pump-driver-api and the BLE layer.
+          Allowed import namespaces: .domain., .ble., .plugin. (its own classes).
+          Any import from .data., .ui., .service., or other :app namespaces is a violation.
+        - Safety limit passing: all methods receiving SafetyLimits must forward them
+          to the underlying BLE driver/parser. Never use default SafetyLimits().
+        - Lifecycle implementation: onActivated() should auto-reconnect, onDeactivated()
+          should disconnect, shutdown() should fully release resources.
+        - Plugin metadata: apiVersion must match PLUGIN_API_VERSION.
+
+    - path: "{apps/mobile,plugins/shipped}/**/ble/**"
+      instructions: |
+        BLE code communicates with Tandem insulin pumps (t:slim X2 and Mobi).
 
         Critical review points:
         - GATT operations must be serialized (one at a time).
@@ -172,6 +212,14 @@ reviews:
         - Network isolation between services.
         - Volume mounts do not expose host system files.
 
+    - path: "scripts/security/**"
+      instructions: |
+        Security testing scripts for CI DAST pipeline.
+        - test-auth-flows.py: verify tests use unique emails, clean sessions, specific assertions
+        - fuzz-api.py: must remain self-adapting via /openapi.json
+        - No hardcoded secrets, production URLs, or real credentials
+        - run-dast.sh: nuclei wrapper, must skip gracefully when not installed
+
     - path: ".github/workflows/**"
       instructions: |
         Review GitHub Actions workflows for:
@@ -191,7 +239,7 @@ reviews:
   auto_review:
     enabled: true
     auto_incremental_review: true
-    auto_pause_after_reviewed_commits: 5
+    auto_pause_after_reviewed_commits: 3
     ignore_title_keywords:
       - "WIP"
       - "DO NOT MERGE"
@@ -207,9 +255,9 @@ reviews:
 
   finishing_touches:
     docstrings:
-      enabled: true
+      enabled: false
     unit_tests:
-      enabled: true
+      enabled: false
 
   pre_merge_checks:
     title:
@@ -322,6 +370,7 @@ knowledge_base:
     filePatterns:
       - "CLAUDE.md"
       - "docs/branching-strategy.md"
+      - "docs/plugin-architecture.md"
   learnings:
     scope: "local"
   issues:

@@ -8,6 +8,9 @@ data class DeviceRegistrationRequest(
     @Json(name = "device_token") val deviceToken: String,
     @Json(name = "device_name") val deviceName: String,
     val platform: String = "android",
+    @Json(name = "device_fingerprint") val deviceFingerprint: String? = null,
+    @Json(name = "app_version") val appVersion: String? = null,
+    @Json(name = "build_type") val buildType: String? = null,
 )
 
 @JsonClass(generateAdapter = true)

@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-glycemicgpt}
@@ -62,6 +62,10 @@ services:
       SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
       AI_SIDECAR_URL: http://ai-sidecar:3456
       AI_SIDECAR_API_KEY: ${SIDECAR_API_KEY:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:3000"]}
+      FASTEMBED_CACHE_PATH: /app/.cache/fastembed
+    volumes:
+      - embedding_cache:/app/.cache/fastembed
     depends_on:
       db:
         condition: service_healthy
@@ -80,19 +84,16 @@ services:
     build:
       context: ./apps/web
       dockerfile: Dockerfile
-      args:
-        NEXT_PUBLIC_API_URL: http://localhost:8000
     restart: unless-stopped
     ports:
       - "3000:3000"
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000
       API_URL: http://api:8000
     depends_on:
       api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:3000 || exit 1"]
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3000 || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -103,3 +104,4 @@ volumes:
   redis_data:
   sidecar_auth:
   sidecar_codex:
+  embedding_cache:

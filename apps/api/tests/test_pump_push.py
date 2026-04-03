@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from httpx import ASGITransport, AsyncClient
 
 from src.main import app
+from src.schemas.pump import PumpEventPushItem
 
 
 def _email() -> str:
@@ -96,7 +97,7 @@ class TestPumpPush:
                             "event_timestamp": now,
                             "units": 0.5,
                             "is_automated": True,
-                            "control_iq_mode": "standard",
+                            "pump_activity_mode": "none",
                         }
                     ],
                     "source": "mobile",
@@ -182,7 +183,7 @@ class TestPumpPush:
                 "event_timestamp": (base - timedelta(minutes=1)).isoformat(),
                 "units": 0.8,
                 "is_automated": True,
-                "control_iq_mode": "sleep",
+                "pump_activity_mode": "sleep",
             },
             {
                 "event_type": "correction",
@@ -223,3 +224,51 @@ class TestPumpPush:
                 },
             )
         assert resp.status_code == 422
+
+
+class TestPumpActivityModeBackwardsCompat:
+    """Tests for PumpEventPushItem backwards-compat validator."""
+
+    def test_old_control_iq_mode_standard_maps_to_none(self):
+        """Old clients sending control_iq_mode='standard' get pump_activity_mode='none'."""
+        now = datetime.now(UTC).isoformat()
+        item = PumpEventPushItem(
+            event_type="basal",
+            event_timestamp=now,
+            units=0.5,
+            control_iq_mode="standard",
+        )
+        assert item.pump_activity_mode == "none"
+
+    def test_old_control_iq_mode_sleep_maps_directly(self):
+        """Old clients sending control_iq_mode='sleep' maps as-is."""
+        now = datetime.now(UTC).isoformat()
+        item = PumpEventPushItem(
+            event_type="basal",
+            event_timestamp=now,
+            units=0.5,
+            control_iq_mode="sleep",
+        )
+        assert item.pump_activity_mode == "sleep"
+
+    def test_new_field_takes_precedence(self):
+        """When both fields present, pump_activity_mode wins."""
+        now = datetime.now(UTC).isoformat()
+        item = PumpEventPushItem(
+            event_type="basal",
+            event_timestamp=now,
+            units=0.5,
+            pump_activity_mode="exercise",
+            control_iq_mode="sleep",
+        )
+        assert item.pump_activity_mode == "exercise"
+
+    def test_no_mode_fields_yields_none(self):
+        """When neither field is set, pump_activity_mode is None."""
+        now = datetime.now(UTC).isoformat()
+        item = PumpEventPushItem(
+            event_type="basal",
+            event_timestamp=now,
+            units=0.5,
+        )
+        assert item.pump_activity_mode is None

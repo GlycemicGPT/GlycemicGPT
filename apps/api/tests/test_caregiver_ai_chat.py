@@ -245,7 +245,7 @@ class TestHandleCaregiverChatWeb:
                 return_value=mock_client,
             ),
             patch(
-                "src.services.telegram_chat._build_diabetes_context",
+                "src.services.telegram_chat.build_diabetes_context",
                 new_callable=AsyncMock,
                 return_value="[Glucose - last 6h]\n- Current: 120 mg/dL",
             ),
@@ -301,7 +301,7 @@ class TestHandleCaregiverChatWeb:
                 return_value=mock_client,
             ),
             patch(
-                "src.services.telegram_chat._build_diabetes_context",
+                "src.services.telegram_chat.build_diabetes_context",
                 new_callable=AsyncMock,
                 return_value="",
             ),

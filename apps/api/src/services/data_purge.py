@@ -12,14 +12,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.logging_config import get_logger
 from src.models.alert import Alert
+from src.models.chat_message import ChatMessage
 from src.models.correction_analysis import CorrectionAnalysis
 from src.models.daily_brief import DailyBrief
 from src.models.escalation_event import EscalationEvent
 from src.models.glucose import GlucoseReading
+from src.models.knowledge_chunk import KnowledgeChunk
 from src.models.meal_analysis import MealAnalysis
 from src.models.pump_data import PumpEvent
+from src.models.research_source import ResearchSource
 from src.models.safety_log import SafetyLog
 from src.models.suggestion_response import SuggestionResponse
+from src.models.user_document import UserDocument
 
 logger = get_logger(__name__)
 
@@ -107,6 +111,29 @@ async def purge_all_user_data(
 
         result = await db.execute(delete(Alert).where(Alert.user_id == user_id))
         deleted["alerts"] = result.rowcount
+
+        # ── Chat data (Story 35.3) ──
+        result = await db.execute(
+            delete(ChatMessage).where(ChatMessage.user_id == user_id)
+        )
+        deleted["chat_messages"] = result.rowcount
+
+        # ── RAG data (Story 35.9) ──
+        # Knowledge chunks before user documents (chunks reference documents)
+        result = await db.execute(
+            delete(KnowledgeChunk).where(KnowledgeChunk.user_id == user_id)
+        )
+        deleted["knowledge_chunks"] = result.rowcount
+
+        result = await db.execute(
+            delete(UserDocument).where(UserDocument.user_id == user_id)
+        )
+        deleted["user_documents"] = result.rowcount
+
+        result = await db.execute(
+            delete(ResearchSource).where(ResearchSource.user_id == user_id)
+        )
+        deleted["research_sources"] = result.rowcount
 
         await db.commit()
     except Exception:

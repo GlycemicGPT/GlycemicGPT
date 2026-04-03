@@ -1,0 +1,19 @@
+# GlycemicGPT -- Caddy reverse proxy configuration
+#
+# Replace glycemicgpt.example.com with your actual domain.
+# Caddy automatically provisions Let's Encrypt TLS certificates.
+
+glycemicgpt.example.com {
+	# Security headers (HSTS belongs here, not on the API)
+	header {
+		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Content-Security-Policy "frame-ancestors 'none'"
+		Referrer-Policy "strict-origin-when-cross-origin"
+	}
+
+	# Proxy everything to the Next.js frontend.
+	# Next.js handles /api/* proxying to the backend internally.
+	reverse_proxy web:3000
+}

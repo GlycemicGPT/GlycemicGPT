@@ -51,6 +51,9 @@ class AlertRepository @Inject constructor(
         }
     }
 
+    suspend fun getLatestUnacknowledgedServerId(): String? =
+        alertDao.getLatestUnacknowledgedServerId()
+
     suspend fun fetchPendingAlerts(): Result<List<AlertResponse>> = runCatching {
         val response = api.getPendingAlerts()
         if (response.isSuccessful) {

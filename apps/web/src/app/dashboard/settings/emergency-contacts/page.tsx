@@ -157,13 +157,13 @@ export default function EmergencyContactsPage() {
       <div>
         <a
           href="/dashboard/settings"
-          className="flex items-center gap-1 text-sm text-slate-400 hover:text-slate-300 mb-2"
+          className="flex items-center gap-1 text-sm text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 mb-2"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to Settings
         </a>
         <h1 className="text-2xl font-bold">Emergency Contacts</h1>
-        <p className="text-slate-400">
+        <p className="text-slate-500 dark:text-slate-400">
           Manage contacts for automatic alert escalation via Telegram
         </p>
       </div>
@@ -206,18 +206,18 @@ export default function EmergencyContactsPage() {
       {/* Loading state */}
       {isLoading && (
         <div
-          className="bg-slate-900 rounded-xl p-12 border border-slate-800 text-center"
+          className="bg-white dark:bg-slate-900 rounded-xl p-12 border border-slate-200 dark:border-slate-800 text-center"
           role="status"
           aria-label="Loading emergency contacts"
         >
           <Loader2 className="h-8 w-8 text-blue-400 animate-spin mx-auto mb-3" />
-          <p className="text-slate-400">Loading contacts...</p>
+          <p className="text-slate-500 dark:text-slate-400">Loading contacts...</p>
         </div>
       )}
 
       {/* Contact list */}
       {!isLoading && (
-        <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6">
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 bg-blue-500/10 rounded-lg">
               <Users className="h-5 w-5 text-blue-400" />
@@ -233,7 +233,7 @@ export default function EmergencyContactsPage() {
           {contacts.length === 0 && !showForm && (
             <div className="text-center py-8">
               <Users className="h-10 w-10 text-slate-600 mx-auto mb-3" />
-              <p className="text-slate-400 mb-1">No emergency contacts yet</p>
+              <p className="text-slate-500 dark:text-slate-400 mb-1">No emergency contacts yet</p>
               <p className="text-xs text-slate-500">
                 Add contacts who can be notified when you&apos;re unresponsive
                 to alerts
@@ -246,7 +246,7 @@ export default function EmergencyContactsPage() {
               {contacts.map((contact) => (
                 <div
                   key={contact.id}
-                  className="flex items-center justify-between bg-slate-800/50 rounded-lg p-4 border border-slate-700/50"
+                  className="flex items-center justify-between bg-slate-100/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-300/50 dark:border-slate-700/50"
                 >
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
@@ -258,7 +258,7 @@ export default function EmergencyContactsPage() {
                           "text-xs px-2 py-0.5 rounded-full",
                           contact.priority === "primary"
                             ? "bg-blue-500/20 text-blue-400"
-                            : "bg-slate-700 text-slate-400"
+                            : "bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400"
                         )}
                       >
                         {contact.priority}
@@ -273,7 +273,7 @@ export default function EmergencyContactsPage() {
                       type="button"
                       onClick={() => handleEdit(contact)}
                       disabled={isOffline}
-                      className="p-2 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
                       aria-label={`Edit ${contact.name}`}
                     >
                       <Pencil className="h-4 w-4" />
@@ -282,7 +282,7 @@ export default function EmergencyContactsPage() {
                       type="button"
                       onClick={() => handleDelete(contact.id)}
                       disabled={deletingId === contact.id || isOffline}
-                      className="p-2 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 disabled:opacity-50 disabled:cursor-not-allowed"
                       aria-label={`Delete ${contact.name}`}
                     >
                       {deletingId === contact.id ? (
@@ -331,13 +331,13 @@ export default function EmergencyContactsPage() {
           {showForm && (
             <form onSubmit={handleSubmit} className="space-y-4 mt-4">
               <div className="flex items-center justify-between mb-2">
-                <h3 className="text-sm font-medium text-slate-300">
+                <h3 className="text-sm font-medium text-slate-600 dark:text-slate-300">
                   {editingId ? "Edit Contact" : "Add Contact"}
                 </h3>
                 <button
                   type="button"
                   onClick={handleCancel}
-                  className="p-1 rounded text-slate-400 hover:text-slate-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                  className="p-1 rounded text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                   aria-label="Cancel"
                 >
                   <X className="h-4 w-4" />
@@ -347,7 +347,7 @@ export default function EmergencyContactsPage() {
               <div>
                 <label
                   htmlFor="contact-name"
-                  className="block text-sm font-medium text-slate-300 mb-1"
+                  className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
                 >
                   Name
                 </label>
@@ -362,7 +362,7 @@ export default function EmergencyContactsPage() {
                   }
                   className={clsx(
                     "w-full rounded-lg border px-3 py-2 text-sm",
-                    "bg-slate-800 border-slate-700 text-slate-200",
+                    "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-200",
                     "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                     "placeholder:text-slate-500"
                   )}
@@ -377,12 +377,12 @@ export default function EmergencyContactsPage() {
               <div>
                 <label
                   htmlFor="contact-telegram"
-                  className="block text-sm font-medium text-slate-300 mb-1"
+                  className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
                 >
                   Telegram Username
                 </label>
                 <div className="flex items-center gap-2">
-                  <span className="text-slate-400 text-sm">@</span>
+                  <span className="text-slate-500 dark:text-slate-400 text-sm">@</span>
                   <input
                     id="contact-telegram"
                     type="text"
@@ -398,7 +398,7 @@ export default function EmergencyContactsPage() {
                     }
                     className={clsx(
                       "w-full rounded-lg border px-3 py-2 text-sm",
-                      "bg-slate-800 border-slate-700 text-slate-200",
+                      "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-200",
                       "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                       "placeholder:text-slate-500"
                     )}
@@ -414,7 +414,7 @@ export default function EmergencyContactsPage() {
               <div>
                 <label
                   htmlFor="contact-priority"
-                  className="block text-sm font-medium text-slate-300 mb-1"
+                  className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
                 >
                   Priority
                 </label>
@@ -429,7 +429,7 @@ export default function EmergencyContactsPage() {
                   }
                   className={clsx(
                     "w-full rounded-lg border px-3 py-2 text-sm",
-                    "bg-slate-800 border-slate-700 text-slate-200",
+                    "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-200",
                     "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   )}
                   aria-describedby="priority-hint"
@@ -475,7 +475,7 @@ export default function EmergencyContactsPage() {
                   disabled={isSubmitting}
                   className={clsx(
                     "px-4 py-2 rounded-lg text-sm font-medium",
-                    "bg-slate-800 text-slate-300 hover:bg-slate-700",
+                    "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700",
                     "transition-colors",
                     "focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500",
                     "disabled:opacity-50 disabled:cursor-not-allowed"

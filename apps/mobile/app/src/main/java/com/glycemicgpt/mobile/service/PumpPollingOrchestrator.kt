@@ -1,14 +1,18 @@
 package com.glycemicgpt.mobile.service
 
-import com.glycemicgpt.mobile.ble.messages.StatusResponseParser
 import com.glycemicgpt.mobile.data.local.GlucoseRangeStore
+import com.glycemicgpt.mobile.data.local.SafetyLimitsStore
 import com.glycemicgpt.mobile.data.local.dao.RawHistoryLogDao
+import com.glycemicgpt.mobile.domain.model.PumpActivityMode
 import com.glycemicgpt.mobile.data.local.entity.RawHistoryLogEntity
 import com.glycemicgpt.mobile.data.repository.PumpDataRepository
 import com.glycemicgpt.mobile.data.repository.SyncQueueEnqueuer
 import com.glycemicgpt.mobile.domain.model.ConnectionState
+import com.glycemicgpt.mobile.domain.pump.HistoryLogParser
 import com.glycemicgpt.mobile.domain.pump.PumpDriver
 import com.glycemicgpt.mobile.wear.WearDataSender
+import com.glycemicgpt.mobile.wear.WearHistorySerializer
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -39,6 +43,8 @@ class PumpPollingOrchestrator @Inject constructor(
     private val rawHistoryLogDao: RawHistoryLogDao,
     private val wearDataSender: WearDataSender,
     private val glucoseRangeStore: GlucoseRangeStore,
+    private val safetyLimitsStore: SafetyLimitsStore,
+    private val historyLogParser: HistoryLogParser,
 ) {
 
     /** Set by PumpConnectionService to trigger immediate sync after enqueue. */
@@ -182,7 +188,7 @@ class PumpPollingOrchestrator @Inject constructor(
         }
     }
 
-    /** Slow loop: battery + reservoir + raw history logs at least every ~5 min. */
+    /** Slow loop: battery + reservoir + raw history logs + watch history at least every ~5 min. */
     private suspend fun pollSlowLoop(initialDelayMs: Long = SLOW_LOOP_INITIAL_DELAY_MS) {
         delay(initialDelayMs)
         while (true) {
@@ -193,6 +199,8 @@ class PumpPollingOrchestrator @Inject constructor(
             pollHistoryLogs()
             delay(REQUEST_STAGGER_MS)
             cacheHardwareInfoOnce()
+            delay(REQUEST_STAGGER_MS)
+            sendWatchHistoryOverlays()
             delay(effectiveInterval(INTERVAL_SLOW_MS))
         }
     }
@@ -225,7 +233,8 @@ class PumpPollingOrchestrator @Inject constructor(
     private suspend fun pollBolusHistory() {
         val since = repository.getLatestBolusTimestamp()
             ?: Instant.now().minus(7, ChronoUnit.DAYS)
-        pumpDriver.getBolusHistory(since)
+        val limits = safetyLimitsStore.toSafetyLimits()
+        pumpDriver.getBolusHistory(since, limits)
             .onSuccess { events ->
                 if (events.isNotEmpty()) {
                     repository.saveBoluses(events)
@@ -314,8 +323,31 @@ class PumpPollingOrchestrator @Inject constructor(
          *  Let fast loop fire first, then quickly catch up on hardware status. */
         const val RECONNECT_SLOW_DELAY_MS = 3_000L        // 3 seconds
 
+        /** Max time to spend catching up on history logs per poll cycle.
+         *  Prevents monopolizing BLE during large backfills while still allowing
+         *  complete catch-up within a single cycle for typical gaps (< 2 hours). */
+        const val MAX_BACKFILL_DURATION_MS = 120_000L     // 2 minutes
+
+        /** Max time for initial pump history sync on fresh install.
+         *  Allows downloading the full pump history (months of data) in one pass. */
+        const val MAX_INITIAL_SYNC_DURATION_MS = 600_000L  // 10 minutes for full pump download
+
+        /** Pause between consecutive history log batch fetches during catch-up.
+         *  Gives fast loop (IoB/CGM) a window to fire between batches. */
+        const val BACKFILL_BATCH_STAGGER_MS = 1_000L      // 1 second
+
         // When phone battery is low, slow everything down by this factor
         const val LOW_BATTERY_MULTIPLIER = 3
+
+        /** Max history records per type sent to watch. Prevents exceeding DataItem size limit. */
+        const val MAX_HISTORY_RECORDS = 500
+
+        /** Explicit mapping to avoid ordinal-dependence on PumpActivityMode enum order. */
+        fun activityModeToInt(mode: PumpActivityMode): Int = when (mode) {
+            PumpActivityMode.NONE -> 0
+            PumpActivityMode.SLEEP -> 1
+            PumpActivityMode.EXERCISE -> 2
+        }
 
         fun alertLabel(type: String): String = when (type) {
             "urgent_low" -> "URGENT LOW"
@@ -355,49 +387,175 @@ class PumpPollingOrchestrator @Inject constructor(
             .onFailure { Timber.w(it, "Failed to poll reservoir") }
     }
 
+    /**
+     * Fetch history logs from the pump and backfill CGM, bolus, and basal data.
+     *
+     * Loops until fully caught up (no more records to fetch) rather than stopping
+     * after a single 200-record batch. This ensures gaps are filled completely on
+     * reconnect instead of taking 5 minutes per 200 records. Each batch is capped
+     * at 200 records / 15 seconds by the BLE driver to keep the connection alive.
+     *
+     * On fresh installs (lastSequenceNumber == 0), performs a full initial sync
+     * with extended duration (10 minutes) and requests the full pump history
+     * from the BLE driver (no lookback limit, larger batch caps).
+     */
     private suspend fun pollHistoryLogs() {
-        pumpDriver.getHistoryLogs(sinceSequence = lastSequenceNumber)
-            .onSuccess { records ->
-                if (records.isNotEmpty()) {
-                    val entities = records.map { record ->
-                        RawHistoryLogEntity(
-                            sequenceNumber = record.sequenceNumber,
-                            rawBytesB64 = record.rawBytesB64,
-                            eventTypeId = record.eventTypeId,
-                            pumpTimeSeconds = record.pumpTimeSeconds,
-                        )
-                    }
-                    rawHistoryLogDao.insertAll(entities)
-                    lastSequenceNumber = records.maxOf { it.sequenceNumber }
-                    backendSyncManager?.triggerSync()
-                    Timber.d("Saved %d raw history log records", records.size)
+        val limits = safetyLimitsStore.toSafetyLimits()
+        if (safetyLimitsStore.isStale()) {
+            Timber.w("Safety limits are stale (>%d ms old), using cached values", SafetyLimitsStore.STALE_THRESHOLD_MS)
+        }
 
-                    // Extract CGM readings from history logs to fill chart gaps
-                    val cgmReadings = StatusResponseParser.extractCgmFromHistoryLogs(records)
-                    if (cgmReadings.isNotEmpty()) {
-                        repository.saveCgmBatch(cgmReadings)
-                        Timber.d("Backfilled %d CGM readings from history logs", cgmReadings.size)
-                    }
+        val isInitialSync = lastSequenceNumber == 0
+        val deadline = if (isInitialSync) MAX_INITIAL_SYNC_DURATION_MS else MAX_BACKFILL_DURATION_MS
+        if (isInitialSync) {
+            Timber.i("Initial pump history sync starting (no prior data, full download)")
+        }
 
-                    // Extract bolus events from history logs
-                    val bolusEvents = StatusResponseParser.extractBolusesFromHistoryLogs(records)
-                    if (bolusEvents.isNotEmpty()) {
-                        repository.saveBoluses(bolusEvents)
-                        syncEnqueuer.enqueueBoluses(bolusEvents)
-                        Timber.d("Backfilled %d bolus events from history logs", bolusEvents.size)
-                    }
+        var totalRecords = 0
+        var totalCgm = 0
+        var totalBolus = 0
+        var totalBasal = 0
+        var batchCount = 0
+        val startNanos = System.nanoTime()
 
-                    // Extract basal delivery events from history logs
-                    val basalReadings = StatusResponseParser.extractBasalFromHistoryLogs(records)
-                    if (basalReadings.isNotEmpty()) {
-                        repository.saveBasalBatch(basalReadings)
-                        syncEnqueuer.enqueueBasalBatch(basalReadings)
-                        backendSyncManager?.triggerSync()
-                        Timber.d("Backfilled %d basal readings from history logs", basalReadings.size)
-                    }
-                }
+        while ((System.nanoTime() - startNanos) / 1_000_000 < deadline) {
+            val result = if (isInitialSync) {
+                pumpDriver.getFullHistoryLogs(sinceSequence = lastSequenceNumber)
+            } else {
+                pumpDriver.getHistoryLogs(sinceSequence = lastSequenceNumber)
             }
-            .onFailure { Timber.w(it, "Failed to poll history logs") }
+
+            if (result.isFailure) {
+                Timber.w(result.exceptionOrNull(), "Failed to poll history logs (batch %d)", batchCount)
+                break
+            }
+            val records = result.getOrNull() ?: break
+
+            if (records.isEmpty()) {
+                if (batchCount > 0) {
+                    if (isInitialSync) {
+                        Timber.i("Initial pump history sync complete")
+                    }
+                    Timber.d("History backfill complete: %d records (%d CGM, %d bolus, %d basal) in %d batches",
+                        totalRecords, totalCgm, totalBolus, totalBasal, batchCount)
+                }
+                break
+            }
+
+            batchCount++
+            totalRecords += records.size
+
+            // Persist raw history log records
+            val entities = records.map { record ->
+                RawHistoryLogEntity(
+                    sequenceNumber = record.sequenceNumber,
+                    rawBytesB64 = record.rawBytesB64,
+                    eventTypeId = record.eventTypeId,
+                    pumpTimeSeconds = record.pumpTimeSeconds,
+                )
+            }
+            rawHistoryLogDao.insertAll(entities)
+            val newMaxSeq = records.maxOfOrNull { it.sequenceNumber } ?: lastSequenceNumber
+            if (newMaxSeq <= lastSequenceNumber) {
+                Timber.w("History sequence not advancing (batch %d, stuck at %d), breaking", batchCount, lastSequenceNumber)
+                break
+            }
+            lastSequenceNumber = newMaxSeq
+            Timber.d("Fetched batch %d: %d history records (seq up to %d)", batchCount, records.size, lastSequenceNumber)
+
+            // Extract and save CGM readings to fill chart gaps
+            val cgmReadings = historyLogParser.extractCgmFromHistoryLogs(records, limits)
+            if (cgmReadings.isNotEmpty()) {
+                repository.saveCgmBatch(cgmReadings)
+                totalCgm += cgmReadings.size
+            }
+
+            // Extract and save bolus events
+            val bolusEvents = historyLogParser.extractBolusesFromHistoryLogs(records, limits)
+            if (bolusEvents.isNotEmpty()) {
+                repository.saveBoluses(bolusEvents)
+                syncEnqueuer.enqueueBoluses(bolusEvents)
+                totalBolus += bolusEvents.size
+            }
+
+            // Extract and save basal delivery events
+            val basalReadings = historyLogParser.extractBasalFromHistoryLogs(records, limits)
+            if (basalReadings.isNotEmpty()) {
+                repository.saveBasalBatch(basalReadings)
+                syncEnqueuer.enqueueBasalBatch(basalReadings)
+                totalBasal += basalReadings.size
+            }
+
+            if (isInitialSync) {
+                Timber.i("Initial sync: fetched %d records total (%d CGM, %d bolus, %d basal) in %d batches",
+                    totalRecords, totalCgm, totalBolus, totalBasal, batchCount)
+            }
+
+            // Trigger backend sync after each batch so data is uploaded incrementally
+            backendSyncManager?.triggerSync()
+
+            // Brief pause between batches to let other BLE operations through
+            delay(BACKFILL_BATCH_STAGGER_MS)
+        }
+    }
+
+    private suspend fun sendWatchHistoryOverlays() {
+        try {
+            val sixHoursAgo = Instant.now().minus(6, ChronoUnit.HOURS)
+
+            // Cap records per type to stay well under the 100KB DataItem limit.
+            // 500 basal * 13B = 6.5KB, 500 bolus * 21B = 10.5KB, 500 IoB * 12B = 6KB
+            val basalReadings = repository.getBasalSince(sixHoursAgo).takeLast(MAX_HISTORY_RECORDS)
+            if (basalReadings.isNotEmpty()) {
+                val records = basalReadings.map { r ->
+                    WearHistorySerializer.BasalRecord(
+                        rate = r.rate,
+                        timestampMs = r.timestamp.toEpochMilli(),
+                        isAutomated = r.isAutomated,
+                        activityMode = activityModeToInt(r.activityMode),
+                    )
+                }
+                val data = WearHistorySerializer.encodeBasalHistory(records)
+                wearDataSender.sendBasalHistory(data, records.size)
+            }
+
+            val bolusEvents = repository.getBolusesSince(sixHoursAgo).takeLast(MAX_HISTORY_RECORDS)
+            if (bolusEvents.isNotEmpty()) {
+                val records = bolusEvents.map { e ->
+                    WearHistorySerializer.BolusRecord(
+                        units = e.units,
+                        correctionUnits = e.correctionUnits,
+                        mealUnits = e.mealUnits,
+                        timestampMs = e.timestamp.toEpochMilli(),
+                        isAutomated = e.isAutomated,
+                        isCorrection = e.isCorrection,
+                    )
+                }
+                val data = WearHistorySerializer.encodeBolusHistory(records)
+                wearDataSender.sendBolusHistory(data, records.size)
+            }
+
+            val iobReadings = repository.getIoBSince(sixHoursAgo).takeLast(MAX_HISTORY_RECORDS)
+            if (iobReadings.isNotEmpty()) {
+                val records = iobReadings.map { r ->
+                    WearHistorySerializer.IoBRecord(
+                        iob = r.iob,
+                        timestampMs = r.timestamp.toEpochMilli(),
+                    )
+                }
+                val data = WearHistorySerializer.encodeIoBHistory(records)
+                wearDataSender.sendIoBHistory(data, records.size)
+            }
+
+            Timber.d(
+                "Sent watch history overlays: %d basal, %d bolus, %d IoB",
+                basalReadings.size, bolusEvents.size, iobReadings.size,
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "Failed to send watch history overlays")
+        }
     }
 
     private suspend fun cacheHardwareInfoOnce() {

@@ -20,12 +20,12 @@ jobs:
       pr: ${{ steps.release.outputs.pr }}
 
     steps:
-      - name: Generate token for homebot.0
+      - name: Generate token for glycemicgpt-release
         id: generate-token
         uses: actions/create-github-app-token@v1
         with:
-          app-id: ${{ secrets.BOT_APP_ID }}
-          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 
       - name: Release Please
         id: release
@@ -42,12 +42,12 @@ jobs:
     if: needs.release-please.outputs.pr != ''
 
     steps:
-      - name: Generate token for homebot.0
+      - name: Generate token for glycemicgpt-merge
         id: generate-token
         uses: actions/create-github-app-token@v1
         with:
-          app-id: ${{ secrets.BOT_APP_ID }}
-          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          app-id: ${{ secrets.MERGE_APP_ID }}
+          private-key: ${{ secrets.MERGE_APP_PRIVATE_KEY }}
 
       - name: Auto-merge release PR
         env:
@@ -106,16 +106,24 @@ jobs:
           VERSION="${{ needs.release-please.outputs.version }}"
           APP_APK=$(find apps/mobile/app/build/outputs/apk/release -name "*.apk" | head -1)
           cp "$APP_APK" "GlycemicGPT-${VERSION}-release.apk"
-          WEAR_APK=$(find apps/mobile/wear/build/outputs/apk/release -name "*.apk" | head -1)
+          WEAR_APK=$(find apps/mobile/wear-device/build/outputs/apk/release -name "*.apk" | head -1)
           if [ -n "$WEAR_APK" ]; then
             cp "$WEAR_APK" "GlycemicGPT-Wear-${VERSION}-release.apk"
           else
-            echo "::warning::Wear APK not found in build outputs"
+            echo "::error::Wear device APK not found in build outputs"
+            exit 1
           fi
+
+      - name: Generate token for glycemicgpt-release
+        id: release-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 
       - name: Upload APK to GitHub Release
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.release-token.outputs.token }}
         run: |
           TAG="${{ needs.release-please.outputs.tag_name }}"
           gh release upload "$TAG" GlycemicGPT-*-release.apk --repo ${{ github.repository }}

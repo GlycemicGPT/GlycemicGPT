@@ -43,6 +43,7 @@ data class PumpEventDto(
     val units: Float? = null,
     @Json(name = "duration_minutes") val durationMinutes: Int? = null,
     @Json(name = "is_automated") val isAutomated: Boolean = false,
+    @Json(name = "pump_activity_mode") val pumpActivityMode: String? = null,
     @Json(name = "control_iq_mode") val controlIqMode: String? = null,
     @Json(name = "basal_adjustment_pct") val basalAdjustmentPct: Float? = null,
     @Json(name = "iob_at_event") val iobAtEvent: Float? = null,
@@ -111,4 +112,58 @@ data class GlucoseRangeResponse(
     @Json(name = "low_target") val lowTarget: Float,
     @Json(name = "high_target") val highTarget: Float,
     @Json(name = "urgent_high") val urgentHigh: Float,
+)
+
+@JsonClass(generateAdapter = true)
+data class SafetyLimitsResponse(
+    @Json(name = "min_glucose_mgdl") val minGlucoseMgDl: Int,
+    @Json(name = "max_glucose_mgdl") val maxGlucoseMgDl: Int,
+    @Json(name = "max_basal_rate_milliunits") val maxBasalRateMilliunits: Int,
+    @Json(name = "max_bolus_dose_milliunits") val maxBolusDoseMilliunits: Int,
+    @Json(name = "updated_at") val updatedAt: String,
+)
+
+@JsonClass(generateAdapter = true)
+data class DisplayLabelDto(
+    val id: String,
+    val label: String,
+    @Json(name = "computation_role") val computationRole: String? = null,
+    @Json(name = "pump_source") val pumpSource: String? = null,
+    @Json(name = "sort_order") val sortOrder: Int = 0,
+)
+
+@JsonClass(generateAdapter = true)
+data class AnalyticsConfigResponse(
+    @Json(name = "day_boundary_hour") val dayBoundaryHour: Int,
+    @Json(name = "display_labels") val displayLabels: List<DisplayLabelDto>? = null,
+    @Json(name = "category_labels") val categoryLabels: Map<String, String>? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class PluginDeclarationRequest(
+    @Json(name = "plugin_id") val pluginId: String,
+    @Json(name = "plugin_name") val pluginName: String,
+    @Json(name = "plugin_version") val pluginVersion: String,
+    @Json(name = "declared_categories") val declaredCategories: List<String>,
+    @Json(name = "category_mappings") val categoryMappings: Map<String, String>,
+)
+
+@JsonClass(generateAdapter = true)
+data class PumpProfileSegmentDto(
+    val time: String,
+    @Json(name = "start_minutes") val startMinutes: Int,
+    @Json(name = "basal_rate") val basalRate: Float,
+    @Json(name = "correction_factor") val correctionFactor: Float? = null,
+    @Json(name = "carb_ratio") val carbRatio: Float? = null,
+    @Json(name = "target_bg") val targetBg: Int? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class PumpProfileResponse(
+    @Json(name = "profile_name") val profileName: String,
+    @Json(name = "is_active") val isActive: Boolean,
+    @Json(name = "dia_minutes") val diaMinutes: Int? = null,
+    @Json(name = "max_bolus_units") val maxBolusUnits: Float? = null,
+    val segments: List<PumpProfileSegmentDto>,
+    @Json(name = "synced_at") val syncedAt: String,
 )

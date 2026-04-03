@@ -148,14 +148,14 @@ describe("useGlucoseStream", () => {
 
       expect(MockEventSource.instances).toHaveLength(1);
       expect(MockEventSource.getLastInstance()?.url).toBe(
-        "http://localhost:8000/api/v1/glucose/stream"
+        "/api/v1/glucose/stream"
       );
     });
 
-    it("should set withCredentials to true", () => {
+    it("should use same-origin request (no withCredentials needed)", () => {
       renderHook(() => useGlucoseStream(true));
 
-      expect(MockEventSource.getLastInstance()?.withCredentials).toBe(true);
+      expect(MockEventSource.getLastInstance()?.withCredentials).toBe(false);
     });
   });
 

@@ -23,7 +23,7 @@ from src.models.integration import (
     IntegrationStatus,
     IntegrationType,
 )
-from src.models.pump_data import ControlIQMode, PumpEvent, PumpEventType
+from src.models.pump_data import PumpActivityMode, PumpEvent, PumpEventType
 from src.models.pump_profile import PumpProfile
 
 logger = get_logger(__name__)
@@ -59,23 +59,26 @@ class TandemConnectionError(TandemSyncError):
 
 @dataclass
 class ParsedEventData:
-    """Parsed Control-IQ event data from tconnectsync."""
+    """Parsed pump event data from tconnectsync."""
 
     event_type: PumpEventType
     is_automated: bool
     control_iq_reason: str | None
-    control_iq_mode: ControlIQMode | None
+    pump_activity_mode: PumpActivityMode | None
     basal_adjustment_pct: float | None
 
 
-def detect_control_iq_mode(event_data: dict) -> ControlIQMode | None:
-    """Detect the Control-IQ mode active during an event.
+def detect_pump_activity_mode(event_data: dict) -> PumpActivityMode | None:
+    """Detect the pump activity mode active during an event.
+
+    Activity modes (sleep/exercise) are pump-level features that adjust target
+    ranges and basal profiles, independent of Control-IQ automation.
 
     Args:
         event_data: Event dictionary from tconnectsync parser
 
     Returns:
-        ControlIQMode or None if not determinable
+        PumpActivityMode or None if not determinable
     """
     # Check various field names that might indicate mode
     mode_indicators = [
@@ -91,17 +94,18 @@ def detect_control_iq_mode(event_data: dict) -> ControlIQMode | None:
             continue
         indicator_lower = str(indicator).lower()
         if "sleep" in indicator_lower:
-            return ControlIQMode.SLEEP
+            return PumpActivityMode.SLEEP
         if "exercise" in indicator_lower:
-            return ControlIQMode.EXERCISE
+            return PumpActivityMode.EXERCISE
+        # "standard"/"normal" means no special mode active
         if "standard" in indicator_lower or "normal" in indicator_lower:
-            return ControlIQMode.STANDARD
+            return PumpActivityMode.NONE
 
     # Check for sleep/exercise flags
     if event_data.get("isSleepMode") or event_data.get("is_sleep_mode"):
-        return ControlIQMode.SLEEP
+        return PumpActivityMode.SLEEP
     if event_data.get("isExerciseMode") or event_data.get("is_exercise_mode"):
-        return ControlIQMode.EXERCISE
+        return PumpActivityMode.EXERCISE
 
     return None
 
@@ -237,8 +241,8 @@ def parse_control_iq_event(event_data: dict) -> ParsedEventData:
     # Get basic event info
     event_type, is_automated, control_iq_reason = map_event_type(event_data)
 
-    # Detect Control-IQ mode
-    control_iq_mode = detect_control_iq_mode(event_data)
+    # Detect pump activity mode (sleep/exercise/none)
+    pump_activity_mode = detect_pump_activity_mode(event_data)
 
     # Calculate basal adjustment for basal events
     basal_adjustment_pct = None
@@ -258,7 +262,7 @@ def parse_control_iq_event(event_data: dict) -> ParsedEventData:
         event_type=event_type,
         is_automated=is_automated,
         control_iq_reason=control_iq_reason,
-        control_iq_mode=control_iq_mode,
+        pump_activity_mode=pump_activity_mode,
         basal_adjustment_pct=basal_adjustment_pct,
     )
 
@@ -372,7 +376,9 @@ def _normalize_pump_event(event, _seen_ids: set | None = None) -> dict | None:
         commanded_mu = _int("commandedRate")
         profile_mu = _int("profileBasalRate")
         if commanded_mu is not None:
-            d["actualRate"] = commanded_mu / 1000.0
+            rate = commanded_mu / 1000.0
+            d["actualRate"] = rate
+            d["units"] = rate  # Store rate (U/hr) for time-weighted aggregation
         if profile_mu is not None:
             d["profileRate"] = profile_mu / 1000.0
         # Detect Control-IQ automation via commandedRateSource
@@ -393,6 +399,8 @@ def _normalize_pump_event(event, _seen_ids: set | None = None) -> dict | None:
     # Normalize basal rates for adjustment calculation (event ID 3)
     if "commandedbasalrate" in d:
         d["actualRate"] = _float("commandedbasalrate")
+        if d.get("actualRate") is not None:
+            d["units"] = d["actualRate"]  # Store rate for aggregation
     if "basebasalrate" in d:
         d["profileRate"] = _float("basebasalrate")
 
@@ -927,8 +935,8 @@ async def sync_tandem_for_user(
                 duration_minutes=duration_minutes,
                 is_automated=parsed.is_automated,
                 control_iq_reason=parsed.control_iq_reason,
-                control_iq_mode=parsed.control_iq_mode.value
-                if parsed.control_iq_mode
+                pump_activity_mode=parsed.pump_activity_mode.value
+                if parsed.pump_activity_mode
                 else None,
                 basal_adjustment_pct=parsed.basal_adjustment_pct,
                 iob_at_event=iob,
@@ -953,8 +961,8 @@ async def sync_tandem_for_user(
                 "timestamp": event_time,
                 "units": units,
                 "is_automated": parsed.is_automated,
-                "control_iq_mode": parsed.control_iq_mode.value
-                if parsed.control_iq_mode
+                "pump_activity_mode": parsed.pump_activity_mode.value
+                if parsed.pump_activity_mode
                 else None,
             }
 
@@ -1095,7 +1103,7 @@ class ControlIQActivitySummary:
     # Mode activity
     sleep_mode_events: int
     exercise_mode_events: int
-    standard_mode_events: int
+    standard_mode_events: int  # events with no special mode (none/standard)
 
     # Time range
     start_time: datetime
@@ -1171,12 +1179,15 @@ async def get_control_iq_activity(
                 automated_suspend_count += 1
 
         # Count by mode
-        if event.control_iq_mode:
-            if event.control_iq_mode == ControlIQMode.SLEEP.value:
+        if event.pump_activity_mode:
+            if event.pump_activity_mode == PumpActivityMode.SLEEP.value:
                 sleep_mode_events += 1
-            elif event.control_iq_mode == ControlIQMode.EXERCISE.value:
+            elif event.pump_activity_mode == PumpActivityMode.EXERCISE.value:
                 exercise_mode_events += 1
-            elif event.control_iq_mode == ControlIQMode.STANDARD.value:
+            elif event.pump_activity_mode in (
+                PumpActivityMode.NONE.value,
+                "standard",  # legacy data pre-migration
+            ):
                 standard_mode_events += 1
 
     # Calculate average basal adjustment

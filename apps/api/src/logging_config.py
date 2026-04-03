@@ -137,8 +137,14 @@ class StructuredLogger:
 
     def _log(self, level: int, msg: str, extra_fields: dict[str, Any] | None = None):
         """Log with optional extra fields."""
+        exc_info = None
+        if extra_fields:
+            # Extract exc_info so it's forwarded to the underlying logger,
+            # not buried inside extra_fields where it would be silently lost.
+            extra_fields = dict(extra_fields)  # shallow copy to avoid mutating caller
+            exc_info = extra_fields.pop("exc_info", None)
         record_extra = {"extra_fields": extra_fields} if extra_fields else {}
-        self._logger.log(level, msg, extra=record_extra)
+        self._logger.log(level, msg, exc_info=exc_info, extra=record_extra)
 
     def debug(self, msg: str, **extra_fields: Any) -> None:
         """Log debug message with optional extra fields."""

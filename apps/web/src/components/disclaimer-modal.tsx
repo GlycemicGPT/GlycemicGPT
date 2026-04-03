@@ -71,8 +71,7 @@ export function DisclaimerModal({ onAcknowledge }: DisclaimerModalProps) {
         if (!status.acknowledged) {
           setIsOpen(true);
         }
-      } catch (err) {
-        console.error("Failed to check disclaimer status:", err);
+      } catch {
         // On error, show the disclaimer to be safe
         try {
           const disclaimerContent = await getDisclaimerContent();

@@ -107,10 +107,10 @@ export default function InviteAcceptPage() {
   // Loading state
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center">
         <div className="text-center">
           <Loader2 className="h-8 w-8 text-blue-400 animate-spin mx-auto mb-3" />
-          <p className="text-slate-400">Loading invitation...</p>
+          <p className="text-slate-500 dark:text-slate-400">Loading invitation...</p>
         </div>
       </div>
     );
@@ -119,18 +119,18 @@ export default function InviteAcceptPage() {
   // Error state (invalid/not found token)
   if (error || !invitation) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
-        <div className="max-w-md w-full bg-slate-900 rounded-xl border border-slate-800 p-8 text-center">
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-8 text-center">
           <XCircle className="h-12 w-12 text-red-400 mx-auto mb-4" />
-          <h1 className="text-xl font-bold text-slate-200 mb-2">
+          <h1 className="text-xl font-bold text-slate-800 dark:text-slate-200 mb-2">
             Invalid Invitation
           </h1>
-          <p className="text-slate-400 text-sm">
+          <p className="text-slate-500 dark:text-slate-400 text-sm">
             {error || "This invitation link is invalid or has expired."}
           </p>
           <Link
             href="/"
-            className="inline-block mt-6 px-4 py-2 bg-slate-800 text-slate-300 rounded-lg text-sm hover:bg-slate-700 transition-colors"
+            className="inline-block mt-6 px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-lg text-sm hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
           >
             Go to Home
           </Link>
@@ -142,15 +142,15 @@ export default function InviteAcceptPage() {
   // Expired or revoked
   if (invitation.status !== "pending") {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
-        <div className="max-w-md w-full bg-slate-900 rounded-xl border border-slate-800 p-8 text-center">
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-8 text-center">
           {invitation.status === "accepted" ? (
             <>
               <CheckCircle className="h-12 w-12 text-green-400 mx-auto mb-4" />
-              <h1 className="text-xl font-bold text-slate-200 mb-2">
+              <h1 className="text-xl font-bold text-slate-800 dark:text-slate-200 mb-2">
                 Already Accepted
               </h1>
-              <p className="text-slate-400 text-sm">
+              <p className="text-slate-500 dark:text-slate-400 text-sm">
                 This invitation has already been accepted. You can log in to
                 your account.
               </p>
@@ -158,11 +158,11 @@ export default function InviteAcceptPage() {
           ) : (
             <>
               <Clock className="h-12 w-12 text-slate-500 mx-auto mb-4" />
-              <h1 className="text-xl font-bold text-slate-200 mb-2">
+              <h1 className="text-xl font-bold text-slate-800 dark:text-slate-200 mb-2">
                 Invitation{" "}
                 {invitation.status === "expired" ? "Expired" : "Revoked"}
               </h1>
-              <p className="text-slate-400 text-sm">
+              <p className="text-slate-500 dark:text-slate-400 text-sm">
                 This invitation is no longer valid. Please ask{" "}
                 {invitation.patient_email} to send a new invitation.
               </p>
@@ -170,7 +170,7 @@ export default function InviteAcceptPage() {
           )}
           <Link
             href="/"
-            className="inline-block mt-6 px-4 py-2 bg-slate-800 text-slate-300 rounded-lg text-sm hover:bg-slate-700 transition-colors"
+            className="inline-block mt-6 px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-lg text-sm hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
           >
             Go to Home
           </Link>
@@ -182,13 +182,13 @@ export default function InviteAcceptPage() {
   // Success state
   if (success) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
-        <div className="max-w-md w-full bg-slate-900 rounded-xl border border-slate-800 p-8 text-center">
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-8 text-center">
           <CheckCircle className="h-12 w-12 text-green-400 mx-auto mb-4" />
-          <h1 className="text-xl font-bold text-slate-200 mb-2">
+          <h1 className="text-xl font-bold text-slate-800 dark:text-slate-200 mb-2">
             Account Created!
           </h1>
-          <p className="text-slate-400 text-sm mb-4">
+          <p className="text-slate-500 dark:text-slate-400 text-sm mb-4">
             Your caregiver account has been created and linked to{" "}
             {invitation.patient_email}. You can now monitor their glucose data
             via the Telegram bot.
@@ -203,15 +203,15 @@ export default function InviteAcceptPage() {
 
   // Pending — show registration form
   return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
-      <div className="max-w-md w-full bg-slate-900 rounded-xl border border-slate-800 p-8">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center p-4">
+      <div className="max-w-md w-full bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-8">
         <div className="text-center mb-6">
           <UserPlus className="h-12 w-12 text-blue-400 mx-auto mb-4" />
-          <h1 className="text-xl font-bold text-slate-200 mb-2">
+          <h1 className="text-xl font-bold text-slate-800 dark:text-slate-200 mb-2">
             Caregiver Invitation
           </h1>
-          <p className="text-slate-400 text-sm">
-            <span className="text-blue-400">{invitation.patient_email}</span>{" "}
+          <p className="text-slate-500 dark:text-slate-400 text-sm">
+            <span className="text-blue-700 dark:text-blue-400">{invitation.patient_email}</span>{" "}
             has invited you to be their caregiver on GlycemicGPT.
           </p>
           <p className="text-xs text-slate-500 mt-2">
@@ -235,7 +235,7 @@ export default function InviteAcceptPage() {
           <div>
             <label
               htmlFor="email"
-              className="block text-sm font-medium text-slate-300 mb-1"
+              className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
             >
               Email Address
             </label>
@@ -247,7 +247,7 @@ export default function InviteAcceptPage() {
               onChange={(e) => setEmail(e.target.value)}
               className={clsx(
                 "w-full rounded-lg border px-3 py-2 text-sm",
-                "bg-slate-800 border-slate-700 text-slate-200",
+                "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200",
                 "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                 "placeholder:text-slate-500"
               )}
@@ -258,7 +258,7 @@ export default function InviteAcceptPage() {
           <div>
             <label
               htmlFor="password"
-              className="block text-sm font-medium text-slate-300 mb-1"
+              className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
             >
               Password
             </label>
@@ -273,7 +273,7 @@ export default function InviteAcceptPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 className={clsx(
                   "w-full rounded-lg border px-3 py-2 pr-10 text-sm",
-                  "bg-slate-800 border-slate-700 text-slate-200",
+                  "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200",
                   "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                   "placeholder:text-slate-500"
                 )}
@@ -282,7 +282,7 @@ export default function InviteAcceptPage() {
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-200"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
                 aria-label={showPassword ? "Hide password" : "Show password"}
               >
                 {showPassword ? (
@@ -297,7 +297,7 @@ export default function InviteAcceptPage() {
           <div>
             <label
               htmlFor="confirm-password"
-              className="block text-sm font-medium text-slate-300 mb-1"
+              className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
             >
               Confirm Password
             </label>
@@ -311,7 +311,7 @@ export default function InviteAcceptPage() {
               onChange={(e) => setConfirmPassword(e.target.value)}
               className={clsx(
                 "w-full rounded-lg border px-3 py-2 text-sm",
-                "bg-slate-800 border-slate-700 text-slate-200",
+                "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200",
                 "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                 "placeholder:text-slate-500"
               )}

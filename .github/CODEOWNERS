@@ -5,6 +5,36 @@
 # when a pull request modifies files matching the patterns below.
 #
 # Order matters -- later rules take precedence over earlier ones.
+# See GOVERNANCE.md for role definitions and the path to becoming a maintainer.
 
-# Default: project maintainer owns everything
-* @jlengelbrecht
+# Default: maintainers team reviews everything
+* @GlycemicGPT/maintainers
+
+# Governance & project policy: project lead only
+# These files define how the project is run. Only the project lead
+# can approve changes to prevent unilateral governance modifications.
+/.github/CODEOWNERS @jlengelbrecht
+/GOVERNANCE.md @jlengelbrecht
+/CONTRIBUTING.md @jlengelbrecht
+/LICENSE @jlengelbrecht
+
+# Security infrastructure: project lead only
+# Security scan configuration and workflows affect what gets flagged
+# and what gets suppressed. Changes require project lead review.
+/scripts/security/ @jlengelbrecht
+/.github/workflows/security-scan.yml @jlengelbrecht
+/.github/workflows/security-full-suite.yml @jlengelbrecht
+
+# Release & CI configuration: project lead only
+/.github/workflows/release.yml @jlengelbrecht
+/.github/renovate.json5 @jlengelbrecht
+
+# Component ownership -- ready for future committer teams.
+# Uncomment and update when component-specific teams are created.
+# See GOVERNANCE.md for the promotion process.
+#
+# /apps/api/ @GlycemicGPT/maintainers @GlycemicGPT/backend-committers
+# /apps/web/ @GlycemicGPT/maintainers @GlycemicGPT/frontend-committers
+# /apps/mobile/ @GlycemicGPT/maintainers @GlycemicGPT/mobile-committers
+# /plugins/ @GlycemicGPT/maintainers @GlycemicGPT/mobile-committers
+# /sidecar/ @GlycemicGPT/maintainers @GlycemicGPT/backend-committers

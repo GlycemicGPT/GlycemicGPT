@@ -51,7 +51,7 @@ const STATUS_CONFIG: Record<
   },
   expired: {
     label: "Expired",
-    className: "bg-slate-700 text-slate-400",
+    className: "bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400",
     icon: XCircle,
   },
   revoked: {
@@ -94,11 +94,9 @@ export default function CaregiversPage() {
     try {
       const data = await listLinkedCaregivers();
       setLinkedCaregivers(data.caregivers);
-    } catch (err) {
-      // Non-auth errors are surfaced; 401/fetch failures are expected when API is down
-      if (err instanceof Error && !err.message.includes("401")) {
-        console.error("Failed to load linked caregivers:", err.message);
-      }
+    } catch {
+      // Non-critical: linked caregivers section is supplementary.
+      // 401/fetch failures are expected when API is down.
     }
   }, []);
 
@@ -179,13 +177,13 @@ export default function CaregiversPage() {
       <div>
         <a
           href="/dashboard/settings"
-          className="flex items-center gap-1 text-sm text-slate-400 hover:text-slate-300 mb-2"
+          className="flex items-center gap-1 text-sm text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 mb-2"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to Settings
         </a>
         <h1 className="text-2xl font-bold">Caregiver Access</h1>
-        <p className="text-slate-400">
+        <p className="text-slate-500 dark:text-slate-400">
           Invite caregivers to monitor your glucose data via Telegram
         </p>
       </div>
@@ -232,7 +230,7 @@ export default function CaregiversPage() {
             Share this link with your caregiver:
           </p>
           <div className="flex items-center gap-2">
-            <code className="flex-1 bg-slate-800 rounded px-3 py-2 text-sm text-slate-200 overflow-x-auto">
+            <code className="flex-1 bg-slate-100 dark:bg-slate-800 rounded px-3 py-2 text-sm text-slate-900 dark:text-slate-200 overflow-x-auto">
               {newInviteUrl}
             </code>
             <button
@@ -258,18 +256,18 @@ export default function CaregiversPage() {
       {/* Loading state */}
       {isLoading && (
         <div
-          className="bg-slate-900 rounded-xl p-12 border border-slate-800 text-center"
+          className="bg-white dark:bg-slate-900 rounded-xl p-12 border border-slate-200 dark:border-slate-800 text-center"
           role="status"
           aria-label="Loading invitations"
         >
           <Loader2 className="h-8 w-8 text-blue-400 animate-spin mx-auto mb-3" />
-          <p className="text-slate-400">Loading invitations...</p>
+          <p className="text-slate-500 dark:text-slate-400">Loading invitations...</p>
         </div>
       )}
 
       {/* Invitations list */}
       {!isLoading && (
-        <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6">
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 bg-blue-500/10 rounded-lg">
               <UserPlus className="h-5 w-5 text-blue-400" />
@@ -287,7 +285,7 @@ export default function CaregiversPage() {
           {invitations.length === 0 && (
             <div className="text-center py-8">
               <UserPlus className="h-10 w-10 text-slate-600 mx-auto mb-3" />
-              <p className="text-slate-400 mb-1">No invitations yet</p>
+              <p className="text-slate-500 dark:text-slate-400 mb-1">No invitations yet</p>
               <p className="text-xs text-slate-500">
                 Create an invitation to give a caregiver access to your
                 glucose data
@@ -303,7 +301,7 @@ export default function CaregiversPage() {
                 return (
                   <div
                     key={inv.id}
-                    className="flex items-center justify-between bg-slate-800/50 rounded-lg p-4 border border-slate-700/50"
+                    className="flex items-center justify-between bg-slate-100/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-300/50 dark:border-slate-700/50"
                   >
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
@@ -317,7 +315,7 @@ export default function CaregiversPage() {
                           {config.label}
                         </span>
                       </div>
-                      <div className="text-xs text-slate-500 mt-1">
+                      <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                         Created {formatDate(inv.created_at)} &middot; Expires{" "}
                         {formatDate(inv.expires_at)}
                       </div>
@@ -332,7 +330,7 @@ export default function CaregiversPage() {
                         type="button"
                         onClick={() => handleRevoke(inv.id)}
                         disabled={revokingId === inv.id || isOffline}
-                        className="shrink-0 ml-3 p-2 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="shrink-0 ml-3 p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 disabled:opacity-50 disabled:cursor-not-allowed"
                         aria-label="Revoke invitation"
                       >
                         {revokingId === inv.id ? (
@@ -382,7 +380,7 @@ export default function CaregiversPage() {
 
       {/* Linked Caregivers section (Story 8.2) */}
       {linkedCaregivers.length > 0 && (
-        <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6">
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 bg-green-500/10 rounded-lg">
               <Shield className="h-5 w-5 text-green-400" />
@@ -408,10 +406,10 @@ export default function CaregiversPage() {
               return (
                 <div
                   key={cg.link_id}
-                  className="flex items-center justify-between bg-slate-800/50 rounded-lg p-4 border border-slate-700/50"
+                  className="flex items-center justify-between bg-slate-100/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-300/50 dark:border-slate-700/50"
                 >
                   <div className="min-w-0">
-                    <p className="text-sm font-medium text-slate-200 truncate">
+                    <p className="text-sm font-medium text-slate-900 dark:text-slate-200 truncate">
                       {cg.caregiver_email}
                     </p>
                     <p className="text-xs text-slate-500 mt-0.5">
@@ -426,7 +424,7 @@ export default function CaregiversPage() {
                   </div>
                   <Link
                     href={`/dashboard/settings/caregivers/${cg.link_id}/permissions`}
-                    className="shrink-0 ml-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-300 bg-slate-700 hover:bg-slate-600 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                    className="shrink-0 ml-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-300 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                   >
                     <Settings2 className="h-3.5 w-3.5" />
                     Permissions
@@ -439,8 +437,8 @@ export default function CaregiversPage() {
       )}
 
       {/* Info card */}
-      <div className="bg-slate-900/50 rounded-xl p-4 border border-slate-800">
-        <h3 className="text-sm font-medium text-slate-300 mb-2">
+      <div className="bg-slate-50/50 dark:bg-slate-900/50 rounded-xl p-4 border border-slate-200 dark:border-slate-800">
+        <h3 className="text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">
           How it works
         </h3>
         <ol className="text-xs text-slate-500 space-y-1 list-decimal list-inside">

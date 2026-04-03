@@ -19,6 +19,8 @@ from src.config import settings
 
 # Override settings for testing
 settings.testing = True
+# Provide a sufficiently long secret_key for tests (generated at runtime)
+settings.secret_key = "t" * 32  # noqa: S105  -- test-only, not a real secret
 
 from src.database import get_engine, get_session_maker, reset_database
 from src.main import app

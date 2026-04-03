@@ -218,6 +218,12 @@ class User(Base, TimestampMixin):
         cascade="all, delete-orphan",
         uselist=False,
     )
+    safety_limits = relationship(
+        "SafetyLimits",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
     tandem_upload_state = relationship(
         "TandemUploadState",
         back_populates="user",
@@ -228,6 +234,23 @@ class User(Base, TimestampMixin):
         "DeviceRegistration",
         back_populates="user",
         cascade="all, delete-orphan",
+    )
+    api_keys = relationship(
+        "ApiKey",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    analytics_config = relationship(
+        "AnalyticsConfig",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+    plugin_declaration = relationship(
+        "PluginDeclaration",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        uselist=False,
     )
 
     def __repr__(self) -> str:

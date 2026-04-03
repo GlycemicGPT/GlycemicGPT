@@ -191,13 +191,13 @@ export default function BriefDeliveryPage() {
       <div>
         <Link
           href="/dashboard/settings"
-          className="flex items-center gap-1 text-sm text-slate-400 hover:text-slate-300 mb-2"
+          className="flex items-center gap-1 text-sm text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 mb-2"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to Settings
         </Link>
         <h1 className="text-2xl font-bold">Daily Brief Delivery</h1>
-        <p className="text-slate-400">
+        <p className="text-slate-500 dark:text-slate-400">
           Configure when and how you receive your daily glucose briefs
         </p>
       </div>
@@ -236,18 +236,18 @@ export default function BriefDeliveryPage() {
       {/* Loading state */}
       {isLoading && (
         <div
-          className="bg-slate-900 rounded-xl p-12 border border-slate-800 text-center"
+          className="bg-white dark:bg-slate-900 rounded-xl p-12 border border-slate-200 dark:border-slate-800 text-center"
           role="status"
           aria-label="Loading brief delivery configuration"
         >
           <Loader2 className="h-8 w-8 text-blue-400 animate-spin mx-auto mb-3" />
-          <p className="text-slate-400">Loading delivery configuration...</p>
+          <p className="text-slate-500 dark:text-slate-400">Loading delivery configuration...</p>
         </div>
       )}
 
       {/* Configuration form */}
       {!isLoading && (
-        <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6">
           <div className="flex items-center gap-3 mb-6">
             <div className="p-2 bg-blue-500/10 rounded-lg">
               <Clock className="h-5 w-5 text-blue-400" />
@@ -266,7 +266,7 @@ export default function BriefDeliveryPage() {
               <div>
                 <label
                   htmlFor="enabled"
-                  className="text-sm font-medium text-slate-300"
+                  className="text-sm font-medium text-slate-600 dark:text-slate-300"
                 >
                   Enable Daily Briefs
                 </label>
@@ -286,7 +286,7 @@ export default function BriefDeliveryPage() {
                   "transition-colors duration-200 ease-in-out",
                   "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
                   "disabled:opacity-50 disabled:cursor-not-allowed",
-                  enabled ? "bg-blue-600" : "bg-slate-700"
+                  enabled ? "bg-blue-600" : "bg-slate-300 dark:bg-slate-700"
                 )}
               >
                 <span
@@ -304,7 +304,7 @@ export default function BriefDeliveryPage() {
               <div>
                 <label
                   htmlFor="delivery-time"
-                  className="block text-sm font-medium text-slate-300 mb-1"
+                  className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
                 >
                   Delivery Time
                 </label>
@@ -316,7 +316,7 @@ export default function BriefDeliveryPage() {
                   disabled={isSaving}
                   className={clsx(
                     "w-full rounded-lg border px-3 py-2 text-sm",
-                    "bg-slate-800 border-slate-700 text-slate-200",
+                    "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
                     "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                     "disabled:opacity-50 disabled:cursor-not-allowed"
                   )}
@@ -334,7 +334,7 @@ export default function BriefDeliveryPage() {
               <div>
                 <label
                   htmlFor="timezone"
-                  className="block text-sm font-medium text-slate-300 mb-1"
+                  className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
                 >
                   Timezone
                 </label>
@@ -345,7 +345,7 @@ export default function BriefDeliveryPage() {
                   disabled={isSaving}
                   className={clsx(
                     "w-full rounded-lg border px-3 py-2 text-sm",
-                    "bg-slate-800 border-slate-700 text-slate-200",
+                    "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
                     "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                     "disabled:opacity-50 disabled:cursor-not-allowed"
                   )}
@@ -365,7 +365,7 @@ export default function BriefDeliveryPage() {
 
             {/* Channel selection */}
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
+              <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">
                 Delivery Channel
               </label>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -382,8 +382,8 @@ export default function BriefDeliveryPage() {
                       "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
                       "disabled:opacity-50 disabled:cursor-not-allowed",
                       channel === opt.value
-                        ? "bg-blue-600/20 border-blue-500 text-blue-400"
-                        : "bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600"
+                        ? "bg-blue-50 dark:bg-blue-600/20 border-blue-600 dark:border-blue-500 text-blue-700 dark:text-blue-400"
+                        : "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:border-slate-400 dark:hover:border-slate-600"
                     )}
                   >
                     {opt.label}
@@ -397,9 +397,9 @@ export default function BriefDeliveryPage() {
 
             {/* Preview */}
             {!isLoading && (
-              <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
+              <div className="bg-slate-100/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-300/50 dark:border-slate-700/50">
                 <p className="text-xs text-slate-500 mb-2">Preview</p>
-                <p className="text-lg font-semibold text-blue-400">
+                <p className="text-lg font-semibold text-blue-700 dark:text-blue-400">
                   {enabled ? "Enabled" : "Disabled"} &middot; {deliveryTime}{" "}
                   {timezone.replace(/_/g, " ")} &middot;{" "}
                   {CHANNEL_OPTIONS.find((o) => o.value === channel)?.label}
@@ -446,7 +446,7 @@ export default function BriefDeliveryPage() {
                 }
                 className={clsx(
                   "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium",
-                  "bg-slate-800 text-slate-300 hover:bg-slate-700",
+                  "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700",
                   "transition-colors",
                   "focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500",
                   "disabled:opacity-50 disabled:cursor-not-allowed"
@@ -461,7 +461,7 @@ export default function BriefDeliveryPage() {
       )}
 
       {/* Info card */}
-      <div className="bg-slate-900/50 rounded-xl p-4 border border-slate-800">
+      <div className="bg-slate-50/50 dark:bg-slate-900/50 rounded-xl p-4 border border-slate-200 dark:border-slate-800">
         <p className="text-xs text-slate-500">
           Daily briefs provide an AI-generated summary of your glucose data from
           the previous 24 hours. They are delivered at the scheduled time in your

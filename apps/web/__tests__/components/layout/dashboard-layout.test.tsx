@@ -73,8 +73,8 @@ describe("DashboardLayout", () => {
       </DashboardLayout>
     );
 
-    // Should have the main container with dark background
+    // Should have the main container with flexbox layout
     const mainContainer = container.firstChild;
-    expect(mainContainer).toHaveClass("min-h-screen", "bg-slate-950");
+    expect(mainContainer).toHaveClass("h-screen");
   });
 });

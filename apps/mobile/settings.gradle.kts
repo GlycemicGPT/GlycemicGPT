@@ -21,6 +21,7 @@ dependencyResolutionManagement {
             url = uri("https://jitpack.io")
             content {
                 includeGroup("com.github.jeziellago")
+                includeModule("com.github.xgouchet", "AXML")
             }
         }
     }
@@ -28,4 +29,9 @@ dependencyResolutionManagement {
 
 rootProject.name = "GlycemicGPT"
 include(":app")
-include(":wear")
+include(":wear-device")
+include(":watchface")
+include(":pump-driver-api")
+project(":pump-driver-api").projectDir = file("../../plugins/pump-driver-api")
+include(":tandem-pump-driver")
+project(":tandem-pump-driver").projectDir = file("../../plugins/shipped/tandem")

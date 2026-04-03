@@ -1,19 +1,31 @@
 package com.glycemicgpt.mobile.presentation.home
 
+import com.glycemicgpt.mobile.data.local.AnalyticsSettingsStore
+import com.glycemicgpt.mobile.data.local.AppSettingsStore
 import com.glycemicgpt.mobile.data.local.GlucoseRangeStore
+import com.glycemicgpt.mobile.data.local.PumpProfileStore
+import com.glycemicgpt.mobile.data.local.SafetyLimitsStore
 import com.glycemicgpt.mobile.data.remote.GlycemicGptApi
+import com.glycemicgpt.mobile.data.remote.dto.PluginDeclarationRequest
+import com.glycemicgpt.mobile.data.repository.AuthRepository
 import com.glycemicgpt.mobile.data.remote.dto.GlucoseRangeResponse
 import com.glycemicgpt.mobile.data.repository.PumpDataRepository
 import com.glycemicgpt.mobile.domain.model.BasalReading
 import com.glycemicgpt.mobile.domain.model.BatteryStatus
 import com.glycemicgpt.mobile.domain.model.CgmReading
 import com.glycemicgpt.mobile.domain.model.CgmTrend
+import com.glycemicgpt.mobile.domain.model.BolusEvent
 import com.glycemicgpt.mobile.domain.model.ConnectionState
-import com.glycemicgpt.mobile.domain.model.ControlIqMode
 import com.glycemicgpt.mobile.domain.model.IoBReading
+import com.glycemicgpt.mobile.domain.model.PumpActivityMode
 import com.glycemicgpt.mobile.domain.model.ReservoirReading
 import com.glycemicgpt.mobile.domain.model.TimeInRangeData
+import com.glycemicgpt.mobile.domain.plugin.DevicePlugin
+import com.glycemicgpt.mobile.domain.plugin.Plugin
+import com.glycemicgpt.mobile.domain.plugin.PluginMetadata
+import com.glycemicgpt.mobile.domain.plugin.ui.DashboardCardDescriptor
 import com.glycemicgpt.mobile.domain.pump.PumpDriver
+import com.glycemicgpt.mobile.plugin.PluginRegistry
 import com.glycemicgpt.mobile.service.BackendSyncManager
 import com.glycemicgpt.mobile.service.SyncStatus
 import io.mockk.coEvery
@@ -27,9 +39,10 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
-import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
@@ -37,6 +50,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.time.Instant
@@ -44,7 +58,7 @@ import java.time.Instant
 @OptIn(ExperimentalCoroutinesApi::class)
 class HomeViewModelTest {
 
-    private val testDispatcher = UnconfinedTestDispatcher()
+    private val testDispatcher = StandardTestDispatcher()
 
     private val connectionStateFlow = MutableStateFlow(ConnectionState.DISCONNECTED)
     private val iobFlow = MutableStateFlow<IoBReading?>(null)
@@ -63,7 +77,7 @@ class HomeViewModelTest {
             BasalReading(
                 rate = 0.8f,
                 isAutomated = true,
-                controlIqMode = ControlIqMode.STANDARD,
+                activityMode = PumpActivityMode.NONE,
                 timestamp = Instant.now(),
             ),
         )
@@ -98,7 +112,32 @@ class HomeViewModelTest {
         every { isStale(any()) } returns false
     }
 
+    private val safetyLimitsStore = mockk<SafetyLimitsStore>(relaxed = true) {
+        every { isStale(any()) } returns false
+    }
+
+    private val analyticsSettingsStore = mockk<AnalyticsSettingsStore>(relaxed = true) {
+        every { dayBoundaryHour } returns 0
+        every { categoryLabels } returns emptyMap()
+        every { isStale(any()) } returns false
+    }
+
+    private val pumpProfileStore = mockk<PumpProfileStore>(relaxed = true) {
+        every { isStale(any()) } returns false
+    }
+
+    private val appSettingsStore = mockk<AppSettingsStore>(relaxed = true) {
+        every { showPumpLabels } returns false
+        every { dataRetentionDays } returns 7
+    }
+
+    private val authRepository = mockk<AuthRepository>(relaxed = true)
+
     private val api = mockk<GlycemicGptApi>(relaxed = true)
+    private val pluginRegistry = mockk<PluginRegistry>(relaxed = true) {
+        every { allActivePlugins } returns MutableStateFlow<List<Plugin>>(emptyList())
+        every { activePumpPlugin } returns MutableStateFlow(null)
+    }
 
     @Before
     fun setUp() {
@@ -110,7 +149,7 @@ class HomeViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun createViewModel() = HomeViewModel(pumpDriver, repository, backendSyncManager, glucoseRangeStore, api)
+    private fun createViewModel() = HomeViewModel(pumpDriver, repository, backendSyncManager, glucoseRangeStore, safetyLimitsStore, analyticsSettingsStore, pumpProfileStore, appSettingsStore, authRepository, api, pluginRegistry)
 
     @Test
     fun `initial state has null readings and not refreshing`() = runTest {
@@ -139,6 +178,7 @@ class HomeViewModelTest {
 
         val reading = CgmReading(glucoseMgDl = 180, trendArrow = CgmTrend.SINGLE_UP, timestamp = Instant.now())
         cgmFlow.value = reading
+        runCurrent()
 
         assertNotNull(vm.cgm.value)
         assertEquals(180, vm.cgm.value!!.glucoseMgDl)
@@ -152,7 +192,7 @@ class HomeViewModelTest {
         val vm = createViewModel()
 
         vm.refreshData()
-        advanceUntilIdle()
+        advanceTimeBy(10_000); runCurrent()
 
         coVerify(atLeast = 1) { pumpDriver.getIoB() }
         coVerify(atLeast = 1) { pumpDriver.getBasalRate() }
@@ -166,7 +206,7 @@ class HomeViewModelTest {
         val vm = createViewModel()
 
         vm.refreshData()
-        advanceUntilIdle()
+        advanceTimeBy(10_000); runCurrent()
 
         coVerify(atLeast = 1) { repository.saveCgm(any()) }
     }
@@ -176,7 +216,7 @@ class HomeViewModelTest {
         val vm = createViewModel()
 
         vm.refreshData()
-        advanceUntilIdle()
+        advanceTimeBy(10_000); runCurrent()
 
         assertFalse(vm.isRefreshing.value)
     }
@@ -187,7 +227,7 @@ class HomeViewModelTest {
         val vm = createViewModel()
 
         vm.refreshData()
-        advanceUntilIdle()
+        advanceTimeBy(10_000); runCurrent()
 
         assertFalse(vm.isRefreshing.value)
     }
@@ -218,6 +258,7 @@ class HomeViewModelTest {
         assertEquals(ConnectionState.DISCONNECTED, vm.connectionState.value)
 
         connectionStateFlow.value = ConnectionState.CONNECTED
+        runCurrent()
         assertEquals(ConnectionState.CONNECTED, vm.connectionState.value)
 
         job.cancel()
@@ -245,12 +286,14 @@ class HomeViewModelTest {
     @Test
     fun `timeInRange state flow emits repository data`() = runTest {
         val tirData = TimeInRangeData(
-            lowPercent = 5f,
+            urgentLowPercent = 1f,
+            lowPercent = 4f,
             inRangePercent = 80f,
-            highPercent = 15f,
+            highPercent = 12f,
+            urgentHighPercent = 3f,
             totalReadings = 200,
         )
-        every { repository.observeTimeInRange(any(), any(), any()) } returns flowOf(tirData)
+        every { repository.observeTimeInRange(any(), any(), any(), any(), any()) } returns flowOf(tirData)
 
         val vm = createViewModel()
 
@@ -258,7 +301,7 @@ class HomeViewModelTest {
             vm.timeInRange.collect {}
         }
 
-        advanceUntilIdle()
+        advanceTimeBy(10_000); runCurrent()
 
         val result = vm.timeInRange.value
         assertNotNull(result)
@@ -271,12 +314,14 @@ class HomeViewModelTest {
     @Test
     fun `timeInRange recomputes when glucose thresholds change`() = runTest {
         val tirData = TimeInRangeData(
-            lowPercent = 10f,
+            urgentLowPercent = 2f,
+            lowPercent = 8f,
             inRangePercent = 60f,
-            highPercent = 30f,
+            highPercent = 25f,
+            urgentHighPercent = 5f,
             totalReadings = 100,
         )
-        every { repository.observeTimeInRange(any(), any(), any()) } returns flowOf(tirData)
+        every { repository.observeTimeInRange(any(), any(), any(), any(), any()) } returns flowOf(tirData)
 
         // Start with defaults (low=70, high=180)
         val vm = createViewModel()
@@ -284,10 +329,10 @@ class HomeViewModelTest {
         val job = backgroundScope.launch(testDispatcher) {
             vm.timeInRange.collect {}
         }
-        advanceUntilIdle()
+        advanceTimeBy(10_000); runCurrent()
 
         // Verify initial subscription uses default thresholds
-        verify { repository.observeTimeInRange(any(), eq(GlucoseRangeStore.DEFAULT_LOW), eq(GlucoseRangeStore.DEFAULT_HIGH)) }
+        verify { repository.observeTimeInRange(any(), eq(GlucoseRangeStore.DEFAULT_URGENT_LOW), eq(GlucoseRangeStore.DEFAULT_LOW), eq(GlucoseRangeStore.DEFAULT_HIGH), eq(GlucoseRangeStore.DEFAULT_URGENT_HIGH)) }
 
         // Now simulate backend returning new thresholds via refreshData
         val rangeResponse = GlucoseRangeResponse(
@@ -303,10 +348,10 @@ class HomeViewModelTest {
         every { glucoseRangeStore.urgentHigh } returns 330
 
         vm.refreshData()
-        advanceUntilIdle()
+        advanceTimeBy(10_000); runCurrent()
 
-        // After threshold update, observeTimeInRange should be re-called with new low/high
-        verify { repository.observeTimeInRange(any(), eq(90), eq(230)) }
+        // After threshold update, observeTimeInRange should be re-called with new thresholds
+        verify { repository.observeTimeInRange(any(), eq(60), eq(90), eq(230), eq(330)) }
 
         job.cancel()
     }
@@ -329,7 +374,7 @@ class HomeViewModelTest {
 
         val vm = createViewModel()
         vm.refreshData()
-        advanceUntilIdle()
+        advanceTimeBy(10_000); runCurrent()
 
         verify { glucoseRangeStore.updateAll(urgentLow = 55, low = 80, high = 200, urgentHigh = 300) }
         val t = vm.glucoseThresholds.value
@@ -345,7 +390,7 @@ class HomeViewModelTest {
         val vm = createViewModel()
 
         vm.refreshData()
-        advanceUntilIdle()
+        advanceTimeBy(10_000); runCurrent()
 
         val t = vm.glucoseThresholds.value
         assertEquals(GlucoseRangeStore.DEFAULT_URGENT_LOW, t.urgentLow)
@@ -367,7 +412,7 @@ class HomeViewModelTest {
 
         val vm = createViewModel()
         vm.refreshData()
-        advanceUntilIdle()
+        advanceTimeBy(10_000); runCurrent()
 
         // Store should NOT be updated because low >= high
         verify(exactly = 0) { glucoseRangeStore.updateAll(any(), any(), any(), any()) }
@@ -389,9 +434,179 @@ class HomeViewModelTest {
         coEvery { api.getGlucoseRange() } returns Response.success(rangeResponse)
 
         createViewModel()
-        advanceUntilIdle()
+        advanceTimeBy(10_000); runCurrent()
 
         coVerify(atLeast = 1) { api.getGlucoseRange() }
         verify { glucoseRangeStore.updateAll(urgentLow = 60, low = 85, high = 190, urgentHigh = 290) }
     }
+
+    @Test
+    fun `init refreshes safety limits when store is stale`() = runTest {
+        every { safetyLimitsStore.isStale(any()) } returns true
+        createViewModel()
+        advanceTimeBy(10_000); runCurrent()
+        coVerify(atLeast = 1) { authRepository.refreshSafetyLimits() }
+    }
+
+    // -- Plugin cards ----------------------------------------------------------
+
+    // -- CGM Stats state ------------------------------------------------------
+
+    @Test
+    fun `initial CGM stats period is 24 hours`() = runTest {
+        val vm = createViewModel()
+        assertEquals(TirPeriod.TWENTY_FOUR_HOURS, vm.selectedCgmStatsPeriod.value)
+    }
+
+    @Test
+    fun `onCgmStatsPeriodSelected updates selected period`() = runTest {
+        val vm = createViewModel()
+        vm.onCgmStatsPeriodSelected(TirPeriod.SEVEN_DAYS)
+        assertEquals(TirPeriod.SEVEN_DAYS, vm.selectedCgmStatsPeriod.value)
+    }
+
+    @Test
+    fun `cgmStats emits stats when repository returns readings`() = runTest {
+        val readings = listOf(
+            CgmReading(glucoseMgDl = 100, trendArrow = CgmTrend.FLAT, timestamp = Instant.now()),
+            CgmReading(glucoseMgDl = 200, trendArrow = CgmTrend.FLAT, timestamp = Instant.now()),
+        )
+        every { repository.observeCgmHistoryAll(any()) } returns flowOf(readings)
+        val vm = createViewModel()
+        val job = backgroundScope.launch(testDispatcher) { vm.cgmStats.collect {} }
+        advanceTimeBy(10_000); runCurrent()
+        assertNotNull(vm.cgmStats.value)
+        assertEquals(150f, vm.cgmStats.value!!.meanGlucose, 0.01f)
+        job.cancel()
+    }
+
+    // -- Insulin Summary state ------------------------------------------------
+
+    @Test
+    fun `initial insulin period is 24 hours`() = runTest {
+        val vm = createViewModel()
+        assertEquals(TirPeriod.TWENTY_FOUR_HOURS, vm.selectedInsulinPeriod.value)
+    }
+
+    @Test
+    fun `onInsulinPeriodSelected updates selected period`() = runTest {
+        val vm = createViewModel()
+        vm.onInsulinPeriodSelected(TirPeriod.THREE_DAYS)
+        assertEquals(TirPeriod.THREE_DAYS, vm.selectedInsulinPeriod.value)
+    }
+
+    @Test
+    fun `insulinSummary emits null when no insulin data`() = runTest {
+        every { repository.observeBasalHistoryAll(any()) } returns flowOf(emptyList())
+        every { repository.observeBolusHistoryAll(any()) } returns flowOf(emptyList())
+        val vm = createViewModel()
+        val job = backgroundScope.launch(testDispatcher) { vm.insulinSummary.collect {} }
+        advanceTimeBy(10_000); runCurrent()
+        assertNull(vm.insulinSummary.value)
+        job.cancel()
+    }
+
+    @Test
+    fun `insulinSummary emits data when boluses exist`() = runTest {
+        val boluses = listOf(
+            BolusEvent(units = 5f, isAutomated = false, isCorrection = false, timestamp = Instant.now()),
+        )
+        every { repository.observeBasalHistoryAll(any()) } returns flowOf(emptyList())
+        every { repository.observeBolusHistoryAll(any()) } returns flowOf(boluses)
+        val vm = createViewModel()
+        val job = backgroundScope.launch(testDispatcher) { vm.insulinSummary.collect {} }
+        advanceTimeBy(10_000); runCurrent()
+        assertNotNull(vm.insulinSummary.value)
+        assertTrue(vm.insulinSummary.value!!.totalDailyDose > 0f)
+        job.cancel()
+    }
+
+    // -- Enriched Boluses state -----------------------------------------------
+
+    @Test
+    fun `initial bolus period is 24 hours`() = runTest {
+        val vm = createViewModel()
+        assertEquals(TirPeriod.TWENTY_FOUR_HOURS, vm.selectedBolusPeriod.value)
+    }
+
+    @Test
+    fun `onBolusPeriodSelected updates selected period`() = runTest {
+        val vm = createViewModel()
+        vm.onBolusPeriodSelected(TirPeriod.SEVEN_DAYS)
+        assertEquals(TirPeriod.SEVEN_DAYS, vm.selectedBolusPeriod.value)
+    }
+
+    @Test
+    fun `enrichedBoluses emits enriched list when data exists`() = runTest {
+        val boluses = listOf(
+            BolusEvent(units = 3f, isAutomated = false, isCorrection = false, timestamp = Instant.now()),
+        )
+        val cgmReadings = listOf(
+            CgmReading(glucoseMgDl = 140, trendArrow = CgmTrend.FLAT, timestamp = Instant.now()),
+        )
+        every { repository.observeBolusHistoryAll(any()) } returns flowOf(boluses)
+        every { repository.observeCgmHistoryAll(any()) } returns flowOf(cgmReadings)
+        every { repository.observeIoBHistoryAll(any()) } returns flowOf(emptyList())
+        val vm = createViewModel()
+        val job = backgroundScope.launch(testDispatcher) { vm.enrichedBoluses.collect {} }
+        advanceTimeBy(10_000); runCurrent()
+        assertEquals(1, vm.enrichedBoluses.value.size)
+        assertEquals(3f, vm.enrichedBoluses.value[0].units, 0.01f)
+        job.cancel()
+    }
+
+    // -- Data retention state -------------------------------------------------
+
+    @Test
+    fun `dataRetentionDays reflects AppSettingsStore value`() = runTest {
+        val vm = createViewModel()
+        assertEquals(7, vm.dataRetentionDays.value)
+    }
+
+    // -- Plugin declaration sync ----------------------------------------------
+
+    @Test
+    fun `init syncs plugin declaration when no plugin active`() = runTest {
+        createViewModel()
+        advanceTimeBy(10_000); runCurrent()
+        // When activePumpPlugin emits null, deletePluginDeclarations is called
+        coVerify(atLeast = 1) { api.deletePluginDeclarations() }
+    }
+
+    // -- Plugin cards (existing test) -----------------------------------------
+
+    @Test
+    fun `pluginCards wraps cards with plugin ID`() = runTest {
+        val testCard = DashboardCardDescriptor(
+            id = "test-card",
+            title = "Test Card",
+            elements = emptyList(),
+        )
+        val testPlugin = mockk<Plugin>(relaxed = true) {
+            every { metadata } returns PluginMetadata(
+                id = "test.plugin",
+                name = "Test Plugin",
+                version = "1.0.0",
+                apiVersion = 1,
+                description = "Test",
+                author = "Test",
+            )
+            every { observeDashboardCards() } returns flowOf(listOf(testCard))
+        }
+        every { pluginRegistry.allActivePlugins } returns MutableStateFlow(listOf(testPlugin))
+
+        val vm = createViewModel()
+        val job = backgroundScope.launch(testDispatcher) {
+            vm.pluginCards.collect {}
+        }
+        advanceTimeBy(10_000); runCurrent()
+
+        val cards = vm.pluginCards.value
+        assertEquals(1, cards.size)
+        assertEquals("test.plugin", cards[0].pluginId)
+        assertEquals("test-card", cards[0].card.id)
+
+        job.cancel()
+    }
+
 }

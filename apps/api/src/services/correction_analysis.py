@@ -18,6 +18,11 @@ from src.models.user import User
 from src.schemas.ai_response import AIMessage
 from src.schemas.correction_analysis import TimePeriodData
 from src.services.ai_client import get_ai_client
+from src.services.diabetes_context import (
+    PumpProfileSummary,
+    format_pump_profile_for_prompt,
+    get_pump_profile_summary,
+)
 from src.services.safety_validation import log_safety_validation, validate_ai_suggestion
 
 logger = get_logger(__name__)
@@ -45,7 +50,7 @@ TIME_PERIODS = {
 
 SYSTEM_PROMPT = """\
 You are a diabetes management assistant analyzing correction bolus outcomes \
-for a person with Type 1 diabetes using a Tandem t:slim X2 pump with Control-IQ \
+for a person with Type 1 diabetes using a Tandem insulin pump with Control-IQ \
 and a Dexcom G7 CGM.
 
 You are reviewing correction factor (insulin sensitivity factor / ISF) data \
@@ -54,11 +59,16 @@ corrections analyzed, how many under-corrected (glucose stayed above target) \
 vs over-corrected (glucose dropped below 70 mg/dL), the average observed ISF \
 (mg/dL drop per unit of insulin), and the average glucose drop.
 
+When the user's pump profile is provided, compare the observed ISF against \
+the user's currently configured correction factors for each time period. \
+Reference the current configured values when explaining the pattern, but keep \
+recommendations directional only (e.g., "your morning ISF is currently 1:50 \
+but observed corrections suggest it may be weaker than needed for this period").
+
 Guidelines:
 - Identify which time periods show consistent under- or over-correction
-- For problematic periods, suggest a specific correction factor direction \
-(e.g., "consider a stronger correction factor for mornings, such as moving \
-from 1:50 to 1:45")
+- For problematic periods, suggest whether the factor may need to be stronger \
+or weaker, using the current ISF only as context
 - Explain reasoning: "Your morning corrections average only X mg/dL drop per \
 unit, suggesting your ISF may be too weak for this period"
 - Use encouraging, non-judgmental language
@@ -97,6 +107,7 @@ def _build_correction_prompt(
     time_periods: list[TimePeriodData],
     total_corrections: int,
     days: int,
+    profile_summary: PumpProfileSummary | None = None,
 ) -> str:
     """Build the analysis prompt with time period data.
 
@@ -104,6 +115,7 @@ def _build_correction_prompt(
         time_periods: Per-period metrics.
         total_corrections: Total corrections analyzed.
         days: Number of days in the analysis window.
+        profile_summary: Optional pump profile for ISF context.
 
     Returns:
         Formatted prompt string.
@@ -132,6 +144,10 @@ def _build_correction_prompt(
             effective = tp.correction_count - tp.under_count - tp.over_count
             eff_pct = (effective / tp.correction_count) * 100
             lines.append(f"  - Effective correction rate: {eff_pct:.0f}%")
+        lines.append("")
+
+    if profile_summary:
+        lines.append(format_pump_profile_for_prompt(profile_summary))
         lines.append("")
 
     lines.append(
@@ -326,8 +342,21 @@ async def generate_correction_analysis(
     # Get AI client
     ai_client = await get_ai_client(user, db)
 
+    # Fetch pump profile for ISF context (graceful -- missing is fine)
+    profile_summary = None
+    try:
+        profile_summary = await get_pump_profile_summary(db, user.id)
+    except Exception:
+        logger.warning(
+            "Failed to fetch pump profile for correction analysis",
+            user_id=str(user.id),
+            exc_info=True,
+        )
+
     # Build prompt and generate
-    user_prompt = _build_correction_prompt(time_periods, total_corrections, days)
+    user_prompt = _build_correction_prompt(
+        time_periods, total_corrections, days, profile_summary
+    )
 
     logger.info(
         "Generating correction factor analysis",

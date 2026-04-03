@@ -29,6 +29,7 @@ services:
       SECRET_KEY: integration-test-secret-key-not-for-production
       LOG_FORMAT: text
       COOKIE_SECURE: "false"
+      TRUSTED_PROXY_CIDRS: "127.0.0.0/8,172.16.0.0/12,10.0.0.0/8,192.168.0.0/16"
     depends_on:
       db:
         condition: service_healthy

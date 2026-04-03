@@ -38,6 +38,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.glycemicgpt.mobile.domain.model.ConnectionState
+import com.glycemicgpt.mobile.presentation.plugin.PluginDashboardCardRenderer
 import com.glycemicgpt.mobile.presentation.theme.GlucoseColors
 import com.glycemicgpt.mobile.service.SyncStatus
 import kotlinx.coroutines.delay
@@ -47,6 +48,12 @@ import java.time.Instant
 @Composable
 fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel(),
+    onPluginCardTap: (pluginId: String, cardId: String) -> Unit = { _, _ -> },
+    onNavigateToChartDetail: (() -> Unit)? = null,
+    onNavigateToTirDetail: () -> Unit = {},
+    onNavigateToInsulinDetail: () -> Unit = {},
+    onNavigateToAlertHistory: () -> Unit = {},
+    onNavigateToBolusHistory: (() -> Unit)? = null,
 ) {
     val connectionState by viewModel.connectionState.collectAsState()
     val cgm by viewModel.cgm.collectAsState()
@@ -64,6 +71,17 @@ fun HomeScreen(
     val selectedTirPeriod by viewModel.selectedTirPeriod.collectAsState()
     val timeInRange by viewModel.timeInRange.collectAsState()
     val thresholds by viewModel.glucoseThresholds.collectAsState()
+    val pluginCards by viewModel.pluginCards.collectAsState()
+    val selectedCgmStatsPeriod by viewModel.selectedCgmStatsPeriod.collectAsState()
+    val cgmStats by viewModel.cgmStats.collectAsState()
+    val selectedInsulinPeriod by viewModel.selectedInsulinPeriod.collectAsState()
+    val insulinSummary by viewModel.insulinSummary.collectAsState()
+    val selectedBolusPeriod by viewModel.selectedBolusPeriod.collectAsState()
+    val enrichedBoluses by viewModel.enrichedBoluses.collectAsState()
+    val categoryLabels by viewModel.categoryLabels.collectAsState()
+    val pumpLabelMap by viewModel.pumpLabelMap.collectAsState()
+    val showPumpLabels by viewModel.showPumpLabels.collectAsState()
+    val retentionDays by viewModel.dataRetentionDays.collectAsState()
 
     PullToRefreshBox(
         isRefreshing = isRefreshing,
@@ -103,6 +121,8 @@ fun HomeScreen(
                 selectedPeriod = selectedPeriod,
                 onPeriodSelected = { viewModel.onPeriodSelected(it) },
                 thresholds = thresholds,
+                categoryLabels = categoryLabels,
+                onClick = onNavigateToChartDetail,
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -113,7 +133,58 @@ fun HomeScreen(
                 selectedPeriod = selectedTirPeriod,
                 onPeriodSelected = { viewModel.onTirPeriodSelected(it) },
                 thresholds = thresholds,
+                maxRetentionDays = retentionDays,
             )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // CGM Stats card
+            CgmStatsCard(
+                stats = cgmStats,
+                selectedPeriod = selectedCgmStatsPeriod,
+                onPeriodSelected = { viewModel.onCgmStatsPeriodSelected(it) },
+                maxRetentionDays = retentionDays,
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Insulin Summary card
+            InsulinSummaryCard(
+                summary = insulinSummary,
+                selectedPeriod = selectedInsulinPeriod,
+                onPeriodSelected = { viewModel.onInsulinPeriodSelected(it) },
+                categoryLabels = categoryLabels,
+                pumpLabelMap = if (showPumpLabels) pumpLabelMap else null,
+                maxRetentionDays = retentionDays,
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Recent Boluses card
+            RecentBolusesCard(
+                boluses = enrichedBoluses,
+                selectedPeriod = selectedBolusPeriod,
+                onPeriodSelected = { viewModel.onBolusPeriodSelected(it) },
+                categoryLabels = categoryLabels,
+                onExpand = onNavigateToBolusHistory,
+                maxRetentionDays = retentionDays,
+            )
+
+            // Plugin-contributed cards (sorted by priority, memoized)
+            val sortedCards = remember(pluginCards) { pluginCards.sortedBy { it.card.priority } }
+            if (sortedCards.isNotEmpty()) {
+                sortedCards.forEach { pluginCard ->
+                    Spacer(modifier = Modifier.height(12.dp))
+                    PluginDashboardCardRenderer(
+                        card = pluginCard.card,
+                        onClick = if (pluginCard.card.hasDetail) {
+                            { onPluginCardTap(pluginCard.pluginId, pluginCard.card.id) }
+                        } else {
+                            null
+                        },
+                    )
+                }
+            }
 
             Spacer(modifier = Modifier.height(24.dp))
 

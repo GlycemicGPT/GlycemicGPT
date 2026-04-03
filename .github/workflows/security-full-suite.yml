@@ -1,0 +1,469 @@
+name: Security Full Suite
+
+on:
+  push:
+    branches: [main, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Queue runs instead of cancelling. At most 1 running + 1 queued at any time.
+  # When multiple PRs merge rapidly:
+  #   - PR A merges -> run starts (~40 min)
+  #   - PR B merges -> queued (waits for A)
+  #   - PR C merges -> replaces B in queue (GitHub keeps only 1 pending)
+  #   - A finishes -> C starts (tests latest HEAD, which includes B+C)
+  # Every merge is eventually covered. No runner clobbering.
+  group: security-full-suite-${{ github.ref }}
+
+jobs:
+  # ==========================================================================
+  # Job 1: SAST -- Semgrep on entire codebase (no Docker needed)
+  # ==========================================================================
+  sast:
+    name: SAST (Semgrep)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Semgrep
+        run: pip install semgrep
+
+      - name: Run Semgrep (all languages)
+        id: semgrep
+        run: |
+          EXIT=0
+          semgrep scan \
+            --config p/python \
+            --config p/typescript \
+            --config p/kotlin \
+            --config p/java \
+            --config p/owasp-top-ten \
+            --config p/secrets \
+            --exclude 'node_modules' \
+            --exclude '.venv' \
+            --exclude '.gradle' \
+            --exclude '*.min.js' \
+            --exclude 'apps/api/.venv' \
+            --exclude 'Dockerfile*' \
+            --json --output semgrep-results.json \
+            apps/api/ apps/web/ sidecar/ apps/mobile/ plugins/ scripts/security/ || EXIT=$?
+          echo "Semgrep exit code: $EXIT"
+
+      - name: Upload SAST results as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sast-results
+          path: semgrep-results.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Evaluate SAST result
+        if: always()
+        env:
+          semgrep_python_exit: "0"
+          semgrep_typescript_exit: "0"
+          semgrep_kotlin_exit: "0"
+        run: |
+          # Full suite produces a single combined JSON. Symlink it so the
+          # evaluator can check each "language" file.
+          for lang in python typescript kotlin; do
+            ln -sf semgrep-results.json "semgrep-${lang}.json"
+          done
+          python scripts/security/evaluate-sast.py
+
+  # ==========================================================================
+  # Job 2: DAST -- Full Docker stack + all security tests
+  # ==========================================================================
+  dast:
+    name: DAST & Penetration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      - name: Install test dependencies
+        run: pip install -r scripts/security/requirements.txt
+
+      - name: Install nuclei
+        run: |
+          go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@v3.7.1
+          echo "$HOME/go/bin" >> "$GITHUB_PATH"
+
+      - name: Build & start Docker test stack
+        env:
+          COMPOSE_PROJECT_NAME: glycemicgpt-test
+          DOCKER_BUILDKIT: 1
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.test.yml up --build -d
+
+      - name: Wait for services to be healthy
+        env:
+          COMPOSE_PROJECT_NAME: glycemicgpt-test
+        run: |
+          API_HEALTHY=false
+          echo "Waiting for API health..."
+          for i in $(seq 1 90); do
+            if curl -sf http://localhost:8001/health > /dev/null 2>&1; then
+              echo "API healthy after ${i}s"
+              API_HEALTHY=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$API_HEALTHY" != "true" ]; then
+            echo "FATAL: API not healthy after 90s"
+            docker compose -f docker-compose.yml -f docker-compose.test.yml logs api --tail=50
+            exit 1
+          fi
+
+          WEB_HEALTHY=false
+          echo "Waiting for Web health..."
+          for i in $(seq 1 90); do
+            if curl -sf http://localhost:3001 > /dev/null 2>&1; then
+              echo "Web healthy after ${i}s"
+              WEB_HEALTHY=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$WEB_HEALTHY" != "true" ]; then
+            echo "FATAL: Web not healthy after 90s"
+            docker compose -f docker-compose.yml -f docker-compose.test.yml logs web --tail=50
+            exit 1
+          fi
+
+      # ---- Smoke test: verify the stack is functional, not just alive ----
+      - name: Smoke test API and Web
+        env:
+          COMPOSE_PROJECT_NAME: glycemicgpt-test
+          TEST_PASSWORD: ${{ secrets.SECURITY_TEST_PASSWORD }}
+        run: |
+          echo "Verifying API serves OpenAPI spec..."
+          OPENAPI=$(curl -sS http://localhost:8001/openapi.json | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('paths',{})))" || echo "0")
+          echo "  OpenAPI: ${OPENAPI} paths discovered"
+          if [ "$OPENAPI" -lt 5 ]; then
+            echo "FATAL: OpenAPI spec has fewer than 5 paths -- API may not be fully initialized"
+            exit 1
+          fi
+
+          echo "Verifying user registration works..."
+          SMOKE_BODY=$(jq -nc --arg e "smoke_$(date +%s)_${RANDOM}@example.com" --arg p "$TEST_PASSWORD" '{email:$e,password:$p}')
+          REG_STATUS=$(curl -sS -o /dev/null -w "%{http_code}" -X POST http://localhost:8001/api/auth/register \
+            -H "Content-Type: application/json" \
+            -d "$SMOKE_BODY" || true)
+          echo "  Register: HTTP ${REG_STATUS}"
+          if [ "$REG_STATUS" != "201" ]; then
+            echo "FATAL: User registration failed (expected 201, got ${REG_STATUS})"
+            docker compose -f docker-compose.yml -f docker-compose.test.yml logs api --tail=20
+            exit 1
+          fi
+
+          echo "Verifying web frontend renders..."
+          WEB_STATUS=$(curl -sS -o /dev/null -w "%{http_code}" http://localhost:3001/login || true)
+          echo "  Web /login: HTTP ${WEB_STATUS}"
+          if [ "$WEB_STATUS" != "200" ]; then
+            echo "FATAL: Web frontend /login returned ${WEB_STATUS}"
+            exit 1
+          fi
+
+          echo "Smoke test passed"
+
+      # ---- Custom Security Tests (sequential with Redis flushes) ----
+
+      - name: Run auth flow tests
+        id: auth-tests
+        env:
+          API_URL: http://localhost:8001
+          WEB_URL: http://localhost:3001
+          COMPOSE_PROJECT_NAME: glycemicgpt-test
+        run: |
+          TEST_SECRET_KEY=$(docker compose -f docker-compose.yml -f docker-compose.test.yml exec -T api printenv SECRET_KEY) || {
+            echo "FATAL: Could not read SECRET_KEY from API container"
+            exit 1
+          }
+          export TEST_SECRET_KEY
+          python scripts/security/test-auth-flows.py
+
+      - name: Reset rate limits
+        env:
+          COMPOSE_PROJECT_NAME: glycemicgpt-test
+        run: docker compose -f docker-compose.yml -f docker-compose.test.yml exec -T redis redis-cli FLUSHDB || true
+
+      - name: Run data isolation tests (IDOR)
+        id: idor-tests
+        env:
+          API_URL: http://localhost:8001
+          TEST_PASSWORD: ${{ secrets.SECURITY_TEST_PASSWORD }}
+        run: python scripts/security/test-data-isolation.py
+
+      - name: Reset rate limits
+        env:
+          COMPOSE_PROJECT_NAME: glycemicgpt-test
+        run: docker compose -f docker-compose.yml -f docker-compose.test.yml exec -T redis redis-cli FLUSHDB || true
+
+      - name: Run research security tests (SSRF, rate limiting)
+        id: research-tests
+        env:
+          API_URL: http://localhost:8001
+          TEST_PASSWORD: ${{ secrets.SECURITY_TEST_PASSWORD }}
+        run: python scripts/security/test-research-security.py
+
+      - name: Reset rate limits
+        env:
+          COMPOSE_PROJECT_NAME: glycemicgpt-test
+        run: docker compose -f docker-compose.yml -f docker-compose.test.yml exec -T redis redis-cli FLUSHDB || true
+
+      - name: Run API fuzzer
+        id: fuzzer
+        env:
+          API_URL: http://localhost:8001
+          TEST_PASSWORD: ${{ secrets.SECURITY_TEST_PASSWORD }}
+          COMPOSE_PROJECT_NAME: glycemicgpt-test
+        run: python scripts/security/fuzz-api.py "$API_URL" --mode both
+
+      # ---- Nuclei DAST ----
+
+      - name: Reset rate limits
+        env:
+          COMPOSE_PROJECT_NAME: glycemicgpt-test
+        run: docker compose -f docker-compose.yml -f docker-compose.test.yml exec -T redis redis-cli FLUSHDB || true
+
+      - name: Run nuclei DAST
+        id: nuclei
+        env:
+          API_URL: http://localhost:8001
+          WEB_URL: http://localhost:3001
+        run: ./scripts/security/run-dast.sh
+
+      # ---- ZAP Scans (sequential to stay within 7GB runner RAM) ----
+
+      - name: Reset rate limits
+        env:
+          COMPOSE_PROJECT_NAME: glycemicgpt-test
+        run: docker compose -f docker-compose.yml -f docker-compose.test.yml exec -T redis redis-cli FLUSHDB || true
+
+      - name: Prepare ZAP workspace
+        run: |
+          mkdir -p scripts/security/results
+          chmod 777 scripts/security/ scripts/security/results/
+
+      - name: Setup ZAP authenticated session
+        id: zap-setup
+        env:
+          API_URL: http://localhost:8001
+          TEST_PASSWORD: ${{ secrets.SECURITY_TEST_PASSWORD }}
+        run: |
+          ZAP_EMAIL="zap_$(date +%s)_${RANDOM}@example.com"
+          AUTH_BODY=$(jq -nc --arg e "$ZAP_EMAIL" --arg p "$TEST_PASSWORD" '{email:$e,password:$p}')
+
+          curl -sf -X POST "$API_URL/api/auth/register" \
+            -H "Content-Type: application/json" \
+            -d "$AUTH_BODY" > /dev/null
+
+          COOKIE_JAR=$(mktemp)
+          curl -sf -c "$COOKIE_JAR" -X POST "$API_URL/api/auth/login" \
+            -H "Content-Type: application/json" \
+            -d "$AUTH_BODY" > /dev/null
+
+          SESSION=$(awk '/glycemicgpt_session/ {print $NF}' "$COOKIE_JAR")
+          CSRF=$(awk '/csrf_token/ {print $NF}' "$COOKIE_JAR")
+
+          if [ -z "$SESSION" ] || [ -z "$CSRF" ]; then
+            echo "FATAL: ZAP auth bootstrap failed -- no session cookies"
+            exit 1
+          fi
+
+          curl -sf -X POST "$API_URL/api/disclaimer/acknowledge" \
+            -H "X-CSRF-Token: $CSRF" \
+            -b "glycemicgpt_session=$SESSION; csrf_token=$CSRF" > /dev/null || true
+
+          echo "ZAP_SESSION=$SESSION" >> "$GITHUB_ENV"
+          echo "ZAP_CSRF=$CSRF" >> "$GITHUB_ENV"
+          rm -f "$COOKIE_JAR"
+          echo "ZAP auth session established"
+
+          # Resolve ZAP plan templates -- bake actual cookie values into YAML
+          export ZAP_SESSION ZAP_CSRF
+          envsubst '${ZAP_SESSION} ${ZAP_CSRF}' < scripts/security/zap-api-plan.yaml > scripts/security/zap-api-plan.resolved.yaml
+          envsubst '${ZAP_SESSION} ${ZAP_CSRF}' < scripts/security/zap-web-plan.yaml > scripts/security/zap-web-plan.resolved.yaml
+
+          for plan in scripts/security/zap-api-plan.resolved.yaml scripts/security/zap-web-plan.resolved.yaml; do
+            if grep -qF '${ZAP_SESSION}' "$plan" || grep -qF '${ZAP_CSRF}' "$plan"; then
+              echo "FATAL: envsubst failed -- unresolved variables in $plan"
+              exit 1
+            fi
+          done
+          echo "ZAP plans resolved successfully"
+
+      - name: Run ZAP API active scan
+        id: zap-api
+        run: |
+          docker run --rm --network="host" \
+            -v "$(pwd)/scripts/security:/zap/wrk/:rw" \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap.sh -cmd -autorun /zap/wrk/zap-api-plan.resolved.yaml || true
+
+      - name: Evaluate ZAP API results
+        id: eval-zap-api
+        run: python scripts/security/evaluate-zap.py --report scripts/security/results/zap-report.json --name api
+
+      - name: Run ZAP Web scan
+        id: zap-web
+        run: |
+          docker run --rm --network="host" \
+            -v "$(pwd)/scripts/security:/zap/wrk/:rw" \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap.sh -cmd -autorun /zap/wrk/zap-web-plan.resolved.yaml || true
+
+      - name: Evaluate ZAP Web results
+        id: eval-zap-web
+        run: python scripts/security/evaluate-zap.py --report scripts/security/results/zap-web-report.json --name web
+
+      # ---- Unauthenticated ZAP scans (no cookies, external attacker perspective) ----
+
+      - name: Run ZAP Unauthenticated API scan
+        id: zap-unauth-api
+        if: always()
+        run: |
+          docker run --rm --network="host" \
+            -v "$(pwd)/scripts/security:/zap/wrk/:rw" \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap.sh -cmd -autorun /zap/wrk/zap-unauth-api-plan.yaml || true
+
+      - name: Evaluate ZAP Unauthenticated API results
+        id: eval-zap-unauth-api
+        if: always() && steps.zap-unauth-api.outcome != 'skipped'
+        run: python scripts/security/evaluate-zap.py --report scripts/security/results/zap-unauth-api-report.json --name unauth-api
+
+      - name: Run ZAP Unauthenticated Web scan
+        id: zap-unauth-web
+        if: always()
+        run: |
+          docker run --rm --network="host" \
+            -v "$(pwd)/scripts/security:/zap/wrk/:rw" \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap.sh -cmd -autorun /zap/wrk/zap-unauth-web-plan.yaml || true
+
+      - name: Evaluate ZAP Unauthenticated Web results
+        id: eval-zap-unauth-web
+        if: always() && steps.zap-unauth-web.outcome != 'skipped'
+        run: python scripts/security/evaluate-zap.py --report scripts/security/results/zap-unauth-web-report.json --name unauth-web
+
+      # ---- Cleanup ----
+
+      - name: Upload scan results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dast-results
+          path: scripts/security/results/
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Show container logs on failure
+        if: failure()
+        env:
+          COMPOSE_PROJECT_NAME: glycemicgpt-test
+        run: |
+          echo "=== API Logs ==="
+          docker compose -f docker-compose.yml -f docker-compose.test.yml logs api --tail=100
+          echo ""
+          echo "=== Web Logs ==="
+          docker compose -f docker-compose.yml -f docker-compose.test.yml logs web --tail=50
+
+      - name: Tear down Docker stack
+        if: always()
+        env:
+          COMPOSE_PROJECT_NAME: glycemicgpt-test
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.test.yml down -v --remove-orphans
+
+  # ==========================================================================
+  # Job 3: Summary -- gate job (badge target)
+  # ==========================================================================
+  summary:
+    name: Security Full Suite
+    runs-on: ubuntu-latest
+    needs: [sast, dast]
+    if: always()
+    steps:
+      - name: Checkout
+        if: always()
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/security
+
+      - name: Set up Python
+        if: always()
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      - name: Install dependencies
+        if: always()
+        run: pip install -r scripts/security/requirements.txt
+
+      - name: Download SAST results
+        if: always()
+        uses: actions/download-artifact@v4
+        with:
+          name: sast-results
+          path: sast-results/
+        continue-on-error: true
+
+      - name: Download DAST results
+        if: always()
+        uses: actions/download-artifact@v4
+        with:
+          name: dast-results
+          path: dast-results/
+        continue-on-error: true
+
+      - name: Generate token for glycemicgpt-security
+        if: always()
+        id: bot-token
+        continue-on-error: true
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.SECURITY_APP_ID }}
+          private-key: ${{ secrets.SECURITY_APP_PRIVATE_KEY }}
+
+      - name: Create/update/close security finding issues
+        if: always() && steps.bot-token.outputs.token
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          python scripts/security/create-finding-issues.py \
+            --sast-results sast-results/ \
+            --dast-results dast-results/ \
+            --scan-type full-suite \
+            --run-id "${{ github.run_id }}" \
+            --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --repo "${{ github.repository }}" \
+            --branch "${{ github.ref_name }}" \
+            --sha "${{ github.sha }}"
+
+      - name: Evaluate results
+        env:
+          SAST_RESULT: ${{ needs.sast.result }}
+          DAST_RESULT: ${{ needs.dast.result }}
+        run: |
+          if [ "$SAST_RESULT" = "success" ] && [ "$DAST_RESULT" = "success" ]; then
+            echo "All security tests passed"
+            exit 0
+          fi
+          echo "Security tests failed (SAST: $SAST_RESULT, DAST: $DAST_RESULT)"
+          exit 1

@@ -6,7 +6,24 @@
  * Story 15.4: Global 401 handling via apiFetch wrapper
  */
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+/**
+ * Resolve the API base URL.
+ *
+ * Client-side: returns "" (empty string) so all /api/* requests hit the same
+ * origin. Next.js rewrites proxy them to the backend (see next.config.ts).
+ * This eliminates CORS and works behind any reverse proxy.
+ *
+ * Server-side (SSR): uses API_URL env var for container-to-container calls.
+ * Defaults to http://localhost:8000 for local dev outside Docker.
+ */
+export function getApiBaseUrl(): string {
+  if (typeof window !== "undefined") {
+    return "";
+  }
+  return process.env.API_URL || "http://localhost:8000";
+}
+
+const API_BASE_URL = getApiBaseUrl();
 
 // Auth endpoints that legitimately return 401 (should NOT trigger redirect)
 const AUTH_ENDPOINTS = [
@@ -17,24 +34,55 @@ const AUTH_ENDPOINTS = [
 ];
 
 /**
- * Authenticated fetch wrapper with automatic 401 handling.
+ * Read a cookie value by name (client-side only).
+ */
+function getCookie(name: string): string | undefined {
+  if (typeof document === "undefined") return undefined;
+  const match = document.cookie.match(
+    new RegExp("(?:^|; )" + name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "=([^;]*)")
+  );
+  if (!match) return undefined;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Authenticated fetch wrapper with automatic 401 handling and CSRF protection.
  *
  * Defaults credentials to "include" and redirects to /login?expired=true
  * when a 401 response is received from non-auth endpoints. Returns a
  * never-resolving promise after redirect to prevent callers from
  * processing the stale response.
+ *
+ * For state-changing requests (POST, PATCH, PUT, DELETE), automatically
+ * reads the csrf_token cookie and sends it as X-CSRF-Token header.
  */
 export async function apiFetch(
   url: string,
   options?: RequestInit
 ): Promise<Response> {
+  const headers = new Headers(options?.headers);
+  const method = (options?.method || "GET").toUpperCase();
+
+  // Add CSRF token for state-changing requests (Story 28.4)
+  if (["POST", "PATCH", "PUT", "DELETE"].includes(method)) {
+    const csrfToken = getCookie("csrf_token");
+    if (csrfToken && !headers.has("X-CSRF-Token")) {
+      headers.set("X-CSRF-Token", csrfToken);
+    }
+  }
+
   const response = await fetch(url, {
     ...options,
+    headers,
     credentials: "include",
   });
 
   if (response.status === 401 && typeof window !== "undefined") {
-    const urlPath = new URL(url).pathname;
+    const urlPath = new URL(url, window.location.origin).pathname;
     if (!AUTH_ENDPOINTS.some((ep) => urlPath === ep)) {
       window.location.href = "/login?expired=true";
       return new Promise<Response>(() => {});
@@ -2173,6 +2221,23 @@ export async function getSidecarHealth(): Promise<SidecarHealthResponse> {
 export interface AIChatResponse {
   response: string;
   disclaimer: string;
+  conversation_id?: string;
+  message_id?: string;
+}
+
+export interface ChatHistoryMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  timestamp: string;
+  model?: string | null;
+  disclaimer?: string | null;
+}
+
+export interface ChatHistoryResponse {
+  conversation_id: string | null;
+  messages: ChatHistoryMessage[];
+  total: number;
 }
 
 export async function sendAIChat(message: string): Promise<AIChatResponse> {
@@ -2186,6 +2251,197 @@ export async function sendAIChat(message: string): Promise<AIChatResponse> {
     throw new Error(
       error.detail || `Failed to send message: ${response.status}`
     );
+  }
+  return response.json();
+}
+
+export async function getChatHistory(): Promise<ChatHistoryResponse> {
+  const response = await apiFetch(`${API_BASE_URL}/api/ai/chat/history`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to load chat history: ${response.status}`
+    );
+  }
+  return response.json();
+}
+
+export async function clearChatHistory(): Promise<void> {
+  const response = await apiFetch(`${API_BASE_URL}/api/ai/chat/history`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to clear chat history: ${response.status}`
+    );
+  }
+}
+
+// ============================================================================
+// AI Research Sources (Story 35.12)
+// ============================================================================
+
+export interface ResearchSource {
+  id: string;
+  url: string;
+  name: string;
+  category: string | null;
+  is_active: boolean;
+  last_researched_at: string | null;
+  created_at: string;
+}
+
+export interface ResearchSuggestion {
+  url: string;
+  name: string;
+  category: string;
+}
+
+export async function getResearchSources(): Promise<{ sources: ResearchSource[]; total: number }> {
+  const response = await apiFetch(`${API_BASE_URL}/api/ai/research/sources`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || `Failed to load research sources: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function addResearchSource(url: string, name: string, category?: string): Promise<ResearchSource> {
+  const response = await apiFetch(`${API_BASE_URL}/api/ai/research/sources`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url, name, category }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || `Failed to add source: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function deleteResearchSource(sourceId: string): Promise<void> {
+  const response = await apiFetch(`${API_BASE_URL}/api/ai/research/sources/${encodeURIComponent(sourceId)}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || `Failed to delete source: ${response.status}`);
+  }
+}
+
+export async function triggerResearch(): Promise<{ sources: number; updated: number; new: number; unchanged: number; errors: number }> {
+  const response = await apiFetch(`${API_BASE_URL}/api/ai/research/run`, {
+    method: "POST",
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || `Research failed: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function getResearchSuggestions(): Promise<{ suggestions: ResearchSuggestion[]; based_on: Record<string, string> }> {
+  const response = await apiFetch(`${API_BASE_URL}/api/ai/research/suggestions`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || `Failed to load suggestions: ${response.status}`);
+  }
+  return response.json();
+}
+
+// ============================================================================
+// Knowledge Base (Story 35.10)
+// ============================================================================
+
+export interface KnowledgeDocument {
+  source_name: string;
+  source_url: string | null;
+  source_type: string;
+  trust_tier: string;
+  chunk_count: number;
+  total_content_length: number;
+  first_created: string;
+  last_updated: string | null;
+  injection_risk_count: number;
+  update_source: string | null;
+  change_summary: string | null;
+}
+
+export interface KnowledgeChunkItem {
+  id: string;
+  content: string;
+  content_preview: string;
+  content_length: number;
+  source_url: string | null;
+  retrieved_at: string | null;
+  created_at: string;
+  injection_risk: boolean;
+}
+
+export interface KnowledgeStats {
+  total_documents: number;
+  total_chunks: number;
+  by_tier: Record<string, number>;
+}
+
+export async function getKnowledgeDocuments(params?: {
+  trust_tier?: string;
+  search?: string;
+  page?: number;
+  page_size?: number;
+}): Promise<{ documents: KnowledgeDocument[]; total_documents: number; total_chunks: number }> {
+  const searchParams = new URLSearchParams();
+  if (params?.trust_tier) searchParams.set("trust_tier", params.trust_tier);
+  if (params?.search) searchParams.set("search", params.search);
+  if (params?.page) searchParams.set("page", String(params.page));
+  if (params?.page_size) searchParams.set("page_size", String(params.page_size));
+  const qs = searchParams.toString();
+  const response = await apiFetch(`${API_BASE_URL}/api/knowledge/documents${qs ? `?${qs}` : ""}`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || `Failed to load knowledge base: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function getKnowledgeDocumentChunks(
+  sourceName: string,
+  sourceUrl?: string | null,
+  page?: number,
+): Promise<{ chunks: KnowledgeChunkItem[]; total: number; source_name: string }> {
+  const searchParams = new URLSearchParams({ source_name: sourceName });
+  if (sourceUrl) searchParams.set("source_url", sourceUrl);
+  if (page) searchParams.set("page", String(page));
+  const response = await apiFetch(`${API_BASE_URL}/api/knowledge/documents/chunks?${searchParams}`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || `Failed to load chunks: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function deleteKnowledgeDocument(
+  sourceName: string,
+  sourceUrl?: string | null,
+): Promise<{ message: string; chunks_invalidated: number }> {
+  const searchParams = new URLSearchParams({ source_name: sourceName });
+  if (sourceUrl) searchParams.set("source_url", sourceUrl);
+  const response = await apiFetch(`${API_BASE_URL}/api/knowledge/documents?${searchParams}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || `Failed to delete document: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function getKnowledgeStats(): Promise<KnowledgeStats> {
+  const response = await apiFetch(`${API_BASE_URL}/api/knowledge/stats`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || `Failed to load stats: ${response.status}`);
   }
   return response.json();
 }
@@ -2237,8 +2493,11 @@ export interface PumpEventReading {
   duration_minutes: number | null;
   is_automated: boolean;
   control_iq_reason: string | null;
-  control_iq_mode: string | null;
+  pump_activity_mode: string | null;
   basal_adjustment_pct: number | null;
+  iob_at_event: number | null;
+  cob_at_event: number | null;
+  bg_at_event: number | null;
   received_at: string;
   source: string;
 }
@@ -2305,28 +2564,526 @@ export async function getPumpStatus(): Promise<PumpStatusResponse> {
 }
 
 // ============================================================================
-// Time in Range Statistics
+// Safety Limits (Phase 3)
 // ============================================================================
 
-export interface TimeInRangeStats {
-  low_pct: number;
-  in_range_pct: number;
-  high_pct: number;
-  readings_count: number;
-  low_threshold: number;
-  high_threshold: number;
+/**
+ * Safety Limits API types (Phase 3)
+ */
+export interface SafetyLimitsResponse {
+  id: string;
+  min_glucose_mgdl: number;
+  max_glucose_mgdl: number;
+  max_basal_rate_milliunits: number;
+  max_bolus_dose_milliunits: number;
+  updated_at: string;
 }
 
-export async function getTimeInRangeStats(
-  minutes: number = 1440
-): Promise<TimeInRangeStats> {
+export interface SafetyLimitsUpdate {
+  min_glucose_mgdl?: number;
+  max_glucose_mgdl?: number;
+  max_basal_rate_milliunits?: number;
+  max_bolus_dose_milliunits?: number;
+}
+
+export interface SafetyLimitsDefaults {
+  min_glucose_mgdl: number;
+  max_glucose_mgdl: number;
+  max_basal_rate_milliunits: number;
+  max_bolus_dose_milliunits: number;
+}
+
+/**
+ * Fetch current safety limits
+ */
+export async function getSafetyLimits(): Promise<SafetyLimitsResponse> {
   const response = await apiFetch(
-    `${API_BASE_URL}/api/integrations/glucose/time-in-range?minutes=${minutes}`
+    `${API_BASE_URL}/api/settings/safety-limits`
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to fetch safety limits: ${response.status}`
+    );
+  }
+
+  return response.json();
+}
+
+/**
+ * Update safety limits
+ */
+export async function updateSafetyLimits(
+  updates: SafetyLimitsUpdate
+): Promise<SafetyLimitsResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/settings/safety-limits`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updates),
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to update safety limits: ${response.status}`
+    );
+  }
+
+  return response.json();
+}
+
+/**
+ * Fetch safety limits defaults
+ */
+export async function getSafetyLimitsDefaults(): Promise<SafetyLimitsDefaults> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/settings/safety-limits/defaults`
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to fetch safety limits defaults: ${response.status}`
+    );
+  }
+
+  return response.json();
+}
+
+// ============================================================================
+// Time in Range Detail Statistics
+// ============================================================================
+
+export interface TirBucket {
+  label: "urgent_low" | "low" | "in_range" | "high" | "urgent_high";
+  pct: number;
+  readings: number;
+  threshold_low: number | null;
+  threshold_high: number | null;
+}
+
+export interface TimeInRangeDetailStats {
+  buckets: TirBucket[];
+  readings_count: number;
+  previous_buckets: TirBucket[] | null;
+  previous_readings_count: number | null;
+  thresholds: { urgent_low: number; low: number; high: number; urgent_high: number };
+}
+
+export async function getTimeInRangeDetailStats(
+  minutes: number = 1440
+): Promise<TimeInRangeDetailStats> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/glucose/time-in-range?minutes=${minutes}&include_details=true`
   );
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
     throw new Error(
-      error.detail || `Failed to fetch time in range: ${response.status}`
+      error.detail || `Failed to fetch TIR detail: ${response.status}`
+    );
+  }
+  return response.json();
+}
+
+// ============================================================================
+// CGM Summary Statistics (Story 30.3)
+// ============================================================================
+
+export interface GlucoseStats {
+  mean_glucose: number;
+  std_dev: number;
+  cv_pct: number;
+  gmi: number;
+  cgm_active_pct: number;
+  readings_count: number;
+  period_minutes: number;
+}
+
+export async function getGlucoseStats(
+  minutes: number = 1440
+): Promise<GlucoseStats> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/glucose/stats?minutes=${minutes}`
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to fetch glucose stats: ${response.status}`
+    );
+  }
+  return response.json();
+}
+
+// ============================================================================
+// AGP Glucose Percentiles (Story 30.5)
+// ============================================================================
+
+export interface AGPBucket {
+  hour: number;
+  p10: number;
+  p25: number;
+  p50: number;
+  p75: number;
+  p90: number;
+  count: number;
+}
+
+export interface GlucosePercentilesResponse {
+  buckets: AGPBucket[];
+  period_days: number;
+  readings_count: number;
+  is_truncated: boolean;
+}
+
+export async function getGlucosePercentiles(
+  days: number = 14,
+  tz?: string
+): Promise<GlucosePercentilesResponse> {
+  const safeDays = Number.isFinite(days) ? days : 14;
+  const clampedDays = Math.max(7, Math.min(90, Math.round(safeDays)));
+  const timezone = tz ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/glucose/percentiles?days=${clampedDays}&tz=${encodeURIComponent(timezone)}`
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to fetch glucose percentiles: ${response.status}`
+    );
+  }
+  return response.json();
+}
+
+// ============================================================================
+// Insulin Summary (Story 30.7)
+// ============================================================================
+
+export interface InsulinSummaryResponse {
+  tdd: number;
+  basal_units: number;
+  bolus_units: number;
+  correction_units: number;
+  basal_pct: number;
+  bolus_pct: number;
+  bolus_count: number;
+  correction_count: number;
+  period_days: number;
+}
+
+export async function getInsulinSummary(
+  days: number = 14
+): Promise<InsulinSummaryResponse> {
+  const safeDays = Number.isFinite(days) ? days : 14;
+  const clampedDays = Math.max(1, Math.min(90, Math.round(safeDays)));
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/insulin/summary?days=${clampedDays}&tz=${encodeURIComponent(tz)}`
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to fetch insulin summary: ${response.status}`
+    );
+  }
+  return response.json();
+}
+
+// ============================================================================
+// Bolus Review (Story 30.7)
+// ============================================================================
+
+export interface BolusReviewItem {
+  event_timestamp: string;
+  units: number;
+  is_automated: boolean;
+  control_iq_reason: string | null;
+  pump_activity_mode: string | null;
+  iob_at_event: number | null;
+  bg_at_event: number | null;
+}
+
+export interface BolusReviewResponse {
+  boluses: BolusReviewItem[];
+  total_count: number;
+  period_days: number;
+}
+
+export async function getBolusReview(
+  days: number = 7,
+  limit: number = 100,
+  offset: number = 0
+): Promise<BolusReviewResponse> {
+  const safeDays = Number.isFinite(days) ? days : 7;
+  const clampedDays = Math.max(1, Math.min(30, Math.round(safeDays)));
+  const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(500, Math.round(limit))) : 100;
+  const safeOffset = Number.isFinite(offset) ? Math.max(0, Math.round(offset)) : 0;
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/bolus/review?days=${clampedDays}&limit=${safeLimit}&offset=${safeOffset}&tz=${encodeURIComponent(tz)}`
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to fetch bolus review: ${response.status}`
+    );
+  }
+  return response.json();
+}
+
+// ---------------------------------------------------------------------------
+// Analytics Configuration
+// ---------------------------------------------------------------------------
+
+export interface DisplayLabel {
+  id: string;
+  label: string;
+  computation_role: string | null;
+  pump_source: string | null;
+  sort_order: number;
+}
+
+export interface AnalyticsConfigResponse {
+  id: string;
+  day_boundary_hour: number;
+  display_labels: DisplayLabel[] | null;
+  category_labels: Record<string, string> | null;
+  updated_at: string;
+}
+
+export interface AnalyticsConfigUpdate {
+  day_boundary_hour?: number;
+  display_labels?: DisplayLabel[];
+}
+
+export const DEFAULT_DISPLAY_LABELS: DisplayLabel[] = [
+  { id: "auto_corr", label: "Auto Corr", computation_role: "AUTO_CORRECTION", pump_source: null, sort_order: 0 },
+  { id: "meal", label: "Meal", computation_role: "FOOD", pump_source: null, sort_order: 1 },
+  { id: "meal_corr", label: "Meal+Corr", computation_role: "FOOD_AND_CORRECTION", pump_source: null, sort_order: 2 },
+  { id: "correction", label: "Correction", computation_role: "CORRECTION", pump_source: null, sort_order: 3 },
+  { id: "override", label: "Override", computation_role: "OVERRIDE", pump_source: null, sort_order: 4 },
+  { id: "other", label: "Other", computation_role: "OTHER", pump_source: null, sort_order: 5 },
+];
+
+export const DEFAULT_CATEGORY_LABELS: Record<string, string> = {
+  AUTO_CORRECTION: "Auto Corr",
+  FOOD: "Meal",
+  FOOD_AND_CORRECTION: "Meal+Corr",
+  CORRECTION: "Correction",
+  OVERRIDE: "Override",
+  OTHER: "Other",
+};
+
+export const VALID_CATEGORY_KEYS = [
+  "AUTO_CORRECTION",
+  "FOOD",
+  "FOOD_AND_CORRECTION",
+  "CORRECTION",
+  "OVERRIDE",
+  "OTHER",
+] as const;
+
+/**
+ * Fetch current analytics configuration (day boundary hour).
+ */
+export async function getAnalyticsConfig(): Promise<AnalyticsConfigResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/settings/analytics-config`
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to fetch analytics config: ${response.status}`
+    );
+  }
+  return response.json();
+}
+
+/**
+ * Update analytics configuration.
+ */
+export async function updateAnalyticsConfig(
+  updates: AnalyticsConfigUpdate
+): Promise<AnalyticsConfigResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/settings/analytics-config`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updates),
+    }
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to update analytics config: ${response.status}`
+    );
+  }
+  return response.json();
+}
+
+// ---------------------------------------------------------------------------
+// Plugin Declarations
+// ---------------------------------------------------------------------------
+
+export interface PluginDeclarationResponse {
+  id: string;
+  plugin_id: string;
+  plugin_name: string;
+  plugin_version: string;
+  declared_categories: string[];
+  category_mappings: Record<string, string>;
+  updated_at: string;
+}
+
+/**
+ * Fetch the current user's active pump plugin declaration.
+ * Returns null if no plugin is active (404).
+ */
+export async function getPluginDeclarations(): Promise<PluginDeclarationResponse | null> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/settings/plugin-declarations`
+  );
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to fetch plugin declarations: ${response.status}`
+    );
+  }
+  return response.json();
+}
+
+// ============================================================================
+// Pump Profile (Story 30.8 - Clinical Report)
+// ============================================================================
+
+export interface PumpProfileSegment {
+  time: string;
+  start_minutes: number;
+  basal_rate: number;
+  correction_factor: number | null;
+  carb_ratio: number | null;
+  target_bg: number | null;
+}
+
+export interface PumpProfileSummaryResponse {
+  profile_name: string;
+  is_active: boolean;
+  dia_minutes: number | null;
+  max_bolus_units: number | null;
+  segments: PumpProfileSegment[];
+  synced_at: string;
+}
+
+export async function getPumpProfile(): Promise<PumpProfileSummaryResponse | null> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/settings/pump-profile`
+  );
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to fetch pump profile: ${response.status}`
+    );
+  }
+  return response.json();
+}
+
+// ============================================================================
+// Date-Range Report Queries (Story 30.8)
+// ============================================================================
+
+function buildDateRangeParams(start: string, end: string): string {
+  return `start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`;
+}
+
+export async function getGlucoseHistoryByDateRange(
+  start: string,
+  end: string,
+  limit: number = 2000
+): Promise<GlucoseHistoryResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/glucose/history?${buildDateRangeParams(start, end)}&limit=${limit}`
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to fetch glucose history: ${response.status}`
+    );
+  }
+  return response.json();
+}
+
+export async function getGlucoseStatsByDateRange(
+  start: string,
+  end: string
+): Promise<GlucoseStats> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/glucose/stats?${buildDateRangeParams(start, end)}`
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to fetch glucose stats: ${response.status}`
+    );
+  }
+  return response.json();
+}
+
+export async function getTimeInRangeDetailByDateRange(
+  start: string,
+  end: string
+): Promise<TimeInRangeDetailStats> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/glucose/time-in-range?${buildDateRangeParams(start, end)}&include_details=true`
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to fetch TIR detail: ${response.status}`
+    );
+  }
+  return response.json();
+}
+
+export async function getInsulinSummaryByDateRange(
+  start: string,
+  end: string
+): Promise<InsulinSummaryResponse> {
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/insulin/summary?${buildDateRangeParams(start, end)}&tz=${encodeURIComponent(tz)}`
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to fetch insulin summary: ${response.status}`
+    );
+  }
+  return response.json();
+}
+
+export async function getBolusReviewByDateRange(
+  start: string,
+  end: string,
+  limit: number = 500
+): Promise<BolusReviewResponse> {
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/bolus/review?${buildDateRangeParams(start, end)}&limit=${limit}&tz=${encodeURIComponent(tz)}`
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to fetch bolus review: ${response.status}`
     );
   }
   return response.json();

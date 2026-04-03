@@ -3,8 +3,11 @@ package com.glycemicgpt.mobile.data.repository
 import android.content.Context
 import com.glycemicgpt.mobile.BuildConfig
 import com.glycemicgpt.mobile.data.auth.AuthManager
+import com.glycemicgpt.mobile.data.local.AnalyticsSettingsStore
 import com.glycemicgpt.mobile.data.local.AuthTokenStore
 import com.glycemicgpt.mobile.data.local.GlucoseRangeStore
+import com.glycemicgpt.mobile.data.local.PumpProfileStore
+import com.glycemicgpt.mobile.data.local.SafetyLimitsStore
 import com.glycemicgpt.mobile.data.remote.GlycemicGptApi
 import com.glycemicgpt.mobile.data.remote.dto.LoginRequest
 import com.glycemicgpt.mobile.service.AlertStreamService
@@ -29,6 +32,9 @@ class AuthRepository @Inject constructor(
     @ApplicationContext private val appContext: Context,
     private val authTokenStore: AuthTokenStore,
     private val glucoseRangeStore: GlucoseRangeStore,
+    private val safetyLimitsStore: SafetyLimitsStore,
+    private val analyticsSettingsStore: AnalyticsSettingsStore,
+    private val pumpProfileStore: PumpProfileStore,
     private val api: GlycemicGptApi,
     private val deviceRepository: DeviceRepository,
     private val authManager: AuthManager,
@@ -87,6 +93,7 @@ class AuthRepository @Inject constructor(
                         .onFailure { e -> Timber.w(e, "Device registration failed") }
                 }
                 scope.launch { fetchGlucoseRange() }
+                scope.launch { fetchSafetyLimits() }
                 AlertStreamService.start(appContext)
 
                 LoginResult(success = true, email = body.user.email)
@@ -112,6 +119,9 @@ class AuthRepository @Inject constructor(
         // Clear token before async unregisterDevice -- unregistration is best-effort.
         // Server-side cleanup handles orphaned device registrations.
         authTokenStore.clearToken()
+        safetyLimitsStore.clear()
+        analyticsSettingsStore.clear()
+        pumpProfileStore.clear()
         authManager.onLogout()
         scope.launch {
             deviceRepository.unregisterDevice()
@@ -131,7 +141,20 @@ class AuthRepository @Inject constructor(
 
     fun getBaseUrl(): String? = authTokenStore.getBaseUrl()
 
+    /**
+     * Returns true only if the access token is present AND not expired.
+     * Prefer [hasActiveSession] for navigation/UI decisions -- this method
+     * returns false when the access token is expired even if a valid refresh
+     * token exists and the session can be restored.
+     */
     fun isLoggedIn(): Boolean = authTokenStore.isLoggedIn()
+
+    /**
+     * Returns true if the user has an active session (valid refresh token),
+     * regardless of whether the current access token has expired.
+     * Use for navigation and UI state decisions.
+     */
+    fun hasActiveSession(): Boolean = authTokenStore.hasActiveSession()
 
     fun getUserEmail(): String? = authTokenStore.getUserEmail()
 
@@ -142,6 +165,10 @@ class AuthRepository @Inject constructor(
 
     suspend fun refreshGlucoseRange() {
         fetchGlucoseRange()
+    }
+
+    suspend fun refreshSafetyLimits() {
+        fetchSafetyLimits()
     }
 
     private suspend fun fetchGlucoseRange() {
@@ -166,6 +193,30 @@ class AuthRepository @Inject constructor(
             throw e
         } catch (e: Exception) {
             Timber.w(e, "Failed to fetch glucose range settings")
+        }
+    }
+
+    private suspend fun fetchSafetyLimits() {
+        try {
+            val response = api.getSafetyLimits()
+            if (response.isSuccessful) {
+                response.body()?.let { limits ->
+                    val min = limits.minGlucoseMgDl
+                    val max = limits.maxGlucoseMgDl
+                    val basal = limits.maxBasalRateMilliunits
+                    val bolus = limits.maxBolusDoseMilliunits
+                    if (min >= max || min !in 20..499 || max !in 21..500 || basal !in 1..15000 || bolus !in 1..25000) {
+                        Timber.w("Safety limits invalid: min=%d max=%d basal=%d bolus=%d -- ignoring", min, max, basal, bolus)
+                        return
+                    }
+                    safetyLimitsStore.updateAll(min, max, basal, bolus)
+                    Timber.d("Safety limits synced: min=%d max=%d basal=%d bolus=%d", min, max, basal, bolus)
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "Failed to fetch safety limits from backend")
         }
     }
 }

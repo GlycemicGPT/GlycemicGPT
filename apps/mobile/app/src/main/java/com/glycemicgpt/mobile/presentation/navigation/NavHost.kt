@@ -1,5 +1,6 @@
 package com.glycemicgpt.mobile.presentation.navigation
 
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -10,12 +11,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.automirrored.filled.ShowChart
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -36,18 +41,27 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
+import androidx.navigation.NavType
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.glycemicgpt.mobile.data.auth.AuthState
+import com.glycemicgpt.mobile.data.local.AuthTokenStore
 import com.glycemicgpt.mobile.data.local.AppSettingsStore
 import com.glycemicgpt.mobile.presentation.alerts.AlertsScreen
 import com.glycemicgpt.mobile.presentation.chat.AiChatScreen
 import com.glycemicgpt.mobile.presentation.home.HomeScreen
 import com.glycemicgpt.mobile.BuildConfig
 import com.glycemicgpt.mobile.presentation.debug.BleDebugScreen
+import com.glycemicgpt.mobile.presentation.detail.AlertHistoryScreen
+import com.glycemicgpt.mobile.presentation.detail.BolusHistoryScreen
+import com.glycemicgpt.mobile.presentation.detail.ChartDetailScreen
+import com.glycemicgpt.mobile.presentation.detail.InsulinDetailScreen
+import com.glycemicgpt.mobile.presentation.detail.TirDetailScreen
 import com.glycemicgpt.mobile.presentation.onboarding.OnboardingScreen
 import com.glycemicgpt.mobile.presentation.pairing.PairingScreen
+import com.glycemicgpt.mobile.presentation.plugin.PluginDetailScreen
 import com.glycemicgpt.mobile.presentation.settings.SettingsScreen
 import com.glycemicgpt.mobile.presentation.settings.SettingsViewModel
 
@@ -59,20 +73,41 @@ sealed class Screen(val route: String, val label: String, val icon: ImageVector)
     data object Pairing : Screen("pairing", "Pairing", Icons.Default.Bluetooth)
     data object BleDebug : Screen("ble_debug", "BLE Debug", Icons.Default.BugReport)
     data object Onboarding : Screen("onboarding", "Onboarding", Icons.Default.Home)
+    data object PluginDetail : Screen("plugin_detail/{pluginId}/{cardId}", "Plugin Detail", Icons.Default.Settings)
+    data object ChartDetail : Screen("chart_detail", "Chart", Icons.AutoMirrored.Filled.ShowChart)
+    data object TirDetail : Screen("tir_detail", "Time in Range", Icons.Default.BarChart)
+    data object InsulinDetail : Screen("insulin_detail", "Insulin", Icons.Default.Science)
+    data object AlertHistory : Screen("alert_history", "Alert History", Icons.Default.History)
+    data object BolusHistory : Screen("bolus_history", "Bolus History", Icons.Default.History)
 }
 
 private val bottomNavItems = listOf(Screen.Home, Screen.AiChat, Screen.Alerts, Screen.Settings)
 
+// Routes that show their own TopAppBar + back button; bottom nav is hidden on these.
+private val spokeRoutes = setOf(
+    Screen.ChartDetail.route,
+    Screen.TirDetail.route,
+    Screen.InsulinDetail.route,
+    Screen.AlertHistory.route,
+    Screen.BolusHistory.route,
+    Screen.PluginDetail.route,
+    Screen.Pairing.route,
+    Screen.BleDebug.route,
+)
+
 @Composable
-fun GlycemicGptNavHost(appSettingsStore: AppSettingsStore) {
+fun GlycemicGptNavHost(appSettingsStore: AppSettingsStore, authTokenStore: AuthTokenStore) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
     val settingsViewModel: SettingsViewModel = hiltViewModel()
     val authState by settingsViewModel.authState.collectAsState()
 
+    // Use hasActiveSession() (checks refresh token) instead of isLoggedIn() (checks access token).
+    // This prevents routing to onboarding when the access token is expired but a valid
+    // refresh token exists -- the AuthManager will refresh it asynchronously.
     val startDestination = remember {
-        if (appSettingsStore.onboardingComplete && settingsViewModel.uiState.value.isLoggedIn) {
+        if (appSettingsStore.onboardingComplete && authTokenStore.hasActiveSession()) {
             Screen.Home.route
         } else {
             Screen.Onboarding.route
@@ -80,6 +115,7 @@ fun GlycemicGptNavHost(appSettingsStore: AppSettingsStore) {
     }
 
     val isOnboarding = currentDestination?.route == Screen.Onboarding.route
+    val showBottomNav = !isOnboarding && currentDestination?.route !in spokeRoutes
 
     // Observe logout -> onboarding navigation event
     LaunchedEffect(Unit) {
@@ -90,9 +126,20 @@ fun GlycemicGptNavHost(appSettingsStore: AppSettingsStore) {
         }
     }
 
+    // Navigate back to Home when auth state transitions to Authenticated while on onboarding.
+    // This handles the case where the user was briefly shown onboarding due to a stale
+    // start destination, but the async token refresh succeeded.
+    LaunchedEffect(authState, isOnboarding) {
+        if (isOnboarding && authState is AuthState.Authenticated && appSettingsStore.onboardingComplete) {
+            navController.navigate(Screen.Home.route) {
+                popUpTo(Screen.Onboarding.route) { inclusive = true }
+            }
+        }
+    }
+
     Scaffold(
         bottomBar = {
-            if (!isOnboarding) {
+            if (showBottomNav) {
                 NavigationBar {
                     bottomNavItems.forEach { screen ->
                         NavigationBarItem(
@@ -145,7 +192,20 @@ fun GlycemicGptNavHost(appSettingsStore: AppSettingsStore) {
                         },
                     )
                 }
-                composable(Screen.Home.route) { HomeScreen() }
+                composable(Screen.Home.route) {
+                    HomeScreen(
+                        onPluginCardTap = { pluginId, cardId ->
+                            navController.navigate(
+                                "plugin_detail/${Uri.encode(pluginId)}/${Uri.encode(cardId)}",
+                            )
+                        },
+                        onNavigateToChartDetail = { navController.navigate(Screen.ChartDetail.route) },
+                        onNavigateToTirDetail = { navController.navigate(Screen.TirDetail.route) },
+                        onNavigateToInsulinDetail = { navController.navigate(Screen.InsulinDetail.route) },
+                        onNavigateToAlertHistory = { navController.navigate(Screen.AlertHistory.route) },
+                        onNavigateToBolusHistory = { navController.navigate(Screen.BolusHistory.route) },
+                    )
+                }
                 composable(Screen.AiChat.route) { AiChatScreen() }
                 composable(Screen.Alerts.route) { AlertsScreen() }
                 composable(Screen.Settings.route) {
@@ -170,6 +230,64 @@ fun GlycemicGptNavHost(appSettingsStore: AppSettingsStore) {
                     composable(Screen.BleDebug.route) {
                         BleDebugScreen()
                     }
+                }
+                composable(
+                    route = Screen.PluginDetail.route,
+                    arguments = listOf(
+                        navArgument("pluginId") { type = NavType.StringType },
+                        navArgument("cardId") { type = NavType.StringType },
+                    ),
+                ) { backStackEntry ->
+                    val pluginId = backStackEntry.arguments?.getString("pluginId") ?: return@composable
+                    val cardId = backStackEntry.arguments?.getString("cardId") ?: return@composable
+                    PluginDetailScreen(
+                        pluginId = pluginId,
+                        cardId = cardId,
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+                composable(Screen.ChartDetail.route) {
+                    val homeEntry = remember(it) {
+                        try {
+                            navController.getBackStackEntry(Screen.Home.route)
+                        } catch (_: IllegalArgumentException) {
+                            null
+                        }
+                    }
+                    if (homeEntry == null) {
+                        LaunchedEffect(Unit) { navController.popBackStack() }
+                        return@composable
+                    }
+                    ChartDetailScreen(
+                        onBack = { navController.popBackStack() },
+                        viewModel = hiltViewModel(homeEntry),
+                    )
+                }
+                composable(Screen.TirDetail.route) {
+                    TirDetailScreen(onBack = { navController.popBackStack() })
+                }
+                composable(Screen.InsulinDetail.route) {
+                    InsulinDetailScreen(onBack = { navController.popBackStack() })
+                }
+                composable(Screen.AlertHistory.route) {
+                    AlertHistoryScreen(onBack = { navController.popBackStack() })
+                }
+                composable(Screen.BolusHistory.route) {
+                    val homeEntry = remember(it) {
+                        try {
+                            navController.getBackStackEntry(Screen.Home.route)
+                        } catch (_: IllegalArgumentException) {
+                            null
+                        }
+                    }
+                    if (homeEntry == null) {
+                        LaunchedEffect(Unit) { navController.popBackStack() }
+                        return@composable
+                    }
+                    BolusHistoryScreen(
+                        onBack = { navController.popBackStack() },
+                        viewModel = hiltViewModel(homeEntry),
+                    )
                 }
             }
         }

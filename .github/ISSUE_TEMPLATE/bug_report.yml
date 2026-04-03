@@ -8,7 +8,7 @@ body:
       value: |
         ## 🔍 Before Submitting
 
-        - Search [existing issues](https://github.com/jlengelbrecht/GlycemicGPT/issues?q=is%3Aissue) to check if this has already been reported.
+        - Search [existing issues](https://github.com/GlycemicGPT/GlycemicGPT/issues?q=is%3Aissue) to check if this has already been reported.
         - For **mobile app** (Android/Wear OS) issues, please use the **📱 Mobile App Issue** template instead.
 
         Thanks for helping make GlycemicGPT better! 💙

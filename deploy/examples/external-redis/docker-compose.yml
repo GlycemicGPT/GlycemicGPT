@@ -1,0 +1,88 @@
+# GlycemicGPT -- Production with External Redis/Valkey
+#
+# Usage:
+#   1. Copy .env.example to .env and fill in all values
+#   2. Point REDIS_URL at your external Redis or Valkey instance
+#   3. Add your own reverse proxy (Caddy, Nginx, etc.) or
+#      combine with the cloudflare-tunnel example
+#   4. docker compose up -d
+#
+# This example omits the bundled Redis container entirely.
+# Compatible with: Redis 7+, Valkey 7+, AWS ElastiCache, etc.
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-glycemicgpt}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-glycemicgpt}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-glycemicgpt}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ai-sidecar:
+    image: ghcr.io/glycemicgpt/glycemicgpt-sidecar:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    volumes:
+      - sidecar_auth:/home/sidecar/.config
+      - sidecar_codex:/home/sidecar/.codex
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      SIDECAR_API_KEY: ${SIDECAR_API_KEY:-}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3456/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  api:
+    image: ghcr.io/glycemicgpt/glycemicgpt-api:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    # WARNING: Ports exposed directly. Add a reverse proxy (Caddy, Nginx,
+    # Cloudflare Tunnel) for TLS in production -- see other examples.
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-glycemicgpt}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-glycemicgpt}
+      REDIS_URL: ${REDIS_URL:?REDIS_URL is required for external Redis}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
+      AI_SIDECAR_URL: http://ai-sidecar:3456
+      AI_SIDECAR_API_KEY: ${SIDECAR_API_KEY:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-[]}
+      ALLOW_PRIVATE_AI_URLS: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+      ai-sidecar:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  web:
+    image: ghcr.io/glycemicgpt/glycemicgpt-web:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    # WARNING: Ports exposed directly. See note on api service above.
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    environment:
+      API_URL: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  sidecar_auth:
+  sidecar_codex:

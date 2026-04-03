@@ -9,6 +9,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -50,12 +51,16 @@ class AuthManager @Inject constructor(
 
     private var refreshJob: Job? = null
     private val refreshMutex = Mutex()
+    /** Retained scope for scheduling proactive refreshes from non-coroutine contexts. */
+    @Volatile
+    private var retainedScope: CoroutineScope? = null
 
     /**
      * Validates stored tokens on startup and schedules proactive refresh.
      * Call this from Application.onCreate() or the first ViewModel that loads.
      */
     fun validateOnStartup(scope: CoroutineScope) {
+        retainedScope = scope
         val refreshToken = authTokenStore.getRefreshToken()
         if (refreshToken == null) {
             _authState.value = AuthState.Unauthenticated
@@ -77,9 +82,10 @@ class AuthManager @Inject constructor(
             return
         }
 
-        // Access token expired but refresh token is valid -- attempt refresh
+        // Access token expired but refresh token is valid -- attempt refresh with retry
+        _authState.value = AuthState.Refreshing
         scope.launch {
-            performRefresh(scope)
+            performRefreshWithRetry(scope)
         }
     }
 
@@ -182,10 +188,23 @@ class AuthManager @Inject constructor(
                         Timber.d("Proactive token refresh succeeded")
                         _authState.value = AuthState.Authenticated
                         scheduleProactiveRefresh(scope)
-                    } else {
-                        Timber.w("Proactive token refresh failed with HTTP ${resp.code}")
+                    } else if (resp.code == 401 || resp.code == 403) {
+                        // Definitive auth rejection -- refresh token is invalid/revoked
+                        Timber.w("Token refresh rejected with HTTP ${resp.code}, clearing session")
                         authTokenStore.clearToken()
                         _authState.value = AuthState.Expired()
+                    } else {
+                        // Transient server error (5xx, etc.) -- preserve tokens for retry
+                        Timber.w("Token refresh got HTTP ${resp.code}, preserving session for retry")
+                        val currentToken = authTokenStore.getRawToken()
+                        if (currentToken != null) {
+                            // We still have a (possibly expired) access token -- mark authenticated
+                            // so the app can function, and schedule proactive retry
+                            _authState.value = AuthState.Authenticated
+                            scheduleProactiveRefresh(scope)
+                        }
+                        // If no access token, leave state as Refreshing so
+                        // performRefreshWithRetry can attempt again on startup
                     }
                 }
             } catch (e: CancellationException) {
@@ -205,16 +224,57 @@ class AuthManager @Inject constructor(
         }
     }
 
+    /**
+     * Attempts refresh with retry for startup scenarios where a transient network
+     * failure shouldn't immediately destroy the session.
+     *
+     * Checks for actual token acquisition (not just auth state) to determine
+     * whether to retry, since transient 5xx errors leave state as [AuthState.Refreshing].
+     */
+    private suspend fun performRefreshWithRetry(
+        scope: CoroutineScope,
+        maxAttempts: Int = 3,
+    ) {
+        for (attempt in 0 until maxAttempts) {
+            performRefresh(scope)
+
+            // Success: we obtained a valid access token
+            if (authTokenStore.getToken() != null) return
+
+            // Definitive failure: no point retrying
+            val state = _authState.value
+            if (state is AuthState.Expired || state is AuthState.Unauthenticated) return
+
+            // Transient failure (Refreshing state) -- retry with backoff
+            if (attempt < maxAttempts - 1) {
+                val backoffMs = 1000L * (1 shl attempt) // 1s, 2s
+                Timber.d("Startup refresh attempt ${attempt + 1} failed transiently, retrying in ${backoffMs}ms")
+                delay(backoffMs)
+            }
+        }
+
+        // All attempts exhausted without obtaining a token
+        if (authTokenStore.getToken() == null && _authState.value !is AuthState.Expired) {
+            Timber.w("Startup refresh exhausted all attempts without obtaining a token")
+            _authState.value = AuthState.Expired()
+        }
+    }
+
     /** Called after a successful login to set the authenticated state. */
     fun onLoginSuccess(scope: CoroutineScope) {
+        // Prefer the app-lifetime scope set by validateOnStartup() over the
+        // caller-provided scope (which is often a ViewModel scope that dies
+        // when the UI is torn down, breaking proactive refresh scheduling).
+        val effectiveScope = retainedScope ?: scope.also { retainedScope = it }
         _authState.value = AuthState.Authenticated
-        scheduleProactiveRefresh(scope)
+        scheduleProactiveRefresh(effectiveScope)
     }
 
     /** Called on logout to reset state. */
     fun onLogout() {
         refreshJob?.cancel()
         refreshJob = null
+        retainedScope = null
         _authState.value = AuthState.Unauthenticated
     }
 
@@ -225,8 +285,18 @@ class AuthManager @Inject constructor(
     }
 
     /** Called by TokenRefreshInterceptor after a successful interceptor-driven refresh. */
-    fun onInterceptorRefreshSuccess(scope: CoroutineScope) {
+    fun onInterceptorRefreshSuccess() {
+        // Guard against a late interceptor callback racing with logout
+        if (_authState.value is AuthState.Unauthenticated) {
+            Timber.w("Ignoring interceptor refresh success after logout")
+            return
+        }
         _authState.value = AuthState.Authenticated
-        scheduleProactiveRefresh(scope)
+        val scope = retainedScope
+        if (scope?.isActive == true) {
+            scheduleProactiveRefresh(scope)
+        } else {
+            Timber.w("Skipping proactive refresh scheduling: retained scope unavailable or inactive")
+        }
     }
 }

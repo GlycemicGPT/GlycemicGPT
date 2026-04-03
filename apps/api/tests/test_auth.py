@@ -180,7 +180,9 @@ class TestDuplicateEmail:
 
         assert response1.status_code == 201
         assert response2.status_code == 409
-        assert "already exists" in response2.json()["detail"]
+        assert response2.json()["detail"] == (
+            "Registration failed. Please try again or contact support."
+        )
 
     async def test_rejects_duplicate_email_case_insensitive(self):
         """Test that email uniqueness is case-insensitive."""

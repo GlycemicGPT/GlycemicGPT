@@ -53,4 +53,19 @@ class WearDataContractTest {
         assertEquals("glycemicgpt_chat_relay", WearDataContract.CHAT_RELAY_CAPABILITY)
         assertEquals("glycemicgpt_watch_app", WearDataContract.WATCH_APP_CAPABILITY)
     }
+
+    @Test
+    fun `CONFIG_PATH matches expected value`() {
+        assertEquals("/glycemicgpt/watchface/config", WearDataContract.CONFIG_PATH)
+    }
+
+    @Test
+    fun `config keys are consistent`() {
+        assertEquals("cfg_show_iob", WearDataContract.KEY_CONFIG_SHOW_IOB)
+        assertEquals("cfg_show_graph", WearDataContract.KEY_CONFIG_SHOW_GRAPH)
+        assertEquals("cfg_show_alert", WearDataContract.KEY_CONFIG_SHOW_ALERT)
+        assertEquals("cfg_show_seconds", WearDataContract.KEY_CONFIG_SHOW_SECONDS)
+        assertEquals("cfg_graph_range_h", WearDataContract.KEY_CONFIG_GRAPH_RANGE_HOURS)
+        assertEquals("cfg_theme", WearDataContract.KEY_CONFIG_THEME)
+    }
 }

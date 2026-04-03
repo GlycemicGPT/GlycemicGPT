@@ -32,9 +32,26 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Decode debug keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > /tmp/debug-keystore.jks
+            chmod 600 /tmp/debug-keystore.jks
+            echo "DEBUG_KEYSTORE_FILE=/tmp/debug-keystore.jks" >> "$GITHUB_ENV"
+          else
+            echo "::error::DEBUG_KEYSTORE_BASE64 secret is not set. Refusing to publish a dev APK with ephemeral signing."
+            exit 1
+          fi
+
       - name: Build debug APK
         working-directory: apps/mobile
         run: ./gradlew assembleDebug -PdevBuildNumber=${{ github.run_number }}
+        env:
+          DEBUG_KEYSTORE_PASSWORD: ${{ secrets.DEBUG_KEYSTORE_PASSWORD }}
+          DEBUG_KEY_ALIAS: ${{ secrets.DEBUG_KEY_ALIAS }}
+          DEBUG_KEY_PASSWORD: ${{ secrets.DEBUG_KEY_PASSWORD }}
 
       - name: Extract version
         id: version
@@ -52,7 +69,7 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           RUN="${{ github.run_number }}"
           PHONE_SRC="apps/mobile/app/build/outputs/apk/debug/app-debug.apk"
-          WEAR_SRC="apps/mobile/wear/build/outputs/apk/debug/wear-debug.apk"
+          WEAR_SRC="apps/mobile/wear-device/build/outputs/apk/debug/wear-device-debug.apk"
 
           mkdir -p dist
           if [ -f "$PHONE_SRC" ]; then
@@ -68,9 +85,16 @@ jobs:
             exit 1
           fi
 
+      - name: Generate token for glycemicgpt-ci
+        id: ci-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.CI_APP_ID }}
+          private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+
       - name: Publish dev-latest pre-release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.ci-token.outputs.token }}
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           RUN="${{ github.run_number }}"
@@ -91,3 +115,7 @@ jobs:
             --prerelease \
             --target develop \
             dist/*.apk
+
+      - name: Clean up keystore
+        if: always()
+        run: rm -f /tmp/debug-keystore.jks

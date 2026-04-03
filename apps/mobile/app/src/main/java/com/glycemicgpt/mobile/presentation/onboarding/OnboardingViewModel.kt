@@ -22,6 +22,7 @@ data class OnboardingUiState(
     val isLoggingIn: Boolean = false,
     val loginError: String? = null,
     val onboardingComplete: Boolean = false,
+    val requestNotificationPermission: Boolean = false,
 )
 
 @HiltViewModel
@@ -146,11 +147,13 @@ class OnboardingViewModel @Inject constructor(
             )
             if (result.success) {
                 appSettingsStore.onboardingComplete = true
+                // Request notification permission first; onboardingComplete is set
+                // after permission is handled to avoid racing the navigation transition
                 _uiState.update {
                     it.copy(
                         isLoggingIn = false,
-                        onboardingComplete = true,
                         password = "",
+                        requestNotificationPermission = true,
                     )
                 }
             } else {
@@ -162,6 +165,15 @@ class OnboardingViewModel @Inject constructor(
                     )
                 }
             }
+        }
+    }
+
+    fun onNotificationPermissionHandled() {
+        _uiState.update {
+            it.copy(
+                requestNotificationPermission = false,
+                onboardingComplete = true,
+            )
         }
     }
 

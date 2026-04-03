@@ -1,14 +1,15 @@
-"use client";
-
 /**
- * useTimeInRangeStats Hook
+ * useTimeInRangeDetailStats Hook
  *
- * Story 18.6: Fetches time-in-range statistics from the API.
+ * Story 30.4 consolidated: Fetches 5-bucket TIR detail statistics from the API.
  * Manages time period selection and data refreshing.
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { getTimeInRangeStats, type TimeInRangeStats } from "@/lib/api";
+import {
+  getTimeInRangeDetailStats,
+  type TimeInRangeDetailStats,
+} from "@/lib/api";
 
 export type TirPeriod = "24h" | "3d" | "7d" | "14d" | "30d";
 
@@ -20,8 +21,8 @@ const PERIOD_TO_MINUTES: Record<TirPeriod, number> = {
   "30d": 43200,
 };
 
-export interface UseTimeInRangeStatsReturn {
-  stats: TimeInRangeStats | null;
+export interface UseTimeInRangeDetailStatsReturn {
+  stats: TimeInRangeDetailStats | null;
   isLoading: boolean;
   error: string | null;
   period: TirPeriod;
@@ -29,10 +30,10 @@ export interface UseTimeInRangeStatsReturn {
   refetch: () => void;
 }
 
-export function useTimeInRangeStats(
+export function useTimeInRangeDetailStats(
   initialPeriod: TirPeriod = "24h"
-): UseTimeInRangeStatsReturn {
-  const [stats, setStats] = useState<TimeInRangeStats | null>(null);
+): UseTimeInRangeDetailStatsReturn {
+  const [stats, setStats] = useState<TimeInRangeDetailStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [period, setPeriod] = useState<TirPeriod>(initialPeriod);
@@ -42,16 +43,17 @@ export function useTimeInRangeStats(
     const gen = ++fetchGenRef.current;
     setIsLoading(true);
     setError(null);
+    setStats(null); // Clear stale data to avoid showing wrong period's values
     try {
       const minutes = PERIOD_TO_MINUTES[period];
-      const data = await getTimeInRangeStats(minutes);
+      const data = await getTimeInRangeDetailStats(minutes);
       if (gen === fetchGenRef.current) {
         setStats(data);
       }
     } catch (err) {
       if (gen === fetchGenRef.current) {
         setError(
-          err instanceof Error ? err.message : "Failed to load time in range"
+          err instanceof Error ? err.message : "Failed to load TIR detail"
         );
       }
     } finally {

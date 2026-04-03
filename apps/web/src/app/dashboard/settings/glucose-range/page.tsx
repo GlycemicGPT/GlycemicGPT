@@ -182,13 +182,13 @@ export default function GlucoseRangePage() {
       <div>
         <Link
           href="/dashboard/settings"
-          className="flex items-center gap-1 text-sm text-slate-400 hover:text-slate-300 mb-2"
+          className="flex items-center gap-1 text-sm text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 mb-2"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to Settings
         </Link>
         <h1 className="text-2xl font-bold">Glucose Thresholds</h1>
-        <p className="text-slate-400">
+        <p className="text-slate-500 dark:text-slate-400">
           Configure your glucose range thresholds for charts, alerts, and AI
           analysis
         </p>
@@ -224,17 +224,17 @@ export default function GlucoseRangePage() {
 
       {isLoading && (
         <div
-          className="bg-slate-900 rounded-xl p-12 border border-slate-800 text-center"
+          className="bg-white dark:bg-slate-900 rounded-xl p-12 border border-slate-200 dark:border-slate-800 text-center"
           role="status"
           aria-label="Loading glucose thresholds"
         >
           <Loader2 className="h-8 w-8 text-blue-400 animate-spin mx-auto mb-3" />
-          <p className="text-slate-400">Loading thresholds...</p>
+          <p className="text-slate-500 dark:text-slate-400">Loading thresholds...</p>
         </div>
       )}
 
       {!isLoading && (
-        <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6">
           <div className="flex items-center gap-3 mb-6">
             <div className="p-2 bg-green-500/10 rounded-lg">
               <Target className="h-5 w-5 text-green-400" />
@@ -268,7 +268,7 @@ export default function GlucoseRangePage() {
                   disabled={isSaving}
                   className={clsx(
                     "w-full rounded-lg border px-3 py-2 text-sm",
-                    "bg-slate-800 border-slate-700 text-slate-200",
+                    "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
                     "focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent",
                     "disabled:opacity-50 disabled:cursor-not-allowed"
                   )}
@@ -301,7 +301,7 @@ export default function GlucoseRangePage() {
                   disabled={isSaving}
                   className={clsx(
                     "w-full rounded-lg border px-3 py-2 text-sm",
-                    "bg-slate-800 border-slate-700 text-slate-200",
+                    "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
                     "focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent",
                     "disabled:opacity-50 disabled:cursor-not-allowed"
                   )}
@@ -331,7 +331,7 @@ export default function GlucoseRangePage() {
                   disabled={isSaving}
                   className={clsx(
                     "w-full rounded-lg border px-3 py-2 text-sm",
-                    "bg-slate-800 border-slate-700 text-slate-200",
+                    "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
                     "focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent",
                     "disabled:opacity-50 disabled:cursor-not-allowed"
                   )}
@@ -364,7 +364,7 @@ export default function GlucoseRangePage() {
                   disabled={isSaving}
                   className={clsx(
                     "w-full rounded-lg border px-3 py-2 text-sm",
-                    "bg-slate-800 border-slate-700 text-slate-200",
+                    "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
                     "focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent",
                     "disabled:opacity-50 disabled:cursor-not-allowed"
                   )}
@@ -381,7 +381,7 @@ export default function GlucoseRangePage() {
 
             {/* Visual preview */}
             {isValid && (
-              <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
+              <div className="bg-slate-100/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-300/50 dark:border-slate-700/50">
                 <p className="text-xs text-slate-500 mb-2">Preview</p>
                 <div className="flex items-center gap-2 text-sm">
                   <span className="text-red-400 font-medium">{ulNum}</span>
@@ -437,7 +437,7 @@ export default function GlucoseRangePage() {
                 }
                 className={clsx(
                   "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium",
-                  "bg-slate-800 text-slate-300 hover:bg-slate-700",
+                  "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700",
                   "transition-colors",
                   "focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500",
                   "disabled:opacity-50 disabled:cursor-not-allowed"
@@ -452,7 +452,7 @@ export default function GlucoseRangePage() {
       )}
 
       {/* Info card */}
-      <div className="bg-slate-900/50 rounded-xl p-4 border border-slate-800">
+      <div className="bg-slate-50/50 dark:bg-slate-900/50 rounded-xl p-4 border border-slate-200 dark:border-slate-800">
         <p className="text-xs text-slate-500">
           These thresholds control how glucose values are color-coded on your
           dashboard, where the target range band appears on charts, and what

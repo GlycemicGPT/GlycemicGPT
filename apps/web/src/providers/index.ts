@@ -20,3 +20,5 @@ export {
 } from "./alert-notification-provider";
 
 export { UserProvider, useUserContext } from "./user-provider";
+
+export { ThemeProvider, useTheme } from "./theme-provider";

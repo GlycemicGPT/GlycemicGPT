@@ -59,10 +59,11 @@ class AuthTokenStore @Inject constructor(
         val token = prefs.getString(KEY_TOKEN, null) ?: return null
         val expiresAt = prefs.getLong(KEY_EXPIRES_AT, 0L)
         if (expiresAt > 0 && System.currentTimeMillis() >= expiresAt) {
-            // Only clear the access token, NOT the refresh token.
-            // The refresh token is needed by TokenRefreshInterceptor to
-            // obtain a new access token when the current one expires.
-            clearAccessToken()
+            // Token is expired -- return null but do NOT clear it.
+            // Clearing here caused a race condition: NavHost reads isLoggedIn()
+            // synchronously during composition (gets false because token expired),
+            // while AuthManager.validateOnStartup() refreshes async.
+            // The TokenRefreshInterceptor handles 401s and obtains new tokens.
             return null
         }
         return token
@@ -72,6 +73,17 @@ class AuthTokenStore @Inject constructor(
     fun getTokenExpiresAtMs(): Long = prefs.getLong(KEY_EXPIRES_AT, 0L)
 
     fun isLoggedIn(): Boolean = getToken() != null
+
+    /**
+     * Returns true if the user has an active session (valid refresh token exists),
+     * regardless of whether the current access token has expired.
+     *
+     * Use this for navigation decisions (start destination, service keep-alive)
+     * where an expired access token should trigger a background refresh, NOT a
+     * logout. Use [isLoggedIn] only for checking whether an API call can be made
+     * right now without refreshing first.
+     */
+    fun hasActiveSession(): Boolean = !isRefreshTokenExpired()
 
     fun saveRefreshToken(token: String) {
         val expiresAtMs = extractJwtExpiration(token)

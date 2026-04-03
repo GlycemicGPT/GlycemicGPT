@@ -1,31 +1,39 @@
-"""Stories 7.5, 7.6, & 15.7: AI chat via Telegram and web.
+"""Stories 7.5, 7.6, 15.7, & 35.3: AI chat via Telegram and web.
 
 Handles natural language messages from Telegram/web by routing them
 to the user's configured AI provider with comprehensive diabetes context.
-Each message is a standalone Q&A (no conversation history).
 
 Story 7.6 adds caregiver chat: uses the patient's AI provider and
 glucose context with a caregiver-specific system prompt.
 
 Story 15.7: Expanded from glucose-only context to full diabetes context
 including pump activity, Control-IQ summary, and user settings.
+
+Story 35.1: Context builders extracted to diabetes_context.py shared module.
+
+Story 35.3: Multi-turn conversation memory. Messages are persisted and
+the last N turns are included as context in every AI request.
 """
 
 import html
 import uuid
-from datetime import UTC, datetime, timedelta
+from dataclasses import dataclass
 
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.logging_config import get_logger
-from src.models.glucose import GlucoseReading
+from src.models.chat_message import ChatRole
 from src.models.user import User
 from src.schemas.ai_response import AIMessage
 from src.services.ai_client import get_ai_client
-from src.services.alert_notifier import trend_description
-from src.services.iob_projection import get_iob_projection, get_user_dia
+from src.services.chat_history import (
+    get_or_create_conversation,
+    get_recent_messages,
+    store_message,
+)
+from src.services.diabetes_context import build_diabetes_context
 
 logger = get_logger(__name__)
 
@@ -36,18 +44,6 @@ TELEGRAM_MAX_LENGTH = 4096
 SAFETY_DISCLAIMER = (
     "\n\n\u26a0\ufe0f <i>Not medical advice. Consult your healthcare provider.</i>"
 )
-
-# Context time windows (Story 15.7)
-GLUCOSE_CONTEXT_HOURS = 6
-PUMP_CONTEXT_HOURS = 6
-CONTROL_IQ_SUMMARY_HOURS = 24
-
-# Maximum readings to fetch for glucose context
-GLUCOSE_MAX_READINGS = 72  # ~6 hours of 5-min CGM readings
-
-# Default glucose target range when user hasn't configured one
-DEFAULT_LOW_TARGET = 70.0
-DEFAULT_HIGH_TARGET = 180.0
 
 # Token limits for AI responses
 TELEGRAM_MAX_RESPONSE_TOKENS = 800
@@ -74,315 +70,17 @@ Guidelines:
 MAX_USER_MESSAGE_LENGTH = 2000
 
 
-# ── Section builders (Story 15.7) ──
+@dataclass
+class ChatResult:
+    """Structured result from a web chat exchange."""
 
-
-async def _build_glucose_section(
-    db: AsyncSession,
-    user_id: uuid.UUID,
-) -> str | None:
-    """Build glucose summary section from recent CGM readings."""
-    cutoff = datetime.now(UTC) - timedelta(hours=GLUCOSE_CONTEXT_HOURS)
-
-    result = await db.execute(
-        select(GlucoseReading)
-        .where(
-            GlucoseReading.user_id == user_id,
-            GlucoseReading.reading_timestamp >= cutoff,
-        )
-        .order_by(GlucoseReading.reading_timestamp.desc())
-        .limit(GLUCOSE_MAX_READINGS)
-    )
-    readings = list(result.scalars().all())
-
-    if not readings:
-        return None
-
-    latest = readings[0]
-    values = [r.value for r in readings]
-    min_val = min(values)
-    max_val = max(values)
-    avg_val = sum(values) / len(values)
-    trend = trend_description(latest.trend_rate)
-
-    # Calculate time-in-range (default 70-180)
-    from src.models.target_glucose_range import TargetGlucoseRange
-
-    range_result = await db.execute(
-        select(TargetGlucoseRange).where(TargetGlucoseRange.user_id == user_id)
-    )
-    target_range = range_result.scalar_one_or_none()
-    low = target_range.low_target if target_range else DEFAULT_LOW_TARGET
-    high = target_range.high_target if target_range else DEFAULT_HIGH_TARGET
-    in_range = sum(1 for v in values if low <= v <= high)
-    tir_pct = (in_range / len(values)) * 100 if values else 0
-
-    lines = [
-        f"[Glucose - last {GLUCOSE_CONTEXT_HOURS}h]",
-        f"- Current: {latest.value} mg/dL ({trend})",
-        f"- Range: {min_val}-{max_val} mg/dL, Avg: {avg_val:.0f} mg/dL",
-        f"- Time in range ({low:.0f}-{high:.0f}): {tir_pct:.0f}%",
-        f"- Readings: {len(readings)}",
-    ]
-    return "\n".join(lines)
-
-
-async def _build_iob_section(
-    db: AsyncSession,
-    user_id: uuid.UUID,
-) -> str | None:
-    """Build insulin-on-board section from IoB projection."""
-    dia = await get_user_dia(db, user_id)
-    iob = await get_iob_projection(db, user_id, dia_hours=dia)
-    if iob is None:
-        return None
-
-    lines = [
-        "[Insulin on Board]",
-        f"- Current IoB: {iob.projected_iob:.1f} units",
-        f"- Projected 30min: {iob.projected_30min:.1f}u, 60min: {iob.projected_60min:.1f}u",
-    ]
-    if iob.is_stale:
-        lines.append(f"- (IoB data is stale: {iob.stale_warning or '>2 hours old'})")
-    return "\n".join(lines)
-
-
-async def _build_pump_section(
-    db: AsyncSession,
-    user_id: uuid.UUID,
-) -> str | None:
-    """Build pump activity section from recent pump events."""
-    from src.models.pump_data import PumpEventType
-    from src.services.tandem_sync import get_pump_events
-
-    events = await get_pump_events(db, user_id, hours=PUMP_CONTEXT_HOURS, limit=500)
-    if not events:
-        return None
-
-    manual_bolus_count = 0
-    manual_bolus_units = 0.0
-    auto_correction_count = 0
-    auto_correction_units = 0.0
-    basal_increase_count = 0
-    basal_decrease_count = 0
-    suspend_count = 0
-    last_auto_correction = None
-
-    for event in events:
-        if event.event_type == PumpEventType.BOLUS and not event.is_automated:
-            manual_bolus_count += 1
-            if event.units:
-                manual_bolus_units += event.units
-        elif event.event_type == PumpEventType.CORRECTION:
-            auto_correction_count += 1
-            if event.units:
-                auto_correction_units += event.units
-            if last_auto_correction is None:
-                last_auto_correction = event
-        elif event.event_type == PumpEventType.BASAL and event.is_automated:
-            if event.basal_adjustment_pct is not None:
-                if event.basal_adjustment_pct > 0:
-                    basal_increase_count += 1
-                elif event.basal_adjustment_pct < 0:
-                    basal_decrease_count += 1
-        elif event.event_type == PumpEventType.SUSPEND:
-            suspend_count += 1
-
-    lines = [
-        f"[Pump Activity - last {PUMP_CONTEXT_HOURS}h]",
-        f"- Manual boluses: {manual_bolus_count} ({manual_bolus_units:.1f}u total)",
-        f"- Auto-corrections (Control-IQ): {auto_correction_count} ({auto_correction_units:.1f}u total)",
-        f"- Basal adjustments: {basal_increase_count} increases, {basal_decrease_count} decreases",
-    ]
-    if suspend_count:
-        lines.append(f"- Suspends: {suspend_count}")
-    if last_auto_correction:
-        minutes_ago = int(
-            (datetime.now(UTC) - last_auto_correction.event_timestamp).total_seconds()
-            / 60
-        )
-        lines.append(
-            f"- Last auto-correction: {last_auto_correction.units or 0:.1f}u ({minutes_ago}min ago)"
-        )
-    return "\n".join(lines)
-
-
-async def _build_control_iq_section(
-    db: AsyncSession,
-    user_id: uuid.UUID,
-) -> str | None:
-    """Build 24h Control-IQ activity summary."""
-    from src.services.tandem_sync import get_control_iq_activity
-
-    summary = await get_control_iq_activity(db, user_id, hours=CONTROL_IQ_SUMMARY_HOURS)
-    if summary.total_events == 0:
-        return None
-
-    lines = [
-        f"[Control-IQ Activity - last {CONTROL_IQ_SUMMARY_HOURS}h]",
-        f"- Total events: {summary.total_events} ({summary.automated_events} automated, {summary.manual_events} manual)",
-        f"- Auto-corrections: {summary.correction_count} ({summary.total_correction_units:.1f}u total)",
-        f"- Basal adjustments: {summary.basal_increase_count} up, {summary.basal_decrease_count} down",
-    ]
-    if summary.avg_basal_adjustment_pct is not None:
-        lines.append(
-            f"- Avg basal adjustment: {summary.avg_basal_adjustment_pct:+.1f}%"
-        )
-    if summary.suspend_count:
-        lines.append(
-            f"- Suspends: {summary.suspend_count} ({summary.automated_suspend_count} automated)"
-        )
-    mode_parts = []
-    if summary.sleep_mode_events:
-        mode_parts.append(f"Sleep: {summary.sleep_mode_events}")
-    if summary.exercise_mode_events:
-        mode_parts.append(f"Exercise: {summary.exercise_mode_events}")
-    if summary.standard_mode_events:
-        mode_parts.append(f"Standard: {summary.standard_mode_events}")
-    if mode_parts:
-        lines.append(f"- Mode events: {', '.join(mode_parts)}")
-    return "\n".join(lines)
-
-
-async def _build_settings_section(
-    db: AsyncSession,
-    user_id: uuid.UUID,
-) -> str | None:
-    """Build user settings section (target range, insulin config)."""
-    from src.models.insulin_config import InsulinConfig
-    from src.models.target_glucose_range import TargetGlucoseRange
-
-    parts = []
-
-    range_result = await db.execute(
-        select(TargetGlucoseRange).where(TargetGlucoseRange.user_id == user_id)
-    )
-    target_range = range_result.scalar_one_or_none()
-    if target_range:
-        parts.append(
-            f"- Target range: {target_range.low_target:.0f}-{target_range.high_target:.0f} mg/dL"
-        )
-
-    config_result = await db.execute(
-        select(InsulinConfig).where(InsulinConfig.user_id == user_id)
-    )
-    insulin_config = config_result.scalar_one_or_none()
-    if insulin_config:
-        parts.append(
-            f"- Insulin: {insulin_config.insulin_type}, DIA: {insulin_config.dia_hours}h"
-        )
-        parts.append(f"- Onset: {insulin_config.onset_minutes:.0f} minutes")
-
-    if not parts:
-        return None
-
-    return "[User Settings]\n" + "\n".join(parts)
-
-
-async def _build_pump_profile_section(
-    db: AsyncSession,
-    user_id: uuid.UUID,
-) -> str | None:
-    """Build pump profile section from the active Tandem pump profile."""
-    from src.models.pump_profile import PumpProfile
-
-    result = await db.execute(
-        select(PumpProfile).where(
-            PumpProfile.user_id == user_id,
-            PumpProfile.is_active == True,  # noqa: E712
-        )
-    )
-    profile = result.scalars().first()
-    if not profile:
-        return None
-
-    lines = [f'[Pump Profile - "{profile.profile_name}" (active)]']
-    for seg in profile.segments or []:
-        if not isinstance(seg, dict):
-            continue
-        time_str = seg.get("time") or "??"
-        basal = seg.get("basal_rate") or 0
-        cf = seg.get("correction_factor") or 0
-        cr = seg.get("carb_ratio") or 0
-        tgt = seg.get("target_bg") or 0
-        lines.append(
-            f"- {time_str}: Basal {basal:.3f} u/hr, CF 1:{cf}, CR 1:{cr:g}, Target {tgt}"
-        )
-
-    extras = []
-    if profile.insulin_duration_min:
-        hours = profile.insulin_duration_min // 60
-        mins = profile.insulin_duration_min % 60
-        dur_str = f"{hours}hr" + (f" {mins}min" if mins else "")
-        extras.append(f"Insulin duration: {dur_str}")
-    if profile.max_bolus_units:
-        extras.append(f"Max bolus: {profile.max_bolus_units:.1f}u")
-    if extras:
-        lines.append(f"- {', '.join(extras)}")
-
-    alert_parts = []
-    if profile.cgm_high_alert_mgdl:
-        alert_parts.append(f"High {profile.cgm_high_alert_mgdl} mg/dL")
-    if profile.cgm_low_alert_mgdl:
-        alert_parts.append(f"Low {profile.cgm_low_alert_mgdl} mg/dL")
-    if alert_parts:
-        lines.append(f"- CGM alerts: {', '.join(alert_parts)}")
-
-    return "\n".join(lines)
-
-
-async def _build_diabetes_context(
-    db: AsyncSession,
-    user_id: uuid.UUID,
-) -> str:
-    """Build comprehensive diabetes context from all available data.
-
-    Assembles 6 independent sections: glucose, IoB, pump activity,
-    Control-IQ summary, user settings, and pump profile. Each section
-    is independently resilient -- if one fails, the others still populate.
-
-    Args:
-        db: Database session.
-        user_id: User's UUID.
-
-    Returns:
-        A formatted string describing all available diabetes data,
-        or a fallback message if no data is available.
-    """
-    builders = [
-        ("glucose", _build_glucose_section),
-        ("iob", _build_iob_section),
-        ("pump", _build_pump_section),
-        ("control_iq", _build_control_iq_section),
-        ("settings", _build_settings_section),
-        ("pump_profile", _build_pump_profile_section),
-    ]
-
-    sections: list[str] = []
-    for name, builder in builders:
-        try:
-            section = await builder(db, user_id)
-            if section:
-                sections.append(section)
-        except Exception:
-            logger.warning(
-                "Failed to build context section",
-                section=name,
-                user_id=str(user_id),
-                exc_info=True,
-            )
-
-    if not sections:
-        return "Recent diabetes data: No data available."
-
-    context = "\n\n".join(sections)
-    logger.debug(
-        "Diabetes context built",
-        user_id=str(user_id),
-        sections_count=len(sections),
-        context_length=len(context),
-    )
-    return context
+    content: str
+    conversation_id: uuid.UUID
+    user_message_id: uuid.UUID | None
+    assistant_message_id: uuid.UUID | None
+    model: str
+    input_tokens: int
+    output_tokens: int
 
 
 def _build_system_prompt(diabetes_context: str) -> str:
@@ -470,9 +168,17 @@ async def handle_chat(
     # Truncate overly long user messages to limit token usage
     truncated_text = text[:MAX_USER_MESSAGE_LENGTH]
 
+    # Get or create conversation for multi-turn context
+    conversation_id = await get_or_create_conversation(db, user_id)
+
+    # Load conversation history
+    history = await get_recent_messages(db, user_id, conversation_id)
+
     # Build context and prompt
     try:
-        diabetes_context = await _build_diabetes_context(db, user_id)
+        diabetes_context = await build_diabetes_context(
+            db, user_id, query=truncated_text
+        )
     except Exception:
         logger.error(
             "Failed to build diabetes context for AI chat",
@@ -482,10 +188,13 @@ async def handle_chat(
         diabetes_context = "Recent diabetes data: unavailable due to a temporary error."
     system_prompt = _build_system_prompt(diabetes_context)
 
+    # Build messages array: history + current user message
+    messages = history + [AIMessage(role="user", content=truncated_text)]
+
     # Generate AI response
     try:
         ai_response = await ai_client.generate(
-            messages=[AIMessage(role="user", content=truncated_text)],
+            messages=messages,
             system_prompt=system_prompt,
             max_tokens=TELEGRAM_MAX_RESPONSE_TOKENS,
         )
@@ -507,16 +216,40 @@ async def handle_chat(
             "Please try rephrasing your question." + SAFETY_DISCLAIMER
         )
 
+    # Persist both messages (non-fatal -- still return the AI response on failure)
+    try:
+        await store_message(db, user_id, conversation_id, ChatRole.USER, truncated_text)
+        await store_message(
+            db,
+            user_id,
+            conversation_id,
+            ChatRole.ASSISTANT,
+            content,
+            token_count=ai_response.usage.output_tokens,
+            model=ai_response.model,
+        )
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        logger.warning(
+            "Failed to persist chat messages",
+            user_id=str(user_id),
+            conversation_id=str(conversation_id),
+            exc_info=True,
+        )
+
     # Escape any HTML in the AI response to prevent injection
     safe_content = html.escape(content)
 
     logger.info(
         "Telegram AI chat response generated",
         user_id=str(user_id),
+        conversation_id=str(conversation_id),
         model=ai_response.model,
         provider=ai_response.provider.value,
         input_tokens=ai_response.usage.input_tokens,
         output_tokens=ai_response.usage.output_tokens,
+        history_turns=len(history) // 2,
     )
 
     return _truncate_response(safe_content)
@@ -545,12 +278,12 @@ async def handle_chat_web(
     db: AsyncSession,
     user_id: uuid.UUID,
     text: str,
-) -> str:
+) -> ChatResult:
     """Process a user's AI query for the web interface.
 
-    Similar to handle_chat() but returns plain text without HTML
-    escaping or Telegram-specific formatting, and raises HTTPException
-    on errors instead of returning error strings.
+    Similar to handle_chat() but returns a ChatResult with structured
+    metadata, and raises HTTPException on errors instead of returning
+    error strings.
 
     Args:
         db: Database session.
@@ -558,7 +291,7 @@ async def handle_chat_web(
         text: The user's message text.
 
     Returns:
-        Plain text AI response content.
+        ChatResult with response content, conversation_id, and message IDs.
 
     Raises:
         HTTPException: If user not found (404), no AI provider (404),
@@ -582,8 +315,16 @@ async def handle_chat_web(
 
     truncated_text = text[:MAX_USER_MESSAGE_LENGTH]
 
+    # Get or create conversation for multi-turn context
+    conversation_id = await get_or_create_conversation(db, user_id)
+
+    # Load conversation history
+    history = await get_recent_messages(db, user_id, conversation_id)
+
     try:
-        diabetes_context = await _build_diabetes_context(db, user_id)
+        diabetes_context = await build_diabetes_context(
+            db, user_id, query=truncated_text
+        )
     except Exception:
         logger.error(
             "Failed to build diabetes context for web chat",
@@ -597,9 +338,12 @@ async def handle_chat_web(
     else:
         system_prompt = _WEB_SYSTEM_PROMPT_PREFIX.rstrip()
 
+    # Build messages array: history + current user message
+    messages = history + [AIMessage(role="user", content=truncated_text)]
+
     try:
         ai_response = await ai_client.generate(
-            messages=[AIMessage(role="user", content=truncated_text)],
+            messages=messages,
             system_prompt=system_prompt,
             max_tokens=WEB_MAX_RESPONSE_TOKENS,
         )
@@ -621,16 +365,54 @@ async def handle_chat_web(
             detail="The AI returned an empty response",
         )
 
+    # Persist both messages (non-fatal -- still return the AI response on failure)
+    user_msg_id: uuid.UUID | None = None
+    assistant_msg_id: uuid.UUID | None = None
+    try:
+        user_msg = await store_message(
+            db, user_id, conversation_id, ChatRole.USER, truncated_text
+        )
+        assistant_msg = await store_message(
+            db,
+            user_id,
+            conversation_id,
+            ChatRole.ASSISTANT,
+            content,
+            token_count=ai_response.usage.output_tokens,
+            model=ai_response.model,
+        )
+        await db.commit()
+        user_msg_id = user_msg.id
+        assistant_msg_id = assistant_msg.id
+    except Exception:
+        await db.rollback()
+        logger.warning(
+            "Failed to persist web chat messages",
+            user_id=str(user_id),
+            conversation_id=str(conversation_id),
+            exc_info=True,
+        )
+
     logger.info(
         "Web AI chat response generated",
         user_id=str(user_id),
+        conversation_id=str(conversation_id),
         model=ai_response.model,
         provider=ai_response.provider.value,
         input_tokens=ai_response.usage.input_tokens,
         output_tokens=ai_response.usage.output_tokens,
+        history_turns=len(history) // 2,
     )
 
-    return content
+    return ChatResult(
+        content=content,
+        conversation_id=conversation_id,
+        user_message_id=user_msg_id,
+        assistant_message_id=assistant_msg_id,
+        model=ai_response.model,
+        input_tokens=ai_response.usage.input_tokens,
+        output_tokens=ai_response.usage.output_tokens,
+    )
 
 
 # ── Story 7.6: Caregiver AI chat ──
@@ -731,7 +513,9 @@ async def handle_caregiver_chat(
 
     # Build context from patient's data
     try:
-        diabetes_context = await _build_diabetes_context(db, patient_id)
+        diabetes_context = await build_diabetes_context(
+            db, patient_id, query=truncated_text
+        )
     except Exception:
         logger.error(
             "Failed to build diabetes context for caregiver chat",
@@ -828,7 +612,9 @@ async def handle_caregiver_chat_web(
     truncated_text = text[:MAX_USER_MESSAGE_LENGTH]
 
     try:
-        diabetes_context = await _build_diabetes_context(db, patient_id)
+        diabetes_context = await build_diabetes_context(
+            db, patient_id, query=truncated_text
+        )
     except Exception:
         logger.error(
             "Failed to build diabetes context for web caregiver chat",

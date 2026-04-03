@@ -2,16 +2,16 @@
 # Usage: docker compose -f docker-compose.prod.yml up -d
 #
 # Pull latest images:
-#   docker pull ghcr.io/jlengelbrecht/glycemicgpt-api:latest
-#   docker pull ghcr.io/jlengelbrecht/glycemicgpt-web:latest
-#   docker pull ghcr.io/jlengelbrecht/glycemicgpt-sidecar:latest
+#   docker pull ghcr.io/glycemicgpt/glycemicgpt-api:latest
+#   docker pull ghcr.io/glycemicgpt/glycemicgpt-web:latest
+#   docker pull ghcr.io/glycemicgpt/glycemicgpt-sidecar:latest
 #
 # Or use a specific version:
 #   IMAGE_TAG=0.1.2 docker compose -f docker-compose.prod.yml up -d
 
 services:
   db:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-glycemicgpt}
@@ -28,16 +28,20 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    command: >
+      sh -c '[ -n "$$REDIS_PASSWORD" ] && exec redis-server --requirepass "$$REDIS_PASSWORD" || exec redis-server'
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=$$REDIS_PASSWORD redis-cli ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
 
   ai-sidecar:
-    image: ghcr.io/jlengelbrecht/glycemicgpt-sidecar:${IMAGE_TAG:-latest}
+    image: ghcr.io/glycemicgpt/glycemicgpt-sidecar:${IMAGE_TAG:-latest}
     restart: unless-stopped
     volumes:
       - sidecar_auth:/home/sidecar/.config
@@ -53,13 +57,15 @@ services:
       start_period: 10s
 
   api:
-    image: ghcr.io/jlengelbrecht/glycemicgpt-api:${IMAGE_TAG:-latest}
+    image: ghcr.io/glycemicgpt/glycemicgpt-api:${IMAGE_TAG:-latest}
     restart: unless-stopped
     ports:
       - "${API_PORT:-8000}:8000"
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-glycemicgpt}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-glycemicgpt}
-      REDIS_URL: redis://redis:6379/0
+      # When REDIS_PASSWORD is set, override REDIS_URL in .env:
+      # REDIS_URL=redis://:<your-redis-password>@redis:6379/0
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       LOG_FORMAT: ${LOG_FORMAT:-json}
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
       AI_SIDECAR_URL: http://ai-sidecar:3456
@@ -79,12 +85,11 @@ services:
       start_period: 40s
 
   web:
-    image: ghcr.io/jlengelbrecht/glycemicgpt-web:${IMAGE_TAG:-latest}
+    image: ghcr.io/glycemicgpt/glycemicgpt-web:${IMAGE_TAG:-latest}
     restart: unless-stopped
     ports:
       - "${WEB_PORT:-3000}:3000"
     environment:
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
       API_URL: http://api:8000
     depends_on:
       api:

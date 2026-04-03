@@ -40,7 +40,9 @@ export function usePumpStatus(refreshKey: number): UsePumpStatusReturn {
         setReservoir(data.reservoir);
       }
     } catch (err) {
-      console.warn("Failed to fetch pump status:", err);
+      if (process.env.NODE_ENV === "development") {
+        console.warn("Failed to fetch pump status:", err);
+      }
     } finally {
       if (gen === fetchGenRef.current) {
         setIsLoading(false);

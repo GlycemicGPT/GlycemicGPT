@@ -20,16 +20,23 @@
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Activity, Clock } from "lucide-react";
+import { AnimatedCard } from "@/components/ui/animated-card";
+import { PageTransition } from "@/components/ui/page-transition";
 
 import {
   GlucoseHero,
   TimeInRangeBar,
   ConnectionStatusBanner,
   GlucoseTrendChart,
+  CgmSummaryStats,
+  AgpChart,
+  InsulinSummaryStats,
+  BolusReviewTable,
+  PERIOD_LABELS,
 } from "@/components/dashboard";
-import { PERIOD_LABELS } from "@/components/dashboard/time-in-range-bar";
 import { useGlucoseStreamContext, useUserContext } from "@/providers";
-import { useTimeInRangeStats } from "@/hooks/use-time-in-range-stats";
+import { useTimeInRangeDetailStats } from "@/hooks/use-time-in-range-stats";
+import { useGlucoseStats } from "@/hooks/use-glucose-stats";
 import { useGlucoseRange } from "@/hooks/use-glucose-range";
 import { usePumpStatus } from "@/hooks/use-pump-status";
 
@@ -74,13 +81,23 @@ export default function DashboardPage() {
     }
   }, [user, router]);
 
-  // Story 18.6: Fetch time-in-range stats from API
+  // Story 30.4 consolidated: single hook for 5-bucket TIR detail stats
   const {
     stats: tirStats,
     isLoading: tirLoading,
+    error: tirError,
     period: tirPeriod,
     setPeriod: setTirPeriod,
-  } = useTimeInRangeStats("24h");
+  } = useTimeInRangeDetailStats("24h");
+
+  // Story 30.3: Fetch CGM summary stats from API
+  const {
+    stats: cgmStats,
+    isLoading: cgmLoading,
+    error: cgmError,
+    period: cgmPeriod,
+    setPeriod: setCgmPeriod,
+  } = useGlucoseStats("24h");
 
   // Prevent flash of diabetic dashboard while caregiver redirect is pending
   if (isUserLoading || user?.role === "caregiver") {
@@ -109,8 +126,14 @@ export default function DashboardPage() {
     return "Data is fresh";
   };
 
+  // Derive in-range pct from detail stats for the metrics card
+  const inRangePct = tirStats?.buckets?.find(
+    (b) => b.label === "in_range"
+  )?.pct;
+
   return (
-    <main id="main-content" className="space-y-6">
+    <PageTransition>
+    <div className="space-y-6">
       {/* Connection status banner - Story 4.5 */}
       <ConnectionStatusBanner
         isReconnecting={isReconnecting}
@@ -120,68 +143,107 @@ export default function DashboardPage() {
       />
 
       {/* Page header - using div instead of header to avoid banner role confusion inside main */}
-      <div>
-        <h1 className="text-2xl font-bold">Dashboard</h1>
-        <p className="text-slate-400">Your glucose overview at a glance</p>
-      </div>
+      <AnimatedCard>
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Dashboard</h1>
+          <p className="text-slate-500 dark:text-slate-400">Your glucose overview at a glance</p>
+        </div>
+      </AnimatedCard>
 
       {/* Glucose hero - Story 4.2, 4.6 */}
-      <GlucoseHero
-        value={glucoseValue}
-        trend={glucoseTrend}
-        iob={iob}
-        basalRate={pumpStatus.basal?.rate ?? null}
-        batteryPct={pumpStatus.battery?.percentage ?? null}
-        reservoirUnits={pumpStatus.reservoir?.units_remaining ?? null}
-        isLoading={!isLive && !glucose}
-        thresholds={glucoseThresholds}
-      />
+      <AnimatedCard delay={0.05}>
+        <GlucoseHero
+          value={glucoseValue}
+          trend={glucoseTrend}
+          iob={iob}
+          basalRate={pumpStatus.basal?.rate ?? null}
+          batteryPct={pumpStatus.battery?.percentage ?? null}
+          reservoirUnits={pumpStatus.reservoir?.units_remaining ?? null}
+          isLoading={!isLive && !glucose}
+          thresholds={glucoseThresholds}
+        />
+      </AnimatedCard>
 
       {/* Glucose trend chart */}
-      <GlucoseTrendChart refreshKey={chartRefreshKey} thresholds={glucoseThresholds} />
+      <AnimatedCard delay={0.1}>
+        <GlucoseTrendChart refreshKey={chartRefreshKey} thresholds={glucoseThresholds} />
+      </AnimatedCard>
+
+      {/* CGM Summary Stats Panel - Story 30.3 */}
+      <AnimatedCard delay={0.15}>
+        <CgmSummaryStats
+          stats={cgmStats}
+          isLoading={cgmLoading}
+          error={cgmError}
+          period={cgmPeriod}
+          onPeriodChange={setCgmPeriod}
+        />
+      </AnimatedCard>
+
+      {/* AGP Percentile Band Chart - Story 30.5 */}
+      <AnimatedCard delay={0.2}>
+        <AgpChart thresholds={glucoseThresholds} />
+      </AnimatedCard>
+
+      {/* Insulin Summary & Bolus Review - Story 30.7 */}
+      <AnimatedCard delay={0.25}>
+        <InsulinSummaryStats />
+      </AnimatedCard>
+      <AnimatedCard delay={0.3}>
+        <BolusReviewTable />
+      </AnimatedCard>
 
       {/* Metrics grid with proper heading hierarchy */}
-      <section aria-labelledby="metrics-heading">
-        <h2 id="metrics-heading" className="sr-only">Dashboard Metrics</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Time in Range Card */}
-          <article className="bg-slate-900 rounded-xl p-6 border border-slate-800">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="p-2 bg-green-500/10 rounded-lg">
-                <Activity className="h-5 w-5 text-green-400" aria-hidden="true" />
+      <AnimatedCard delay={0.35}>
+        <section aria-labelledby="metrics-heading">
+          <h2 id="metrics-heading" className="sr-only">Dashboard Metrics</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Time in Range Card */}
+            <article className="bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="p-2 bg-green-500/10 rounded-lg">
+                  <Activity className="h-5 w-5 text-green-400" aria-hidden="true" />
+                </div>
+                <h3 className="text-slate-500 dark:text-slate-400 text-sm">Time in Range ({PERIOD_LABELS[tirPeriod]})</h3>
               </div>
-              <h3 className="text-slate-400 text-sm">Time in Range ({PERIOD_LABELS[tirPeriod]})</h3>
-            </div>
-            <p className="text-3xl font-bold text-green-400" aria-label={`Time in range: ${tirStats && tirStats.readings_count > 0 ? Math.round(tirStats.in_range_pct) : "--"} percent`}>
-              {tirStats && tirStats.readings_count > 0 ? `${Math.round(tirStats.in_range_pct)}%` : "--"}
-            </p>
-            <p className="text-slate-500 text-xs mt-1">Target: {targetRange}</p>
-          </article>
+              <p className="text-3xl font-bold text-green-400" aria-label={`Time in range: ${inRangePct != null && tirStats && tirStats.readings_count > 0 ? Math.round(inRangePct) : "--"} percent`}>
+                {inRangePct != null && tirStats && tirStats.readings_count > 0 ? `${Math.round(inRangePct)}%` : "--"}
+              </p>
+              <p className="text-slate-500 text-xs mt-1">Target: {targetRange}</p>
+            </article>
 
-          {/* Last Updated Card */}
-          <article className="bg-slate-900 rounded-xl p-6 border border-slate-800">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="p-2 bg-emerald-500/10 rounded-lg">
-                <Clock className="h-5 w-5 text-emerald-400" aria-hidden="true" />
+            {/* Last Updated Card */}
+            <article className="bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="p-2 bg-emerald-500/10 rounded-lg">
+                  <Clock className="h-5 w-5 text-emerald-400" aria-hidden="true" />
+                </div>
+                <h3 className="text-slate-500 dark:text-slate-400 text-sm">Last Updated</h3>
               </div>
-              <h3 className="text-slate-400 text-sm">Last Updated</h3>
-            </div>
-            <p className="text-3xl font-bold text-emerald-400" aria-label={`Last updated: ${getLastUpdatedText()}`}>
-              {getLastUpdatedText()}
-            </p>
-            <p className="text-slate-500 text-xs mt-1">{getFreshnessText()}</p>
-          </article>
-        </div>
-      </section>
+              <p className="text-3xl font-bold text-emerald-400" aria-label={`Last updated: ${getLastUpdatedText()}`}>
+                {getLastUpdatedText()}
+              </p>
+              <p className="text-slate-500 text-xs mt-1">{getFreshnessText()}</p>
+            </article>
+          </div>
+        </section>
+      </AnimatedCard>
 
-      {/* Time in Range bar - Story 4.4, 18.6 */}
-      <TimeInRangeBar
-        data={tirStats ? { low: tirStats.low_pct, inRange: tirStats.in_range_pct, high: tirStats.high_pct } : { low: 0, inRange: 0, high: 0 }}
-        period={tirPeriod}
-        onPeriodChange={setTirPeriod}
-        targetRange={targetRange}
-        isLoading={tirLoading}
-      />
-    </main>
+      {/* Time in Range bar - consolidated 5-bucket display */}
+      <AnimatedCard delay={0.4}>
+        <TimeInRangeBar
+          buckets={tirStats?.buckets ?? null}
+          readingsCount={tirStats?.readings_count ?? 0}
+          previousBuckets={tirStats?.previous_buckets ?? null}
+          previousReadingsCount={tirStats?.previous_readings_count ?? null}
+          error={tirError}
+          period={tirPeriod}
+          onPeriodChange={setTirPeriod}
+          targetRange={targetRange}
+          isLoading={tirLoading}
+        />
+      </AnimatedCard>
+    </div>
+    </PageTransition>
   );
 }

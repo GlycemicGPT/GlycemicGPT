@@ -1,5 +1,14 @@
 package com.glycemicgpt.mobile.presentation.settings
 
+import android.Manifest
+import android.app.Activity
+import android.content.Intent
+import android.media.RingtoneManager
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,6 +19,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -19,22 +31,28 @@ import androidx.compose.material.icons.filled.BluetoothDisabled
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Watch
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -45,6 +63,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.core.content.ContextCompat
+import android.content.pm.PackageManager
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.compose.ui.Alignment
@@ -57,6 +77,11 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.glycemicgpt.mobile.data.local.AlertSoundCategory
+import com.glycemicgpt.mobile.domain.plugin.PluginMetadata
+import com.glycemicgpt.mobile.plugin.RuntimePluginInfo
+import com.glycemicgpt.mobile.presentation.theme.ThemeMode
+import com.glycemicgpt.mobile.wear.WatchFaceVariant
 import java.io.File
 import kotlin.math.roundToInt
 
@@ -68,9 +93,11 @@ fun SettingsScreen(
 ) {
     val state by settingsViewModel.uiState.collectAsState()
 
-    // Re-check battery optimization when returning from system settings
+    // Reload all settings state when the screen resumes (e.g., returning from
+    // pairing screen, system settings, or after process death). This ensures
+    // pump pairing state, plugin activation, and battery optimization are fresh.
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
-        settingsViewModel.checkBatteryOptimization()
+        settingsViewModel.loadState()
     }
 
     Column(
@@ -100,12 +127,17 @@ fun SettingsScreen(
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        // -- Pump Section --
-        SectionHeader(title = "Pump")
-        PumpSection(
+        // -- Plugins Section (replaces hardcoded Pump Section) --
+        SectionHeader(title = "Plugins")
+        PluginsSection(
             state = state,
             onNavigateToPairing = onNavigateToPairing,
             onShowUnpair = settingsViewModel::showUnpairConfirm,
+            onActivatePlugin = settingsViewModel::activatePlugin,
+            onDeactivatePlugin = settingsViewModel::showDeactivateConfirm,
+            onInstallPlugin = settingsViewModel::installPlugin,
+            onShowRemovePlugin = settingsViewModel::showRemovePluginConfirm,
+            onClearPluginInstallError = settingsViewModel::clearPluginInstallError,
         )
 
         // Battery optimization warning (between Pump and Sync)
@@ -128,12 +160,91 @@ fun SettingsScreen(
 
         Spacer(modifier = Modifier.height(20.dp))
 
+        // -- Notifications Section --
+        SectionHeader(title = "Notifications")
+        NotificationPermissionSection()
+        Spacer(modifier = Modifier.height(12.dp))
+        AlertSoundsSection(
+            state = state,
+            onSoundSelected = settingsViewModel::onSoundSelected,
+            onOverrideSilentToggle = settingsViewModel::setOverrideSilentForLow,
+        )
+
+        Spacer(modifier = Modifier.height(20.dp))
+
         // -- Watch Section --
         SectionHeader(title = "Watch")
-        WatchSection(
+        WatchConnectionCard(
             watchInstalled = state.watchAppInstalled,
             watchConnected = state.watchConnected,
+            watchDeviceName = state.watchDeviceName,
             onCheckStatus = settingsViewModel::checkWatchStatus,
+        )
+        if (state.watchConnected || state.watchDeviceName != null) {
+            Spacer(modifier = Modifier.height(8.dp))
+            WatchFaceGalleryCard(
+                watchFacePushState = state.watchFacePushState,
+                selectedVariant = state.watchFaceConfig.selectedVariant,
+                onVariantSelected = { variant ->
+                    settingsViewModel.updateWatchFaceConfig(
+                        state.watchFaceConfig.copy(
+                            selectedVariant = variant,
+                            showBasalOverlay = variant.defaultShowBasalOverlay,
+                            showBolusMarkers = variant.defaultShowBolusMarkers,
+                            showIoBOverlay = variant.defaultShowIoBOverlay,
+                            showModeBands = variant.defaultShowModeBands,
+                        ),
+                    )
+                },
+                onPushWatchFace = settingsViewModel::pushWatchFace,
+                onDismissPushResult = settingsViewModel::dismissWatchFacePushResult,
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            WatchFaceConfigCard(
+                config = state.watchFaceConfig,
+                onConfigChange = settingsViewModel::updateWatchFaceConfig,
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            WatchAppUpdateCard(
+                watchVersionName = state.watchVersionName,
+                updateState = state.watchAppUpdateState,
+                onCheckForUpdate = settingsViewModel::checkForWatchUpdate,
+                onDownloadAndPush = settingsViewModel::downloadAndPushWatchUpdate,
+                onDismiss = settingsViewModel::dismissWatchAppUpdateState,
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            WatchDataTelemetryCard(
+                telemetry = state.watchDataTelemetry,
+            )
+        } else if (state.watchAppInstalled == true) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "Watch app installed but not nearby. Bring your watch close to this phone and tap Check Watch Status.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(16.dp),
+                )
+            }
+        } else if (state.watchAppInstalled == false) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "Install the GlycemicGPT Wear app on your watch via sideloading. Download the Wear APK from GitHub Releases.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(16.dp),
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // -- Appearance Section --
+        SectionHeader(title = "Appearance")
+        ThemeSection(
+            currentTheme = state.themeMode,
+            onThemeChange = settingsViewModel::setThemeMode,
         )
 
         Spacer(modifier = Modifier.height(20.dp))
@@ -157,6 +268,30 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth().testTag("ble_debug_button"),
             ) {
                 Text("BLE Debug Console")
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("show_pump_labels_toggle"),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Show Pump Labels",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        text = "Show pump-native category names next to display labels in Insulin Summary",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = state.showPumpLabels,
+                    onCheckedChange = { settingsViewModel.setShowPumpLabels(it) },
+                )
             }
         }
 
@@ -199,6 +334,42 @@ fun SettingsScreen(
             },
         )
     }
+
+    if (state.showDeactivateConfirm) {
+        AlertDialog(
+            onDismissRequest = settingsViewModel::dismissDeactivateConfirm,
+            title = { Text("Deactivate Plugin") },
+            text = { Text("Deactivating this plugin may stop glucose monitoring, insulin tracking, or other services it provides. Are you sure?") },
+            confirmButton = {
+                TextButton(onClick = settingsViewModel::confirmDeactivatePlugin) {
+                    Text("Deactivate", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = settingsViewModel::dismissDeactivateConfirm) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+
+    if (state.showRemovePluginConfirm) {
+        AlertDialog(
+            onDismissRequest = settingsViewModel::dismissRemovePluginConfirm,
+            title = { Text("Remove Plugin") },
+            text = { Text("This will permanently remove the plugin and delete its settings. This cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = settingsViewModel::confirmRemovePlugin) {
+                    Text("Remove", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = settingsViewModel::dismissRemovePluginConfirm) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
 }
 
 @Composable
@@ -209,6 +380,101 @@ private fun SectionHeader(title: String) {
         color = MaterialTheme.colorScheme.primary,
         modifier = Modifier.padding(bottom = 8.dp),
     )
+}
+
+@Composable
+private fun NotificationPermissionSection() {
+    val context = LocalContext.current
+
+    fun permissionGranted() = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.POST_NOTIFICATIONS,
+        ) == PackageManager.PERMISSION_GRANTED
+    } else {
+        true // Pre-Android 13: no runtime permission needed
+    }
+    var isGranted by remember { mutableStateOf(permissionGranted()) }
+    // Re-check when returning from system settings
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        isGranted = permissionGranted()
+    }
+
+    NotificationStatusCard(
+        isGranted = isGranted,
+        onEnableClicked = {
+            try {
+                val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                    putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                }
+                context.startActivity(intent)
+            } catch (_: android.content.ActivityNotFoundException) {
+                Toast.makeText(
+                    context,
+                    "Please enable notifications for GlycemicGPT in your phone's Settings",
+                    Toast.LENGTH_LONG,
+                ).show()
+            } catch (_: SecurityException) {
+                Toast.makeText(
+                    context,
+                    "Please enable notifications for GlycemicGPT in your phone's Settings",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+        },
+    )
+}
+
+@Composable
+private fun NotificationStatusCard(
+    isGranted: Boolean,
+    onEnableClicked: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = if (isGranted) Icons.Default.Notifications else Icons.Default.NotificationsOff,
+                    contentDescription = null,
+                    tint = if (isGranted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(24.dp),
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text(
+                        text = "Push Notifications",
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    Text(
+                        text = if (isGranted) "Enabled" else "Disabled -- alerts will not appear on your phone",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (isGranted) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.error
+                        },
+                    )
+                }
+            }
+
+            if (!isGranted) {
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Button(
+                    onClick = onEnableClicked,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("enable_notifications_button"),
+                ) {
+                    Text("Enable Notifications")
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -439,6 +705,253 @@ private fun AccountSection(
 }
 
 @Composable
+private fun PluginsSection(
+    state: SettingsUiState,
+    onNavigateToPairing: () -> Unit,
+    onShowUnpair: () -> Unit,
+    onActivatePlugin: (String) -> Unit,
+    onDeactivatePlugin: (String) -> Unit,
+    onInstallPlugin: (Uri) -> Unit,
+    onShowRemovePlugin: (String) -> Unit,
+    onClearPluginInstallError: () -> Unit,
+) {
+    // Only show pump pairing card when the Tandem plugin is active.
+    // Uses literal ID to avoid importing TandemDevicePlugin into the UI layer.
+    if ("com.glycemicgpt.tandem" in state.activePluginIds) {
+        PumpSection(
+            state = state,
+            onNavigateToPairing = onNavigateToPairing,
+            onShowUnpair = onShowUnpair,
+        )
+    }
+
+    // Available plugins list
+    if (state.availablePlugins.isNotEmpty()) {
+        Spacer(modifier = Modifier.height(8.dp))
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+            ) {
+                Text(
+                    text = "Available Plugins",
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                state.availablePlugins.forEach { plugin ->
+                    val isActive = plugin.id in state.activePluginIds
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = plugin.name,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Text(
+                                text = "v${plugin.version}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        if (isActive) {
+                            OutlinedButton(
+                                onClick = { onDeactivatePlugin(plugin.id) },
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    contentColor = MaterialTheme.colorScheme.error,
+                                ),
+                                modifier = Modifier.testTag("deactivate_plugin_${plugin.id}"),
+                            ) {
+                                Text("Deactivate")
+                            }
+                        } else {
+                            Button(
+                                onClick = { onActivatePlugin(plugin.id) },
+                                modifier = Modifier.testTag("activate_plugin_${plugin.id}"),
+                            ) {
+                                Text("Activate")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Custom (runtime) plugins section
+    Spacer(modifier = Modifier.height(8.dp))
+    CustomPluginsSection(
+        runtimePlugins = state.runtimePlugins,
+        activePluginIds = state.activePluginIds,
+        pluginInstallError = state.pluginInstallError,
+        onInstallPlugin = onInstallPlugin,
+        onActivatePlugin = onActivatePlugin,
+        onDeactivatePlugin = onDeactivatePlugin,
+        onShowRemovePlugin = onShowRemovePlugin,
+        onClearPluginInstallError = onClearPluginInstallError,
+    )
+}
+
+@Composable
+private fun CustomPluginsSection(
+    runtimePlugins: List<RuntimePluginInfo>,
+    activePluginIds: Set<String>,
+    pluginInstallError: String?,
+    onInstallPlugin: (Uri) -> Unit,
+    onActivatePlugin: (String) -> Unit,
+    onDeactivatePlugin: (String) -> Unit,
+    onShowRemovePlugin: (String) -> Unit,
+    onClearPluginInstallError: () -> Unit,
+) {
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent(),
+    ) { uri: Uri? ->
+        if (uri != null) {
+            onInstallPlugin(uri)
+        }
+    }
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+        ) {
+            Text(
+                text = "Custom Plugins",
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Warning,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.error,
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "Custom plugins are not verified by GlycemicGPT. Only install plugins from sources you trust.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.testTag("plugin_trust_warning"),
+                )
+            }
+
+            // Error banner
+            if (pluginInstallError != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Error,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(20.dp),
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = pluginInstallError,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = onClearPluginInstallError) {
+                            Text("Dismiss")
+                        }
+                    }
+                }
+            }
+
+            // Runtime plugin list
+            if (runtimePlugins.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                runtimePlugins.forEach { rtp ->
+                    val isActive = rtp.metadata.id in activePluginIds
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = rtp.metadata.name,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Text(
+                                text = buildString {
+                                    append("v${rtp.metadata.version}")
+                                    if (rtp.metadata.author.isNotBlank()) {
+                                        append(" by ${rtp.metadata.author}")
+                                    }
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        if (isActive) {
+                            OutlinedButton(
+                                onClick = { onDeactivatePlugin(rtp.metadata.id) },
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    contentColor = MaterialTheme.colorScheme.error,
+                                ),
+                                modifier = Modifier.testTag("deactivate_plugin_${rtp.metadata.id}"),
+                            ) {
+                                Text("Deactivate")
+                            }
+                        } else {
+                            Button(
+                                onClick = { onActivatePlugin(rtp.metadata.id) },
+                                modifier = Modifier.testTag("activate_plugin_${rtp.metadata.id}"),
+                            ) {
+                                Text("Activate")
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(4.dp))
+                        OutlinedButton(
+                            onClick = { onShowRemovePlugin(rtp.metadata.id) },
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = MaterialTheme.colorScheme.error,
+                            ),
+                            modifier = Modifier.testTag("remove_plugin_${rtp.metadata.id}"),
+                        ) {
+                            Text("Remove")
+                        }
+                    }
+                }
+            }
+
+            // Add Plugin button
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = { filePickerLauncher.launch("application/java-archive") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("add_plugin_button"),
+            ) {
+                Text("Add Plugin")
+            }
+        }
+    }
+}
+
+@Composable
 private fun PumpSection(
     state: SettingsUiState,
     onNavigateToPairing: () -> Unit,
@@ -460,7 +973,7 @@ private fun PumpSection(
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(
-                        text = "Tandem t:slim X2",
+                        text = state.activePumpPluginName ?: "Insulin Pump",
                         style = MaterialTheme.typography.titleSmall,
                     )
                     Text(
@@ -621,6 +1134,176 @@ private fun SyncSection(
 }
 
 @Composable
+private fun AlertSoundsSection(
+    state: SettingsUiState,
+    onSoundSelected: (AlertSoundCategory, Uri?) -> Unit,
+    onOverrideSilentToggle: (Boolean) -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Notifications,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp),
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = "Alert Sounds",
+                    style = MaterialTheme.typography.titleSmall,
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            SoundPickerRow(
+                label = "Low Glucose Alert",
+                description = "Life-threatening -- aggressive alarm",
+                currentSoundName = state.lowAlertSoundName,
+                currentSoundUri = state.lowAlertSoundUri,
+                ringtoneType = RingtoneManager.TYPE_ALARM,
+                testTag = "low_alert_sound",
+                onSoundSelected = { uri -> onSoundSelected(AlertSoundCategory.LOW_ALERT, uri) },
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            SoundPickerRow(
+                label = "High Glucose Alert",
+                description = "High glucose and insulin warnings",
+                currentSoundName = state.highAlertSoundName,
+                currentSoundUri = state.highAlertSoundUri,
+                ringtoneType = RingtoneManager.TYPE_NOTIFICATION,
+                testTag = "high_alert_sound",
+                onSoundSelected = { uri -> onSoundSelected(AlertSoundCategory.HIGH_ALERT, uri) },
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            SoundPickerRow(
+                label = "AI Notification",
+                description = "AI analysis insights and daily briefs",
+                currentSoundName = state.aiNotificationSoundName,
+                currentSoundUri = state.aiNotificationSoundUri,
+                ringtoneType = RingtoneManager.TYPE_NOTIFICATION,
+                showSilent = true,
+                testTag = "ai_notification_sound",
+                onSoundSelected = { uri -> onSoundSelected(AlertSoundCategory.AI_NOTIFICATION, uri) },
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            // Volume boost toggle for low alerts
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.VolumeUp,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Text(
+                            text = "Boost Volume for Lows",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Text(
+                            text = "Raise alarm volume to max for low glucose alerts. Low and high alerts always bypass DND regardless of this setting.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                Switch(
+                    checked = state.overrideSilentForLow,
+                    onCheckedChange = onOverrideSilentToggle,
+                    modifier = Modifier.testTag("override_silent_toggle"),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SoundPickerRow(
+    label: String,
+    description: String,
+    currentSoundName: String,
+    currentSoundUri: String?,
+    ringtoneType: Int,
+    showSilent: Boolean = false,
+    testTag: String,
+    onSoundSelected: (Uri?) -> Unit,
+) {
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                result.data?.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI, Uri::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                result.data?.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
+            }
+            onSoundSelected(uri)
+        }
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = currentSoundName,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+        OutlinedButton(
+            onClick = {
+                val intent = android.content.Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+                    putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, ringtoneType)
+                    putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "Select $label Sound")
+                    putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, showSilent)
+                    putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+                    val existingUri = currentSoundUri?.let { Uri.parse(it) }
+                        ?: RingtoneManager.getDefaultUri(ringtoneType)
+                    putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, existingUri)
+                }
+                launcher.launch(intent)
+            },
+            modifier = Modifier.testTag(testTag),
+        ) {
+            Text("Change")
+        }
+    }
+}
+
+@Composable
 private fun AboutSection(
     state: SettingsUiState,
     onCheckForUpdate: () -> Unit,
@@ -654,7 +1337,7 @@ private fun AboutSection(
 
             InfoRow(label = "Version", value = state.appVersion)
             InfoRow(label = "Build", value = state.buildType)
-            InfoRow(label = "BLE Protocol", value = "pumpX2 v1.0")
+            InfoRow(label = "BLE Protocol", value = state.activePumpProtocolDisplay ?: "None")
 
             Spacer(modifier = Modifier.height(8.dp))
 
@@ -833,9 +1516,10 @@ private fun InfoRow(label: String, value: String) {
 }
 
 @Composable
-private fun WatchSection(
+private fun WatchConnectionCard(
     watchInstalled: Boolean?,
     watchConnected: Boolean,
+    watchDeviceName: String?,
     onCheckStatus: () -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -848,18 +1532,22 @@ private fun WatchSection(
                 Icon(
                     imageVector = Icons.Default.Watch,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = if (watchConnected) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
                     modifier = Modifier.size(24.dp),
                 )
                 Spacer(modifier = Modifier.width(12.dp))
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Wear OS Companion",
+                        text = watchDeviceName ?: "Wear OS Companion",
                         style = MaterialTheme.typography.titleSmall,
                     )
                     val statusText = when {
                         watchInstalled == null -> "Status unknown"
-                        watchConnected -> "Connected"
+                        watchConnected -> "Connected -- streaming BG, IoB, alerts"
                         watchInstalled -> "Installed (not nearby)"
                         else -> "Not installed"
                     }
@@ -876,39 +1564,6 @@ private fun WatchSection(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            if (watchInstalled == true) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = if (watchConnected) Icons.Default.CheckCircle else Icons.Default.Info,
-                        contentDescription = null,
-                        tint = if (watchConnected) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        modifier = Modifier.size(16.dp),
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = if (watchConnected) {
-                            "Watch face receives BG, IoB, and alerts"
-                        } else {
-                            "Bring watch nearby to sync data"
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            } else if (watchInstalled == false) {
-                Text(
-                    text = "Install the GlycemicGPT Wear app on your watch via sideloading. Download the Wear APK from GitHub Releases.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
             OutlinedButton(
                 onClick = onCheckStatus,
                 modifier = Modifier.fillMaxWidth(),
@@ -916,6 +1571,523 @@ private fun WatchSection(
                 Text("Check Watch Status")
             }
         }
+    }
+}
+
+@Composable
+private fun WatchFaceGalleryCard(
+    watchFacePushState: WatchFacePushState,
+    selectedVariant: WatchFaceVariant,
+    onVariantSelected: (WatchFaceVariant) -> Unit,
+    onPushWatchFace: () -> Unit,
+    onDismissPushResult: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+        ) {
+            Text(
+                text = "Watch Face Gallery",
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Text(
+                text = "Select a watch face design and push to your watch",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                WatchFaceVariant.entries.forEach { variant ->
+                    val isSelected = variant == selectedVariant
+                    Column(
+                        modifier = Modifier
+                            .width(100.dp)
+                            .clickable { onVariantSelected(variant) }
+                            .then(
+                                if (isSelected) {
+                                    Modifier.border(
+                                        width = 2.dp,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        shape = MaterialTheme.shapes.medium,
+                                    )
+                                } else {
+                                    Modifier
+                                },
+                            )
+                            .padding(8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(
+                            text = variant.displayName,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (isSelected) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            },
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = variant.description,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 3,
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            val isPushing = watchFacePushState is WatchFacePushState.Pushing
+            Button(
+                onClick = onPushWatchFace,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !isPushing,
+            ) {
+                if (isPushing) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Pushing ${selectedVariant.displayName}...")
+                } else {
+                    Text("Push ${selectedVariant.displayName} Face")
+                }
+            }
+
+            when (watchFacePushState) {
+                is WatchFacePushState.Success -> {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Watch face sent to watch",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = onDismissPushResult) {
+                            Text("Dismiss")
+                        }
+                    }
+                }
+                is WatchFacePushState.Error -> {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Error,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = watchFacePushState.message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = onDismissPushResult) {
+                            Text("Dismiss")
+                        }
+                    }
+                }
+                else -> { /* Idle or Pushing -- no extra UI */ }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WatchFaceConfigCard(
+    config: WatchFaceConfig,
+    onConfigChange: (WatchFaceConfig) -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+        ) {
+            Text(
+                text = "Watch Face Features",
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Text(
+                text = "Configure watch face display options",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            WatchToggleRow("Show IoB", config.showIoB) {
+                onConfigChange(config.copy(showIoB = it))
+            }
+            WatchToggleRow("Show Glucose Graph", config.showGraph) {
+                onConfigChange(config.copy(showGraph = it))
+            }
+            WatchToggleRow("Alert Vibration", config.showAlert) {
+                onConfigChange(config.copy(showAlert = it))
+            }
+            WatchToggleRow("Show Seconds", config.showSeconds) {
+                onConfigChange(config.copy(showSeconds = it))
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            Text(
+                text = "Graph Range",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                listOf(1, 3, 6).forEach { hours ->
+                    FilterChip(
+                        selected = config.graphRangeHours == hours,
+                        onClick = { onConfigChange(config.copy(graphRangeHours = hours)) },
+                        label = { Text("${hours}H") },
+                    )
+                }
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            Text(
+                text = "Theme",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            WatchFaceTheme.entries.forEach { theme ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(
+                        selected = config.theme == theme,
+                        onClick = { onConfigChange(config.copy(theme = theme)) },
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = theme.label,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+
+            if (config.showGraph && config.selectedVariant.hasGraph) {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+                Text(
+                    text = "Graph Overlays",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                    text = "Toggle data layers on the graph complication",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                WatchToggleRow("Basal Rate Area", config.showBasalOverlay) {
+                    onConfigChange(config.copy(showBasalOverlay = it))
+                }
+                WatchToggleRow("Bolus Markers", config.showBolusMarkers) {
+                    onConfigChange(config.copy(showBolusMarkers = it))
+                }
+                WatchToggleRow("IoB Overlay", config.showIoBOverlay) {
+                    onConfigChange(config.copy(showIoBOverlay = it))
+                }
+                WatchToggleRow("Activity Mode Bands", config.showModeBands) {
+                    onConfigChange(config.copy(showModeBands = it))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WatchToggleRow(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f),
+        )
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+        )
+    }
+}
+
+@Composable
+private fun WatchAppUpdateCard(
+    watchVersionName: String?,
+    updateState: WatchAppUpdateState,
+    onCheckForUpdate: () -> Unit,
+    onDownloadAndPush: (url: String, size: Long) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+        ) {
+            Text(
+                text = "Watch App Update",
+                style = MaterialTheme.typography.titleSmall,
+            )
+            if (watchVersionName != null) {
+                Text(
+                    text = "Current version: $watchVersionName",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            when (updateState) {
+                is WatchAppUpdateState.Idle -> {
+                    Button(
+                        onClick = onCheckForUpdate,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Check for Watch Update")
+                    }
+                }
+                is WatchAppUpdateState.Checking -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Checking for updates...", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                is WatchAppUpdateState.Available -> {
+                    Text(
+                        text = "Version ${updateState.version} available (${formatSize(updateState.sizeBytes)})",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(
+                        onClick = { onDownloadAndPush(updateState.downloadUrl, updateState.sizeBytes) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Download & Install on Watch")
+                    }
+                }
+                is WatchAppUpdateState.UpToDate -> {
+                    Text(
+                        text = "Watch app is up to date",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    TextButton(onClick = onDismiss) {
+                        Text("Dismiss")
+                    }
+                }
+                is WatchAppUpdateState.Downloading -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Downloading wear APK...", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                is WatchAppUpdateState.Pushing -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Sending to watch...", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                is WatchAppUpdateState.Installing -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Installing on watch...", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                is WatchAppUpdateState.Success -> {
+                    Text(
+                        text = "Watch app updated successfully",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    TextButton(onClick = onDismiss) {
+                        Text("Dismiss")
+                    }
+                }
+                is WatchAppUpdateState.Error -> {
+                    Text(
+                        text = updateState.message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row {
+                        TextButton(onClick = onDismiss) {
+                            Text("Dismiss")
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        TextButton(onClick = onCheckForUpdate) {
+                            Text("Retry")
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun formatSize(bytes: Long): String {
+    return when {
+        bytes >= 1_048_576 -> String.format(java.util.Locale.US, "%.1f MB", bytes / 1_048_576.0)
+        bytes >= 1024 -> String.format(java.util.Locale.US, "%.0f KB", bytes / 1024.0)
+        else -> "$bytes B"
+    }
+}
+
+@Composable
+private fun WatchDataTelemetryCard(
+    telemetry: WatchDataTelemetry,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+        ) {
+            Text(
+                text = "Data Sync",
+                style = MaterialTheme.typography.titleSmall,
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            if (telemetry.loadError != null) {
+                Text(
+                    text = telemetry.loadError,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            } else {
+                TelemetryRow(
+                    label = "Last BG sent",
+                    value = telemetry.lastBgMgDl?.let { "$it mg/dL" },
+                    timestampMs = telemetry.lastBgTimestampMs,
+                )
+                TelemetryRow(
+                    label = "Last IoB sent",
+                    value = telemetry.lastIoB?.let { "%.2fU".format(it) },
+                    timestampMs = telemetry.lastIoBTimestampMs,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TelemetryRow(
+    label: String,
+    value: String?,
+    timestampMs: Long?,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        if (value != null) {
+            Text(
+                text = value,
+                style = MaterialTheme.typography.bodySmall,
+            )
+            if (timestampMs != null && timestampMs > 0) {
+                Spacer(modifier = Modifier.width(4.dp))
+                val ago = formatTimeAgo(timestampMs)
+                Text(
+                    text = "($ago)",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else {
+            Text(
+                text = "--",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+internal fun formatTimeAgo(timestampMs: Long): String {
+    val diff = System.currentTimeMillis() - timestampMs
+    if (diff < 0) return "just now"
+    return when {
+        diff < 60_000 -> "just now"
+        diff < 3_600_000 -> "${diff / 60_000}m ago"
+        diff < 86_400_000 -> "${diff / 3_600_000}h ago"
+        else -> "${diff / 86_400_000}d ago"
     }
 }
 
@@ -971,6 +2143,59 @@ private fun BatteryOptimizationCard(
                     .testTag("disable_battery_optimization_button"),
             ) {
                 Text("Disable Battery Optimization")
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThemeSection(
+    currentTheme: ThemeMode,
+    onThemeChange: (ThemeMode) -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+        ) {
+            Text(
+                text = "Theme",
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Text(
+                text = "Choose your preferred color scheme",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                ThemeMode.entries.forEach { mode ->
+                    val label = when (mode) {
+                        ThemeMode.System -> "System"
+                        ThemeMode.Dark -> "Dark"
+                        ThemeMode.Light -> "Light"
+                    }
+                    OutlinedButton(
+                        onClick = { onThemeChange(mode) },
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("theme_${mode.name.lowercase()}"),
+                        colors = if (currentTheme == mode) {
+                            ButtonDefaults.outlinedButtonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary,
+                            )
+                        } else {
+                            ButtonDefaults.outlinedButtonColors()
+                        },
+                    ) {
+                        Text(label, style = MaterialTheme.typography.labelMedium)
+                    }
+                }
             }
         }
     }

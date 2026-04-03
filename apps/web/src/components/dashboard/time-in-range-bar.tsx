@@ -3,38 +3,31 @@
 /**
  * TimeInRangeBar Component
  *
- * Story 4.4: Time in Range Bar Component
- * Displays a horizontal stacked bar showing the percentage of time
- * spent in different glucose ranges (low, in-range, high).
+ * Story 4.4 / 30.4 consolidated: 5-bucket clinical TIR horizontal stacked bar
+ * with previous-period comparison and delta indicator.
  */
 
-import { motion, useReducedMotion } from "framer-motion";
+import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import clsx from "clsx";
+
+import type { TirBucket } from "@/lib/api";
 
 /** Time period options for the display */
 export type TimePeriod = "24h" | "3d" | "7d" | "14d" | "30d";
 
-/** Data for each glucose range segment */
-export interface RangeData {
-  /** Percentage of time below range (0-100) */
-  low: number;
-  /** Percentage of time in range (0-100) */
-  inRange: number;
-  /** Percentage of time above range (0-100) */
-  high: number;
-}
-
 export interface TimeInRangeBarProps {
-  /** Range percentages (must sum to ~100) */
-  data: RangeData;
+  /** 5-bucket TIR data (null when no data yet) */
+  buckets: TirBucket[] | null;
+  /** Total readings in current period */
+  readingsCount: number;
+  /** Previous-period buckets for comparison (null to hide) */
+  previousBuckets: TirBucket[] | null;
+  /** Previous-period readings count */
+  previousReadingsCount: number | null;
+  /** Error message to display */
+  error: string | null;
   /** Time period label (default: 24h) */
   period?: TimePeriod;
-  /** Whether to show the legend below the bar (default: true) */
-  showLegend?: boolean;
-  /** Whether to show percentage labels on segments (default: true) */
-  showLabels?: boolean;
-  /** Whether to animate the bar on mount (default: true) */
-  animated?: boolean;
   /** Target range description (default: "70-180 mg/dL") */
   targetRange?: string;
   /** Whether data is loading */
@@ -57,69 +50,95 @@ export const PERIOD_LABELS: Record<TimePeriod, string> = {
 /** Ordered list of periods for the selector */
 const PERIOD_OPTIONS: TimePeriod[] = ["24h", "3d", "7d", "14d", "30d"];
 
-/** Color classes for each range */
-const RANGE_COLORS = {
-  low: {
-    bg: "bg-red-500",
-    text: "text-red-400",
-  },
-  inRange: {
-    bg: "bg-green-500",
-    text: "text-green-400",
-  },
-  high: {
-    bg: "bg-amber-500",
-    text: "text-amber-400",
-  },
-} as const;
+/** Clinical TIR colors matching Tandem Source / Dexcom Clarity */
+const BUCKET_COLORS: Record<string, string> = {
+  urgent_low: "#dc2626",
+  low: "#f59e0b",
+  in_range: "#22c55e",
+  high: "#f97316",
+  urgent_high: "#991b1b",
+};
+
+const BUCKET_LABELS: Record<string, string> = {
+  urgent_low: "Urgent Low",
+  low: "Low",
+  in_range: "In Range",
+  high: "High",
+  urgent_high: "Urgent High",
+};
+
+/** Canonical bucket order (bottom-to-top clinical convention) */
+const BUCKET_ORDER = ["urgent_low", "low", "in_range", "high", "urgent_high"];
 
 /**
- * Normalize percentages to ensure they sum to 100.
- * Handles floating point precision issues.
+ * Sanitize a single bucket pct value (guard against NaN/Infinity/negative).
  */
-export function normalizePercentages(data: RangeData): RangeData {
-  const total = data.low + data.inRange + data.high;
-
-  if (total === 0) {
-    return { low: 0, inRange: 0, high: 0 };
+function sanitizePct(value: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    return 0;
   }
-
-  if (Math.abs(total - 100) < 0.01) {
-    return data;
-  }
-
-  // Normalize to 100%
-  const factor = 100 / total;
-  const low = Math.round(data.low * factor * 10) / 10;
-  const high = Math.round(data.high * factor * 10) / 10;
-  // inRange absorbs any rounding differences to ensure sum is exactly 100
-  // Math.max(0, ...) prevents negative values from extreme rounding edge cases
-  const inRange = Math.max(0, Math.round((100 - low - high) * 10) / 10);
-
-  return { low, inRange, high };
+  return Math.min(value, 100);
 }
 
 /**
- * Validate and sanitize range data.
- * Returns safe values for invalid inputs.
+ * Sanitize all buckets in an array.
  */
-export function sanitizeRangeData(data: RangeData): RangeData {
-  const sanitize = (value: number): number => {
-    if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-      return 0;
-    }
-    return Math.min(value, 100);
-  };
+function sanitizeBuckets(buckets: TirBucket[]): TirBucket[] {
+  return buckets.map((b) => ({ ...b, pct: sanitizePct(b.pct) }));
+}
 
-  return {
-    low: sanitize(data.low),
-    inRange: sanitize(data.inRange),
-    high: sanitize(data.high),
-  };
+/**
+ * Normalize bucket percentages so they sum to 100.
+ * Sanitizes inputs first so callers don't need to pre-sanitize.
+ * in_range absorbs rounding differences.
+ */
+export function normalizeBuckets(buckets: TirBucket[]): TirBucket[] {
+  // Fix #3: self-sanitize so exported function is safe for external callers
+  const safe = buckets.map((b) => ({ ...b, pct: sanitizePct(b.pct) }));
+  const total = safe.reduce((sum, b) => sum + b.pct, 0);
+
+  if (total === 0) return safe;
+  if (Math.abs(total - 100) < 0.01) return safe;
+
+  const factor = 100 / total;
+  const scaled = safe.map((b) => ({
+    ...b,
+    pct: Math.round(b.pct * factor * 10) / 10,
+  }));
+
+  // Adjust in_range to absorb rounding error
+  const inRangeIdx = scaled.findIndex((b) => b.label === "in_range");
+  if (inRangeIdx >= 0) {
+    const others = scaled.reduce(
+      (sum, b, i) => (i === inRangeIdx ? sum : sum + b.pct),
+      0
+    );
+    scaled[inRangeIdx] = {
+      ...scaled[inRangeIdx],
+      pct: Math.max(0, Math.round((100 - others) * 10) / 10),
+    };
+  }
+
+  return scaled;
+}
+
+/**
+ * Order buckets into canonical clinical order, filtering to only known labels.
+ * Returns only buckets whose labels appear in BUCKET_ORDER.
+ */
+function orderBuckets(buckets: TirBucket[]): TirBucket[] {
+  // Fix #2: no non-null assertion; unknown/missing labels handled gracefully
+  return BUCKET_ORDER.reduce<TirBucket[]>((acc, label) => {
+    const bucket = buckets.find((b) => b.label === label);
+    if (bucket) acc.push(bucket);
+    return acc;
+  }, []);
 }
 
 /**
  * Format percentage for display.
+ * Note: 100% is a valid output (exact 100.0 from API). Values 99.5-99.9
+ * display as ">99%" to avoid implying perfect range time.
  */
 export function formatPercentage(value: number): string {
   if (value === 0) return "0%";
@@ -144,55 +163,13 @@ export function getQualityAssessment(inRangePercent: number): {
   return { label: "Needs Improvement", colorClass: "text-red-400" };
 }
 
-/** Props for individual bar segments */
-interface BarSegmentProps {
-  percentage: number;
-  color: string;
-  label: string;
-  position: "start" | "middle" | "end";
-  showLabels: boolean;
-}
-
-/** Individual segment of the time-in-range bar */
-function BarSegment({
-  percentage,
-  color,
-  label,
-  position,
-  showLabels,
-}: BarSegmentProps) {
-  if (percentage === 0) return null;
-
-  const roundedClasses = clsx({
-    "rounded-l-full": position === "start",
-    "rounded-r-full": position === "end",
-  });
-
-  return (
-    <div
-      className={clsx(
-        color,
-        roundedClasses,
-        "h-full flex items-center justify-center transition-all duration-300"
-      )}
-      style={{ width: `${percentage}%` }}
-      title={`${label}: ${formatPercentage(percentage)}`}
-    >
-      {showLabels && percentage >= 10 && (
-        <span className="text-xs font-medium text-white/90 drop-shadow-sm">
-          {formatPercentage(percentage)}
-        </span>
-      )}
-    </div>
-  );
-}
-
 export function TimeInRangeBar({
-  data,
+  buckets,
+  readingsCount,
+  previousBuckets,
+  previousReadingsCount,
+  error,
   period = "24h",
-  showLegend = true,
-  showLabels = true,
-  animated = true,
   targetRange = "70-180 mg/dL",
   isLoading = false,
   onPeriodChange,
@@ -205,7 +182,7 @@ export function TimeInRangeBar({
     return (
       <div
         className={clsx(
-          "bg-slate-900 rounded-xl p-6 border border-slate-800 animate-pulse",
+          "bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800 animate-pulse",
           className
         )}
         data-testid="time-in-range-bar"
@@ -218,81 +195,184 @@ export function TimeInRangeBar({
           <div className="h-6 w-20 bg-slate-700 rounded" />
         </div>
         <div className="h-8 bg-slate-700 rounded-full" />
-        <div className="flex justify-between mt-3">
-          <div className="h-4 w-16 bg-slate-700 rounded" />
-          <div className="h-4 w-20 bg-slate-700 rounded" />
-          <div className="h-4 w-16 bg-slate-700 rounded" />
+        <div className="flex justify-center gap-4 mt-3">
+          {[1, 2, 3, 4, 5].map((i) => (
+            <div key={i} className="h-4 w-16 bg-slate-700 rounded" />
+          ))}
         </div>
       </div>
     );
   }
 
-  // Sanitize and normalize data
-  const safeData = sanitizeRangeData(data);
-  const normalizedData = normalizePercentages(safeData);
+  // Error state
+  if (error) {
+    return (
+      <div
+        className={clsx(
+          "bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800",
+          className
+        )}
+        data-testid="time-in-range-bar"
+        role="region"
+        aria-label="Time in range"
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold">Time in Range</h2>
+          {onPeriodChange && (
+            <PeriodSelector period={period} onPeriodChange={onPeriodChange} />
+          )}
+        </div>
+        <p
+          className="text-red-400 text-center py-8"
+          data-testid="error-message"
+          role="alert"
+        >
+          {error}
+        </p>
+      </div>
+    );
+  }
+
+  // No-data state
+  if (!buckets || readingsCount === 0) {
+    return (
+      <div
+        className={clsx(
+          "bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800",
+          className
+        )}
+        data-testid="time-in-range-bar"
+        role="region"
+        aria-label="Time in range"
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold">Time in Range</h2>
+          {onPeriodChange && (
+            <PeriodSelector period={period} onPeriodChange={onPeriodChange} />
+          )}
+        </div>
+        <p
+          className="text-slate-500 dark:text-slate-500 text-center py-8"
+          data-testid="no-data-message"
+        >
+          No glucose data available for this period.
+        </p>
+      </div>
+    );
+  }
+
+  // Sanitize and normalize
+  const safeBuckets = normalizeBuckets(sanitizeBuckets(buckets));
+  const safePrevBuckets = previousBuckets
+    ? normalizeBuckets(sanitizeBuckets(previousBuckets))
+    : null;
+
+  // Fix #2: order without non-null assertion
+  const ordered = orderBuckets(safeBuckets);
+  const orderedPrev = safePrevBuckets ? orderBuckets(safePrevBuckets) : null;
+
+  const inRangePct =
+    ordered.find((b) => b.label === "in_range")?.pct ?? 0;
+  const quality = getQualityAssessment(inRangePct);
+
+  // Delta vs previous period (sub-1% changes intentionally hidden via rounding)
+  const prevInRangePct = safePrevBuckets?.find(
+    (b) => b.label === "in_range"
+  )?.pct;
+  const delta =
+    prevInRangePct != null ? Math.round(inRangePct - prevInRangePct) : null;
 
   const periodLabel = PERIOD_LABELS[period];
-  const quality = getQualityAssessment(normalizedData.inRange);
 
-  // Build aria description (single line to avoid awkward screen reader pauses)
-  const ariaDescription = `Time in range for ${periodLabel}: ${formatPercentage(normalizedData.low)} below range, ${formatPercentage(normalizedData.inRange)} in range, ${formatPercentage(normalizedData.high)} above range. Target range: ${targetRange}.`;
+  // Build aria description
+  const ariaDescription = `Time in range for ${periodLabel}: ${ordered
+    .map((b) => `${BUCKET_LABELS[b.label]} ${formatPercentage(b.pct)}`)
+    .join(", ")}. ${readingsCount} readings. Target: ${targetRange}.`;
 
-  // Animation variants
-  const barVariants = {
-    hidden: { scaleX: 0 },
-    visible: { scaleX: 1, transition: { duration: 0.6, ease: "easeOut" } },
-  };
+  const shouldAnimate = !prefersReducedMotion;
 
-  // Determine positions for rounded corners
-  const getPosition = (
-    range: "low" | "inRange" | "high"
-  ): "start" | "middle" | "end" => {
-    const hasLow = normalizedData.low > 0;
-    const hasHigh = normalizedData.high > 0;
-
-    if (range === "low") return "start";
-    if (range === "high") return "end";
-    // inRange
-    if (!hasLow && !hasHigh) return "start"; // Only inRange
-    if (!hasLow) return "start";
-    if (!hasHigh) return "end";
-    return "middle";
-  };
-
-  const barContent = (
+  const currentBar = (
     <div
       className="h-8 rounded-full overflow-hidden flex bg-slate-700"
       role="img"
       aria-label={ariaDescription}
     >
-      <BarSegment
-        percentage={normalizedData.low}
-        color={RANGE_COLORS.low.bg}
-        label="Below range"
-        position={getPosition("low")}
-        showLabels={showLabels}
-      />
-      <BarSegment
-        percentage={normalizedData.inRange}
-        color={RANGE_COLORS.inRange.bg}
-        label="In range"
-        position={getPosition("inRange")}
-        showLabels={showLabels}
-      />
-      <BarSegment
-        percentage={normalizedData.high}
-        color={RANGE_COLORS.high.bg}
-        label="Above range"
-        position={getPosition("high")}
-        showLabels={showLabels}
-      />
+      {ordered.map((b, idx) => {
+        if (b.pct === 0) return null;
+        const isFirst = ordered.findIndex((x) => x.pct > 0) === idx;
+        const isLast =
+          ordered.length -
+            1 -
+            [...ordered].reverse().findIndex((x) => x.pct > 0) ===
+          idx;
+        return (
+          <div
+            key={b.label}
+            className={clsx(
+              "h-full flex items-center justify-center transition-all duration-300",
+              isFirst && "rounded-l-full",
+              isLast && "rounded-r-full"
+            )}
+            style={{
+              width: `${b.pct}%`,
+              backgroundColor: BUCKET_COLORS[b.label],
+            }}
+            title={`${BUCKET_LABELS[b.label]}: ${formatPercentage(b.pct)}`}
+          >
+            {b.pct >= 10 && (
+              <span className="text-xs font-medium text-white/90 drop-shadow-sm">
+                {formatPercentage(b.pct)}
+              </span>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 
-  return (
+  // Fix #10: use opacity class on parent container instead of per-segment inline opacity
+  const previousBar = orderedPrev ? (
     <div
-      className={clsx("bg-slate-900 rounded-xl p-6 border border-slate-800", className)}
+      className="h-3 rounded-full overflow-hidden flex bg-slate-100 dark:bg-slate-800 mt-1 opacity-40"
+      data-testid="previous-period-bar"
+      aria-label="Previous period comparison"
+    >
+      {orderedPrev.map((b, idx) => {
+        if (b.pct === 0) return null;
+        const isFirst = orderedPrev.findIndex((x) => x.pct > 0) === idx;
+        const isLast =
+          orderedPrev.length -
+            1 -
+            [...orderedPrev].reverse().findIndex((x) => x.pct > 0) ===
+          idx;
+        return (
+          <div
+            key={b.label}
+            className={clsx(
+              "h-full",
+              isFirst && "rounded-l-full",
+              isLast && "rounded-r-full"
+            )}
+            style={{
+              width: `${b.pct}%`,
+              backgroundColor: BUCKET_COLORS[b.label],
+            }}
+          />
+        );
+      })}
+    </div>
+  ) : null;
+
+  return (
+    // Fix #7: add role="region" and aria-label to main render path
+    <div
+      className={clsx(
+        "bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800",
+        className
+      )}
       data-testid="time-in-range-bar"
+      role="region"
+      aria-label="Time in range"
     >
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
@@ -301,34 +381,24 @@ export function TimeInRangeBar({
           <span className={clsx("text-sm font-medium", quality.colorClass)}>
             {quality.label}
           </span>
+          {delta !== null && delta !== 0 && (
+            <span
+              className={clsx(
+                "text-sm font-medium",
+                delta > 0 ? "text-green-400" : "text-red-400"
+              )}
+              data-testid="delta-indicator"
+            >
+              {delta > 0 ? "+" : ""}
+              {delta}%
+            </span>
+          )}
         </div>
         {onPeriodChange ? (
-          <div
-            className="flex gap-1 bg-slate-800 rounded-lg p-1"
-            role="radiogroup"
-            aria-label="Time period"
-            data-testid="period-selector"
-          >
-            {PERIOD_OPTIONS.map((p) => (
-              <button
-                key={p}
-                role="radio"
-                aria-checked={p === period}
-                onClick={() => onPeriodChange(p)}
-                className={clsx(
-                  "px-2 py-1 text-xs font-medium rounded transition-colors",
-                  p === period
-                    ? "bg-blue-600 text-white"
-                    : "text-slate-400 hover:text-slate-200"
-                )}
-              >
-                {p.toUpperCase()}
-              </button>
-            ))}
-          </div>
+          <PeriodSelector period={period} onPeriodChange={onPeriodChange} />
         ) : (
           <span
-            className="text-sm text-slate-400 bg-slate-800 px-2 py-1 rounded"
+            className="text-sm text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded"
             data-testid="period-label"
           >
             {periodLabel}
@@ -337,50 +407,77 @@ export function TimeInRangeBar({
       </div>
 
       {/* Bar */}
-      {animated && !prefersReducedMotion ? (
-        <motion.div
-          initial="hidden"
-          animate="visible"
-          variants={barVariants}
-          style={{ originX: 0 }}
-        >
-          {barContent}
-        </motion.div>
-      ) : (
-        barContent
-      )}
+      <div className={shouldAnimate ? "animate-tir-bar-expand origin-left" : undefined}>
+        {currentBar}
+        {previousBar}
+      </div>
 
-      {/* Legend */}
-      {showLegend && (
-        <div
-          className="flex justify-between mt-3 text-sm"
-          data-testid="range-legend"
-        >
-          <div className="flex items-center gap-2">
-            <div className={clsx("w-3 h-3 rounded-full", RANGE_COLORS.low.bg)} aria-hidden="true" />
-            <span className={RANGE_COLORS.low.text}>
-              Low: {formatPercentage(normalizedData.low)}
+      {/* Legend -- 5 items, flex-wrap for narrow screens */}
+      <div
+        className="flex flex-wrap justify-center gap-x-4 gap-y-2 mt-3"
+        data-testid="range-legend"
+      >
+        {ordered.map((b) => (
+          <div key={b.label} className="flex items-center gap-1.5">
+            <div
+              className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+              style={{ backgroundColor: BUCKET_COLORS[b.label] }}
+              aria-hidden="true"
+            />
+            <span className="text-xs text-slate-600 dark:text-slate-300">
+              {BUCKET_LABELS[b.label]}
+            </span>
+            <span className="text-xs text-slate-500 dark:text-slate-500">
+              {formatPercentage(b.pct)}
             </span>
           </div>
-          <div className="flex items-center gap-2">
-            <div className={clsx("w-3 h-3 rounded-full", RANGE_COLORS.inRange.bg)} aria-hidden="true" />
-            <span className={RANGE_COLORS.inRange.text}>
-              In Range: {formatPercentage(normalizedData.inRange)}
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className={clsx("w-3 h-3 rounded-full", RANGE_COLORS.high.bg)} aria-hidden="true" />
-            <span className={RANGE_COLORS.high.text}>
-              High: {formatPercentage(normalizedData.high)}
-            </span>
-          </div>
-        </div>
-      )}
+        ))}
+      </div>
 
-      {/* Target range info */}
-      <p className="text-slate-500 text-xs mt-3 text-center">
+      {/* Target range & readings */}
+      <p className="text-slate-500 dark:text-slate-500 text-xs mt-3 text-center">
         Target: {targetRange}
+        {" \u00B7 "}
+        {readingsCount} readings
+        {previousReadingsCount != null &&
+          ` (prev: ${previousReadingsCount})`}
       </p>
+    </div>
+  );
+}
+
+/** Period selector radio group */
+function PeriodSelector({
+  period,
+  onPeriodChange,
+}: {
+  period: TimePeriod;
+  onPeriodChange: (period: TimePeriod) => void;
+}) {
+  return (
+    <div
+      className="flex gap-1 bg-slate-100 dark:bg-slate-800 rounded-lg p-1"
+      role="radiogroup"
+      aria-label="Time period"
+      data-testid="period-selector"
+    >
+      {PERIOD_OPTIONS.map((p) => (
+        <button
+          key={p}
+          role="radio"
+          aria-checked={p === period}
+          aria-label={PERIOD_LABELS[p]}
+          onClick={() => onPeriodChange(p)}
+          className={clsx(
+            "px-2 py-1 text-xs font-medium rounded transition-colors",
+            p === period
+              ? "bg-blue-600 text-white"
+              : "text-slate-500 dark:text-slate-400 hover:text-slate-200"
+          )}
+        >
+          {p.toUpperCase()}
+        </button>
+      ))}
     </div>
   );
 }

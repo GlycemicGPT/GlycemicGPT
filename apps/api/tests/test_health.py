@@ -133,5 +133,7 @@ class TestRootEndpoint:
         assert response.status_code == 200
         data = response.json()
         assert data["name"] == "GlycemicGPT API"
-        assert data["version"] == "0.1.0"
+        assert (
+            "version" not in data
+        )  # Story 28.10: version removed to prevent info disclosure
         assert data["docs"] == "/docs"

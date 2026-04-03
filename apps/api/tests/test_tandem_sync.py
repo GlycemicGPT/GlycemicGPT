@@ -10,12 +10,12 @@ from httpx import ASGITransport, AsyncClient
 
 from src.config import settings
 from src.main import app
-from src.models.pump_data import ControlIQMode, PumpEventType
+from src.models.pump_data import PumpActivityMode, PumpEventType
 from src.services.tandem_sync import (
     _normalize_pump_event,
     _store_pump_settings,
     calculate_basal_adjustment,
-    detect_control_iq_mode,
+    detect_pump_activity_mode,
     map_event_type,
     parse_control_iq_event,
 )
@@ -595,43 +595,43 @@ class TestTandemSyncEndpoints:
 # Story 3.5: Tests for Control-IQ Activity Parsing
 
 
-class TestControlIQModeDetection:
-    """Tests for Control-IQ mode detection (Story 3.5)."""
+class TestPumpActivityModeDetection:
+    """Tests for pump activity mode detection (Story 3.5)."""
 
     def test_detect_sleep_mode_from_activity_type(self):
         """Test detecting Sleep mode from activityType field."""
-        mode = detect_control_iq_mode({"activityType": "Sleep"})
-        assert mode == ControlIQMode.SLEEP
+        mode = detect_pump_activity_mode({"activityType": "Sleep"})
+        assert mode == PumpActivityMode.SLEEP
 
     def test_detect_exercise_mode_from_activity_type(self):
         """Test detecting Exercise mode from activityType field."""
-        mode = detect_control_iq_mode({"activityType": "Exercise"})
-        assert mode == ControlIQMode.EXERCISE
+        mode = detect_pump_activity_mode({"activityType": "Exercise"})
+        assert mode == PumpActivityMode.EXERCISE
 
-    def test_detect_standard_mode(self):
-        """Test detecting Standard mode."""
-        mode = detect_control_iq_mode({"mode": "standard"})
-        assert mode == ControlIQMode.STANDARD
+    def test_detect_none_mode(self):
+        """Test detecting None (standard) mode."""
+        mode = detect_pump_activity_mode({"mode": "standard"})
+        assert mode == PumpActivityMode.NONE
 
     def test_detect_sleep_mode_from_flag(self):
         """Test detecting Sleep mode from boolean flag."""
-        mode = detect_control_iq_mode({"isSleepMode": True})
-        assert mode == ControlIQMode.SLEEP
+        mode = detect_pump_activity_mode({"isSleepMode": True})
+        assert mode == PumpActivityMode.SLEEP
 
     def test_detect_exercise_mode_from_flag(self):
         """Test detecting Exercise mode from boolean flag."""
-        mode = detect_control_iq_mode({"isExerciseMode": True})
-        assert mode == ControlIQMode.EXERCISE
+        mode = detect_pump_activity_mode({"isExerciseMode": True})
+        assert mode == PumpActivityMode.EXERCISE
 
     def test_detect_mode_returns_none_for_unknown(self):
         """Test that unknown mode returns None."""
-        mode = detect_control_iq_mode({"type": "bolus"})
+        mode = detect_pump_activity_mode({"type": "bolus"})
         assert mode is None
 
     def test_detect_mode_case_insensitive(self):
         """Test that mode detection is case insensitive."""
-        mode = detect_control_iq_mode({"activityType": "SLEEP"})
-        assert mode == ControlIQMode.SLEEP
+        mode = detect_pump_activity_mode({"activityType": "SLEEP"})
+        assert mode == PumpActivityMode.SLEEP
 
 
 class TestBasalAdjustmentCalculation:
@@ -710,7 +710,7 @@ class TestParseControlIQEvent:
         assert parsed.event_type == PumpEventType.BASAL
         assert parsed.is_automated is True
         assert parsed.control_iq_reason == "basal_increase"
-        assert parsed.control_iq_mode == ControlIQMode.SLEEP
+        assert parsed.pump_activity_mode == PumpActivityMode.SLEEP
         assert parsed.basal_adjustment_pct == 50.0
 
     def test_parse_basal_decrease(self):
@@ -737,7 +737,7 @@ class TestParseControlIQEvent:
         )
         assert parsed.event_type == PumpEventType.BOLUS
         assert parsed.is_automated is False
-        assert parsed.control_iq_mode is None
+        assert parsed.pump_activity_mode is None
         assert parsed.basal_adjustment_pct is None
 
     def test_parse_automated_suspend(self):
@@ -874,6 +874,60 @@ class TestNormalizePumpEvent:
         assert result is not None
         assert result["type"] == "basal"
         assert "iob" not in result
+
+    def test_event_279_populates_units_from_rate(self):
+        """Event 279 (LidBasalDelivery) should store rate as units for aggregation."""
+        import arrow
+
+        event = self._make_event(
+            {
+                "id": "279",
+                "eventTimestamp": arrow.now(),
+                "commandedRate": "800",  # 800 milliunits/hr = 0.8 U/hr
+                "profileBasalRate": "750",
+            }
+        )
+        result = _normalize_pump_event(event)
+        assert result is not None
+        assert result["type"] == "basal"
+        assert result["actualRate"] == 0.8
+        assert result["units"] == 0.8
+        assert result["profileRate"] == 0.75
+
+    def test_event_3_populates_units_from_rate(self):
+        """Event 3 (basal rate change) should store rate as units for aggregation."""
+        import arrow
+
+        event = self._make_event(
+            {
+                "id": "3",
+                "eventTimestamp": arrow.now(),
+                "commandedbasalrate": "1.2",
+                "basebasalrate": "0.9",
+            }
+        )
+        result = _normalize_pump_event(event)
+        assert result is not None
+        assert result["type"] == "basal"
+        assert result["actualRate"] == 1.2
+        assert result["units"] == 1.2
+        assert result["profileRate"] == 0.9
+
+    def test_event_279_no_rate_no_units(self):
+        """Event 279 without commandedRate should not set units."""
+        import arrow
+
+        event = self._make_event(
+            {
+                "id": "279",
+                "eventTimestamp": arrow.now(),
+                "profileBasalRate": "750",
+            }
+        )
+        result = _normalize_pump_event(event)
+        assert result is not None
+        assert result["type"] == "basal"
+        assert "units" not in result
 
 
 class TestControlIQActivityEndpoint:

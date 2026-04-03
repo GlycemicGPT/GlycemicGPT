@@ -1,27 +1,78 @@
 package com.glycemicgpt.mobile.presentation
 
+import android.content.SharedPreferences
+import android.graphics.Color
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import com.glycemicgpt.mobile.data.local.AppSettingsStore
+import com.glycemicgpt.mobile.data.local.AuthTokenStore
 import com.glycemicgpt.mobile.presentation.navigation.GlycemicGptNavHost
 import com.glycemicgpt.mobile.presentation.theme.GlycemicGptTheme
+import com.glycemicgpt.mobile.presentation.theme.ThemeMode
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
 @AndroidEntryPoint
-class MainActivity : ComponentActivity() {
+class MainActivity : ComponentActivity(), SharedPreferences.OnSharedPreferenceChangeListener {
 
     @Inject lateinit var appSettingsStore: AppSettingsStore
+    @Inject lateinit var authTokenStore: AuthTokenStore
+
+    private var themeMode by mutableStateOf(ThemeMode.System)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        themeMode = appSettingsStore.themeMode
+        appSettingsStore.registerListener(this)
         setContent {
-            GlycemicGptTheme {
-                GlycemicGptNavHost(appSettingsStore = appSettingsStore)
+            val isDark = when (themeMode) {
+                ThemeMode.Dark -> true
+                ThemeMode.Light -> false
+                ThemeMode.System -> isSystemInDarkTheme()
             }
+
+            // Sync system bars with the resolved theme
+            DisposableEffect(isDark) {
+                enableEdgeToEdge(
+                    statusBarStyle = if (isDark) {
+                        SystemBarStyle.dark(Color.TRANSPARENT)
+                    } else {
+                        SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
+                    },
+                    navigationBarStyle = if (isDark) {
+                        SystemBarStyle.dark(Color.TRANSPARENT)
+                    } else {
+                        SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
+                    },
+                )
+                onDispose {}
+            }
+
+            GlycemicGptTheme(themeMode = themeMode) {
+                GlycemicGptNavHost(
+                    appSettingsStore = appSettingsStore,
+                    authTokenStore = authTokenStore,
+                )
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        appSettingsStore.unregisterListener(this)
+    }
+
+    override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences?, key: String?) {
+        if (key == AppSettingsStore.KEY_THEME_MODE) {
+            themeMode = appSettingsStore.themeMode
         }
     }
 }

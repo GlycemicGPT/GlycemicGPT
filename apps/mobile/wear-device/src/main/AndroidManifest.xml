@@ -1,0 +1,203 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-feature android:name="android.hardware.type.watch" />
+
+    <!-- watchface-push AAR requires minSdk 36 but this module targets Wear OS 5+ (API 35+)
+         for core services. Push functionality is guarded by runtime API level check. -->
+    <uses-sdk tools:overrideLibrary="androidx.wear.watchface.push" />
+
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="com.google.wear.permission.PUSH_WATCH_FACES" />
+    <uses-permission android:name="com.google.wear.permission.SET_PUSHED_WATCH_FACE_AS_ACTIVE" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <application
+        android:name=".GlycemicWearDeviceApp"
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.DeviceDefault">
+
+        <meta-data
+            android:name="com.google.android.wearable.standalone"
+            android:value="false" />
+
+        <!-- Data Layer Listener (receives data + messages from phone) -->
+        <service
+            android:name=".data.GlycemicDataListenerService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.DATA_CHANGED" />
+                <data
+                    android:scheme="wear"
+                    android:host="*"
+                    android:pathPrefix="/glycemicgpt/" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <data
+                    android:scheme="wear"
+                    android:host="*"
+                    android:pathPrefix="/glycemicgpt/chat/" />
+            </intent-filter>
+        </service>
+
+        <!-- Alert dismiss activity (launched via explicit intent from within the app) -->
+        <activity
+            android:name=".presentation.AlertsActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.DeviceDefault" />
+
+        <!-- AI chat activity (launched via explicit intent from within the app) -->
+        <activity
+            android:name=".presentation.ChatActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.DeviceDefault" />
+
+        <!-- Full-screen interactive graph (launched via graph complication tap) -->
+        <activity
+            android:name=".presentation.GraphDetailActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.DeviceDefault" />
+
+        <!-- IoB Complication Provider -->
+        <service
+            android:name=".complications.IoBComplicationDataSource"
+            android:exported="true"
+            android:label="@string/complication_iob_label"
+            android:permission="com.google.android.wearable.permission.BIND_COMPLICATION_PROVIDER">
+            <intent-filter>
+                <action android:name="android.support.wearable.complications.ACTION_COMPLICATION_UPDATE_REQUEST" />
+            </intent-filter>
+            <meta-data
+                android:name="android.support.wearable.complications.SUPPORTED_TYPES"
+                android:value="SHORT_TEXT,LONG_TEXT" />
+            <meta-data
+                android:name="android.support.wearable.complications.UPDATE_PERIOD_SECONDS"
+                android:value="0" />
+        </service>
+
+        <!-- Permission request activity for Watch Face Push (auto-finishes) -->
+        <activity
+            android:name=".push.WatchFacePermissionActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar" />
+
+        <!-- Watch Face Push receiver (receives APK from phone via ChannelClient).
+             Exported for Wearable Data Layer system dispatch. Channel events are
+             authenticated by Google Play Services node identity (paired device only).
+             APK content is validated before install (magic bytes + Push API validation). -->
+        <service
+            android:name=".push.WatchFaceReceiveService"
+            android:exported="true"
+            android:foregroundServiceType="dataSync">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.CHANNEL_EVENT" />
+                <data
+                    android:scheme="wear"
+                    android:host="*"
+                    android:pathPrefix="/glycemicgpt/watchface/" />
+            </intent-filter>
+        </service>
+
+        <!-- Watch APK self-update receiver (receives APK from phone via ChannelClient).
+             Exported for Wearable Data Layer system dispatch. The framework restricts
+             communication to paired devices; the service validates channel path.
+             APK content is validated before install (magic bytes + package name). -->
+        <service
+            android:name=".update.WatchApkReceiveService"
+            android:exported="true"
+            android:foregroundServiceType="dataSync">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.CHANNEL_EVENT" />
+                <data
+                    android:scheme="wear"
+                    android:host="*"
+                    android:pathPrefix="/glycemicgpt/watch/apk/" />
+            </intent-filter>
+        </service>
+
+        <!-- PackageInstaller result receiver for APK self-update -->
+        <receiver
+            android:name=".update.UpdateInstallReceiver"
+            android:exported="false" />
+
+        <!-- BG Complication Provider -->
+        <service
+            android:name=".complications.BgComplicationDataSource"
+            android:exported="true"
+            android:label="@string/complication_bg_label"
+            android:permission="com.google.android.wearable.permission.BIND_COMPLICATION_PROVIDER">
+            <intent-filter>
+                <action android:name="android.support.wearable.complications.ACTION_COMPLICATION_UPDATE_REQUEST" />
+            </intent-filter>
+            <meta-data
+                android:name="android.support.wearable.complications.SUPPORTED_TYPES"
+                android:value="SHORT_TEXT,LONG_TEXT" />
+            <meta-data
+                android:name="android.support.wearable.complications.UPDATE_PERIOD_SECONDS"
+                android:value="0" />
+        </service>
+
+        <!-- Glucose Graph Complication Provider -->
+        <service
+            android:name=".complications.GraphComplicationDataSource"
+            android:exported="true"
+            android:label="@string/complication_graph_label"
+            android:permission="com.google.android.wearable.permission.BIND_COMPLICATION_PROVIDER">
+            <intent-filter>
+                <action android:name="android.support.wearable.complications.ACTION_COMPLICATION_UPDATE_REQUEST" />
+            </intent-filter>
+            <meta-data
+                android:name="android.support.wearable.complications.SUPPORTED_TYPES"
+                android:value="SMALL_IMAGE" />
+            <meta-data
+                android:name="android.support.wearable.complications.UPDATE_PERIOD_SECONDS"
+                android:value="0" />
+        </service>
+
+        <!-- Alerts Complication Provider -->
+        <service
+            android:name=".complications.AlertsComplicationDataSource"
+            android:exported="true"
+            android:label="@string/complication_alerts_label"
+            android:permission="com.google.android.wearable.permission.BIND_COMPLICATION_PROVIDER">
+            <intent-filter>
+                <action android:name="android.support.wearable.complications.ACTION_COMPLICATION_UPDATE_REQUEST" />
+            </intent-filter>
+            <meta-data
+                android:name="android.support.wearable.complications.SUPPORTED_TYPES"
+                android:value="SMALL_IMAGE" />
+            <meta-data
+                android:name="android.support.wearable.complications.UPDATE_PERIOD_SECONDS"
+                android:value="0" />
+        </service>
+
+        <!-- AI Chat Complication Provider -->
+        <service
+            android:name=".complications.ChatComplicationDataSource"
+            android:exported="true"
+            android:label="@string/complication_chat_label"
+            android:permission="com.google.android.wearable.permission.BIND_COMPLICATION_PROVIDER">
+            <intent-filter>
+                <action android:name="android.support.wearable.complications.ACTION_COMPLICATION_UPDATE_REQUEST" />
+            </intent-filter>
+            <meta-data
+                android:name="android.support.wearable.complications.SUPPORTED_TYPES"
+                android:value="SMALL_IMAGE" />
+            <meta-data
+                android:name="android.support.wearable.complications.UPDATE_PERIOD_SECONDS"
+                android:value="0" />
+        </service>
+
+    </application>
+
+</manifest>

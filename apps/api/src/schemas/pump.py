@@ -1,12 +1,12 @@
 """Story 3.4 & 3.5: Pump data schemas.
 
 Pydantic schemas for pump event API requests and responses,
-including Control-IQ activity data.
+including pump activity mode data.
 """
 
 from datetime import UTC, datetime, timedelta
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.models.pump_data import PumpEventType
 
@@ -22,8 +22,8 @@ class PumpEventResponse(BaseModel):
     duration_minutes: int | None = None
     is_automated: bool = False
     control_iq_reason: str | None = None
-    control_iq_mode: str | None = None  # Story 3.5
-    basal_adjustment_pct: float | None = None  # Story 3.5
+    pump_activity_mode: str | None = None
+    basal_adjustment_pct: float | None = None
     iob_at_event: float | None = None
     cob_at_event: float | None = None
     bg_at_event: int | None = None
@@ -167,10 +167,25 @@ class PumpEventPushItem(BaseModel):
     units: float | None = None
     duration_minutes: int | None = None
     is_automated: bool = False
-    control_iq_mode: str | None = None
+    pump_activity_mode: str | None = None
+    control_iq_mode: str | None = None  # backwards compat: old field name
     basal_adjustment_pct: float | None = None
     iob_at_event: float | None = None
     bg_at_event: int | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_control_iq_mode(cls, data: dict) -> dict:
+        """Accept old control_iq_mode field and map to pump_activity_mode."""
+        if isinstance(data, dict):
+            old = data.get("control_iq_mode")
+            new = data.get("pump_activity_mode")
+            if old and not new:
+                # Map legacy "standard"/"Standard"/"STANDARD" -> "none"
+                old_lower = old.lower() if isinstance(old, str) else old
+                data["pump_activity_mode"] = "none" if old_lower == "standard" else old
+                data.pop("control_iq_mode", None)
+        return data
 
     @field_validator("event_timestamp")
     @classmethod
@@ -285,3 +300,63 @@ class TandemUploadTriggerResponse(BaseModel):
     message: str
     events_uploaded: int = 0
     status: str = "pending"
+
+
+# --- Story 30.1: Aggregate stats schemas ---
+
+
+class InsulinSummaryResponse(BaseModel):
+    """Response schema for insulin delivery summary (Story 30.1).
+
+    Unit fields (tdd, basal_units, bolus_units, correction_units) are
+    daily averages over the requested period. Count fields (bolus_count,
+    correction_count) are totals for the full period.
+    """
+
+    tdd: float = Field(..., ge=0, description="Average total daily dose (units/day)")
+    basal_units: float = Field(
+        ..., ge=0, description="Average daily basal insulin (units/day)"
+    )
+    bolus_units: float = Field(
+        ..., ge=0, description="Average daily bolus + correction insulin (units/day)"
+    )
+    correction_units: float = Field(
+        ..., ge=0, description="Average daily automated correction insulin (units/day)"
+    )
+    basal_pct: float = Field(
+        ..., ge=0, le=100, description="Basal percentage of TDD (0 if no data)"
+    )
+    bolus_pct: float = Field(
+        ..., ge=0, le=100, description="Bolus percentage of TDD (0 if no data)"
+    )
+    bolus_count: int = Field(..., ge=0, description="Total bolus deliveries in period")
+    correction_count: int = Field(
+        ..., ge=0, description="Total automated corrections in period"
+    )
+    period_days: int = Field(..., ge=1, description="Number of days analyzed")
+
+
+class BolusReviewItem(BaseModel):
+    """A single bolus event for the review table."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    event_timestamp: datetime
+    units: float = Field(
+        ..., ge=0, le=25, description="Bolus units (hard safety cap 25U)"
+    )
+    is_automated: bool = False
+    control_iq_reason: str | None = None
+    pump_activity_mode: str | None = None
+    iob_at_event: float | None = None
+    bg_at_event: int | None = Field(
+        None, ge=20, le=500, description="Glucose at bolus event (mg/dL)"
+    )
+
+
+class BolusReviewResponse(BaseModel):
+    """Response schema for bolus review list (Story 30.1)."""
+
+    boluses: list[BolusReviewItem]
+    total_count: int = Field(..., ge=0, description="Total bolus events in period")
+    period_days: int = Field(..., ge=1, description="Number of days analyzed")

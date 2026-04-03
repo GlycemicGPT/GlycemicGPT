@@ -77,5 +77,10 @@ _bmad/
 .claude/
 CLAUDE.md
 
+# Security testing
+scripts/security/results/
+scripts/security/.venv/
+scripts/security/*.resolved.yaml
+
 # Stray files from package managers
 =*

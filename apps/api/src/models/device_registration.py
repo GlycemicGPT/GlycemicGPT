@@ -49,6 +49,23 @@ class DeviceRegistration(Base):
         default="android",
     )
 
+    device_fingerprint: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        index=True,
+    )
+
+    app_version: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+    )
+
+    build_type: Mapped[str | None] = mapped_column(
+        String(20),
+        nullable=True,
+        server_default="release",
+    )
+
     last_seen_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

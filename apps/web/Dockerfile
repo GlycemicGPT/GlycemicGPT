@@ -10,7 +10,7 @@ LABEL org.opencontainers.image.description="Next.js frontend for GlycemicGPT dia
 LABEL org.opencontainers.image.version="${VERSION}"
 LABEL org.opencontainers.image.created="${BUILD_DATE}"
 LABEL org.opencontainers.image.revision="${GIT_SHA}"
-LABEL org.opencontainers.image.source="https://github.com/jlengelbrecht/GlycemicGPT"
+LABEL org.opencontainers.image.source="https://github.com/GlycemicGPT/GlycemicGPT"
 LABEL org.opencontainers.image.licenses="MIT"
 
 # Install dependencies only when needed
@@ -28,10 +28,6 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 ENV NEXT_TELEMETRY_DISABLED=1
-
-# Baked into the client JS bundle at build time (cannot be changed at runtime)
-ARG NEXT_PUBLIC_API_URL=http://localhost:8000
-ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 
 RUN npm run build
 

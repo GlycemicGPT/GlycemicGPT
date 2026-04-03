@@ -15,22 +15,51 @@ Before writing any code, please understand these non-negotiable rules:
 - 🏷️ **All** AI-generated outputs must be clearly labeled as **suggestions, not medical advice**
 - 💉 Insulin dosing recommendations must **always** include safety disclaimers
 - 🧪 Test thoroughly -- a wrong number on a glucose chart is not just a UI bug, it's a safety issue
+- 🔒 Safety limits (glucose range, max bolus, max basal) are enforced by the platform via `SafetyLimits` (backend-synced, user-configurable). Plugins must respect these as read-only constraints -- see the [Plugin Architecture Guide](docs/plugin-architecture.md).
 - 🚫 **No unsupervised device control** -- see below
 
-### Device Control & AI-Assisted Corrections
+### Device Control Plugins
 
-Currently, GlycemicGPT is **read-only** with respect to medical devices -- it reads data from pumps and CGMs but does not send commands to them. Do not add code that directly controls or modifies device settings.
+GlycemicGPT is a **monitoring-only platform** in all pre-built releases. It reads data from pumps and CGMs but does not send commands to them. No pre-built APK distributed via GitHub Releases will ever include a plugin capable of insulin delivery.
 
-**Future direction:** As the project matures, we plan to introduce AI-assisted correction suggestions through a rigorous multi-stage safety pipeline. The architecture looks like this:
+That said, we recognize that some pumps -- like the Tandem Mobi and Omnipod -- have no physical screen and **require** an app to deliver insulin. A monitoring-only platform cannot fully support these devices. We welcome contributions that help the community use GlycemicGPT with screenless pumps, but there is a hard line between what we ship and what users build for themselves.
 
-1. **AI detection** -- AI monitors processed glucose data and identifies actionable patterns (e.g., persistent highs, missed corrections)
-2. **Correction plan** -- AI proposes a specific action (e.g., a correction bolus) and passes it to the safety system
-3. **Safety validation** -- The safety module independently validates the plan against the user's insulin-on-board, configured ratios, correction factors, and physiological limits. It can approve or reject.
-4. **User consent** -- If the safety system approves, the user receives an alert with full transparency: the suggestion, the ratios it was calculated against, and all the math. The user must explicitly accept **and** confirm via biometric authentication (fingerprint or face ID).
-5. **Final safety check** -- After user consent, the request passes through a second safety validation to re-verify all calculations before any action is taken
-6. **Delivery or rejection** -- If the final check passes, the command goes to the delivery module. If it fails at any stage, the user is informed with a clear explanation of why.
+**How we handle this -- two contribution tiers:**
 
-This feature will **not** be enabled by default. Users must explicitly opt in on the backend. Any code contributing to this pipeline will undergo extraordinary scrutiny during review.
+| Tier | What | Shipped in releases? | Example |
+|------|------|---------------------|---------|
+| **Monitoring plugins** | Read data from devices (glucose, pump status, history) | Yes -- compiled by CI, included in APKs | Tandem reader, Dexcom G7 |
+| **Reference implementations** | Source code demonstrating pump control patterns | **Never** -- not compiled, not in any build artifact | Tandem Mobi delivery example |
+
+**Monitoring plugins** follow the standard contribution flow: submit a PR with a new Gradle module, it gets reviewed, merged, and shipped in the next release.
+
+**Pump control reference implementations** are different. They live in the repo as source code (under `plugins/reference/`) but are **not** Gradle modules, **not** in `settings.gradle.kts`, and **never** compiled by our CI/CD pipeline. They exist purely as working examples that demonstrate how to build a pump control plugin against the plugin SDK (`:pump-driver-api`).
+
+**If a user wants to use a pump control plugin, they must build it themselves:**
+
+1. Study the reference implementation source code in the repo
+2. Create their own project, depending on the published plugin SDK
+3. Compile the plugin in their own development environment (Android Studio on their machine)
+4. Load the resulting plugin into GlycemicGPT via the app's custom plugin loader
+
+By building and loading a pump control plugin, the user accepts full responsibility as the "manufacturer" of their personal build. This is the same model used by AndroidAPS, Loop, and other open-source diabetes projects. See [MEDICAL-DISCLAIMER.md](MEDICAL-DISCLAIMER.md) for the complete legal framework.
+
+**The platform protects users regardless.** Whether a plugin is shipped or user-built, the platform enforces safety limits that cannot be bypassed:
+
+- Maximum single bolus cap and maximum daily insulin cap
+- Glucose range validation (values outside bounds are rejected)
+- Maximum basal rate limits
+- Explicit user confirmation required for every delivery command
+- Biometric authentication (fingerprint or face ID) before any insulin action
+
+AI-powered features (analysis, suggestions, pattern recognition) can integrate with pump control plugins -- the platform's safety layer applies equally to AI-informed and manual workflows. The guardrails are in the platform, not in blanket prohibitions.
+
+**Non-negotiable rules for pump control reference implementations:**
+
+- Must use the platform's `SafetyLimits` -- hardcoded bypass of safety limits will not be merged
+- Must require explicit user confirmation for every delivery command
+- Must never be wired into the app's build system (no Gradle module, no CI compilation)
+- Must include clear documentation that the user assumes manufacturer responsibility
 
 PRs that violate these safety principles will not be merged regardless of code quality.
 
@@ -38,6 +67,7 @@ PRs that violate these safety principles will not be merged regardless of code q
 
 ## 📑 Table of Contents
 
+- [Project Roles](#project-roles)
 - [Ways to Contribute](#ways-to-contribute)
 - [Finding Something to Work On](#finding-something-to-work-on)
 - [Development Setup](#development-setup)
@@ -48,9 +78,22 @@ PRs that violate these safety principles will not be merged regardless of code q
 - [Code Style](#code-style)
 - [AI-Assisted Development & Attribution Policy](#ai-assisted-development--attribution-policy)
 - [Project Structure](#project-structure)
+- [Plugin Development](#plugin-development)
 - [Release Channels](#release-channels)
 - [License](#license)
 - [Questions?](#questions)
+
+---
+
+## 👥 Project Roles
+
+GlycemicGPT has three roles: **Contributor**, **Committer**, and **Maintainer**. Most people start as contributors -- just open a PR, file an issue, or join a discussion.
+
+If you contribute consistently and demonstrate good judgment (especially around medical safety), you may be invited to become a committer with Write access. Committers can approve PRs, triage issues, and own specific components.
+
+Maintainers are project stewards responsible for releases, security, and architectural decisions. It's an invitation-only role that comes after sustained involvement as a committer.
+
+For the full details -- including how decisions are made, what each role can and can't do, and how branch protection works -- see [GOVERNANCE.md](GOVERNANCE.md).
 
 ---
 
@@ -58,28 +101,28 @@ PRs that violate these safety principles will not be merged regardless of code q
 
 There are many ways to help, not all of them involve writing code:
 
-- 🐛 **Report bugs** -- Use the [Bug Report](https://github.com/jlengelbrecht/GlycemicGPT/issues/new?template=bug_report.yml) or [Mobile App Issue](https://github.com/jlengelbrecht/GlycemicGPT/issues/new?template=mobile_report.yml) template
-- ✨ **Request features** -- Use the [Feature Request](https://github.com/jlengelbrecht/GlycemicGPT/issues/new?template=feature_request.yml) template
+- 🐛 **Report bugs** -- Use the [Bug Report](https://github.com/GlycemicGPT/GlycemicGPT/issues/new?template=bug_report.yml) or [Mobile App Issue](https://github.com/GlycemicGPT/GlycemicGPT/issues/new?template=mobile_report.yml) template
+- ✨ **Request features** -- Use the [Feature Request](https://github.com/GlycemicGPT/GlycemicGPT/issues/new?template=feature_request.yml) template
 - 📝 **Improve documentation** -- Typos, unclear instructions, missing guides
 - 🧪 **Write tests** -- More coverage is always welcome
 - 🔍 **Review PRs** -- Fresh eyes catch things automated checks can't
-- 💬 **Answer questions** -- Help others in [Discussions](https://github.com/jlengelbrecht/GlycemicGPT/discussions)
+- 💬 **Answer questions** -- Help others in [Discussions](https://github.com/GlycemicGPT/GlycemicGPT/discussions)
 
-Before opening an issue, please search [existing issues](https://github.com/jlengelbrecht/GlycemicGPT/issues?q=is%3Aissue) to avoid duplicates. For general questions and support, use [Discussions](https://github.com/jlengelbrecht/GlycemicGPT/discussions/categories/q-a) instead of creating an issue.
+Before opening an issue, please search [existing issues](https://github.com/GlycemicGPT/GlycemicGPT/issues?q=is%3Aissue) to avoid duplicates. For general questions and support, use [Discussions](https://github.com/GlycemicGPT/GlycemicGPT/discussions/categories/q-a) instead of creating an issue.
 
 ---
 
 ## 🔍 Finding Something to Work On
 
-Not sure where to start? Browse [open issues](https://github.com/jlengelbrecht/GlycemicGPT/issues) and look for these labels:
+Not sure where to start? Browse [open issues](https://github.com/GlycemicGPT/GlycemicGPT/issues) and look for these labels:
 
 - 🏷️ **`good first issue`** -- Small, well-scoped tasks ideal for new contributors
 - 🏷️ **`help wanted`** -- We'd love community help on these
 - 🏷️ **`bug`** -- Known bugs waiting for a fix
 
-> **Tip:** Not every label will have open issues at all times. If none are tagged yet, browse the full [issue list](https://github.com/jlengelbrecht/GlycemicGPT/issues) or check the [Ideas discussion board](https://github.com/jlengelbrecht/GlycemicGPT/discussions/categories/ideas) for inspiration.
+> **Tip:** Not every label will have open issues at all times. If none are tagged yet, browse the full [issue list](https://github.com/GlycemicGPT/GlycemicGPT/issues) or check the [Ideas discussion board](https://github.com/GlycemicGPT/GlycemicGPT/discussions/categories/ideas) for inspiration.
 
-If you'd like to work on something, comment on the issue to let others know. For larger changes, please open an issue or start a [discussion](https://github.com/jlengelbrecht/GlycemicGPT/discussions) first to discuss the approach before investing time in a PR.
+If you'd like to work on something, comment on the issue to let others know. For larger changes, please open an issue or start a [discussion](https://github.com/GlycemicGPT/GlycemicGPT/discussions) first to discuss the approach before investing time in a PR.
 
 ---
 
@@ -94,8 +137,8 @@ You only need the tools for the component(s) you're working on:
 | 🌐 Web UI | Docker + Docker Compose |
 | 🐍 Backend API | Docker + Docker Compose (or Python 3.12+ with [UV](https://docs.astral.sh/uv/)) |
 | 🤖 AI Sidecar | Docker + Docker Compose (or Node.js 20+) |
-| 📱 Mobile App | JDK 17, Android SDK (API 34) |
-| ⌚ Wear OS | JDK 17, Android SDK (API 34), Wear OS system image |
+| 📱 Mobile App | JDK 17, Android SDK Platform 35 (targetSdk 35, minSdk 30) |
+| ⌚ Wear OS | JDK 17, Android SDK Platform 36, Wear OS system image. Requires phone + watch emulators paired via ADB. |
 | 📝 Docs only | Just a text editor! |
 
 ### 🚀 Quick Start (Web/API -- recommended for most contributors)
@@ -108,7 +151,7 @@ git clone https://github.com/<your-username>/GlycemicGPT.git
 cd GlycemicGPT
 
 # 2. Add upstream remote
-git remote add upstream https://github.com/jlengelbrecht/GlycemicGPT.git
+git remote add upstream https://github.com/GlycemicGPT/GlycemicGPT.git
 
 # 3. Install the git commit-msg hook (strips prohibited attribution lines)
 #    If scripts/hooks/commit-msg doesn't exist, skip this step -- CI enforces it too
@@ -308,6 +351,36 @@ curl localhost:3456/health       # Should return {"status": "ok"}
 docker compose down
 ```
 
+### Pre-Review with CodeRabbit CLI (Optional but Recommended)
+
+This project uses [CodeRabbit](https://www.coderabbit.ai) for automated AI code review on every PR. You can catch the same issues locally **before** pushing by using the CodeRabbit CLI with a free account. This saves time -- you'll fix problems before the PR review instead of after.
+
+**One-time setup:**
+
+1. Sign up free at [app.coderabbit.ai](https://app.coderabbit.ai) via your GitHub account (no credit card required -- open-source repos get free reviews)
+2. Install the CLI:
+   ```bash
+   curl -fsSL https://cli.coderabbit.ai/install.sh | sh
+   ```
+3. Authenticate:
+   ```bash
+   coderabbit auth login
+   ```
+
+**Before pushing, review your changes:**
+
+```bash
+# Review uncommitted changes (staged + unstaged)
+coderabbit review --plain --type uncommitted
+
+# Review your committed changes against develop
+coderabbit review --plain --type committed --base develop
+```
+
+The CLI auto-detects the project's `.coderabbit.yaml` configuration, so your local reviews use the same rules (medical safety checks, security scanning, path-specific review focus) as the automated PR reviews. Your CLI instance is independent -- it doesn't connect to our CodeRabbit account -- but it uses the same analysis engine.
+
+> **Rate limits:** Free accounts get 2 CLI reviews per hour. Open-source (public) repos get free reviews forever.
+
 ### Final Checks
 
 - [ ] All tests pass for the component(s) you changed
@@ -331,9 +404,10 @@ docker compose down
 ### What Happens Next
 
 1. **CI runs automatically** -- all required checks must pass (see below)
-2. **Code owner review** -- a maintainer will review your PR
-3. **Feedback** -- you may be asked to make changes; push new commits to the same branch
-4. **Merge** -- once approved and CI passes, a maintainer will squash-merge your PR
+2. **CodeRabbit review** -- an AI-powered code review runs automatically on every PR, checking for bugs, security issues, medical safety concerns, and code quality. It posts comments directly on your PR with findings and suggestions. This is the same engine you can run locally with the [CodeRabbit CLI](#pre-review-with-coderabbit-cli-optional-but-recommended).
+3. **Code owner review** -- a maintainer will review your PR
+4. **Feedback** -- you may be asked to make changes; push new commits to the same branch
+5. **Merge** -- once approved and CI passes, a maintainer will squash-merge your PR
 
 ### Required CI Checks
 
@@ -343,13 +417,82 @@ Every PR must pass these checks before it can be merged:
 |-------|-------------------|
 | Backend Tests | Python unit tests with PostgreSQL |
 | Backend Lint | Ruff linter + formatter |
-| Frontend Tests | Jest tests + Next.js build (`npm test` and `npm run build`) |
+| Frontend Tests | Jest tests + Next.js build |
 | Frontend Lint | ESLint |
 | Sidecar Tests | Vitest for AI proxy |
 | Attribution Check | No prohibited attribution lines |
-| GitGuardian Security Checks | Secret/credential scanning |
+| GitGuardian | Secret/credential scanning |
+| Security Scan Gate | SAST + DAST security testing (see below) |
 
-Additionally, PRs that modify `apps/mobile/**` will run Android Build & Test (unit tests, lint, debug APK build).
+Additionally, PRs that modify `apps/mobile/**` will trigger the **Android Gate** (unit tests, lint, debug APK build).
+
+### 🔒 Security Scan (Smart Targeting)
+
+This is a medical platform. We take security seriously. The Security Scan Gate runs **targeted security tests based on what your PR actually changes** -- it won't waste 25 minutes scanning the API if you only changed a Kotlin file.
+
+| If you changed... | What runs |
+|-------------------|-----------|
+| `apps/api/` | Semgrep Python, auth pentests, IDOR, SSRF, API fuzzer, nuclei API, ZAP API active scan |
+| `apps/web/` | Semgrep TypeScript, nuclei Web, ZAP Web scan |
+| `sidecar/` | Semgrep TypeScript |
+| `apps/mobile/` or `plugins/` | Semgrep Kotlin |
+| `docker-compose*`, `Dockerfile*` | Everything (infra changes affect all services) |
+| `scripts/security/` | Everything |
+| Docs, config, or other non-code files | Nothing -- security gate reports green instantly |
+
+Mobile-only PRs skip the Docker stack entirely (~2 min instead of ~25 min). For the full breakdown of what each test suite does, see [docs/security-testing.md](docs/security-testing.md).
+
+### 🚨 What If the Security Scan Finds Something?
+
+Don't panic. Here's what happens automatically:
+
+1. **glycemicgpt-security posts a comment** on your PR showing exactly what failed and why
+2. **GitHub Issues are created** for each finding, assigned to you, with severity labels and remediation guidance
+3. **You fix the issue** in your PR -- push a new commit with the fix
+4. **CI runs again** -- if the finding is resolved, the issue **auto-closes** with a "resolved in PR #X" comment
+5. **You're done** -- green CI, closed issues, ready for review
+
+The whole cycle happens within your PR. You don't need to manually close issues or wait for a maintainer.
+
+**If your code caused the finding:** Fix it. The scan won't pass until you do. Common things it catches:
+- Semgrep flagging hardcoded secrets, injection patterns, or insecure crypto
+- ZAP finding SQL injection, XSS, or missing security headers
+- IDOR tests detecting cross-user data leaks
+
+**If the finding is pre-existing (not your fault):** Sometimes the scan catches something in code you didn't write. You have two options:
+1. **Fix it anyway** (preferred -- we appreciate it even if you didn't cause it)
+2. **Add a documented exception** -- see below
+
+**If you close your PR without fixing:** Issues linked solely to your PR are automatically cleaned up. If another PR independently detected the same finding, the issue stays open and is tracked against that PR instead.
+
+### 🛡️ Security Exceptions
+
+Sometimes a finding is a known limitation, an accepted risk, or a false positive. That's fine -- but you can't just ignore it. We have a formal process.
+
+**Semgrep (code-level findings):** Add `# nosemgrep: rule-id` as a comment on the flagged line. Must be a real code comment, not inside a string.
+
+**ZAP (runtime findings):** Add an entry to `scripts/security/zap-suppressions.json`:
+```json
+{
+  "pluginId": "10055",
+  "scan": "web",
+  "reason": "Next.js requires unsafe-inline for hydration. Fix tracked in #123."
+}
+```
+
+**OSV-Scanner (dependency vulnerabilities):** Add an entry to `osv-scanner.toml`:
+```toml
+[[IgnoredVulns]]
+id = "GHSA-xxxx-yyyy-zzzz"
+reason = "Not exploitable -- only affects feature X which we don't use"
+```
+
+**The rules (non-negotiable):**
+- Every exception **must** include a reason. No reason = no merge.
+- Reference the issue that will fix the underlying problem (e.g., `Fix tracked in #123`).
+- Suppressed findings still show up in CI logs -- they're visible, just non-blocking.
+- Maintainers review all exceptions quarterly. Stale ones get removed.
+- If you're not sure whether something is a real finding or a false positive, ask in the PR -- that's what code review is for.
 
 > **Note:** There is a separate [Promotion PR Template](.github/PROMOTION_PR_TEMPLATE.md) used only for develop-to-main releases. Regular contributors don't need to worry about this.
 
@@ -409,9 +552,38 @@ This one is non-negotiable. Our repo must be **clean of AI attribution lines**. 
 - **No** `// Generated by AI` or `// Copilot suggestion` comments in code
 - **No** AI tool branding, promotional links, or attribution banners in PR descriptions
 
-We have a CI check (**Attribution Check**) that automatically catches common AI attribution patterns and will fail your PR if any are found. The git commit-msg hook (installed during [Quick Start](#quick-start-webapi----recommended-for-most-contributors)) also strips these locally before they reach the repo.
+We have a CI check (**Attribution Check**) that scans three layers: commit message trailers, code comments in changed files, and PR descriptions. It covers all major AI tools (Claude, Copilot, ChatGPT, Cursor, Gemini, Codeium, CodeWhisperer, Tabnine, Devin, Aider, and others) and will fail your PR if any attribution is found. The git commit-msg hook (installed during [Quick Start](#quick-start-webapi----recommended-for-most-contributors)) also strips these locally before they reach the repo.
 
 Why? Because attribution to a tool that can't be held accountable for code quality is meaningless noise. The _contributor_ is the author. Own it.
+
+### Attribution Check Severity Levels
+
+The CI attribution check classifies findings by severity and takes action automatically:
+
+| Severity | What triggers it | Action taken |
+|----------|-----------------|--------------|
+| **CRITICAL** | Non-whitelisted bot detected as commit co-author (`[bot]` suffix or `noreply@` email) | PR **automatically closed** with comment explaining why |
+| **HIGH** | AI tool name in commit trailers (e.g., `Co-Authored-By: Claude`) or AI branding in PR description | PR **blocked** -- comment with rebase/edit instructions |
+| **MEDIUM** | AI attribution comments in code files (e.g., `// Generated by Claude`) | PR **blocked** -- comment with removal instructions |
+
+When a PR is clean, the attribution check posts a positive confirmation.
+
+### Bot Whitelist
+
+The following bots are whitelisted and will **not** trigger attribution findings:
+
+- **GitHub system:** `github-actions[bot]`, `dependabot[bot]`
+- **GlycemicGPT project:** `glycemicgpt-ci[bot]`, `glycemicgpt-security[bot]`, `glycemicgpt-release[bot]`, `glycemicgpt-merge[bot]`, `glycemicgpt-renovate[bot]`
+- **Third-party integrations:** `coderabbitai[bot]`, `gitguardian[bot]`
+- **Legacy:** `homebot-0[bot]`
+
+If your PR is flagged for a legitimate bot that isn't an AI coding tool, open an issue to request whitelisting. Include the bot name and its purpose.
+
+### CodeRabbit -- AI Code Review
+
+We use [CodeRabbit](https://www.coderabbit.ai) for automated AI code review on all PRs. It's configured via [`.coderabbit.yaml`](.coderabbit.yaml) with project-specific rules including medical safety checks, security scanning, and path-specific review guidelines.
+
+CodeRabbit runs automatically when you open a PR -- no setup needed on your end. It posts a summary and inline comments with findings. If you want to catch these issues before your PR, you can install the CLI locally for free. See [Pre-Review with CodeRabbit CLI](#pre-review-with-coderabbit-cli-optional-but-recommended) in the "Before You Submit" section.
 
 ---
 
@@ -427,8 +599,13 @@ GlycemicGPT/
 │   │   ├── src/        # Source code (App Router)
 │   │   └── __tests__/  # Jest tests
 │   └── mobile/         # Android app (Kotlin)
-│       ├── app/        # Phone app module
-│       └── wear/       # Wear OS module
+│       ├── app/                 # Platform app module
+│       └── wear-device/         # Wear OS device module (runs on watch)
+├── plugins/            # Plugin ecosystem
+│   ├── pump-driver-api/       # Plugin SDK (interfaces & domain models)
+│   ├── shipped/               # Built-in plugins (compiled into APK)
+│   │   └── tandem/            # Tandem plugin (t:slim X2 + Mobi)
+│   └── example/               # Example runtime plugins (NOT compiled into APK)
 ├── sidecar/            # AI provider proxy (TypeScript/Express)
 │   ├── src/            # Source code
 │   └── tests/          # Vitest tests
@@ -440,6 +617,17 @@ GlycemicGPT/
 └── docs/               # Project documentation
 ```
 
+### Plugin Development
+
+The mobile app uses a capability-based plugin architecture. New device support (pumps, CGMs, BGMs) is added as plugin modules. See the [Plugin Architecture Guide](docs/plugin-architecture.md) for:
+
+- How to create a new plugin module
+- Capability interfaces and mutual-exclusion rules
+- Declarative UI descriptors for settings and dashboard cards
+- Event bus for cross-plugin communication
+- Hilt DI registration pattern
+- The Tandem plugin as a reference implementation
+
 ---
 
 ## 📦 Release Channels
@@ -447,9 +635,42 @@ GlycemicGPT/
 | Channel | Branch | Docker Tag | APK Type |
 |---------|--------|------------|----------|
 | **Stable** | `main` | `latest`, semver | Signed release APK |
-| **Dev** | `develop` | `dev` | Debug APK |
+| **Dev** | `develop` | `dev` | Debug APK (shared keystore) |
 
 Stable releases are created automatically by release-please when code is promoted from `develop` to `main`. Your contribution will ship in the next stable release after the promotion PR is merged.
+
+**Debug APK signing:** Dev-channel debug APKs are signed with a shared debug keystore stored as a GitHub Actions secret. This ensures that every CI-built debug APK has the same signing key, allowing the app's auto-update mechanism to install new dev builds over previous ones without "package conflicts" errors. Local `./gradlew assembleDebug` builds use your machine's default `~/.android/debug.keystore` and will have a different signature -- you'll need to uninstall the CI-built APK before installing a local build (and vice versa).
+
+<details>
+<summary>Keystore rotation (maintainers only)</summary>
+
+If the debug keystore needs to be regenerated (e.g., secret deleted, key compromised), use these exact parameters to keep the Gradle signing config (alias name, secret names) consistent. A new keystore produces new key material, so existing dev-channel installs will require an uninstall/reinstall.
+
+```bash
+# Prompt for password (never hits shell history or process list)
+read -rsp "Keystore password: " KSPASS && echo
+
+keytool -genkeypair \
+  -alias debug-key \
+  -keyalg RSA -keysize 2048 \
+  -validity 36500 \
+  -keystore debug-keystore.jks \
+  -storepass:env KSPASS \
+  -keypass:env KSPASS \
+  -dname "CN=GlycemicGPT Debug, OU=Development, O=GlycemicGPT, L=Austin, ST=Texas, C=US"
+
+# Set GitHub secrets (gh prompts for values securely):
+base64 debug-keystore.jks | tr -d '\n' | gh secret set DEBUG_KEYSTORE_BASE64
+gh secret set DEBUG_KEYSTORE_PASSWORD    # enter password at prompt
+gh secret set DEBUG_KEY_ALIAS            # enter: debug-key
+gh secret set DEBUG_KEY_PASSWORD         # enter password at prompt
+
+# Remove the local keystore file -- do not commit it
+rm debug-keystore.jks
+```
+
+The alias must remain `debug-key`.
+</details>
 
 ---
 
@@ -461,10 +682,10 @@ GlycemicGPT is licensed under the [GNU General Public License v3.0](LICENSE). By
 
 ## 💬 Questions?
 
-- 🙏 **General questions & help** -- Post in [Q&A Discussions](https://github.com/jlengelbrecht/GlycemicGPT/discussions/categories/q-a)
-- 💡 **Feature ideas & brainstorming** -- Post in [Ideas Discussions](https://github.com/jlengelbrecht/GlycemicGPT/discussions/categories/ideas)
-- 🐛 **Bug reports** -- Open an [Issue](https://github.com/jlengelbrecht/GlycemicGPT/issues/new/choose) using the appropriate template
-- 🙌 **Show off your setup** -- Post in [Show and Tell](https://github.com/jlengelbrecht/GlycemicGPT/discussions/categories/show-and-tell)
+- 🙏 **General questions & help** -- Post in [Q&A Discussions](https://github.com/GlycemicGPT/GlycemicGPT/discussions/categories/q-a)
+- 💡 **Feature ideas & brainstorming** -- Post in [Ideas Discussions](https://github.com/GlycemicGPT/GlycemicGPT/discussions/categories/ideas)
+- 🐛 **Bug reports** -- Open an [Issue](https://github.com/GlycemicGPT/GlycemicGPT/issues/new/choose) using the appropriate template
+- 🙌 **Show off your setup** -- Post in [Show and Tell](https://github.com/GlycemicGPT/GlycemicGPT/discussions/categories/show-and-tell)
 
 Please **do not** open Issues for general questions -- use Discussions instead. Issues are for actionable bugs and feature requests.
 

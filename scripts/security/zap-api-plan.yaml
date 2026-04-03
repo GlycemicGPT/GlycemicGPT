@@ -1,0 +1,107 @@
+---
+# ZAP Automation Framework Plan: GlycemicGPT API Security Scan
+#
+# Runs authenticated active scanning against all OpenAPI-discovered endpoints.
+# Auth cookies and CSRF token are pre-computed by CI and injected via replacer.
+# The zap-csrf-injector.js HttpSender script copies the csrf_token cookie
+# value to the X-CSRF-Token header on every outgoing request.
+#
+# Environment variables (must be passed to the ZAP container):
+#   ZAP_SESSION  - glycemicgpt_session cookie value
+#   ZAP_CSRF     - csrf_token cookie value
+#
+# IMPORTANT: ZAP does NOT expand ${VAR} in YAML. CI must run envsubst first:
+#   envsubst '${ZAP_SESSION} ${ZAP_CSRF}' < zap-api-plan.yaml > zap-api-plan.resolved.yaml
+#   zap.sh -cmd -autorun /zap/wrk/zap-api-plan.resolved.yaml
+
+env:
+  contexts:
+    - name: "glycemicgpt-api"
+      urls:
+        - "http://localhost:8001"
+      includePaths:
+        - "http://localhost:8001/api/.*"
+      excludePaths:
+        - "http://localhost:8001/docs.*"
+        - "http://localhost:8001/redoc.*"
+        - "http://localhost:8001/openapi\\.json"
+        - "http://localhost:8001/health.*"
+  parameters:
+    failOnError: false
+    failOnWarning: false
+    progressToStdout: true
+
+jobs:
+  # Load the HttpSender script that copies csrf_token cookie to X-CSRF-Token header
+  - type: script
+    parameters:
+      action: "add"
+      type: "httpsender"
+      engine: "Graal.js"
+      name: "csrf-injector"
+      file: "/zap/wrk/zap-csrf-injector.js"
+
+  # Inject pre-computed auth cookies on every request via replacer
+  - type: replacer
+    parameters:
+      deleteAllRules: true
+    rules:
+      - description: "Inject authenticated session cookies"
+        matchType: "req_header"
+        matchString: "Cookie"
+        replacementString: "glycemicgpt_session=${ZAP_SESSION}; csrf_token=${ZAP_CSRF}"
+        matchRegex: false
+        tokenProcessing: false
+        initiators: []
+
+  # Auto-discover all API endpoints from the live OpenAPI spec
+  - type: openapi
+    parameters:
+      apiUrl: "http://localhost:8001/openapi.json"
+      targetUrl: "http://localhost:8001"
+      context: "glycemicgpt-api"
+
+  # Passive scan: analyze all responses for security issues
+  - type: passiveScan-config
+    parameters:
+      maxAlertsPerRule: 10
+      scanOnlyInScope: true
+
+  - type: passiveScan-wait
+    parameters:
+      maxDuration: 5
+
+  # Active scan: send injection payloads (SQLi, XSS, SSTI, etc.) to all endpoints
+  - type: activeScan
+    parameters:
+      context: "glycemicgpt-api"
+      maxScanDurationInMins: 20
+      maxRuleDurationInMins: 3
+      addQueryParam: false
+      handleAntiCSRFTokens: true
+      scanHeadersAllRequests: false
+
+  # Generate JSON report for artifact upload and PR comment parsing
+  - type: report
+    parameters:
+      template: "traditional-json"
+      reportDir: "/zap/wrk/results"
+      reportFile: "zap-report"
+      reportTitle: "GlycemicGPT API Security Scan"
+    risks:
+      - high
+      - medium
+      - low
+      - info
+    confidences:
+      - high
+      - medium
+      - low
+      - confirmed
+
+  # Fail CI on Medium+ severity findings, warn on Low
+  - type: exitStatus
+    parameters:
+      errorLevel: "Medium"
+      warnLevel: "Low"
+    alwaysRun: true

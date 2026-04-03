@@ -4,15 +4,28 @@ import android.content.Context
 import android.os.PowerManager
 import com.glycemicgpt.mobile.data.auth.AuthManager
 import com.glycemicgpt.mobile.data.auth.AuthState
+import com.glycemicgpt.mobile.data.local.AlertSoundStore
+import com.glycemicgpt.mobile.data.local.AnalyticsSettingsStore
 import com.glycemicgpt.mobile.data.local.AppSettingsStore
 import com.glycemicgpt.mobile.data.local.GlucoseRangeStore
 import com.glycemicgpt.mobile.data.local.PumpCredentialStore
+import com.glycemicgpt.mobile.data.local.SafetyLimitsStore
+import com.glycemicgpt.mobile.service.AlertNotificationManager
 import com.glycemicgpt.mobile.data.repository.AuthRepository
 import com.glycemicgpt.mobile.data.repository.LoginResult
 import com.glycemicgpt.mobile.data.update.AppUpdateChecker
 import com.glycemicgpt.mobile.data.update.DownloadResult
 import com.glycemicgpt.mobile.data.update.UpdateCheckResult
 import com.glycemicgpt.mobile.data.update.UpdateInfo
+import com.glycemicgpt.mobile.data.update.WearAppUpdateChecker
+import com.glycemicgpt.mobile.wear.WatchFacePusher
+import com.glycemicgpt.mobile.wear.WearApkPusher
+import com.glycemicgpt.mobile.wear.WearDataSender
+import com.glycemicgpt.mobile.domain.plugin.DevicePlugin
+import com.glycemicgpt.mobile.domain.plugin.Plugin
+import com.glycemicgpt.mobile.domain.plugin.PluginMetadata
+import com.glycemicgpt.mobile.plugin.PluginRegistry
+import com.glycemicgpt.mobile.plugin.RuntimePluginInfo
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -47,6 +60,12 @@ class SettingsViewModelTest {
     private val appSettingsStore = mockk<AppSettingsStore>(relaxed = true) {
         every { backendSyncEnabled } returns true
         every { dataRetentionDays } returns 7
+        every { watchFaceShowIoB } returns true
+        every { watchFaceShowGraph } returns true
+        every { watchFaceShowAlert } returns true
+        every { watchFaceShowSeconds } returns false
+        every { watchFaceGraphRangeHours } returns 3
+        every { watchFaceTheme } returns "Dark"
     }
     private val powerManager = mockk<PowerManager>(relaxed = true) {
         every { isIgnoringBatteryOptimizations(any()) } returns false
@@ -57,14 +76,38 @@ class SettingsViewModelTest {
     private val authRepository = mockk<AuthRepository>(relaxed = true) {
         every { getBaseUrl() } returns "https://test.example.com"
         every { isLoggedIn() } returns false
+        every { hasActiveSession() } returns false
         every { getUserEmail() } returns null
     }
     private val glucoseRangeStore = mockk<GlucoseRangeStore>(relaxed = true) {
         every { isStale(any()) } returns false
     }
+    private val safetyLimitsStore = mockk<SafetyLimitsStore>(relaxed = true) {
+        every { isStale(any()) } returns false
+    }
     private val appUpdateChecker = mockk<AppUpdateChecker>()
     private val authManager = mockk<AuthManager>(relaxed = true) {
         every { authState } returns MutableStateFlow(AuthState.Unauthenticated)
+    }
+    private val alertSoundStore = mockk<AlertSoundStore>(relaxed = true) {
+        every { lowAlertSoundName } returns null
+        every { highAlertSoundName } returns null
+        every { aiNotificationSoundName } returns null
+        every { overrideSilentForLowAlerts } returns true
+    }
+    private val alertNotificationManager = mockk<AlertNotificationManager>(relaxed = true)
+    private val pluginRegistry = mockk<PluginRegistry>(relaxed = true) {
+        every { availablePlugins } returns MutableStateFlow<List<PluginMetadata>>(emptyList())
+        every { activePumpPlugin } returns MutableStateFlow<DevicePlugin?>(null)
+        every { allActivePlugins } returns MutableStateFlow<List<Plugin>>(emptyList())
+        every { runtimePlugins } returns MutableStateFlow<List<RuntimePluginInfo>>(emptyList())
+    }
+    private val watchFacePusher = mockk<WatchFacePusher>(relaxed = true)
+    private val wearDataSender = mockk<WearDataSender>(relaxed = true)
+    private val wearAppUpdateChecker = mockk<WearAppUpdateChecker>()
+    private val wearApkPusher = mockk<WearApkPusher>(relaxed = true)
+    private val analyticsSettingsStore = mockk<AnalyticsSettingsStore>(relaxed = true) {
+        every { categoryLabels } returns emptyMap()
     }
 
     @Before
@@ -78,7 +121,7 @@ class SettingsViewModelTest {
     }
 
     private fun createViewModel() =
-        SettingsViewModel(appContext, pumpCredentialStore, appSettingsStore, glucoseRangeStore, authRepository, appUpdateChecker, authManager)
+        SettingsViewModel(appContext, pumpCredentialStore, appSettingsStore, glucoseRangeStore, safetyLimitsStore, authRepository, appUpdateChecker, authManager, alertSoundStore, alertNotificationManager, pluginRegistry, watchFacePusher, wearDataSender, wearAppUpdateChecker, wearApkPusher, analyticsSettingsStore)
 
     @Test
     fun `loadState initializes from stores`() {
@@ -94,7 +137,7 @@ class SettingsViewModelTest {
 
     @Test
     fun `loadState restores user email when logged in`() {
-        every { authRepository.isLoggedIn() } returns true
+        every { authRepository.hasActiveSession() } returns true
         every { authRepository.getUserEmail() } returns "saved@test.com"
         val vm = createViewModel()
 
@@ -217,7 +260,7 @@ class SettingsViewModelTest {
 
     @Test
     fun `logout delegates to AuthRepository and resets onboarding`() {
-        every { authRepository.isLoggedIn() } returns true
+        every { authRepository.hasActiveSession() } returns true
         val vm = createViewModel()
 
         vm.logout()
@@ -230,7 +273,7 @@ class SettingsViewModelTest {
 
     @Test
     fun `logout emits navigateToOnboarding event`() = runTest {
-        every { authRepository.isLoggedIn() } returns true
+        every { authRepository.hasActiveSession() } returns true
         val vm = createViewModel()
 
         vm.logout()
@@ -395,5 +438,169 @@ class SettingsViewModelTest {
     fun `authState is exposed from AuthManager`() {
         val vm = createViewModel()
         assertEquals(AuthState.Unauthenticated, vm.authState.value)
+    }
+
+    @Test
+    fun `pushWatchFace transitions to Success on successful push`() = runTest {
+        coEvery { watchFacePusher.pushWatchFace() } returns WatchFacePusher.Result.Success("sent", null)
+        val vm = createViewModel()
+
+        vm.pushWatchFace()
+
+        assertTrue(vm.uiState.value.watchFacePushState is WatchFacePushState.Success)
+    }
+
+    @Test
+    fun `pushWatchFace transitions to Error on failure`() = runTest {
+        coEvery { watchFacePusher.pushWatchFace() } returns WatchFacePusher.Result.Error("No watch connected")
+        val vm = createViewModel()
+
+        vm.pushWatchFace()
+
+        val state = vm.uiState.value.watchFacePushState
+        assertTrue(state is WatchFacePushState.Error)
+        assertEquals("No watch connected", (state as WatchFacePushState.Error).message)
+    }
+
+    @Test
+    fun `dismissWatchFacePushResult resets to Idle`() {
+        val vm = createViewModel()
+
+        vm.dismissWatchFacePushResult()
+
+        assertTrue(vm.uiState.value.watchFacePushState is WatchFacePushState.Idle)
+    }
+
+    @Test
+    fun `updateWatchFaceConfig persists to AppSettingsStore`() {
+        val vm = createViewModel()
+        val config = WatchFaceConfig(
+            showIoB = false,
+            showGraph = false,
+            showAlert = true,
+            showSeconds = true,
+            graphRangeHours = 6,
+            theme = WatchFaceTheme.HighContrast,
+        )
+
+        vm.updateWatchFaceConfig(config)
+
+        assertEquals(config, vm.uiState.value.watchFaceConfig)
+        verify { appSettingsStore.watchFaceShowIoB = false }
+        verify { appSettingsStore.watchFaceShowGraph = false }
+        verify { appSettingsStore.watchFaceShowAlert = true }
+        verify { appSettingsStore.watchFaceShowSeconds = true }
+        verify { appSettingsStore.watchFaceGraphRangeHours = 6 }
+        verify { appSettingsStore.watchFaceTheme = "High Contrast" }
+    }
+
+    @Test
+    fun `updateWatchFaceConfig rejects invalid graphRangeHours`() {
+        val vm = createViewModel()
+        val config = WatchFaceConfig(graphRangeHours = 99)
+
+        vm.updateWatchFaceConfig(config)
+
+        assertEquals(3, vm.uiState.value.watchFaceConfig.graphRangeHours)
+    }
+
+    @Test
+    fun `loadState restores watchFaceConfig from AppSettingsStore`() {
+        every { appSettingsStore.watchFaceShowIoB } returns false
+        every { appSettingsStore.watchFaceShowGraph } returns false
+        every { appSettingsStore.watchFaceShowAlert } returns true
+        every { appSettingsStore.watchFaceShowSeconds } returns true
+        every { appSettingsStore.watchFaceGraphRangeHours } returns 6
+        every { appSettingsStore.watchFaceTheme } returns "High Contrast"
+        val vm = createViewModel()
+
+        val config = vm.uiState.value.watchFaceConfig
+        assertFalse(config.showIoB)
+        assertFalse(config.showGraph)
+        assertTrue(config.showAlert)
+        assertTrue(config.showSeconds)
+        assertEquals(6, config.graphRangeHours)
+        assertEquals(WatchFaceTheme.HighContrast, config.theme)
+    }
+
+    @Test
+    fun `updateWatchFaceConfig syncs to watch via WearDataSender`() = runTest {
+        val vm = createViewModel()
+        val config = WatchFaceConfig(
+            showIoB = false,
+            showGraph = true,
+            showAlert = false,
+            showSeconds = true,
+            graphRangeHours = 6,
+            theme = WatchFaceTheme.ClinicalBlue,
+        )
+
+        vm.updateWatchFaceConfig(config)
+
+        coVerify {
+            wearDataSender.sendWatchFaceConfig(
+                showIoB = false,
+                showGraph = true,
+                showAlert = false,
+                showSeconds = true,
+                graphRangeHours = 6,
+                theme = "clinical_blue",
+            )
+        }
+    }
+
+    @Test
+    fun `updateWatchFaceConfig sends theme contractKey not label`() = runTest {
+        val vm = createViewModel()
+        val config = WatchFaceConfig(theme = WatchFaceTheme.HighContrast)
+
+        vm.updateWatchFaceConfig(config)
+
+        coVerify {
+            wearDataSender.sendWatchFaceConfig(
+                showIoB = any(),
+                showGraph = any(),
+                showAlert = any(),
+                showSeconds = any(),
+                graphRangeHours = any(),
+                theme = "high_contrast",
+            )
+        }
+    }
+
+    @Test
+    fun `dismissWatchAppUpdateState resets to Idle`() {
+        val vm = createViewModel()
+
+        vm.dismissWatchAppUpdateState()
+
+        assertTrue(vm.uiState.value.watchAppUpdateState is WatchAppUpdateState.Idle)
+    }
+
+    @Test
+    fun `checkForWatchUpdate returns error when version not available`() {
+        val vm = createViewModel()
+
+        vm.checkForWatchUpdate()
+
+        val state = vm.uiState.value.watchAppUpdateState
+        assertTrue(state is WatchAppUpdateState.Error)
+        assertEquals("Watch version not available", (state as WatchAppUpdateState.Error).message)
+    }
+
+    @Test
+    fun `WatchFaceTheme entries have contractKey linked to WearDataContract`() {
+        assertEquals(
+            com.glycemicgpt.mobile.wear.WearDataContract.THEME_DARK,
+            WatchFaceTheme.Dark.contractKey,
+        )
+        assertEquals(
+            com.glycemicgpt.mobile.wear.WearDataContract.THEME_CLINICAL_BLUE,
+            WatchFaceTheme.ClinicalBlue.contractKey,
+        )
+        assertEquals(
+            com.glycemicgpt.mobile.wear.WearDataContract.THEME_HIGH_CONTRAST,
+            WatchFaceTheme.HighContrast.contractKey,
+        )
     }
 }

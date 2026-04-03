@@ -3,11 +3,15 @@ package com.glycemicgpt.mobile.data.remote
 import com.glycemicgpt.mobile.data.remote.dto.AcknowledgeResponse
 import com.glycemicgpt.mobile.data.remote.dto.AlertResponse
 import com.glycemicgpt.mobile.data.remote.dto.AiProviderStatusResponse
+import com.glycemicgpt.mobile.data.remote.dto.AnalyticsConfigResponse
+import com.glycemicgpt.mobile.data.remote.dto.PumpProfileResponse
 import com.glycemicgpt.mobile.data.remote.dto.ChatRequest
 import com.glycemicgpt.mobile.data.remote.dto.ChatResponse
 import com.glycemicgpt.mobile.data.remote.dto.DeviceRegistrationRequest
 import com.glycemicgpt.mobile.data.remote.dto.DeviceRegistrationResponse
+import com.glycemicgpt.mobile.data.remote.dto.PluginDeclarationRequest
 import com.glycemicgpt.mobile.data.remote.dto.GlucoseRangeResponse
+import com.glycemicgpt.mobile.data.remote.dto.SafetyLimitsResponse
 import com.glycemicgpt.mobile.data.remote.dto.HealthResponse
 import com.glycemicgpt.mobile.data.remote.dto.LoginRequest
 import com.glycemicgpt.mobile.data.remote.dto.LoginResponse
@@ -19,6 +23,7 @@ import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.POST
+import retrofit2.http.PUT
 import retrofit2.http.Path
 
 /**
@@ -61,4 +66,23 @@ interface GlycemicGptApi {
     // Glucose range settings
     @GET("/api/settings/target-glucose-range")
     suspend fun getGlucoseRange(): Response<GlucoseRangeResponse>
+
+    // Safety limits settings
+    @GET("/api/settings/safety-limits")
+    suspend fun getSafetyLimits(): Response<SafetyLimitsResponse>
+
+    // Analytics configuration
+    @GET("/api/settings/analytics-config")
+    suspend fun getAnalyticsConfig(): Response<AnalyticsConfigResponse>
+
+    // Pump profile summary
+    @GET("/api/settings/pump-profile")
+    suspend fun getPumpProfile(): Response<PumpProfileResponse>
+
+    // Plugin declarations
+    @PUT("/api/settings/plugin-declarations")
+    suspend fun putPluginDeclarations(@Body body: PluginDeclarationRequest): Response<Unit>
+
+    @DELETE("/api/settings/plugin-declarations")
+    suspend fun deletePluginDeclarations(): Response<Unit>
 }

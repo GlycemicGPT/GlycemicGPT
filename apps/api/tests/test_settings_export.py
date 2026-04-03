@@ -122,6 +122,56 @@ class TestExportUserData:
         assert "record_counts" in result["metadata"]
 
     @pytest.mark.asyncio
+    async def test_pump_event_serialization_uses_units(self):
+        """Verify PumpEvent export uses 'units' (not 'value') and includes is_automated."""
+        from datetime import UTC, datetime
+
+        from src.services.settings_export import _export_all_data
+
+        user_id = uuid.uuid4()
+        db = AsyncMock()
+
+        # Create a mock PumpEvent with all expected attributes
+        mock_event = MagicMock()
+        mock_event.event_type.value = "bolus"
+        mock_event.event_timestamp = datetime(2026, 3, 1, 12, 0, 0, tzinfo=UTC)
+        mock_event.units = 2.5
+        mock_event.duration_minutes = None
+        mock_event.is_automated = False
+        mock_event.source = "tandem"
+
+        # First call returns glucose (empty), second returns pump events
+        def make_result(has_events=False):
+            result = MagicMock()
+            if has_events:
+                result.scalars.return_value.all.return_value = [mock_event]
+            else:
+                result.scalars.return_value.all.return_value = []
+            return result
+
+        results = [
+            make_result(False),  # glucose_readings
+            make_result(True),  # pump_events
+            make_result(False),  # daily_briefs
+            make_result(False),  # meal_analyses
+            make_result(False),  # correction_analyses
+            make_result(False),  # suggestion_responses
+            make_result(False),  # safety_logs
+            make_result(False),  # alerts
+        ]
+        db.execute = AsyncMock(side_effect=results)
+
+        data = await _export_all_data(user_id, db)
+
+        assert len(data["pump_events"]) == 1
+        event = data["pump_events"][0]
+        assert event["units"] == 2.5
+        assert event["is_automated"] is False
+        assert event["event_type"] == "bolus"
+        assert event["source"] == "tandem"
+        assert "value" not in event  # Ensure old attribute name is gone
+
+    @pytest.mark.asyncio
     async def test_settings_export_contains_all_categories(self):
         """Verify settings export includes all expected configuration categories."""
         from src.services.settings_export import export_user_data

@@ -1,6 +1,12 @@
 """Application configuration using Pydantic Settings."""
 
+import sys
+
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_INSECURE_DEFAULT_SECRET = "change-me-in-production"
+_MIN_SECRET_LENGTH = 32
 
 
 class Settings(BaseSettings):
@@ -20,7 +26,10 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
 
     # Security
-    secret_key: str = "change-me-in-production"
+    secret_key: str = _INSECURE_DEFAULT_SECRET
+    encryption_key: str = (
+        ""  # Separate key for credential encryption; falls back to secret_key
+    )
     jwt_algorithm: str = "HS256"
     jwt_cookie_name: str = "glycemicgpt_session"
 
@@ -87,8 +96,75 @@ class Settings(BaseSettings):
     ai_sidecar_url: str = "http://ai-sidecar:3456"
     ai_sidecar_api_key: str = ""  # SIDECAR_API_KEY for inter-service auth
 
+    # Device & API key limits (Story 28.7)
+    max_devices_per_user: int = Field(default=10, ge=1)
+    debug_device_limit: int = Field(default=50, ge=1)
+    debug_rate_limit_multiplier: int = Field(default=5, ge=1)
+
+    # SSRF Prevention (Story 28.9)
+    # Default True: this is a homelab-first app where AI providers (Ollama, etc.)
+    # run on the same LAN. Cloud deployments should set ALLOW_PRIVATE_AI_URLS=false.
+    allow_private_ai_urls: bool = True
+
+    # Proxy Trust (Story 28.11 -- rate limit XFF bypass prevention)
+    # Only trust X-Forwarded-For from these CIDR ranges.
+    # Default: loopback only. Production deployments should add their load
+    # balancer / reverse proxy CIDRs (e.g. "127.0.0.0/8,10.0.1.0/24").
+    # Docker Compose: set TRUSTED_PROXY_CIDRS to include the Docker bridge
+    # network (e.g. "127.0.0.0/8,172.16.0.0/12").
+    trusted_proxy_cidrs: str = "127.0.0.0/8"
+
+    # AI Research Pipeline (Story 35.12)
+    research_pipeline_interval_hours: int = Field(default=168, ge=1)  # Weekly default
+    research_pipeline_enabled: bool = True
+
     # Testing
     testing: bool = False  # Set to True during tests to disable connection pooling
 
 
 settings = Settings()
+
+
+def validate_secret_key() -> None:
+    """Validate that secret_key is safe for production use.
+
+    Rejects the insecure default and enforces minimum length.
+    Skipped during tests (TESTING=true) to avoid requiring a real secret.
+    """
+    if settings.testing:
+        return
+
+    if (
+        settings.secret_key == _INSECURE_DEFAULT_SECRET
+        or settings.secret_key.startswith("change-me")
+    ):
+        print(
+            "FATAL: SECRET_KEY is set to an insecure default. "
+            "Set a strong SECRET_KEY environment variable (>= 32 characters). "
+            "Generate one with: openssl rand -hex 32",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    if len(settings.secret_key) < _MIN_SECRET_LENGTH:
+        print(
+            f"FATAL: SECRET_KEY must be at least {_MIN_SECRET_LENGTH} characters "
+            f"(currently {len(settings.secret_key)}).",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    if settings.encryption_key and len(settings.encryption_key) < _MIN_SECRET_LENGTH:
+        print(
+            f"FATAL: ENCRYPTION_KEY must be at least {_MIN_SECRET_LENGTH} characters "
+            f"(currently {len(settings.encryption_key)}).",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    if not settings.encryption_key:
+        print(
+            "WARNING: ENCRYPTION_KEY not set; falling back to SECRET_KEY for "
+            "credential encryption. Set a separate ENCRYPTION_KEY for defense-in-depth.",
+            file=sys.stderr,
+        )

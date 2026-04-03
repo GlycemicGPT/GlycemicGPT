@@ -26,32 +26,32 @@ const TIER_CONFIG: Record<
   reminder: {
     label: "Reminder Sent",
     icon: Clock,
-    color: "text-amber-400",
-    bg: "bg-amber-900/20",
-    border: "border-amber-700/30",
+    color: "text-amber-600 dark:text-amber-400",
+    bg: "bg-amber-100/50 dark:bg-amber-900/20",
+    border: "border-amber-300/50 dark:border-amber-700/30",
   },
   primary_contact: {
     label: "Primary Contact Notified",
     icon: User,
-    color: "text-orange-400",
-    bg: "bg-orange-900/20",
-    border: "border-orange-700/30",
+    color: "text-orange-600 dark:text-orange-400",
+    bg: "bg-orange-100/50 dark:bg-orange-900/20",
+    border: "border-orange-300/50 dark:border-orange-700/30",
   },
   all_contacts: {
     label: "All Contacts Notified",
     icon: Users,
-    color: "text-red-400",
-    bg: "bg-red-900/20",
-    border: "border-red-700/30",
+    color: "text-red-600 dark:text-red-400",
+    bg: "bg-red-100/50 dark:bg-red-900/20",
+    border: "border-red-300/50 dark:border-red-700/30",
   },
 };
 
 const UNKNOWN_TIER = {
   label: "Unknown Escalation",
   icon: AlertCircle,
-  color: "text-slate-400",
-  bg: "bg-slate-900/20",
-  border: "border-slate-700/30",
+  color: "text-slate-500 dark:text-slate-400",
+  bg: "bg-slate-50/20 dark:bg-slate-900/20",
+  border: "border-slate-300/30 dark:border-slate-700/30",
 };
 
 function formatTimestamp(iso: string): string {
@@ -61,9 +61,9 @@ function formatTimestamp(iso: string): string {
 
 function StatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
-    sent: "bg-green-900/30 text-green-400 border-green-700/30",
-    pending: "bg-yellow-900/30 text-yellow-400 border-yellow-700/30",
-    failed: "bg-red-900/30 text-red-400 border-red-700/30",
+    sent: "bg-green-100/50 dark:bg-green-900/30 text-green-700 dark:text-green-400 border-green-300/50 dark:border-green-700/30",
+    pending: "bg-yellow-100/50 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 border-yellow-300/50 dark:border-yellow-700/30",
+    failed: "bg-red-100/50 dark:bg-red-900/30 text-red-700 dark:text-red-400 border-red-300/50 dark:border-red-700/30",
   };
 
   return (
@@ -124,7 +124,7 @@ export function EscalationTimeline({ alertId }: EscalationTimelineProps) {
 
   if (loading) {
     return (
-      <div className="flex items-center gap-2 text-xs text-slate-500 mt-3">
+      <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 mt-3">
         <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
         <span>Loading escalation timeline...</span>
       </div>
@@ -145,7 +145,7 @@ export function EscalationTimeline({ alertId }: EscalationTimelineProps) {
 
   return (
     <div className="mt-3 space-y-2" aria-label="Escalation timeline">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
         Escalation History
       </p>
       {events.map((event) => {
@@ -170,7 +170,7 @@ export function EscalationTimeline({ alertId }: EscalationTimelineProps) {
             </span>
             <span className="ml-auto flex items-center gap-2">
               <StatusBadge status={event.notification_status} />
-              <span className="text-[10px] text-slate-500">
+              <span className="text-[10px] text-slate-500 dark:text-slate-400">
                 {formatTimestamp(event.triggered_at)}
               </span>
             </span>

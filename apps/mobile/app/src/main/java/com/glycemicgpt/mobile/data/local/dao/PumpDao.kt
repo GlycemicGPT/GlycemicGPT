@@ -30,6 +30,9 @@ interface PumpDao {
     @Query("SELECT * FROM iob_readings WHERE timestampMs >= :sinceMs ORDER BY timestampMs ASC LIMIT :limit")
     fun observeIoBHistory(sinceMs: Long, limit: Int = 2000): Flow<List<IoBReadingEntity>>
 
+    @Query("SELECT * FROM iob_readings WHERE timestampMs >= :sinceMs ORDER BY timestampMs ASC LIMIT 50000")
+    fun observeIoBHistoryAll(sinceMs: Long): Flow<List<IoBReadingEntity>>
+
     @Query("DELETE FROM iob_readings WHERE timestampMs < :beforeMs")
     suspend fun deleteIoBBefore(beforeMs: Long): Int
 
@@ -47,15 +50,21 @@ interface PumpDao {
     @Query("SELECT * FROM basal_readings WHERE timestampMs >= :sinceMs ORDER BY timestampMs ASC LIMIT :limit")
     fun observeBasalHistory(sinceMs: Long, limit: Int = 2000): Flow<List<BasalReadingEntity>>
 
+    @Query("SELECT * FROM basal_readings WHERE timestampMs >= :sinceMs ORDER BY timestampMs ASC LIMIT 50000")
+    fun observeBasalHistoryAll(sinceMs: Long): Flow<List<BasalReadingEntity>>
+
+    @Query("SELECT * FROM basal_readings WHERE timestampMs >= :sinceMs ORDER BY timestampMs ASC")
+    suspend fun getBasalSince(sinceMs: Long): List<BasalReadingEntity>
+
     @Query("DELETE FROM basal_readings WHERE timestampMs < :beforeMs")
     suspend fun deleteBasalBefore(beforeMs: Long): Int
 
     // -- Bolus ----------------------------------------------------------------
 
-    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertBolus(event: BolusEventEntity)
 
-    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertBoluses(events: List<BolusEventEntity>)
 
     @Query("SELECT * FROM bolus_events WHERE timestampMs >= :sinceMs ORDER BY timestampMs DESC")
@@ -66,6 +75,9 @@ interface PumpDao {
 
     @Query("SELECT MAX(timestampMs) FROM bolus_events")
     suspend fun getLatestBolusTimestamp(): Long?
+
+    @Query("SELECT * FROM bolus_events WHERE timestampMs >= :sinceMs ORDER BY timestampMs ASC LIMIT 50000")
+    fun observeBolusHistoryAll(sinceMs: Long): Flow<List<BolusEventEntity>>
 
     @Query("DELETE FROM bolus_events WHERE timestampMs < :beforeMs")
     suspend fun deleteBolusBefore(beforeMs: Long): Int
@@ -106,6 +118,9 @@ interface PumpDao {
     @Query("SELECT * FROM cgm_readings WHERE timestampMs >= :sinceMs ORDER BY timestampMs ASC LIMIT :limit")
     fun observeCgmHistory(sinceMs: Long, limit: Int = 2000): Flow<List<CgmReadingEntity>>
 
+    @Query("SELECT * FROM cgm_readings WHERE timestampMs >= :sinceMs ORDER BY timestampMs ASC LIMIT 50000")
+    fun observeCgmHistoryAll(sinceMs: Long): Flow<List<CgmReadingEntity>>
+
     @Query("DELETE FROM cgm_readings WHERE timestampMs < :beforeMs")
     suspend fun deleteCgmBefore(beforeMs: Long): Int
 
@@ -115,14 +130,23 @@ interface PumpDao {
         """
         SELECT
             COUNT(*) AS total,
-            SUM(CASE WHEN glucoseMgDl < :low THEN 1 ELSE 0 END) AS lowCount,
-            SUM(CASE WHEN glucoseMgDl >= :low AND glucoseMgDl <= :high THEN 1 ELSE 0 END) AS inRangeCount,
-            SUM(CASE WHEN glucoseMgDl > :high THEN 1 ELSE 0 END) AS highCount
+            COALESCE(SUM(CASE WHEN glucoseMgDl < :urgentLow THEN 1 ELSE 0 END), 0) AS urgentLowCount,
+            COALESCE(SUM(CASE WHEN glucoseMgDl >= :urgentLow AND glucoseMgDl < :low THEN 1 ELSE 0 END), 0) AS lowCount,
+            COALESCE(SUM(CASE WHEN glucoseMgDl >= :low AND glucoseMgDl <= :high THEN 1 ELSE 0 END), 0) AS inRangeCount,
+            COALESCE(SUM(CASE WHEN glucoseMgDl > :high AND glucoseMgDl <= :urgentHigh THEN 1 ELSE 0 END), 0) AS highCount,
+            COALESCE(SUM(CASE WHEN glucoseMgDl > :urgentHigh THEN 1 ELSE 0 END), 0) AS urgentHighCount
         FROM cgm_readings
         WHERE timestampMs >= :sinceMs
+          AND glucoseMgDl BETWEEN 20 AND 500
         """,
     )
-    fun observeTimeInRangeCounts(sinceMs: Long, low: Int, high: Int): Flow<TimeInRangeCounts>
+    fun observeTimeInRangeCounts(
+        sinceMs: Long,
+        urgentLow: Int,
+        low: Int,
+        high: Int,
+        urgentHigh: Int,
+    ): Flow<TimeInRangeCounts>
 
     // -- Transactional cleanup ------------------------------------------------
 
@@ -141,7 +165,9 @@ interface PumpDao {
 
 data class TimeInRangeCounts(
     val total: Int,
+    val urgentLowCount: Int,
     val lowCount: Int,
     val inRangeCount: Int,
     val highCount: Int,
+    val urgentHighCount: Int,
 )

@@ -34,20 +34,29 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.glycemicgpt.mobile.data.local.AppSettingsStore
 import com.glycemicgpt.mobile.domain.model.TimeInRangeData
 import com.glycemicgpt.mobile.presentation.theme.GlucoseColors
 
-enum class TirPeriod(val label: String, val hours: Long) {
-    TWENTY_FOUR_HOURS("24H", 24),
-    THREE_DAYS("3D", 72),
-    SEVEN_DAYS("7D", 168),
-    FOURTEEN_DAYS("14D", 336),
-    THIRTY_DAYS("30D", 720),
+/**
+ * Time periods for analytics cards. Entries beyond the user's local data retention
+ * setting are filtered out at the UI level (see [maxRetentionDays] on card composables).
+ * All entries are kept in the enum to support users who increase retention up to 30 days.
+ */
+enum class TirPeriod(val label: String, val hours: Long, val daysBack: Int) {
+    TWENTY_FOUR_HOURS("24H", 24, 0),
+    THREE_DAYS("3D", 72, 2),
+    SEVEN_DAYS("7D", 168, 6),
+    FOURTEEN_DAYS("14D", 336, 13),
+    THIRTY_DAYS("30D", 720, 29),
 }
 
-private val TirLow = GlucoseColors.UrgentLow   // Red
-private val TirInRange = GlucoseColors.InRange  // Green
-private val TirHigh = GlucoseColors.High        // Yellow
+// 5-bucket clinical color palette
+private val ColorUrgentLow = GlucoseColors.UrgentLow  // Red
+private val ColorLow = GlucoseColors.Low               // Yellow/Orange
+private val ColorInRange = GlucoseColors.InRange        // Green
+private val ColorHigh = GlucoseColors.High              // Yellow
+private val ColorUrgentHigh = GlucoseColors.UrgentHigh  // Red/Orange
 
 @Composable
 fun TimeInRangeBar(
@@ -55,19 +64,25 @@ fun TimeInRangeBar(
     selectedPeriod: TirPeriod,
     onPeriodSelected: (TirPeriod) -> Unit,
     thresholds: GlucoseThresholds = GlucoseThresholds(),
+    maxRetentionDays: Int = AppSettingsStore.DEFAULT_RETENTION_DAYS,
     modifier: Modifier = Modifier,
 ) {
+    val safeRetention = maxRetentionDays.coerceAtLeast(1)
+    val availablePeriods = TirPeriod.entries.filter { it.hours / 24 <= safeRetention }
+    val effectivePeriod = if (selectedPeriod in availablePeriods) selectedPeriod else availablePeriods.first()
     val a11yDescription = if (data != null && data.totalReadings > 0) {
-        ("Time in range: %.0f%% low, %.0f%% in range, %.0f%% high, " +
-            "target %d to %d mg/dL, " +
-            "based on %d readings over %s").format(
+        ("Time in range: %.0f%% urgent low, %.0f%% low, %.0f%% in range, " +
+            "%.0f%% high, %.0f%% urgent high, " +
+            "target %d-%d mg/dL, %d readings over %s").format(
+                data.urgentLowPercent,
                 data.lowPercent,
                 data.inRangePercent,
                 data.highPercent,
+                data.urgentHighPercent,
                 thresholds.low,
                 thresholds.high,
                 data.totalReadings,
-                selectedPeriod.label,
+                effectivePeriod.label,
             )
     } else {
         "Time in range: no glucose readings for this period"
@@ -117,9 +132,9 @@ fun TimeInRangeBar(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
             ) {
-                TirPeriod.entries.forEach { period ->
+                availablePeriods.forEach { period ->
                     FilterChip(
-                        selected = period == selectedPeriod,
+                        selected = period == effectivePeriod,
                         onClick = { onPeriodSelected(period) },
                         label = {
                             Text(
@@ -139,7 +154,6 @@ fun TimeInRangeBar(
             Spacer(modifier = Modifier.height(12.dp))
 
             if (data == null || data.totalReadings == 0) {
-                // Empty state
                 Text(
                     text = "No glucose readings for this period",
                     style = MaterialTheme.typography.bodySmall,
@@ -148,23 +162,53 @@ fun TimeInRangeBar(
                     modifier = Modifier.fillMaxWidth(),
                 )
             } else {
-                // Stacked horizontal bar
-                StackedBar(
+                // 5-bucket stacked horizontal bar
+                FiveBucketStackedBar(
+                    urgentLowPercent = data.urgentLowPercent,
                     lowPercent = data.lowPercent,
                     inRangePercent = data.inRangePercent,
                     highPercent = data.highPercent,
+                    urgentHighPercent = data.urgentHighPercent,
                 )
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Legend row
+                // Legend: two rows for 5 buckets
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                 ) {
-                    LegendEntry(color = TirLow, label = "<${thresholds.low}", percent = data.lowPercent)
-                    LegendEntry(color = TirInRange, label = "${thresholds.low}-${thresholds.high}", percent = data.inRangePercent)
-                    LegendEntry(color = TirHigh, label = ">${thresholds.high}", percent = data.highPercent)
+                    LegendEntry(
+                        color = ColorUrgentLow,
+                        label = "<${thresholds.urgentLow}",
+                        percent = data.urgentLowPercent,
+                    )
+                    LegendEntry(
+                        color = ColorLow,
+                        label = "${thresholds.urgentLow}-${thresholds.low}",
+                        percent = data.lowPercent,
+                    )
+                    LegendEntry(
+                        color = ColorInRange,
+                        label = "${thresholds.low}-${thresholds.high}",
+                        percent = data.inRangePercent,
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                ) {
+                    LegendEntry(
+                        color = ColorHigh,
+                        label = "${thresholds.high}-${thresholds.urgentHigh}",
+                        percent = data.highPercent,
+                    )
+                    LegendEntry(
+                        color = ColorUrgentHigh,
+                        label = ">${thresholds.urgentHigh}",
+                        percent = data.urgentHighPercent,
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -185,10 +229,12 @@ fun TimeInRangeBar(
 }
 
 @Composable
-private fun StackedBar(
+private fun FiveBucketStackedBar(
+    urgentLowPercent: Float,
     lowPercent: Float,
     inRangePercent: Float,
     highPercent: Float,
+    urgentHighPercent: Float,
 ) {
     val barHeight = 24.dp
     val cornerRadius = 12.dp
@@ -210,42 +256,34 @@ private fun StackedBar(
             cornerRadius = cr,
         )
 
-        val total = lowPercent + inRangePercent + highPercent
+        val total = urgentLowPercent + lowPercent + inRangePercent + highPercent + urgentHighPercent
         if (total <= 0f) return@Canvas
 
-        val lowW = (lowPercent / total) * totalWidth
-        val inRangeW = (inRangePercent / total) * totalWidth
-        val highW = totalWidth - lowW - inRangeW // absorb rounding
+        val segments = listOf(
+            urgentLowPercent to ColorUrgentLow,
+            lowPercent to ColorLow,
+            inRangePercent to ColorInRange,
+            highPercent to ColorHigh,
+            urgentHighPercent to ColorUrgentHigh,
+        )
 
         var x = 0f
-
-        // Low segment
-        if (lowW > 0f) {
-            drawRect(
-                color = TirLow,
-                topLeft = Offset(x, 0f),
-                size = Size(lowW, h),
-            )
-            x += lowW
-        }
-
-        // In Range segment
-        if (inRangeW > 0f) {
-            drawRect(
-                color = TirInRange,
-                topLeft = Offset(x, 0f),
-                size = Size(inRangeW, h),
-            )
-            x += inRangeW
-        }
-
-        // High segment
-        if (highW > 0f) {
-            drawRect(
-                color = TirHigh,
-                topLeft = Offset(x, 0f),
-                size = Size(highW, h),
-            )
+        val lastNonZeroIndex = segments.indexOfLast { it.first > 0f }
+        segments.forEachIndexed { index, (pct, color) ->
+            if (pct <= 0f) return@forEachIndexed
+            val w = if (index == lastNonZeroIndex) {
+                totalWidth - x // absorb rounding on last drawn segment
+            } else {
+                (pct / total) * totalWidth
+            }
+            if (w > 0f) {
+                drawRect(
+                    color = color,
+                    topLeft = Offset(x, 0f),
+                    size = Size(w, h),
+                )
+                x += w
+            }
         }
     }
 }
@@ -274,9 +312,9 @@ private fun LegendEntry(
 }
 
 internal fun qualityAssessment(inRangePercent: Float): Pair<String, Color> = when {
-    inRangePercent >= 70f -> "Excellent" to TirInRange
-    inRangePercent >= 50f -> "Good" to TirHigh
-    else -> "Needs Improvement" to TirLow
+    inRangePercent >= 70f -> "Excellent" to ColorInRange
+    inRangePercent >= 50f -> "Good" to ColorHigh
+    else -> "Needs Improvement" to ColorUrgentLow
 }
 
 internal fun formatTirPercent(value: Float): String = when {

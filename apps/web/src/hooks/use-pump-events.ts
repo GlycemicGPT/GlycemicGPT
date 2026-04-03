@@ -12,13 +12,19 @@ import {
   getPumpEventHistory,
   type PumpEventReading,
 } from "@/lib/api";
-import type { ChartTimePeriod } from "./use-glucose-history";
+import { type ChartTimePeriod, PERIOD_TO_MINUTES } from "@/lib/chart-periods";
 
-const PERIOD_TO_MINUTES: Record<ChartTimePeriod, number> = {
-  "3h": 180,
-  "6h": 360,
-  "12h": 720,
-  "24h": 1440,
+// Scale limit to period -- pump events are sparser than glucose but
+// Control-IQ basal adjustments can generate ~288/day
+const PERIOD_TO_LIMIT: Record<ChartTimePeriod, number> = {
+  "3h": 200,
+  "6h": 400,
+  "12h": 600,
+  "24h": 1000,
+  "3d": 2000,
+  "7d": 3500,
+  "14d": 5000,
+  "30d": 5000,
 };
 
 export interface UsePumpEventsReturn {
@@ -42,7 +48,8 @@ export function usePumpEvents(
     setError(null);
     try {
       const minutes = PERIOD_TO_MINUTES[period];
-      const data = await getPumpEventHistory(minutes);
+      const limit = PERIOD_TO_LIMIT[period];
+      const data = await getPumpEventHistory(minutes, limit);
       if (gen === fetchGenRef.current) {
         setEvents(data.events);
       }

@@ -12,22 +12,20 @@ import {
   getGlucoseHistory,
   type GlucoseHistoryReading,
 } from "@/lib/api";
+import { type ChartTimePeriod, PERIOD_TO_MINUTES } from "@/lib/chart-periods";
 
-export type ChartTimePeriod = "3h" | "6h" | "12h" | "24h";
+export type { ChartTimePeriod };
 
-const PERIOD_TO_MINUTES: Record<ChartTimePeriod, number> = {
-  "3h": 180,
-  "6h": 360,
-  "12h": 720,
-  "24h": 1440,
-};
-
-// Scale limit to period: ~1 reading per 5 min
+// Scale limit to period: ~1 reading per 5 min, capped at 8640 (API max)
 const PERIOD_TO_LIMIT: Record<ChartTimePeriod, number> = {
   "3h": 36,
   "6h": 72,
   "12h": 144,
   "24h": 288,
+  "3d": 864,
+  "7d": 2016,
+  "14d": 4032,
+  "30d": 8640,
 };
 
 export interface UseGlucoseHistoryReturn {

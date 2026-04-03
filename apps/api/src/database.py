@@ -17,6 +17,9 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.pool import NullPool
 
 from src.config import settings
+from src.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 # Engine and session maker - lazily initialized
 _engine: AsyncEngine | None = None
@@ -115,6 +118,7 @@ async def check_database_connection() -> bool:
             await conn.execute(text("SELECT 1"))
             return True
     except Exception:
+        logger.warning("Database health check failed", exc_info=True)
         return False
 
 

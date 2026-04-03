@@ -386,7 +386,7 @@ export default function AlertsPage() {
       {/* Page header */}
       <div>
         <h1 className="text-2xl font-bold">Alerts & Thresholds</h1>
-        <p className="text-slate-400">
+        <p className="text-slate-500 dark:text-slate-400">
           Configure your glucose and insulin alert thresholds
         </p>
       </div>
@@ -394,12 +394,12 @@ export default function AlertsPage() {
       {/* Loading state */}
       {isLoading && (
         <div
-          className="bg-slate-900 rounded-xl p-12 border border-slate-800 text-center"
+          className="bg-white dark:bg-slate-900 rounded-xl p-12 border border-slate-200 dark:border-slate-800 text-center"
           role="status"
           aria-label="Loading thresholds"
         >
           <Loader2 className="h-8 w-8 text-blue-400 animate-spin mx-auto mb-3" />
-          <p className="text-slate-400">Loading thresholds...</p>
+          <p className="text-slate-500 dark:text-slate-400">Loading thresholds...</p>
         </div>
       )}
 
@@ -433,7 +433,7 @@ export default function AlertsPage() {
 
       {/* Threshold configuration form */}
       {!isLoading && (
-        <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6">
           <div className="flex items-center gap-3 mb-6">
             <div className="p-2 bg-amber-500/10 rounded-lg">
               <Bell className="h-5 w-5 text-amber-400" />
@@ -449,7 +449,7 @@ export default function AlertsPage() {
           <div className="space-y-5">
             {/* Glucose thresholds section */}
             <div>
-              <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-3">
+              <h3 className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3">
                 Glucose Thresholds
               </h3>
               <div className="grid gap-4 sm:grid-cols-2">
@@ -458,7 +458,7 @@ export default function AlertsPage() {
                     <div key={field.key}>
                       <label
                         htmlFor={field.key}
-                        className="block text-sm font-medium text-slate-300 mb-1"
+                        className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
                       >
                         <span className={field.color}>{field.label}</span>
                       </label>
@@ -478,7 +478,7 @@ export default function AlertsPage() {
                           }
                           className={clsx(
                             "w-full rounded-lg border px-3 py-2 text-sm",
-                            "bg-slate-800 border-slate-700 text-slate-200",
+                            "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200",
                             "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                             "placeholder:text-slate-500"
                           )}
@@ -502,7 +502,7 @@ export default function AlertsPage() {
 
             {/* IoB threshold section */}
             <div>
-              <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-3">
+              <h3 className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3">
                 Insulin on Board
               </h3>
               {THRESHOLD_FIELDS.filter((f) => f.unit === "units").map(
@@ -510,7 +510,7 @@ export default function AlertsPage() {
                   <div key={field.key} className="max-w-xs">
                     <label
                       htmlFor={field.key}
-                      className="block text-sm font-medium text-slate-300 mb-1"
+                      className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
                     >
                       <span className={field.color}>{field.label}</span>
                     </label>
@@ -530,7 +530,7 @@ export default function AlertsPage() {
                         }
                         className={clsx(
                           "w-full rounded-lg border px-3 py-2 text-sm",
-                          "bg-slate-800 border-slate-700 text-slate-200",
+                          "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200",
                           "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                           "placeholder:text-slate-500"
                         )}
@@ -554,7 +554,7 @@ export default function AlertsPage() {
 
           {/* Action buttons */}
           <div
-            className="flex items-center gap-3 mt-6 pt-4 border-t border-slate-800"
+            className="flex items-center gap-3 mt-6 pt-4 border-t border-slate-200 dark:border-slate-800"
             role="group"
             aria-label="Threshold actions"
           >
@@ -582,7 +582,7 @@ export default function AlertsPage() {
               disabled={isSaving}
               className={clsx(
                 "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium",
-                "bg-slate-800 text-slate-300 hover:bg-slate-700",
+                "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700",
                 "transition-colors",
                 "focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500",
                 "disabled:opacity-50 disabled:cursor-not-allowed"
@@ -597,7 +597,7 @@ export default function AlertsPage() {
       )}
 
       {/* Active alerts section */}
-      <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6">
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2 bg-red-500/10 rounded-lg">
             <AlertTriangle className="h-5 w-5 text-red-400" />
@@ -621,14 +621,14 @@ export default function AlertsPage() {
             role="status"
             aria-label="Loading alerts"
           >
-            <Loader2 className="h-5 w-5 text-slate-400 animate-spin mx-auto" />
+            <Loader2 className="h-5 w-5 text-slate-500 dark:text-slate-400 animate-spin mx-auto" />
           </div>
         )}
 
         {!alertsLoading && activeAlerts.length === 0 && (
           <div className="flex items-center gap-3 py-4">
             <div className="h-3 w-3 rounded-full bg-green-500" />
-            <span className="text-slate-300">No active alerts</span>
+            <span className="text-slate-600 dark:text-slate-300">No active alerts</span>
           </div>
         )}
 
@@ -647,7 +647,7 @@ export default function AlertsPage() {
       </div>
 
       {/* Story 6.3: Notification Preferences */}
-      <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6">
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2 bg-blue-500/10 rounded-lg">
             <BellRing className="h-5 w-5 text-blue-400" />
@@ -673,15 +673,15 @@ export default function AlertsPage() {
                   soundEnabled: e.target.checked,
                 })
               }
-              className="h-4 w-4 rounded border-slate-600 bg-slate-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
+              className="h-4 w-4 rounded border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
               aria-describedby="pref-sound-desc"
             />
             <Volume2
-              className="h-4 w-4 text-slate-400 group-hover:text-slate-300"
+              className="h-4 w-4 text-slate-500 dark:text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-300"
               aria-hidden="true"
             />
             <div>
-              <span className="text-sm text-slate-300 group-hover:text-slate-200">
+              <span className="text-sm text-slate-600 dark:text-slate-300 group-hover:text-slate-700 dark:group-hover:text-slate-200">
                 Alert sounds
               </span>
               <p id="pref-sound-desc" className="text-xs text-slate-500">
@@ -710,15 +710,15 @@ export default function AlertsPage() {
                   });
                 }
               }}
-              className="h-4 w-4 rounded border-slate-600 bg-slate-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
+              className="h-4 w-4 rounded border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
               aria-describedby="pref-browser-notif-desc"
             />
             <Bell
-              className="h-4 w-4 text-slate-400 group-hover:text-slate-300"
+              className="h-4 w-4 text-slate-500 dark:text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-300"
               aria-hidden="true"
             />
             <div>
-              <span className="text-sm text-slate-300 group-hover:text-slate-200">
+              <span className="text-sm text-slate-600 dark:text-slate-300 group-hover:text-slate-700 dark:group-hover:text-slate-200">
                 Browser notifications
               </span>
               <p id="pref-browser-notif-desc" className="text-xs text-slate-500">
@@ -732,16 +732,16 @@ export default function AlertsPage() {
       {/* Story 6.6: Escalation Timing */}
       {escalationLoading && (
         <div
-          className="bg-slate-900 rounded-xl p-12 border border-slate-800 text-center"
+          className="bg-white dark:bg-slate-900 rounded-xl p-12 border border-slate-200 dark:border-slate-800 text-center"
           role="status"
           aria-label="Loading escalation timing"
         >
           <Loader2 className="h-8 w-8 text-blue-400 animate-spin mx-auto mb-3" />
-          <p className="text-slate-400">Loading escalation timing...</p>
+          <p className="text-slate-500 dark:text-slate-400">Loading escalation timing...</p>
         </div>
       )}
       {!escalationLoading && (
-        <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6">
           <div className="flex items-center gap-3 mb-6">
             <div className="p-2 bg-orange-500/10 rounded-lg">
               <Clock className="h-5 w-5 text-orange-400" />
@@ -784,7 +784,7 @@ export default function AlertsPage() {
             <div>
               <label
                 htmlFor="reminder_delay"
-                className="block text-sm font-medium text-slate-300 mb-1"
+                className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
               >
                 <span className="text-amber-400">First Reminder</span>
               </label>
@@ -807,7 +807,7 @@ export default function AlertsPage() {
                   }
                   className={clsx(
                     "w-full rounded-lg border px-3 py-2 text-sm",
-                    "bg-slate-800 border-slate-700 text-slate-200",
+                    "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200",
                     "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                     "placeholder:text-slate-500"
                   )}
@@ -823,7 +823,7 @@ export default function AlertsPage() {
             <div>
               <label
                 htmlFor="primary_contact_delay"
-                className="block text-sm font-medium text-slate-300 mb-1"
+                className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
               >
                 <span className="text-orange-400">Primary Contact Alert</span>
               </label>
@@ -848,7 +848,7 @@ export default function AlertsPage() {
                   }
                   className={clsx(
                     "w-full rounded-lg border px-3 py-2 text-sm",
-                    "bg-slate-800 border-slate-700 text-slate-200",
+                    "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200",
                     "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                     "placeholder:text-slate-500"
                   )}
@@ -864,7 +864,7 @@ export default function AlertsPage() {
             <div>
               <label
                 htmlFor="all_contacts_delay"
-                className="block text-sm font-medium text-slate-300 mb-1"
+                className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
               >
                 <span className="text-red-400">All Contacts Alert</span>
               </label>
@@ -887,7 +887,7 @@ export default function AlertsPage() {
                   }
                   className={clsx(
                     "w-full rounded-lg border px-3 py-2 text-sm",
-                    "bg-slate-800 border-slate-700 text-slate-200",
+                    "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200",
                     "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                     "placeholder:text-slate-500"
                   )}
@@ -905,7 +905,7 @@ export default function AlertsPage() {
           </div>
 
           <div
-            className="flex items-center gap-3 mt-6 pt-4 border-t border-slate-800"
+            className="flex items-center gap-3 mt-6 pt-4 border-t border-slate-200 dark:border-slate-800"
             role="group"
             aria-label="Escalation timing actions"
           >
@@ -936,7 +936,7 @@ export default function AlertsPage() {
               disabled={escalationSaving}
               className={clsx(
                 "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium",
-                "bg-slate-800 text-slate-300 hover:bg-slate-700",
+                "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700",
                 "transition-colors",
                 "focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500",
                 "disabled:opacity-50 disabled:cursor-not-allowed"

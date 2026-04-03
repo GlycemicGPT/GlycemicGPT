@@ -11,6 +11,7 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
@@ -200,7 +201,7 @@ async def generate_verification_code(
         try:
             await db.commit()
             break
-        except Exception:
+        except (IntegrityError, OperationalError):
             await db.rollback()
             # Delete again in case rollback restored the old row
             await db.execute(

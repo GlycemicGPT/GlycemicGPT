@@ -92,14 +92,26 @@ class TestCalculateMetrics:
         correction_result = MagicMock()
         correction_result.scalar.return_value = 0
 
-        # Mock total insulin query
-        insulin_result = MagicMock()
-        insulin_result.scalar.return_value = 25.5
+        # Mock insulin breakdown queries: bolus, manual_corr, auto_corr, seed_basal, basal
+        bolus_result = MagicMock()
+        bolus_result.one.return_value = (2, 10.0)
+        manual_corr_result = MagicMock()
+        manual_corr_result.one.return_value = (1, 5.0)
+        auto_corr_result = MagicMock()
+        auto_corr_result.one.return_value = (1, 2.5)
+        seed_basal_result = MagicMock()
+        seed_basal_result.first.return_value = None  # no pre-window basal
+        basal_result = MagicMock()
+        basal_result.all.return_value = []  # no basal events
 
         mock_db.execute.side_effect = [
             glucose_result,
             correction_result,
-            insulin_result,
+            bolus_result,
+            manual_corr_result,
+            auto_corr_result,
+            seed_basal_result,
+            basal_result,
         ]
 
         user_id = uuid.uuid4()
@@ -113,7 +125,12 @@ class TestCalculateMetrics:
         assert metrics.average_glucose == 120.0
         assert metrics.low_count == 0
         assert metrics.high_count == 0
-        assert metrics.total_insulin == 25.5
+        assert metrics.total_insulin == 17.5
+        assert metrics.insulin_breakdown is not None
+        assert metrics.insulin_breakdown.bolus_units == 10.0
+        assert metrics.insulin_breakdown.correction_units == 5.0
+        assert metrics.insulin_breakdown.auto_correction_units == 2.5
+        assert metrics.insulin_breakdown.basal_units == 0.0
 
     async def test_mixed_readings_with_lows_and_highs(self):
         """Test metrics with a mix of low, in-range, and high readings."""
@@ -126,13 +143,26 @@ class TestCalculateMetrics:
         correction_result = MagicMock()
         correction_result.scalar.return_value = 3
 
-        insulin_result = MagicMock()
-        insulin_result.scalar.return_value = None
+        # All zero insulin
+        bolus_result = MagicMock()
+        bolus_result.one.return_value = (0, 0.0)
+        manual_corr_result = MagicMock()
+        manual_corr_result.one.return_value = (0, 0.0)
+        auto_corr_result = MagicMock()
+        auto_corr_result.one.return_value = (0, 0.0)
+        seed_basal_result = MagicMock()
+        seed_basal_result.first.return_value = None
+        basal_result = MagicMock()
+        basal_result.all.return_value = []
 
         mock_db.execute.side_effect = [
             glucose_result,
             correction_result,
-            insulin_result,
+            bolus_result,
+            manual_corr_result,
+            auto_corr_result,
+            seed_basal_result,
+            basal_result,
         ]
 
         user_id = uuid.uuid4()
@@ -146,7 +176,7 @@ class TestCalculateMetrics:
         assert metrics.low_count == 2
         assert metrics.high_count == 1
         assert metrics.correction_count == 3
-        assert metrics.total_insulin is None
+        assert metrics.total_insulin is None  # 0 total -> None
 
     async def test_boundary_values(self):
         """Test that boundary values are classified correctly."""
@@ -159,13 +189,25 @@ class TestCalculateMetrics:
         correction_result = MagicMock()
         correction_result.scalar.return_value = 0
 
-        insulin_result = MagicMock()
-        insulin_result.scalar.return_value = None
+        bolus_result = MagicMock()
+        bolus_result.one.return_value = (0, 0.0)
+        manual_corr_result = MagicMock()
+        manual_corr_result.one.return_value = (0, 0.0)
+        auto_corr_result = MagicMock()
+        auto_corr_result.one.return_value = (0, 0.0)
+        seed_basal_result = MagicMock()
+        seed_basal_result.first.return_value = None
+        basal_result = MagicMock()
+        basal_result.all.return_value = []
 
         mock_db.execute.side_effect = [
             glucose_result,
             correction_result,
-            insulin_result,
+            bolus_result,
+            manual_corr_result,
+            auto_corr_result,
+            seed_basal_result,
+            basal_result,
         ]
 
         user_id = uuid.uuid4()
@@ -275,12 +317,14 @@ class TestGenerateDailyBrief:
         assert brief.low_count == 1
         assert brief.high_count == 8
         assert brief.readings_count == 288
-        assert brief.ai_summary == "Your glucose was well controlled."
+        assert "Your glucose was well controlled." in brief.ai_summary
+        assert "Safety Notice" in brief.ai_summary
         assert brief.ai_model == "claude-sonnet-4-5-20250929"
         assert brief.ai_provider == "claude"
         assert brief.input_tokens == 100
         assert brief.output_tokens == 50
-        mock_db.add.assert_called_once()
+        assert mock_db.add.call_count == 2  # brief + safety log
+        mock_db.flush.assert_called_once()
         mock_db.commit.assert_called_once()
 
     @patch("src.services.daily_brief.calculate_metrics")
@@ -487,7 +531,8 @@ class TestBriefsEndpoints:
         data = response.json()
         assert data["time_in_range_pct"] == 75.0
         assert data["average_glucose"] == 140.0
-        assert data["ai_summary"] == "Good day overall with some highs."
+        assert "Good day overall with some highs." in data["ai_summary"]
+        assert "Safety Notice" in data["ai_summary"]
         assert data["ai_model"] == "claude-sonnet-4-5-20250929"
         assert "id" in data
         assert "created_at" in data
@@ -627,7 +672,8 @@ class TestBriefsEndpoints:
             )
             assert get_response.status_code == 200
             assert get_response.json()["id"] == brief_id
-            assert get_response.json()["ai_summary"] == "Great control today!"
+            assert "Great control today!" in get_response.json()["ai_summary"]
+            assert "Safety Notice" in get_response.json()["ai_summary"]
 
     async def test_generate_brief_invalid_hours(self):
         """Test POST /api/ai/briefs/generate rejects invalid hours."""

@@ -487,12 +487,13 @@ class TestAIProviderConfiguration:
             session_cookie = await register_and_login(client)
 
             # Configure subscription provider with base_url
+            # Use localhost (always resolvable) to avoid DNS issues in tests
             await client.post(
                 "/api/ai/provider",
                 json={
                     "provider_type": "claude_subscription",
                     "api_key": "not-needed",
-                    "base_url": "http://proxy:3456/v1",
+                    "base_url": "http://localhost:3456/v1",
                 },
                 cookies={settings.jwt_cookie_name: session_cookie},
             )
@@ -505,7 +506,7 @@ class TestAIProviderConfiguration:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["base_url"] == "http://proxy:3456/v1"
+        assert data["base_url"] == "http://localhost:3456/v1"
         assert data["provider_type"] == "claude_subscription"
 
     @patch("src.routers.ai.validate_ai_api_key")

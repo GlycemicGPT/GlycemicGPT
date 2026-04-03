@@ -13,7 +13,7 @@ import com.glycemicgpt.mobile.domain.model.BatteryStatus
 import com.glycemicgpt.mobile.domain.model.BolusEvent
 import com.glycemicgpt.mobile.domain.model.CgmReading
 import com.glycemicgpt.mobile.domain.model.CgmTrend
-import com.glycemicgpt.mobile.domain.model.ControlIqMode
+import com.glycemicgpt.mobile.domain.model.PumpActivityMode
 import com.glycemicgpt.mobile.domain.model.IoBReading
 import com.glycemicgpt.mobile.domain.model.ReservoirReading
 import com.glycemicgpt.mobile.domain.model.TimeInRangeData
@@ -60,6 +60,14 @@ class PumpDataRepository @Inject constructor(
             entities.map { it.toDomain() }
         }
 
+    fun observeIoBHistoryAll(since: Instant): Flow<List<IoBReading>> =
+        pumpDao.observeIoBHistoryAll(since.toEpochMilli()).map { entities ->
+            entities.map { it.toDomain() }
+        }
+
+    suspend fun getIoBSince(since: Instant): List<IoBReading> =
+        pumpDao.getIoBSince(since.toEpochMilli()).map { it.toDomain() }
+
     // -- Basal ----------------------------------------------------------------
 
     suspend fun saveBasal(reading: BasalReading) {
@@ -67,7 +75,7 @@ class PumpDataRepository @Inject constructor(
             BasalReadingEntity(
                 rate = reading.rate,
                 isAutomated = reading.isAutomated,
-                controlIqMode = reading.controlIqMode.name,
+                activityMode = reading.activityMode.name,
                 timestampMs = reading.timestamp.toEpochMilli(),
             ),
         )
@@ -80,7 +88,7 @@ class PumpDataRepository @Inject constructor(
                 BasalReadingEntity(
                     rate = it.rate,
                     isAutomated = it.isAutomated,
-                    controlIqMode = it.controlIqMode.name,
+                    activityMode = it.activityMode.name,
                     timestampMs = it.timestamp.toEpochMilli(),
                 )
             },
@@ -95,6 +103,14 @@ class PumpDataRepository @Inject constructor(
             entities.map { it.toDomain() }
         }
 
+    fun observeBasalHistoryAll(since: Instant): Flow<List<BasalReading>> =
+        pumpDao.observeBasalHistoryAll(since.toEpochMilli()).map { entities ->
+            entities.map { it.toDomain() }
+        }
+
+    suspend fun getBasalSince(since: Instant): List<BasalReading> =
+        pumpDao.getBasalSince(since.toEpochMilli()).map { it.toDomain() }
+
     // -- Bolus ----------------------------------------------------------------
 
     suspend fun saveBoluses(events: List<BolusEvent>) {
@@ -105,6 +121,10 @@ class PumpDataRepository @Inject constructor(
                     units = it.units,
                     isAutomated = it.isAutomated,
                     isCorrection = it.isCorrection,
+                    correctionUnits = it.correctionUnits,
+                    mealUnits = it.mealUnits,
+                    source = it.source,
+                    category = it.category,
                     timestampMs = it.timestamp.toEpochMilli(),
                 )
             },
@@ -113,8 +133,16 @@ class PumpDataRepository @Inject constructor(
 
     fun observeBolusHistory(since: Instant): Flow<List<BolusEvent>> =
         pumpDao.observeBolusHistory(since.toEpochMilli()).map { entities ->
-            entities.map { it.toDomain() }
+            entities.mapNotNull { it.toDomain() }
         }
+
+    fun observeBolusHistoryAll(since: Instant): Flow<List<BolusEvent>> =
+        pumpDao.observeBolusHistoryAll(since.toEpochMilli()).map { entities ->
+            entities.mapNotNull { it.toDomain() }
+        }
+
+    suspend fun getBolusesSince(since: Instant): List<BolusEvent> =
+        pumpDao.getBolusesSince(since.toEpochMilli()).mapNotNull { it.toDomain() }
 
     suspend fun getLatestBolusTimestamp(): Instant? {
         val ms = pumpDao.getLatestBolusTimestamp() ?: return null
@@ -180,13 +208,25 @@ class PumpDataRepository @Inject constructor(
 
     fun observeCgmHistory(since: Instant): Flow<List<CgmReading>> =
         pumpDao.observeCgmHistory(since.toEpochMilli()).map { entities ->
-            entities.map { it.toDomain() }
+            entities.mapNotNull { it.toDomain() }
+        }
+
+    fun observeCgmHistoryAll(since: Instant): Flow<List<CgmReading>> =
+        pumpDao.observeCgmHistoryAll(since.toEpochMilli()).map { entities ->
+            entities.mapNotNull { it.toDomain() }
         }
 
     // -- Time in Range --------------------------------------------------------
 
-    fun observeTimeInRange(since: Instant, low: Int, high: Int): Flow<TimeInRangeData> =
-        pumpDao.observeTimeInRangeCounts(since.toEpochMilli(), low, high).map { it.toTimeInRange() }
+    fun observeTimeInRange(
+        since: Instant,
+        urgentLow: Int,
+        low: Int,
+        high: Int,
+        urgentHigh: Int,
+    ): Flow<TimeInRangeData> =
+        pumpDao.observeTimeInRangeCounts(since.toEpochMilli(), urgentLow, low, high, urgentHigh)
+            .map { it.toTimeInRange() }
 
     // -- Cleanup --------------------------------------------------------------
 
@@ -214,10 +254,11 @@ private fun IoBReadingEntity.toDomain() = IoBReading(
 private fun BasalReadingEntity.toDomain() = BasalReading(
     rate = rate,
     isAutomated = isAutomated,
-    controlIqMode = try {
-        ControlIqMode.valueOf(controlIqMode)
+    activityMode = try {
+        PumpActivityMode.valueOf(activityMode)
     } catch (_: IllegalArgumentException) {
-        ControlIqMode.STANDARD
+        // Fallback handles legacy "STANDARD" values and any unknown modes
+        PumpActivityMode.NONE
     },
     timestamp = Instant.ofEpochMilli(timestampMs),
 )
@@ -233,29 +274,47 @@ private fun ReservoirReadingEntity.toDomain() = ReservoirReading(
     timestamp = Instant.ofEpochMilli(timestampMs),
 )
 
-private fun BolusEventEntity.toDomain() = BolusEvent(
-    units = units,
-    isAutomated = isAutomated,
-    isCorrection = isCorrection,
-    timestamp = Instant.ofEpochMilli(timestampMs),
-)
+private fun BolusEventEntity.toDomain(): BolusEvent? = try {
+    BolusEvent(
+        units = units,
+        isAutomated = isAutomated,
+        isCorrection = isCorrection,
+        correctionUnits = correctionUnits,
+        mealUnits = mealUnits,
+        source = source,
+        category = category,
+        timestamp = Instant.ofEpochMilli(timestampMs),
+    )
+} catch (_: IllegalArgumentException) {
+    null // Skip legacy records that violate current safety bounds
+}
 
-private fun CgmReadingEntity.toDomain() = CgmReading(
-    glucoseMgDl = glucoseMgDl,
-    trendArrow = try {
-        CgmTrend.valueOf(trendArrow)
-    } catch (_: IllegalArgumentException) {
-        CgmTrend.UNKNOWN
-    },
-    timestamp = Instant.ofEpochMilli(timestampMs),
-)
+private fun CgmReadingEntity.toDomain(): CgmReading? = try {
+    CgmReading(
+        glucoseMgDl = glucoseMgDl,
+        trendArrow = try {
+            CgmTrend.valueOf(trendArrow)
+        } catch (_: IllegalArgumentException) {
+            CgmTrend.UNKNOWN
+        },
+        timestamp = Instant.ofEpochMilli(timestampMs),
+    )
+} catch (_: IllegalArgumentException) {
+    // Legacy data may have out-of-range glucose values (pre-validation).
+    null
+}
 
 private fun TimeInRangeCounts.toTimeInRange(): TimeInRangeData {
-    if (total == 0) return TimeInRangeData(0f, 0f, 0f, 0)
+    if (total == 0) return TimeInRangeData(
+        urgentLowPercent = 0f, lowPercent = 0f, inRangePercent = 0f,
+        highPercent = 0f, urgentHighPercent = 0f, totalReadings = 0,
+    )
     return TimeInRangeData(
+        urgentLowPercent = urgentLowCount * 100f / total,
         lowPercent = lowCount * 100f / total,
         inRangePercent = inRangeCount * 100f / total,
         highPercent = highCount * 100f / total,
+        urgentHighPercent = urgentHighCount * 100f / total,
         totalReadings = total,
     )
 }
