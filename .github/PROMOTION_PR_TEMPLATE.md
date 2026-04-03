@@ -1,7 +1,7 @@
 ## Promotion: develop -> main
 
-> **IMPORTANT:** Merge this PR with **"Rebase and merge"**, NOT "Squash and merge".
-> Rebase merge preserves individual commits so release-please generates a granular CHANGELOG.
+> **Merge with "Squash and merge".** The label-based changelog generates granular entries
+> from PR titles and contributor credits regardless of merge method.
 
 ### Pre-merge checklist
 

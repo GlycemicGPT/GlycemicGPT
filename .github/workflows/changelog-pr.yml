@@ -302,8 +302,9 @@ jobs:
           PR_FILES=$(echo "$PR_DATA" | jq -r '.files[].path')
 
           # Safety checks: only merge if PR matches expected changelog pattern
-          if [ "$PR_AUTHOR" != "glycemicgpt-release[bot]" ]; then
-            echo "::error::PR author is '$PR_AUTHOR', expected 'glycemicgpt-release[bot]'. Refusing to merge."
+          # gh pr view returns "app/glycemicgpt-release", REST API returns "glycemicgpt-release[bot]"
+          if [ "$PR_AUTHOR" != "glycemicgpt-release[bot]" ] && [ "$PR_AUTHOR" != "app/glycemicgpt-release" ]; then
+            echo "::error::PR author is '$PR_AUTHOR', expected 'glycemicgpt-release[bot]' or 'app/glycemicgpt-release'. Refusing to merge."
             exit 1
           fi
 
