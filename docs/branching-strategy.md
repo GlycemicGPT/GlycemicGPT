@@ -51,27 +51,19 @@ After the promotion PR merges:
 - glycemicgpt-merge auto-merges the version bump PR
 - A GitHub Release is created with signed APKs and versioned Docker images
 
-### Post-merge: restore develop branch
+### Post-merge: automated version sync
 
-The repo has "auto-delete head branches" enabled, which is great for cleaning up feature branches but will also delete `develop` after a promotion PR merges (since `develop` is the head branch). Recreate it immediately:
+After a promotion merge, release-please creates a version bump commit on main (e.g., `chore: release 0.1.101`). The `sync-main-to-develop` workflow automatically cherry-picks this commit back to develop via PR and auto-merges it. No manual intervention required.
 
-```bash
-# Recreate develop from main via API
-gh api repos/GlycemicGPT/GlycemicGPT/git/refs \
-  -f ref="refs/heads/develop" \
-  -f sha="$(gh api repos/GlycemicGPT/GlycemicGPT/git/ref/heads/main --jq '.object.sha')"
-```
+The sync workflow:
+1. Detects version bump or changelog commits on main
+2. Cherry-picks them onto a branch from develop
+3. Creates a PR and auto-merges with glycemicgpt-merge[bot]
+4. Develop stays in sync with main's version numbers
 
-This also handles the post-release sync since `develop` is recreated from `main` (which includes the version bump commit).
+Verify the sync completed in the [Actions tab](../../actions/workflows/sync-main-to-develop.yml). If the sync PR has unresolved conflicts (rare), resolve manually.
 
-If develop was NOT auto-deleted (e.g., the setting changes in the future), manually sync instead:
-
-```bash
-git fetch origin
-git checkout develop
-git rebase origin/main
-git push origin develop --force-with-lease
-```
+> **Note:** Develop has deletion protection in its branch ruleset, so it is NOT auto-deleted after promotion merges despite the repo-level "auto-delete head branches" setting.
 
 ## Release Channels
 
