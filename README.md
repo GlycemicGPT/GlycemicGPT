@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Open source AI-powered diabetes management platform.</strong><br/>
-  <em>Built by patients who got tired of waiting.</em>
+  <em>Because no one should manage diabetes alone.</em>
 </p>
 
 <p align="center">
