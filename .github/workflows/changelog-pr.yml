@@ -84,7 +84,8 @@ jobs:
             UNTIL=$(git log -1 --format=%cI origin/main)
           fi
           TODAY=$(echo "$UNTIL" | cut -dT -f1)
-          NOW="$UNTIL"
+          # Normalize to UTC (validator at line 54 only accepts Z or + suffixes)
+          NOW=$(date -u -d "$UNTIL" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "$UNTIL")
 
           echo "Collecting PRs merged to develop since $SINCE..."
 
@@ -105,6 +106,7 @@ jobs:
                     ... on PullRequest {
                       number
                       title
+                      url
                       mergedAt
                       author { login }
                       labels(first: 20) { nodes { name } }
@@ -133,64 +135,77 @@ jobs:
             exit 0
           fi
 
-          # Generate changelog sections using jq
-          # Automated PRs with "dependencies" label go to Dependencies section
-          # Other automated PRs (autorelease, invalid) are excluded
-          CHANGELOG=$(echo "$PRS" | jq -r --arg today "$TODAY" --arg now "$NOW" '
-            # Section mapping covers both semantic labels (from conventional commits)
-            # and component labels (from auto-labeler path matching).
-            # Priority: semantic type > component type > Other
-            def section_for_labels:
-              [.[] | .name] as $labels |
-              if ($labels | any(. == "breaking-change")) then "Breaking Changes"
-              elif ($labels | any(. == "feature" or . == "enhancement")) then "Features"
-              elif ($labels | any(. == "bug" or . == "bugfix")) then "Bug Fixes"
-              elif ($labels | any(. == "security")) then "Security"
-              elif ($labels | any(. == "performance")) then "Performance"
-              elif ($labels | any(. == "documentation")) then "Documentation"
-              elif ($labels | any(. == "ci" or . == "docker" or . == "k8s" or . == "build")) then "Infrastructure"
-              elif ($labels | any(. == "refactor")) then "Refactoring"
-              elif ($labels | any(. == "dependencies")) then "Dependencies"
-              elif ($labels | any(. == "tests")) then "Infrastructure"
-              elif ($labels | any(. == "api" or . == "component: api")) then "Features"
-              elif ($labels | any(. == "web" or . == "component: web")) then "Features"
-              elif ($labels | any(. == "component: mobile")) then "Features"
-              elif ($labels | any(. == "database")) then "Infrastructure"
-              elif ($labels | any(. == "chore")) then "Infrastructure"
-              else "Other"
-              end;
-
-            # Determine if PR should be excluded (but keep Dependencies)
+          # Generate changelog sections using config-driven two-dimensional categorization
+          # Scopes (where: API, Web, Mobile) x Types (what: feature, bugfix, breaking)
+          CONFIG=$(cat .github/changelog-pr-config.json)
+          CHANGELOG=$(echo "$PRS" | jq -r --arg today "$TODAY" --arg now "$NOW" --argjson config "$CONFIG" '
+            # Check if PR should be included
             def should_include:
               (.labels.nodes | [.[] | .name]) as $labels |
-              ($labels | any(. == "dependencies")) or
-              ($labels | any(. == "automated" or . == "autorelease: tagged" or . == "autorelease: pending" or . == "invalid") | not);
+              ($config.keepLabels as $keep | ($labels | any(. as $l | $keep | any(. == $l)))) or
+              ($config.excludeLabels as $excl | ($labels | all(. as $l | $excl | all(. != $l))));
 
-            # Filter, group, and format
+            # Find matching scope (first match wins, ordered by config)
+            def scope_for_pr:
+              (.labels.nodes | [.[] | .name]) as $labels |
+              ($config.scopes | map(select(.labels as $sl | ($labels | any(. as $l | $sl | any(. == $l)))))) |
+              if length > 0 then .[0]
+              else ($config.scopes | map(select(.name == "Uncategorized")) | .[0]) // {name: "Uncategorized", emoji: "❓", hasSubCategories: false}
+              end;
+
+            # Find matching sub-category (highest priority wins)
+            def subcategory_for_pr:
+              (.labels.nodes | [.[] | .name]) as $labels |
+              ($config.subCategories | sort_by(.priority) | map(select(.labels as $scl | ($labels | any(. as $l | $scl | any(. == $l)))))) |
+              if length > 0 then .[0]
+              else $config.defaultSubCategory
+              end;
+
+            # Format a single entry with linked author and PR
+            def format_entry:
+              (.author.login // "ghost") as $login |
+              "- \(.title) [@\($login)](https://github.com/\($login)) ([#\(.number)](\(.url)))";
+
+            # Filter included PRs
             [.[] | select(should_include)] |
             if length == 0 then empty
             else
-              group_by(.labels.nodes | section_for_labels) |
-              map({
-                section: (.[0].labels.nodes | section_for_labels),
-                entries: [.[] | "- \(.title) (#\(.number)) @\(.author.login)"]
-              }) |
+              # Annotate each PR with scope and subcategory
+              [.[] | . + {
+                _scope: scope_for_pr,
+                _subcat: subcategory_for_pr
+              }] |
+
+              # Group by scope name
+              group_by(._scope.name) |
+
+              # Sort groups by config order (index in scopes array)
               sort_by(
-                if .section == "Breaking Changes" then 0
-                elif .section == "Features" then 1
-                elif .section == "Bug Fixes" then 2
-                elif .section == "Security" then 3
-                elif .section == "Performance" then 4
-                elif .section == "Documentation" then 5
-                elif .section == "Infrastructure" then 6
-                elif .section == "Refactoring" then 7
-                elif .section == "Dependencies" then 8
-                else 9
+                .[0]._scope.name as $name |
+                ($config.scopes | to_entries | map(select(.value.name == $name)) | .[0].key) // 999
+              ) |
+
+              # Render each scope group
+              map(
+                .[0]._scope as $scope |
+                if $scope.hasSubCategories then
+                  # Group entries by subcategory within this scope
+                  group_by(._subcat.name) |
+                  sort_by(.[0]._subcat.priority) |
+                  map(
+                    .[0]._subcat as $subcat |
+                    "  - #### \($subcat.emoji) \($subcat.name)\n\n" +
+                    ([.[] | "    \(format_entry)"] | join("\n"))
+                  ) |
+                  "### \($scope.emoji) \($scope.name)\n\n" + join("\n\n")
+                else
+                  # Flat list (no subcategories)
+                  "### \($scope.emoji) \($scope.name)\n\n" +
+                  ([.[] | format_entry] | join("\n"))
                 end
               ) |
-              "## \($today)\n\n" +
-              (map("### \(.section)\n\n\(.entries | join("\n"))\n") | join("\n")) +
-              "\n<!-- changelog-cutoff:\($now) -->"
+
+              "## \($today)\n\n" + join("\n\n") + "\n\n<!-- changelog-cutoff:\($now) -->"
             end
           ')
 
