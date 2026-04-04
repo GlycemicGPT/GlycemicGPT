@@ -1,6 +1,6 @@
 {
   "name": "glycemicgpt-ai-sidecar",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "AI subscription proxy sidecar for GlycemicGPT",
   "type": "module",
