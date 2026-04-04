@@ -63,7 +63,9 @@ jobs:
           GH_TOKEN: ${{ steps.release-token.outputs.token }}
           RELEASE_DATE: ${{ steps.extract.outputs.date }}
         run: |
-          TAG="changelog-${RELEASE_DATE}"
+          SHORT_SHA="${{ github.sha }}"
+          SHORT_SHA="${SHORT_SHA:0:7}"
+          TAG="changelog-${RELEASE_DATE}-${SHORT_SHA}"
 
           # Check if release already exists
           if gh release view "$TAG" --repo "${{ github.repository }}" > /dev/null 2>&1; then

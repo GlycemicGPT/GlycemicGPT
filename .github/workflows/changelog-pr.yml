@@ -83,9 +83,10 @@ jobs:
           if [ -z "$UNTIL" ] || [ "$UNTIL" = "" ]; then
             UNTIL=$(git log -1 --format=%cI origin/main)
           fi
-          TODAY=$(echo "$UNTIL" | cut -dT -f1)
           # Normalize to UTC (validator at line 54 only accepts Z or + suffixes)
           NOW=$(date -u -d "$UNTIL" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "$UNTIL")
+          # Derive TODAY from normalized UTC timestamp to avoid midnight timezone mismatch
+          TODAY=$(echo "$NOW" | cut -dT -f1)
 
           echo "Collecting PRs merged to develop since $SINCE..."
 
