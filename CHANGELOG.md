@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-04-04
+
+### 🏗️ Infrastructure
+
+  - #### 🐛 Bug Fixes
+
+    - fix(ci): changelog CodeRabbit findings - tag collision, timezone, database scope [@jlengelbrecht](https://github.com/jlengelbrecht) ([#463](https://github.com/GlycemicGPT/GlycemicGPT/pull/463))
+
+  - #### 📝 Other Changes
+
+    - chore: sync changelog update from main to develop [@glycemicgpt-merge](https://github.com/glycemicgpt-merge) ([#462](https://github.com/GlycemicGPT/GlycemicGPT/pull/462))
+
+<!-- changelog-cutoff:2026-04-04T04:53:06Z -->
+
+
 ## 2026-04-03
 
 ### 🏗️ Infrastructure
