@@ -21,7 +21,7 @@
     {
       "name": "API",
       "emoji": "📡",
-      "labels": ["api", "component: api"],
+      "labels": ["api", "component: api", "database"],
       "hasSubCategories": true
     },
     {
