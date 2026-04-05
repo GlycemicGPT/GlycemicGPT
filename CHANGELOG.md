@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-04-05
+
+### 🏗️ Infrastructure
+
+#### 📝 Other Changes
+
+- chore: new slogan, align merge docs, fix changelog heading format [@jlengelbrecht](https://github.com/jlengelbrecht) ([#477](https://github.com/GlycemicGPT/GlycemicGPT/pull/477))
+
+<!-- changelog-cutoff:2026-04-05T06:16:36Z -->
+
+
 ## 2026-04-04
 
 ### 📱 Mobile
