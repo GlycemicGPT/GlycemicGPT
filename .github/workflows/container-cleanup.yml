@@ -20,7 +20,7 @@ jobs:
           package-type: container
           min-versions-to-keep: 10
           delete-only-untagged-versions: false
-          ignore-versions: '^(latest|dev|\\d+\\.\\d+\\.\\d+|\\d+\\.\\d+)$'
+          ignore-versions: '^(latest|dev|sha-.*|\\d+\\.\\d+\\.\\d+|\\d+\\.\\d+)$'
 
   cleanup-web:
     name: Cleanup Web Images
@@ -33,7 +33,7 @@ jobs:
           package-type: container
           min-versions-to-keep: 10
           delete-only-untagged-versions: false
-          ignore-versions: '^(latest|dev|\\d+\\.\\d+\\.\\d+|\\d+\\.\\d+)$'
+          ignore-versions: '^(latest|dev|sha-.*|\\d+\\.\\d+\\.\\d+|\\d+\\.\\d+)$'
 
   cleanup-sidecar:
     name: Cleanup Sidecar Images
@@ -46,18 +46,10 @@ jobs:
           package-type: container
           min-versions-to-keep: 10
           delete-only-untagged-versions: false
-          ignore-versions: '^(latest|dev|\\d+\\.\\d+\\.\\d+|\\d+\\.\\d+)$'
+          ignore-versions: '^(latest|dev|sha-.*|\\d+\\.\\d+\\.\\d+|\\d+\\.\\d+)$'
 
-  cleanup-untagged:
-    name: Cleanup Untagged Images
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        package: [glycemicgpt-api, glycemicgpt-web, glycemicgpt-sidecar]
-    steps:
-      - name: Delete untagged versions
-        uses: actions/delete-package-versions@v5
-        with:
-          package-name: ${{ matrix.package }}
-          package-type: container
-          delete-only-untagged-versions: true
+  # NOTE: Do NOT add a "cleanup untagged versions" job here.
+  # Multi-platform images (linux/amd64 + linux/arm64) store platform-specific
+  # manifests as UNTAGGED sub-versions in GHCR. Deleting these breaks all
+  # tagged images because the manifest list points to deleted content.
+  # The tagged cleanup above (min-versions-to-keep: 10) is sufficient.
