@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Open source AI-powered diabetes management platform.</strong><br/>
-  <em>Built by patients who got tired of waiting.</em>
+  <em>Because no one should manage diabetes alone.</em>
 </p>
 
 <p align="center">
@@ -25,7 +25,7 @@
 <p align="center">
   <a href="https://github.com/GlycemicGPT/GlycemicGPT/issues"><img src="https://img.shields.io/github/issues/GlycemicGPT/GlycemicGPT?style=for-the-badge&labelColor=1e293b&color=64748b&logo=github&logoColor=white" alt="Issues"></a>
   <a href="https://github.com/GlycemicGPT/GlycemicGPT/pulls"><img src="https://img.shields.io/github/issues-pr/GlycemicGPT/GlycemicGPT?style=for-the-badge&labelColor=1e293b&color=64748b&logo=github&logoColor=white&label=PRs" alt="Pull Requests"></a>
-  <a href="https://docs.renovatebot.com" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/Renovate-enabled-0ea5e9?style=for-the-badge&labelColor=1e293b&logo=renovate&logoColor=white" alt="Renovate"></a>
+  <a href="https://github.com/GlycemicGPT/GlycemicGPT/actions/workflows/renovate.yml"><img src="https://img.shields.io/github/actions/workflow/status/GlycemicGPT/GlycemicGPT/renovate.yml?branch=main&style=for-the-badge&labelColor=1e293b&label=Renovate&logo=renovate&logoColor=white" alt="Renovate"></a>
   <a href="https://www.coderabbit.ai" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/coderabbit/prs/github/GlycemicGPT/GlycemicGPT?style=for-the-badge&labelColor=1e293b&color=7c3aed&label=CodeRabbit+Reviews&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IndoaXRlIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI+PHBhdGggZD0iTTEzIDE2YTMgMyAwIDAgMSAyLjI0IDEiLz48cGF0aCBkPSJNMTggMTJoLjAxIi8+PHBhdGggZD0iTTE4IDIxaC04YTQgNCAwIDAgMS00LTQgNyA3IDAgMCAxIDctN2guMkw5LjYgNi40YTEuOTMgMS45MyAwIDEgMSAyLjgtMi44TDE1LjggN2guMmMzLjMgMCA2IDIuNyA2IDZ2MWEyIDIgMCAwIDEtMiAyaC0xYTMgMyAwIDAgMC0zIDMiLz48cGF0aCBkPSJNMjAgOC41NFY0YTIgMiAwIDEgMC00IDB2MyIvPjxwYXRoIGQ9Ik03LjYxMiAxMi41MjRhMyAzIDAgMSAwLTEuNiA0LjMiLz48L3N2Zz4=&logoColor=white" alt="CodeRabbit Reviews"></a>
 </p>
 

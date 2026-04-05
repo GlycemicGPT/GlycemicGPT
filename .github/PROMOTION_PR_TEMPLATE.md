@@ -1,7 +1,7 @@
 ## Promotion: develop -> main
 
-> **Merge with "Squash and merge".** The label-based changelog generates granular entries
-> from PR titles and contributor credits regardless of merge method.
+> **Merge with "Create a merge commit".** This maintains the ancestry link between
+> develop and main, preventing divergence on future promotions.
 
 ### Pre-merge checklist
 

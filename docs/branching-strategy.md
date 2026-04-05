@@ -17,7 +17,7 @@
 5. Repeat 1-4 for more features, test dev builds
 6. When ready for stable release: create promotion PR (develop -> main)
 7. CI runs on the promotion PR
-8. Squash-merge the promotion PR (single commit lands on main)
+8. Merge the promotion PR with "Create a merge commit" (maintains branch ancestry)
 9. (Automated) release-please creates version bump PR on main
 10. (Automated) glycemicgpt-merge auto-merges the version bump PR
 11. (Automated) GitHub Release created, signed APK uploaded, Docker images tagged with version + "latest"
@@ -44,7 +44,7 @@ gh pr create --base main --head develop \
   --body-file .github/PROMOTION_PR_TEMPLATE.md
 ```
 
-**Use "Squash and merge"** for all promotion PRs. This produces a single clean commit on main per promotion. Our label-based changelog (`changelog-pr.yml`) generates granular entries from PR titles, labels, and contributor credits regardless -- it reads from the PRs merged to develop, not from commits on main.
+**Use "Create a merge commit"** for all promotion PRs. This maintains the ancestry link between develop and main, preventing divergence and merge conflicts on future promotions. The label-based changelog (`changelog-pr.yml`) generates granular entries from PR titles, labels, and contributor credits regardless -- it reads from the PRs merged to develop, not from commits on main.
 
 After the promotion PR merges:
 - **changelog-pr.yml** detects the promotion and generates a changelog from PR labels

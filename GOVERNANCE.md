@@ -188,7 +188,7 @@ The repository enforces these protections via org-level rulesets that apply to a
 - All changes must go through a pull request
 - 1 required approving review from a code owner
 - Stale reviews dismissed on push (must re-approve after changes)
-- Rebase merge only (preserves commit history for changelog generation)
+- Merge commit for promotions, squash for hotfixes (merge commit maintains branch ancestry)
 - No force push, no deletion
 - Bypass: org admins + glycemicgpt-merge (for release-please version bumps and changelog PRs)
 

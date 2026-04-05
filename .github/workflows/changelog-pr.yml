@@ -195,8 +195,8 @@ jobs:
                   sort_by(.[0]._subcat.priority) |
                   map(
                     .[0]._subcat as $subcat |
-                    "  - #### \($subcat.emoji) \($subcat.name)\n\n" +
-                    ([.[] | "    \(format_entry)"] | join("\n"))
+                    "#### \($subcat.emoji) \($subcat.name)\n\n" +
+                    ([.[] | "\(format_entry)"] | join("\n"))
                   ) |
                   "### \($scope.emoji) \($scope.name)\n\n" + join("\n\n")
                 else
