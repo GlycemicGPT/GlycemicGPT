@@ -17,6 +17,14 @@ on:
         type: boolean
         default: false
 
+# When a fallback release pushes version file changes to main AND creates a
+# GitHub Release, both the push trigger (path match on package.json) and the
+# release trigger fire simultaneously. The concurrency group ensures only the
+# last-triggered build runs, avoiding duplicate container builds.
+concurrency:
+  group: container-build-${{ github.event_name }}-${{ github.event_name == 'release' && github.event.release.tag_name || github.ref_name }}
+  cancel-in-progress: true
+
 env:
   REGISTRY: ghcr.io
   IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/glycemicgpt
