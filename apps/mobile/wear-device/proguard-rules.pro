@@ -13,3 +13,19 @@
 
 # DWF Validator -- AAR ships no consumer ProGuard rules; keep public API + factory
 -keep class com.google.android.wearable.watchface.validator.client.** { *; }
+
+# TwelveMonkeys ImageIO (transitive via webpdecoder)
+# These reference javax.imageio SPI classes not available in Android SDK.
+-dontwarn javax.imageio.**
+-dontwarn com.twelvemonkeys.imageio.**
+-dontwarn com.twelvemonkeys.common.**
+
+# AutoValue annotation processor references (javax.lang.model is from tools.jar)
+-dontwarn javax.lang.model.**
+-dontwarn javax.annotation.processing.**
+
+# DOM/XML/XPath references from transitive dependencies
+-dontwarn org.w3c.dom.DOMImplementationSourceList
+-dontwarn org.xml.sax.driver
+-dontwarn org.eclipse.wst.**
+-dontwarn org.apache.xerces.**

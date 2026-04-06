@@ -41,6 +41,15 @@
 -keep class com.glycemicgpt.mobile.domain.pump.** { *; }
 -keep class com.glycemicgpt.mobile.domain.model.** { *; }
 
+# TwelveMonkeys ImageIO (transitive via webpdecoder)
+-dontwarn javax.imageio.**
+-dontwarn com.twelvemonkeys.imageio.**
+-dontwarn com.twelvemonkeys.common.**
+
+# AutoValue annotation processor references
+-dontwarn javax.lang.model.**
+-dontwarn javax.annotation.processing.**
+
 # Strip debug logs in release builds
 -assumenosideeffects class timber.log.Timber {
     public static void d(...);
