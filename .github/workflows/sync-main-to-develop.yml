@@ -132,8 +132,10 @@ jobs:
             # Version files: always take main's version (authoritative post-release)
             for f in .release-please-manifest.json apps/api/pyproject.toml \
                      apps/web/package.json sidecar/package.json \
-                     apps/mobile/app/build.gradle.kts CHANGELOG.md \
-                     .release-please-changelog.md; do
+                     apps/mobile/app/build.gradle.kts \
+                     apps/mobile/wear-device/build.gradle.kts \
+                     apps/mobile/watchface/build.gradle.kts \
+                     CHANGELOG.md .release-please-changelog.md; do
               if git diff --name-only --diff-filter=U 2>/dev/null | grep -q "^${f}$"; then
                 # Only overwrite if the file exists at the source commit
                 if git show "$COMMIT_SHA":"$f" > /dev/null 2>&1; then

@@ -19,7 +19,9 @@
         "apps/api/pyproject.toml",
         "apps/web/package.json",
         "sidecar/package.json",
-        "apps/mobile/app/build.gradle.kts"
+        "apps/mobile/app/build.gradle.kts",
+        "apps/mobile/wear-device/build.gradle.kts",
+        "apps/mobile/watchface/build.gradle.kts"
       ]
     }
   },

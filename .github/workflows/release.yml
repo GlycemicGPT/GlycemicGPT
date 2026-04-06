@@ -199,16 +199,23 @@ jobs:
           jq --arg v "$VERSION" '.version = $v' sidecar/package.json > /tmp/sidecar-pkg.json
           mv /tmp/sidecar-pkg.json sidecar/package.json
 
-          # 5. apps/mobile/app/build.gradle.kts
-          sed -i "s/val appVersionName = \"${CURRENT}\"/val appVersionName = \"${VERSION}\"/" \
-            apps/mobile/app/build.gradle.kts
+          # 5-7. apps/mobile/*/build.gradle.kts (app, wear-device, watchface)
+          for GRADLE_FILE in apps/mobile/app/build.gradle.kts \
+                            apps/mobile/wear-device/build.gradle.kts \
+                            apps/mobile/watchface/build.gradle.kts; do
+            sed -i "s/val appVersionName = \"${CURRENT}\"/val appVersionName = \"${VERSION}\"/" "$GRADLE_FILE"
+          done
 
           # Verify all files were updated
           grep -q "\"${VERSION}\"" .release-please-manifest.json || { echo "::error::Manifest not updated"; exit 1; }
           grep -q "^version = \"${VERSION}\"" apps/api/pyproject.toml || { echo "::error::pyproject.toml not updated"; exit 1; }
           grep -q "\"version\": \"${VERSION}\"" apps/web/package.json || { echo "::error::web package.json not updated"; exit 1; }
           grep -q "\"version\": \"${VERSION}\"" sidecar/package.json || { echo "::error::sidecar package.json not updated"; exit 1; }
-          grep -q "val appVersionName = \"${VERSION}\"" apps/mobile/app/build.gradle.kts || { echo "::error::build.gradle.kts not updated"; exit 1; }
+          for GRADLE_FILE in apps/mobile/app/build.gradle.kts \
+                            apps/mobile/wear-device/build.gradle.kts \
+                            apps/mobile/watchface/build.gradle.kts; do
+            grep -q "val appVersionName = \"${VERSION}\"" "$GRADLE_FILE" || { echo "::error::$GRADLE_FILE not updated"; exit 1; }
+          done
 
       - name: Update release-please changelog
         if: steps.bump.outputs.already_exists != 'true'
@@ -244,7 +251,9 @@ jobs:
             apps/api/pyproject.toml \
             apps/web/package.json \
             sidecar/package.json \
-            apps/mobile/app/build.gradle.kts
+            apps/mobile/app/build.gradle.kts \
+            apps/mobile/wear-device/build.gradle.kts \
+            apps/mobile/watchface/build.gradle.kts
 
           git commit -m "chore: release ${VERSION}"
 
@@ -361,6 +370,16 @@ jobs:
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
 
+      - name: Build watchface release APKs
+        id: watchface-build
+        continue-on-error: true
+        working-directory: apps/mobile
+        run: ./gradlew :watchface:assembleRelease
+        env:
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+
       - name: Rename APKs with version
         run: |
           VERSION="${{ steps.version-info.outputs.version }}"
@@ -375,13 +394,30 @@ jobs:
             exit 1
           fi
 
-          # Wear APK (optional -- R8 minification may fail)
+          # Wear APK (optional)
           WEAR_APK=$(find apps/mobile/wear-device/build/outputs/apk/release -name "*.apk" 2>/dev/null | head -1)
           if [ -n "$WEAR_APK" ]; then
             cp "$WEAR_APK" "GlycemicGPT-Wear-${VERSION}-release.apk"
             echo "Wear APK: GlycemicGPT-Wear-${VERSION}-release.apk"
           else
-            echo "::warning::Wear APK not found (R8 minification may have failed). Phone APK will still be uploaded."
+            echo "::warning::Wear APK not found. Phone APK will still be uploaded."
+          fi
+
+          # Watchface APKs (optional -- multiple flavors)
+          DIGITAL_APK=$(find apps/mobile/watchface/build/outputs/apk/digitalFull/release -name "*.apk" 2>/dev/null | head -1)
+          if [ -n "$DIGITAL_APK" ]; then
+            cp "$DIGITAL_APK" "GlycemicGPT-WatchFace-Digital-${VERSION}-release.apk"
+            echo "Digital watchface: GlycemicGPT-WatchFace-Digital-${VERSION}-release.apk"
+          else
+            echo "::warning::Digital watchface APK not found."
+          fi
+
+          ANALOG_APK=$(find apps/mobile/watchface/build/outputs/apk/analogMechanical/release -name "*.apk" 2>/dev/null | head -1)
+          if [ -n "$ANALOG_APK" ]; then
+            cp "$ANALOG_APK" "GlycemicGPT-WatchFace-Analog-${VERSION}-release.apk"
+            echo "Analog watchface: GlycemicGPT-WatchFace-Analog-${VERSION}-release.apk"
+          else
+            echo "::warning::Analog watchface APK not found."
           fi
 
       - name: Generate token for glycemicgpt-release
