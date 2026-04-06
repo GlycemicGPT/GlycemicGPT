@@ -2,6 +2,36 @@
 
 ## 2026-04-06
 
+### 📱 Mobile
+
+#### 🐛 Bug Fixes
+
+- fix(mobile): add R8 keep rules for wear release APK build [@jlengelbrecht](https://github.com/jlengelbrecht) ([#496](https://github.com/GlycemicGPT/GlycemicGPT/pull/496))
+
+#### 📝 Other Changes
+
+- chore: sync release 0.3.2 from main to develop [@glycemicgpt-merge](https://github.com/glycemicgpt-merge) ([#495](https://github.com/GlycemicGPT/GlycemicGPT/pull/495))
+- chore: sync release 0.3.1 from main to develop [@glycemicgpt-merge](https://github.com/glycemicgpt-merge) ([#490](https://github.com/GlycemicGPT/GlycemicGPT/pull/490))
+
+### 🏗️ Infrastructure
+
+#### 🐛 Bug Fixes
+
+- fix(ci): gate fallback release on deployable code changes [@jlengelbrecht](https://github.com/jlengelbrecht) ([#492](https://github.com/GlycemicGPT/GlycemicGPT/pull/492))
+
+#### 📝 Other Changes
+
+- chore: sync changelog update from main to develop [@glycemicgpt-merge](https://github.com/glycemicgpt-merge) ([#489](https://github.com/GlycemicGPT/GlycemicGPT/pull/489))
+
+### 📚 Documentation
+
+- fix: CodeRabbit badge showing provider not found [@jlengelbrecht](https://github.com/jlengelbrecht) ([#491](https://github.com/GlycemicGPT/GlycemicGPT/pull/491))
+
+<!-- changelog-cutoff:2026-04-06T06:07:10Z -->
+
+
+## 2026-04-06
+
 ### 🏗️ Infrastructure
 
 #### 🐛 Bug Fixes
