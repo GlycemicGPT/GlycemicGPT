@@ -25,19 +25,22 @@ Commit types in this promotion determine the version bump:
 | `fix:` | PATCH (0.3.0 -> 0.3.1) | Bug fix, CI fix (`fix(ci): ...`) |
 | `feat:` | MINOR (0.3.0 -> 0.4.0) | New user-facing feature |
 | `feat!:` / `BREAKING CHANGE:` | MINOR (while pre-1.0; MAJOR after 1.0) | Breaking API change |
-| `chore:`, `ci:`, `docs:`, etc. | Fallback PATCH | Non-user-facing (auto patch) |
+| `chore:`, `ci:`, `docs:`, etc. | Fallback PATCH (if deployable code changed) | Non-user-facing |
 
-If all commits are non-releasable types (`chore:`, `ci:`, `docs:`, `test:`, `style:`, `build:`),
-the release workflow automatically creates a patch release. Every promotion produces a versioned
-release -- no manual intervention required.
+If all commits are non-releasable types but **deployable code paths changed** (`apps/api/`, `apps/web/`,
+`apps/mobile/`, `sidecar/`, `plugins/`, `docker-compose*`, `Dockerfile*`), a fallback patch release
+is created automatically.
+If only docs/governance/CI files changed, **no release is created** -- no version bump, no container
+builds, no APKs. This avoids unnecessary noise for downstream users.
 
 ### Post-merge steps
 
-1. Release-please analyzes commits and either:
-   - Creates a version bump PR (if `feat:`/`fix:` commits exist) -- glycemicgpt-merge auto-merges it
-   - Does nothing (if only `chore:`/`ci:`/`docs:` commits) -- the fallback job creates a patch release automatically
-2. Verify stable container images are published with new version tag
-3. Verify signed release APK is uploaded to the GitHub release
-4. Version sync happens automatically -- the `sync-main-to-develop` workflow
-   cherry-picks the version bump back to develop via PR. Verify it completed
+1. Release-please analyzes commits and one of three outcomes occurs:
+   - **Code + releasable commits**: Release-please creates a version bump PR -- glycemicgpt-merge auto-merges it
+   - **Code + non-releasable commits only**: The fallback job detects deployable changes and creates a patch release automatically
+   - **Docs/governance only (no deployable code)**: No release is created -- no version bump, no container builds, no APKs
+2. If a release was created: verify stable container images are published with new version tag
+3. If a release was created: verify signed release APK is uploaded to the GitHub release
+4. Version sync happens automatically (only when a release is created) -- the `sync-main-to-develop`
+   workflow cherry-picks the version bump back to develop via PR. Verify it completed
    in the [Actions tab](../../actions/workflows/sync-main-to-develop.yml).

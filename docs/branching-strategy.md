@@ -83,15 +83,18 @@ GlycemicGPT uses [Conventional Commits](https://www.conventionalcommits.org/) wi
 1. Developers use conventional commit prefixes on PRs merged to `develop`
 2. On promotion (develop -> main), release-please analyzes commits since the last release
 3. The highest-priority commit type determines the bump: `feat!:` > `feat:` > `fix:`
-4. If no releasable commits exist (only `chore:`/`ci:`/`docs:`/etc.), a **fallback patch release** is created automatically
+4. If no releasable commits exist (only `chore:`/`ci:`/`docs:`/etc.) but deployable code changed, a **fallback patch release** is created automatically
+5. If no releasable commits exist AND no deployable code changed (doc-only promotion), **no release is created** -- no version bump, no container builds, no APKs
 
-Every promotion to main produces a versioned release. This ensures container images are always tagged with semver versions for Renovate-managed deployments.
+Promotions with deployable code changes always produce a versioned release. Doc-only promotions (README, GOVERNANCE, CODEOWNERS, docs/) do not create releases, avoiding unnecessary noise for downstream Renovate users.
+
+**Deployable paths:** `apps/api/`, `apps/web/`, `apps/mobile/`, `sidecar/`, `plugins/`, `docker-compose*`, `Dockerfile*`. Changes outside these paths (docs, governance, CI workflows, assets) do not trigger releases.
 
 ### Choosing the right commit type
 
 - **`feat:`** -- use only for new user-facing functionality. A CI improvement is NOT a feature.
 - **`fix:`** -- use for bug fixes in any area, including CI/infrastructure (`fix(ci): ...`).
-- **`chore:`/`ci:`/`docs:`** -- use for non-user-facing changes. These still produce a patch release via the fallback mechanism.
+- **`chore:`/`ci:`/`docs:`** -- use for non-user-facing changes. These produce a patch release only if deployable code paths are affected.
 
 ## Release Channels
 

@@ -66,18 +66,61 @@ jobs:
             echo "No PR number found"
           fi
 
-  # Fallback: when a promotion merge has no releasable conventional commits
-  # (only chore/ci/docs/test), release-please skips. This job creates a
-  # patch release so every promotion produces versioned container images
-  # for Renovate-managed k8s deployments.
-  fallback-release:
-    name: Fallback Patch Release
+  # Detect whether the promotion contains changes to deployable code paths.
+  # Doc-only promotions (README, GOVERNANCE, CODEOWNERS, docs/) should NOT
+  # trigger versioned releases, container builds, or APK builds.
+  detect-deployable-changes:
+    name: Check for Deployable Changes
     runs-on: ubuntu-latest
     needs: release-please
     if: >-
       needs.release-please.outputs.release_created != 'true' &&
       needs.release-please.outputs.pr == '' &&
       contains(github.event.head_commit.message, 'promote develop to main')
+    outputs:
+      has_deployable_changes: ${{ steps.check.outputs.has_deployable_changes }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect deployable file changes
+        id: check
+        env:
+          MERGE_SHA: ${{ github.sha }}
+        run: |
+          # Compare promotion merge to its first parent (main before merge)
+          CHANGED=$(git diff --name-only "${MERGE_SHA}^1" "$MERGE_SHA")
+          echo "Changed files in promotion:"
+          printf '%s\n' "$CHANGED"
+
+          # Deployable paths: application code, containers, plugins
+          PATTERN='^(apps/api/|apps/web/|apps/mobile/|sidecar/|plugins/|docker-compose|Dockerfile)'
+          MATCHED=$(printf '%s\n' "$CHANGED" | grep -E "$PATTERN" || true)
+
+          if [ -n "$MATCHED" ]; then
+            echo "has_deployable_changes=true" >> "$GITHUB_OUTPUT"
+            echo "Deployable files that triggered release:"
+            printf '%s\n' "$MATCHED"
+          else
+            echo "has_deployable_changes=false" >> "$GITHUB_OUTPUT"
+            echo "No deployable changes -- skipping fallback release"
+          fi
+
+  # Fallback: when a promotion merge has no releasable conventional commits
+  # (only chore/ci/docs/test) BUT contains deployable code changes,
+  # release-please skips. This job creates a patch release so every
+  # code-changing promotion produces versioned container images for
+  # Renovate-managed k8s deployments.
+  fallback-release:
+    name: Fallback Patch Release
+    runs-on: ubuntu-latest
+    needs: [release-please, detect-deployable-changes]
+    if: >-
+      needs.release-please.outputs.release_created != 'true' &&
+      needs.release-please.outputs.pr == '' &&
+      contains(github.event.head_commit.message, 'promote develop to main') &&
+      needs.detect-deployable-changes.outputs.has_deployable_changes == 'true'
     outputs:
       release_created: ${{ steps.create-release.outputs.release_created || steps.existing-release.outputs.release_created }}
       tag_name: ${{ steps.bump.outputs.tag_name }}
