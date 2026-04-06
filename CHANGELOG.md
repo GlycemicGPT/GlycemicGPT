@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-04-06
+
+### 🏗️ Infrastructure
+
+#### 🐛 Bug Fixes
+
+- fix: close CODEOWNERS self-review loophole, align with governance [@jlengelbrecht](https://github.com/jlengelbrecht) ([#485](https://github.com/GlycemicGPT/GlycemicGPT/pull/485))
+- fix(ci): idempotent fallback release on workflow rerun [@jlengelbrecht](https://github.com/jlengelbrecht) ([#484](https://github.com/GlycemicGPT/GlycemicGPT/pull/484))
+- fix(ci): smart versioning with fallback patch release for every promotion [@jlengelbrecht](https://github.com/jlengelbrecht) ([#481](https://github.com/GlycemicGPT/GlycemicGPT/pull/481))
+
+#### 📝 Other Changes
+
+- chore: sync changelog update from main to develop [@glycemicgpt-merge](https://github.com/glycemicgpt-merge) ([#480](https://github.com/GlycemicGPT/GlycemicGPT/pull/480))
+
+<!-- changelog-cutoff:2026-04-06T01:13:52Z -->
+
+
 ## 2026-04-05
 
 ### 🏗️ Infrastructure
