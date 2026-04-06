@@ -67,6 +67,32 @@ Verify the sync completed in the [Actions tab](../../actions/workflows/sync-main
 
 > **Note:** Develop has deletion protection in its branch ruleset, so it is NOT auto-deleted after promotion merges despite the repo-level "auto-delete head branches" setting.
 
+## Versioning
+
+GlycemicGPT uses [Conventional Commits](https://www.conventionalcommits.org/) with release-please for automated semantic versioning. The commit types in a promotion determine the version bump:
+
+| Commit prefix | Version bump | When to use |
+|---------------|-------------|-------------|
+| `fix:` | PATCH (0.3.0 -> 0.3.1) | Bug fixes, CI fixes (`fix(ci): ...`), corrections |
+| `feat:` | MINOR (0.3.0 -> 0.4.0) | New user-facing features or capabilities |
+| `feat!:` / `BREAKING CHANGE:` | MINOR (while pre-1.0; MAJOR after 1.0) | Breaking API or behavior changes |
+| `chore:`, `ci:`, `docs:`, `test:`, `style:`, `build:` | Fallback PATCH | Non-user-facing work |
+
+### How it works
+
+1. Developers use conventional commit prefixes on PRs merged to `develop`
+2. On promotion (develop -> main), release-please analyzes commits since the last release
+3. The highest-priority commit type determines the bump: `feat!:` > `feat:` > `fix:`
+4. If no releasable commits exist (only `chore:`/`ci:`/`docs:`/etc.), a **fallback patch release** is created automatically
+
+Every promotion to main produces a versioned release. This ensures container images are always tagged with semver versions for Renovate-managed deployments.
+
+### Choosing the right commit type
+
+- **`feat:`** -- use only for new user-facing functionality. A CI improvement is NOT a feature.
+- **`fix:`** -- use for bug fixes in any area, including CI/infrastructure (`fix(ci): ...`).
+- **`chore:`/`ci:`/`docs:`** -- use for non-user-facing changes. These still produce a patch release via the fallback mechanism.
+
 ## Release Channels
 
 ### Stable (main)

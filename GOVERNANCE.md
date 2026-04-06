@@ -198,7 +198,7 @@ The repository enforces these protections via org-level rulesets that apply to a
 - Squash merge only
 - 10 required status checks (CI, security scan, linting, etc.)
 - No force push, no deletion
-- Bypass: org admins + glycemicgpt-renovate (for automated dependency updates)
+- Bypass: org admins + glycemicgpt-merge (for automated sync PRs). glycemicgpt-renovate bypass pending manual ruleset update.
 
 ### Why project lead approval is required on `main`
 
@@ -214,7 +214,9 @@ This is not bureaucracy -- it's the checkpoint between "code that works" and "co
 
 Code owners are defined in [`.github/CODEOWNERS`](.github/CODEOWNERS). When a PR touches files owned by a specific team or person, GitHub automatically requests their review.
 
-The `@GlycemicGPT/maintainers` team owns all files by default. Governance files, security infrastructure, and release configuration are owned by the project lead individually -- this ensures these critical files cannot be changed without the project lead's explicit approval, even if the maintainers team grows.
+The `@GlycemicGPT/maintainers` team owns all files by default. Governance files, security infrastructure, and release configuration list the project lead individually alongside the maintainers team. The project lead's individual listing ensures they are always explicitly requested as a reviewer on external PRs. The team co-listing ensures review is still requested when the project lead authors the PR -- GitHub skips review requests for sole code owners who are also the PR author, so the team serves as a fallback to maintain audit trail.
+
+> **Note:** CODEOWNERS controls who is *requested* for review, not who *must* approve. The requirement that the project lead personally reviews governance, security, and release changes is enforced by process (this document), not by GitHub's code owner mechanism. Any code owner approval satisfies the branch protection check.
 
 As the project grows, component-specific committer teams will be added:
 
