@@ -626,8 +626,8 @@ class TestAIClientFactory:
 
         assert client.model == "claude-opus-4-6"
 
-    async def test_factory_uses_placeholder_key_when_encrypted_api_key_is_none(self):
-        """Test factory uses 'sidecar-managed' placeholder when encrypted_api_key is None."""
+    async def test_factory_uses_sidecar_api_key_when_encrypted_api_key_is_none(self):
+        """Test factory uses sidecar API key when encrypted_api_key is None."""
         from src.services.ai_client import get_ai_client
 
         mock_user = SimpleNamespace(id=uuid.uuid4())
@@ -643,10 +643,13 @@ class TestAIClientFactory:
         mock_result.scalar_one_or_none.return_value = mock_config
         mock_db.execute.return_value = mock_result
 
-        client = await get_ai_client(mock_user, mock_db)
+        with patch("src.services.ai_client.settings") as mock_settings:
+            mock_settings.ai_sidecar_api_key = "test-sidecar-key"
+            mock_settings.ai_sidecar_url = "http://ai-sidecar:3456"
+            client = await get_ai_client(mock_user, mock_db)
 
         assert isinstance(client, OpenAIClient)
-        assert client._api_key == "sidecar-managed"
+        assert client._api_key == "test-sidecar-key"
         assert client._base_url == "http://ai-sidecar:3456/v1"
 
     async def test_factory_auto_routes_subscription_through_sidecar(self):
@@ -668,11 +671,12 @@ class TestAIClientFactory:
 
         with patch("src.services.ai_client.settings") as mock_settings:
             mock_settings.ai_sidecar_url = "http://ai-sidecar:3456"
+            mock_settings.ai_sidecar_api_key = "test-sidecar-key"
             client = await get_ai_client(mock_user, mock_db)
 
         assert isinstance(client, OpenAIClient)
         assert client._base_url == "http://ai-sidecar:3456/v1"
-        assert client._api_key == "sidecar-managed"
+        assert client._api_key == "test-sidecar-key"
 
     async def test_factory_preserves_explicit_base_url_for_subscription(self):
         """Test factory uses explicit base_url when set, even for subscription types."""
