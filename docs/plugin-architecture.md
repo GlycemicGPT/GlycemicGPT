@@ -265,7 +265,6 @@ Plugins declare their capabilities as a `Set<PluginCapability>`. The platform us
 | `GLUCOSE_SOURCE` | `GlucoseSource` | Max 1 active | CGM/glucose readings (CGMs, pumps with CGM stream) |
 | `INSULIN_SOURCE` | `InsulinSource` | Max 1 active | IoB, basal rate, bolus history (read-only) |
 | `PUMP_STATUS` | `PumpStatus` | Max 1 active | Battery, reservoir, hardware info, history logs (read-only) |
-| `PUMP_CONTROL` | *(deferred)* | Max 1 active | Insulin delivery (future, build-from-source only) |
 | `BGM_SOURCE` | `BgmSource` | Multiple allowed | Fingerstick blood glucose readings |
 | `CALIBRATION_TARGET` | `CalibrationTarget` | Max 1 active | Accepts calibration from BGM readings |
 | `DATA_SYNC` | *(not yet defined)* | Multiple allowed | Syncs data to external services (Nightscout, Tidepool). No capability interface exists yet -- this capability is reserved for future use and is not currently implementable. |
@@ -466,7 +465,7 @@ context.eventBus.subscribe<PluginEvent.NewBgmReading>()
 |-------|-------------|---------|
 | `NewGlucoseReading` | Glucose source plugins | New CGM reading available |
 | `NewBgmReading` | BGM source plugins | New fingerstick reading available |
-| `InsulinDelivered` | Insulin source plugins | Bolus delivery event |
+| `InsulinDelivered` | Insulin source plugins | Bolus delivery observed on pump (read from history) |
 | `DeviceConnected` | Device plugins | Hardware connected |
 | `DeviceDisconnected` | Device plugins | Hardware disconnected |
 | `CalibrationRequested` | BGM plugins | Requesting CGM calibration (value validated: 20..500) |
@@ -557,17 +556,13 @@ User-configured limits (from the backend) narrow these ranges but can never wide
 - **Pass limits to extraction methods**: `extractCgmFromHistoryLogs()`, `extractBolusesFromHistoryLogs()`, and `extractBasalFromHistoryLogs()` all receive `SafetyLimits` as a parameter.
 - **Do not publish `SafetyLimitsChanged`**: This is a platform-only event.
 
-### PUMP_CONTROL Capability
+### Read-Only Capability Set
 
-The `PUMP_CONTROL` capability is defined in the enum but **deferred** -- no control features exist in the app. Pump control plugins are handled differently from monitoring plugins:
+The capability enum is intentionally limited to data-collection and device-management capabilities. The SDK does **not** expose insulin delivery primitives -- no bolus dosing, no basal rate changes, no therapeutic write surface -- and AI workflows have no architectural path to such a surface. Device-management commands that exist on the SDK (`CalibrationTarget.calibrate()`, `PumpStatus.unpair()`, `PumpStatus.autoReconnectIfPaired()`, `DevicePlugin.connect()` / `disconnect()`) are session and lifecycle operations, not therapy.
 
-- **Never compiled by CI/CD** -- pump control source code lives in the repo as reference implementations only, not as Gradle modules
-- **Never shipped in pre-built APKs** -- no GitHub Release artifact will ever contain a pump control plugin
-- **User-built only** -- end users who want pump control must compile the plugin themselves and load it via the app's custom plugin loader. By doing so, they accept manufacturer responsibility (see [MEDICAL-DISCLAIMER.md](../MEDICAL-DISCLAIMER.md))
-- Must use platform `SafetyLimits` (max bolus, max basal, glucose range) -- these cannot be bypassed
-- Must require explicit user confirmation with biometric authentication for every delivery command
+Runtime-loaded plugins are sandboxed via `RestrictedPluginContext`, which is the current architectural restriction. Capability enforcement at the plugin registry boundary -- where the platform actively refuses to load plugins declaring capabilities outside the official enum -- is planned as additional defense-in-depth; see [ROADMAP.md](../ROADMAP.md) §Phase 1.
 
-See [CONTRIBUTING.md](../CONTRIBUTING.md#device-control-plugins) for the full contribution model.
+See [CONTRIBUTING.md](../CONTRIBUTING.md#device-data-drivers) for the contribution model.
 
 ---
 

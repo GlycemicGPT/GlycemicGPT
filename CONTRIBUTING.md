@@ -15,53 +15,26 @@ Before writing any code, please understand these non-negotiable rules:
 - 🏷️ **All** AI-generated outputs must be clearly labeled as **suggestions, not medical advice**
 - 💉 Insulin dosing recommendations must **always** include safety disclaimers
 - 🧪 Test thoroughly -- a wrong number on a glucose chart is not just a UI bug, it's a safety issue
-- 🔒 Safety limits (glucose range, max bolus, max basal) are enforced by the platform via `SafetyLimits` (backend-synced, user-configurable). Plugins must respect these as read-only constraints -- see the [Plugin Architecture Guide](docs/plugin-architecture.md).
-- 🚫 **No unsupervised device control** -- see below
+- 🔒 Safety limits (glucose range, max bolus, max basal) are enforced by the platform via `SafetyLimits` (backend-synced, user-configurable). These limits validate incoming pump and CGM history values; when a reading falls outside the limits, plugins must discard it (do not return, emit, or persist it) and log the rejection with the violated limit -- see the [Plugin Architecture Guide](docs/plugin-architecture.md).
+- 🚫 **No device control** -- GlycemicGPT is a monitoring and analysis platform
 
-### Device Control Plugins
+### Device Data Drivers
 
-GlycemicGPT is a **monitoring-only platform** in all pre-built releases. It reads data from pumps and CGMs but does not send commands to them. No pre-built APK distributed via GitHub Releases will ever include a plugin capable of insulin delivery.
+GlycemicGPT is a monitoring and analysis platform. The plugin SDK exists for one purpose: **community-built device data drivers that read from new hardware**. Pumps, CGMs, BGMs, and other diabetes devices all have proprietary protocols, and a plugin SDK is the only realistic way to support the long tail of devices the community uses. Plugins read glucose values, insulin-on-board, basal rates, bolus history, and pump status. They do not control devices.
 
-That said, we recognize that some pumps -- like the Tandem Mobi and Omnipod -- have no physical screen and **require** an app to deliver insulin. A monitoring-only platform cannot fully support these devices. We welcome contributions that help the community use GlycemicGPT with screenless pumps, but there is a hard line between what we ship and what users build for themselves.
+**The project does not provide, distribute, document, or solicit plugins that expose any therapeutic write or control surface -- no bolus dosing, no basal rate changes, no pump-setting modifications.** This applies to every official build (Docker images, APKs, App Store / Play Store releases) and to every contribution merged into this repository. Pull requests that introduce therapeutic write primitives will not be merged. Non-therapeutic device-management operations that already exist in the SDK (CGM calibration, BLE pair/unpair, connect/disconnect) are session and lifecycle operations -- not therapy -- and remain permitted.
 
-**How we handle this -- two contribution tiers:**
+**Forks are not endorsed.** Forks of this project that add device control capabilities operate outside the GlycemicGPT project. The maintainers do not review them, recommend them, accept liability for them, or accept contributions to this repository whose intent is to enable them. Users who choose to run such forks become the manufacturer of their own personal medical device, consistent with the legal posture of Loop, AndroidAPS, and other DIY diabetes projects -- see [MEDICAL-DISCLAIMER.md](MEDICAL-DISCLAIMER.md).
 
-| Tier | What | Shipped in releases? | Example |
-|------|------|---------------------|---------|
-| **Monitoring plugins** | Read data from devices (glucose, pump status, history) | Yes -- compiled by CI, included in APKs | Tandem reader, Dexcom G7 |
-| **Reference implementations** | Source code demonstrating pump control patterns | **Never** -- not compiled, not in any build artifact | Tandem Mobi delivery example |
+**Platform safety enforcement.** The plugin SDK has no insulin delivery primitives -- there is no API on any capability interface for issuing a bolus, modifying basal rates, or otherwise writing therapeutic state to a pump. The AI layer has no architectural path to such a write surface. Device-management commands that *do* exist in the SDK (CGM calibration, BLE pair/unpair, connect/disconnect) are session/lifecycle operations, not therapy. Runtime-loaded plugins are sandboxed via `RestrictedPluginContext`, which is the current architectural restriction. The plugin registry will additionally be hardened to refuse loading any plugin declaring a capability outside the official enum; see [ROADMAP.md](ROADMAP.md) §Phase 1. Safety constraints (glucose range, max bolus, max basal) are platform-defined and backend-synced; plugins use them to drop implausible readings and cannot bypass them.
 
-**Monitoring plugins** follow the standard contribution flow: submit a PR with a new Gradle module, it gets reviewed, merged, and shipped in the next release.
+**Contributing a data driver:**
 
-**Pump control reference implementations** are different. They live in the repo as source code (under `plugins/reference/`) but are **not** Gradle modules, **not** in `settings.gradle.kts`, and **never** compiled by our CI/CD pipeline. They exist purely as working examples that demonstrate how to build a pump control plugin against the plugin SDK (`:pump-driver-api`).
-
-**If a user wants to use a pump control plugin, they must build it themselves:**
-
-1. Study the reference implementation source code in the repo
-2. Create their own project, depending on the published plugin SDK
-3. Compile the plugin in their own development environment (Android Studio on their machine)
-4. Load the resulting plugin into GlycemicGPT via the app's custom plugin loader
-
-By building and loading a pump control plugin, the user accepts full responsibility as the "manufacturer" of their personal build. This is the same model used by AndroidAPS, Loop, and other open-source diabetes projects. See [MEDICAL-DISCLAIMER.md](MEDICAL-DISCLAIMER.md) for the complete legal framework.
-
-**The platform protects users regardless.** Whether a plugin is shipped or user-built, the platform enforces safety limits that cannot be bypassed:
-
-- Maximum single bolus cap and maximum daily insulin cap
-- Glucose range validation (values outside bounds are rejected)
-- Maximum basal rate limits
-- Explicit user confirmation required for every delivery command
-- Biometric authentication (fingerprint or face ID) before any insulin action
-
-AI-powered features (analysis, suggestions, pattern recognition) can integrate with pump control plugins -- the platform's safety layer applies equally to AI-informed and manual workflows. The guardrails are in the platform, not in blanket prohibitions.
-
-**Non-negotiable rules for pump control reference implementations:**
-
-- Must use the platform's `SafetyLimits` -- hardcoded bypass of safety limits will not be merged
-- Must require explicit user confirmation for every delivery command
-- Must never be wired into the app's build system (no Gradle module, no CI compilation)
-- Must include clear documentation that the user assumes manufacturer responsibility
-
-PRs that violate these safety principles will not be merged regardless of code quality.
+1. Pick a device that isn't already supported (see the [Plugin Architecture Guide](docs/plugin-architecture.md) for the capability matrix)
+2. Open an issue describing the device, the protocol you intend to use, and the data you'll surface
+3. Submit a PR with a new Gradle module under `plugins/shipped/<device-name>/` (these modules are compiled into official builds), declaring only capabilities from the official read-only enum. For device data drivers the relevant capabilities are typically `GLUCOSE_SOURCE`, `INSULIN_SOURCE`, `PUMP_STATUS`, `BGM_SOURCE`, `CALIBRATION_TARGET`, and/or `BOLUS_CATEGORY_PROVIDER`. The `DATA_SYNC` capability is reserved for future external-sync integrations (Nightscout, Tidepool); its interface is not yet defined and it is not currently implementable
+4. Include unit tests, especially for parsing and `SafetyLimits` validation of incoming values
+5. Existing plugins (`:tandem-pump-driver`, under `plugins/shipped/tandem/`) serve as the reference implementation. Runtime-loaded plugins (under `plugins/example/`) are a separate, advanced contribution path -- they are not compiled into official builds and run with `RestrictedPluginContext`
 
 ---
 

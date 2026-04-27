@@ -14,9 +14,6 @@ enum class PluginCapability {
     /** Provides battery, reservoir, hardware info (read-only). Max 1 active. */
     PUMP_STATUS,
 
-    /** Insulin delivery (future, build-from-source only). Max 1 active. */
-    PUMP_CONTROL,
-
     /** Provides fingerstick blood glucose readings. Multiple allowed. */
     BGM_SOURCE,
 
@@ -36,7 +33,6 @@ enum class PluginCapability {
             GLUCOSE_SOURCE,
             INSULIN_SOURCE,
             PUMP_STATUS,
-            PUMP_CONTROL,
             CALIBRATION_TARGET,
             BOLUS_CATEGORY_PROVIDER,
         )
