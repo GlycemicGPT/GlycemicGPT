@@ -1,6 +1,6 @@
 # GlycemicGPT Project Roadmap
 
-*Last updated: April 2026*
+*Phases below are sequenced, not scheduled. Development moves at the pace of the community and the project's small maintainer team; we don't commit to dates.*
 
 This roadmap reflects the strategic direction of GlycemicGPT. It is a living document that evolves based on community feedback, contributor availability, and the needs of the diabetes community. If you want to help shape the direction of this project, [open an issue](https://github.com/GlycemicGPT/GlycemicGPT/issues), [join our Discord](https://discord.gg/TJKzjsts), or contribute directly via our [Contributing Guide](CONTRIBUTING.md).
 
@@ -44,7 +44,7 @@ The core platform is live, functional, and in daily use by the project maintaine
 
 ---
 
-## Phase 1 -- Stability & Trust (Q2--Q3 2026)
+## Phase 1 -- Stability & Trust
 
 **Focus:** Harden the platform, build community confidence, and establish legal and organizational foundations.
 
@@ -82,7 +82,7 @@ Phase 1 hardens the platform's monitoring-only stance at the plugin loading boun
 
 ---
 
-## Phase 2 -- Ecosystem Integration (Q3--Q4 2026)
+## Phase 2 -- Ecosystem Integration
 
 **Focus:** Meet users where they are. Integrate with the platforms the diabetes community already uses so they don't have to change their existing setup.
 
@@ -112,7 +112,7 @@ These integrations follow a no-touch philosophy: GlycemicGPT reads data from you
 
 ---
 
-## Phase 3 -- Mobile Expansion (Q4 2026 -- Q1 2027)
+## Phase 3 -- Mobile Expansion
 
 **Focus:** Bring GlycemicGPT to iOS and establish official app store presence.
 
@@ -156,7 +156,7 @@ The unofficial repositories operate independently from the project's fiscal host
 
 ---
 
-## Phase 4 -- Intelligence & Scale (2027)
+## Phase 4 -- Intelligence & Scale
 
 **Focus:** Move from reactive analysis to proactive prediction. Lower the barrier to entry for non-technical users.
 
