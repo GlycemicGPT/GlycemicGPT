@@ -66,7 +66,7 @@ The AI layer is the heart of GlycemicGPT. This phase focuses on making it more r
 
 ### Platform Safety Enforcement Layer
 
-Phase 1 hardens the platform's monitoring-only stance at the plugin loading boundary. The SDK is already read-only by design (no write or device-command primitives, no architectural path for AI to issue commands), and `SafetyLimits` already validate incoming readings. Phase 1 adds active rejection at the plugin registry:
+Phase 1 hardens the platform's monitoring-only stance at the plugin loading boundary. The SDK is already read-only by design for therapy -- no insulin-delivery or other therapeutic write primitives, no architectural path for AI to issue such commands. (Non-therapeutic device-management operations such as connect/disconnect, unpair, and CGM calibration remain available as session and lifecycle commands.) `SafetyLimits` already validate incoming readings. Phase 1 adds active rejection at the plugin registry:
 
 - Plugin registry rejection -- plugins declaring capabilities outside the official read-only capability set are refused at load time, regardless of build origin
 - Capability-set integrity checks at startup with logging when an unknown capability is encountered
