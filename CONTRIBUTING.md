@@ -15,7 +15,7 @@ Before writing any code, please understand these non-negotiable rules:
 - 🏷️ **All** AI-generated outputs must be clearly labeled as **suggestions, not medical advice**
 - 💉 Insulin dosing recommendations must **always** include safety disclaimers
 - 🧪 Test thoroughly -- a wrong number on a glucose chart is not just a UI bug, it's a safety issue
-- 🔒 Safety limits (glucose range, plausibility caps for incoming readings) are enforced by the platform via `SafetyLimits` (backend-synced, user-configurable). Plugins must respect these as read-only constraints -- see the [Plugin Architecture Guide](docs/plugin-architecture.md).
+- 🔒 Safety limits (glucose range, max bolus, max basal) are enforced by the platform via `SafetyLimits` (backend-synced, user-configurable). These limits validate incoming pump and CGM history values; plugins must drop readings that fall outside the limits -- see the [Plugin Architecture Guide](docs/plugin-architecture.md).
 - 🚫 **No device control** -- GlycemicGPT is a monitoring and analysis platform
 
 ### Device Data Drivers
@@ -26,13 +26,13 @@ GlycemicGPT is a monitoring and analysis platform. The plugin SDK exists for one
 
 **Forks are not endorsed.** Forks of this project that add device control capabilities operate outside the GlycemicGPT project. The maintainers do not review them, recommend them, accept liability for them, or accept contributions to this repository whose intent is to enable them. Users who choose to run such forks become the manufacturer of their own personal medical device, consistent with the legal posture of Loop, AndroidAPS, and other DIY diabetes projects -- see [MEDICAL-DISCLAIMER.md](MEDICAL-DISCLAIMER.md).
 
-**Platform safety enforcement.** The platform's plugin registry refuses to load any plugin declaring capabilities outside the official read-only capability set. AI workflows have no architectural path to a device write surface. Safety constraints (glucose range plausibility, dose-history validation caps, basal rate caps) are platform-defined, backend-synced, and cannot be bypassed by plugin code. See [ROADMAP.md](ROADMAP.md) for the planned hardening of this enforcement layer.
+**Platform safety enforcement.** The plugin SDK is read-only by design -- it does not expose write or device-command primitives, and the AI layer has no architectural path to a device write surface. The plugin registry will be hardened to refuse loading any plugin that declares a capability outside the official read-only capability set; that hardening is planned per [ROADMAP.md](ROADMAP.md) §Phase 1. Safety constraints (glucose range, max bolus, max basal) are platform-defined and backend-synced; plugins use them to drop implausible readings and cannot bypass them.
 
 **Contributing a data driver:**
 
 1. Pick a device that isn't already supported (see the [Plugin Architecture Guide](docs/plugin-architecture.md) for the capability matrix)
 2. Open an issue describing the device, the protocol you intend to use, and the data you'll surface
-3. Submit a PR with a new Gradle module under `plugins/`, declaring only read-only capabilities (`GLUCOSE_SOURCE`, `INSULIN_SOURCE`, `PUMP_STATUS`, `BGM_SOURCE`, `CALIBRATION_TARGET`, `DATA_SYNC`, or `BOLUS_CATEGORY_PROVIDER`)
+3. Submit a PR with a new Gradle module under `plugins/`, declaring only read-only capabilities (`GLUCOSE_SOURCE`, `INSULIN_SOURCE`, `PUMP_STATUS`, `BGM_SOURCE`, `CALIBRATION_TARGET`, or `BOLUS_CATEGORY_PROVIDER`)
 4. Include unit tests, especially for parsing and `SafetyLimits` validation of incoming values
 5. Existing plugins (`:tandem-pump-driver`) serve as the reference implementation
 

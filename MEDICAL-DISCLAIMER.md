@@ -50,15 +50,16 @@ All AI-generated content in this software is labeled as suggestions, not medical
 
 4. **If you experience a diabetes emergency, contact your healthcare provider or emergency services immediately.** Do not rely on this software for emergency medical guidance.
 
-## Unofficial Forks
+## Project-Owned Unofficial Builds and Third-Party Forks
 
-GlycemicGPT is a monitoring and analysis platform. Forks and unofficial builds of this project may add capabilities beyond what the project ships -- including device control, insulin delivery, or any other pump-write functionality.
+GlycemicGPT is a monitoring and analysis platform across all builds it ships. The plugin SDK is read-only by design and is published in two contexts:
 
-**The maintainers of GlycemicGPT do not endorse, support, distribute, or accept liability for any fork that adds such capabilities.** The project does not link to forks, document fork capabilities, or accept contributions to this repository whose intent is to enable them.
+1. **Official builds** -- Docker images, web app, and the App Store / Google Play mobile apps. These do not load custom plugins at runtime.
+2. **Project-owned unofficial builds** -- planned sideloaded Android and iOS apps (see [ROADMAP.md](ROADMAP.md) §Phase 3) that include the read-only plugin SDK so users can extend the platform with additional **device data drivers**. The project does not ship, document, or solicit any plugin that controls insulin delivery or modifies pump settings; the SDK does not expose write primitives. The same monitoring-only stance applies to project-owned unofficial builds as to official builds.
 
-Users who choose to build, install, or run a fork that introduces device control become the **manufacturer of their personal medical device** and accept full responsibility for that decision. This is the same legal posture used by Loop, AndroidAPS, and other DIY diabetes projects within the #WeAreNotWaiting community.
+**Third-party forks are a separate matter.** Forks of this project that modify the SDK to add device control, insulin delivery, or any other pump-write functionality operate **outside the GlycemicGPT project**. The maintainers do not review them, recommend them, accept liability for them, or accept contributions to this repository whose intent is to enable them.
 
-The GlycemicGPT platform itself remains monitoring and analysis only. Platform-level safety enforcement (see [ROADMAP.md](ROADMAP.md)) is designed to refuse loading any plugin that declares capabilities outside the official read-only set, regardless of build origin.
+Users who choose to build, install, or run a third-party fork that introduces device control become the **manufacturer of their personal medical device** and accept full responsibility for that decision. This follows the same legal posture used by DIY diabetes projects such as Loop and AndroidAPS -- independent, community-built systems whose users have long operated as the manufacturers of their own personal medical devices.
 
 ## Untested Device Compatibility
 

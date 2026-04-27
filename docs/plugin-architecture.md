@@ -558,9 +558,9 @@ User-configured limits (from the backend) narrow these ranges but can never wide
 
 ### Read-Only Capability Set
 
-The capability enum is intentionally limited to read-only data driver capabilities. The platform's plugin registry is the enforcement boundary -- it refuses to load any plugin declaring a capability outside the official enum, and the SDK does not expose write or device-command primitives. AI workflows have no architectural path to a write surface.
+The capability enum is intentionally limited to read-only data driver capabilities. The SDK does not expose write or device-command primitives, and AI workflows have no architectural path to a write surface. Capability enforcement at the plugin registry boundary -- where the platform actively refuses to load plugins declaring capabilities outside the official set -- is planned, not yet implemented; see [ROADMAP.md](../ROADMAP.md) §Phase 1.
 
-See [CONTRIBUTING.md](../CONTRIBUTING.md#device-data-drivers) for the contribution model and [ROADMAP.md](../ROADMAP.md) for the planned hardening of the enforcement layer.
+See [CONTRIBUTING.md](../CONTRIBUTING.md#device-data-drivers) for the contribution model.
 
 ---
 

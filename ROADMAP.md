@@ -25,7 +25,7 @@ The core platform is live, functional, and in daily use by the project maintaine
 - BYOAI architecture supporting Claude, OpenAI, Ollama (fully local), and any OpenAI-compatible endpoint
 - Configurable threshold-based alerting with caregiver escalation
 - Multi-channel alert delivery (in-app, push notifications, Telegram)
-- Up to 10 years of personal diabetes data storage
+- Configurable data retention (default 365 days, up to 10 years)
 - Printable reports for endocrinologist appointments
 
 ### Mobile & Wearable
@@ -66,12 +66,12 @@ The AI layer is the heart of GlycemicGPT. This phase focuses on making it more r
 
 ### Platform Safety Enforcement Layer
 
-The platform actively enforces its monitoring-only stance at the plugin loading boundary:
+Phase 1 hardens the platform's monitoring-only stance at the plugin loading boundary. The SDK is already read-only by design (no write or device-command primitives, no architectural path for AI to issue commands), and `SafetyLimits` already validate incoming readings. Phase 1 adds active rejection at the plugin registry:
 
-- The plugin registry refuses to load any plugin declaring capabilities outside the official read-only capability set
-- AI workflows are architecturally prevented from issuing device commands -- the AI layer has no path to a write surface
-- Safety constraints (glucose ranges, max bolus reads, max basal rates) are platform-defined, backend-synced, and cannot be bypassed by plugins
-- These protections apply equally to official builds and any sideloaded fork that uses the platform's plugin SDK
+- Plugin registry rejection -- plugins declaring capabilities outside the official read-only capability set are refused at load time, regardless of build origin
+- Capability-set integrity checks at startup with logging when an unknown capability is encountered
+- Test coverage that asserts unknown capabilities cannot be activated by any code path
+- Documentation of the enforcement boundary as a stable contract that both official and project-owned unofficial builds rely on
 
 ### Legal & Organizational
 
@@ -131,7 +131,7 @@ The diabetes tech community skews heavily toward iPhone. iOS support is essentia
 
 ### Unofficial vs. Official App Distinction
 
-The unofficial sideloaded versions (both Android and iOS) are open source and user-built from source. They include the full plugin SDK for extensible device communication. Users who build from source take full responsibility for their build, consistent with the DIY ethos of the #WeAreNotWaiting community.
+The unofficial sideloaded versions (both Android and iOS) are open source and user-built from source. They include the full plugin SDK so users can extend the platform with additional device data drivers. The SDK is read-only by design across all builds; the project does not ship plugins that control insulin delivery. Users who build from source take full responsibility for their build, consistent with the DIY ethos established by projects like Loop and AndroidAPS.
 
 The official App Store and Play Store versions are monitoring and analysis tools. They do not include the plugin SDK. They are designed to comply with platform guidelines and provide a streamlined experience for non-technical users.
 
@@ -176,7 +176,7 @@ A managed deployment of GlycemicGPT for users who don't want to run their own in
 - Self-hosted remains the primary supported path; the hosted service exists to lower the entry barrier without changing the product
 - Identical feature parity with self-hosted (no hosted-only features that fragment the community)
 - Transparent pricing, transparent infrastructure costs, and a clear data ownership policy
-- BYOAI continues to apply -- users plug in their own AI provider keys; the hosted service does not subsidize AI inference
+- AI provider configuration follows the same model as self-hosted (subscription tier or BYOAI)
 
 ### Accessibility & Onboarding
 
@@ -196,7 +196,7 @@ A managed deployment of GlycemicGPT for users who don't want to run their own in
 
 These principles guide every decision on the roadmap:
 
-1. **Monitoring and analysis first.** The GlycemicGPT platform and all official app store releases are monitoring and analysis tools. They read data from diabetes devices and provide AI-powered insights. They do not control insulin delivery or modify pump settings. The unofficial sideloaded mobile apps include an extensible plugin SDK for device communication. The project does not provide or distribute plugins for insulin delivery. Platform-level safety constraints enforce guardrails against AI-initiated device commands regardless of installed plugins. Users who build from source and extend the platform do so at their own discretion and responsibility, consistent with the DIY ethos of the #WeAreNotWaiting community.
+1. **Monitoring and analysis first.** The GlycemicGPT platform and all official app store releases are monitoring and analysis tools. They read data from diabetes devices and provide AI-powered insights. They do not control insulin delivery or modify pump settings. The unofficial sideloaded mobile apps include the read-only plugin SDK so users can extend the platform with additional device data drivers; they do not include any plugin that controls insulin delivery. The AI layer has no architectural path to a device write surface. Users who build from source and extend the platform do so at their own discretion and responsibility, consistent with the DIY ethos established by projects like Loop and AndroidAPS in the broader patient-built diabetes-tech tradition.
 
 2. **Privacy first.** User health data stays on user-controlled infrastructure. The platform does not phone home, collect telemetry, or transmit data to GlycemicGPT or any third party.
 
@@ -216,7 +216,7 @@ These principles guide every decision on the roadmap:
 | Contribute code | [Contributing Guide](CONTRIBUTING.md) |
 | Discuss ideas or ask questions | [Community Discord](https://discord.gg/TJKzjsts) |
 | Support the project financially | [Open Collective](https://opencollective.com/glycemicgpt) |
-| Build a device data plugin | [Plugin SDK Documentation](docs/plugin-architecture.md) |
+| Build a device data plugin | [Contributing Guide](CONTRIBUTING.md#device-data-drivers) (then the [Plugin Architecture Reference](docs/plugin-architecture.md)) |
 
 ---
 
