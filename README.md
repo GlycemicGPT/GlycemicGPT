@@ -23,6 +23,7 @@
 </p>
 
 <p align="center">
+  <a href="https://discord.gg/TJKzjsts" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/Discord-Join%20Server-5865F2?style=for-the-badge&labelColor=1e293b&logo=discord&logoColor=white" alt="Join GlycemicGPT Discord server"></a>
   <a href="https://github.com/GlycemicGPT/GlycemicGPT/issues"><img src="https://img.shields.io/github/issues/GlycemicGPT/GlycemicGPT?style=for-the-badge&labelColor=1e293b&color=64748b&logo=github&logoColor=white" alt="Issues"></a>
   <a href="https://github.com/GlycemicGPT/GlycemicGPT/pulls"><img src="https://img.shields.io/github/issues-pr/GlycemicGPT/GlycemicGPT?style=for-the-badge&labelColor=1e293b&color=64748b&logo=github&logoColor=white&label=PRs" alt="Pull Requests"></a>
   <a href="https://github.com/GlycemicGPT/GlycemicGPT/actions/workflows/renovate.yml"><img src="https://img.shields.io/github/actions/workflow/status/GlycemicGPT/GlycemicGPT/renovate.yml?branch=main&style=for-the-badge&labelColor=1e293b&label=Renovate&logo=renovate&logoColor=white" alt="Renovate"></a>
@@ -138,6 +139,7 @@ We welcome contributions! Please read our [Contributing Guide](CONTRIBUTING.md) 
 - [Feature Requests](https://github.com/GlycemicGPT/GlycemicGPT/issues/new?template=feature_request.yml)
 - [Mobile App Issues](https://github.com/GlycemicGPT/GlycemicGPT/issues/new?template=mobile_report.yml)
 - [Discussions](https://github.com/GlycemicGPT/GlycemicGPT/discussions) (questions, ideas, show & tell)
+- [Community Discord](https://discord.gg/TJKzjsts) (real-time chat, questions, dev coordination)
 
 ## Support the Project
 
