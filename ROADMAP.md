@@ -220,4 +220,4 @@ These principles guide every decision on the roadmap:
 
 ---
 
-*Built by patients who got tired of waiting. Because no one should manage diabetes alone.*
+*Because no one should manage diabetes alone.*
