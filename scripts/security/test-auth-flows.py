@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Story 28.11: Automated auth flow & security penetration tests.
 
-Runs 15 security tests against a live Docker stack to verify that
+Runs 18 security tests against a live Docker stack to verify that
 rate limiting, token handling, CSRF, CORS, security headers, and
 input validation all work correctly at the HTTP level.
 
@@ -12,6 +12,7 @@ Usage:
 import base64
 import json
 import os
+import statistics
 import subprocess
 import sys
 import time
@@ -56,9 +57,7 @@ def unique_email() -> str:
     return f"sectest_{uuid.uuid4().hex[:12]}@example.com"
 
 
-TEST_PASSWORD = os.environ.get(
-    "TEST_PASSWORD", f"SecTest-{uuid.uuid4().hex[:8]}!"
-)
+TEST_PASSWORD = os.environ.get("TEST_PASSWORD", f"SecTest-{uuid.uuid4().hex[:8]}!")
 
 
 def register_user(client: httpx.Client, email: str) -> int:
@@ -95,10 +94,17 @@ def flush_rate_limits() -> None:
     try:
         result = subprocess.run(
             [
-                "docker", "compose",
-                "-f", "docker-compose.yml",
-                "-f", "docker-compose.test.yml",
-                "exec", "-T", "redis", "redis-cli", "FLUSHDB",
+                "docker",
+                "compose",
+                "-f",
+                "docker-compose.yml",
+                "-f",
+                "docker-compose.test.yml",
+                "exec",
+                "-T",
+                "redis",
+                "redis-cli",
+                "FLUSHDB",
             ],
             capture_output=True,
             timeout=5,
@@ -175,6 +181,36 @@ def test_rate_limit_refresh() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Test 3b: Rate limit XFF bypass prevention
+# ---------------------------------------------------------------------------
+def test_rate_limit_xff_bypass() -> None:
+    """Verify X-Forwarded-For headers with a consistent IP still trigger rate limits.
+
+    In CI, the test client connects from localhost (trusted proxy CIDR), so XFF
+    IS honored. We verify that when XFF claims the same client IP across all
+    requests, the rate limiter correctly aggregates them and triggers 429.
+    This proves that an attacker behind a proxy can't evade limits by sending
+    requests through the same proxy -- the forwarded IP is tracked.
+    """
+    name = "Rate limit: XFF rate tracking"
+    got_429 = False
+    with httpx.Client(timeout=10) as client:
+        for _ in range(12):
+            resp = client.post(
+                f"{API_URL}/api/auth/login",
+                json={"email": "nobody@example.com", "password": "wrong"},
+                headers={"X-Forwarded-For": "203.0.113.99"},
+            )
+            if resp.status_code == 429:
+                got_429 = True
+                break
+    if got_429:
+        log_pass(name)
+    else:
+        log_fail(name, "no 429 after 12 requests with consistent XFF IP")
+
+
+# ---------------------------------------------------------------------------
 # Test 4: Token tampering -- wrong signing key
 # ---------------------------------------------------------------------------
 def test_token_tampering_wrong_key() -> None:
@@ -188,7 +224,8 @@ def test_token_tampering_wrong_key() -> None:
         "type": "access",
         "jti": str(uuid.uuid4()),
     }
-    token = jwt.encode(payload, "wrong-secret", algorithm=JWT_ALGORITHM)  # nosemgrep: jwt-python-hardcoded-secret
+    # nosemgrep: jwt-python-hardcoded-secret
+    token = jwt.encode(payload, "wrong-secret", algorithm=JWT_ALGORITHM)
     with httpx.Client(timeout=10) as client:
         resp = client.get(
             f"{API_URL}/api/auth/me",
@@ -218,7 +255,8 @@ def test_token_tampering_alg_confusion() -> None:
     }
 
     # Sub-test A: HS384 with wrong key (different algorithm than expected HS256)
-    token_384 = jwt.encode(payload, "wrong-secret", algorithm="HS384")  # nosemgrep: jwt-python-hardcoded-secret
+    # nosemgrep: jwt-python-hardcoded-secret
+    token_384 = jwt.encode(payload, "wrong-secret", algorithm="HS384")
     with httpx.Client(timeout=10) as client:
         resp = client.get(
             f"{API_URL}/api/auth/me",
@@ -229,12 +267,14 @@ def test_token_tampering_alg_confusion() -> None:
 
     # Sub-test B: alg:none attack -- craft an unsigned JWT
     # Header: {"alg": "none", "typ": "JWT"}, payload, empty signature
-    header_b64 = base64.urlsafe_b64encode(
-        json.dumps({"alg": "none", "typ": "JWT"}).encode()
-    ).rstrip(b"=").decode()
-    payload_b64 = base64.urlsafe_b64encode(
-        json.dumps(payload).encode()
-    ).rstrip(b"=").decode()
+    header_b64 = (
+        base64.urlsafe_b64encode(json.dumps({"alg": "none", "typ": "JWT"}).encode())
+        .rstrip(b"=")
+        .decode()
+    )
+    payload_b64 = (
+        base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b"=").decode()
+    )
     token_none = f"{header_b64}.{payload_b64}."
 
     with httpx.Client(timeout=10) as client:
@@ -646,11 +686,100 @@ def test_expired_token_rejection() -> None:
         log_fail(name, f"expected 401, got {resp.status_code}")
 
 
+def test_login_timing_consistency() -> None:
+    """Verify login response time is consistent for existing vs non-existing users.
+
+    Prevents timing-based user enumeration: bcrypt (~100-200ms) should run
+    regardless of whether the target email exists.
+    """
+    name = "Timing attack: login consistency"
+    sample_size = 2  # Keep minimal to preserve login rate limit budget for other tests
+
+    # Register a known-existing user
+    existing_email = unique_email()
+    nonexistent_email = unique_email()
+    with httpx.Client(timeout=10) as client:
+        register_user(client, existing_email)
+
+    # Measure response times for existing user (wrong password)
+    existing_times = []
+    with httpx.Client(timeout=10) as client:
+        for _ in range(sample_size):
+            start = time.monotonic()
+            client.post(
+                f"{API_URL}/api/auth/login",
+                json={"email": existing_email, "password": "WrongPassword123!"},
+            )
+            elapsed = time.monotonic() - start
+            existing_times.append(elapsed)
+
+    # Measure response times for non-existing user
+    nonexistent_times = []
+    with httpx.Client(timeout=10) as client:
+        for _ in range(sample_size):
+            start = time.monotonic()
+            client.post(
+                f"{API_URL}/api/auth/login",
+                json={"email": nonexistent_email, "password": "WrongPassword123!"},
+            )
+            elapsed = time.monotonic() - start
+            nonexistent_times.append(elapsed)
+
+    median_existing = statistics.median(existing_times)
+    median_nonexistent = statistics.median(nonexistent_times)
+    delta_ms = abs(median_existing - median_nonexistent) * 1000
+
+    if delta_ms < 100:
+        log_pass(f"{name} (delta={delta_ms:.0f}ms)")
+    elif delta_ms < 200:
+        log_pass(f"{name} (delta={delta_ms:.0f}ms, borderline but acceptable)")
+    else:
+        log_fail(
+            name,
+            f"median delta={delta_ms:.0f}ms (existing={median_existing * 1000:.0f}ms, "
+            f"nonexistent={median_nonexistent * 1000:.0f}ms) -- timing leak possible",
+        )
+
+
+def test_open_redirect_prevention() -> None:
+    """Verify login redirect param rejects external URLs."""
+    name = "Open redirect prevention"
+    errors = []
+
+    evil_targets = [
+        "https://evil.com",
+        "//evil.com",
+        "https://evil.com/steal-creds",
+        "/\\evil.com",
+    ]
+
+    with httpx.Client(timeout=10, follow_redirects=False) as client:
+        for target in evil_targets:
+            resp = client.get(f"{WEB_URL}/login?redirect={target}")
+            # Check that no redirect header points to the evil domain
+            location = resp.headers.get("location", "")
+            body = resp.text if resp.status_code == 200 else ""
+            if "evil.com" in location:
+                errors.append(
+                    f"Location header contains evil.com for redirect={target}"
+                )
+            if "evil.com" in body and "window.location" in body:
+                errors.append(
+                    f"Response body redirects to evil.com for redirect={target}"
+                )
+
+    if errors:
+        log_fail(name, "; ".join(errors))
+    else:
+        log_pass(name)
+
+
 # ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
 # Tests that require login (run first, before rate limits are exhausted)
 AUTH_TESTS = [
+    test_login_timing_consistency,
     test_token_tampering_wrong_key,
     test_token_tampering_alg_confusion,
     test_cookie_flags,
@@ -663,6 +792,7 @@ AUTH_TESTS = [
     test_password_change_invalidates_session,
     test_email_enumeration_prevention,
     test_expired_token_rejection,
+    test_open_redirect_prevention,
 ]
 
 # Rate limit tests (run last -- they intentionally exhaust quotas)
@@ -670,6 +800,7 @@ RATE_LIMIT_TESTS = [
     test_rate_limit_login,
     test_rate_limit_mobile_login,
     test_rate_limit_refresh,
+    test_rate_limit_xff_bypass,
 ]
 
 ALL_TESTS = AUTH_TESTS + RATE_LIMIT_TESTS

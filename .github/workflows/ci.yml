@@ -5,7 +5,7 @@ on:
     branches: [main, develop]
   pull_request:
     branches: [main, develop]
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, edited]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -148,28 +148,274 @@ jobs:
   check-attribution:
     name: Attribution Check
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Check for prohibited Co-Authored-By lines
+      - name: Generate token for glycemicgpt-ci
+        id: ci-token
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.CI_APP_ID }}
+          private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+
+      - name: Detect AI attribution and classify severity
+        id: detect
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_REF: ${{ github.event.pull_request.base.ref || github.ref_name }}
         run: |
-          BASE_REF="${{ github.event.pull_request.base.ref || github.ref_name }}"
-          if git log --format="%B" "origin/${BASE_REF}..HEAD" 2>/dev/null | grep -qiE '^Co-Authored-By:.*(claude|anthropic|noreply@anthropic)'; then
-            echo "ERROR: Found prohibited Co-Authored-By attribution in commit messages."
-            echo "The following commits contain AI tool attribution:"
-            git log --format="%h %s" "origin/${BASE_REF}..HEAD" | while read -r hash rest; do
-              if git log -1 --format="%B" "$hash" | grep -qiE '^Co-Authored-By:.*(claude|anthropic|noreply@anthropic)'; then
-                echo "  - $hash $rest"
+          # Ensure the base ref is available
+          git fetch origin "$BASE_REF" --depth=1 2>/dev/null || true
+
+          SEVERITY="NONE"
+          FINDINGS=""
+
+          # --- Bot whitelist (these never trigger findings) ---
+          ALLOWED_BOTS="github-actions\[bot\]|coderabbitai\[bot\]|glycemicgpt-security\[bot\]|glycemicgpt-ci\[bot\]|glycemicgpt-release\[bot\]|glycemicgpt-merge\[bot\]|glycemicgpt-renovate\[bot\]|dependabot\[bot\]|homebot-0\[bot\]|gitguardian\[bot\]"
+
+          # --- AI tool names ---
+          AI_TOOLS="claude|anthropic|copilot|chatgpt|openai|cursor|windsurf|codeium|codewhisperer|amazon\\.q|gemini|gemini\\.code\\.assist|jetbrains\\.ai|tabnine|sourcegraph|cody|devin|aider|codex"
+
+          # =================================================================
+          # Layer 1: Commit message trailers
+          # =================================================================
+          echo "=== Layer 1: Checking commit message trailers ==="
+          COMMIT_MESSAGES=$(git log --format="%B---COMMIT_SEP---" "origin/${BASE_REF}..HEAD" 2>/dev/null || true)
+
+          # Check for bot account co-authors (CRITICAL if not whitelisted)
+          BOT_TRAILERS=$(echo "$COMMIT_MESSAGES" | grep -iE "^Co-Authored-By:.*(\[bot\]|noreply@)" || true)
+          if [ -n "$BOT_TRAILERS" ]; then
+            while IFS= read -r line; do
+              if ! echo "$line" | grep -qiE "$ALLOWED_BOTS"; then
+                echo "  CRITICAL: Non-whitelisted bot co-author: $line"
+                FINDINGS="${FINDINGS}| CRITICAL | commit trailer | \`${line}\` |\\n"
+                SEVERITY="CRITICAL"
               fi
+            done <<< "$BOT_TRAILERS"
+          fi
+
+          # Check for AI tool name co-authors (HIGH)
+          TOOL_TRAILERS=$(echo "$COMMIT_MESSAGES" | grep -iE "^Co-Authored-By:.*(${AI_TOOLS})" || true)
+          if [ -n "$TOOL_TRAILERS" ]; then
+            # Filter out already-caught bot lines
+            TOOL_ONLY=$(echo "$TOOL_TRAILERS" | grep -viE "(\[bot\]|noreply@)" || true)
+            if [ -n "$TOOL_ONLY" ]; then
+              while IFS= read -r line; do
+                echo "  HIGH: AI tool co-author: $line"
+                FINDINGS="${FINDINGS}| HIGH | commit trailer | \`${line}\` |\\n"
+                [ "$SEVERITY" != "CRITICAL" ] && SEVERITY="HIGH"
+              done <<< "$TOOL_ONLY"
+            fi
+          fi
+
+          # Check for alternative attribution trailers (HIGH)
+          ALT_TRAILERS=$(echo "$COMMIT_MESSAGES" | grep -iE "^(Authored-By|Generated-By|AI-Generated-By):" || true)
+          if [ -n "$ALT_TRAILERS" ]; then
+            while IFS= read -r line; do
+              echo "  HIGH: Alternative attribution trailer: $line"
+              FINDINGS="${FINDINGS}| HIGH | commit trailer | \`${line}\` |\\n"
+              [ "$SEVERITY" != "CRITICAL" ] && SEVERITY="HIGH"
+            done <<< "$ALT_TRAILERS"
+          fi
+
+          [ "$SEVERITY" = "NONE" ] && echo "  OK: No prohibited trailers found."
+          echo ""
+
+          # =================================================================
+          # Layer 2: Code comments in changed files
+          # =================================================================
+          echo "=== Layer 2: Checking code comments in changed files ==="
+          COMMENT_PHRASES="generated by|generated with|written by|created by|built with|copilot suggestion|ai-generated|ai generated"
+          COMMENT_TOOLS_EXTRA="\\bai\\b|\\bgpt\\b"
+          DIFF_OUTPUT=$(git diff "origin/${BASE_REF}...HEAD" -- '*.py' '*.ts' '*.tsx' '*.js' '*.jsx' '*.kt' '*.java' '*.sh' 2>/dev/null || true)
+          CODE_HITS=$(echo "$DIFF_OUTPUT" \
+            | grep '^+' | grep -v '^+++' \
+            | grep -inE "(${COMMENT_PHRASES}).*(${AI_TOOLS}|${COMMENT_TOOLS_EXTRA})" || true)
+          if [ -n "$CODE_HITS" ]; then
+            echo "$CODE_HITS" | head -5 | while IFS= read -r line; do
+              echo "  MEDIUM: AI comment in code: $line"
             done
-            echo ""
-            echo "Install the commit-msg hook: cp scripts/hooks/commit-msg .git/hooks/commit-msg && chmod +x .git/hooks/commit-msg"
+            FINDINGS="${FINDINGS}| MEDIUM | code comment | AI attribution in changed files ($(echo "$CODE_HITS" | wc -l) lines) |\\n"
+            [ "$SEVERITY" = "NONE" ] && SEVERITY="MEDIUM"
+          else
+            echo "  OK: No AI attribution comments found."
+          fi
+          echo ""
+
+          # =================================================================
+          # Layer 3: PR description (strip CodeRabbit sections first)
+          # =================================================================
+          echo "=== Layer 3: Checking PR description ==="
+          if [ -n "$PR_BODY" ]; then
+            # Strip CodeRabbit auto-generated footer (exact anchored markers only,
+            # not loose patterns that a contributor could inject to hide branding)
+            CLEAN_BODY=$(echo "$PR_BODY" | sed '/^<!-- This is an auto-generated comment: release notes by coderabbit.ai -->$/,$d; /^## Summary by CodeRabbit$/,$d')
+            PR_PATTERN="generated with claude code|generated with.*(${AI_TOOLS})|built with.*\\bai\\b|claude\\.ai/claude-code|generated by (${AI_TOOLS})"
+            if echo "$CLEAN_BODY" | grep -qiE "$PR_PATTERN"; then
+              MATCH=$(echo "$CLEAN_BODY" | grep -iE "$PR_PATTERN" | head -1)
+              echo "  HIGH: AI branding in PR description: $MATCH"
+              FINDINGS="${FINDINGS}| HIGH | PR description | AI tool branding detected |\\n"
+              [ "$SEVERITY" != "CRITICAL" ] && SEVERITY="HIGH"
+            else
+              echo "  OK: No AI branding in PR description."
+            fi
+          else
+            echo "  OK: No PR body to check (push event)."
+          fi
+          echo ""
+
+          # =================================================================
+          # Write outputs for downstream steps
+          # =================================================================
+          echo "severity=${SEVERITY}" >> "$GITHUB_OUTPUT"
+          echo "has_findings=$( [ "$SEVERITY" != "NONE" ] && echo true || echo false )" >> "$GITHUB_OUTPUT"
+
+          # Write findings markdown to a file (multiline output)
+          FINDINGS_FILE=$(mktemp)
+          printf "%b" "$FINDINGS" > "$FINDINGS_FILE"
+          echo "findings_file=${FINDINGS_FILE}" >> "$GITHUB_OUTPUT"
+
+          # --- Final verdict ---
+          echo "=== Result: severity=${SEVERITY} ==="
+          if [ "$SEVERITY" != "NONE" ]; then
+            echo "FAILED: AI attribution detected (${SEVERITY}). See CONTRIBUTING.md."
             exit 1
           fi
-          echo "No prohibited attribution found."
+          echo "PASSED: No AI attribution found."
+
+      - name: Post attribution findings to PR
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.ci-token.outputs.token || secrets.GITHUB_TOKEN }}
+          script: |
+            const severity = '${{ steps.detect.outputs.severity }}';
+            const hasFindings = '${{ steps.detect.outputs.has_findings }}' === 'true';
+            const prNumber = context.payload.pull_request?.number;
+            if (!prNumber) return;
+
+            const marker = '<!-- attribution-check-comment -->';
+            const repo = context.repo;
+
+            // Find existing comment
+            const comments = await github.rest.issues.listComments({
+              ...repo, issue_number: prNumber, per_page: 100,
+            });
+            const existing = comments.data.find(c =>
+              c.body?.includes(marker)
+            );
+
+            let body;
+
+            if (!hasFindings) {
+              // Clean run -- positive reinforcement
+              body = [
+                marker,
+                '## :white_check_mark: Attribution Check: Passed',
+                '',
+                'No AI attribution detected across commits, code, and PR description.',
+                'Thanks for keeping our repo clean and taking ownership of your work.',
+                '',
+                `[Attribution Policy](https://github.com/${repo.owner}/${repo.repo}/blob/develop/CONTRIBUTING.md#no-ai-attribution-in-code) | [Install commit-msg hook](https://github.com/${repo.owner}/${repo.repo}/blob/develop/CONTRIBUTING.md#-quick-start-webapi----recommended-for-most-contributors)`,
+              ].join('\n');
+            } else {
+              // Findings detected -- severity + instructions
+              const fs = require('fs');
+              const findingsFile = '${{ steps.detect.outputs.findings_file }}';
+              let findingsTable = '';
+              try { findingsTable = fs.readFileSync(findingsFile, 'utf8').trim(); } catch {}
+
+              const emoji = {
+                CRITICAL: ':red_circle:',
+                HIGH: ':orange_circle:',
+                MEDIUM: ':yellow_circle:',
+              }[severity] || ':grey_question:';
+
+              let instructions = '';
+              if (severity === 'CRITICAL') {
+                instructions = [
+                  '**This PR has been automatically closed** due to CRITICAL attribution violations. A non-whitelisted bot or AI tool was detected as a commit co-author, which becomes a permanent participant in the PR history and cannot be removed.',
+                  '',
+                  'To resubmit your changes:',
+                  '1. Create a new branch from `develop`',
+                  '2. Cherry-pick your changes **without** the prohibited co-author trailers',
+                  '3. Open a new PR',
+                  '',
+                  'If this bot is legitimate project infrastructure (not an AI coding tool), request it be added to the [attribution whitelist](https://github.com/' + repo.owner + '/' + repo.repo + '/blob/develop/CONTRIBUTING.md#bot-whitelist) by opening an issue.',
+                ].join('\n');
+              } else {
+                const parts = [];
+                if (findingsTable.includes('HIGH')) {
+                  parts.push('**HIGH findings** (commit trailers / PR description): Use `git rebase -i` to amend affected commits and remove the trailers, then force push. Edit the PR description to remove AI branding.');
+                }
+                if (findingsTable.includes('MEDIUM')) {
+                  parts.push('**MEDIUM findings** (code comments): Remove the AI attribution comments in a follow-up commit and push.');
+                }
+                instructions = parts.join('\n\n');
+              }
+
+              body = [
+                marker,
+                `## ${emoji} Attribution Check: ${severity === 'CRITICAL' ? 'PR Closed (CRITICAL)' : severity}`,
+                '',
+                `AI tool attribution detected in this PR. See our [attribution policy](https://github.com/${repo.owner}/${repo.repo}/blob/develop/CONTRIBUTING.md#no-ai-attribution-in-code).`,
+                '',
+                '### Findings',
+                '',
+                '| Severity | Location | Finding |',
+                '|----------|----------|---------|',
+                findingsTable,
+                '',
+                '### How to Fix',
+                '',
+                instructions,
+                '',
+                '---',
+                'Install the commit-msg hook to prevent this automatically:',
+                '```',
+                'cp scripts/hooks/commit-msg .git/hooks/commit-msg && chmod +x .git/hooks/commit-msg',
+                '```',
+              ].join('\n');
+            }
+
+            // Upsert: update existing or create new
+            if (existing) {
+              await github.rest.issues.updateComment({
+                ...repo, comment_id: existing.id, body,
+              });
+              console.log('Updated attribution comment');
+            } else {
+              await github.rest.issues.createComment({
+                ...repo, issue_number: prNumber, body,
+              });
+              console.log('Created attribution comment');
+            }
+
+      - name: Auto-close PR on CRITICAL attribution violation
+        if: >-
+          always() && steps.detect.outputs.severity == 'CRITICAL' &&
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.ref != 'develop'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.ci-token.outputs.token || secrets.GITHUB_TOKEN }}
+          script: |
+            const prNumber = context.payload.pull_request?.number;
+            if (!prNumber) return;
+            await github.rest.pulls.update({
+              ...context.repo,
+              pull_number: prNumber,
+              state: 'closed',
+            });
+            console.log(`Auto-closed PR #${prNumber} due to CRITICAL AI attribution violation`);
 
   test-sidecar:
     name: Sidecar Tests

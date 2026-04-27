@@ -218,6 +218,8 @@ jobs:
       nuclei_web: ${{ steps.outcomes.outputs.nuclei_web }}
       zap_api: ${{ steps.outcomes.outputs.zap_api }}
       zap_web: ${{ steps.outcomes.outputs.zap_web }}
+      zap_unauth_api: ${{ steps.outcomes.outputs.zap_unauth_api }}
+      zap_unauth_web: ${{ steps.outcomes.outputs.zap_unauth_web }}
 
     steps:
       - name: Checkout
@@ -278,6 +280,42 @@ jobs:
             docker compose -f docker-compose.yml -f docker-compose.test.yml logs web --tail=50
             exit 1
           fi
+
+      # ---- Smoke test: verify the stack is functional, not just alive ----
+      - name: Smoke test API and Web
+        env:
+          COMPOSE_PROJECT_NAME: glycemicgpt-test
+          TEST_PASSWORD: ${{ secrets.SECURITY_TEST_PASSWORD }}
+        run: |
+          echo "Verifying API serves OpenAPI spec..."
+          OPENAPI=$(curl -sS http://localhost:8001/openapi.json | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('paths',{})))" || echo "0")
+          echo "  OpenAPI: ${OPENAPI} paths discovered"
+          if [ "$OPENAPI" -lt 5 ]; then
+            echo "FATAL: OpenAPI spec has fewer than 5 paths -- API may not be fully initialized"
+            exit 1
+          fi
+
+          echo "Verifying user registration works..."
+          SMOKE_BODY=$(jq -nc --arg e "smoke_$(date +%s)_${RANDOM}@example.com" --arg p "$TEST_PASSWORD" '{email:$e,password:$p}')
+          REG_STATUS=$(curl -sS -o /dev/null -w "%{http_code}" -X POST http://localhost:8001/api/auth/register \
+            -H "Content-Type: application/json" \
+            -d "$SMOKE_BODY" || true)
+          echo "  Register: HTTP ${REG_STATUS}"
+          if [ "$REG_STATUS" != "201" ]; then
+            echo "FATAL: User registration failed (expected 201, got ${REG_STATUS})"
+            docker compose -f docker-compose.yml -f docker-compose.test.yml logs api --tail=20
+            exit 1
+          fi
+
+          echo "Verifying web frontend renders..."
+          WEB_STATUS=$(curl -sS -o /dev/null -w "%{http_code}" http://localhost:3001/login || true)
+          echo "  Web /login: HTTP ${WEB_STATUS}"
+          if [ "$WEB_STATUS" != "200" ]; then
+            echo "FATAL: Web frontend /login returned ${WEB_STATUS}"
+            exit 1
+          fi
+
+          echo "Smoke test passed"
 
       # ---- API-targeted tests (api || run_all) ----
 
@@ -360,7 +398,7 @@ jobs:
           API_URL: http://localhost:8001
           TEST_PASSWORD: ${{ secrets.SECURITY_TEST_PASSWORD }}
           COMPOSE_PROJECT_NAME: glycemicgpt-test
-        run: python scripts/security/fuzz-api.py
+        run: python scripts/security/fuzz-api.py "$API_URL" --mode both
 
       # ---- Nuclei DAST (split: API and Web independently) ----
 
@@ -449,6 +487,12 @@ jobs:
           COMPOSE_PROJECT_NAME: glycemicgpt-test
         run: docker compose -f docker-compose.yml -f docker-compose.test.yml exec -T redis redis-cli FLUSHDB || true
 
+      - name: Prepare ZAP workspace
+        if: always()
+        run: |
+          mkdir -p scripts/security/results
+          chmod 777 scripts/security/ scripts/security/results/
+
       - name: Setup ZAP authenticated session
         id: zap-setup
         if: |
@@ -488,10 +532,6 @@ jobs:
           echo "ZAP_CSRF=$CSRF" >> "$GITHUB_ENV"
           rm -f "$COOKIE_JAR"
           echo "ZAP auth session established"
-
-          # Pre-create results dir and make scripts/security writable for ZAP containers (run as UID 1000)
-          mkdir -p scripts/security/results
-          chmod 777 scripts/security/ scripts/security/results/
 
           # Resolve ZAP plan templates -- bake actual cookie values into YAML
           # ZAP's AF does NOT expand ${ENV_VAR} in YAML files
@@ -542,6 +582,36 @@ jobs:
         if: always() && steps.zap-web.outcome != 'skipped'
         run: python scripts/security/evaluate-zap.py --report scripts/security/results/zap-web-report.json --name web
 
+      # ---- Unauthenticated ZAP scans (no cookies, external attacker perspective) ----
+
+      - name: Run ZAP Unauthenticated API scan
+        id: zap-unauth-api
+        if: always()
+        run: |
+          docker run --rm --network="host" \
+            -v "$(pwd)/scripts/security:/zap/wrk/:rw" \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap.sh -cmd -autorun /zap/wrk/zap-unauth-api-plan.yaml || true
+
+      - name: Evaluate ZAP Unauthenticated API results
+        id: eval-zap-unauth-api
+        if: always() && steps.zap-unauth-api.outcome != 'skipped'
+        run: python scripts/security/evaluate-zap.py --report scripts/security/results/zap-unauth-api-report.json --name unauth-api
+
+      - name: Run ZAP Unauthenticated Web scan
+        id: zap-unauth-web
+        if: always()
+        run: |
+          docker run --rm --network="host" \
+            -v "$(pwd)/scripts/security:/zap/wrk/:rw" \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap.sh -cmd -autorun /zap/wrk/zap-unauth-web-plan.yaml || true
+
+      - name: Evaluate ZAP Unauthenticated Web results
+        id: eval-zap-unauth-web
+        if: always() && steps.zap-unauth-web.outcome != 'skipped'
+        run: python scripts/security/evaluate-zap.py --report scripts/security/results/zap-unauth-web-report.json --name unauth-web
+
       # ---- Export outcomes + cleanup ----
 
       - name: Export DAST step outcomes
@@ -556,6 +626,8 @@ jobs:
           echo "nuclei_web=${{ steps.nuclei-web.outcome || 'skipped' }}" >> "$GITHUB_OUTPUT"
           echo "zap_api=${{ steps.eval-zap-api.outcome || 'skipped' }}" >> "$GITHUB_OUTPUT"
           echo "zap_web=${{ steps.eval-zap-web.outcome || 'skipped' }}" >> "$GITHUB_OUTPUT"
+          echo "zap_unauth_api=${{ steps.eval-zap-unauth-api.outcome || 'skipped' }}" >> "$GITHUB_OUTPUT"
+          echo "zap_unauth_web=${{ steps.eval-zap-unauth-web.outcome || 'skipped' }}" >> "$GITHUB_OUTPUT"
 
       - name: Upload scan results
         if: always()
@@ -678,14 +750,14 @@ jobs:
           path: dast-results/
         continue-on-error: true
 
-      - name: Generate bot token
+      - name: Generate token for glycemicgpt-security
         if: always()
         id: bot-token
         continue-on-error: true
         uses: actions/create-github-app-token@v1
         with:
-          app-id: ${{ secrets.BOT_APP_ID }}
-          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          app-id: ${{ secrets.SECURITY_APP_ID }}
+          private-key: ${{ secrets.SECURITY_APP_PRIVATE_KEY }}
 
       - name: Create/update security finding issues
         id: create-issues
@@ -700,7 +772,18 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
           COMMIT_SHA: ${{ github.sha }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         run: |
+          # Detect promotion PRs (develop->main, same repo only -- not forks)
+          PR_TYPE="feature"
+          if [ "$PR_HEAD_REF" = "develop" ] && [ "$PR_BASE_REF" = "main" ] && \
+             [ "$PR_HEAD_REPO" = "${{ github.repository }}" ]; then
+            PR_TYPE="promotion"
+            echo "Detected promotion PR -- skipping source-pr re-tagging"
+          fi
+
           python scripts/security/create-finding-issues.py \
             --sast-results sast-results/ \
             --dast-results dast-results/ \
@@ -711,7 +794,8 @@ jobs:
             --pr-author "$PR_AUTHOR" \
             --pr-number "$PR_NUMBER" \
             --branch "$BRANCH_NAME" \
-            --sha "$COMMIT_SHA"
+            --sha "$COMMIT_SHA" \
+            --pr-type "$PR_TYPE"
 
       - name: Post security scan results to PR
         if: always() && github.event_name == 'pull_request'
@@ -741,9 +825,14 @@ jobs:
           DAST_NUCLEI_WEB: ${{ needs.dast.outputs.nuclei_web || 'skipped' }}
           DAST_ZAP_API: ${{ needs.dast.outputs.zap_api || 'skipped' }}
           DAST_ZAP_WEB: ${{ needs.dast.outputs.zap_web || 'skipped' }}
+          DAST_ZAP_UNAUTH_API: ${{ needs.dast.outputs.zap_unauth_api || 'skipped' }}
+          DAST_ZAP_UNAUTH_WEB: ${{ needs.dast.outputs.zap_unauth_web || 'skipped' }}
           # Issue creation outputs
           CREATED_ISSUES: ${{ steps.create-issues.outputs.created_issues || '' }}
           ISSUES_JSON: ${{ steps.create-issues.outputs.issues_json || '[]' }}
+          SUPPRESSED_COUNT: ${{ steps.create-issues.outputs.suppressed_count || '0' }}
+          REPO_NAME: ${{ github.repository }}
+          HEAD_BRANCH: ${{ github.head_ref || github.ref_name }}
         run: |
           # Helper: convert outcome to icon
           icon() {
@@ -789,6 +878,8 @@ jobs:
           | Nuclei (Web) | :$(icon "$DAST_NUCLEI_WEB"): ${DAST_NUCLEI_WEB} |
           | ZAP API Active Scan | :$(icon "$DAST_ZAP_API"): ${DAST_ZAP_API} |
           | ZAP Web Baseline | :$(icon "$DAST_ZAP_WEB"): ${DAST_ZAP_WEB} |
+          | ZAP Unauth API Scan | :$(icon "$DAST_ZAP_UNAUTH_API"): ${DAST_ZAP_UNAUTH_API} |
+          | ZAP Unauth Web Scan | :$(icon "$DAST_ZAP_UNAUTH_WEB"): ${DAST_ZAP_UNAUTH_WEB} |
 
           $(if [ -n "$CREATED_ISSUES" ]; then
           echo "### Security Issues"
@@ -796,6 +887,10 @@ jobs:
           echo "| Issue | Severity | Action |"
           echo "|-------|----------|--------|"
           echo "$ISSUES_JSON" | jq -r '.[] | "| [#\(.number)](\(.url)) \(.title[:60]) | \(.severity) | \(.action) |"'
+          echo ""
+          fi)
+          $(if [ "$SUPPRESSED_COUNT" -gt 0 ] 2>/dev/null; then
+          echo "> :information_source: **${SUPPRESSED_COUNT} finding(s) suppressed** as accepted risks. See [zap-suppressions.json](https://github.com/${REPO_NAME}/blob/${HEAD_BRANCH}/scripts/security/zap-suppressions.json)."
           echo ""
           fi)
           <details>
@@ -813,12 +908,12 @@ jobs:
           </details>
 
           ---
-          *Posted by [homebot.0](https://github.com/apps/homebot-0) -- GlycemicGPT Security Scanner*"
+          *Posted by [glycemicgpt-security](https://github.com/apps/glycemicgpt-security) -- GlycemicGPT Security Scanner*"
 
           # Post or update the comment
-          # Find existing comment posted by homebot-0 (not CodeRabbit or other bots)
+          # Find existing comment posted by glycemicgpt-security (not CodeRabbit or other bots)
           EXISTING=$(gh api repos/${{ github.repository }}/issues/${PR_NUMBER}/comments \
-            --jq '.[] | select(.user.login == "homebot-0[bot]" and (.body | contains("Security Scan Results"))) | .id' | head -1)
+            --jq '.[] | select(.user.login == "glycemicgpt-security[bot]" and (.body | contains("Security Scan Results"))) | .id' | head -1)
 
           if [ -n "$EXISTING" ]; then
             gh api repos/${{ github.repository }}/issues/comments/${EXISTING} \
@@ -852,20 +947,32 @@ jobs:
       - name: Install dependencies
         run: pip install -r scripts/security/requirements.txt
 
-      - name: Generate bot token
+      - name: Generate token for glycemicgpt-security
         id: bot-token
         continue-on-error: true
         uses: actions/create-github-app-token@v1
         with:
-          app-id: ${{ secrets.BOT_APP_ID }}
-          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          app-id: ${{ secrets.SECURITY_APP_ID }}
+          private-key: ${{ secrets.SECURITY_APP_PRIVATE_KEY }}
 
       - name: Cleanup orphaned issues
         if: steps.bot-token.outputs.token
         continue-on-error: true
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         run: |
+          # Detect promotion PRs (develop->main, same repo only -- not forks)
+          PR_TYPE="feature"
+          if [ "$PR_HEAD_REF" = "develop" ] && [ "$PR_BASE_REF" = "main" ] && \
+             [ "$PR_HEAD_REPO" = "${{ github.repository }}" ]; then
+            PR_TYPE="promotion"
+            echo "Detected promotion PR -- skipping orphan cleanup"
+          fi
+
           python scripts/security/create-finding-issues.py \
             --cleanup-pr "${{ github.event.pull_request.number }}" \
-            --repo "${{ github.repository }}"
+            --repo "${{ github.repository }}" \
+            --pr-type "$PR_TYPE"

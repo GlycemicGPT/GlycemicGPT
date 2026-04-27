@@ -17,11 +17,11 @@
 5. Repeat 1-4 for more features, test dev builds
 6. When ready for stable release: create promotion PR (develop -> main)
 7. CI runs on the promotion PR
-8. Merge with "Rebase and merge" (individual commits land on main)
+8. Merge the promotion PR with "Create a merge commit" (maintains branch ancestry)
 9. (Automated) release-please creates version bump PR on main
-10. (Automated) homebot auto-merges the version bump PR
+10. (Automated) glycemicgpt-merge auto-merges the version bump PR
 11. (Automated) GitHub Release created, signed APK uploaded, Docker images tagged with version + "latest"
-12. Sync develop: rebase onto main to pick up version bump
+12. (Automated) sync-main-to-develop cherry-picks version/changelog changes back to develop
 ```
 
 ## Feature Branch Workflow
@@ -44,34 +44,57 @@ gh pr create --base main --head develop \
   --body-file .github/PROMOTION_PR_TEMPLATE.md
 ```
 
-**IMPORTANT: Use "Rebase and merge", not "Squash and merge".** Rebase merge preserves each feature as an individual commit on main. This is critical for the CHANGELOG -- release-please needs to see each `feat:` and `fix:` commit separately to generate granular changelog entries. Squash merge would collapse everything into one unhelpful entry.
+**Use "Create a merge commit"** for all promotion PRs. This maintains the ancestry link between develop and main, preventing divergence and merge conflicts on future promotions. The label-based changelog (`changelog-pr.yml`) generates granular entries from PR titles, labels, and contributor credits regardless -- it reads from the PRs merged to develop, not from commits on main.
 
 After the promotion PR merges:
-- **release-please** sees the individual commits and creates a version bump PR
-- homebot auto-merges the version bump PR
+- **changelog-pr.yml** detects the promotion and generates a changelog from PR labels
+- glycemicgpt-merge auto-merges the changelog PR
+- If release-please detects releasable commits, it creates a version bump PR
+- The `sync-main-to-develop` workflow cherry-picks any version changes back to develop
 - A GitHub Release is created with signed APKs and versioned Docker images
 
-### Post-merge: restore develop branch
+### Post-merge: automated version sync
 
-The repo has "auto-delete head branches" enabled, which is great for cleaning up feature branches but will also delete `develop` after a promotion PR merges (since `develop` is the head branch). Recreate it immediately:
+After a promotion merge, the changelog workflow generates entries and auto-merges to main. If release-please also creates a version bump (depends on commit types), the `sync-main-to-develop` workflow automatically cherry-picks these commits back to develop via PR. No manual intervention required.
 
-```bash
-# Recreate develop from main via API
-gh api repos/jlengelbrecht/GlycemicGPT/git/refs \
-  -f ref="refs/heads/develop" \
-  -f sha="$(gh api repos/jlengelbrecht/GlycemicGPT/git/ref/heads/main --jq '.object.sha')"
-```
+The sync workflow:
+1. Detects version bump or changelog commits on main
+2. Cherry-picks them onto a branch from develop
+3. Creates a PR and auto-merges with glycemicgpt-merge[bot]
+4. Develop stays in sync with main's version numbers
 
-This also handles the post-release sync since `develop` is recreated from `main` (which includes the version bump commit).
+Verify the sync completed in the [Actions tab](../../actions/workflows/sync-main-to-develop.yml). If the sync PR has unresolved conflicts (rare), resolve manually.
 
-If develop was NOT auto-deleted (e.g., the setting changes in the future), manually sync instead:
+> **Note:** Develop has deletion protection in its branch ruleset, so it is NOT auto-deleted after promotion merges despite the repo-level "auto-delete head branches" setting.
 
-```bash
-git fetch origin
-git checkout develop
-git rebase origin/main
-git push origin develop --force-with-lease
-```
+## Versioning
+
+GlycemicGPT uses [Conventional Commits](https://www.conventionalcommits.org/) with release-please for automated semantic versioning. The commit types in a promotion determine the version bump:
+
+| Commit prefix | Version bump | When to use |
+|---------------|-------------|-------------|
+| `fix:` | PATCH (0.3.0 -> 0.3.1) | Bug fixes, CI fixes (`fix(ci): ...`), corrections |
+| `feat:` | MINOR (0.3.0 -> 0.4.0) | New user-facing features or capabilities |
+| `feat!:` / `BREAKING CHANGE:` | MINOR (while pre-1.0; MAJOR after 1.0) | Breaking API or behavior changes |
+| `chore:`, `ci:`, `docs:`, `test:`, `style:`, `build:` | Fallback PATCH | Non-user-facing work |
+
+### How it works
+
+1. Developers use conventional commit prefixes on PRs merged to `develop`
+2. On promotion (develop -> main), release-please analyzes commits since the last release
+3. The highest-priority commit type determines the bump: `feat!:` > `feat:` > `fix:`
+4. If no releasable commits exist (only `chore:`/`ci:`/`docs:`/etc.) but deployable code changed, a **fallback patch release** is created automatically
+5. If no releasable commits exist AND no deployable code changed (doc-only promotion), **no release is created** -- no version bump, no container builds, no APKs
+
+Promotions with deployable code changes always produce a versioned release. Doc-only promotions (README, GOVERNANCE, CODEOWNERS, docs/) do not create releases, avoiding unnecessary noise for downstream Renovate users.
+
+**Deployable paths:** `apps/api/`, `apps/web/`, `apps/mobile/`, `sidecar/`, `plugins/`, `docker-compose*`, `Dockerfile*`. Changes outside these paths (docs, governance, CI workflows, assets) do not trigger releases.
+
+### Choosing the right commit type
+
+- **`feat:`** -- use only for new user-facing functionality. A CI improvement is NOT a feature.
+- **`fix:`** -- use for bug fixes in any area, including CI/infrastructure (`fix(ci): ...`).
+- **`chore:`/`ci:`/`docs:`** -- use for non-user-facing changes. These produce a patch release only if deployable code paths are affected.
 
 ## Release Channels
 
@@ -92,7 +115,7 @@ The `/releases/latest` API endpoint automatically excludes pre-releases, so `dev
 ## What Stays the Same
 
 - **release-please** config and workflow: no changes, still watches main
-- **CHANGELOG.md** format: unchanged, generated from individual commits on main
+- **CHANGELOG.md** format: label-based, generated from PRs merged to develop (not individual commits on main)
 - **release.yml**: still triggers on main push, builds signed APKs
 - **CI**: all workflows run on both branches, PRs can target either
 

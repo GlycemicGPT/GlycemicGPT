@@ -5,6 +5,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: write
   pull-requests: write
@@ -18,14 +22,13 @@ jobs:
       tag_name: ${{ steps.release.outputs.tag_name }}
       version: ${{ steps.release.outputs.version }}
       pr: ${{ steps.release.outputs.pr }}
-
     steps:
-      - name: Generate token for homebot.0
+      - name: Generate token for glycemicgpt-release
         id: generate-token
         uses: actions/create-github-app-token@v1
         with:
-          app-id: ${{ secrets.BOT_APP_ID }}
-          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 
       - name: Release Please
         id: release
@@ -42,38 +45,294 @@ jobs:
     if: needs.release-please.outputs.pr != ''
 
     steps:
-      - name: Generate token for homebot.0
+      - name: Generate token for glycemicgpt-merge
         id: generate-token
         uses: actions/create-github-app-token@v1
         with:
-          app-id: ${{ secrets.BOT_APP_ID }}
-          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          app-id: ${{ secrets.MERGE_APP_ID }}
+          private-key: ${{ secrets.MERGE_APP_PRIVATE_KEY }}
 
       - name: Auto-merge release PR
         env:
           GH_TOKEN: ${{ steps.generate-token.outputs.token }}
           PR_NUMBER: ${{ needs.release-please.outputs.pr }}
         run: |
-          # Extract just the PR number if it's a full URL or JSON
           PR_NUM=$(echo "$PR_NUMBER" | grep -oE '[0-9]+' | head -1)
 
           if [ -n "$PR_NUM" ]; then
-            echo "Auto-merging release PR #$PR_NUM (using --admin to bypass branch protection)"
-            # Skip approval since same bot can't approve its own PR
-            # Use --admin flag to bypass required approvals
+            echo "Auto-merging release PR #$PR_NUM"
             gh pr merge "$PR_NUM" --squash --admin --repo ${{ github.repository }}
           else
             echo "No PR number found"
           fi
 
+  # Detect whether the promotion contains changes to deployable code paths.
+  # Doc-only promotions (README, GOVERNANCE, CODEOWNERS, docs/) should NOT
+  # trigger versioned releases, container builds, or APK builds.
+  detect-deployable-changes:
+    name: Check for Deployable Changes
+    runs-on: ubuntu-latest
+    needs: release-please
+    if: >-
+      needs.release-please.outputs.release_created != 'true' &&
+      needs.release-please.outputs.pr == '' &&
+      contains(github.event.head_commit.message, 'promote develop to main')
+    outputs:
+      has_deployable_changes: ${{ steps.check.outputs.has_deployable_changes }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect deployable file changes
+        id: check
+        env:
+          MERGE_SHA: ${{ github.sha }}
+        run: |
+          # Compare promotion merge to its first parent (main before merge)
+          CHANGED=$(git diff --name-only "${MERGE_SHA}^1" "$MERGE_SHA")
+          echo "Changed files in promotion:"
+          printf '%s\n' "$CHANGED"
+
+          # Deployable paths: application code, containers, plugins
+          PATTERN='^(apps/api/|apps/web/|apps/mobile/|sidecar/|plugins/|docker-compose|Dockerfile)'
+          MATCHED=$(printf '%s\n' "$CHANGED" | grep -E "$PATTERN" || true)
+
+          if [ -n "$MATCHED" ]; then
+            echo "has_deployable_changes=true" >> "$GITHUB_OUTPUT"
+            echo "Deployable files that triggered release:"
+            printf '%s\n' "$MATCHED"
+          else
+            echo "has_deployable_changes=false" >> "$GITHUB_OUTPUT"
+            echo "No deployable changes -- skipping fallback release"
+          fi
+
+  # Fallback: when a promotion merge has no releasable conventional commits
+  # (only chore/ci/docs/test) BUT contains deployable code changes,
+  # release-please skips. This job creates a patch release so every
+  # code-changing promotion produces versioned container images for
+  # Renovate-managed k8s deployments.
+  fallback-release:
+    name: Fallback Patch Release
+    runs-on: ubuntu-latest
+    needs: [release-please, detect-deployable-changes]
+    if: >-
+      needs.release-please.outputs.release_created != 'true' &&
+      needs.release-please.outputs.pr == '' &&
+      contains(github.event.head_commit.message, 'promote develop to main') &&
+      needs.detect-deployable-changes.outputs.has_deployable_changes == 'true'
+    outputs:
+      release_created: ${{ steps.create-release.outputs.release_created || steps.existing-release.outputs.release_created }}
+      tag_name: ${{ steps.bump.outputs.tag_name }}
+      version: ${{ steps.bump.outputs.version }}
+
+    steps:
+      - name: Generate token for glycemicgpt-release
+        id: generate-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ steps.generate-token.outputs.token }}
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          git config user.name "glycemicgpt-release[bot]"
+          git config user.email "glycemicgpt-release[bot]@users.noreply.github.com"
+
+      - name: Calculate next patch version
+        id: bump
+        run: |
+          # Read from the triggering commit SHA (immutable across workflow reruns).
+          # This prevents computing a different version on rerun after the first
+          # run already bumped the manifest on main.
+          CURRENT=$(git show ${{ github.sha }}:.release-please-manifest.json | jq -r '.["."]')
+          if [ -z "$CURRENT" ] || [ "$CURRENT" = "null" ]; then
+            echo "::error::Could not read current version from manifest"
+            exit 1
+          fi
+
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+          NEXT_PATCH=$((PATCH + 1))
+          VERSION="${MAJOR}.${MINOR}.${NEXT_PATCH}"
+          TAG="v${VERSION}"
+
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag_name=$TAG" >> "$GITHUB_OUTPUT"
+
+          # Idempotency: if this tag already exists (workflow rerun after
+          # successful first run), skip version bump but still set outputs
+          # so downstream jobs can re-run against the existing release.
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists (workflow rerun). Skipping version bump."
+            echo "already_exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "already_exists=false" >> "$GITHUB_OUTPUT"
+            echo "Fallback: bumping $CURRENT -> $VERSION (tag: $TAG)"
+          fi
+
+      - name: Update version files
+        if: steps.bump.outputs.already_exists != 'true'
+        env:
+          CURRENT: ${{ steps.bump.outputs.current }}
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          # 1. .release-please-manifest.json
+          jq --arg v "$VERSION" '.["."] = $v' .release-please-manifest.json > /tmp/manifest.json
+          mv /tmp/manifest.json .release-please-manifest.json
+
+          # 2. apps/api/pyproject.toml (anchored to line-start to skip dependency versions)
+          sed -i "s/^version = \"${CURRENT}\"/version = \"${VERSION}\"/" apps/api/pyproject.toml
+
+          # 3. apps/web/package.json
+          jq --arg v "$VERSION" '.version = $v' apps/web/package.json > /tmp/web-pkg.json
+          mv /tmp/web-pkg.json apps/web/package.json
+
+          # 4. sidecar/package.json
+          jq --arg v "$VERSION" '.version = $v' sidecar/package.json > /tmp/sidecar-pkg.json
+          mv /tmp/sidecar-pkg.json sidecar/package.json
+
+          # 5-7. apps/mobile/*/build.gradle.kts (app, wear-device, watchface)
+          for GRADLE_FILE in apps/mobile/app/build.gradle.kts \
+                            apps/mobile/wear-device/build.gradle.kts \
+                            apps/mobile/watchface/build.gradle.kts; do
+            sed -i "s/val appVersionName = \"${CURRENT}\"/val appVersionName = \"${VERSION}\"/" "$GRADLE_FILE"
+          done
+
+          # Verify all files were updated
+          grep -q "\"${VERSION}\"" .release-please-manifest.json || { echo "::error::Manifest not updated"; exit 1; }
+          grep -q "^version = \"${VERSION}\"" apps/api/pyproject.toml || { echo "::error::pyproject.toml not updated"; exit 1; }
+          grep -q "\"version\": \"${VERSION}\"" apps/web/package.json || { echo "::error::web package.json not updated"; exit 1; }
+          grep -q "\"version\": \"${VERSION}\"" sidecar/package.json || { echo "::error::sidecar package.json not updated"; exit 1; }
+          for GRADLE_FILE in apps/mobile/app/build.gradle.kts \
+                            apps/mobile/wear-device/build.gradle.kts \
+                            apps/mobile/watchface/build.gradle.kts; do
+            grep -q "val appVersionName = \"${VERSION}\"" "$GRADLE_FILE" || { echo "::error::$GRADLE_FILE not updated"; exit 1; }
+          done
+
+      - name: Update release-please changelog
+        if: steps.bump.outputs.already_exists != 'true'
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+          CURRENT: ${{ steps.bump.outputs.current }}
+        run: |
+          DATE=$(date -u +%Y-%m-%d)
+          REPO_URL="https://github.com/${{ github.repository }}"
+
+          # Build new changelog: keep header, insert entry, append rest
+          {
+            head -1 .release-please-changelog.md
+            echo ""
+            echo "## [${VERSION}](${REPO_URL}/compare/v${CURRENT}...v${VERSION}) (${DATE})"
+            echo ""
+            echo ""
+            echo "Maintenance release (no user-facing changes)."
+            echo ""
+            tail -n +2 .release-please-changelog.md
+          } > /tmp/updated-rp-changelog.md
+          mv /tmp/updated-rp-changelog.md .release-please-changelog.md
+
+      - name: Commit, tag, and push
+        if: steps.bump.outputs.already_exists != 'true'
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+          TAG: ${{ steps.bump.outputs.tag_name }}
+        run: |
+          git add \
+            .release-please-manifest.json \
+            .release-please-changelog.md \
+            apps/api/pyproject.toml \
+            apps/web/package.json \
+            sidecar/package.json \
+            apps/mobile/app/build.gradle.kts \
+            apps/mobile/wear-device/build.gradle.kts \
+            apps/mobile/watchface/build.gradle.kts
+
+          git commit -m "chore: release ${VERSION}"
+
+          # Pull any intervening commits (e.g., changelog) before pushing.
+          # If rebase fails (conflict), abort and fail the job.
+          if ! git pull --rebase origin main; then
+            echo "::error::Rebase failed -- intervening commits conflict with version bump"
+            git rebase --abort 2>/dev/null || true
+            exit 1
+          fi
+
+          git tag "$TAG"
+          git push origin main --follow-tags
+
+      - name: Create GitHub Release
+        id: create-release
+        if: steps.bump.outputs.already_exists != 'true'
+        env:
+          GH_TOKEN: ${{ steps.generate-token.outputs.token }}
+          VERSION: ${{ steps.bump.outputs.version }}
+          TAG: ${{ steps.bump.outputs.tag_name }}
+          CURRENT: ${{ steps.bump.outputs.current }}
+        run: |
+          gh release create "$TAG" \
+            --repo "${{ github.repository }}" \
+            --title "v${VERSION}" \
+            --notes "Maintenance release (no user-facing changes).
+
+          **Full Changelog**: https://github.com/${{ github.repository }}/compare/v${CURRENT}...${TAG}" \
+            --latest
+
+          echo "release_created=true" >> "$GITHUB_OUTPUT"
+          echo "Created fallback GitHub Release $TAG"
+
+      # On rerun when release already exists, still signal success
+      # so downstream jobs (APK build, release body) can re-run.
+      - name: Signal existing release on rerun
+        id: existing-release
+        if: steps.bump.outputs.already_exists == 'true'
+        env:
+          GH_TOKEN: ${{ steps.generate-token.outputs.token }}
+        run: |
+          # Verify the GitHub Release (not just the tag) exists.
+          # A prior run could have pushed the tag but failed before gh release create.
+          if gh release view "${{ steps.bump.outputs.tag_name }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "release_created=true" >> "$GITHUB_OUTPUT"
+            echo "Rerun: release ${{ steps.bump.outputs.tag_name }} already exists"
+          else
+            echo "::error::Tag exists but GitHub Release ${{ steps.bump.outputs.tag_name }} does not"
+            exit 1
+          fi
+
   release-android-apk:
     name: Build & Upload Release APK
     runs-on: ubuntu-latest
-    needs: release-please
-    if: needs.release-please.outputs.release_created == 'true'
+    needs: [release-please, fallback-release]
+    if: >-
+      always() && !cancelled() &&
+      !contains(needs.*.result, 'failure') &&
+      (
+        needs.release-please.outputs.release_created == 'true' ||
+        needs.fallback-release.outputs.release_created == 'true'
+      )
 
     steps:
+      - name: Resolve version info
+        id: version-info
+        run: |
+          if [ "${{ needs.release-please.outputs.release_created }}" = "true" ]; then
+            echo "version=${{ needs.release-please.outputs.version }}" >> "$GITHUB_OUTPUT"
+            echo "tag_name=${{ needs.release-please.outputs.tag_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${{ needs.fallback-release.outputs.version }}" >> "$GITHUB_OUTPUT"
+            echo "tag_name=${{ needs.fallback-release.outputs.tag_name }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.version-info.outputs.tag_name }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -93,9 +352,29 @@ jobs:
             echo "RELEASE_KEYSTORE_FILE=/tmp/release-keystore.jks" >> "$GITHUB_ENV"
           fi
 
-      - name: Build release APK
+      - name: Build phone release APK
         working-directory: apps/mobile
-        run: ./gradlew assembleRelease
+        run: ./gradlew :app:assembleRelease
+        env:
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+
+      - name: Build wear release APK
+        id: wear-build
+        continue-on-error: true
+        working-directory: apps/mobile
+        run: ./gradlew :wear-device:assembleRelease
+        env:
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+
+      - name: Build watchface release APKs
+        id: watchface-build
+        continue-on-error: true
+        working-directory: apps/mobile
+        run: ./gradlew :watchface:assembleRelease
         env:
           RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
@@ -103,23 +382,57 @@ jobs:
 
       - name: Rename APKs with version
         run: |
-          VERSION="${{ needs.release-please.outputs.version }}"
+          VERSION="${{ steps.version-info.outputs.version }}"
+
+          # Phone APK (required)
           APP_APK=$(find apps/mobile/app/build/outputs/apk/release -name "*.apk" | head -1)
-          cp "$APP_APK" "GlycemicGPT-${VERSION}-release.apk"
-          WEAR_APK=$(find apps/mobile/wear-device/build/outputs/apk/release -name "*.apk" | head -1)
-          if [ -n "$WEAR_APK" ]; then
-            cp "$WEAR_APK" "GlycemicGPT-Wear-${VERSION}-release.apk"
+          if [ -n "$APP_APK" ]; then
+            cp "$APP_APK" "GlycemicGPT-${VERSION}-release.apk"
+            echo "Phone APK: GlycemicGPT-${VERSION}-release.apk"
           else
-            echo "::error::Wear device APK not found in build outputs"
+            echo "::error::Phone APK not found"
             exit 1
           fi
 
+          # Wear APK (optional)
+          WEAR_APK=$(find apps/mobile/wear-device/build/outputs/apk/release -name "*.apk" 2>/dev/null | head -1)
+          if [ -n "$WEAR_APK" ]; then
+            cp "$WEAR_APK" "GlycemicGPT-Wear-${VERSION}-release.apk"
+            echo "Wear APK: GlycemicGPT-Wear-${VERSION}-release.apk"
+          else
+            echo "::warning::Wear APK not found. Phone APK will still be uploaded."
+          fi
+
+          # Watchface APKs (optional -- multiple flavors)
+          DIGITAL_APK=$(find apps/mobile/watchface/build/outputs/apk/digitalFull/release -name "*.apk" 2>/dev/null | head -1)
+          if [ -n "$DIGITAL_APK" ]; then
+            cp "$DIGITAL_APK" "GlycemicGPT-WatchFace-Digital-${VERSION}-release.apk"
+            echo "Digital watchface: GlycemicGPT-WatchFace-Digital-${VERSION}-release.apk"
+          else
+            echo "::warning::Digital watchface APK not found."
+          fi
+
+          ANALOG_APK=$(find apps/mobile/watchface/build/outputs/apk/analogMechanical/release -name "*.apk" 2>/dev/null | head -1)
+          if [ -n "$ANALOG_APK" ]; then
+            cp "$ANALOG_APK" "GlycemicGPT-WatchFace-Analog-${VERSION}-release.apk"
+            echo "Analog watchface: GlycemicGPT-WatchFace-Analog-${VERSION}-release.apk"
+          else
+            echo "::warning::Analog watchface APK not found."
+          fi
+
+      - name: Generate token for glycemicgpt-release
+        id: release-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
       - name: Upload APK to GitHub Release
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.release-token.outputs.token }}
         run: |
-          TAG="${{ needs.release-please.outputs.tag_name }}"
-          gh release upload "$TAG" GlycemicGPT-*-release.apk --repo ${{ github.repository }}
+          TAG="${{ steps.version-info.outputs.tag_name }}"
+          gh release upload "$TAG" GlycemicGPT-*-release.apk --repo ${{ github.repository }} --clobber
 
       - name: Upload APK as workflow artifact
         uses: actions/upload-artifact@v4
@@ -127,3 +440,63 @@ jobs:
           name: release-apk
           path: GlycemicGPT-*-release.apk
           retention-days: 90
+
+  update-release-body:
+    name: Update Release with Contributor Credits
+    runs-on: ubuntu-latest
+    needs: [release-please, fallback-release]
+    if: >-
+      always() && !cancelled() &&
+      !contains(needs.*.result, 'failure') &&
+      (
+        needs.release-please.outputs.release_created == 'true' ||
+        needs.fallback-release.outputs.release_created == 'true'
+      )
+
+    steps:
+      - name: Resolve version info
+        id: version-info
+        run: |
+          if [ "${{ needs.release-please.outputs.release_created }}" = "true" ]; then
+            echo "version=${{ needs.release-please.outputs.version }}" >> "$GITHUB_OUTPUT"
+            echo "tag_name=${{ needs.release-please.outputs.tag_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${{ needs.fallback-release.outputs.version }}" >> "$GITHUB_OUTPUT"
+            echo "tag_name=${{ needs.fallback-release.outputs.tag_name }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+
+      - name: Generate token for glycemicgpt-release
+        id: release-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - name: Replace release body with contributor-credited changelog
+        env:
+          GH_TOKEN: ${{ steps.release-token.outputs.token }}
+          TAG: ${{ steps.version-info.outputs.tag_name }}
+          VERSION: ${{ steps.version-info.outputs.version }}
+        run: |
+          # Extract the latest dated section from CHANGELOG.md
+          # (populated by changelog-pr.yml with @username contributor credits)
+          BODY=$(sed -n '/^## [0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}/,/^\(## [0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}\|<!-- changelog-cutoff:\)/{
+            /^## [0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}/!{
+              /^\(## [0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}\|<!-- changelog-cutoff:\)/!p
+            }
+          }' CHANGELOG.md)
+
+          if [ -n "$BODY" ]; then
+            {
+              echo "## v${VERSION}"
+              echo ""
+              echo "$BODY"
+            } > /tmp/release-body.md
+
+            gh release edit "$TAG" --notes-file /tmp/release-body.md --repo ${{ github.repository }}
+            echo "Updated $TAG release body with contributor credits"
+          else
+            echo "No changelog section found -- keeping release-please body"
+          fi

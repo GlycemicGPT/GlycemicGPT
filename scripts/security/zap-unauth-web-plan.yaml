@@ -1,35 +1,31 @@
 ---
-# ZAP Automation Framework Plan: GlycemicGPT Web Frontend Security Scan
+# ZAP Automation Framework Plan: Unauthenticated Web Pentest
 #
-# Scans the Next.js web frontend for security issues. The frontend is a React
-# SPA, so standard spidering discovers almost nothing. This plan uses:
-#   1. Requestor to pre-seed known page URLs (from apps/web/src/app/**/page.tsx)
-#   2. AJAX Spider with headless Firefox to render JavaScript and discover routes
-#   3. Passive + Active scanning on all discovered pages
+# Simulates an external attacker browsing the web application without
+# credentials. Probes public pages, protected pages (tests redirect/block
+# behavior), error handlers, and invalid routes for info disclosure,
+# injection, and security misconfigurations.
 #
-# Auth cookies are pre-computed by CI and injected via replacer (same pattern
-# as the API scan). The CSRF injector script is reused.
+# No auth cookies. Dashboard pages are intentionally included to test
+# what an attacker sees when probing protected routes.
 #
-# Environment variables (must be passed to the ZAP container):
-#   ZAP_SESSION  - glycemicgpt_session cookie value
-#   ZAP_CSRF     - csrf_token cookie value
+# No envsubst needed -- this plan has no template variables.
 #
-# IMPORTANT: ZAP does NOT expand ${VAR} in YAML. CI must run envsubst first:
-#   envsubst '${ZAP_SESSION} ${ZAP_CSRF}' < zap-web-plan.yaml > zap-web-plan.resolved.yaml
-#   zap.sh -cmd -autorun /zap/wrk/zap-web-plan.resolved.yaml
+# Usage:
+#   zap.sh -cmd -autorun /zap/wrk/zap-unauth-web-plan.yaml
 
 env:
   contexts:
-    - name: "glycemicgpt-web"
+    - name: "glycemicgpt-unauth-web"
       urls:
         - "http://localhost:3001"
       includePaths:
         - "http://localhost:3001.*"
       excludePaths:
-        # Static assets (nothing to scan)
+        # Static webpack assets (no security value)
         - "http://localhost:3001/_next/.*"
         - "http://localhost:3001/__next.*"
-        # API calls are covered by the API scan plan
+        # API calls covered by the unauthenticated API scan
         - "http://localhost:3001/api/.*"
   parameters:
     failOnError: false
@@ -37,31 +33,11 @@ env:
     progressToStdout: true
 
 jobs:
-  # Load the HttpSender script that copies csrf_token cookie to X-CSRF-Token header
-  - type: script
-    parameters:
-      action: "add"
-      type: "httpsender"
-      engine: "Graal.js"
-      name: "csrf-injector"
-      file: "/zap/wrk/zap-csrf-injector.js"
+  # No script or replacer jobs -- this scan runs without authentication
 
-  # Inject pre-computed auth cookies on every request
-  - type: replacer
-    parameters:
-      deleteAllRules: true
-    rules:
-      - description: "Inject authenticated session cookies"
-        matchType: "req_header"
-        matchString: "Cookie"
-        replacementString: "glycemicgpt_session=${ZAP_SESSION}; csrf_token=${ZAP_CSRF}"
-        matchRegex: false
-        tokenProcessing: false
-        initiators: []
-
-  # Pre-seed ZAP with all known page URLs so passive scan has full coverage
-  # even if the AJAX spider misses some routes. Derived from:
-  #   apps/web/src/app/**/page.tsx
+  # Seed all known URLs an attacker would discover or try.
+  # Protected pages are included -- attacker probes these to test
+  # redirect behavior, info leakage, and auth enforcement.
   - type: requestor
     parameters:
       user: ""
@@ -73,7 +49,7 @@ jobs:
         method: "GET"
       - url: "http://localhost:3001/register"
         method: "GET"
-      # Dashboard (authenticated)
+      # Protected pages (attacker probes, expects redirect/403)
       - url: "http://localhost:3001/dashboard"
         method: "GET"
       - url: "http://localhost:3001/dashboard/ai-chat"
@@ -88,7 +64,6 @@ jobs:
         method: "GET"
       - url: "http://localhost:3001/dashboard/reports/clinical"
         method: "GET"
-      # Settings pages
       - url: "http://localhost:3001/dashboard/settings"
         method: "GET"
       - url: "http://localhost:3001/dashboard/settings/glucose-range"
@@ -119,17 +94,18 @@ jobs:
         method: "GET"
       - url: "http://localhost:3001/dashboard/settings/brief-delivery"
         method: "GET"
+      # Error handling probes
+      - url: "http://localhost:3001/invite/fake-token-probe-12345"
+        method: "GET"
+      - url: "http://localhost:3001/nonexistent-page-probe"
+        method: "GET"
 
-  # Standard spider: follows links from the pre-seeded pages above.
-  # Note: AJAX Spider (headless Firefox) was considered but requires ~2.5GB RAM
-  # which risks OOM on standard GitHub runners (7GB total). The requestor
-  # pre-seeds all 25+ known routes, so the standard spider provides sufficient
-  # additional discovery by following links from those pages.
+  # Spider from public pages, follow redirects, discover linked routes
   - type: spider
     parameters:
-      context: "glycemicgpt-web"
+      context: "glycemicgpt-unauth-web"
       url: "http://localhost:3001/"
-      maxDuration: 3
+      maxDuration: 5
       maxDepth: 5
 
   # Passive scan: security headers, cookie flags, CSP, information disclosure
@@ -142,23 +118,24 @@ jobs:
     parameters:
       maxDuration: 3
 
-  # Active scan: injection testing through the web proxy path
+  # Active scan: injection on all discovered pages including redirect responses.
+  # scanHeadersAllRequests: tests Host header injection, X-Forwarded-For spoofing
   - type: activeScan
     parameters:
-      context: "glycemicgpt-web"
-      maxScanDurationInMins: 10
-      maxRuleDurationInMins: 2
+      context: "glycemicgpt-unauth-web"
+      maxScanDurationInMins: 15
+      maxRuleDurationInMins: 3
       addQueryParam: false
-      handleAntiCSRFTokens: true
-      scanHeadersAllRequests: false
+      handleAntiCSRFTokens: false
+      scanHeadersAllRequests: true
 
-  # Generate JSON report (distinct filename from API report)
+  # Report includes info-level findings for maximum visibility.
   - type: report
     parameters:
       template: "traditional-json"
       reportDir: "/zap/wrk/results"
-      reportFile: "zap-web-report"
-      reportTitle: "GlycemicGPT Web Frontend Security Scan"
+      reportFile: "zap-unauth-web-report"
+      reportTitle: "GlycemicGPT Unauthenticated Web Pentest"
     risks:
       - high
       - medium

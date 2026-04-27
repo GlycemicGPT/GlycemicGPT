@@ -7,30 +7,41 @@
 # Order matters -- later rules take precedence over earlier ones.
 # See GOVERNANCE.md for role definitions and the path to becoming a maintainer.
 
-# Default: project maintainer owns everything
-* @jlengelbrecht
+# Default: maintainers team reviews everything
+* @GlycemicGPT/maintainers
 
-# Governance & project policy: maintainer-only changes
-/.github/CODEOWNERS @jlengelbrecht
-/GOVERNANCE.md @jlengelbrecht
-/CONTRIBUTING.md @jlengelbrecht
-/LICENSE @jlengelbrecht
+# Governance & project policy: project lead explicitly requested
+# These files define how the project is run. The project lead is
+# listed individually so they always appear in the review request.
+# The maintainers team is co-listed so review is always requested
+# even when the project lead authors the PR (GitHub skips self-review
+# for sole code owners). Note: CODEOWNERS ensures the request, not
+# that a specific person approves -- that is enforced by process
+# (see GOVERNANCE.md).
+/.github/CODEOWNERS @jlengelbrecht @GlycemicGPT/maintainers
+/GOVERNANCE.md @jlengelbrecht @GlycemicGPT/maintainers
+/CONTRIBUTING.md @jlengelbrecht @GlycemicGPT/maintainers
+/LICENSE @jlengelbrecht @GlycemicGPT/maintainers
 
-# Security infrastructure: maintainer-only changes
-/scripts/security/ @jlengelbrecht
-/.github/workflows/security-scan.yml @jlengelbrecht
-/.github/workflows/security-full-suite.yml @jlengelbrecht
+# Security infrastructure: project lead explicitly requested
+# Security scan configuration, workflows, and documentation affect
+# what gets flagged and what gets suppressed. Project lead review
+# expected (enforced by process, not CODEOWNERS).
+/scripts/security/ @jlengelbrecht @GlycemicGPT/maintainers
+/.github/workflows/security-scan.yml @jlengelbrecht @GlycemicGPT/maintainers
+/.github/workflows/security-full-suite.yml @jlengelbrecht @GlycemicGPT/maintainers
+/docs/security-testing.md @jlengelbrecht @GlycemicGPT/maintainers
 
-# Release & CI configuration: maintainer-only changes
-/.github/workflows/release.yml @jlengelbrecht
-/.github/renovate.json5 @jlengelbrecht
+# Release & CI configuration: project lead explicitly requested
+/.github/workflows/release.yml @jlengelbrecht @GlycemicGPT/maintainers
+/.github/renovate.json5 @jlengelbrecht @GlycemicGPT/maintainers
 
-# Component ownership -- ready for future collaborators.
-# Uncomment and add usernames when committers are granted component ownership.
-# See GOVERNANCE.md for the process.
+# Component ownership -- ready for future committer teams.
+# Uncomment and update when component-specific teams are created.
+# See GOVERNANCE.md for the promotion process.
 #
-# /apps/api/ @jlengelbrecht @future-backend-committer
-# /apps/web/ @jlengelbrecht @future-frontend-committer
-# /apps/mobile/ @jlengelbrecht @future-mobile-committer
-# /plugins/ @jlengelbrecht @future-mobile-committer
-# /sidecar/ @jlengelbrecht @future-backend-committer
+# /apps/api/ @GlycemicGPT/maintainers @GlycemicGPT/backend-committers
+# /apps/web/ @GlycemicGPT/maintainers @GlycemicGPT/frontend-committers
+# /apps/mobile/ @GlycemicGPT/maintainers @GlycemicGPT/mobile-committers
+# /plugins/ @GlycemicGPT/maintainers @GlycemicGPT/mobile-committers
+# /sidecar/ @GlycemicGPT/maintainers @GlycemicGPT/backend-committers

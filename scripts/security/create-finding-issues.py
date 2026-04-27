@@ -55,14 +55,15 @@ def write_output(key: str, value: str) -> None:
         with open(GITHUB_OUTPUT, "a") as f:
             f.write(f"{key}={value}\n")
 
-# Severity threshold: create issues for Low and above, skip Informational
-ISSUE_SEVERITIES = {"critical", "high", "medium", "low"}
+# Severity threshold: create issues for all severities including Informational
+ISSUE_SEVERITIES = {"critical", "high", "medium", "low", "info"}
 
 SEVERITY_EMOJI = {
     "critical": ":purple_circle:",
     "high": ":red_circle:",
     "medium": ":orange_circle:",
     "low": ":yellow_circle:",
+    "info": ":information_source:",
 }
 
 SEVERITY_LABELS = {
@@ -70,6 +71,7 @@ SEVERITY_LABELS = {
     "high": "severity: high",
     "medium": "severity: medium",
     "low": "severity: low",
+    "info": "severity: info",
 }
 
 LABEL_COLORS = {
@@ -80,6 +82,7 @@ LABEL_COLORS = {
     "severity: high": "d93f0b",
     "severity: medium": "fbca04",
     "severity: low": "e4e669",
+    "severity: info": "d4c5f9",
     "component: api": "1d76db",
     "component: web": "5319e7",
     "component: mobile": "006b75",
@@ -89,6 +92,8 @@ TOOL_COMPONENT = {
     "semgrep": None,  # derived from file path
     "zap-api": "component: api",
     "zap-web": "component: web",
+    "zap-unauth-api": "component: api",
+    "zap-unauth-web": "component: web",
     "nuclei-api": "component: api",
     "nuclei-web": "component: web",
 }
@@ -141,17 +146,25 @@ def component_from_path(path: str) -> str | None:
     return None
 
 
-def load_zap_suppressions() -> dict[str, str]:
-    """Load ZAP suppressions. Returns {pluginid: reason}."""
+def load_zap_suppressions() -> dict[tuple[str, str | None], str]:
+    """Load ZAP suppressions. Returns {(pluginid, scan_name|None): reason}.
+
+    Scan-aware: a suppression with "scan": "web" only matches the "web" scan,
+    not "unauth-web". Global suppressions (no "scan" field) match all scans.
+    This matches the behavior of evaluate-zap.py's is_suppressed().
+    """
     if not SUPPRESSIONS_FILE.is_file():
         return {}
     try:
         data = json.loads(SUPPRESSIONS_FILE.read_text())
-        result = {}
+        result: dict[tuple[str, str | None], str] = {}
         for s in data.get("suppressions", []):
             pid = str(s.get("pluginId", ""))
+            scan = s.get("scan")  # None means global (matches all scans)
             reason = s.get("reason", "no reason given")
-            result[pid] = reason
+            # Key is (pluginId, scan_name_or_None). Lookup checks
+            # (pid, scan_name) first, then (pid, None) for global match.
+            result[(pid, scan)] = reason
         return result
     except (json.JSONDecodeError, IOError):
         return {}
@@ -217,6 +230,8 @@ def parse_zap_results(results_dir: str) -> list[SecurityFinding]:
     for report_name, scan_name in [
         ("zap-report.json", "api"),
         ("zap-web-report.json", "web"),
+        ("zap-unauth-api-report.json", "unauth-api"),
+        ("zap-unauth-web-report.json", "unauth-web"),
     ]:
         report_path = os.path.join(results_dir, report_name)
         if not os.path.isfile(report_path):
@@ -237,15 +252,19 @@ def parse_zap_results(results_dir: str) -> list[SecurityFinding]:
                     severity = "medium"
                 elif riskcode == 1:
                     severity = "low"
+                elif riskcode == 0:
+                    severity = "info"
                 else:
-                    continue  # skip Informational
+                    continue
 
                 plugin_id = str(alert.get("pluginid", ""))
                 fingerprint = f"zap-{scan_name}:{plugin_id}"
 
-                # Check suppression
-                suppressed = plugin_id in suppressions
-                suppression_reason = suppressions.get(plugin_id)
+                # Check suppression: scan-specific first, then global
+                suppression_reason = suppressions.get((plugin_id, scan_name))
+                if not suppression_reason:
+                    suppression_reason = suppressions.get((plugin_id, None))
+                suppressed = suppression_reason is not None
 
                 # Build locations from instances
                 locations = []
@@ -429,7 +448,7 @@ class GitHubIssueClient:
                     return None
                 if e.code == 403:
                     err_body = e.read().decode("utf-8", errors="replace")[:200]
-                    print(f"    API 403: Permission denied. Ensure homebot.0 has 'issues: write' permission.\n    Response: {err_body}")
+                    print(f"    API 403: Permission denied. Ensure glycemicgpt-security has 'issues: write' permission.\n    Response: {err_body}")
                     return None
                 err_body = e.read().decode("utf-8", errors="replace")[:200]
                 print(f"    API error {e.code}: {e.reason}\n    Response: {err_body}")
@@ -479,7 +498,7 @@ class GitHubIssueClient:
         return self._request("PATCH", f"/issues/{issue_number}", json_data=kwargs)
 
     def last_bot_comment_age_days(self, issue_number: int) -> float:
-        """Return days since last homebot.0 comment on an issue.
+        """Return days since last glycemicgpt-security comment on an issue.
 
         Returns:
             float >= 0: days since last bot comment
@@ -499,7 +518,7 @@ class GitHubIssueClient:
             if not comments:
                 break
             for comment in comments:
-                if comment.get("user", {}).get("login") == "homebot-0[bot]":
+                if comment.get("user", {}).get("login") == "glycemicgpt-security[bot]":
                     created = comment.get("created_at", "")
                     if created:
                         comment_time = datetime.fromisoformat(created.replace("Z", "+00:00"))
@@ -614,7 +633,7 @@ def build_issue_body(
         f"> Detected by security scan run [#{run_id}]({run_url})",
         f"> Branch: `{branch}` | Commit: `{sha[:7]}`",
         ">",
-        "> *Auto-created by [homebot.0](https://github.com/apps/homebot-0) security scanner.*",
+        "> *Auto-created by [glycemicgpt-security](https://github.com/apps/glycemicgpt-security) security scanner.*",
         "> *If this is a false positive, close the issue with a comment explaining why.*",
     ])
 
@@ -704,7 +723,12 @@ def detect_tools_with_results(sast_dir: str, dast_dir: str) -> set[str]:
 
     # DAST: check for valid ZAP reports
     if os.path.isdir(dast_dir):
-        for name, tool in [("zap-report.json", "zap-api"), ("zap-web-report.json", "zap-web")]:
+        for name, tool in [
+            ("zap-report.json", "zap-api"),
+            ("zap-web-report.json", "zap-web"),
+            ("zap-unauth-api-report.json", "zap-unauth-api"),
+            ("zap-unauth-web-report.json", "zap-unauth-web"),
+        ]:
             path = os.path.join(dast_dir, name)
             if os.path.isfile(path):
                 try:
@@ -761,9 +785,11 @@ def reconcile_findings(
     dry_run: bool,
     reports_present: bool = True,
     tools_with_results: set[str] | None = None,
+    pr_type: str = "feature",
+    repo: str = "",
 ) -> dict:
     """Core orchestration: create, reopen, comment, close issues."""
-    stats = {"created": 0, "reopened": 0, "commented": 0, "closed": 0, "skipped": 0, "issues": []}
+    stats = {"created": 0, "reopened": 0, "commented": 0, "closed": 0, "skipped": 0, "suppressed": 0, "issues": []}
 
     if not findings:
         print("  No findings to process")
@@ -793,9 +819,23 @@ def reconcile_findings(
     if not dry_run:
         client.ensure_labels(list(all_labels))
 
-    # Process each finding
+    # Separate suppressed findings from active findings.
+    # Suppressed findings do NOT create/reopen/update issues.
+    active_findings = [f for f in findings if not f.suppressed]
+    suppressed_findings = [f for f in findings if f.suppressed]
+    suppressed_fingerprints = {f.fingerprint for f in suppressed_findings}
+    stats["suppressed"] = len(suppressed_findings)
+
+    if suppressed_findings:
+        print(f"  {len(suppressed_findings)} finding(s) suppressed (no issues created):")
+        for sf in suppressed_findings:
+            print(f"    [{sf.severity}] {sf.tool}: {sf.title}")
+            print(f"      Reason: {sf.suppression_reason or 'No reason given'}")
+        print()
+
+    # Process each active (non-suppressed) finding
     current_fingerprints = set()
-    for finding in findings:
+    for finding in active_findings:
         current_fingerprints.add(finding.fingerprint)
         existing = fingerprint_to_issue.get(finding.fingerprint)
 
@@ -831,9 +871,13 @@ def reconcile_findings(
             if dry_run:
                 print(f"  [DRY RUN] Would reopen #{existing['number']}: {title}")
             else:
-                # Preserve existing source-pr tag if no new pr_number provided
+                # Determine effective source-pr tag.
+                # Promotion PRs preserve the existing tag (they don't own findings).
                 effective_pr = pr_number
-                if not effective_pr:
+                if pr_type == "promotion":
+                    existing_pr_match = SOURCE_PR_RE.search(existing.get("body", ""))
+                    effective_pr = existing_pr_match.group(1) if existing_pr_match else None
+                elif not effective_pr:
                     existing_pr_match = SOURCE_PR_RE.search(existing.get("body", ""))
                     if existing_pr_match:
                         effective_pr = existing_pr_match.group(1)
@@ -864,9 +908,13 @@ def reconcile_findings(
         else:
             # Already open -- refresh content if changed, add "still detected" for full-suite
             if not dry_run:
-                # Preserve existing source-pr tag if no new pr_number provided
+                # Determine effective source-pr tag.
+                # Promotion PRs preserve the existing tag (they don't own findings).
                 effective_pr = pr_number
-                if not effective_pr:
+                if pr_type == "promotion":
+                    existing_pr_match = SOURCE_PR_RE.search(existing.get("body", ""))
+                    effective_pr = existing_pr_match.group(1) if existing_pr_match else None
+                elif not effective_pr:
                     existing_pr_match = SOURCE_PR_RE.search(existing.get("body", ""))
                     if existing_pr_match:
                         effective_pr = existing_pr_match.group(1)
@@ -888,8 +936,10 @@ def reconcile_findings(
                     print(f"  Updated #{existing['number']}: {title} (labels/title changed)")
                     stats["commented"] += 1
 
-                # PR scan: update source-pr tag if it changed (prevents orphan cleanup bugs)
-                elif scan_type == "pr" and pr_number:
+                # PR scan: update source-pr tag if it changed (prevents orphan cleanup bugs).
+                # Skip for promotion PRs -- they don't own findings, so re-tagging would
+                # cause false closures when the promotion PR is closed without merging.
+                elif scan_type == "pr" and pr_number and pr_type != "promotion":
                     existing_body = existing.get("body", "")
                     existing_pr_match = SOURCE_PR_RE.search(existing_body)
                     existing_pr_num = existing_pr_match.group(1) if existing_pr_match else None
@@ -928,10 +978,54 @@ def reconcile_findings(
             else:
                 stats["skipped"] += 1
 
+    # Close open issues for findings that are now suppressed (accepted risk).
+    # Only runs for full-suite scans: PR scans may contain unmerged suppressions
+    # that shouldn't close repo-wide issues before landing on develop/main.
+    if scan_type == "full-suite" and suppressed_findings:
+        suppression_config_url = (
+            f"https://github.com/{repo}/blob/{sha}/scripts/security/zap-suppressions.json"
+            if repo else "scripts/security/zap-suppressions.json"
+        )
+        for sf in suppressed_findings:
+            existing = fingerprint_to_issue.get(sf.fingerprint)
+            if existing is None or existing["state"] != "open":
+                continue
+
+            if dry_run:
+                print(f"  [DRY RUN] Would suppression-close #{existing['number']}: {existing['title']}")
+                stats["closed"] += 1
+            else:
+                comment = (
+                    f"This finding has been **accepted as a known risk** and suppressed in CI.\n\n"
+                    f"**Reason:** {sf.suppression_reason or 'No reason given'}\n"
+                    f"**Suppression config:** "
+                    f"[zap-suppressions.json]({suppression_config_url})\n\n"
+                    f"If this risk is no longer accepted, remove the suppression entry "
+                    f"and this issue will be reopened on the next scan."
+                )
+                client.add_comment(existing["number"], comment)
+                existing_labels = [l["name"] for l in existing.get("labels", [])]
+                if "accepted-risk" not in existing_labels:
+                    existing_labels.append("accepted-risk")
+                result = client.update_issue(
+                    existing["number"],
+                    state="closed",
+                    labels=existing_labels,
+                )
+                if result:
+                    print(f"  Suppression-closed #{existing['number']}: {existing['title']}")
+                    stats["closed"] += 1
+                else:
+                    print(f"  Failed to suppression-close #{existing['number']}: API error")
+                    stats["skipped"] += 1
+                    continue
+            # Remove from map to prevent double-close by auto-close below
+            fingerprint_to_issue.pop(sf.fingerprint, None)
+
     # Auto-close: full-suite closes any resolved finding (guarded by tool check)
     if scan_type == "full-suite" and not dry_run:
         for fp, issue in fingerprint_to_issue.items():
-            if issue["state"] != "open" or fp in current_fingerprints:
+            if issue["state"] != "open" or fp in current_fingerprints or fp in suppressed_fingerprints:
                 continue
             # Only close if the tool that found this issue actually ran
             tool_prefix = fp.split(":")[0]
@@ -951,7 +1045,7 @@ def reconcile_findings(
             stats["closed"] += 1
     elif scan_type == "full-suite" and dry_run:
         for fp, issue in fingerprint_to_issue.items():
-            if issue["state"] != "open" or fp in current_fingerprints:
+            if issue["state"] != "open" or fp in current_fingerprints or fp in suppressed_fingerprints:
                 continue
             tool_prefix = fp.split(":")[0]
             if tools_with_results and tool_prefix not in tools_with_results:
@@ -962,7 +1056,7 @@ def reconcile_findings(
     # Auto-close: PR scans close issues tagged with THIS PR when finding is resolved
     if scan_type == "pr" and pr_number and not dry_run:
         for fp, issue in fingerprint_to_issue.items():
-            if issue["state"] != "open" or fp in current_fingerprints:
+            if issue["state"] != "open" or fp in current_fingerprints or fp in suppressed_fingerprints:
                 continue
             body = issue.get("body", "")
             pr_match = SOURCE_PR_RE.search(body)
@@ -983,7 +1077,7 @@ def reconcile_findings(
             stats["closed"] += 1
     elif scan_type == "pr" and pr_number and dry_run:
         for fp, issue in fingerprint_to_issue.items():
-            if issue["state"] != "open" or fp in current_fingerprints:
+            if issue["state"] != "open" or fp in current_fingerprints or fp in suppressed_fingerprints:
                 continue
             body = issue.get("body", "")
             pr_match = SOURCE_PR_RE.search(body)
@@ -1003,12 +1097,20 @@ def reconcile_findings(
 # ---------------------------------------------------------------------------
 
 
-def cleanup_pr_issues(client: GitHubIssueClient, pr_number: str) -> None:
+def cleanup_pr_issues(client: GitHubIssueClient, pr_number: str, pr_type: str = "feature") -> None:
     """Close all open automated issues that originated from a specific PR.
 
     Called when a PR is closed without merging -- the findings only existed
     on the feature branch and were never merged to main/develop.
+
+    Promotion PRs (develop->main) are skipped: their findings originate from
+    develop, not from the promotion branch itself.
     """
+    if pr_type == "promotion":
+        print(f"  Skipping cleanup for promotion PR #{pr_number} -- "
+              f"promotion PRs don't own findings, they originate from develop")
+        return
+
     print(f"  Cleaning up issues from closed PR #{pr_number}...")
 
     existing_issues = client.list_automated_issues()
@@ -1050,6 +1152,9 @@ def main() -> None:
     parser.add_argument("--branch", default="unknown")
     parser.add_argument("--sha", default="unknown")
     parser.add_argument("--cleanup-pr", default=None, help="Close issues tagged with this PR number (orphan cleanup)")
+    parser.add_argument("--pr-type", default="feature", choices=["feature", "promotion"],
+                        help="PR type: 'feature' (default) or 'promotion' (develop->main). "
+                             "Promotion PRs skip re-tagging and cleanup to avoid false closures.")
     parser.add_argument("--dry-run", action="store_true", help="Print actions without calling API")
     args = parser.parse_args()
 
@@ -1060,12 +1165,12 @@ def main() -> None:
 
     # Cleanup mode: close orphaned issues from a closed PR
     if args.cleanup_pr:
-        print(f"=== Security Issue Cleanup (PR #{args.cleanup_pr}) ===")
+        print(f"=== Security Issue Cleanup (PR #{args.cleanup_pr}, type={args.pr_type}) ===")
         if args.dry_run:
             print("  DRY RUN -- no API calls")
             return
         client = GitHubIssueClient(token, args.repo)
-        cleanup_pr_issues(client, args.cleanup_pr)
+        cleanup_pr_issues(client, args.cleanup_pr, pr_type=args.pr_type)
         print("==========================================")
         return
 
@@ -1085,7 +1190,7 @@ def main() -> None:
     print(f"  Branch: {args.branch}")
     print(f"  Run: #{args.run_id}")
     if pr_number:
-        print(f"  PR: #{pr_number}")
+        print(f"  PR: #{pr_number} (type: {args.pr_type})")
     print()
 
     # Check which tools produced valid results (guards against false auto-close)
@@ -1133,7 +1238,12 @@ def main() -> None:
         dry_run=args.dry_run,
         reports_present=reports_present,
         tools_with_results=tools_with_results,
+        pr_type=args.pr_type,
+        repo=args.repo,
     )
+
+    # Export suppressed count for PR comment
+    write_output("suppressed_count", str(stats.get("suppressed", 0)))
 
     # Export issue metadata as step output for PR comment
     issues = stats.get("issues", [])
@@ -1147,7 +1257,8 @@ def main() -> None:
 
     print()
     print(f"  Summary: {stats['created']} created, {stats['reopened']} reopened, "
-          f"{stats['commented']} commented, {stats['closed']} closed, {stats['skipped']} skipped")
+          f"{stats['commented']} commented, {stats['closed']} closed, "
+          f"{stats['skipped']} skipped, {stats['suppressed']} suppressed")
     print("==========================================")
 
 

@@ -133,7 +133,7 @@ async def get_ai_client(
     if config.encrypted_api_key:
         api_key = decrypt_credential(config.encrypted_api_key)
     else:
-        api_key = "sidecar-managed"
+        api_key = settings.ai_sidecar_api_key or "sidecar-managed"
     model = config.model_name or DEFAULT_MODELS.get(config.provider_type, "")
 
     # For subscription types, auto-route through the managed sidecar

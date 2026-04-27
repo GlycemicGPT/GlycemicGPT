@@ -24,8 +24,8 @@ Runs on every PR and push to main/develop. Uses **granular change detection** to
 
 | Component | Paths Monitored | What Runs |
 |-----------|----------------|-----------|
-| API | `apps/api/**` | Semgrep Python, auth tests, IDOR, SSRF, fuzzer, nuclei API, ZAP API |
-| Web | `apps/web/**` | Semgrep TypeScript, nuclei Web, ZAP Web baseline |
+| API | `apps/api/**` | Semgrep Python, auth tests, IDOR, SSRF, fuzzer, nuclei API, ZAP API, ZAP Unauth API |
+| Web | `apps/web/**` | Semgrep TypeScript, nuclei Web, ZAP Web baseline, ZAP Unauth Web |
 | Sidecar | `sidecar/**` | Semgrep TypeScript |
 | Mobile | `apps/mobile/**`, `plugins/**` | Semgrep Kotlin |
 | Infra | `docker-compose*.yml`, `**/Dockerfile*` | Everything (config changes affect all services) |
@@ -70,7 +70,7 @@ detect-changes  -->  sast (if code changed)     -->  gate (always)
 - **detect-changes**: Uses `dorny/paths-filter@v3` with 6 granular component filters. Computes derived flags (`needs_sast`, `needs_docker`, `run_all`).
 - **sast**: Runs Semgrep on changed components. No Docker stack needed. Runs in parallel with DAST.
 - **dast**: Builds Docker stack and runs targeted DAST tests based on which components changed.
-- **gate**: Runs `if: always()`. Evaluates both SAST and DAST results. Posts unified PR comment via homebot.0.
+- **gate**: Runs `if: always()`. Evaluates both SAST and DAST results. Posts unified PR comment via glycemicgpt-security.
 
 ## SAST (Static Analysis Security Testing)
 
@@ -91,16 +91,20 @@ In the full suite workflow, SARIF results are uploaded to the GitHub Security ta
 1. **Auth flow tests** (`test-auth-flows.py`) -- 15 behavior-based tests covering registration, login, token handling, RBAC, and logout.
 2. **Data isolation tests** (`test-data-isolation.py`) -- OpenAPI-driven. Auto-discovers ALL endpoints. Tests unauthenticated access (401), CSRF enforcement (403), and cross-user data isolation (IDOR).
 3. **Research security tests** (`test-research-security.py`) -- SSRF prevention, rate limiting, source limits, input validation, CSRF enforcement on research endpoints.
-4. **API fuzzer** (`fuzz-api.py`) -- OpenAPI-driven. Auto-discovers all endpoints. Sends SQL injection, XSS, path traversal, type confusion, and oversized payloads. Asserts no 500 errors.
+4. **API fuzzer** (`fuzz-api.py`) -- OpenAPI-driven. Runs two passes: authenticated (with session) and unauthenticated (attacker perspective). Sends SQL injection, XSS, path traversal, type confusion, and oversized payloads to all discovered endpoints. Asserts no 500 errors in either pass.
 5. **Nuclei DAST** -- Known vulnerability templates against API and Web surfaces.
 6. **ZAP API active scan** (`zap-api-plan.yaml`) -- Authenticated, OpenAPI-driven injection testing (SQLi, XSS, SSTI, CRLF, path traversal). Auto-discovers all endpoints.
 7. **ZAP Web scan** (`zap-web-plan.yaml`) -- Pre-seeds all known page URLs + standard spider + passive/active scanning on the web frontend. Tests security headers, cookie flags, CSP, and injection through the proxy path.
+8. **ZAP Unauthenticated API pentest** (`zap-unauth-api-plan.yaml`) -- Full attacker-perspective scan of the **entire API surface** without credentials. Discovers all endpoints from `/openapi.json` and probes every one -- public and authenticated alike. Tests injection, info disclosure in error responses, security headers, Host header injection, and what leaks when authenticated endpoints return 401/403. Runs on every PR regardless of which component changed.
+9. **ZAP Unauthenticated Web pentest** (`zap-unauth-web-plan.yaml`) -- Full attacker-perspective scan of the **entire web application** without credentials. Probes all pages including protected `/dashboard/*` routes to test redirect behavior, auth enforcement, and info leakage. Includes error handling probes (invalid invitation tokens, nonexistent pages). Runs on every PR regardless of which component changed.
 
 ### Auto-discovery
 
-Tests 2, 4, and 6 read `/openapi.json` from the live API to discover endpoints. **New API routes are automatically tested without any test code changes.**
+Tests 2, 4, 6, and 8 read `/openapi.json` from the live API to discover endpoints. **New API routes are automatically tested without any test code changes.**
 
 Test 7 pre-seeds all known page URLs from the Next.js app structure and uses the standard spider to discover additional linked pages. (AJAX Spider with headless Firefox was evaluated but risks OOM on standard GitHub runners with 7GB RAM.)
+
+Tests 8 and 9 simulate a real external attacker. They run without session cookies or CSRF tokens, probe the **entire** application surface (not just public endpoints), and run on **every PR** regardless of which component changed. An attacker doesn't care which files you modified -- they probe everything. Protected endpoints are intentionally tested to verify auth enforcement and catch info leakage in error responses. Findings are tracked as separate issues from the authenticated scans (distinct fingerprints: `zap-unauth-api:*` and `zap-unauth-web:*`).
 
 ### Evaluation scripts
 
@@ -110,7 +114,9 @@ Results are evaluated by standalone Python scripts (not inline shell):
 
 ### ZAP authentication
 
-ZAP plan YAML files use `${ZAP_SESSION}` and `${ZAP_CSRF}` placeholders. ZAP's Automation Framework does **not** expand environment variables, so CI uses `envsubst` to bake actual cookie values into resolved copies before passing them to ZAP. The resolved files (`*.resolved.yaml`) are gitignored and exist only during the CI run.
+The authenticated ZAP plans (`zap-api-plan.yaml`, `zap-web-plan.yaml`) use `${ZAP_SESSION}` and `${ZAP_CSRF}` placeholders. ZAP's Automation Framework does **not** expand environment variables, so CI uses `envsubst` to bake actual cookie values into resolved copies before passing them to ZAP. The resolved files (`*.resolved.yaml`) are gitignored and exist only during the CI run.
+
+The unauthenticated ZAP plans (`zap-unauth-api-plan.yaml`, `zap-unauth-web-plan.yaml`) have no placeholders and are used directly (no `envsubst` needed). They omit the `replacer` and `script` jobs, so ZAP sends no session cookies.
 
 ### Suppressions
 
@@ -131,7 +137,7 @@ Scan results are uploaded as GitHub Actions artifacts with 30-day retention:
 
 ### Issue automation
 
-Security findings are automatically tracked as GitHub Issues via homebot.0. The full lifecycle:
+Security findings are automatically tracked as GitHub Issues via glycemicgpt-security. The full lifecycle:
 
 | Event | What happens |
 |-------|-------------|
@@ -139,7 +145,8 @@ Security findings are automatically tracked as GitHub Issues via homebot.0. The 
 | Contributor pushes a fix | Next scan auto-closes the issue ("resolved in PR #X") |
 | PR merged, finding still present | Full suite keeps the issue open |
 | PR merged, finding resolved | Full suite auto-closes the issue |
-| PR closed without merging | Cleanup job closes issues tagged with that PR |
+| Feature PR closed without merging | Cleanup job closes issues tagged with that PR |
+| Promotion PR closed without merging | Cleanup skipped (findings originate from develop, not the promotion branch) |
 | Finding reappears after fix reverted | Full suite reopens the closed issue |
 | Full suite runs, finding still present | "Still detected" comment added (throttled to once per 7 days) |
 

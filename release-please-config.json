@@ -9,7 +9,7 @@
       "bump-minor-pre-major": true,
       "draft": false,
       "prerelease": false,
-      "changelog-path": "CHANGELOG.md",
+      "changelog-path": ".release-please-changelog.md",
       "changelog-type": "default",
       "include-component-in-tag": false,
       "include-v-in-tag": true,
@@ -19,7 +19,9 @@
         "apps/api/pyproject.toml",
         "apps/web/package.json",
         "sidecar/package.json",
-        "apps/mobile/app/build.gradle.kts"
+        "apps/mobile/app/build.gradle.kts",
+        "apps/mobile/wear-device/build.gradle.kts",
+        "apps/mobile/watchface/build.gradle.kts"
       ]
     }
   },

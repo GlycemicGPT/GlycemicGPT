@@ -8,7 +8,7 @@ body:
       value: |
         ## Security Finding Report
 
-        For findings detected by automated CI scans, issues are created automatically by homebot.0.
+        For findings detected by automated CI scans, issues are created automatically by glycemicgpt-security.
         Use this template for manually discovered vulnerabilities or reports from external security researchers.
 
   - type: dropdown

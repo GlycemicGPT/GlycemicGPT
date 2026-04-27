@@ -1,7 +1,7 @@
 name: Auto Label PRs
 
 on:
-  pull_request_target:
+  pull_request:
     branches: [main, develop]
     types: [opened, synchronize, reopened, edited]
 
@@ -17,6 +17,13 @@ jobs:
       CONFIG_PATH: .github/autolabeler-config.json
 
     steps:
+      - name: Generate token for glycemicgpt-ci
+        id: ci-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.CI_APP_ID }}
+          private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -26,6 +33,7 @@ jobs:
       - name: Label PR based on file changes and conventions
         uses: actions/github-script@v7
         with:
+          github-token: ${{ steps.ci-token.outputs.token }}
           script: |
             const fs = require('fs').promises;
             const path = require('path');

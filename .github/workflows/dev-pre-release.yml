@@ -85,9 +85,16 @@ jobs:
             exit 1
           fi
 
+      - name: Generate token for glycemicgpt-ci
+        id: ci-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.CI_APP_ID }}
+          private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+
       - name: Publish dev-latest pre-release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.ci-token.outputs.token }}
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           RUN="${{ github.run_number }}"

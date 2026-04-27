@@ -1,0 +1,104 @@
+---
+# ZAP Automation Framework Plan: Unauthenticated API Pentest
+#
+# Simulates an external attacker who discovers /openapi.json and probes
+# every API endpoint without credentials. Tests injection, info disclosure,
+# security headers, and error handling across the entire API surface.
+#
+# No auth cookies. No endpoint restrictions. Full attacker perspective.
+#
+# No envsubst needed -- this plan has no template variables.
+#
+# Usage:
+#   zap.sh -cmd -autorun /zap/wrk/zap-unauth-api-plan.yaml
+
+env:
+  contexts:
+    - name: "glycemicgpt-unauth-api"
+      urls:
+        - "http://localhost:8001"
+      includePaths:
+        - "http://localhost:8001.*"
+  parameters:
+    failOnError: false
+    failOnWarning: false
+    progressToStdout: true
+
+jobs:
+  # No script or replacer jobs -- this scan runs without authentication
+
+  # Seed endpoints that may not appear in the OpenAPI spec.
+  # An attacker would discover these via common path enumeration.
+  - type: requestor
+    parameters:
+      user: ""
+    requests:
+      - url: "http://localhost:8001/health"
+        method: "GET"
+      - url: "http://localhost:8001/health/live"
+        method: "GET"
+      - url: "http://localhost:8001/health/ready"
+        method: "GET"
+      - url: "http://localhost:8001/openapi.json"
+        method: "GET"
+      - url: "http://localhost:8001/docs"
+        method: "GET"
+      - url: "http://localhost:8001/redoc"
+        method: "GET"
+
+  # Discover ALL endpoints from the live OpenAPI spec.
+  # No includePaths restriction -- active scan tests everything ZAP finds.
+  - type: openapi
+    parameters:
+      apiUrl: "http://localhost:8001/openapi.json"
+      targetUrl: "http://localhost:8001"
+      context: "glycemicgpt-unauth-api"
+
+  # Passive scan: security headers, info disclosure, error handling
+  - type: passiveScan-config
+    parameters:
+      maxAlertsPerRule: 10
+      scanOnlyInScope: true
+
+  - type: passiveScan-wait
+    parameters:
+      maxDuration: 5
+
+  # Active scan: injection payloads on ALL endpoints without auth.
+  # Tests what happens when authenticated endpoints are hit without credentials:
+  # error handling, info disclosure in 401/403 responses, stack traces, etc.
+  # scanHeadersAllRequests: tests Host header injection, X-Forwarded-For spoofing
+  - type: activeScan
+    parameters:
+      context: "glycemicgpt-unauth-api"
+      maxScanDurationInMins: 20
+      maxRuleDurationInMins: 3
+      addQueryParam: false
+      handleAntiCSRFTokens: false
+      scanHeadersAllRequests: true
+
+  # Report includes info-level findings for maximum visibility.
+  # Internal path disclosure in a 401 response body matters from attacker perspective.
+  - type: report
+    parameters:
+      template: "traditional-json"
+      reportDir: "/zap/wrk/results"
+      reportFile: "zap-unauth-api-report"
+      reportTitle: "GlycemicGPT Unauthenticated API Pentest"
+    risks:
+      - high
+      - medium
+      - low
+      - info
+    confidences:
+      - high
+      - medium
+      - low
+      - confirmed
+
+  # Fail CI on Medium+ severity findings, warn on Low
+  - type: exitStatus
+    parameters:
+      errorLevel: "Medium"
+      warnLevel: "Low"
+    alwaysRun: true

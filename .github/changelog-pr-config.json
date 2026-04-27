@@ -1,0 +1,103 @@
+{
+  "scopes": [
+    {
+      "name": "Mobile",
+      "emoji": "📱",
+      "labels": ["mobile", "component: mobile"],
+      "hasSubCategories": true
+    },
+    {
+      "name": "Wear OS",
+      "emoji": "⌚",
+      "labels": ["wear", "watchface"],
+      "hasSubCategories": true
+    },
+    {
+      "name": "Web",
+      "emoji": "🌐",
+      "labels": ["web", "component: web"],
+      "hasSubCategories": true
+    },
+    {
+      "name": "API",
+      "emoji": "📡",
+      "labels": ["api", "component: api", "database"],
+      "hasSubCategories": true
+    },
+    {
+      "name": "Sidecar",
+      "emoji": "🤖",
+      "labels": ["sidecar"],
+      "hasSubCategories": true
+    },
+    {
+      "name": "Security",
+      "emoji": "🔒",
+      "labels": ["security"],
+      "hasSubCategories": true
+    },
+    {
+      "name": "Infrastructure",
+      "emoji": "🏗️",
+      "labels": ["ci", "docker", "k8s", "build", "chore"],
+      "hasSubCategories": true
+    },
+    {
+      "name": "Documentation",
+      "emoji": "📚",
+      "labels": ["documentation"],
+      "hasSubCategories": false
+    },
+    {
+      "name": "Dependencies",
+      "emoji": "📦",
+      "labels": ["dependencies"],
+      "hasSubCategories": false
+    },
+    {
+      "name": "Uncategorized",
+      "emoji": "❓",
+      "labels": ["needs triage"],
+      "hasSubCategories": false
+    }
+  ],
+  "subCategories": [
+    {
+      "name": "Breaking Changes",
+      "emoji": "💥",
+      "labels": ["breaking-change"],
+      "priority": 0
+    },
+    {
+      "name": "New Features",
+      "emoji": "✨",
+      "labels": ["feature", "enhancement"],
+      "priority": 1
+    },
+    {
+      "name": "Bug Fixes",
+      "emoji": "🐛",
+      "labels": ["bugfix", "bug"],
+      "priority": 2
+    },
+    {
+      "name": "Performance",
+      "emoji": "⚡",
+      "labels": ["performance"],
+      "priority": 3
+    },
+    {
+      "name": "Refactor",
+      "emoji": "🔧",
+      "labels": ["refactor"],
+      "priority": 4
+    }
+  ],
+  "defaultSubCategory": {
+    "name": "Other Changes",
+    "emoji": "📝",
+    "priority": 99
+  },
+  "excludeLabels": ["automated", "autorelease: tagged", "autorelease: pending", "invalid"],
+  "keepLabels": ["dependencies"]
+}

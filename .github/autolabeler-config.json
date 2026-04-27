@@ -59,6 +59,42 @@
       "excludeGlobs": []
     }
   ],
+  "mobile": [
+    {
+      "includeGlobs": ["apps/mobile/app/**", "plugins/**"],
+      "excludeGlobs": ["apps/mobile/wear-device/**", "apps/mobile/watchface/**"]
+    }
+  ],
+  "wear": [
+    {
+      "includeGlobs": ["apps/mobile/wear-device/**"],
+      "excludeGlobs": []
+    }
+  ],
+  "watchface": [
+    {
+      "includeGlobs": ["apps/mobile/watchface/**"],
+      "excludeGlobs": []
+    }
+  ],
+  "sidecar": [
+    {
+      "includeGlobs": ["sidecar/**"],
+      "excludeGlobs": []
+    }
+  ],
+  "security": [
+    {
+      "includeGlobs": ["scripts/security/**", ".github/workflows/security*.yml"],
+      "excludeGlobs": []
+    }
+  ],
+  "build": [
+    {
+      "includeGlobs": ["**/build.gradle.kts", "**/settings.gradle.kts", "gradle/**"],
+      "excludeGlobs": []
+    }
+  ],
   "new files": [
     {
       "includeGlobs": [],

@@ -10,7 +10,7 @@ LABEL org.opencontainers.image.description="Next.js frontend for GlycemicGPT dia
 LABEL org.opencontainers.image.version="${VERSION}"
 LABEL org.opencontainers.image.created="${BUILD_DATE}"
 LABEL org.opencontainers.image.revision="${GIT_SHA}"
-LABEL org.opencontainers.image.source="https://github.com/jlengelbrecht/GlycemicGPT"
+LABEL org.opencontainers.image.source="https://github.com/GlycemicGPT/GlycemicGPT"
 LABEL org.opencontainers.image.licenses="MIT"
 
 # Install dependencies only when needed

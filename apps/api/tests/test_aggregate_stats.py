@@ -34,6 +34,18 @@ def _boundary_cutoff(days: int, boundary_hour: int = 0) -> datetime:
     return effective_boundary - timedelta(days=max(days - 1, 0))
 
 
+def _stable_test_ts(days: int = 1) -> datetime:
+    """Return a timestamp guaranteed to be within the query window.
+
+    Clamps to cutoff+1s..now so tests never place data before the
+    boundary cutoff or in the future, regardless of when CI runs.
+    """
+    now = datetime.now(UTC)
+    cutoff = _boundary_cutoff(days=days)
+    candidate = max(cutoff + timedelta(seconds=1), now - timedelta(hours=2))
+    return min(candidate, now)
+
+
 async def register_and_login(client: AsyncClient) -> tuple[str, str]:
     """Register a test user and return (session_cookie, user_id)."""
     email = unique_email()
@@ -1160,8 +1172,7 @@ class TestSourceFilteringAndDedup:
             async for db in get_db():
                 now = datetime.now(UTC)
                 uid = uuid.UUID(user_id)
-                cutoff = _boundary_cutoff(days=1)
-                ts = cutoff + timedelta(hours=1)
+                ts = _stable_test_ts(days=1)
                 # Same timestamp and units, different event_type (mobile dual-creation)
                 db.add(
                     PumpEvent(
@@ -1211,8 +1222,7 @@ class TestSourceFilteringAndDedup:
             async for db in get_db():
                 now = datetime.now(UTC)
                 uid = uuid.UUID(user_id)
-                cutoff = _boundary_cutoff(days=1)
-                ts = cutoff + timedelta(hours=1)
+                ts = _stable_test_ts(days=1)
                 # Mobile bolus
                 db.add(
                     PumpEvent(
@@ -1260,8 +1270,7 @@ class TestSourceFilteringAndDedup:
             async for db in get_db():
                 now = datetime.now(UTC)
                 uid = uuid.UUID(user_id)
-                cutoff = _boundary_cutoff(days=1)
-                ts = cutoff + timedelta(hours=1)
+                ts = _stable_test_ts(days=1)
                 db.add(
                     PumpEvent(
                         user_id=uid,
@@ -1318,8 +1327,7 @@ class TestSourceFilteringAndDedup:
             async for db in get_db():
                 now = datetime.now(UTC)
                 uid = uuid.UUID(user_id)
-                cutoff = _boundary_cutoff(days=1)
-                ts = cutoff + timedelta(hours=1)
+                ts = _stable_test_ts(days=1)
                 # One mobile bolus (should appear) and one test bolus (excluded)
                 db.add(
                     PumpEvent(

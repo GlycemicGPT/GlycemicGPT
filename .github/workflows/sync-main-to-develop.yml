@@ -1,0 +1,213 @@
+name: Sync Main to Develop
+
+# After a promotion to main, release-please creates a version bump commit
+# and the changelog workflow may create another. These commits only exist
+# on main, causing rebase conflicts on the next promotion PR.
+#
+# This workflow automatically cherry-picks those commits back to develop
+# via a PR that glycemicgpt-merge[bot] auto-merges.
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: sync-main-to-develop
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  sync:
+    name: Sync to Develop
+    runs-on: ubuntu-latest
+    # Only run for release-please version bumps or changelog updates.
+    # Feature commits from promotion merges do NOT match (no loop).
+    if: >-
+      contains(github.event.head_commit.message, 'chore: release') ||
+      contains(github.event.head_commit.message, '[Changelog] Update CHANGELOG.md')
+    steps:
+      - name: Generate token for glycemicgpt-merge
+        id: merge-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.MERGE_APP_ID }}
+          private-key: ${{ secrets.MERGE_APP_PRIVATE_KEY }}
+
+      - name: Checkout develop
+        uses: actions/checkout@v4
+        with:
+          ref: develop
+          token: ${{ steps.merge-token.outputs.token }}
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          git config user.name "glycemicgpt-merge[bot]"
+          git config user.email "glycemicgpt-merge[bot]@users.noreply.github.com"
+
+      - name: Check if sync is needed
+        id: check
+        env:
+          GH_TOKEN: ${{ steps.merge-token.outputs.token }}
+          COMMIT_SHA: ${{ github.sha }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          git fetch origin main
+
+          # Compare versions between main and develop
+          MAIN_VERSION=$(git show origin/main:.release-please-manifest.json 2>/dev/null \
+            | jq -r '.["."]' 2>/dev/null || echo "unknown")
+          DEV_VERSION=$(git show origin/develop:.release-please-manifest.json 2>/dev/null \
+            | jq -r '.["."]' 2>/dev/null || echo "unknown")
+
+          echo "Main version: $MAIN_VERSION"
+          echo "Develop version: $DEV_VERSION"
+
+          if [ "$MAIN_VERSION" != "$DEV_VERSION" ]; then
+            # Versions differ -- this is a version bump sync or versions are out of sync
+            # If this was triggered by a changelog commit (not version bump), skip.
+            # The version bump sync must land first.
+            if echo "$COMMIT_MSG" | grep -q "\[Changelog\]"; then
+              echo "Versions out of sync ($DEV_VERSION vs $MAIN_VERSION) but this is a changelog trigger. Waiting for version sync first."
+              echo "needed=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          else
+            # Versions match -- check if CHANGELOG also matches
+            MAIN_CL=$(git show origin/main:CHANGELOG.md 2>/dev/null | sha256sum | cut -d' ' -f1 || echo "none")
+            DEV_CL=$(git show origin/develop:CHANGELOG.md 2>/dev/null | sha256sum | cut -d' ' -f1 || echo "none")
+            if [ "$MAIN_CL" = "$DEV_CL" ]; then
+              echo "Already synced (version $MAIN_VERSION, CHANGELOG matches). Skipping."
+              echo "needed=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
+          # Check for existing open sync PR
+          SHORT_SHA="${COMMIT_SHA:0:7}"
+          EXISTING=$(gh pr list --base develop --head "sync/main-to-develop-${SHORT_SHA}" \
+            --state open --json number --jq '.[0].number' 2>/dev/null || echo "")
+          if [ -n "$EXISTING" ] && [ "$EXISTING" != "null" ]; then
+            echo "Sync PR #$EXISTING already exists. Skipping."
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Sync needed ($DEV_VERSION -> $MAIN_VERSION)"
+          echo "needed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Cherry-pick and create sync branch
+        if: steps.check.outputs.needed == 'true'
+        id: cherry-pick
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          SHORT_SHA="${COMMIT_SHA:0:7}"
+          SYNC_BRANCH="sync/main-to-develop-${SHORT_SHA}"
+
+          # Extract version for PR title
+          VERSION=$(echo "$COMMIT_MSG" | grep -oP 'chore: release \K[0-9.]+' || echo "")
+          if [ -n "$VERSION" ]; then
+            PR_TITLE="chore: sync release $VERSION from main to develop"
+          else
+            PR_TITLE="chore: sync changelog update from main to develop"
+          fi
+
+          echo "branch=$SYNC_BRANCH" >> "$GITHUB_OUTPUT"
+          echo "pr_title=$PR_TITLE" >> "$GITHUB_OUTPUT"
+
+          # Create sync branch from develop
+          git checkout -b "$SYNC_BRANCH" origin/develop
+
+          # Cherry-pick the main commit
+          if git cherry-pick "$COMMIT_SHA" --no-commit; then
+            echo "Cherry-pick applied cleanly"
+            echo "conflict=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Cherry-pick had conflicts, resolving with main's versions..."
+            echo "conflict=true" >> "$GITHUB_OUTPUT"
+
+            # Version files: always take main's version (authoritative post-release)
+            for f in .release-please-manifest.json apps/api/pyproject.toml \
+                     apps/web/package.json sidecar/package.json \
+                     apps/mobile/app/build.gradle.kts \
+                     apps/mobile/wear-device/build.gradle.kts \
+                     apps/mobile/watchface/build.gradle.kts \
+                     CHANGELOG.md .release-please-changelog.md; do
+              if git diff --name-only --diff-filter=U 2>/dev/null | grep -q "^${f}$"; then
+                # Only overwrite if the file exists at the source commit
+                if git show "$COMMIT_SHA":"$f" > /dev/null 2>&1; then
+                  echo "  Resolving $f with main's version"
+                  git show "$COMMIT_SHA":"$f" > "$f" && git add "$f"
+                else
+                  echo "  Skipping $f (not in source commit)"
+                  git checkout --theirs "$f" 2>/dev/null && git add "$f" || true
+                fi
+              fi
+            done
+
+            # Check for remaining unresolved conflicts
+            REMAINING=$(git diff --name-only --diff-filter=U 2>/dev/null || true)
+            if [ -n "$REMAINING" ]; then
+              echo "::warning::Unresolved conflicts in: $REMAINING"
+              echo "unresolved=true" >> "$GITHUB_OUTPUT"
+              # Abort the cherry-pick so we can still push a clean branch
+              git cherry-pick --abort 2>/dev/null || true
+              echo "Cherry-pick aborted due to unresolved conflicts. Manual sync required."
+              exit 0
+            else
+              echo "All conflicts resolved"
+              echo "unresolved=false" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+          git commit -m "$PR_TITLE"
+          git push origin "$SYNC_BRANCH"
+
+      - name: Create sync PR
+        if: >-
+          steps.check.outputs.needed == 'true' &&
+          steps.cherry-pick.outputs.unresolved != 'true'
+        id: create-pr
+        env:
+          GH_TOKEN: ${{ steps.merge-token.outputs.token }}
+          SYNC_BRANCH: ${{ steps.cherry-pick.outputs.branch }}
+          PR_TITLE: ${{ steps.cherry-pick.outputs.pr_title }}
+          COMMIT_SHA: ${{ github.sha }}
+          HAD_CONFLICTS: ${{ steps.cherry-pick.outputs.conflict }}
+          UNRESOLVED: ${{ steps.cherry-pick.outputs.unresolved }}
+        run: |
+          BODY="Automated sync of post-promotion changes from main to develop."
+          BODY="${BODY}\n\nSource commit: ${COMMIT_SHA}"
+
+          if [ "$HAD_CONFLICTS" = "true" ]; then
+            BODY="${BODY}\n\n> **Note:** Cherry-pick had conflicts that were auto-resolved using main's versions."
+          fi
+          if [ "$UNRESOLVED" = "true" ]; then
+            BODY="${BODY}\n\n> **Warning:** Some conflicts could not be auto-resolved. Manual intervention required."
+          fi
+
+          PR_URL=$(gh pr create \
+            --base develop \
+            --head "$SYNC_BRANCH" \
+            --title "$PR_TITLE" \
+            --body "$(printf '%b' "$BODY")")
+
+          PR_NUM=$(echo "$PR_URL" | grep -oE '[0-9]+$')
+          echo "pr_number=$PR_NUM" >> "$GITHUB_OUTPUT"
+          echo "Created sync PR #$PR_NUM: $PR_URL"
+
+      - name: Auto-merge sync PR
+        if: >-
+          steps.check.outputs.needed == 'true' &&
+          steps.create-pr.outputs.pr_number != '' &&
+          steps.cherry-pick.outputs.unresolved != 'true'
+        env:
+          GH_TOKEN: ${{ steps.merge-token.outputs.token }}
+          PR_NUMBER: ${{ steps.create-pr.outputs.pr_number }}
+        run: |
+          echo "Auto-merging sync PR #$PR_NUMBER"
+          gh pr merge "$PR_NUMBER" --squash --admin
+          echo "Sync PR #$PR_NUMBER merged"
