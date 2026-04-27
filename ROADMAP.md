@@ -2,7 +2,7 @@
 
 *Phases below are sequenced, not scheduled. Development moves at the pace of the community and the project's small maintainer team; we don't commit to dates.*
 
-This roadmap reflects the strategic direction of GlycemicGPT. It is a living document that evolves based on community feedback, contributor availability, and the needs of the diabetes community. If you want to help shape the direction of this project, [open an issue](https://github.com/GlycemicGPT/GlycemicGPT/issues), [join our Discord](https://discord.gg/TJKzjsts), or contribute directly via our [Contributing Guide](CONTRIBUTING.md).
+This roadmap reflects the strategic direction of GlycemicGPT. It is a living document that evolves based on community feedback, contributor availability, and the needs of the diabetes community. If you want to help shape the direction of this project, [open an issue](https://github.com/GlycemicGPT/GlycemicGPT/issues), [join our Discord](https://discord.gg/QbyhCQKDBs), or contribute directly via our [Contributing Guide](CONTRIBUTING.md).
 
 ---
 
@@ -214,7 +214,7 @@ These principles guide every decision on the roadmap:
 |--------------|------------|
 | Report a bug or request a feature | [Open an issue](https://github.com/GlycemicGPT/GlycemicGPT/issues) |
 | Contribute code | [Contributing Guide](CONTRIBUTING.md) |
-| Discuss ideas or ask questions | [Community Discord](https://discord.gg/TJKzjsts) |
+| Discuss ideas or ask questions | [Community Discord](https://discord.gg/QbyhCQKDBs) |
 | Support the project financially | [Open Collective](https://opencollective.com/glycemicgpt) |
 | Build a device data plugin | [Contributing Guide](CONTRIBUTING.md#device-data-drivers) (then the [Plugin Architecture Reference](docs/plugin-architecture.md)) |
 
