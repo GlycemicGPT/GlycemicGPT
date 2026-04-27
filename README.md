@@ -34,6 +34,7 @@
   <a href="#overview">Overview</a> •
   <a href="#quick-start">Quick Start</a> •
   <a href="#architecture">Architecture</a> •
+  <a href="ROADMAP.md">Roadmap</a> •
   <a href="#development">Development</a> •
   <a href="#contributing">Contributing</a> •
   <a href="#support-the-project">Support</a> •
