@@ -23,6 +23,7 @@
 </p>
 
 <p align="center">
+  <a href="https://discord.gg/TJKzjsts" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/Discord-Join%20Server-5865F2?style=for-the-badge&labelColor=1e293b&logo=discord&logoColor=white" alt="Join GlycemicGPT Discord server"></a>
   <a href="https://github.com/GlycemicGPT/GlycemicGPT/issues"><img src="https://img.shields.io/github/issues/GlycemicGPT/GlycemicGPT?style=for-the-badge&labelColor=1e293b&color=64748b&logo=github&logoColor=white" alt="Issues"></a>
   <a href="https://github.com/GlycemicGPT/GlycemicGPT/pulls"><img src="https://img.shields.io/github/issues-pr/GlycemicGPT/GlycemicGPT?style=for-the-badge&labelColor=1e293b&color=64748b&logo=github&logoColor=white&label=PRs" alt="Pull Requests"></a>
   <a href="https://github.com/GlycemicGPT/GlycemicGPT/actions/workflows/renovate.yml"><img src="https://img.shields.io/github/actions/workflow/status/GlycemicGPT/GlycemicGPT/renovate.yml?branch=main&style=for-the-badge&labelColor=1e293b&label=Renovate&logo=renovate&logoColor=white" alt="Renovate"></a>
@@ -63,7 +64,7 @@ GlycemicGPT bridges the gap between diabetes device data and actionable AI-power
 | Tandem t:slim X2 | Insulin Pump | BLE (direct) + Cloud API | Verified |
 | Tandem Mobi | Insulin Pump | BLE (direct) + Cloud API | Protocol-compatible (see note) |
 
-> **Tandem Mobi note:** The Mobi uses the same BLE protocol, authentication, and data formats as the t:slim X2. Our Tandem plugin is protocol-compatible with both models, but **Mobi support has not been verified against physical hardware**. Protocol compatibility does not guarantee correct operation on untested devices. Use with Mobi hardware is entirely at your own risk -- see [MEDICAL-DISCLAIMER.md](MEDICAL-DISCLAIMER.md) for full liability terms. Insulin delivery (bolus/control) requires a user-built plugin compiled from source (see [CONTRIBUTING.md](CONTRIBUTING.md#device-control-plugins)). If you have a Mobi and can help validate, please open an issue.
+> **Tandem Mobi note:** The Mobi uses the same BLE protocol, authentication, and data formats as the t:slim X2. Our Tandem plugin is designed to read data from both models, but **Mobi support has not been verified against physical hardware**. Protocol compatibility does not guarantee correct operation on untested devices. Use of GlycemicGPT to read data from Mobi hardware is entirely at your own risk -- see [MEDICAL-DISCLAIMER.md](MEDICAL-DISCLAIMER.md) for full liability terms. If you have a Mobi and can help validate data reading, please open an issue.
 
 Support for additional pumps and CGMs is planned for future releases. The mobile app uses a [capability-based plugin architecture](docs/plugin-architecture.md) designed for extensibility -- see [CONTRIBUTING.md](CONTRIBUTING.md) if you'd like to help add support for your device.
 
@@ -138,6 +139,7 @@ We welcome contributions! Please read our [Contributing Guide](CONTRIBUTING.md) 
 - [Feature Requests](https://github.com/GlycemicGPT/GlycemicGPT/issues/new?template=feature_request.yml)
 - [Mobile App Issues](https://github.com/GlycemicGPT/GlycemicGPT/issues/new?template=mobile_report.yml)
 - [Discussions](https://github.com/GlycemicGPT/GlycemicGPT/discussions) (questions, ideas, show & tell)
+- [Community Discord](https://discord.gg/TJKzjsts) (real-time chat, questions, dev coordination)
 
 ## Support the Project
 
