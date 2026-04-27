@@ -50,14 +50,15 @@ All AI-generated content in this software is labeled as suggestions, not medical
 
 4. **If you experience a diabetes emergency, contact your healthcare provider or emergency services immediately.** Do not rely on this software for emergency medical guidance.
 
-## Future Pump Control Features
+## Unofficial Forks
 
-Pump control capabilities (insulin delivery commands) are not included in pre-built releases of this software. If such features are implemented in the future:
+GlycemicGPT is a monitoring and analysis platform. Forks and unofficial builds of this project may add capabilities beyond what the project ships -- including device control, insulin delivery, or any other pump-write functionality.
 
-- They will be available only by building from source code
-- They will require explicit user opt-in and acknowledgment of risks
-- They will be subject to additional safety validation pipelines
-- Users who build from source assume full responsibility as the "manufacturer" of their personal build
+**The maintainers of GlycemicGPT do not endorse, support, distribute, or accept liability for any fork that adds such capabilities.** The project does not link to forks, document fork capabilities, or accept contributions to this repository whose intent is to enable them.
+
+Users who choose to build, install, or run a fork that introduces device control become the **manufacturer of their personal medical device** and accept full responsibility for that decision. This is the same legal posture used by Loop, AndroidAPS, and other DIY diabetes projects within the #WeAreNotWaiting community.
+
+The GlycemicGPT platform itself remains monitoring and analysis only. Platform-level safety enforcement (see [ROADMAP.md](ROADMAP.md)) is designed to refuse loading any plugin that declares capabilities outside the official read-only set, regardless of build origin.
 
 ## Untested Device Compatibility
 
@@ -95,4 +96,4 @@ This software is licensed under the GNU General Public License v3.0 (GPL-3.0). P
 
 See the [LICENSE](LICENSE) file for the complete GPL-3.0 text.
 
-**Jurisdictional note:** Limitation of liability clauses for personal injury may be unenforceable in some jurisdictions, including under EU consumer protection law, UK consumer rights legislation, and Australian consumer law. The build-from-source distribution model, where the individual user is the "manufacturer" of their personal build, is the primary risk mitigation strategy. This disclaimer does not constitute legal advice.
+**Jurisdictional note:** Limitation of liability clauses for personal injury may be unenforceable in some jurisdictions, including under EU consumer protection law, UK consumer rights legislation, and Australian consumer law. The primary risk mitigation strategy of this project is its monitoring-only design -- shipped builds do not provide device control or insulin delivery capability. Users who run forks of this project that add such capabilities operate under a build-from-source model where the individual user becomes the "manufacturer" of their personal build, consistent with the precedent set by Loop, AndroidAPS, and other DIY diabetes projects. This disclaimer does not constitute legal advice.
