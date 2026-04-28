@@ -242,7 +242,7 @@ These principles guide every decision on the roadmap:
 
 1. **Monitoring and analysis first.** The GlycemicGPT platform and all official app store releases are monitoring and analysis tools. They read data from diabetes devices and provide AI-powered insights. They do not control insulin delivery or modify pump settings. The unofficial sideloaded mobile apps include the read-only plugin SDK so users can extend the platform with additional device data drivers; they do not include any plugin that controls insulin delivery. The AI layer has no architectural path to a device write surface. Users who build from source and extend the platform do so at their own discretion and responsibility, consistent with the DIY ethos established by projects like Loop and AndroidAPS in the broader patient-built diabetes-tech tradition.
 
-2. **Privacy first.** User health data stays on user-controlled infrastructure. The platform does not phone home, collect telemetry, or transmit data to GlycemicGPT or any third party.
+2. **Privacy first.** User health data stays on user-controlled infrastructure. The platform does not phone home, collect telemetry, transmit data to GlycemicGPT or any third party, or use user data to train AI models.
 
 3. **Transparency about AI limitations.** AI makes mistakes. Every AI-generated output is clearly labeled as informational. The platform never presents AI analysis as medical advice. Users are always directed to consult their healthcare team.
 
