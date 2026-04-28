@@ -14,7 +14,7 @@ GlycemicGPT exists to ensure no one manages diabetes alone. Our goal is to build
 
 ## Current State -- Foundation (Delivered)
 
-The core platform is live, functional, and in daily use by the project maintainer.
+The core platform is live, functional, and in daily use by the project lead.
 
 ### Platform
 
@@ -24,7 +24,7 @@ The core platform is live, functional, and in daily use by the project maintaine
 - Conversational AI chat with RAG-backed clinical diabetes knowledge base
 - BYOAI architecture supporting Claude, OpenAI, Ollama (fully local), and any OpenAI-compatible endpoint
 - Configurable threshold-based alerting with caregiver escalation
-- Multi-channel alert delivery (in-app, push notifications, Telegram)
+- Multi-channel alert delivery -- in-app and push notifications are the primary channels; Telegram bot integration is in alpha (implemented, not actively maintained, scheduled for a polish-or-sunset decision in Phase 3)
 - Configurable data retention (default 365 days, up to 10 years)
 - Printable reports for endocrinologist appointments
 
@@ -56,6 +56,7 @@ The AI layer is the heart of GlycemicGPT. This phase focuses on making it more r
 - Expanded RAG knowledge base -- broader clinical research coverage sourced from peer-reviewed diabetes research, NIH resources, and clinical guidelines
 - Improved prompt engineering -- more personalized, data-grounded responses that reflect the user's own history and patterns
 - AI evaluation framework -- internal testing pipeline to measure output quality, safety, and accuracy before changes reach users
+- **Knowledge-adaptive response profiles** -- the AI adjusts its communication based on the user's comfort level with diabetes management. An experienced patient who understands carb ratios, correction factors, and insulin timing receives data-dense analysis. A newly diagnosed patient or non-clinical caregiver receives a simplified, plain-language explanation. Configurable per user through profile settings.
 
 ### Platform Stability
 
@@ -72,6 +73,24 @@ Phase 1 hardens the platform's monitoring-only stance at the plugin loading boun
 - Capability-set integrity checks at startup with logging when an unknown capability is encountered
 - Test coverage that asserts unknown capabilities cannot be activated by any code path
 - Documentation of the enforcement boundary as a stable contract that both official and project-owned unofficial builds rely on
+
+### Behavioral Pattern Detection
+
+The platform should go beyond glucose threshold alerts to surface behavioral patterns the user and their care team may want visibility into. The platform describes what the data shows; it does not diagnose, judge, or recommend medical action.
+
+- **Glucose-excursion-without-bolus patterns** -- detect recurring instances where glucose spikes occur without a corresponding bolus event in the same window. The platform surfaces the pattern as data; the user (and their care team) decides what it means. The platform does not infer the cause (a missed meal-time bolus, an unrecorded bolus, illness, stress, hormonal shifts, or any other reason).
+- **Recurring pattern identification** -- surface time-of-day, day-of-week, or situational patterns in glucose control (e.g., consistently high readings every weekday at lunch or every weekend morning)
+- **Pattern-aware alerting** -- alerts include historical context: "This is the third glucose excursion this week without a bolus event in the same window" rather than just "glucose is high"
+
+### Documentation Infrastructure
+
+Clear, accessible documentation is critical for adoption. Early adopter feedback confirmed that users struggle to get the platform running when docs are written for developers rather than for the people who need the tool.
+
+- **Unified documentation portal** -- aggregate docs into a single, searchable documentation site at glycemicgpt.org/docs. As repositories split out per Phase 3, each maintains its own `/docs` folder as the source of truth, and the website build pipeline pulls and renders them into a cohesive experience.
+- **Audience-first documentation** -- rewrite setup and usage guides from the perspective of a diabetic or caregiver, not a developer. Lead with what the user wants to accomplish, not how the code works.
+- **Mobile app requirements** -- make the dependency on the Android companion app clear and prominent in all getting started guides, both on the website and in the GitHub README
+- **Step-by-step deployment guides** -- clear, tested walkthroughs for Docker Compose, Kubernetes, and cloud deployment (Railway, Fly.io) with expected outcomes at each step
+- **Troubleshooting guide** -- common issues and fixes based on real user feedback, starting with lessons from initial deployment
 
 ### Legal & Organizational
 
@@ -109,6 +128,16 @@ These integrations follow a no-touch philosophy: GlycemicGPT reads data from you
 - Pattern flags and trend anomalies highlighted for clinician review
 - Summary insights designed to facilitate productive endo conversations
 - Exportable formats suitable for clinical settings
+
+### Multi-Session Caregiver Escalation
+
+Expand the existing caregiver alerting system into an intelligent, multi-session escalation framework designed for any caregiver relationship -- parents of T1D children, spouses, family members, or anyone the patient trusts with their care.
+
+- **Tiered escalation with context** -- when a patient does not respond to an alert, escalate to their designated caregiver with full context: what triggered the alert, how long it's been active, and relevant pattern history
+- **Caregiver feedback loop** -- caregivers can respond to escalated alerts with context that helps refine future analysis (e.g., "had a hard workout this morning" or "stressful day at work today"). All caregiver-provided context is logged transparently to the patient -- nothing the caregiver tells the AI is hidden from the patient.
+- **Cross-session AI continuity** -- the AI maintains awareness across sessions so that escalation history, caregiver feedback, and unresolved patterns carry forward rather than resetting each conversation. Persistent memory lives on the user's own infrastructure (self-hosted backend or the user's account on the project's hosted service), consistent with the privacy-first stance: caregiver-provided observations are part of the patient's own data, not a separate analytics surface.
+- **Caregiver-initiated queries** -- caregivers can ask the AI questions about the patient's data, trends, and patterns from their own interface without needing access to the patient's full dashboard
+- **Collaborative care framing** -- all caregiver features require explicit patient consent and opt-in. The platform frames this as collaborative care, not surveillance. The patient is always aware of and in control of who receives escalated alerts, what information caregivers can access, and what context caregivers have provided to the AI.
 
 ---
 
@@ -154,6 +183,16 @@ The unofficial repositories operate independently from the project's fiscal host
 - Apple Watch complications (alongside existing Wear OS support)
 - Unified wearable experience across platforms
 
+### Conversational Channel Expansion
+
+The in-app AI chat is and remains the primary conversational surface. Phase 3 explores extending that conversation to additional channels where users prefer to engage -- not as duplicates of the in-app chat, but as legitimate alternative entry points to the same AI.
+
+- **SMS bridge** -- text the AI directly without opening the app. Useful when caregivers prefer text, when the user's phone is locked, or when the conversational rhythm of SMS fits the moment better than a full app session. SMS routes through a third-party gateway (Twilio-class, BAA-required as a PHI processor); the in-app per-message disclaimer is replaced by a one-time onboarding disclaimer plus a footer link in replies, since 160 characters cannot carry the full disclaimer. **The disclaimer model adaptation requires legal review before launch** -- the technical constraint (160 characters) does not automatically compress the legal requirement for informed consent. Launch is gated on counsel sign-off that the onboarding-plus-footer approach meets the same protection standard as the in-app per-message disclaimer.
+- **Telegram bot evolution** -- the existing Telegram integration is in alpha and not actively maintained. Phase 3 makes a deliberate polish-or-sunset decision based on whether SMS covers the same use cases more cleanly.
+- **Channel-aware AI behavior** -- the AI is aware of which channel it's responding through and adapts message length, formatting, and richness to the channel's constraints (a 160-character SMS reply is not the same as an in-app rich response). Each channel applies an appropriate disclaimer model -- in-app per-message, SMS one-time-plus-footer-link.
+
+**Scope discipline.** Each channel adds an auth surface, a PHI boundary, a maintenance line item, and a medical-disclosure exposure. The project adds channels deliberately, one at a time, with each channel earning its place by demonstrated user demand. All channels are opt-in per user; nothing is enabled by default. Privacy-first applies to each: data flows to and from external platforms only with explicit user consent.
+
 ---
 
 ## Phase 4 -- Intelligence & Scale
@@ -168,6 +207,11 @@ Blood glucose prediction is approached with caution and transparency. Prediction
 - Predictive alerting based on forecasted glucose trends
 - Trend forecasting and anomaly detection
 - Clear confidence indicators on all predictions
+
+### Advanced Behavioral Analytics
+
+- **Behavioral observation summaries** -- AI surfaces chronic patterns (e.g., glucose excursions concentrated at certain meals, alerts repeatedly dismissed at specific times of day) so the user and their care team can see the long view. The platform surfaces the pattern; medical decisions remain with the user and their care team.
+- **Pattern-trend tracking** -- show how identified behavioral patterns evolve over time so the user can see whether things are trending in the direction they want.
 
 ### Hosted Service for Non-Technical Users
 
@@ -198,7 +242,7 @@ These principles guide every decision on the roadmap:
 
 1. **Monitoring and analysis first.** The GlycemicGPT platform and all official app store releases are monitoring and analysis tools. They read data from diabetes devices and provide AI-powered insights. They do not control insulin delivery or modify pump settings. The unofficial sideloaded mobile apps include the read-only plugin SDK so users can extend the platform with additional device data drivers; they do not include any plugin that controls insulin delivery. The AI layer has no architectural path to a device write surface. Users who build from source and extend the platform do so at their own discretion and responsibility, consistent with the DIY ethos established by projects like Loop and AndroidAPS in the broader patient-built diabetes-tech tradition.
 
-2. **Privacy first.** User health data stays on user-controlled infrastructure. The platform does not phone home, collect telemetry, or transmit data to GlycemicGPT or any third party.
+2. **Privacy first.** User health data stays on user-controlled infrastructure. The platform does not phone home, collect telemetry, transmit data to GlycemicGPT or any third party, or use user data to train AI models.
 
 3. **Transparency about AI limitations.** AI makes mistakes. Every AI-generated output is clearly labeled as informational. The platform never presents AI analysis as medical advice. Users are always directed to consult their healthcare team.
 
