@@ -213,11 +213,11 @@ npm test       # Run tests
 We use a **develop/main** branching model:
 
 ```
-feature branch --> squash merge --> develop --> rebase merge --> main
-                                      |                           |
-                                  dev builds                  stable releases
-                                  debug APKs                  signed APKs
-                                  Docker :dev                 Docker :latest
+feature branch --> squash merge --> develop --> merge --> main
+                                      |                     |
+                                  dev builds           stable releases
+                                  debug APKs           signed APKs
+                                  Docker :dev          Docker :latest
 ```
 
 ### Rules
@@ -225,6 +225,8 @@ feature branch --> squash merge --> develop --> rebase merge --> main
 - **`develop`** is the integration branch. **All contributor PRs target `develop`.**
 - **`main`** is the stable release branch. Do **not** target PRs to `main`.
 - Feature branches are created from `develop` and squash-merged back.
+
+> **Note on the GitHub branch counter:** GitHub's branch comparison may show `develop` as a number of commits *behind* `main`. This is a cosmetic SHA-graph artifact, not a content drift -- after a release-please version bump or automated changelog update on `main`, the `sync-main-to-develop` workflow cherry-picks those commits back to `develop` as new commits with new SHAs. GitHub compares SHAs, so the original `main`-side commits register as missing on `develop` even though the file content (version number, `CHANGELOG.md`) is identical. See [docs/branching-strategy.md](docs/branching-strategy.md) for the full release cycle.
 
 ### Creating a Feature Branch
 

@@ -7,6 +7,8 @@
 | `main` | Stable releases | Yes | Yes |
 | `develop` | Integration / dev testing | Yes | No |
 
+> **GitHub's "X commits behind main" counter on `develop` is non-substantive.** After each promotion, release-please bumps the version on `main` and the `sync-main-to-develop` workflow cherry-picks those commits back to `develop` as *new* commits with new SHAs. GitHub's counter compares SHAs, so the original `main`-side commits register as "missing" on `develop` even though the file content is identical. The two branches stay content-synced (same version, same `CHANGELOG.md`); only the commit graph drifts. Contributors should always target `develop` regardless of what the counter shows -- see [CONTRIBUTING.md](../CONTRIBUTING.md).
+
 ## Full Release Cycle
 
 ```
