@@ -1,4 +1,4 @@
-# Story 1.5: Database Backup CronJob
+# Database Backup CronJob
 # Runs pg_dump on configured schedule with retention policy
 apiVersion: batch/v1
 kind: CronJob

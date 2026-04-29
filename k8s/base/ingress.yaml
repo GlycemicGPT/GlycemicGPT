@@ -1,5 +1,5 @@
 ---
-# Story 1.4: Kubernetes Deployment Manifests
+# Kubernetes Deployment Manifests
 # Ingress for external access
 # Supports both nginx-ingress and traefik
 apiVersion: networking.k8s.io/v1
@@ -17,7 +17,7 @@ metadata:
     nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
     # Enable websocket/SSE support
     nginx.ingress.kubernetes.io/proxy-buffering: "off"
-    # TLS via cert-manager (Story 16.12)
+    # TLS via cert-manager 
     cert-manager.io/cluster-issuer: letsencrypt-prod
     # Force HTTPS and enable HSTS
     nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
