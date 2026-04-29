@@ -165,16 +165,57 @@ docker compose up -d
 
 The `:latest` tag pulls whatever the most recent stable release is.
 
+## Deploying for public access
+
+Two paths, depending on where the platform will run:
+
+| If you'll run on... | Use this path |
+|---|---|
+| A computer at home (desktop, NAS, mini-PC, Raspberry Pi) running 24/7 | [Home server with Cloudflare Tunnel](#deploying-on-a-home-server-with-cloudflare-tunnel) |
+| A rented cloud VPS with a public IP | [Cloud VPS with HTTPS](#deploying-to-a-vps-with-https) |
+
+Both give you a public URL the mobile app can reach from anywhere. The Cloudflare Tunnel path is generally easier because it doesn't require port forwarding or a public IP from your ISP. The VPS path is what you want if you're not running hardware at home.
+
+## Deploying on a home server with Cloudflare Tunnel
+
+Run GlycemicGPT on a computer at home and reach it from anywhere through a Cloudflare-managed tunnel. **You do not need a public IP from your ISP, port forwarding on your router, or TLS certificates to renew.** Your home server makes one outbound connection to Cloudflare; all inbound traffic comes through that.
+
+### What you'll need
+
+- A computer running 24/7 at home (desktop, NAS, mini-PC, Raspberry Pi, etc.)
+- Docker installed on it (see [Installing Docker](#installing-docker) above)
+- A [Cloudflare](https://www.cloudflare.com) account (free)
+- A domain on Cloudflare (transfer or buy one through Cloudflare directly)
+
+### Steps
+
+The full walkthrough -- creating the Cloudflare account, adding your domain, creating the tunnel, configuring DNS routing, and starting the stack -- is in [`deploy/examples/cloudflare-tunnel/README.md`](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/deploy/examples/cloudflare-tunnel/README.md). It's written for non-technical users with no prior Cloudflare experience.
+
+The high-level shape:
+
+1. Add your domain to Cloudflare and wait for activation
+2. Sign in to [Cloudflare Zero Trust](https://one.dash.cloudflare.com), create a free team
+3. Create a tunnel, get the tunnel token
+4. Configure tunnel routing: pick a subdomain → `web:3000`
+5. On your home server: `cd deploy/examples/cloudflare-tunnel/`, copy `.env.example` to `.env`, paste the tunnel token + generate three random secrets
+6. `docker compose up -d`
+7. Visit `https://yoursubdomain.yourdomain.com`
+
+No DNS records to manage manually -- Cloudflare creates the DNS record for the tunnel automatically. No certificate to provision -- Cloudflare provides TLS at the edge.
+
+### What's exposed?
+
+Nothing. No inbound ports are open on your home network. Your home server makes a single outbound HTTPS connection to Cloudflare; inbound traffic for your domain comes through that connection.
+
 ## Deploying to a VPS with HTTPS
 
-This is the recommended path for running GlycemicGPT day-to-day. It gets you HTTPS, a real domain, and lets your mobile app reach the platform from anywhere.
+The path for users who don't run hardware at home (or prefer not to). You rent a small cloud server, point a domain at it, and Caddy provisions HTTPS automatically via Let's Encrypt.
 
 ### What you'll need
 
 - A VPS or cloud server (Hetzner, DigitalOcean, Linode, OVH, AWS Lightsail -- any provider works)
 - Docker installed on the server (see [Installing Docker](#installing-docker) above)
 - A domain name and DNS access to point it at your server
-- About 1-2 hours
 
 ### 1. Set up DNS
 

@@ -67,16 +67,19 @@ The other variables can stay at defaults. You'll come back to `.env` to configur
 
 ## Step 4: Start GlycemicGPT
 
-GlycemicGPT ships several Docker Compose configurations for different scenarios. Pick the one that matches your path:
+GlycemicGPT ships several Docker Compose configurations for different scenarios. Pick the one that matches your situation:
 
-| Your path | Compose file to use |
-|---|---|
-| Trying it locally | The root [`docker-compose.yml`](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/docker-compose.yml) (you already have this from `git clone`) |
-| Always-on deployment with public access via your domain | [`deploy/examples/public-cloud/`](https://github.com/GlycemicGPT/GlycemicGPT/tree/main/deploy/examples/public-cloud) (Caddy + automatic HTTPS) |
-| Always-on deployment behind Cloudflare with zero exposed ports | [`deploy/examples/cloudflare-tunnel/`](https://github.com/GlycemicGPT/GlycemicGPT/tree/main/deploy/examples/cloudflare-tunnel) |
-| You already run a Redis or Valkey instance and want to reuse it | [`deploy/examples/external-redis/`](https://github.com/GlycemicGPT/GlycemicGPT/tree/main/deploy/examples/external-redis) |
+| Where you'll run the platform | What you want | Use this |
+|---|---|---|
+| Your laptop or desktop | Just trying it out, no public access | The root [`docker-compose.yml`](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/docker-compose.yml) (you already have this from `git clone`) |
+| **Home server / NAS / always-on PC** | **Public access without port forwarding or a public IP** | [`deploy/examples/cloudflare-tunnel/`](https://github.com/GlycemicGPT/GlycemicGPT/tree/main/deploy/examples/cloudflare-tunnel) |
+| Cloud VPS (rented server) | Public access with your own domain and automatic HTTPS | [`deploy/examples/public-cloud/`](https://github.com/GlycemicGPT/GlycemicGPT/tree/main/deploy/examples/public-cloud) |
+| Home server with a public IP | You want to handle HTTPS yourself without involving Cloudflare | [`deploy/examples/prod-caddy/`](https://github.com/GlycemicGPT/GlycemicGPT/tree/main/deploy/examples/prod-caddy) |
+| Anywhere | You already run your own Redis or Valkey | [`deploy/examples/external-redis/`](https://github.com/GlycemicGPT/GlycemicGPT/tree/main/deploy/examples/external-redis) |
 
-### Trying it locally
+Each example folder has a `README.md` with the start-to-finish walkthrough for that path. Below is a quick reference for the three most common cases. If you're not sure which to pick, the home-server-with-Cloudflare-Tunnel path is the easiest "I want to actually use this day-to-day" option for most users, and the laptop path is the easiest "I want to try it" option.
+
+### Trying it locally on your laptop or desktop
 
 From the repo root:
 
@@ -86,24 +89,39 @@ docker compose up -d
 
 That's it. The platform is running on your computer at `http://localhost:3000`.
 
-The first time you run this, it will take a few minutes to download images and build everything. Subsequent starts are fast.
+The first time you run this, it will take a few minutes to download images and build everything. Subsequent starts are fast. There's no public exposure -- the dashboard is only reachable from your computer.
 
-### Setting up an always-on deployment with public access
+### Running on a home server with public access (Cloudflare Tunnel)
 
-The plain root `docker compose up -d` works on a server too, but it doesn't give you HTTPS or expose the platform to the internet safely. For an always-on deployment with public access, use the [`public-cloud` example](https://github.com/GlycemicGPT/GlycemicGPT/tree/main/deploy/examples/public-cloud) -- it bundles all five GlycemicGPT services with Caddy as a reverse proxy that handles HTTPS automatically via Let's Encrypt:
+This is the path most users will want for day-to-day use. You run GlycemicGPT on a computer at home (desktop, NAS, mini-PC, Raspberry Pi -- anything running 24/7) and access it from anywhere via a Cloudflare-managed tunnel. **No port forwarding, no public IP from your ISP, no TLS certificates to renew.** Your home server makes one outbound connection to Cloudflare; all inbound traffic comes through that.
+
+What you'll need: a [Cloudflare](https://www.cloudflare.com) account (free) and a domain on Cloudflare.
+
+```bash
+cd deploy/examples/cloudflare-tunnel/
+cp .env.example .env
+# Edit .env -- paste your Cloudflare Tunnel token + generate the secrets
+docker compose up -d
+```
+
+The full walkthrough -- creating the Cloudflare account, adding your domain, creating the tunnel, configuring routing -- is in [`deploy/examples/cloudflare-tunnel/README.md`](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/deploy/examples/cloudflare-tunnel/README.md). It's written for non-technical users with no prior Cloudflare experience.
+
+### Running on a cloud VPS with your own domain (Caddy + Let's Encrypt)
+
+This is the path for users who don't have a home server (or don't want to run one) and would rather rent a small cloud server. You get a domain pointing at the server's public IP, Caddy provisions HTTPS automatically via Let's Encrypt.
+
+What you'll need: a VPS from any provider (Hetzner, DigitalOcean, Linode, AWS Lightsail, etc.) and a domain you control.
 
 ```bash
 cd deploy/examples/public-cloud/
 cp .env.example .env
-# Edit .env -- set DOMAIN, ACME_EMAIL, and the secrets (instructions in the file)
+# Edit .env -- set DOMAIN, ACME_EMAIL, and generate the secrets
 docker compose up -d
 ```
 
-Point your domain's DNS at your server's IP address (an `A` record), give Caddy a minute or so to provision the SSL certificate, and you'll have HTTPS working at `https://yourdomain.com`.
-
-The full walkthrough -- DNS setup, firewall, troubleshooting -- is in:
-- [`deploy/examples/public-cloud/README.md`](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/deploy/examples/public-cloud/README.md) (the deployment-specific reference)
-- [Install with Docker -- Deploying to a VPS with HTTPS](./install/docker.md#deploying-to-a-vps-with-https) (the integrated walkthrough that also covers Docker installation, .env hardening, and updates)
+The full walkthrough -- DNS setup, firewall, certificate provisioning, troubleshooting -- is in:
+- [`deploy/examples/public-cloud/README.md`](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/deploy/examples/public-cloud/README.md) (deployment-specific reference)
+- [Install with Docker -- Deploying to a VPS with HTTPS](./install/docker.md#deploying-to-a-vps-with-https) (integrated walkthrough that also covers Docker installation and .env hardening)
 
 ## Step 5: Wait for everything to be ready
 

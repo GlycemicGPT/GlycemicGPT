@@ -32,13 +32,13 @@ A Wear OS watch face is also available but **optional**.
 
 ## Where you can run it
 
-GlycemicGPT runs anywhere Docker runs:
+GlycemicGPT runs anywhere Docker runs. The Get Started guide covers all three of these end-to-end:
 
-- **On your laptop or desktop** -- the simplest path for trying it out
-- **On a home server or NAS** -- great for always-on access at home
-- **On a cloud VPS** -- gives you HTTPS and lets your mobile app reach the platform from anywhere
+- **On your laptop or desktop** -- the simplest path for trying it out, no public access
+- **On a home server, NAS, or any computer running 24/7** -- with public access via [Cloudflare Tunnel](https://github.com/GlycemicGPT/GlycemicGPT/tree/main/deploy/examples/cloudflare-tunnel) (no port forwarding, no public IP needed)
+- **On a cloud VPS with your own domain** -- with automatic HTTPS via [Caddy and Let's Encrypt](https://github.com/GlycemicGPT/GlycemicGPT/tree/main/deploy/examples/public-cloud)
 
-The Get Started guide covers both the laptop path (faster) and the cloud VPS path (more setup, but the better long-term experience).
+You can also bring your own reverse proxy or run it behind any existing infrastructure -- see [Install with Docker](./install/docker.md) for the full menu of options.
 
 ## Currently supported devices
 
