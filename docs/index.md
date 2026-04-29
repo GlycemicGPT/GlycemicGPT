@@ -9,26 +9,43 @@ GlycemicGPT is an open-source platform that brings together your diabetes data a
 
 ## How it works (and what you'll need)
 
-GlycemicGPT has two parts that work together:
+GlycemicGPT has three things that work together:
 
 1. **The platform** -- runs on a computer or server you control. It stores your data, runs the AI, and serves the dashboard you view in a browser.
-2. **The Android companion app** -- runs on your phone. It connects to your pump over Bluetooth and forwards data to the platform.
+2. **The Android companion app** -- runs on your phone. It connects to your insulin pump over Bluetooth and forwards data to the platform.
+3. **An AI provider** -- GlycemicGPT does not host AI itself. You bring your own. Options include using an existing Claude or ChatGPT subscription you already pay for, providing a Claude or OpenAI API key, or running a local model like Ollama. See [BYOAI](./concepts/byoai.md) for the full picture and how to choose.
 
-**Both are required today.** The platform alone cannot read pump data over Bluetooth -- that's the phone app's job. If you only run the platform, you'll have a working dashboard but no live pump data flowing into it. (This may change as the project evolves and other data paths are added -- see [ROADMAP.md](../ROADMAP.md).)
+**All three are required today.** The platform alone cannot read pump data over Bluetooth -- that's the phone app's job. The platform also doesn't generate AI insights without an AI provider configured -- it's a relay between you and whichever provider you bring. (This may change as the project evolves and other data paths are added -- see [ROADMAP.md](../ROADMAP.md).)
 
 A Wear OS watch face is also available but **optional**.
 
+If a family member, friend, or other trusted person needs visibility into the platform too -- to receive escalated alerts, view your dashboard, or otherwise help support your care -- GlycemicGPT supports a [caregiver model](./caregivers/overview.md). Caregivers get their own opt-in, read-only access to your data on your platform.
+
 ## Where to start
+
+### If you're new
 
 **[Get started](./get-started.md)** -- the full walkthrough from zero to a working setup, including the mobile app.
 
-**[Install with Docker](./install/docker.md)** -- the full Docker reference, including how to install Docker if you don't have it yet.
+**[Mobile app install](./mobile/install.md)** -- step-by-step Android install (the companion app is required to connect your pump).
+
+### Installing the platform
+
+**[Install with Docker](./install/docker.md)** -- the full Docker reference, including how to install Docker if you don't have it yet, plus walkthroughs for laptop, home server, and VPS deployments.
 
 **[Install with Kubernetes](./install/kubernetes.md)** -- for users running their own cluster.
 
-**[Mobile app install](./mobile/install.md)** -- step-by-step Android install.
+### Once you're up and running
 
-**[Troubleshooting](./troubleshooting/index.md)** -- when something isn't working.
+**[Daily use](./daily-use/dashboard.md)** -- reading your dashboard, connecting your CGM and pump, using AI chat, daily briefs, and configuring alerts.
+
+**[Caregivers](./caregivers/overview.md)** -- inviting a family member or other trusted person to help support your care.
+
+**[Concepts](./concepts/what-this-software-is-and-isnt.md)** -- the honest scope of what GlycemicGPT does and doesn't do, the privacy story, BYOAI, and a glossary of diabetes and platform terms.
+
+### When things go wrong
+
+**[Troubleshooting](./troubleshooting/index.md)** -- find the symptom you're seeing and follow the path to fix it.
 
 ## Where you can run it
 
