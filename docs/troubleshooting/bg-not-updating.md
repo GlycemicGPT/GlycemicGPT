@@ -51,9 +51,9 @@ Open the GlycemicGPT phone app. The home screen shows a connection status indica
 - **Indicator says Connected, recent reading** -- pump is connected and forwarding data. Issue is between the app and the platform; skip to the next section.
 - **Indicator says Disconnected or Searching** -- the app isn't talking to your pump. Common causes:
   - Pump out of range (Bluetooth range is ~10 meters, less through walls)
-  - Pump's BLE turned off (check pump: Options → Bluetooth Settings → On)
+  - Pump's Bluetooth turned off (check pump: Options → Bluetooth Settings → On)
   - Phone's Bluetooth turned off
-  - Pump paired with another app (only one BLE connection at a time)
+  - Pump paired with another app (only one Bluetooth connection at a time)
   - Phone killed the app in the background (Android battery optimization)
 
 ### Is the app paired but not getting glucose data specifically?

@@ -89,12 +89,12 @@ If the app says it can't connect, your phone can't reach the platform. Common ca
 This is the part the platform alone cannot do.
 
 1. Once signed in, the app shows a dashboard. If no pump is paired, you'll see a "Pair pump" prompt.
-2. Tap **Pair pump**. The app asks for permission to use Bluetooth and Location (Android requires Location for BLE scanning -- this is an OS quirk; the app does not track your location).
+2. Tap **Pair pump**. The app asks for permission to use Bluetooth and Location (Android requires Location for Bluetooth scanning -- this is an OS quirk; the app does not track your location).
 3. Put your pump in pairing mode (consult your pump's manual -- on Tandem t:slim X2, this is **Options → Bluetooth Settings → Pair Device**).
 4. The app discovers your pump and asks for the 6-digit pairing code shown on the pump's screen. Enter it.
 5. The app and pump exchange pairing keys. This takes a few seconds.
 
-Once paired, the app stays connected to the pump in the background and forwards live data (IoB, basal, glucose, battery, reservoir) to your platform.
+Once paired, the app stays connected to the pump in the background and forwards live data (insulin on board, basal rate, glucose, battery, reservoir) to your platform.
 
 ## Step 5: Confirm data is flowing
 
@@ -118,6 +118,6 @@ The app does not auto-update -- there's no Play Store distribution today. F-Droi
 
 ## A few notes
 
-- **Battery and Bluetooth:** the app stays connected to your pump in the background, which uses some battery. On most phones the impact is small (< 5% per day) because Tandem's BLE protocol is energy-efficient. If you see your phone disconnecting from the pump frequently, your phone's battery optimization may be killing the app -- exempt GlycemicGPT in Settings → Battery → Battery optimization.
+- **Battery and Bluetooth:** the app stays connected to your pump in the background, which uses some battery. On most phones the impact is small (< 5% per day) because Tandem's Bluetooth protocol is energy-efficient. If you see your phone disconnecting from the pump frequently, your phone's battery optimization may be killing the app -- exempt GlycemicGPT in Settings → Battery → Battery optimization.
 - **No insulin delivery:** the app is read-only. It does not deliver bolus, change basal rates, or modify any pump setting. See [What This Software Is and Isn't](../concepts/what-this-software-is-and-isnt.md) for the project's monitoring-only stance.
-- **Single device pairing:** Tandem pumps allow only one BLE connection at a time. If your pump is already paired with another app (the official t:connect app, for example), unpair it first -- only one phone can be connected.
+- **Single device pairing:** Tandem pumps allow only one Bluetooth connection at a time. If your pump is already paired with another app (the official t:connect app, for example), unpair it first -- only one phone can be connected.

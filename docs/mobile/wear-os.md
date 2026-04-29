@@ -25,7 +25,7 @@ GlycemicGPT ships an optional Wear OS watch face that shows your glucose, trend 
 
 The watch face is two pieces:
 
-1. **`wear-device`** -- a small Wear OS app that runs on the watch. It listens for data the phone forwards (glucose, IoB, etc.) and provides complications.
+1. **`wear-device`** -- a small Wear OS app that runs on the watch. It listens for data the phone forwards (glucose, insulin on board, etc.) and provides complications -- the small data tiles you can put on a watch face.
 2. **`watchface`** -- the actual watch face APK (built using Watch Face Format, WFF).
 
 Depending on your watch's Wear OS version, the procedure is slightly different:
