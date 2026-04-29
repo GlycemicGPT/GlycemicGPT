@@ -67,7 +67,7 @@ GlycemicGPT bridges the gap between diabetes device data and actionable AI-power
 
 > **Tandem Mobi note:** The Mobi uses the same BLE protocol, authentication, and data formats as the t:slim X2. Our Tandem plugin is designed to read data from both models, but **Mobi support has not been verified against physical hardware**. Protocol compatibility does not guarantee correct operation on untested devices. Use of GlycemicGPT to read data from Mobi hardware is entirely at your own risk -- see [MEDICAL-DISCLAIMER.md](MEDICAL-DISCLAIMER.md) for full liability terms. If you have a Mobi and can help validate data reading, please open an issue.
 
-Support for additional pumps and CGMs is planned for future releases. The mobile app uses a [capability-based plugin architecture](docs/plugin-architecture.md) designed for extensibility -- see [CONTRIBUTING.md](CONTRIBUTING.md) if you'd like to help add support for your device.
+Support for additional pumps and CGMs is planned for future releases. The mobile app uses a [capability-based plugin architecture](docs/dev/plugin-architecture.mdx) designed for extensibility -- see [CONTRIBUTING.md](CONTRIBUTING.md) if you'd like to help add support for your device.
 
 **What it does:**
 
@@ -113,7 +113,7 @@ Services will be available at:
 | Backend | FastAPI, Python 3.12 |
 | Mobile | Kotlin, Jetpack Compose, BLE |
 | Wear OS | Kotlin, Wear Compose, Watch Face |
-| Plugin System | Extensible device support via [plugin architecture](docs/plugin-architecture.md) |
+| Plugin System | Extensible device support via [plugin architecture](docs/dev/plugin-architecture.mdx) |
 | AI Sidecar | TypeScript, Express, multi-provider proxy |
 | Database | PostgreSQL 16, SQLAlchemy 2.0 |
 | Cache | Redis 7 |

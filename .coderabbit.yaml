@@ -369,8 +369,8 @@ knowledge_base:
     enabled: true
     filePatterns:
       - "CLAUDE.md"
-      - "docs/branching-strategy.md"
-      - "docs/plugin-architecture.md"
+      - "docs/dev/branching-strategy.mdx"
+      - "docs/dev/plugin-architecture.mdx"
   learnings:
     scope: "local"
   issues:

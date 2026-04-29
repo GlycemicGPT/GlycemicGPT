@@ -15,7 +15,7 @@ Before writing any code, please understand these non-negotiable rules:
 - 🏷️ **All** AI-generated outputs must be clearly labeled as **suggestions, not medical advice**
 - 💉 Insulin dosing recommendations must **always** include safety disclaimers
 - 🧪 Test thoroughly -- a wrong number on a glucose chart is not just a UI bug, it's a safety issue
-- 🔒 Safety limits (glucose range, max bolus, max basal) are enforced by the platform via `SafetyLimits` (backend-synced, user-configurable). These limits validate incoming pump and CGM history values; when a reading falls outside the limits, plugins must discard it (do not return, emit, or persist it) and log the rejection with the violated limit -- see the [Plugin Architecture Guide](docs/plugin-architecture.md).
+- 🔒 Safety limits (glucose range, max bolus, max basal) are enforced by the platform via `SafetyLimits` (backend-synced, user-configurable). These limits validate incoming pump and CGM history values; when a reading falls outside the limits, plugins must discard it (do not return, emit, or persist it) and log the rejection with the violated limit -- see the [Plugin Architecture Guide](docs/dev/plugin-architecture.mdx).
 - 🚫 **No device control** -- GlycemicGPT is a monitoring and analysis platform
 
 ### Device Data Drivers
@@ -30,7 +30,7 @@ GlycemicGPT is a monitoring and analysis platform. The plugin SDK exists for one
 
 **Contributing a data driver:**
 
-1. Pick a device that isn't already supported (see the [Plugin Architecture Guide](docs/plugin-architecture.md) for the capability matrix)
+1. Pick a device that isn't already supported (see the [Plugin Architecture Guide](docs/dev/plugin-architecture.mdx) for the capability matrix)
 2. Open an issue describing the device, the protocol you intend to use, and the data you'll surface
 3. Submit a PR with a new Gradle module under `plugins/shipped/<device-name>/` (these modules are compiled into official builds), declaring only capabilities from the official read-only enum. For device data drivers the relevant capabilities are typically `GLUCOSE_SOURCE`, `INSULIN_SOURCE`, `PUMP_STATUS`, `BGM_SOURCE`, `CALIBRATION_TARGET`, and/or `BOLUS_CATEGORY_PROVIDER`. The `DATA_SYNC` capability is reserved for future external-sync integrations (Nightscout, Tidepool); its interface is not yet defined and it is not currently implementable
 4. Include unit tests, especially for parsing and `SafetyLimits` validation of incoming values
@@ -226,7 +226,7 @@ feature branch --> squash merge --> develop --> merge --> main
 - **`main`** is the stable release branch. Do **not** target PRs to `main`.
 - Feature branches are created from `develop` and squash-merged back.
 
-> **Note on the GitHub branch counter:** GitHub's branch comparison may show `develop` as a number of commits *behind* `main`. This is a cosmetic SHA-graph artifact, not a content drift -- after a release-please version bump or automated changelog update on `main`, the `sync-main-to-develop` workflow cherry-picks those commits back to `develop` as new commits with new SHAs. GitHub compares SHAs, so the original `main`-side commits register as missing on `develop` even though the file content (version number, `CHANGELOG.md`) is identical. See [docs/branching-strategy.md](docs/branching-strategy.md) for the full release cycle.
+> **Note on the GitHub branch counter:** GitHub's branch comparison may show `develop` as a number of commits *behind* `main`. This is a cosmetic SHA-graph artifact, not a content drift -- after a release-please version bump or automated changelog update on `main`, the `sync-main-to-develop` workflow cherry-picks those commits back to `develop` as new commits with new SHAs. GitHub compares SHAs, so the original `main`-side commits register as missing on `develop` even though the file content (version number, `CHANGELOG.md`) is identical. See [docs/dev/branching-strategy.mdx](docs/dev/branching-strategy.mdx) for the full release cycle.
 
 ### Creating a Feature Branch
 
@@ -415,7 +415,7 @@ This is a medical platform. We take security seriously. The Security Scan Gate r
 | `scripts/security/` | Everything |
 | Docs, config, or other non-code files | Nothing -- security gate reports green instantly |
 
-Mobile-only PRs skip the Docker stack entirely (~2 min instead of ~25 min). For the full breakdown of what each test suite does, see [docs/security-testing.md](docs/security-testing.md).
+Mobile-only PRs skip the Docker stack entirely (~2 min instead of ~25 min). For the full breakdown of what each test suite does, see [docs/dev/security-testing.mdx](docs/dev/security-testing.mdx).
 
 ### 🚨 What If the Security Scan Finds Something?
 
@@ -594,7 +594,7 @@ GlycemicGPT/
 
 ### Plugin Development
 
-The mobile app uses a capability-based plugin architecture. New device support (pumps, CGMs, BGMs) is added as plugin modules. See the [Plugin Architecture Guide](docs/plugin-architecture.md) for:
+The mobile app uses a capability-based plugin architecture. New device support (pumps, CGMs, BGMs) is added as plugin modules. See the [Plugin Architecture Guide](docs/dev/plugin-architecture.mdx) for:
 
 - How to create a new plugin module
 - Capability interfaces and mutual-exclusion rules

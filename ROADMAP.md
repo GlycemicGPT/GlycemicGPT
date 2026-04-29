@@ -260,7 +260,7 @@ These principles guide every decision on the roadmap:
 | Contribute code | [Contributing Guide](CONTRIBUTING.md) |
 | Discuss ideas or ask questions | [Community Discord](https://discord.gg/QbyhCQKDBs) |
 | Support the project financially | [Open Collective](https://opencollective.com/glycemicgpt) |
-| Build a device data plugin | [Contributing Guide](CONTRIBUTING.md#device-data-drivers) (then the [Plugin Architecture Reference](docs/plugin-architecture.md)) |
+| Build a device data plugin | [Contributing Guide](CONTRIBUTING.md#device-data-drivers) (then the [Plugin Architecture Reference](docs/dev/plugin-architecture.mdx)) |
 
 ---
 
