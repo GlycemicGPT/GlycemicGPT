@@ -1,0 +1,72 @@
+---
+title: Install with Kubernetes
+description: For users who already run a homelab or production Kubernetes cluster.
+---
+
+> **Kubernetes is for users who already run a cluster.** If you're not sure whether that's you, [install with Docker](./docker.mdx) instead. Docker is simpler, faster to set up, and what most users run.
+
+## When Kubernetes makes sense
+
+You probably want this guide if:
+
+- You already run a homelab with k3s, k0s, microk8s, or a self-managed cluster
+- You run a production cluster (EKS, GKE, AKS, etc.) and want to deploy GlycemicGPT alongside your other workloads
+- You want HA, automatic failover, or multi-node ingress
+
+If those don't describe you, Docker is the right choice.
+
+> **Before you start, you need:**
+> - A working Kubernetes cluster (any flavor)
+> - An ingress controller installed (nginx-ingress, Traefik, or similar)
+> - `kubectl` configured to talk to your cluster
+> - A domain name pointing at your cluster's external IP (for TLS)
+> - Familiarity with editing Kubernetes manifests
+
+## Architecture overview
+
+The five services from the [Docker setup](./docker.mdx#the-five-services) translate directly to five Kubernetes deployments. The repository ships Kubernetes manifests in the `k8s/` directory of the source code.
+
+## Quick deploy
+
+```bash
+git clone https://github.com/GlycemicGPT/GlycemicGPT.git
+cd GlycemicGPT/k8s
+
+# Review the manifests, then apply
+kubectl apply -f .
+```
+
+The manifests assume you'll provide your own ingress and TLS configuration. They expose internal `ClusterIP` services that you wire up to your existing ingress controller.
+
+## TLS and external access
+
+This is the most important part of a Kubernetes deployment because the GlycemicGPT mobile app requires HTTPS to connect to your backend.
+
+The full TLS and ingress walkthrough -- including cert-manager setup, ingress examples for nginx and Traefik, and Cloudflare Tunnel as an alternative -- is in [Kubernetes External Access & TLS](../dev/k8s-external-access.mdx). That guide is more technical than the rest of this section but covers the operational detail you'll need.
+
+## Configuration
+
+Kubernetes deployments use the same environment variables as Docker. See the [Docker configuration reference](./docker.mdx#configuration-the-env-file) for what each variable does.
+
+In Kubernetes you provide them via Secrets and ConfigMaps; example manifests are in the `k8s/` directory. The same things apply: change `SECRET_KEY` from the example, set `COOKIE_SECURE=true` once HTTPS is in place, configure `CORS_ORIGINS` for your domain.
+
+## Updating
+
+```bash
+git pull
+kubectl apply -f k8s/
+```
+
+Then either let Kubernetes roll out the changes automatically, or trigger a manual rollout:
+
+```bash
+kubectl rollout restart deployment -n glycemicgpt
+```
+
+## Choosing one-click cloud deploy instead
+
+A managed one-click deploy (Railway, Fly.io) is on the roadmap. If you don't want to manage your own Kubernetes but Docker on a single VM doesn't fit either, the hosted option may be a better match -- see [ROADMAP.md](../../ROADMAP.md) §Phase 4.
+
+## Troubleshooting
+
+If pods aren't healthy, the same starting points apply as Docker -- see [Troubleshooting](../troubleshooting/index.mdx). For Kubernetes-specific issues (ingress not routing, certs not provisioning, pod scheduling failures), the [Kubernetes External Access & TLS](../dev/k8s-external-access.mdx) guide has the operational detail.

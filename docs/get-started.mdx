@@ -1,0 +1,93 @@
+---
+title: Get Started
+description: From zero to seeing your dashboard in about 10 minutes.
+---
+
+In about 10 minutes, you'll have GlycemicGPT running on your computer and see a dashboard you can sign in to. You'll connect your real Dexcom and Tandem accounts after this -- this guide gets the platform itself running first.
+
+> **Before you start, you need:**
+> - **Docker Desktop** installed and running ([download here](https://www.docker.com/products/docker-desktop/))
+> - About **5 GB of free disk space**
+> - About **10 minutes**
+> - A computer that can stay on (or a small server / cloud VM if you have one)
+>
+> Tested on macOS, Linux, and Windows with WSL2.
+
+## 1. Download GlycemicGPT
+
+Open a terminal and run:
+
+```bash
+git clone https://github.com/GlycemicGPT/GlycemicGPT.git
+cd GlycemicGPT
+```
+
+This creates a `GlycemicGPT` folder on your computer with everything you need.
+
+## 2. Set up the configuration file
+
+GlycemicGPT reads its settings from a file called `.env`. We give you a template -- copy it and you can adjust later:
+
+```bash
+cp .env.example .env
+```
+
+The defaults will work to get you running on your laptop. You'll come back and adjust this file when you want to deploy to a server or connect to your real Dexcom and Tandem accounts.
+
+## 3. Start GlycemicGPT
+
+Still in the `GlycemicGPT` folder, run:
+
+```bash
+docker compose up -d
+```
+
+This downloads everything needed and starts five services in the background:
+
+- A web dashboard
+- An API
+- An AI relay (called the "sidecar")
+- A database
+- A cache
+
+The first time you run this, it will take a few minutes to build everything. Subsequent starts are fast.
+
+## 4. Wait for everything to be ready
+
+Run this to check status:
+
+```bash
+docker compose ps
+```
+
+You're ready when each service shows `healthy` or `running`. If anything still shows `starting`, wait another 30 seconds and check again.
+
+## 5. Open the dashboard
+
+Visit **http://localhost:3000** in your browser. You should see the GlycemicGPT login page.
+
+## 6. Register an account
+
+Click **Sign up** and create an account with an email and password. Your account stays on your machine -- it does not phone home anywhere.
+
+## 7. Accept the safety disclaimer
+
+The first time you sign in, you'll see a safety disclaimer about the alpha software status and that GlycemicGPT does not give medical advice. Read it, accept it, and you're in.
+
+## 8. You're at your dashboard
+
+You'll see an empty dashboard. That's expected -- you haven't connected a glucose monitor or pump yet. The dashboard fills up once you do.
+
+## What's next?
+
+- **Connect your Dexcom** -- coming soon in [Daily Use](./daily-use/connecting-dexcom.mdx)
+- **Connect your Tandem pump** -- coming soon in [Daily Use](./daily-use/connecting-tandem-cloud.mdx)
+- **Use the full Docker reference** -- [Install with Docker](./install/docker.mdx)
+- **Something not working?** -- [Troubleshooting](./troubleshooting/index.mdx)
+
+## A few honest reminders
+
+- **GlycemicGPT is alpha software.** It works, but it has not been broadly tested. Treat it as a tool that supplements your existing diabetes management, not as a replacement for it.
+- **GlycemicGPT does not control insulin delivery.** It reads from your devices; it does not write back to them.
+- **AI suggestions are not medical advice.** When the AI tells you something interesting, talk to your endocrinologist before acting on it.
+- **Your data stays with you.** GlycemicGPT does not phone home or send your data anywhere. The AI provider you choose to use will see the messages you send through the chat interface, just like any other AI service.
