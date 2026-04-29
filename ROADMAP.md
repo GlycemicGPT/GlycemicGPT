@@ -64,6 +64,7 @@ The AI layer is the heart of GlycemicGPT. This phase focuses on making it more r
 - Performance optimization for long-term data queries
 - Expanded test coverage across all services
 - Bug fixes driven by community feedback
+- **First-class Kubernetes install via helm chart** -- the platform deploys to Kubernetes today via the bundled Kustomize manifests, but a helm chart is the more familiar path for users running Flux or ArgoCD. Phase 1 ships a chart that wraps the existing manifests, with `values.yaml` defaults that mirror the production setup the project lead runs in their homelab.
 
 ### Platform Safety Enforcement Layer
 
