@@ -25,32 +25,60 @@ You can always start locally and migrate to an always-on setup later -- your set
 >   - **OS:** macOS, Linux, or Windows with WSL2.
 > - **An Android phone** for the companion app (required to connect your pump over Bluetooth)
 
+## A note on the terminal
+
+Several steps below ask you to "run a command in the terminal." If you've never used a terminal before, that's fine -- here's the short version:
+
+- The terminal is a text-based way to control your computer. It's already installed on every Mac, Linux machine, and Windows computer. You type commands; the computer runs them.
+- To open it:
+  - **macOS:** open **Terminal** (it's in **Applications → Utilities**, or press Cmd+Space and type "Terminal")
+  - **Linux:** open **Terminal** from your applications menu (the exact name varies by distribution -- Terminal, Console, GNOME Terminal, Konsole)
+  - **Windows:** open **Ubuntu** (or whatever WSL2 distribution you installed; see step 1 if you don't have WSL2 yet)
+- When this guide shows a code block like:
+  ```bash
+  some-command
+  ```
+  ...it means: type that line into the terminal and press Enter.
+- "Copy-paste" works in the terminal -- you don't have to type long commands by hand. Right-click and paste, or Cmd/Ctrl+Shift+V depending on your terminal.
+
+You'll keep the same terminal window open through most of this guide. Don't close it until you're done.
+
 ## Step 1: Install Docker
 
 GlycemicGPT runs in Docker, which is software that lets you run pre-packaged services on your computer without manually installing each one.
 
 If you don't have Docker yet, see [Install with Docker -- Installing Docker](./install/docker.md#installing-docker) for step-by-step instructions for macOS, Linux, and Windows.
 
-If you already have Docker, run `docker --version` in a terminal to confirm. If you see a version number, you're set.
+If you already have Docker, type this into your terminal and press Enter:
+
+```bash
+docker --version
+```
+
+If you see a version number (something like `Docker version 27.x.x`), you're set.
 
 ## Step 2: Download GlycemicGPT
 
-Open a terminal and run:
+In the same terminal window, type each of these commands one at a time and press Enter after each:
 
 ```bash
 git clone https://github.com/GlycemicGPT/GlycemicGPT.git
 cd GlycemicGPT
 ```
 
-This creates a `GlycemicGPT` folder on your computer with everything you need.
+What these commands do:
+- `git clone ...` -- downloads a copy of the GlycemicGPT source code onto your computer. It creates a folder called `GlycemicGPT` in whatever directory you ran the command from. (If you don't have `git` installed, your terminal will say so -- install it via `xcode-select --install` on Mac, `apt install git` on Linux, or download from [git-scm.com](https://git-scm.com) on Windows.)
+- `cd GlycemicGPT` -- "change directory" into that folder. From here on, every command in this guide should be run from inside this folder unless noted otherwise.
 
 ## Step 3: Set up the configuration file
 
-GlycemicGPT reads its settings from a file called `.env`. Copy the template:
+GlycemicGPT reads its settings from a file called `.env`. Copy the template by running this in the same terminal (still inside the `GlycemicGPT` folder):
 
 ```bash
 cp .env.example .env
 ```
+
+`cp` means "copy" -- this duplicates `.env.example` (the template that came with the source code) into a new file called `.env` (your actual settings file).
 
 **Trying it locally?** The defaults are fine -- skip ahead to step 4.
 
@@ -72,8 +100,8 @@ GlycemicGPT ships several Docker Compose configurations for different scenarios.
 | Where you'll run the platform | What you want | Use this |
 |---|---|---|
 | Your laptop or desktop | Just trying it out, no public access | The root [`docker-compose.yml`](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/docker-compose.yml) (you already have this from `git clone`) |
-| **Home server / NAS / always-on PC** | **Public access without port forwarding or a public IP** | [`deploy/examples/cloudflare-tunnel/`](https://github.com/GlycemicGPT/GlycemicGPT/tree/main/deploy/examples/cloudflare-tunnel) |
-| Cloud VPS (rented server) | Public access with your own domain and automatic HTTPS | [`deploy/examples/public-cloud/`](https://github.com/GlycemicGPT/GlycemicGPT/tree/main/deploy/examples/public-cloud) |
+| **Home server, NAS, always-on PC, or VPS** | **Public access without opening any inbound ports** | [`deploy/examples/cloudflare-tunnel/`](https://github.com/GlycemicGPT/GlycemicGPT/tree/main/deploy/examples/cloudflare-tunnel) -- works for home or VPS, often the simplest and most secure path |
+| Cloud VPS (rented server) | Public access with your own domain, your own reverse proxy, and Let's Encrypt HTTPS | [`deploy/examples/public-cloud/`](https://github.com/GlycemicGPT/GlycemicGPT/tree/main/deploy/examples/public-cloud) |
 | Home server with a public IP | You want to handle HTTPS yourself without involving Cloudflare | [`deploy/examples/prod-caddy/`](https://github.com/GlycemicGPT/GlycemicGPT/tree/main/deploy/examples/prod-caddy) |
 | Anywhere | You already run your own Redis or Valkey | [`deploy/examples/external-redis/`](https://github.com/GlycemicGPT/GlycemicGPT/tree/main/deploy/examples/external-redis) |
 
@@ -81,19 +109,26 @@ Each example folder has a `README.md` with the start-to-finish walkthrough for t
 
 ### Trying it locally on your laptop or desktop
 
-From the repo root:
+In the same terminal window, still inside the `GlycemicGPT` folder, run:
 
 ```bash
 docker compose up -d
 ```
 
+What this does: `docker compose up` reads the recipe in `docker-compose.yml` and starts all the services GlycemicGPT needs (a database, a cache, the API, the web dashboard, the AI relay). The `-d` flag means "run them in the background" so they don't take over your terminal.
+
 That's it. The platform is running on your computer at `http://localhost:3000`.
 
-The first time you run this, it will take a few minutes to download images and build everything. Subsequent starts are fast. There's no public exposure -- the dashboard is only reachable from your computer.
+The first time you run this, it will take a few minutes to download images and build everything (you'll see a lot of text scrolling by -- that's normal). Subsequent starts are fast. There's no public exposure -- the dashboard is only reachable from your computer.
 
-### Running on a home server with public access (Cloudflare Tunnel)
+### Always-on with Cloudflare Tunnel (home server or VPS)
 
-This is the path most users will want for day-to-day use. You run GlycemicGPT on a computer at home (desktop, NAS, mini-PC, Raspberry Pi -- anything running 24/7) and access it from anywhere via a Cloudflare-managed tunnel. **No port forwarding, no public IP from your ISP, no TLS certificates to renew.** Your home server makes one outbound connection to Cloudflare; all inbound traffic comes through that.
+This is the path most users will want for day-to-day use. You run GlycemicGPT on either:
+
+- a computer at home (desktop, NAS, mini-PC, Raspberry Pi -- anything running 24/7), or
+- a cloud VPS without opening any inbound ports to the internet.
+
+Cloudflare manages the public access. **No port forwarding, no public IP from your ISP, no inbound firewall rules on your VPS, no TLS certificates to renew.** Your server makes one outbound connection to Cloudflare; all inbound traffic comes through that connection. This is often the simplest path for both home and VPS deployments and is generally more secure than opening ports directly to the internet -- see the [Cloudflare Tunnel README](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/deploy/examples/cloudflare-tunnel/README.md#why-this-might-be-more-secure-than-opening-ports) for the security rationale.
 
 What you'll need: a [Cloudflare](https://www.cloudflare.com) account (free) and a domain on Cloudflare.
 
@@ -125,11 +160,13 @@ The full walkthrough -- DNS setup, firewall, certificate provisioning, troublesh
 
 ## Step 5: Wait for everything to be ready
 
+In the same terminal, run:
+
 ```bash
 docker compose ps
 ```
 
-You're ready when each service shows `healthy` or `running`. If anything still shows `starting`, wait another 30 seconds and check again.
+`docker compose ps` shows the status of each service. You're ready when each service shows `healthy` or `running`. If anything still shows `starting`, wait another 30 seconds and run the command again to check.
 
 ## Step 6: Open the dashboard
 

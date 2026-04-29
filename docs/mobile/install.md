@@ -42,19 +42,29 @@ Android blocks installs of APKs not from the Play Store by default. You'll need 
 
 Some phones, work-managed devices, or devices in restrictive corporate / family settings block APK installs entirely from the file manager. In that case, you can install over USB or wireless ADB from a computer.
 
+> **Heads up:** This path requires using your computer's terminal -- the same text-based command interface used in [Get Started](../get-started.md#a-note-on-the-terminal). If you're not comfortable with the terminal, ask someone who is, or skip the watch face entirely. Path A (tap the APK on your phone) works for the vast majority of users.
+
 What you'll need:
-- A computer with [Android Platform Tools](https://developer.android.com/tools/releases/platform-tools) (Linux: `apt install adb`, macOS: `brew install android-platform-tools`)
-- USB cable or wireless ADB enabled on the phone
-- Developer Options enabled on the phone (tap Settings → About phone → Build number 7 times)
+
+- A computer with **Android Platform Tools** installed -- this is what gives you the `adb` command. Install with:
+  - **macOS:** `brew install android-platform-tools` (requires [Homebrew](https://brew.sh))
+  - **Linux:** `sudo apt install android-tools-adb` (Ubuntu/Debian) or `sudo dnf install android-tools` (Fedora)
+  - **Windows:** download the [Platform Tools zip](https://developer.android.com/tools/releases/platform-tools), unzip, and add the folder to your PATH (or just run `adb.exe` from the unzipped folder)
+- A USB cable, OR wireless ADB enabled on the phone (Wi-Fi networking only)
+- Developer Options enabled on the phone -- this is a one-time setting:
+  1. On your phone, open **Settings → About phone**
+  2. Tap **Build number** seven times in quick succession. The phone will say "You are now a developer."
 - USB debugging enabled (Settings → Developer Options → USB debugging)
 
-Connect the phone, then:
+Once you have all that, plug your phone into your computer with the USB cable. Open a terminal on your computer (see [the terminal note in Get Started](../get-started.md#a-note-on-the-terminal) if you're new to it), navigate to the folder where you downloaded `app-release.apk`, then run:
 
 ```bash
-adb install path/to/app-release.apk
+adb install app-release.apk
 ```
 
-If you see `Performing Streamed Install ... Success`, the app is installed.
+What this does: `adb` (Android Debug Bridge) sends the APK file to the phone over USB and triggers an install. The phone might show a "USB debugging authorization" prompt the first time you do this -- accept it, and check "Always allow from this computer" so you don't get prompted again.
+
+If you see `Performing Streamed Install ... Success`, the app is installed -- find it in your phone's app drawer and open it.
 
 If you see `INSTALL_FAILED_USER_RESTRICTED`, your phone has installs from sources other than the Play Store blocked at the policy level -- common on work-managed devices. Talk to your IT admin or use a personal device.
 

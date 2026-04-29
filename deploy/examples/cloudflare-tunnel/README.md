@@ -1,20 +1,37 @@
-# Home server with Cloudflare Tunnel
+# Public access via Cloudflare Tunnel
 
-This is the recommended setup for running GlycemicGPT on a computer at home -- a desktop, NAS, mini-PC, Raspberry Pi, or any machine running 24/7 -- and accessing it from anywhere via the internet.
+This is a setup for running GlycemicGPT and exposing it publicly without opening any inbound ports on your server. It works equally well for:
+
+- **A computer at home** -- desktop, NAS, mini-PC, Raspberry Pi, or any machine running 24/7
+- **A cloud VPS** -- if you'd rather not expose any ports on your VPS to the internet
 
 **You do not need:**
-- A public static IP from your ISP
-- Port forwarding configured on your router
+
+- A public static IP from your ISP (relevant for home setups)
+- Port forwarding configured on your router (home setups)
+- Inbound firewall rules on your VPS (cloud setups)
 - A reverse proxy you maintain
 - TLS certificates you renew manually
 
-**Cloudflare handles all of that.** Your home server makes one outbound connection to Cloudflare; Cloudflare proxies inbound traffic from your domain to your server through that connection. No inbound ports open at all.
+**Cloudflare handles all of that.** Your server (wherever it is) makes one outbound connection to Cloudflare; Cloudflare proxies inbound traffic from your domain to your server through that connection. No inbound ports open at all.
 
-This is genuinely the easiest "running on a computer at home with public access" path. It's also free for the volume of traffic GlycemicGPT generates.
+## Why this might be more secure than opening ports
+
+The standard "VPS + Caddy + Let's Encrypt" pattern requires inbound ports 80 and 443 to be open to the entire internet. Even with Caddy in front, you've put TLS termination, HTTP parsing, and your application surface directly on the public internet -- which means:
+
+- Every script kiddie scanning the internet can probe your server
+- Any 0-day in your reverse proxy or web stack is reachable from anywhere
+- Your VPS provider's firewall is the only thing between you and the world's traffic
+
+With Cloudflare Tunnel, your server has **zero inbound ports open**. Cloudflare is in front of you doing TLS termination, DDoS protection, and (with Cloudflare Access if you set it up) authentication at the edge -- requests only reach your server through the tunnel after Cloudflare has already decided to forward them. For a small open-source project running on hardware you can't 24/7 monitor, that's a meaningful security improvement.
+
+The tradeoff: Cloudflare is in your data path. They see encrypted HTTPS traffic. Per their terms they don't inspect Tunnel traffic for normal use, but if Cloudflare-as-a-third-party is in your threat model, the [`public-cloud/`](../public-cloud/) example (Caddy + Let's Encrypt + your VPS firewall, no Cloudflare in the path) is the alternative.
+
+This setup is free for the volume of traffic GlycemicGPT generates -- it sits comfortably within Cloudflare's free tier.
 
 ## What you'll need
 
-- A computer running 24/7 at home with Docker and Docker Compose installed
+- A computer or VPS running 24/7 with Docker and Docker Compose installed (for home: a desktop, NAS, mini-PC, Raspberry Pi; for cloud: any small VPS will do)
 - A [Cloudflare](https://www.cloudflare.com) account (free)
 - A domain name added to Cloudflare. You can:
   - Buy a new one through Cloudflare ($8-15/year typical)

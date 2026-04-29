@@ -12,8 +12,14 @@ GlycemicGPT ships an optional Wear OS watch face that shows your glucose, trend 
 - A Wear OS watch running **Wear OS 5 or newer** (API 35+). Newer watches running **Wear OS 6** (API 36+) get a smoother experience -- the phone app can push the watch face to them automatically.
 - The GlycemicGPT phone app already installed and signed in (see [Install the Android App](./install.md))
 - Your phone and watch already paired through the Wear OS app
-- A computer with [Android Platform Tools](https://developer.android.com/tools/releases/platform-tools) (`adb` command available)
+- A computer with **Android Platform Tools** installed -- this gives you the `adb` command. Install with:
+  - **macOS:** `brew install android-platform-tools` (requires [Homebrew](https://brew.sh))
+  - **Linux:** `sudo apt install android-tools-adb` (Ubuntu/Debian) or `sudo dnf install android-tools` (Fedora)
+  - **Windows:** download the [Platform Tools zip](https://developer.android.com/tools/releases/platform-tools), unzip, and add the folder to your PATH
+- Comfort with running commands in a terminal -- if you've never done that, see the [terminal note in Get Started](../get-started.md#a-note-on-the-terminal)
 - USB cable or willingness to use wireless ADB
+
+> **Heads up:** The watch install steps below are the most technical part of setting up GlycemicGPT. If they feel beyond what you want to deal with, skip the watch face -- the phone app gives you everything important. The roadmap includes a smoother installation path (Watch Face Push API expansion, possibly Play Store distribution) but that's not available yet.
 
 ## How it works (so the steps below make sense)
 
