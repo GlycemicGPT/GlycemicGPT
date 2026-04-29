@@ -54,7 +54,7 @@ Watch your dashboard -- you should start seeing pump history populate (boluses, 
 
 ## How often does it sync?
 
-Default is every 60 minutes, matching the speed at which the t:connect app uploads to the cloud. Faster polling doesn't help -- if t:connect hasn't synced new data yet, GlycemicGPT can't see it.
+Default is every 60 minutes, matching the speed at which the t:connect app uploads to the cloud. Checking more often doesn't help -- if t:connect hasn't synced new data yet, GlycemicGPT can't see it.
 
 For real-time data (IoB, basal, glucose every few minutes), use the Bluetooth path instead via the [mobile app](../mobile/install.md).
 

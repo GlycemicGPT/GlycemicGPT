@@ -75,7 +75,7 @@ Most cards (TIR, the chart) have a period selector: 24h, 7 days, 30 days. Note: 
 
 ## Printing reports for your endocrinologist
 
-Click **Reports** in the navigation to generate a printable summary for an endo appointment. You can pick the date range; the report includes TIR, glucose statistics, and key patterns the AI surfaced. See the report page for details (coming soon in [AI-Enhanced Endo Reports](../concepts/glossary.md) -- ROADMAP §Phase 2).
+Click **Reports** in the navigation to generate a printable summary for an endocrinologist appointment. You can pick the date range; the report includes Time in Range, glucose statistics, and key patterns the AI surfaced. AI-enhanced report features are on the [roadmap](../../ROADMAP.md) (Phase 2).
 
 ## A few honest reminders
 

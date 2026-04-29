@@ -3,7 +3,7 @@ title: Connecting Your Dexcom CGM
 description: Hook GlycemicGPT up to your Dexcom account so glucose flows into the dashboard automatically.
 ---
 
-GlycemicGPT pulls Dexcom data from Dexcom's cloud using your normal Dexcom account credentials. You don't need to do anything on your phone for this; the platform polls Dexcom directly on a schedule.
+GlycemicGPT pulls Dexcom data from Dexcom's cloud using your normal Dexcom account credentials. You don't need to do anything on your phone for this; the platform checks Dexcom for new data directly on a schedule.
 
 > **Before you start, you need:**
 >
@@ -32,17 +32,17 @@ In your GlycemicGPT dashboard:
 5. Pick your **server region** (US / OUS for outside-US -- if you're in the US, pick US)
 6. Click **Save**
 
-GlycemicGPT stores your credentials encrypted on the platform and uses them to poll Dexcom on your behalf. The platform never sends your password anywhere except to Dexcom itself, and you can delete the credentials at any time by disconnecting the integration.
+GlycemicGPT stores your credentials encrypted on the platform and uses them to check Dexcom for new data on your behalf. The platform never sends your password anywhere except to Dexcom itself, and you can delete the credentials at any time by disconnecting the integration.
 
 ### 3. Wait for the first sync
 
-The integration polls Dexcom on a schedule (typically every 5-10 minutes). The first poll happens within a minute of saving credentials. Watch your dashboard -- glucose readings should start appearing.
+The integration checks Dexcom for new data on a schedule (typically every 5-10 minutes). The first check happens within a minute of saving credentials. Watch your dashboard -- glucose readings should start appearing.
 
 If after 5-10 minutes you don't see glucose data, see [BG isn't updating](../troubleshooting/bg-not-updating.md).
 
 ## How often does it sync?
 
-The polling interval is configurable -- typical values are 5 to 10 minutes. Faster polling means fresher data on the dashboard but slightly higher load on Dexcom's API; slower polling is fine for most users.
+How often the platform checks Dexcom is configurable -- typical values are 5 to 10 minutes. Checking more often means fresher data on the dashboard but slightly higher load on Dexcom's servers; less often is fine for most users.
 
 You can change this in **Settings → Integrations → Dexcom → Polling interval**.
 
