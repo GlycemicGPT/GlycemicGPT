@@ -111,7 +111,7 @@ If the message just sits there and nothing happens (no error, no response):
 
 Common causes:
 - **Streaming issue** -- some browsers and proxies break Server-Sent Events. Try a different browser to rule it out.
-- **Caddy / Cloudflare timeout** -- if you're on an always-on deployment behind a reverse proxy, the proxy may have a default timeout that kills long AI responses. Caddy's default is generous (5 minutes); Cloudflare's is also 100 seconds for free tier but 6000 seconds for Enterprise.
+- **Caddy / Cloudflare timeout** -- if you're on an always-on deployment, the layer in front of your platform that handles HTTPS (Caddy on a VPS, or Cloudflare Tunnel) has a default request-timeout that can cut off long AI responses. Caddy's default is generous (5 minutes); Cloudflare's free-tier limit is 100 seconds. If a long answer keeps getting cut off, that's likely the cause.
 - **AI provider just being slow** -- Anthropic and OpenAI both occasionally have slow days. Check their status pages: [status.anthropic.com](https://status.anthropic.com), [status.openai.com](https://status.openai.com).
 
 ## Step 6: AI chat returns wrong / weird answers
