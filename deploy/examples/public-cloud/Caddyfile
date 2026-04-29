@@ -1,0 +1,25 @@
+# GlycemicGPT -- Caddy reverse proxy configuration
+#
+# This Caddyfile reads {$DOMAIN} and {$ACME_EMAIL} from the environment.
+# Set those values in .env -- no Caddyfile edits required.
+#
+# Caddy automatically provisions and renews Let's Encrypt TLS certificates.
+
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	# Security headers (HSTS belongs here, not on the API)
+	header {
+		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Content-Security-Policy "frame-ancestors 'none'"
+		Referrer-Policy "strict-origin-when-cross-origin"
+	}
+
+	# Proxy everything to the Next.js frontend.
+	# Next.js handles /api/* proxying to the backend internally.
+	reverse_proxy web:3000
+}
