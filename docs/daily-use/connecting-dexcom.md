@@ -1,31 +1,25 @@
 ---
 title: Connecting Your Dexcom CGM
-description: Hook GlycemicGPT up to your Dexcom G7 cloud account.
+description: Hook GlycemicGPT up to your Dexcom account so glucose flows into the dashboard automatically.
 ---
 
-GlycemicGPT pulls Dexcom G7 data from the Dexcom Cloud (Dexcom Share) -- you don't need to do anything on your phone for this; the platform polls Dexcom directly on a schedule.
+GlycemicGPT pulls Dexcom data from Dexcom's cloud using your normal Dexcom account credentials. You don't need to do anything on your phone for this; the platform polls Dexcom directly on a schedule.
 
 > **Before you start, you need:**
 >
-> - A Dexcom G7 sensor + transmitter, actively transmitting data
-> - A Dexcom Share account (you set this up in the official Dexcom G7 app)
+> - A Dexcom CGM (sensor + transmitter) actively transmitting data
+> - Your **Dexcom account** -- the same email and password you use to sign in at [dexcom.com](https://www.dexcom.com), the Dexcom mobile app, or Dexcom Clarity. You don't need a separate "Share" account.
 > - The platform running and you signed in to your dashboard
 
-## What "Dexcom Share" is and why you need it
+## How this works behind the scenes
 
-Dexcom Share is the cloud component of the Dexcom system. Your CGM transmits to your phone over Bluetooth, the Dexcom app uploads to Dexcom's cloud, and other apps (with your permission) can read your data from the cloud. GlycemicGPT is "another app" in this sense.
-
-If you're already using Dexcom Follow / Clarity or another diabetes app that reads from Dexcom, you've already got a Share account. If not, set it up in the Dexcom G7 app under **Settings → Share** -- it's free.
+Your CGM transmits to your phone over Bluetooth, the Dexcom mobile app uploads to Dexcom's cloud, and GlycemicGPT reads from Dexcom's cloud using your account credentials. You don't need to enable any special "Share" or "Follow" setting -- as long as your CGM is uploading to Dexcom (which it does automatically when you have the Dexcom mobile app installed and signed in), GlycemicGPT can pull the data.
 
 ## Steps
 
-### 1. Confirm Dexcom Share is enabled
+### 1. Confirm your CGM is uploading to Dexcom
 
-In the official Dexcom G7 app on your phone:
-
-1. Open **Settings → Share**
-2. Confirm you have at least one followers entry (or that Share is on -- the wording varies by region and app version)
-3. Confirm your Dexcom account is in good standing -- if you can sign in to [dexcom.com](https://www.dexcom.com) and see your data, you're set
+If you can sign in at [dexcom.com](https://www.dexcom.com) (or open Dexcom Clarity) and see recent glucose readings, your CGM is uploading and you're ready. If you can't see recent data there, the issue is upstream of GlycemicGPT (sensor, transmitter, or your phone's Dexcom app) -- fix that first; GlycemicGPT can only sync what Dexcom has.
 
 ### 2. Configure the integration in GlycemicGPT
 
@@ -33,12 +27,12 @@ In your GlycemicGPT dashboard:
 
 1. Go to **Settings → Integrations**
 2. Find **Dexcom** and click **Connect**
-3. Paste your **Dexcom Share email** (the email associated with your Dexcom account)
-4. Paste your **Dexcom Share password**
+3. Paste the **email address** for your Dexcom account
+4. Paste the **password** for your Dexcom account
 5. Pick your **server region** (US / OUS for outside-US -- if you're in the US, pick US)
 6. Click **Save**
 
-GlycemicGPT stores your credentials encrypted on the platform and uses them to poll Dexcom Cloud.
+GlycemicGPT stores your credentials encrypted on the platform and uses them to poll Dexcom on your behalf. The platform never sends your password anywhere except to Dexcom itself, and you can delete the credentials at any time by disconnecting the integration.
 
 ### 3. Wait for the first sync
 
@@ -52,21 +46,21 @@ The polling interval is configurable -- typical values are 5 to 10 minutes. Fast
 
 You can change this in **Settings → Integrations → Dexcom → Polling interval**.
 
-## What happens if my Dexcom Share password changes?
+## What happens if my Dexcom password changes?
 
 The platform's stored credentials become invalid. The dashboard will eventually show the integration as **Disconnected**. Update your password in **Settings → Integrations → Dexcom**.
 
 ## Privacy
 
 - Your Dexcom credentials are encrypted on the platform using your `SECRET_KEY` (set in `.env`)
-- Glucose readings live on the platform's database -- not on Dexcom's servers any longer than they already were
+- Glucose readings live on your platform's database
 - GlycemicGPT does not send your data anywhere else (see [Privacy](../concepts/privacy.md))
 
-## Why doesn't my Dexcom G6 / G5 / Libre work?
+## Which Dexcom models work?
 
-Today the platform supports Dexcom G7 only. Additional CGM support (Libre, Medtronic Guardian, possibly G6) is on the roadmap -- see [ROADMAP.md](../../ROADMAP.md) §Phase 2.
+Any Dexcom CGM that uploads to Dexcom's cloud through the standard Dexcom mobile app should work -- this includes Dexcom G7 and Dexcom G6, since both stream to the same Dexcom cloud the platform reads from. The platform's daily testing is on G7, so G7 is the most validated model; G6 is expected to work but has had less direct testing.
 
-If you have an unsupported CGM but use a platform like Nightscout, integration with Nightscout is also planned -- you'd connect Nightscout to your CGM and GlycemicGPT to Nightscout. Same roadmap phase.
+If you have a non-Dexcom CGM (Freestyle Libre, Medtronic Guardian, etc.) it won't work today. Support for additional CGMs and integrations with platforms like Nightscout (which can bridge other CGMs) is on the roadmap -- see [ROADMAP.md](../../ROADMAP.md) §Phase 2.
 
 ## Still stuck?
 

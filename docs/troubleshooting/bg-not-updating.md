@@ -13,32 +13,32 @@ Two real paths today, with different things to check:
 
 | Your CGM | Path glucose data takes |
 |---|---|
-| Dexcom G7 | Dexcom Cloud → GlycemicGPT API directly (the mobile app is **not** in this path for Dexcom) |
+| Any Dexcom CGM (G6 or G7) | Dexcom's cloud → GlycemicGPT API directly (the mobile app is **not** in this path for Dexcom) |
 | Tandem t:slim X2 with built-in CGM stream | Pump → mobile app over Bluetooth → platform |
 
-If you only use a Dexcom G7 and don't have a Tandem pump, **the mobile app is not in the glucose data path** -- the platform pulls from Dexcom Cloud directly. Skip to the Dexcom section.
+If you only use a Dexcom CGM and don't have a Tandem pump, **the mobile app is not in the glucose data path** -- the platform pulls from Dexcom directly using your Dexcom account. Skip to the Dexcom section.
 
 If you have a Tandem pump that streams CGM data, the mobile app is the data path. Use the Tandem section.
 
-## Dexcom G7 path
+## Dexcom path
 
-The platform polls Dexcom Cloud on a configurable interval. If the dashboard isn't updating, check:
+The platform polls Dexcom on a configurable interval using your Dexcom account credentials. If the dashboard isn't updating, check:
 
 ### Is the Dexcom integration configured and connected?
 
 In the dashboard, go to **Settings → Integrations → Dexcom**. The status should show **Connected** with a recent last-sync time.
 
-- **Status: Disconnected** -- credentials missing or expired. Re-enter your Dexcom Share account credentials.
-- **Status: Auth Error** -- Dexcom rejected the credentials. Double-check the Share account password by signing in at [dexcom.com](https://www.dexcom.com).
-- **Status: Connected, last sync was hours ago** -- the polling job may have stalled. Check API logs: `docker compose logs --tail=100 api | grep -i dexcom`.
+- **Status: Disconnected** -- credentials missing or expired. Re-enter your Dexcom account email and password.
+- **Status: Auth Error** -- Dexcom rejected the credentials. Confirm they work by signing in at [dexcom.com](https://www.dexcom.com) directly with the same email and password. If the Dexcom website rejects them, your account itself has an issue -- contact Dexcom support.
+- **Status: Connected, last sync was hours ago** -- the polling job may have stalled. Check API logs: `docker compose logs --tail=100 api | grep -i dexcom` (run this in a terminal in the directory where you started the platform).
 
-### Is your CGM actually transmitting data?
+### Is your CGM actually uploading to Dexcom?
 
-Verify in the official Dexcom G7 app on your phone that it's receiving readings. If the official app doesn't show recent data, the issue is upstream of GlycemicGPT (sensor expired, transmitter battery, sensor not reading) -- the platform can only sync what Dexcom has.
+Sign in at [dexcom.com](https://www.dexcom.com) directly (or open Dexcom Clarity / the official Dexcom mobile app). If you can see recent readings there, your CGM is uploading and the issue is between Dexcom and GlycemicGPT. If you can't see recent data there either, the issue is upstream of GlycemicGPT entirely -- sensor expired, transmitter battery, sensor not reading, or the Dexcom app on your phone isn't running. The platform can only sync what Dexcom has.
 
-### Are you using a Dexcom G6 instead of G7?
+### Are you using a Dexcom region that doesn't match your account?
 
-GlycemicGPT supports G7 today. G6 is not currently supported. Check the latest [ROADMAP](../../ROADMAP.md) for additional CGM support.
+The platform's Dexcom integration has a region setting (US / OUS). If you're in the US but accidentally selected OUS, or vice versa, authentication will fail with an auth error. Check **Settings → Integrations → Dexcom → Region**.
 
 ## Tandem (mobile app) path
 
