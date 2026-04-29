@@ -1,0 +1,11 @@
+{
+  "title": "Daily Use",
+  "pages": [
+    "dashboard",
+    "connecting-dexcom",
+    "connecting-tandem-cloud",
+    "ai-chat",
+    "briefs",
+    "alerts"
+  ]
+}
