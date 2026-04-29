@@ -87,15 +87,12 @@ Support for additional pumps and CGMs is planned for future releases. The mobile
 
 ## Quick Start
 
+> **Looking for the friendly walkthrough?** Read [docs/get-started.md](docs/get-started.md) -- it covers the platform, the Android companion app, the optional watch face, AI provider configuration, and three deployment paths (laptop / home server with Cloudflare Tunnel / cloud VPS) end-to-end. The one-liner below is for developers who already know the stack.
+
 ```bash
-# Clone the repository
 git clone https://github.com/GlycemicGPT/GlycemicGPT.git
 cd GlycemicGPT
-
-# Copy environment file
 cp .env.example .env
-
-# Start all services
 docker compose up --build -d
 ```
 
@@ -104,6 +101,13 @@ Services will be available at:
 - **Web UI:** http://localhost:3000
 - **API:** http://localhost:8000
 - **API Docs:** http://localhost:8000/docs
+
+For deployments beyond local development, see:
+
+- [Install with Docker](docs/install/docker.md) -- the full Docker reference + decision table for picking a compose example
+- [Install with Kubernetes](docs/install/kubernetes.md) -- Kustomize-based K8s walkthrough with prebuilt images
+- [`deploy/examples/public-cloud/`](deploy/examples/public-cloud/) -- VPS with Caddy + automatic HTTPS
+- [`deploy/examples/cloudflare-tunnel/`](deploy/examples/cloudflare-tunnel/) -- home server with Cloudflare-managed access (no port forwarding required)
 
 ## Architecture
 

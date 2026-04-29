@@ -1,4 +1,14 @@
 {
   "title": "GlycemicGPT Docs",
-  "pages": ["index", "get-started", "install"]
+  "pages": [
+    "index",
+    "get-started",
+    "install",
+    "mobile",
+    "daily-use",
+    "troubleshooting",
+    "caregivers",
+    "concepts",
+    "dev"
+  ]
 }
