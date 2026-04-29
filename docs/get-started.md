@@ -5,32 +5,25 @@ description: From zero to a working GlycemicGPT setup -- platform, mobile app, a
 
 This guide walks you through setting up GlycemicGPT end-to-end: the platform itself, the Android companion app you need to connect your pump, and the optional watch face.
 
-> **Realistic timing:**
->
-> - **Laptop quickstart** (just trying it out): 30-45 minutes
-> - **Cloud VPS deployment** (the long-term setup): 1-2 hours
-> - **Plus mobile app install:** another 10-15 minutes
-> - **Plus watch face install (optional):** another 30-60 minutes
-
 ## Pick your path
 
 You can run GlycemicGPT in two ways:
 
 | If you... | Choose this path |
 |---|---|
-| Want to try it out before committing to anything | **Laptop quickstart** |
-| Plan to use it day-to-day with your phone reaching it from anywhere | **Cloud VPS** |
+| Want to try it out before committing to anything | **Try it locally** -- run on your own laptop or desktop |
+| Plan to use it day-to-day with your phone reaching it from anywhere | **Always-on deployment** -- a VPS, home server, or any computer running 24/7 |
 
-You can always start with the laptop path and migrate to a VPS later -- your settings and data live in the database, and the platform itself is the same.
+You can always start locally and migrate to an always-on setup later -- your settings and data live in the database, and the platform itself is the same.
 
 > **Before you start, you need:**
 >
-> - A computer or VPS to run the platform on
-> - An Android phone (the companion app is required to connect your pump)
-> - About **5 GB of free disk space** on the computer running the platform
-> - Time: **30-45 minutes** for the laptop path or **1-2 hours** for the VPS path
->
-> The platform runs on macOS, Linux, and Windows with WSL2.
+> - **A computer to run the platform on** -- a laptop, desktop, home server, or VPS. Resource recommendations:
+>   - **RAM:** 2 GB minimum, 4 GB recommended. The API service loads an embedding model that uses ~1 GB by itself; the rest of the stack is light.
+>   - **Disk:** 5 GB minimum, 10 GB recommended. Container images are about 3 GB; database, cache, and embedding model storage grow over time.
+>   - **CPU:** any modern dual-core works. The platform is mostly idle except during AI requests.
+>   - **OS:** macOS, Linux, or Windows with WSL2.
+> - **An Android phone** for the companion app (required to connect your pump over Bluetooth)
 
 ## Step 1: Install Docker
 
@@ -59,9 +52,9 @@ GlycemicGPT reads its settings from a file called `.env`. Copy the template:
 cp .env.example .env
 ```
 
-**For the laptop path:** the defaults are fine -- skip ahead to step 4.
+**Trying it locally?** The defaults are fine -- skip ahead to step 4.
 
-**For the cloud VPS path:** open `.env` in a text editor and change at least these values:
+**Setting up an always-on deployment?** Open `.env` in a text editor and change at least these values before continuing:
 
 | Variable | What to set it to | Why |
 |---|---|---|
@@ -74,7 +67,7 @@ The other variables can stay at defaults. You'll come back to `.env` to configur
 
 ## Step 4: Start GlycemicGPT
 
-### Laptop path
+### Trying it locally
 
 ```bash
 docker compose up -d
@@ -84,9 +77,9 @@ That's it. The platform is running on your computer at `http://localhost:3000`.
 
 The first time you run this, it will take a few minutes to download images and build everything. Subsequent starts are fast.
 
-### Cloud VPS path
+### Setting up an always-on deployment
 
-The plain `docker compose up -d` works on a VPS too, but it doesn't give you HTTPS or expose the platform to the internet safely. For a real VPS deployment, use the public-cloud example, which includes a reverse proxy with automatic HTTPS:
+The plain `docker compose up -d` works on a server too, but it doesn't give you HTTPS or expose the platform to the internet safely. For an always-on deployment with public access, use the public-cloud example, which includes a reverse proxy with automatic HTTPS:
 
 ```bash
 cd deploy/examples/public-cloud/
@@ -109,8 +102,8 @@ You're ready when each service shows `healthy` or `running`. If anything still s
 
 ## Step 6: Open the dashboard
 
-- **Laptop path:** `http://localhost:3000`
-- **Cloud VPS path:** `https://yourdomain.com` (the domain you set in step 3)
+- **Local:** `http://localhost:3000`
+- **Always-on deployment:** `https://yourdomain.com` (the domain you set in step 3)
 
 You should see the GlycemicGPT login page.
 
@@ -122,14 +115,71 @@ The first time you sign in, you'll see a safety disclaimer. Read it, accept it, 
 
 ## Step 8: Configure your AI provider
 
-GlycemicGPT does not bundle an AI provider -- you bring your own. In the dashboard, go to **Settings → AI Provider** and choose one of:
+**GlycemicGPT does not host an AI service.** You bring your own. The platform supports five different ways to plug AI in, so you can use whichever you already pay for (or run yourself). Pick one and configure it in the dashboard at **Settings → AI Provider**.
 
-- **Claude** -- paste an API key from [console.anthropic.com](https://console.anthropic.com)
-- **OpenAI** -- paste an API key from [platform.openai.com](https://platform.openai.com)
-- **Ollama** (fully local, no internet required) -- point at your local Ollama server
-- **Subscription tier** -- use the project's hosted AI service (when available)
+### Option 1: Use your existing Claude subscription (Pro / Max)
 
-You can switch providers later. Detailed AI provider configuration is *coming soon*.
+If you already pay for [Claude](https://claude.ai) (Pro, Max, or Team), you can use that subscription with GlycemicGPT -- you don't need a separate API key. The sidecar service uses an OAuth token from the official Claude Code CLI to make calls under your subscription.
+
+On any computer (your laptop is fine), with Node.js installed, run:
+
+```bash
+npx @anthropic-ai/claude-code setup-token
+```
+
+This opens a browser for you to sign in to your Claude account, then prints a long token to your terminal. Copy the token.
+
+In the GlycemicGPT dashboard, go to **Settings → AI Provider**, choose **Claude (subscription)**, and paste the token. The sidecar stores it and uses it for all AI calls.
+
+### Option 2: Use your existing ChatGPT subscription (Plus / Team)
+
+If you already pay for [ChatGPT](https://chat.openai.com) (Plus, Team, or Enterprise), you can use that subscription via the OpenAI Codex CLI. Same idea as Claude:
+
+```bash
+npx @openai/codex login
+```
+
+Sign in to your OpenAI account in the browser, copy the token it prints, paste it into the GlycemicGPT dashboard at **Settings → AI Provider → ChatGPT (subscription)**.
+
+### Option 3: Bring your own Claude API key
+
+If you'd rather pay per token directly to Anthropic instead of via a subscription:
+
+1. Go to [console.anthropic.com](https://console.anthropic.com)
+2. Sign up or sign in
+3. Go to **API Keys**, create a new key
+4. Copy the key (starts with `sk-ant-...`)
+5. In GlycemicGPT, **Settings → AI Provider → Claude (API key)**, paste the key
+
+You'll be billed by Anthropic per request. Lower fixed cost than a subscription, higher per-message cost.
+
+### Option 4: Bring your own OpenAI API key
+
+Same flow for OpenAI:
+
+1. Go to [platform.openai.com](https://platform.openai.com)
+2. Sign in
+3. **API keys** → create new
+4. Copy the key (starts with `sk-...`)
+5. In GlycemicGPT, **Settings → AI Provider → OpenAI (API key)**, paste the key
+
+### Option 5: Run a local model with Ollama (or any OpenAI-compatible endpoint)
+
+If you want to keep AI fully local -- nothing leaves your network -- run an Ollama server and point GlycemicGPT at it.
+
+1. Install [Ollama](https://ollama.com) on your computer or server
+2. Pull a model: `ollama pull llama3.1:8b` (or any model you prefer)
+3. Make sure Ollama is reachable from where the platform runs (default: `http://localhost:11434`)
+4. In GlycemicGPT, **Settings → AI Provider → OpenAI-compatible**, set:
+   - **Base URL:** `http://localhost:11434/v1` (or wherever your Ollama instance is)
+   - **Model name:** the model you pulled (e.g. `llama3.1:8b`)
+   - **API key:** any non-empty string -- Ollama doesn't check it but the field is required
+
+This same option works for any OpenAI-compatible endpoint: LM Studio, vLLM, llama.cpp's server mode, OpenRouter, Together, Groq, etc.
+
+### Switching providers later
+
+You can change providers anytime in **Settings → AI Provider**. Your data stays where it is; the platform just starts routing AI calls to the new provider.
 
 ## Step 9: Install the mobile app
 
@@ -140,7 +190,7 @@ See [Mobile app install](./mobile/install.md) for the step-by-step Android insta
 1. Go to [GlycemicGPT releases on GitHub](https://github.com/GlycemicGPT/GlycemicGPT/releases)
 2. Download the latest `app-release.apk`
 3. On your phone, open the file and install it (you'll need to allow installs from unknown sources)
-4. Open the app, point it at your platform's URL (laptop path: your computer's IP; VPS path: your domain), and sign in with the account you just created
+4. Open the app, point it at your platform's URL (local: your computer's IP; always-on deployment: your domain), and sign in with the account you just created
 
 Once the app is signed in and your pump is paired, your dashboard fills with data.
 

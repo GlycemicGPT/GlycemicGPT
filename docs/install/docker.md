@@ -69,7 +69,7 @@ GlycemicGPT ships several Docker Compose configurations for different scenarios.
 
 | If you want to... | Use this | TLS / HTTPS | Notes |
 |---|---|---|---|
-| Try it on your laptop or a single computer at home | The root [`docker-compose.yml`](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/docker-compose.yml) | Not needed | Simplest path. Runs everything locally. This is what [Get Started](../get-started.md) walks through. |
+| Try it on a single computer at home (laptop, desktop, NAS, etc.) | The root [`docker-compose.yml`](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/docker-compose.yml) | Not needed | Simplest path. Runs everything locally. This is what [Get Started](../get-started.md) walks through. |
 | Deploy on a VPS with a public domain | [`deploy/examples/public-cloud/`](https://github.com/GlycemicGPT/GlycemicGPT/tree/main/deploy/examples/public-cloud) | Caddy with Let's Encrypt (automatic) | **Recommended for cloud deployments.** Single `.env` file to fill in, automatic HTTPS, sane security defaults. |
 | Run behind Cloudflare with zero exposed ports | [`deploy/examples/cloudflare-tunnel/`](https://github.com/GlycemicGPT/GlycemicGPT/tree/main/deploy/examples/cloudflare-tunnel) | Cloudflare-managed | If you already use Cloudflare. No inbound ports open. |
 | Use your own Redis or Valkey cluster | [`deploy/examples/external-redis/`](https://github.com/GlycemicGPT/GlycemicGPT/tree/main/deploy/examples/external-redis) | Bring your own proxy | For users with existing Redis infrastructure. |
@@ -79,17 +79,17 @@ GlycemicGPT ships several Docker Compose configurations for different scenarios.
 
 Whichever setup you use, GlycemicGPT runs five services:
 
-- **`web`** -- The dashboard you visit in your browser. Serves on port 3000 (laptop) or proxied through HTTPS (VPS).
-- **`api`** -- The backend that handles your data, settings, and account. Serves on port 8000 (laptop) or proxied internally (VPS).
+- **`web`** -- The dashboard you visit in your browser. Serves on port 3000 locally, or proxied through HTTPS on an always-on deployment.
+- **`api`** -- The backend that handles your data, settings, and account. Serves on port 8000 locally, or proxied internally on an always-on deployment.
 - **`sidecar`** -- The AI relay. When you chat with the AI, your message goes here, then to your AI provider, then back to you. Internal-only.
 - **`db`** -- A PostgreSQL database. This is where your data is stored. Internal-only.
 - **`redis`** -- A cache for sessions and real-time updates. Internal-only.
 
 ## Configuration: the `.env` file
 
-Most of GlycemicGPT's behavior is controlled by environment variables in the `.env` file. The defaults work for local laptop use; you'll change a few when deploying anywhere your computer isn't physically locked down.
+Most of GlycemicGPT's behavior is controlled by environment variables in the `.env` file. The defaults work for trying it on a local computer; you'll change a few when deploying anywhere that's reachable from outside your machine.
 
-### Variables you must change for any non-laptop deployment
+### Variables you must change for any always-on deployment
 
 - **`SECRET_KEY`** -- Used to sign authentication tokens. Generate a new value with `openssl rand -hex 32`.
 - **`POSTGRES_PASSWORD`** -- Database password. Generate a new value with `openssl rand -hex 32`.
@@ -103,10 +103,15 @@ Most of GlycemicGPT's behavior is controlled by environment variables in the `.e
 
 ### AI provider
 
-GlycemicGPT does not bundle an AI provider. You configure this in the dashboard, after signing in:
+GlycemicGPT does not host an AI service -- you bring your own. After you sign in to the dashboard, go to **Settings → AI Provider** and pick one of:
 
-- **Subscription tier** -- use the project's hosted AI service (when available)
-- **Bring your own key** -- plug in your own Claude, OpenAI, Ollama, or any OpenAI-compatible endpoint
+- **Your existing Claude subscription** (Pro / Max) -- get a token via `npx @anthropic-ai/claude-code setup-token` and paste it
+- **Your existing ChatGPT subscription** (Plus / Team) -- get a token via `npx @openai/codex login` and paste it
+- **Your own Claude API key** -- pay-per-token directly to Anthropic, key from [console.anthropic.com](https://console.anthropic.com)
+- **Your own OpenAI API key** -- pay-per-token, key from [platform.openai.com](https://platform.openai.com)
+- **A local model via Ollama** (or any OpenAI-compatible endpoint) -- fully offline, point at your Ollama server
+
+See [Get Started -- Step 8: Configure your AI provider](../get-started.md#step-8-configure-your-ai-provider) for the per-provider walkthrough.
 
 ## Common operations
 
@@ -144,7 +149,7 @@ Replace `api` with `web`, `sidecar`, `db`, or `redis` to watch other services. W
 
 ### Update to a new release
 
-For laptop / local development:
+For trying it locally / development:
 
 ```bash
 git pull

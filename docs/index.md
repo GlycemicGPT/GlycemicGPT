@@ -14,7 +14,7 @@ GlycemicGPT has two parts that work together:
 1. **The platform** -- runs on a computer or server you control. It stores your data, runs the AI, and serves the dashboard you view in a browser.
 2. **The Android companion app** -- runs on your phone. It connects to your pump over Bluetooth and forwards data to the platform.
 
-**Both are required.** The platform alone cannot read pump data over Bluetooth -- that's the phone app's job. If you only run the platform, you'll have a working dashboard but no live pump data flowing into it.
+**Both are required today.** The platform alone cannot read pump data over Bluetooth -- that's the phone app's job. If you only run the platform, you'll have a working dashboard but no live pump data flowing into it. (This may change as the project evolves and other data paths are added -- see [ROADMAP.md](../ROADMAP.md).)
 
 A Wear OS watch face is also available but **optional**.
 

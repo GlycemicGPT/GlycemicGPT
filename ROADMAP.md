@@ -221,7 +221,7 @@ A managed deployment of GlycemicGPT for users who don't want to run their own in
 - Self-hosted remains the primary supported path; the hosted service exists to lower the entry barrier without changing the product
 - Identical feature parity with self-hosted (no hosted-only features that fragment the community)
 - Transparent pricing, transparent infrastructure costs, and a clear data ownership policy
-- AI provider configuration follows the same model as self-hosted (subscription tier or BYOAI)
+- AI provider configuration follows the same BYOAI model as self-hosted -- users plug in their own credential (an existing Claude or ChatGPT subscription token, a direct Claude or OpenAI API key, or a local Ollama / OpenAI-compatible endpoint). The hosted service does not act as an AI provider itself.
 
 ### Accessibility & Onboarding
 
