@@ -10,7 +10,7 @@ You opened AI chat in the dashboard, asked something, and it never responded -- 
 When you send a message in AI chat, this happens:
 
 1. The browser sends your message to the **API** service
-2. The API forwards it to the **sidecar** service (the AI relay)
+2. The API forwards it to the **sidecar** service (the AI bridge)
 3. The sidecar uses your configured AI provider credential (subscription token or API key) to call the actual AI provider (Claude, OpenAI, Ollama, etc.)
 4. The AI provider responds; the sidecar returns the response to the API; the API streams it back to the browser
 

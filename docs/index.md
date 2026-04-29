@@ -51,9 +51,9 @@ If a family member, friend, or other trusted person needs visibility into the pl
 
 GlycemicGPT runs anywhere Docker runs. The Get Started guide covers all three of these end-to-end:
 
-- **On your laptop or desktop** -- the simplest path for trying it out, no public access
-- **On a home server, NAS, or any computer running 24/7** -- with public access via [Cloudflare Tunnel](https://github.com/GlycemicGPT/GlycemicGPT/tree/main/deploy/examples/cloudflare-tunnel) (no port forwarding, no public IP needed)
-- **On a cloud VPS with your own domain** -- with automatic HTTPS via [Caddy and Let's Encrypt](https://github.com/GlycemicGPT/GlycemicGPT/tree/main/deploy/examples/public-cloud)
+- **On your laptop or desktop** -- the simplest path for trying it out, with no public access
+- **On a computer at home running all the time** (a desktop, mini-PC, NAS, or Raspberry Pi) -- with public access via [Cloudflare Tunnel](./install/docker.md#deploying-with-cloudflare-tunnel-home-server-or-vps), so you don't have to open any ports on your home network
+- **On a cloud server you rent** (sometimes called a VPS -- think small monthly-fee cloud computer from Hetzner, DigitalOcean, etc.) -- with automatic HTTPS via [Caddy and Let's Encrypt](./install/docker.md#deploying-to-a-vps-with-https)
 
 You can also bring your own reverse proxy or run it behind any existing infrastructure -- see [Install with Docker](./install/docker.md) for the full menu of options.
 
@@ -64,7 +64,7 @@ You can also bring your own reverse proxy or run it behind any existing infrastr
 | Dexcom G7 | Supported via cloud API |
 | Tandem t:slim X2 | Supported via Bluetooth (through the mobile app) and cloud (t:connect) |
 
-Support for additional pumps and CGMs is on the roadmap, along with integrations with platforms many in the diabetes community already use (Nightscout, Loop, AAPS, xDrip). See [ROADMAP.md](../ROADMAP.md) for what's planned.
+Support for additional pumps and CGMs is on the roadmap, along with integrations with other open-source diabetes platforms many people already use -- Nightscout, Loop, AAPS, xDrip. See [ROADMAP.md](../ROADMAP.md) for what's planned.
 
 ## What it does
 
@@ -89,7 +89,7 @@ GlycemicGPT is **alpha software** in active development. It's functional and in 
 
 ## Get involved
 
-- **Discord** -- [join the community](https://discord.gg/QbyhCQKDBs) for real-time chat, questions, and dev coordination
+- **Discord** -- [join the community](https://discord.gg/QbyhCQKDBs) for real-time chat, questions, and project discussion
 - **GitHub** -- [GlycemicGPT/GlycemicGPT](https://github.com/GlycemicGPT/GlycemicGPT)
 - **Roadmap** -- [where the project is going](../ROADMAP.md)
 - **Contributing** -- [Contributing Guide](../CONTRIBUTING.md)

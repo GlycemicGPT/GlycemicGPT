@@ -84,7 +84,7 @@ The backend services (web, API, sidecar, database, cache). What you run with `do
 
 ### Sidecar
 
-The AI relay service. When you chat with the AI, your message goes through the sidecar, which forwards it to your configured AI provider and streams the response back. The sidecar isolates the AI provider integration from the main API.
+The AI bridge service (sometimes called "the relay" or "the sidecar" in technical contexts). When you chat with the AI, your message goes through this service, which forwards it to your configured AI provider and streams the response back. Keeping the AI bridge separate from the main API means the rest of the platform doesn't have to know which AI provider you're using.
 
 ### BYOAI -- Bring Your Own AI
 

@@ -12,17 +12,17 @@ You can run GlycemicGPT in two ways:
 | If you... | Choose this path |
 |---|---|
 | Want to try it out before committing to anything | **Try it locally** -- run on your own laptop or desktop |
-| Plan to use it day-to-day with your phone reaching it from anywhere | **Always-on deployment** -- a VPS, home server, or any computer running 24/7 |
+| Plan to use it day-to-day with your phone reaching it from anywhere | **Always-on deployment** -- a home server, mini-PC, NAS, Raspberry Pi, or a small cloud server you rent (sometimes called a VPS) |
 
 You can always start locally and migrate to an always-on setup later -- your settings and data live in the database, and the platform itself is the same.
 
 > **Before you start, you need:**
 >
-> - **A computer to run the platform on** -- a laptop, desktop, home server, or VPS. Resource recommendations:
->   - **RAM:** 2 GB minimum, 4 GB recommended. The API service loads an embedding model that uses ~1 GB by itself; the rest of the stack is light.
->   - **Disk:** 5 GB minimum, 10 GB recommended. Container images are about 3 GB; database, cache, and embedding model storage grow over time.
->   - **CPU:** any modern dual-core works. The platform is mostly idle except during AI requests.
->   - **OS:** macOS, Linux, or Windows with WSL2.
+> - **A computer to run the platform on** -- a laptop, desktop, home server, or rented cloud server. The platform is light:
+>   - **RAM:** 2 GB minimum, 4 GB recommended. (One part of the platform uses about 1 GB on its own to do the AI knowledge-base lookup; the rest is light.)
+>   - **Disk:** 5 GB minimum, 10 GB recommended. The platform's files take about 3 GB; the rest grows slowly with your data over time.
+>   - **CPU:** any modern dual-core works. The platform sits mostly idle except when the AI is answering a question.
+>   - **OS:** macOS, Linux, or Windows. On Windows you'll also need WSL2 (Windows Subsystem for Linux 2 -- a Microsoft feature that lets your Windows machine run Linux software; the [Microsoft setup guide](https://learn.microsoft.com/en-us/windows/wsl/install) walks you through it).
 > - **An Android phone** for the companion app (required to connect your pump over Bluetooth)
 
 ## A note on the terminal
@@ -67,8 +67,9 @@ cd GlycemicGPT
 ```
 
 What these commands do:
-- `git clone ...` -- downloads a copy of the GlycemicGPT source code onto your computer. It creates a folder called `GlycemicGPT` in whatever directory you ran the command from. (If you don't have `git` installed, your terminal will say so -- install it via `xcode-select --install` on Mac, `apt install git` on Linux, or download from [git-scm.com](https://git-scm.com) on Windows.)
-- `cd GlycemicGPT` -- "change directory" into that folder. From here on, every command in this guide should be run from inside this folder unless noted otherwise.
+
+- `git clone ...` -- downloads all the GlycemicGPT files onto your computer. It creates a folder named `GlycemicGPT` wherever you were when you ran the command. (If you don't have `git` installed, your terminal will say so. To install it: `xcode-select --install` on Mac, `sudo apt install git` on Linux, or download from [git-scm.com](https://git-scm.com) on Windows.)
+- `cd GlycemicGPT` -- "change directory" -- moves you into the folder you just downloaded. From here on, every command in this guide should be run from inside this folder unless we say otherwise.
 
 ## Step 3: Set up the configuration file
 
@@ -100,10 +101,10 @@ GlycemicGPT ships several Docker Compose configurations for different scenarios.
 | Where you'll run the platform | What you want | Use this |
 |---|---|---|
 | Your laptop or desktop | Just trying it out, no public access | The root [`docker-compose.yml`](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/docker-compose.yml) (you already have this from `git clone`) |
-| **Home server, NAS, always-on PC, or VPS** | **Public access without opening any inbound ports** | [`deploy/examples/cloudflare-tunnel/`](https://github.com/GlycemicGPT/GlycemicGPT/tree/main/deploy/examples/cloudflare-tunnel) -- works for home or VPS, often the simplest and most secure path |
-| Cloud VPS (rented server) | Public access with your own domain, your own reverse proxy, and Let's Encrypt HTTPS | [`deploy/examples/public-cloud/`](https://github.com/GlycemicGPT/GlycemicGPT/tree/main/deploy/examples/public-cloud) |
-| Home server with a public IP | You want to handle HTTPS yourself without involving Cloudflare | [`deploy/examples/prod-caddy/`](https://github.com/GlycemicGPT/GlycemicGPT/tree/main/deploy/examples/prod-caddy) |
-| Anywhere | You already run your own Redis or Valkey | [`deploy/examples/external-redis/`](https://github.com/GlycemicGPT/GlycemicGPT/tree/main/deploy/examples/external-redis) |
+| **A computer running 24/7 at home, or a small cloud server you rent** | **Public access without opening any ports on your network** | [`deploy/examples/cloudflare-tunnel/`](https://github.com/GlycemicGPT/GlycemicGPT/tree/main/deploy/examples/cloudflare-tunnel) -- works for home or cloud, often the simplest and most secure path |
+| A small cloud server you rent (sometimes called a VPS) | Public access with your own domain and automatic HTTPS | [`deploy/examples/public-cloud/`](https://github.com/GlycemicGPT/GlycemicGPT/tree/main/deploy/examples/public-cloud) |
+| A home computer with a public IP from your internet provider | You want to handle HTTPS yourself without involving Cloudflare | [`deploy/examples/prod-caddy/`](https://github.com/GlycemicGPT/GlycemicGPT/tree/main/deploy/examples/prod-caddy) |
+| Anywhere | You already run your own Redis or Valkey (an in-memory cache) | [`deploy/examples/external-redis/`](https://github.com/GlycemicGPT/GlycemicGPT/tree/main/deploy/examples/external-redis) |
 
 Each example folder has a `README.md` with the start-to-finish walkthrough for that path. Below is a quick reference for the three most common cases. If you're not sure which to pick, the home-server-with-Cloudflare-Tunnel path is the easiest "I want to actually use this day-to-day" option for most users, and the laptop path is the easiest "I want to try it" option.
 
@@ -115,7 +116,15 @@ In the same terminal window, still inside the `GlycemicGPT` folder, run:
 docker compose up -d
 ```
 
-What this does: `docker compose up` reads the recipe in `docker-compose.yml` and starts all the services GlycemicGPT needs (a database, a cache, the API, the web dashboard, the AI relay). The `-d` flag means "run them in the background" so they don't take over your terminal.
+What this does: `docker compose up` reads the recipe in `docker-compose.yml` and starts all the parts GlycemicGPT needs:
+
+- a **database** that stores your data
+- a **cache** that speeds up repeat requests
+- the **API** that the dashboard and the mobile app talk to
+- the **web dashboard** itself (what you'll open in a browser)
+- the **AI bridge** that forwards your AI chat messages to whichever AI provider you set up later
+
+The `-d` flag means "run them in the background" so they don't take over your terminal window.
 
 That's it. The platform is running on your computer at `http://localhost:3000`.
 
@@ -186,27 +195,31 @@ The first time you sign in, you'll see a safety disclaimer. Read it, accept it, 
 
 ### Option 1: Use your existing Claude subscription (Pro / Max)
 
-If you already pay for [Claude](https://claude.ai) (Pro, Max, or Team), you can use that subscription with GlycemicGPT -- you don't need a separate API key. The sidecar service uses an OAuth token from the official Claude Code CLI to make calls under your subscription.
+If you already pay for [Claude](https://claude.ai) (Pro, Max, or Team), you can use that subscription with GlycemicGPT -- you don't need a separate API key. The platform's AI bridge uses a one-time login token from Anthropic's official command-line tool to make calls under your subscription.
 
-On any computer (your laptop is fine), with Node.js installed, run:
+You'll need **Node.js** installed on a computer (your laptop is fine -- it doesn't have to be the same computer the platform runs on). If you don't have Node.js: download the LTS version from [nodejs.org](https://nodejs.org) and run the installer.
+
+Once Node.js is installed, open a terminal and run:
 
 ```bash
 npx @anthropic-ai/claude-code setup-token
 ```
 
-This opens a browser for you to sign in to your Claude account, then prints a long token to your terminal. Copy the token.
+This opens a browser window where you sign in to your Claude account. After you sign in, the terminal prints a long string of letters and numbers -- that's the token. Copy it.
 
-In the GlycemicGPT dashboard, go to **Settings → AI Provider**, choose **Claude (subscription)**, and paste the token. The sidecar stores it and uses it for all AI calls.
+In the GlycemicGPT dashboard, go to **Settings → AI Provider**, choose **Claude (subscription)**, and paste the token. The AI bridge stores it and uses it for all your AI requests from now on.
 
 ### Option 2: Use your existing ChatGPT subscription (Plus / Team)
 
-If you already pay for [ChatGPT](https://chat.openai.com) (Plus, Team, or Enterprise), you can use that subscription via the OpenAI Codex CLI. Same idea as Claude:
+If you already pay for [ChatGPT](https://chat.openai.com) (Plus, Team, or Enterprise), you can use that subscription with GlycemicGPT. Same idea as Claude -- you'll use OpenAI's official command-line tool to get a token.
+
+You'll need Node.js installed (see Option 1 if you don't have it yet). Then run in a terminal:
 
 ```bash
 npx @openai/codex login
 ```
 
-Sign in to your OpenAI account in the browser, copy the token it prints, paste it into the GlycemicGPT dashboard at **Settings → AI Provider → ChatGPT (subscription)**.
+A browser window opens for you to sign in to your OpenAI account. The terminal then prints a token. Copy it, then paste it into the GlycemicGPT dashboard at **Settings → AI Provider → ChatGPT (subscription)**.
 
 ### Option 3: Bring your own Claude API key
 
@@ -263,15 +276,20 @@ Once the app is signed in and your pump is paired, your dashboard fills with dat
 
 ## Step 10 (optional): Install the watch face
 
-A Wear OS watch face is available for at-a-glance glucose viewing. **It's optional.** Setup is more involved -- it requires a computer to sideload the watch APK because it isn't on the Play Store yet.
+A Wear OS watch face is available for at-a-glance glucose viewing. **It's optional** -- the platform and phone app give you everything important without it.
 
-See [Watch face install](./mobile/wear-os.md) for the procedure (about 30-60 minutes).
+Heads up: setting up the watch face is more involved than the rest of this guide. It requires connecting your watch to a computer over a developer connection (called ADB) to install the watch face directly, since the watch face is not on the Play Store yet.
+
+See [Watch face install](./mobile/wear-os.md) for the full procedure.
 
 ## What's next?
 
-- **Connect your CGM** -- coming soon in [Daily Use](./daily-use/connecting-dexcom.md)
-- **Connect your pump** -- coming soon in [Daily Use](./daily-use/connecting-tandem-cloud.md)
-- **Use the full Docker reference** -- [Install with Docker](./install/docker.md)
+- **Connect your CGM** -- [Connecting your Dexcom](./daily-use/connecting-dexcom.md)
+- **Connect your pump (cloud)** -- [Connecting your Tandem pump](./daily-use/connecting-tandem-cloud.md)
+- **Read your dashboard** -- [Reading your dashboard](./daily-use/dashboard.md)
+- **Set up alerts** -- [Configuring alerts](./daily-use/alerts.md)
+- **Invite a caregiver** -- [Caregivers overview](./caregivers/overview.md)
+- **Need more detail on Docker?** -- [Install with Docker](./install/docker.md)
 - **Something not working?** -- [Troubleshooting](./troubleshooting/index.md)
 
 ## A few honest reminders

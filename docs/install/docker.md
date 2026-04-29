@@ -81,9 +81,9 @@ Whichever setup you use, GlycemicGPT runs five services:
 
 - **`web`** -- The dashboard you visit in your browser. Serves on port 3000 locally, or proxied through HTTPS on an always-on deployment.
 - **`api`** -- The backend that handles your data, settings, and account. Serves on port 8000 locally, or proxied internally on an always-on deployment.
-- **`sidecar`** -- The AI relay. When you chat with the AI, your message goes here, then to your AI provider, then back to you. Internal-only.
+- **`sidecar`** -- The AI bridge. When you chat with the AI, your message goes here, then to your AI provider, then back to you. Internal-only.
 - **`db`** -- A PostgreSQL database. This is where your data is stored. Internal-only.
-- **`redis`** -- A cache for sessions and real-time updates. Internal-only.
+- **`redis`** -- A short-term memory store the platform uses to keep your sign-in session active and to deliver real-time dashboard updates quickly. Internal-only.
 
 ## Configuration: the `.env` file
 
