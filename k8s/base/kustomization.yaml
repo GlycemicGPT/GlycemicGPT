@@ -12,6 +12,7 @@ resources:
   - secret.yaml
   - postgres.yaml
   - redis.yaml
+  - sidecar.yaml
   - api.yaml
   - web.yaml
   - ingress.yaml

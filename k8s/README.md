@@ -20,6 +20,7 @@ k8s/
 │   ├── secret.yaml          # Sensitive data (template)
 │   ├── postgres.yaml        # PostgreSQL database + PVC
 │   ├── redis.yaml           # Redis cache
+│   ├── sidecar.yaml         # AI sidecar (LLM relay) deployment + service
 │   ├── api.yaml             # FastAPI backend
 │   ├── web.yaml             # Next.js frontend
 │   ├── ingress.yaml         # Ingress for external access
@@ -102,15 +103,16 @@ kubectl logs -n glycemicgpt -l app.kubernetes.io/component=api -f
 
 Default resource allocation per component:
 
-| Component | CPU Request | CPU Limit | Memory Request | Memory Limit |
-|-----------|-------------|-----------|----------------|--------------|
-| API       | 250m        | 2000m     | 512Mi          | 2Gi          |
-| Web       | 100m        | 1000m     | 256Mi          | 1Gi          |
-| PostgreSQL| 100m        | 500m      | 256Mi          | 1Gi          |
-| Redis     | 50m         | 200m      | 64Mi           | 256Mi        |
+| Component  | CPU Request | CPU Limit | Memory Request | Memory Limit |
+|------------|-------------|-----------|----------------|--------------|
+| API        | 250m        | 2000m     | 512Mi          | 2Gi          |
+| Web        | 100m        | 1000m     | 256Mi          | 1Gi          |
+| Sidecar    | 50m         | 500m      | 128Mi          | 512Mi        |
+| PostgreSQL | 100m        | 500m      | 256Mi          | 1Gi          |
+| Redis      | 50m         | 200m      | 64Mi           | 256Mi        |
 
-**Total minimum:** ~500m CPU, ~1Gi RAM
-**Total limits:** ~4 CPU, ~4.5Gi RAM
+**Total minimum:** ~550m CPU, ~1.2Gi RAM
+**Total limits:** ~4.2 CPU, ~5Gi RAM
 
 ## Access Methods
 

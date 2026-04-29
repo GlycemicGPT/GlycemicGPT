@@ -72,6 +72,16 @@ spec:
                 configMapKeyRef:
                   name: glycemicgpt-config
                   key: SESSION_EXPIRE_HOURS
+            - name: AI_SIDECAR_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: glycemicgpt-config
+                  key: AI_SIDECAR_URL
+            - name: AI_SIDECAR_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: glycemicgpt-secrets
+                  key: SIDECAR_API_KEY
           resources:
             requests:
               memory: "512Mi"
