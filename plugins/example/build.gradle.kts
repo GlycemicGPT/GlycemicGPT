@@ -18,7 +18,7 @@
  * 4. Install on device: copy example-plugin.jar to the app's plugins directory
  *    via adb or the app's "Add Plugin" button.
  *
- * See docs/dev/plugin-architecture.mdx for full documentation.
+ * See docs/dev/plugin-architecture.md for full documentation.
  */
 plugins {
     kotlin("jvm") version "2.0.21"

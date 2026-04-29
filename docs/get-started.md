@@ -80,10 +80,10 @@ You'll see an empty dashboard. That's expected -- you haven't connected a glucos
 
 ## What's next?
 
-- **Connect your Dexcom** -- coming soon in [Daily Use](./daily-use/connecting-dexcom.mdx)
-- **Connect your Tandem pump** -- coming soon in [Daily Use](./daily-use/connecting-tandem-cloud.mdx)
-- **Use the full Docker reference** -- [Install with Docker](./install/docker.mdx)
-- **Something not working?** -- [Troubleshooting](./troubleshooting/index.mdx)
+- **Connect your Dexcom** -- coming soon in [Daily Use](./daily-use/connecting-dexcom.md)
+- **Connect your Tandem pump** -- coming soon in [Daily Use](./daily-use/connecting-tandem-cloud.md)
+- **Use the full Docker reference** -- [Install with Docker](./install/docker.md)
+- **Something not working?** -- [Troubleshooting](./troubleshooting/index.md)
 
 ## A few honest reminders
 

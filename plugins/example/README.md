@@ -126,4 +126,4 @@ Safety enforcement comes from `SafetyLimits` (synced from backend), not Context 
 
 ## Further Reading
 
-See [docs/dev/plugin-architecture.mdx](../../docs/dev/plugin-architecture.mdx) for the full plugin API documentation.
+See [docs/dev/plugin-architecture.md](../../docs/dev/plugin-architecture.md) for the full plugin API documentation.

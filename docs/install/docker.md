@@ -3,7 +3,7 @@ title: Install with Docker
 description: Choose the Docker setup that fits how you'll use GlycemicGPT.
 ---
 
-Docker Compose is the recommended way to run GlycemicGPT for most users. This page is the full reference -- if you just want the fastest path, see [Get Started](../get-started.mdx).
+Docker Compose is the recommended way to run GlycemicGPT for most users. This page is the full reference -- if you just want the fastest path, see [Get Started](../get-started.md).
 
 > **Before you start, you need:**
 > - **Docker Engine and Docker Compose** (or Docker Desktop on macOS / Windows)
@@ -16,7 +16,7 @@ We ship several Docker Compose configurations for different scenarios. Pick the 
 
 | If you want to... | Use this | TLS / HTTPS | Notes |
 |---|---|---|---|
-| Try it on your laptop or a single computer at home | The root [`docker-compose.yml`](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/docker-compose.yml) | Not needed | The simplest path. Runs everything locally. This is what [Get Started](../get-started.mdx) walks through. |
+| Try it on your laptop or a single computer at home | The root [`docker-compose.yml`](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/docker-compose.yml) | Not needed | The simplest path. Runs everything locally. This is what [Get Started](../get-started.md) walks through. |
 | Run on a server with your own domain and automatic HTTPS | [`deploy/examples/prod-caddy/`](https://github.com/GlycemicGPT/GlycemicGPT/tree/main/deploy/examples/prod-caddy) | Caddy with Let's Encrypt (automatic) | Recommended for most users running on a server. Caddy handles HTTPS for you -- no manual cert management. |
 | Run behind Cloudflare with zero exposed ports | [`deploy/examples/cloudflare-tunnel/`](https://github.com/GlycemicGPT/GlycemicGPT/tree/main/deploy/examples/cloudflare-tunnel) | Cloudflare-managed | If you already use Cloudflare. Your server has no inbound ports open at all. |
 | Use your own Redis or Valkey cluster instead of the bundled one | [`deploy/examples/external-redis/`](https://github.com/GlycemicGPT/GlycemicGPT/tree/main/deploy/examples/external-redis) | Bring your own proxy | For users with existing Redis infrastructure. |
@@ -108,17 +108,17 @@ Once you're signed in, you can connect your devices in the dashboard's settings:
   - **Cloud (t:connect)** -- You'll provide your Tandem account credentials. The cloud syncs every ~60 minutes.
   - **BLE direct** -- Real-time data via Bluetooth. Requires the GlycemicGPT mobile app. *(Mobile docs coming soon.)*
 
-Detailed device-connection walkthroughs are in [Daily Use](../daily-use/connecting-dexcom.mdx).
+Detailed device-connection walkthroughs are in [Daily Use](../daily-use/connecting-dexcom.md).
 
 ## When to use Kubernetes instead
 
-Docker Compose is the right choice for most users. Use Kubernetes only if you already run a homelab or production Kubernetes cluster and prefer to deploy GlycemicGPT alongside your other workloads. See [Install with Kubernetes](./kubernetes.mdx).
+Docker Compose is the right choice for most users. Use Kubernetes only if you already run a homelab or production Kubernetes cluster and prefer to deploy GlycemicGPT alongside your other workloads. See [Install with Kubernetes](./kubernetes.md).
 
 A one-click cloud deploy (Railway, Fly.io) is on the roadmap -- see [ROADMAP.md](../../ROADMAP.md) §Phase 4.
 
 ## Troubleshooting
 
-If something isn't working, see [Troubleshooting](../troubleshooting/index.mdx). The most common starting points:
+If something isn't working, see [Troubleshooting](../troubleshooting/index.md). The most common starting points:
 
 - Dashboard won't load → check `docker compose ps` for unhealthy services
 - Glucose isn't updating → check device connection in dashboard settings

@@ -9,13 +9,13 @@ GlycemicGPT is an open-source platform that brings together your diabetes data a
 
 ## Where to start
 
-**[Get started in 10 minutes](./get-started.mdx)** -- the fastest path from zero to seeing your dashboard.
+**[Get started in 10 minutes](./get-started.md)** -- the fastest path from zero to seeing your dashboard.
 
-**[Install with Docker](./install/docker.mdx)** -- the full reference for self-hosting on your computer or a server.
+**[Install with Docker](./install/docker.md)** -- the full reference for self-hosting on your computer or a server.
 
-**[Install with Kubernetes](./install/kubernetes.mdx)** -- for users who already run a homelab or production cluster.
+**[Install with Kubernetes](./install/kubernetes.md)** -- for users who already run a homelab or production cluster.
 
-**[Troubleshooting](./troubleshooting/index.mdx)** -- when something isn't working.
+**[Troubleshooting](./troubleshooting/index.md)** -- when something isn't working.
 
 ## What it does
 

@@ -3,7 +3,7 @@ title: Install with Kubernetes
 description: For users who already run a homelab or production Kubernetes cluster.
 ---
 
-> **Kubernetes is for users who already run a cluster.** If you're not sure whether that's you, [install with Docker](./docker.mdx) instead. Docker is simpler, faster to set up, and what most users run.
+> **Kubernetes is for users who already run a cluster.** If you're not sure whether that's you, [install with Docker](./docker.md) instead. Docker is simpler, faster to set up, and what most users run.
 
 ## When Kubernetes makes sense
 
@@ -24,7 +24,7 @@ If those don't describe you, Docker is the right choice.
 
 ## Architecture overview
 
-The five services from the [Docker setup](./docker.mdx#the-five-services) translate directly to five Kubernetes deployments. The repository ships Kubernetes manifests in the `k8s/` directory of the source code.
+The five services from the [Docker setup](./docker.md#the-five-services) translate directly to five Kubernetes deployments. The repository ships Kubernetes manifests in the `k8s/` directory of the source code.
 
 ## Quick deploy
 
@@ -42,11 +42,11 @@ The manifests assume you'll provide your own ingress and TLS configuration. They
 
 This is the most important part of a Kubernetes deployment because the GlycemicGPT mobile app requires HTTPS to connect to your backend.
 
-The full TLS and ingress walkthrough -- including cert-manager setup, ingress examples for nginx and Traefik, and Cloudflare Tunnel as an alternative -- is in [Kubernetes External Access & TLS](../dev/k8s-external-access.mdx). That guide is more technical than the rest of this section but covers the operational detail you'll need.
+The full TLS and ingress walkthrough -- including cert-manager setup, ingress examples for nginx and Traefik, and Cloudflare Tunnel as an alternative -- is in [Kubernetes External Access & TLS](../dev/k8s-external-access.md). That guide is more technical than the rest of this section but covers the operational detail you'll need.
 
 ## Configuration
 
-Kubernetes deployments use the same environment variables as Docker. See the [Docker configuration reference](./docker.mdx#configuration-the-env-file) for what each variable does.
+Kubernetes deployments use the same environment variables as Docker. See the [Docker configuration reference](./docker.md#configuration-the-env-file) for what each variable does.
 
 In Kubernetes you provide them via Secrets and ConfigMaps; example manifests are in the `k8s/` directory. The same things apply: change `SECRET_KEY` from the example, set `COOKIE_SECURE=true` once HTTPS is in place, configure `CORS_ORIGINS` for your domain.
 
@@ -69,4 +69,4 @@ A managed one-click deploy (Railway, Fly.io) is on the roadmap. If you don't wan
 
 ## Troubleshooting
 
-If pods aren't healthy, the same starting points apply as Docker -- see [Troubleshooting](../troubleshooting/index.mdx). For Kubernetes-specific issues (ingress not routing, certs not provisioning, pod scheduling failures), the [Kubernetes External Access & TLS](../dev/k8s-external-access.mdx) guide has the operational detail.
+If pods aren't healthy, the same starting points apply as Docker -- see [Troubleshooting](../troubleshooting/index.md). For Kubernetes-specific issues (ingress not routing, certs not provisioning, pod scheduling failures), the [Kubernetes External Access & TLS](../dev/k8s-external-access.md) guide has the operational detail.
