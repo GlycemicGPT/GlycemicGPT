@@ -1,3 +1,8 @@
+---
+title: Docker Integration Testing
+description: How CI verifies the full GlycemicGPT stack runs correctly as Docker containers.
+---
+
 # Docker Integration Testing
 
 ## Overview

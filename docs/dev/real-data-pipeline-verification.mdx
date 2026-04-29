@@ -1,3 +1,8 @@
+---
+title: Real Data Pipeline Verification
+description: Verifying the full GlycemicGPT data pipeline with real Dexcom and Tandem data.
+---
+
 # Real Data Pipeline Verification
 
 ## Overview

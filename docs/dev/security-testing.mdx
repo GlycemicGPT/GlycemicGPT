@@ -1,3 +1,8 @@
+---
+title: Security Testing
+description: How security testing works in GlycemicGPT CI and how to extend it.
+---
+
 # Security Testing
 
 How security testing works in the GlycemicGPT CI pipeline, and how to extend it as the platform grows.

@@ -1,3 +1,8 @@
+---
+title: Wear OS Architecture
+description: Single phone-app-plus-watch-services architecture for Wear OS integration.
+---
+
 # Wear OS Architecture
 
 > Committed: 2026-03-09 | Status: Active | Supersedes: Epic 32 original plan
