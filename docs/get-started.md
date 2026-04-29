@@ -128,7 +128,7 @@ This is the path most users will want for day-to-day use. You run GlycemicGPT on
 - a computer at home (desktop, NAS, mini-PC, Raspberry Pi -- anything running 24/7), or
 - a cloud VPS without opening any inbound ports to the internet.
 
-Cloudflare manages the public access. **No port forwarding, no public IP from your ISP, no inbound firewall rules on your VPS, no TLS certificates to renew.** Your server makes one outbound connection to Cloudflare; all inbound traffic comes through that connection. This is often the simplest path for both home and VPS deployments and is generally more secure than opening ports directly to the internet -- see the [Cloudflare Tunnel README](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/deploy/examples/cloudflare-tunnel/README.md#why-this-might-be-more-secure-than-opening-ports) for the security rationale.
+Cloudflare manages the public access. **No port forwarding, no public IP from your ISP, no inbound firewall rules on your VPS, no TLS certificates to renew.** Your server makes one outbound connection to Cloudflare; all inbound traffic comes through that connection. This is often the simplest path for both home and VPS deployments and is generally more secure than opening ports directly to the internet -- see [Install with Docker -- Why this is often more secure than opening ports](./install/docker.md#why-this-is-often-more-secure-than-opening-ports) for the security rationale.
 
 What you'll need: a [Cloudflare](https://www.cloudflare.com) account (free) and a domain on Cloudflare.
 
@@ -139,7 +139,7 @@ cp .env.example .env
 docker compose up -d
 ```
 
-The full walkthrough -- creating the Cloudflare account, adding your domain, creating the tunnel, configuring routing -- is in [`deploy/examples/cloudflare-tunnel/README.md`](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/deploy/examples/cloudflare-tunnel/README.md). It's written for non-technical users with no prior Cloudflare experience.
+The full walkthrough -- creating the Cloudflare account, adding your domain, creating the tunnel, configuring routing -- is in [Install with Docker -- Deploying with Cloudflare Tunnel](./install/docker.md#deploying-with-cloudflare-tunnel-home-server-or-vps). It's written for non-technical users with no prior Cloudflare experience.
 
 ### Running on a cloud VPS with your own domain (Caddy + Let's Encrypt)
 
@@ -155,8 +155,7 @@ docker compose up -d
 ```
 
 The full walkthrough -- DNS setup, firewall, certificate provisioning, troubleshooting -- is in:
-- [`deploy/examples/public-cloud/README.md`](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/deploy/examples/public-cloud/README.md) (deployment-specific reference)
-- [Install with Docker -- Deploying to a VPS with HTTPS](./install/docker.md#deploying-to-a-vps-with-https) (integrated walkthrough that also covers Docker installation and .env hardening)
+- [Install with Docker -- Deploying to a VPS with HTTPS](./install/docker.md#deploying-to-a-vps-with-https) -- the full walkthrough with DNS setup, firewall, certificate provisioning, and troubleshooting
 
 ## Step 5: Wait for everything to be ready
 

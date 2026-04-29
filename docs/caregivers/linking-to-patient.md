@@ -119,8 +119,8 @@ Same root cause as any "dashboard won't load" -- see the patient's [Troubleshoot
 
 The patient's platform must be reachable from the internet. Either:
 
-- The patient runs a [home server with Cloudflare Tunnel](../../deploy/examples/cloudflare-tunnel/README.md) -- caregiver works from anywhere
-- The patient runs a [cloud VPS](../../deploy/examples/public-cloud/README.md) -- caregiver works from anywhere
+- The patient runs a [Cloudflare Tunnel deployment](../install/docker.md#deploying-with-cloudflare-tunnel-home-server-or-vps) (home server or VPS) -- caregiver works from anywhere
+- The patient runs a [VPS with Caddy + Let's Encrypt](../install/docker.md#deploying-to-a-vps-with-https) -- caregiver works from anywhere
 - The patient runs only locally on their laptop -- caregiver can only see data when on the same Wi-Fi as the patient's laptop
 
 For most caregiver use cases, an always-on deployment is essentially required.

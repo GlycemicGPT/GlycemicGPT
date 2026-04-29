@@ -167,45 +167,184 @@ The `:latest` tag pulls whatever the most recent stable release is.
 
 ## Deploying for public access
 
-Two paths, depending on where the platform will run:
+Two paths, depending on what you want:
 
-| If you'll run on... | Use this path |
+| If you want... | Use this path |
 |---|---|
-| A computer at home (desktop, NAS, mini-PC, Raspberry Pi) running 24/7 | [Home server with Cloudflare Tunnel](#deploying-on-a-home-server-with-cloudflare-tunnel) |
-| A rented cloud VPS with a public IP | [Cloud VPS with HTTPS](#deploying-to-a-vps-with-https) |
+| Public access without opening any inbound ports on your server (home or VPS) | [Cloudflare Tunnel](#deploying-with-cloudflare-tunnel-home-server-or-vps) |
+| Public access on a VPS with your own reverse proxy and Let's Encrypt HTTPS | [VPS with Caddy + Let's Encrypt](#deploying-to-a-vps-with-https) |
 
-Both give you a public URL the mobile app can reach from anywhere. The Cloudflare Tunnel path is generally easier because it doesn't require port forwarding or a public IP from your ISP. The VPS path is what you want if you're not running hardware at home.
+Both give you a public URL the mobile app can reach from anywhere. The Cloudflare Tunnel path works equally well on a computer at home and on a cloud VPS, and is often the simpler and more secure option. The Caddy + Let's Encrypt path is what you want if you specifically don't want Cloudflare in your data path -- you handle TLS yourself with Let's Encrypt directly.
 
-## Deploying on a home server with Cloudflare Tunnel
+## Deploying with Cloudflare Tunnel (home server or VPS)
 
-Run GlycemicGPT on a computer at home and reach it from anywhere through a Cloudflare-managed tunnel. **You do not need a public IP from your ISP, port forwarding on your router, or TLS certificates to renew.** Your home server makes one outbound connection to Cloudflare; all inbound traffic comes through that.
+Run GlycemicGPT and reach it publicly through a Cloudflare-managed tunnel. **You do not need a public IP from your ISP, port forwarding on your router, or TLS certificates to renew.** Your server makes one outbound connection to Cloudflare; all inbound traffic comes through that.
+
+This works equally well for:
+
+- A computer at home (desktop, NAS, mini-PC, Raspberry Pi -- anything running 24/7)
+- A cloud VPS where you don't want to expose any inbound ports
+
+### Why this is often more secure than opening ports
+
+The standard "VPS + reverse proxy + Let's Encrypt" pattern requires inbound ports 80 and 443 to be open to the entire internet. Even with a reverse proxy in front, you've put TLS termination, HTTP parsing, and your application surface directly on the public internet -- which means:
+
+- Every script kiddie scanning the internet can probe your server
+- Any 0-day in your reverse proxy or web stack is reachable from anywhere
+- Your VPS provider's firewall is the only thing between you and the world's traffic
+
+With Cloudflare Tunnel, your server has **zero inbound ports open**. Cloudflare is in front of you doing TLS termination, DDoS protection, and (with Cloudflare Access if you set it up) authentication at the edge -- requests only reach your server through the tunnel after Cloudflare has already decided to forward them.
+
+The tradeoff: Cloudflare is in your data path. They see encrypted HTTPS traffic. Per their terms they don't inspect Tunnel traffic for normal use, but if Cloudflare-as-a-third-party is in your threat model, the [VPS + Caddy](#deploying-to-a-vps-with-https) path keeps Cloudflare out of the picture.
 
 ### What you'll need
 
-- A computer running 24/7 at home (desktop, NAS, mini-PC, Raspberry Pi, etc.)
-- Docker installed on it (see [Installing Docker](#installing-docker) above)
+- A computer or VPS running 24/7 with Docker and Docker Compose installed
+- Docker installed (see [Installing Docker](#installing-docker) above if you don't have it)
 - A [Cloudflare](https://www.cloudflare.com) account (free)
-- A domain on Cloudflare (transfer or buy one through Cloudflare directly)
+- A domain name added to Cloudflare. You can:
+  - Buy a new one through Cloudflare ($8-15/year typical)
+  - Transfer an existing domain to Cloudflare
+  - Or just point an existing domain's nameservers at Cloudflare
 
-### Steps
+If you don't have a domain yet, the simplest option is buying one through Cloudflare directly -- it skips the nameserver step.
 
-The full walkthrough -- creating the Cloudflare account, adding your domain, creating the tunnel, configuring DNS routing, and starting the stack -- is in [`deploy/examples/cloudflare-tunnel/README.md`](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/deploy/examples/cloudflare-tunnel/README.md). It's written for non-technical users with no prior Cloudflare experience.
+### 1. Add your domain to Cloudflare
 
-The high-level shape:
+If your domain is already on Cloudflare (you see it at [dash.cloudflare.com](https://dash.cloudflare.com)), skip to step 2.
 
-1. Add your domain to Cloudflare and wait for activation
-2. Sign in to [Cloudflare Zero Trust](https://one.dash.cloudflare.com), create a free team
-3. Create a tunnel, get the tunnel token
-4. Configure tunnel routing: pick a subdomain → `web:3000`
-5. On your home server: `cd deploy/examples/cloudflare-tunnel/`, copy `.env.example` to `.env`, paste the tunnel token + generate three random secrets
-6. `docker compose up -d`
-7. Visit `https://yoursubdomain.yourdomain.com`
+If not:
 
-No DNS records to manage manually -- Cloudflare creates the DNS record for the tunnel automatically. No certificate to provision -- Cloudflare provides TLS at the edge.
+- Sign in to [dash.cloudflare.com](https://dash.cloudflare.com)
+- Click **Add a site** and follow the wizard
+- Cloudflare will give you two nameservers (e.g., `coraline.ns.cloudflare.com`)
+- Update your domain registrar to use those nameservers
+- Wait 5 minutes to a few hours for the change to propagate
+
+When the domain shows as **Active** in Cloudflare, you're ready.
+
+### 2. Sign in to Cloudflare Zero Trust
+
+Cloudflare Tunnel lives in the Zero Trust dashboard at [one.dash.cloudflare.com](https://one.dash.cloudflare.com).
+
+The first time you visit, you'll be prompted to:
+
+- Pick a team name (any short identifier, like your last name or your home network name -- this is just for your account)
+- Choose a free plan (it's actually free, no credit card required)
+
+### 3. Create a tunnel
+
+In the Zero Trust dashboard:
+
+1. Click **Networks → Tunnels → Create a tunnel**
+2. Choose **Cloudflared** as the connector type
+3. Give the tunnel a name (e.g., `glycemicgpt-home` or `glycemicgpt-vps`)
+4. Cloudflare will show you a **token** -- this is a long string starting with `eyJ...`. Copy it. You'll paste it into `.env` in step 5.
+5. Skip the install instructions Cloudflare shows (we'll run cloudflared in Docker, not directly on the host)
+6. Click **Next** to get to the routing config
+
+### 4. Configure tunnel routing
+
+You're now on the **Public Hostnames** tab.
+
+Click **Add a public hostname** and fill in:
+
+| Field | Value |
+|---|---|
+| Subdomain | `glycemicgpt` (or whatever you want -- this becomes part of your URL) |
+| Domain | Your domain on Cloudflare |
+| Type | `HTTP` |
+| URL | `web:3000` |
+
+`web:3000` is the GlycemicGPT web service inside the Docker network. The cloudflared container runs in the same Docker Compose stack and can reach it by service name.
+
+Click **Save tunnel**.
+
+> If you want both the dashboard AND direct API access (e.g., for the mobile app to skip the web proxy), add a second public hostname pointing at `api:8000` -- e.g., subdomain `api` for the API. For most users, one hostname pointing at `web:3000` is enough; the web service proxies API requests internally.
+
+### 5. Configure `.env`
+
+On your server, in a terminal in the `GlycemicGPT` folder you cloned, navigate into the cloudflare-tunnel example:
+
+```bash
+cd deploy/examples/cloudflare-tunnel/
+cp .env.example .env
+```
+
+Open `.env` in your editor and fill in:
+
+| Variable | What to put |
+|---|---|
+| `CLOUDFLARE_TUNNEL_TOKEN` | The token you copied in step 3 |
+| `POSTGRES_PASSWORD` | Run `openssl rand -hex 32` in a terminal, paste output |
+| `REDIS_PASSWORD` | Run `openssl rand -hex 32`, paste output |
+| `SECRET_KEY` | Run `openssl rand -hex 32`, paste output |
+| `CORS_ORIGINS` | `["https://glycemicgpt.yourdomain.com"]` (the public hostname you set in step 4) |
+
+### 6. Start everything
+
+Still in the `deploy/examples/cloudflare-tunnel/` directory:
+
+```bash
+docker compose up -d
+```
+
+This pulls the prebuilt GlycemicGPT images, starts all five GlycemicGPT services plus the cloudflared connector. The tunnel registers itself with Cloudflare automatically once it starts.
+
+### 7. Verify
+
+```bash
+docker compose ps
+```
+
+You should see all six services healthy. Watch the cloudflared logs to confirm the tunnel is connected:
+
+```bash
+docker compose logs -f cloudflared
+```
+
+Look for a line like `Connection registered`. When you see that, your tunnel is live. Press `Ctrl+C` to stop watching the logs (the services keep running).
+
+### 8. Open your dashboard
+
+Visit `https://glycemicgpt.yourdomain.com` (the public hostname from step 4). You should see the GlycemicGPT login page over HTTPS, served through Cloudflare.
+
+The first request might take a couple seconds while Cloudflare establishes the connection. Subsequent requests are fast.
+
+### Mobile app configuration
+
+When you set up the GlycemicGPT mobile app, point it at your Cloudflare hostname:
+
+```
+https://glycemicgpt.yourdomain.com
+```
+
+The mobile app uses the same domain regardless of whether you're at home or away -- Cloudflare routes the request to your server either way.
 
 ### What's exposed?
 
-Nothing. No inbound ports are open on your home network. Your home server makes a single outbound HTTPS connection to Cloudflare; inbound traffic for your domain comes through that connection.
+Nothing. No inbound ports are open on your server. Your server makes a single outbound HTTPS connection to Cloudflare; inbound traffic for your domain comes through that connection.
+
+### Cloudflare Tunnel troubleshooting
+
+**Tunnel doesn't start / connector unhealthy:**
+
+- Verify `CLOUDFLARE_TUNNEL_TOKEN` is set correctly in `.env` (a long string starting with `eyJ...`)
+- Check the cloudflared logs: `docker compose logs cloudflared`
+- Make sure your server has outbound internet access on port 443
+
+**Domain shows Cloudflare error 1033 ("Argo Tunnel error"):**
+
+- Cloudflare can't reach your tunnel. Your server may be offline, or the cloudflared container isn't running.
+
+**Domain shows error 502 / 521 ("Web server is down"):**
+
+- Tunnel is connected but the web service isn't responding. Check `docker compose ps` -- if `web` shows as unhealthy, look at its logs: `docker compose logs web`
+
+**Mobile app can't connect:**
+
+- Verify `CORS_ORIGINS` in `.env` includes your full Cloudflare URL with `https://`
+- Restart the API service after changing CORS: `docker compose restart api`
 
 ## Deploying to a VPS with HTTPS
 
@@ -287,8 +426,6 @@ Visit `https://yourdomain.com`. You should see the GlycemicGPT login page over H
 ### What's exposed?
 
 Only ports 80 and 443. The database, Redis, API, web, and sidecar are all on an internal Docker network -- not reachable from outside the server.
-
-For the deployment-specific reference, see [`deploy/examples/public-cloud/README.md`](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/deploy/examples/public-cloud/README.md).
 
 ## Connecting devices
 

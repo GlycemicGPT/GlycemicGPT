@@ -1,140 +1,42 @@
-# Public cloud deployment with automatic HTTPS
+# Public cloud deployment with Caddy + Let's Encrypt
 
-This is the recommended setup for running GlycemicGPT on a VPS or cloud instance with a public domain. It bundles the GlycemicGPT services with Caddy as a reverse proxy that automatically provisions Let's Encrypt TLS certificates.
+This directory contains the Docker Compose configuration for a VPS deployment of GlycemicGPT with automatic HTTPS via Caddy and Let's Encrypt.
 
-**One file to edit (`.env`), one command to run (`docker compose up -d`).**
+**Files:**
 
-## What you'll need
+- `docker-compose.yml` -- the compose stack: GlycemicGPT services + Caddy reverse proxy
+- `Caddyfile` -- env-driven Caddy config (reads `${DOMAIN}` and `${ACME_EMAIL}` from `.env`)
+- `.env.example` -- template for required environment variables
 
-- A VPS or cloud server (any provider -- Hetzner, DigitalOcean, Linode, OVH, AWS Lightsail, etc.)
-- Docker and Docker Compose installed on the server
-- A domain name (e.g. `glycemicgpt.example.com`)
-- DNS access to point the domain at your server
+## Full walkthrough
 
-## Steps
+The complete step-by-step guide -- DNS setup, firewall, certificate provisioning, troubleshooting -- is in the project's docs:
 
-### 1. Point your domain at the server
+**[Install with Docker -- Deploying to a VPS with HTTPS](../../../docs/install/docker.md#deploying-to-a-vps-with-https)**
 
-Create an `A` record for your domain pointing at the server's public IP address.
+That guide also covers Docker installation, `.env` hardening for any non-laptop deployment, common operations (start, stop, logs, update), and the broader picture of how this fits with the other deployment examples.
 
-DNS propagation can take anywhere from a few seconds to an hour. Check it's working with:
-
-```bash
-dig +short yourdomain.com
-```
-
-If you see your server's IP, you're set.
-
-### 2. Make sure ports 80 and 443 are open
-
-Caddy needs ports 80 and 443 to provision the Let's Encrypt certificate and serve traffic. If your VPS provider has a firewall, allow inbound TCP traffic on both.
-
-### 3. Copy the configuration template
+## Quick start (for users who already know the drill)
 
 ```bash
-cd deploy/examples/public-cloud/
 cp .env.example .env
-```
-
-### 4. Fill in the required values
-
-Open `.env` in your editor and set these:
-
-| Variable | What to put |
-|---|---|
-| `DOMAIN` | Your domain (e.g. `glycemicgpt.example.com`) |
-| `ACME_EMAIL` | A real email -- you'll get cert expiry notices |
-| `POSTGRES_PASSWORD` | Run `openssl rand -hex 32`, paste output |
-| `REDIS_PASSWORD` | Run `openssl rand -hex 32`, paste output |
-| `SECRET_KEY` | Run `openssl rand -hex 32`, paste output |
-
-Leave everything else at its default unless you have a specific reason to change it.
-
-### 5. Start everything
-
-```bash
+# Edit .env: set DOMAIN, ACME_EMAIL, and generate POSTGRES_PASSWORD,
+# REDIS_PASSWORD, and SECRET_KEY with: openssl rand -hex 32
 docker compose up -d
 ```
 
-This pulls the prebuilt GlycemicGPT images from GitHub Container Registry, starts all services, and triggers Caddy to request a Let's Encrypt certificate.
-
-### 6. Wait for the certificate
-
-Caddy provisions your TLS certificate automatically on first request. This usually takes 30-60 seconds. Watch the Caddy logs:
+Then watch the Caddy logs to confirm the certificate provisioned:
 
 ```bash
 docker compose logs -f caddy
 ```
 
-When you see something like `certificate obtained successfully`, you're ready.
+When you see `certificate obtained successfully`, visit `https://yourdomain.com`.
 
-### 7. Open your dashboard
+## When to use this vs other examples
 
-Visit `https://yourdomain.com` in a browser. You should see the GlycemicGPT login page over HTTPS.
-
-## Updating
-
-To update to the latest GlycemicGPT release:
-
-```bash
-docker compose pull
-docker compose up -d
-```
-
-The `:latest` tag pulls whatever the most recent stable release is.
-
-## Restarting
-
-```bash
-docker compose restart
-```
-
-## Stopping (keeps data)
-
-```bash
-docker compose down
-```
-
-Your database, Caddy certificates, and configuration are preserved. Run `docker compose up -d` again to resume.
-
-## Stopping and deleting all data
-
-```bash
-docker compose down -v
-```
-
-> **The `-v` flag deletes everything**, including your database and certificates. You will start fresh.
-
-## What's exposed?
-
-Only ports 80 and 443. The database, Redis, the API, the web app, and the AI sidecar are all on an internal Docker network and not reachable from outside.
-
-## Troubleshooting
-
-**Caddy keeps trying and failing to get a certificate:**
-
-- Verify your DNS A record is pointing at the right IP: `dig +short yourdomain.com`
-- Verify ports 80 and 443 are reachable from the internet (some VPS firewalls block them by default)
-- Verify `ACME_EMAIL` in `.env` is a valid email format
-
-**`POSTGRES_PASSWORD is required` error:**
-
-- You haven't filled in `.env` yet. Set the required values and try again.
-
-**Dashboard loads but says "cannot reach API":**
-
-- The API service may still be starting -- check `docker compose ps`
-- Look at API logs: `docker compose logs api`
-
-For the full troubleshooting guide, see [GlycemicGPT Troubleshooting](../../../docs/troubleshooting/index.md).
-
-## Alternative deployments
-
-This is one of several ways to deploy GlycemicGPT. Others:
-
-- [`prod-caddy/`](../prod-caddy/) -- minimal Caddy example with manual Caddyfile editing (this one supersedes it for most users)
-- [`cloudflare-tunnel/`](../cloudflare-tunnel/) -- run behind Cloudflare with zero exposed ports
-- [`external-redis/`](../external-redis/) -- bring your own Redis or Valkey cluster
-- [Root `docker-compose.yml`](../../../docker-compose.yml) -- local development on your laptop (no HTTPS)
-
-See the full [Install with Docker](../../../docs/install/docker.md) guide for guidance on choosing.
+- **Use this** -- you have a VPS with a public IP and want a reverse proxy with automatic HTTPS that you control (no third party in the data path)
+- **Use [`../cloudflare-tunnel/`](../cloudflare-tunnel/)** -- you want public access without opening any inbound ports (often simpler and more secure; works for home or VPS)
+- **Use [`../prod-caddy/`](../prod-caddy/)** -- minimal Caddy example with manual Caddyfile editing (this example supersedes it for most users)
+- **Use [`../external-redis/`](../external-redis/)** -- you have an existing Redis or Valkey cluster to reuse
+- **Use the [root `docker-compose.yml`](../../../docker-compose.yml)** -- local development on your own computer (no public access)

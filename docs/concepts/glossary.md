@@ -126,7 +126,7 @@ A deployment that runs 24/7 and is publicly reachable -- a cloud VPS or a home s
 
 ### Cloudflare Tunnel
 
-A service from Cloudflare that exposes your home server publicly without port forwarding or a public IP. See the [Cloudflare Tunnel deployment guide](../../deploy/examples/cloudflare-tunnel/README.md).
+A service from Cloudflare that exposes your server (home or VPS) publicly without port forwarding or any inbound ports open. See [Install with Docker -- Deploying with Cloudflare Tunnel](../install/docker.md#deploying-with-cloudflare-tunnel-home-server-or-vps).
 
 ### VPS
 
