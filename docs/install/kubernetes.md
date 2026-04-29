@@ -157,11 +157,12 @@ For users running Flux or ArgoCD, the project lead maintains a working GitOps de
 
 - The [`bjw-s/app-template`](https://github.com/bjw-s-labs/helm-charts/tree/main/charts/other/app-template) generic helm chart instead of plain manifests
 - [CloudNativePG](https://cloudnative-pg.io/) for production-grade PostgreSQL
+- An existing cluster-wide [Valkey](https://valkey.io/) (Redis-compatible) instance instead of the bundled Redis container -- isolated to a separate database number
 - [External Secrets Operator](https://external-secrets.io/) instead of raw Secret manifests
 - [Gateway API](https://gateway-api.sigs.k8s.io/) HTTPRoute instead of Ingress
 - Network policies and security policies
 
-That setup is more sophisticated than this guide -- it's reference material for users with similar GitOps tooling, not a recommended starting point. The plain-manifest path documented here is what most K8s users will find easier.
+That setup is more sophisticated than this guide -- it's reference material for users with similar GitOps tooling, not a recommended starting point. The plain-manifest path documented here is what most K8s users will find easier. If your cluster already runs a Redis or Valkey instance you'd prefer to reuse, see [`deploy/examples/external-redis/`](https://github.com/GlycemicGPT/GlycemicGPT/tree/main/deploy/examples/external-redis) for the Docker equivalent of that pattern -- the same approach (override `REDIS_URL` to point at your existing instance) applies in K8s by editing the `glycemicgpt-secrets` Secret to set `REDIS_URL` directly and removing the bundled `redis.yaml` from `kustomization.yaml`.
 
 ## Where to learn more
 

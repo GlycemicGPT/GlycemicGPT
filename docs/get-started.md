@@ -67,7 +67,18 @@ The other variables can stay at defaults. You'll come back to `.env` to configur
 
 ## Step 4: Start GlycemicGPT
 
+GlycemicGPT ships several Docker Compose configurations for different scenarios. Pick the one that matches your path:
+
+| Your path | Compose file to use |
+|---|---|
+| Trying it locally | The root [`docker-compose.yml`](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/docker-compose.yml) (you already have this from `git clone`) |
+| Always-on deployment with public access via your domain | [`deploy/examples/public-cloud/`](https://github.com/GlycemicGPT/GlycemicGPT/tree/main/deploy/examples/public-cloud) (Caddy + automatic HTTPS) |
+| Always-on deployment behind Cloudflare with zero exposed ports | [`deploy/examples/cloudflare-tunnel/`](https://github.com/GlycemicGPT/GlycemicGPT/tree/main/deploy/examples/cloudflare-tunnel) |
+| You already run a Redis or Valkey instance and want to reuse it | [`deploy/examples/external-redis/`](https://github.com/GlycemicGPT/GlycemicGPT/tree/main/deploy/examples/external-redis) |
+
 ### Trying it locally
+
+From the repo root:
 
 ```bash
 docker compose up -d
@@ -77,20 +88,22 @@ That's it. The platform is running on your computer at `http://localhost:3000`.
 
 The first time you run this, it will take a few minutes to download images and build everything. Subsequent starts are fast.
 
-### Setting up an always-on deployment
+### Setting up an always-on deployment with public access
 
-The plain `docker compose up -d` works on a server too, but it doesn't give you HTTPS or expose the platform to the internet safely. For an always-on deployment with public access, use the public-cloud example, which includes a reverse proxy with automatic HTTPS:
+The plain root `docker compose up -d` works on a server too, but it doesn't give you HTTPS or expose the platform to the internet safely. For an always-on deployment with public access, use the [`public-cloud` example](https://github.com/GlycemicGPT/GlycemicGPT/tree/main/deploy/examples/public-cloud) -- it bundles all five GlycemicGPT services with Caddy as a reverse proxy that handles HTTPS automatically via Let's Encrypt:
 
 ```bash
 cd deploy/examples/public-cloud/
 cp .env.example .env
-# Edit .env -- set DOMAIN, EMAIL, and the same SECRET_KEY / POSTGRES_PASSWORD as before
+# Edit .env -- set DOMAIN, ACME_EMAIL, and the secrets (instructions in the file)
 docker compose up -d
 ```
 
-Point your domain's DNS at your VPS's IP address (an `A` record), give it a couple minutes for the SSL certificate to provision, and you'll have HTTPS working at `https://yourdomain.com`.
+Point your domain's DNS at your server's IP address (an `A` record), give Caddy a minute or so to provision the SSL certificate, and you'll have HTTPS working at `https://yourdomain.com`.
 
-The detailed cloud deployment walkthrough is in [Install with Docker -- Deploying to a VPS with HTTPS](./install/docker.md#deploying-to-a-vps-with-https).
+The full walkthrough -- DNS setup, firewall, troubleshooting -- is in:
+- [`deploy/examples/public-cloud/README.md`](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/deploy/examples/public-cloud/README.md) (the deployment-specific reference)
+- [Install with Docker -- Deploying to a VPS with HTTPS](./install/docker.md#deploying-to-a-vps-with-https) (the integrated walkthrough that also covers Docker installation, .env hardening, and updates)
 
 ## Step 5: Wait for everything to be ready
 
