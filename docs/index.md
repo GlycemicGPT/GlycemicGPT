@@ -3,19 +3,51 @@ title: GlycemicGPT
 description: Open-source AI-powered diabetes management you self-host.
 ---
 
-GlycemicGPT is an open-source platform that brings together your diabetes data and gives you AI-powered insight into your patterns. You run it on your own computer or server -- your data stays with you. It connects to your Dexcom G7 CGM and Tandem insulin pump (t:slim X2 and Mobi), shows you what's happening in plain language, and helps you have better conversations with your endocrinologist.
+GlycemicGPT is an open-source platform that brings together your diabetes data and gives you AI-powered insight into your patterns. You run it on your own infrastructure -- your data stays with you. The platform shows you what's happening in plain language and helps you have better conversations with your endocrinologist.
 
 > **GlycemicGPT does not deliver insulin and is not a substitute for medical advice.** It's a monitoring and analysis tool that complements professional healthcare, not a replacement for it. Always consult your healthcare provider for medical decisions.
 
+## How it works (and what you'll need)
+
+GlycemicGPT has two parts that work together:
+
+1. **The platform** -- runs on a computer or server you control. It stores your data, runs the AI, and serves the dashboard you view in a browser.
+2. **The Android companion app** -- runs on your phone. It connects to your pump over Bluetooth and forwards data to the platform.
+
+**Both are required.** The platform alone cannot read pump data over Bluetooth -- that's the phone app's job. If you only run the platform, you'll have a working dashboard but no live pump data flowing into it.
+
+A Wear OS watch face is also available but **optional**.
+
 ## Where to start
 
-**[Get started in 10 minutes](./get-started.md)** -- the fastest path from zero to seeing your dashboard.
+**[Get started](./get-started.md)** -- the full walkthrough from zero to a working setup, including the mobile app.
 
-**[Install with Docker](./install/docker.md)** -- the full reference for self-hosting on your computer or a server.
+**[Install with Docker](./install/docker.md)** -- the full Docker reference, including how to install Docker if you don't have it yet.
 
-**[Install with Kubernetes](./install/kubernetes.md)** -- for users who already run a homelab or production cluster.
+**[Install with Kubernetes](./install/kubernetes.md)** -- for users running their own cluster.
+
+**[Mobile app install](./mobile/install.md)** -- step-by-step Android install.
 
 **[Troubleshooting](./troubleshooting/index.md)** -- when something isn't working.
+
+## Where you can run it
+
+GlycemicGPT runs anywhere Docker runs:
+
+- **On your laptop or desktop** -- the simplest path for trying it out
+- **On a home server or NAS** -- great for always-on access at home
+- **On a cloud VPS** -- gives you HTTPS and lets your mobile app reach the platform from anywhere
+
+The Get Started guide covers both the laptop path (faster) and the cloud VPS path (more setup, but the better long-term experience).
+
+## Currently supported devices
+
+| Device | Status |
+|---|---|
+| Dexcom G7 | Supported via cloud API |
+| Tandem t:slim X2 | Supported via Bluetooth (through the mobile app) and cloud (t:connect) |
+
+Support for additional pumps and CGMs is on the roadmap, along with integrations with platforms many in the diabetes community already use (Nightscout, Loop, AAPS, xDrip). See [ROADMAP.md](../ROADMAP.md) for what's planned.
 
 ## What it does
 
