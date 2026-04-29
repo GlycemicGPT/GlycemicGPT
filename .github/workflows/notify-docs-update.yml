@@ -1,0 +1,33 @@
+name: Notify Website on Docs Update
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - '.github/workflows/notify-docs-update.yml'
+
+permissions: {}
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Generate token for cross-repo dispatch
+        id: dispatch-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.CI_APP_ID }}
+          private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+          owner: GlycemicGPT
+          repositories: website
+
+      - name: Fire docs-updated dispatch
+        env:
+          GH_TOKEN: ${{ steps.dispatch-token.outputs.token }}
+        run: |
+          gh api repos/GlycemicGPT/website/dispatches \
+            -f event_type=docs-updated \
+            -F client_payload[source]="${{ github.repository }}" \
+            -F client_payload[sha]="${{ github.sha }}"
