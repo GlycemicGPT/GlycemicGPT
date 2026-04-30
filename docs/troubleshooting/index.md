@@ -70,3 +70,5 @@ When asking for help, the most useful information is:
 - What `docker compose ps` shows
 - The most recent ~50 lines of logs from the failing service: `docker compose logs --tail=50 <service-name>`
 - Your platform version (look in **Settings → About** in the dashboard, or `docker images | grep glycemicgpt`)
+
+> **Before posting logs publicly, redact sensitive values.** Logs may contain emails, bearer / API tokens, auth headers, device or account IDs, pump serial numbers, AI-provider tokens, and Telegram bot tokens. Replace anything you wouldn't want a stranger to have with `[REDACTED]`, or send the unredacted version via Discord DM to a maintainer instead of posting in a public channel.

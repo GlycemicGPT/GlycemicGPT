@@ -416,10 +416,10 @@ In your domain registrar's DNS settings, add an `A` record:
 glycemicgpt.example.com    A    <your server's public IP>
 ```
 
-DNS propagation usually takes a few seconds to an hour. Check it's working:
+DNS propagation usually takes a few seconds to an hour. Check it's working (using the same hostname you put in the A record):
 
 ```bash
-dig +short yourdomain.com
+dig +short glycemicgpt.example.com
 ```
 
 If you see your server's IP, DNS is ready.

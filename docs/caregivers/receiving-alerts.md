@@ -39,13 +39,14 @@ Same install process as a patient -- see [Install the Android App](../mobile/ins
 
 ## What's in an escalated alert
 
-When you receive an escalated alert, it includes:
+Today's escalation message contains:
 
-- **Patient name / label**
-- **What triggered the alert** -- e.g., "Urgent low: glucose 50 mg/dL"
-- **How long this condition has been active** -- e.g., "Below 55 for 18 minutes"
-- **Recent context** -- glucose trend, last bolus / meal, recent activity
-- **Time since the patient last interacted with the app** -- can help judge whether they're asleep, busy, or potentially incapacitated
+- **Patient identifier** (typically their email)
+- **What triggered the alert** -- the alert message, e.g., "Urgent low"
+- **Current glucose** at the time the alert escalated
+- **Severity** (warning, urgent, etc.)
+
+The message is intentionally brief so it works across SMS / Telegram / push without being truncated. Richer context (recent trend, last bolus, time-since-last-interaction) is on the [roadmap](../../ROADMAP.md) but is **not** in today's escalation messages -- if you need that, open the dashboard.
 
 ## What you should do
 

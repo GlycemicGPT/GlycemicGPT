@@ -44,7 +44,9 @@ If you're using a smaller model and seeing weird answers, switching to a premium
 
 ## How the AI knows about diabetes
 
-GlycemicGPT is built around a **retrieval-augmented generation (RAG)** architecture: when you ask a question, the platform looks up relevant clinical references on top of your own glucose, insulin, and pump data, and sends both to the AI as part of the prompt. The AI's answer is then *grounded* in your history plus a curated knowledge base, rather than coming entirely from the model's general training. This is the main mechanism we use to keep AI answers anchored to your real situation.
+**Today's runtime behavior:** when you ask a question, the platform passes your own glucose, insulin, and pump data to the AI alongside your message. The AI then reasons over *your* history plus its general training. This is the main mechanism keeping answers anchored to your real situation right now.
+
+**The architecture also includes a retrieval-augmented generation (RAG) layer** -- a vector store, retrieval pipeline, and trust-tier system designed to pull relevant clinical references into the prompt alongside your data. The architecture is in place; **what's not yet shipped is a populated curated library** (see below). Once content is loaded, AI answers will be grounded in vetted clinical references in addition to your own data.
 
 ### Honest status of the knowledge base today
 

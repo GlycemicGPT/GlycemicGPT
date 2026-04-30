@@ -94,7 +94,7 @@ cp .env.example .env
 | `COOKIE_SECURE` | `true` | Required when your platform is served over HTTPS (which it should be on a VPS). |
 | `CORS_ORIGINS` | `["https://yourdomain.com"]` | The URL where your dashboard will be served. |
 
-The other variables can stay at defaults. You'll come back to `.env` to configure your AI provider in step 8.
+The other variables can stay at defaults. In step 8 you'll configure your AI provider from the dashboard (**Settings → AI Provider**), not from `.env`.
 
 ## Step 4: Start GlycemicGPT
 
@@ -181,7 +181,7 @@ docker compose ps
 ## Step 6: Open the dashboard
 
 - **Local:** `http://localhost:3000`
-- **Always-on deployment:** `https://yourdomain.com` (the domain you set in step 3)
+- **Always-on deployment:** the public hostname you configured in step 4 (for example `https://glycemicgpt.yourdomain.com` for a Cloudflare Tunnel subdomain, or `https://yourdomain.com` for a VPS root domain)
 
 You should see the GlycemicGPT login page.
 

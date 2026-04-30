@@ -94,7 +94,7 @@ The platform is reachable but the page is blank or doesn't render properly:
 
 - **Hard reload** -- shift + click the reload button (or Cmd/Ctrl + Shift + R) to bypass the cache
 - **Try a different browser** to rule out a browser extension blocking something
-- **Open the developer console** (F12) -- check the Network tab for failed requests and the Console tab for JavaScript errors. If you see `Mixed Content` errors, your `CORS_ORIGINS` in `.env` may have an `http://` URL where it should be `https://`.
+- **Open the developer console** (F12) -- check the Network tab for failed requests and the Console tab for JavaScript errors. If you see `Mixed Content` errors, one of the URLs your dashboard is loading is `http://` while the page itself is loaded over `https://` -- make sure the API URL the frontend uses is `https://` (check `NEXT_PUBLIC_API_URL` or your reverse proxy's upstream config). Mixed Content is unrelated to CORS; CORS errors are handled separately in the next step.
 
 ## 5. CORS errors specifically
 
@@ -118,7 +118,9 @@ docker compose restart api
 
 ## Still stuck?
 
-Capture this and bring it to [Discord](https://discord.gg/QbyhCQKDBs) or [GitHub Issues](https://github.com/GlycemicGPT/GlycemicGPT/issues/new/choose):
+Capture this and bring it to [Discord](https://discord.gg/QbyhCQKDBs) or [GitHub Issues](https://github.com/GlycemicGPT/GlycemicGPT/issues/new/choose).
+
+> **Before posting logs publicly, redact sensitive values.** Logs may contain emails, bearer / API tokens, auth headers, device or account IDs, and pump serial numbers. Replace anything you wouldn't want a stranger to have with `[REDACTED]`, or send the unredacted version via Discord DM to a maintainer instead of posting in a public channel.
 
 ```bash
 docker compose ps

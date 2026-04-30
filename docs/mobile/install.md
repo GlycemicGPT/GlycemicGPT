@@ -54,7 +54,7 @@ Android blocks installs of APKs not from the Play Store by default. You'll need 
 
 Some phones, work-managed devices, or devices in restrictive corporate / family settings block APK installs entirely from the file manager. In that case, you can install over USB or wireless ADB from a computer.
 
-> **Heads up:** This path requires using your computer's terminal -- the same text-based command interface used in [Get Started](../get-started.md#a-note-on-the-terminal). If you're not comfortable with the terminal, ask someone who is, or skip the watch face entirely. Path A (tap the APK on your phone) works for the vast majority of users.
+> **Heads up:** This path requires using your computer's terminal -- the same text-based command interface used in [Get Started](../get-started.md#a-note-on-the-terminal). If you're not comfortable with the terminal, ask someone who is, or skip Path B and use Path A instead. Path A (tap the APK on your phone) works for the vast majority of users.
 
 What you'll need:
 

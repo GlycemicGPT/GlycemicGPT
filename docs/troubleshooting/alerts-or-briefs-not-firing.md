@@ -70,7 +70,9 @@ In addition to Step 2 (AI provider), check:
 
 ## Still stuck?
 
-Capture this and bring it to [Discord](https://discord.gg/QbyhCQKDBs):
+Capture this and bring it to [Discord](https://discord.gg/QbyhCQKDBs).
+
+> **Before posting logs publicly, redact sensitive values.** Logs may contain emails, bearer / API tokens, auth headers, device or account IDs, and Telegram bot tokens. Replace anything you wouldn't want a stranger to have with `[REDACTED]`, or send the unredacted version via Discord DM to a maintainer instead of posting in a public channel.
 
 ```bash
 docker compose logs --tail=100 api sidecar

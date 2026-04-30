@@ -92,7 +92,9 @@ The Tandem Mobi pump uses the same Bluetooth protocol as the t:slim X2, but the 
 
 ## Still stuck?
 
-Capture this and bring it to [Discord](https://discord.gg/QbyhCQKDBs):
+Capture this and bring it to [Discord](https://discord.gg/QbyhCQKDBs).
+
+> **Before posting logs publicly, redact sensitive values.** Logs may contain emails, bearer / API tokens, auth headers, account IDs, pump serial numbers, and Bluetooth device identifiers. Replace anything you wouldn't want a stranger to have with `[REDACTED]`, or send the unredacted version via Discord DM to a maintainer instead of posting in a public channel.
 
 - Your pump model (t:slim X2, Mobi)
 - Your phone model and Android version

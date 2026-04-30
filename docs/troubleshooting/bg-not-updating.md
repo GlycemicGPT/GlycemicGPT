@@ -105,7 +105,9 @@ Samsung phones have an additional "Sleeping apps" list under Settings â†’ Apps â
 
 ## Still stuck?
 
-Capture this and bring it to [Discord](https://discord.gg/QbyhCQKDBs):
+Capture this and bring it to [Discord](https://discord.gg/QbyhCQKDBs).
+
+> **Before posting logs publicly, redact sensitive values.** Logs may contain emails, bearer / API tokens, auth headers, device or account IDs, and pump serial numbers. Replace anything you wouldn't want a stranger to have with `[REDACTED]`, or send the unredacted version via Discord DM to a maintainer instead of posting in a public channel.
 
 - Which CGM you have (Dexcom G7, Tandem-built-in, etc.)
 - Whether your pump uses a CGM stream

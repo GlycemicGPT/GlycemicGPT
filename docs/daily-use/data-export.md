@@ -38,7 +38,7 @@ That file contains every table -- glucose readings, pump events, AI chat history
 ### Full database dump (for users running Kubernetes)
 
 ```bash
-kubectl exec -n glycemicgpt deploy/postgres -- pg_dump -U glycemicgpt glycemicgpt > glycemicgpt-backup.sql
+kubectl exec -n glycemicgpt deploy/glycemicgpt-db -- pg_dump -U glycemicgpt glycemicgpt > glycemicgpt-backup.sql
 ```
 
 Adjust the namespace and deployment name to match your overlay. The K8s prod overlay also runs a daily `pg_dump` CronJob to a PVC -- see [Install with Kubernetes](../install/kubernetes.md) for the schedule and where the dumps land.
@@ -77,7 +77,7 @@ The reverse is also limited today. There is no in-dashboard "import from Nightsc
 If you have historical CGM data in another tool and want it in GlycemicGPT today, you can:
 
 - Restore a full SQL dump from a previous GlycemicGPT instance (`psql ... < dump.sql`)
-- Insert rows directly into the `cgm_readings` and related tables (advanced; you need to know the schema). The schema is in [`apps/api/alembic/versions/`](https://github.com/GlycemicGPT/GlycemicGPT/tree/main/apps/api/alembic/versions).
+- Insert rows directly into the `cgm_readings` and related tables (advanced; you need to know the schema). The schema is in [`apps/api/migrations/versions/`](https://github.com/GlycemicGPT/GlycemicGPT/tree/main/apps/api/migrations/versions).
 
 ## Deleting your data
 

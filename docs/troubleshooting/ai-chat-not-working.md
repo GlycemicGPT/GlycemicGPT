@@ -128,7 +128,9 @@ This is typically not a "broken" issue, it's an AI quality issue. Things that he
 
 ## Still stuck?
 
-Capture this and bring it to [Discord](https://discord.gg/QbyhCQKDBs):
+Capture this and bring it to [Discord](https://discord.gg/QbyhCQKDBs).
+
+> **Before posting logs publicly, redact sensitive values.** Logs may contain your AI provider tokens / API keys, emails, account IDs, and Anthropic / OpenAI request signatures. Replace anything you wouldn't want a stranger to have with `[REDACTED]`, or send the unredacted version via Discord DM to a maintainer instead of posting in a public channel.
 
 ```bash
 docker compose logs --tail=50 api sidecar
