@@ -5,16 +5,17 @@ description: Find what you're seeing and follow the path to fix it.
 
 Something not working? Find the symptom you're seeing below.
 
-If your situation isn't covered here, the [community Discord](https://discord.gg/QbyhCQKDBs) is the fastest place to ask. For a formal bug report, [file an issue on GitHub](https://github.com/GlycemicGPT/GlycemicGPT/issues/new/choose).
-
-## Where to look first
-
 | What you're seeing | Most likely cause | Where to go |
 |---|---|---|
 | Dashboard won't open at all (browser timeout, blank page, "can't reach this site") | Platform isn't running, or you're on the wrong URL | [Dashboard won't load](./dashboard-wont-load.md) |
 | Dashboard loads but glucose isn't updating | Phone app not connected to pump, or sync stopped | [BG isn't updating](./bg-not-updating.md) |
 | Mobile app can't pair with your pump | Bluetooth permissions, pump already paired with another app, pump out of range | [Can't pair pump](./cant-pair-pump.md) |
 | AI chat is stuck loading or shows errors | AI provider not configured or token expired | [AI chat isn't working](./ai-chat-not-working.md) |
+| AI chat answers but the answer is wrong, weird, or made up | Smaller / cheaper AI model, or the AI doesn't have enough context | [AI chat isn't working -- wrong answers](./ai-chat-not-working.md#step-6-ai-chat-returns-wrong--weird-answers) |
+| Alerts aren't firing when they should | Notification channel not configured, OS-level battery optimization killing the app, or threshold settings off | [Alerts or briefs aren't firing](./alerts-or-briefs-not-firing.md) |
+| Daily brief never showed up | Brief schedule misconfigured, AI provider failing in the background, or notification channel issue | [Alerts or briefs aren't firing](./alerts-or-briefs-not-firing.md) |
+
+If your situation isn't covered above, the [community Discord](https://discord.gg/QbyhCQKDBs) is the fastest place to ask. For a formal bug report, [file an issue on GitHub](https://github.com/GlycemicGPT/GlycemicGPT/issues/new/choose).
 
 ## Common starting checks
 
@@ -32,7 +33,7 @@ Every service should show `healthy` or `running`. If anything shows `unhealthy`,
 docker compose logs <service-name>
 ```
 
-Replace `<service-name>` with `web`, `api`, `sidecar`, `db`, `redis`, or (if you're using one of the deploy examples) `caddy` or `cloudflared`.
+Replace `<service-name>` with `web`, `api`, `sidecar` (the AI bridge), `db`, `redis`, or (if you're using one of the deploy examples) `caddy` or `cloudflared`.
 
 ### Check the platform's health endpoint
 

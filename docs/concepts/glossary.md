@@ -149,3 +149,55 @@ Installing an app on a device without going through an official app store. The A
 ### ADB -- Android Debug Bridge
 
 The command-line tool for talking to an Android device or Wear OS watch from a computer. Required for sideloading the watch face today. See [Install the Wear OS Watch Face](../mobile/wear-os.md).
+
+## Tools mentioned during setup
+
+These show up in the install steps but aren't really "diabetes" or "GlycemicGPT" terms -- they're general computing tools.
+
+### Terminal
+
+A text-based way to control your computer. You type a command, the computer runs it. Already installed on every Mac (search "Terminal"), every Linux machine, and every Windows machine (Windows users open PowerShell or, after WSL2 setup, a Linux terminal). See [the terminal note in Get Started](../get-started.md#a-note-on-the-terminal).
+
+### Docker
+
+A way to package software so it runs the same way on every computer. GlycemicGPT ships as a set of Docker components; you install Docker once and the platform runs on top of it. The thing called "Docker Compose" runs a group of related Docker services together with one command. See [Install with Docker](../install/docker.md).
+
+### Git
+
+A version-control tool. Most developers use it daily. As a GlycemicGPT user, you only need it once -- to download the platform's source files in step 2 of [Get Started](../get-started.md). The fallback (download a ZIP from GitHub) avoids needing git at all.
+
+### Node.js
+
+A way to run JavaScript programs outside a web browser. You only need this if you're using Option 1 or 2 of the AI provider setup (Claude / ChatGPT subscription) -- those require running a small Anthropic or OpenAI command-line tool, and that tool is built on Node.js. Download from [nodejs.org](https://nodejs.org).
+
+### npx
+
+A command that comes with Node.js. It runs a tool from the internet without installing it permanently. The Claude and ChatGPT subscription token-setup commands use npx so you don't have to install anything you'll never use again.
+
+### openssl
+
+A tool for generating random secrets. Comes pre-installed on macOS and Linux. On Windows it's installed automatically as part of WSL2. The `openssl rand -hex 32` command in step 3 of [Get Started](../get-started.md) just generates a random string used as a secret key.
+
+### sudo
+
+The command on Linux (and macOS) for running something with administrator privileges. When you see `sudo apt install ...` or similar, that's installing software with admin rights. Mac users may be prompted for their password the first time; Linux users will be too.
+
+### OAuth / Token
+
+OAuth is the authentication system most modern services use to let one app act on your behalf. A "token" is the long string of letters and numbers a service hands you after you sign in -- it's what GlycemicGPT stores instead of your password. The Claude / ChatGPT subscription setup is an OAuth flow: you sign in to Anthropic or OpenAI in your browser, they hand back a token, you paste it into GlycemicGPT.
+
+### API key
+
+A long string of letters and numbers that identifies you to a service for billing and access purposes. Anthropic and OpenAI each give you API keys from their console. Think of it as a password for programs (rather than for humans).
+
+### Endpoint
+
+A URL that a program talks to. When the BYOAI setup says "OpenAI-compatible endpoint," it means a URL that speaks the same language as OpenAI's API -- like a local Ollama server, or LM Studio, or a third-party hosting service. You'll only encounter this if you choose Option 5.
+
+### Redis
+
+A small database for short-lived data (sessions, cached values). The platform runs Redis as one of its services. You don't interact with it directly; it just runs alongside the rest of the platform.
+
+### IP address
+
+A number like `192.168.1.42` that identifies a computer on a network. When the docs say "your computer's IP," they mean the local-network address of the machine running the platform (not your home's public address). See [the mobile install page](../mobile/install.md#step-1-download-the-apk) for how to find yours on each operating system.

@@ -13,13 +13,15 @@ From the directory you ran `docker compose up -d` in:
 docker compose ps
 ```
 
-You should see five GlycemicGPT services (`web`, `api`, `sidecar` or `ai-sidecar`, `db`, `redis`) plus a sixth if you're using one of the deploy examples (`caddy` or `cloudflared`). Every service should show `healthy` or `running`.
+You should see five GlycemicGPT services (`web`, `api`, `sidecar` or `ai-sidecar` -- that's the AI bridge -- `db`, `redis`) plus a sixth if you're using one of the deploy examples (`caddy` or `cloudflared`). Every service should show `healthy` or `running`.
 
 **If any service shows `exited` or keeps restarting:**
 
 ```bash
 docker compose logs --tail=100 <service-name>
 ```
+
+> **What you're looking for in the logs:** scroll to the bottom of what the command prints and look for lines starting with `ERROR`, `FATAL`, or `Exception`. Those are the lines that explain *why* a service stopped. The earlier lines are usually normal startup output. If a problem repeats, you'll see the same error printed every few seconds as the service restarts.
 
 Common causes:
 - **`db` exited** -- usually a `POSTGRES_PASSWORD is required` error in the logs. Check `.env` has `POSTGRES_PASSWORD` set.

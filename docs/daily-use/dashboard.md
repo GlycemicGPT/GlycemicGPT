@@ -71,7 +71,7 @@ The feed updates in real time -- you don't need to refresh.
 
 ## Period selector
 
-Most cards (TIR, the chart) have a period selector: 24h, 7 days, 30 days. Note: time periods longer than 7 days require the data to actually exist in the platform's database. If you only started running GlycemicGPT yesterday, "30 days" will only show the data the platform has.
+Most cards (TIR, the chart) have a period selector: 24h, 7 days, 30 days. Note: time periods longer than what the platform has actually collected will show only the data that's there. If you only started running GlycemicGPT yesterday, picking "30 days" will show that one day of data over a 30-day axis -- the rest will appear empty until your platform fills in over time. This isn't a bug; the platform can't show what it hasn't received yet.
 
 ## Printing reports for your endocrinologist
 
