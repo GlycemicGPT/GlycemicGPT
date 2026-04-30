@@ -1,5 +1,55 @@
 # Changelog
 
+## 2026-04-30
+
+### 📱 Mobile
+
+#### 💥 Breaking Changes
+
+- docs: align repo with monitoring-only positioning + add ROADMAP.md [@jlengelbrecht](https://github.com/jlengelbrecht) ([#514](https://github.com/GlycemicGPT/GlycemicGPT/pull/514))
+
+#### 📝 Other Changes
+
+- chore: sync release 0.4.1 from main to develop [@glycemicgpt-merge](https://github.com/glycemicgpt-merge) ([#525](https://github.com/GlycemicGPT/GlycemicGPT/pull/525))
+- chore: sync release 0.4.0 from main to develop [@glycemicgpt-merge](https://github.com/glycemicgpt-merge) ([#509](https://github.com/GlycemicGPT/GlycemicGPT/pull/509))
+- chore: sync release 0.3.3 from main to develop [@glycemicgpt-merge](https://github.com/glycemicgpt-merge) ([#501](https://github.com/GlycemicGPT/GlycemicGPT/pull/501))
+
+### ⌚ Wear OS
+
+#### 🐛 Bug Fixes
+
+- fix(ci): include wear-device and watchface in version bumps [@jlengelbrecht](https://github.com/jlengelbrecht) ([#503](https://github.com/GlycemicGPT/GlycemicGPT/pull/503))
+
+### 📡 API
+
+#### 🐛 Bug Fixes
+
+- fix(ai): update test assertions for sidecar API key auth change [@jlengelbrecht](https://github.com/jlengelbrecht) ([#510](https://github.com/GlycemicGPT/GlycemicGPT/pull/510))
+- fix(ai): use sidecar API key for subscription chat auth [@jlengelbrecht](https://github.com/jlengelbrecht) ([#505](https://github.com/GlycemicGPT/GlycemicGPT/pull/505))
+
+#### 📝 Other Changes
+
+- docs: phase 1 rewrite — non-technical user track + community-facing docs [@jlengelbrecht](https://github.com/jlengelbrecht) ([#522](https://github.com/GlycemicGPT/GlycemicGPT/pull/522))
+
+### 🏗️ Infrastructure
+
+#### ✨ New Features
+
+- feat(ci): include watchface APKs in release builds [@jlengelbrecht](https://github.com/jlengelbrecht) ([#502](https://github.com/GlycemicGPT/GlycemicGPT/pull/502))
+
+#### 📝 Other Changes
+
+- chore: sync changelog update from main to develop [@glycemicgpt-merge](https://github.com/glycemicgpt-merge) ([#500](https://github.com/GlycemicGPT/GlycemicGPT/pull/500))
+
+### 📚 Documentation
+
+- docs: clarify GitHub branch-counter artifact + fix flow diagram [@jlengelbrecht](https://github.com/jlengelbrecht) ([#517](https://github.com/GlycemicGPT/GlycemicGPT/pull/517))
+- docs(roadmap): early adopter feedback additions + conversational channel expansion [@jlengelbrecht](https://github.com/jlengelbrecht) ([#515](https://github.com/GlycemicGPT/GlycemicGPT/pull/515))
+- docs(readme): reposition Mobi note as monitoring-only and add Discord community link [@jlengelbrecht](https://github.com/jlengelbrecht) ([#511](https://github.com/GlycemicGPT/GlycemicGPT/pull/511))
+
+<!-- changelog-cutoff:2026-04-30T21:30:23Z -->
+
+
 ## 2026-04-06
 
 ### 📱 Mobile
