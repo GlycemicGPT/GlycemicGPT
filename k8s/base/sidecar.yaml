@@ -1,0 +1,107 @@
+---
+# AI Sidecar Deployment
+# Routes AI chat, daily briefs, and RAG queries to the configured AI provider.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: glycemicgpt-sidecar
+  namespace: glycemicgpt
+  labels:
+    app.kubernetes.io/name: glycemicgpt
+    app.kubernetes.io/component: sidecar
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: glycemicgpt
+      app.kubernetes.io/component: sidecar
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: glycemicgpt
+        app.kubernetes.io/component: sidecar
+    spec:
+      containers:
+        - name: sidecar
+          image: glycemicgpt-sidecar:latest
+          # 'IfNotPresent' + ':latest' caches the first image forever. Use
+          # 'Always' so the floating tag is re-resolved on each pod restart, or
+          # pin to an immutable tag (build SHA / semver) in your overlay and
+          # switch back to 'IfNotPresent'.
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3456
+              name: http
+          env:
+            - name: SIDECAR_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: glycemicgpt-secrets
+                  key: SIDECAR_API_KEY
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: glycemicgpt-config
+                  key: SIDECAR_LOG_LEVEL
+                  optional: true
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          # Liveness probe - is the process running?
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3456
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          # Readiness probe - can it accept traffic?
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3456
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            # Writable home for OAuth token storage (Claude / Codex)
+            - name: sidecar-home
+              mountPath: /home/sidecar
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        # emptyDir is intentional: tokens are session-scoped and we don't
+        # want OAuth credentials persisted across pod restarts (they get
+        # re-issued on the next sign-in flow). For multi-replica setups,
+        # this also avoids RWO PVC contention.
+        - name: sidecar-home
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: glycemicgpt-sidecar
+  namespace: glycemicgpt
+  labels:
+    app.kubernetes.io/name: glycemicgpt
+    app.kubernetes.io/component: sidecar
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3456
+      targetPort: 3456
+      name: http
+  selector:
+    app.kubernetes.io/name: glycemicgpt
+    app.kubernetes.io/component: sidecar

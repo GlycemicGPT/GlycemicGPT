@@ -1,4 +1,4 @@
-# Story 1.4: Kubernetes Deployment Manifests
+# Kubernetes Deployment Manifests
 # Production overlay - full resources, registry images
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
@@ -14,13 +14,17 @@ labels:
     includeSelectors: false
 
 # Production image configuration
-# Update these to your container registry
+# Defaults point at the prebuilt images published from this repo's CI.
+# Override `newName` if you build and push to your own registry instead.
 images:
   - name: glycemicgpt-api
-    newName: ghcr.io/yourusername/glycemicgpt-api
+    newName: ghcr.io/glycemicgpt/glycemicgpt-api
     newTag: latest
   - name: glycemicgpt-web
-    newName: ghcr.io/yourusername/glycemicgpt-web
+    newName: ghcr.io/glycemicgpt/glycemicgpt-web
+    newTag: latest
+  - name: glycemicgpt-sidecar
+    newName: ghcr.io/glycemicgpt/glycemicgpt-sidecar
     newTag: latest
 
 patches:

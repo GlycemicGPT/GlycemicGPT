@@ -1,5 +1,5 @@
 ---
-# Story 1.4: Kubernetes Deployment Manifests
+# Kubernetes Deployment Manifests
 # PostgreSQL Database with Persistent Volume
 apiVersion: v1
 kind: PersistentVolumeClaim

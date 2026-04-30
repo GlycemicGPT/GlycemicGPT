@@ -1,5 +1,5 @@
 ---
-# Story 1.4: Kubernetes Deployment Manifests
+# Kubernetes Deployment Manifests
 # Next.js Frontend Deployment
 apiVersion: apps/v1
 kind: Deployment
@@ -24,7 +24,11 @@ spec:
       containers:
         - name: web
           image: glycemicgpt-web:latest
-          imagePullPolicy: IfNotPresent
+          # 'IfNotPresent' + ':latest' caches the first image forever. Use
+          # 'Always' so the floating tag is re-resolved on each pod restart, or
+          # pin to an immutable tag (build SHA / semver) in your overlay and
+          # switch back to 'IfNotPresent'.
+          imagePullPolicy: Always
           ports:
             - containerPort: 3000
               name: http

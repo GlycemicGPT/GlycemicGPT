@@ -15,7 +15,7 @@ Before writing any code, please understand these non-negotiable rules:
 - 🏷️ **All** AI-generated outputs must be clearly labeled as **suggestions, not medical advice**
 - 💉 Insulin dosing recommendations must **always** include safety disclaimers
 - 🧪 Test thoroughly -- a wrong number on a glucose chart is not just a UI bug, it's a safety issue
-- 🔒 Safety limits (glucose range, max bolus, max basal) are enforced by the platform via `SafetyLimits` (backend-synced, user-configurable). These limits validate incoming pump and CGM history values; when a reading falls outside the limits, plugins must discard it (do not return, emit, or persist it) and log the rejection with the violated limit -- see the [Plugin Architecture Guide](docs/plugin-architecture.md).
+- 🔒 Safety limits (glucose range, max bolus, max basal) are enforced by the platform via `SafetyLimits` (backend-synced, user-configurable). These limits validate incoming pump and CGM history values; when a reading falls outside the limits, plugins must discard it (do not return, emit, or persist it) and log the rejection with the violated limit -- see the [Plugin Architecture Guide](docs/dev/plugin-architecture.md).
 - 🚫 **No device control** -- GlycemicGPT is a monitoring and analysis platform
 
 ### Device Data Drivers
@@ -30,7 +30,7 @@ GlycemicGPT is a monitoring and analysis platform. The plugin SDK exists for one
 
 **Contributing a data driver:**
 
-1. Pick a device that isn't already supported (see the [Plugin Architecture Guide](docs/plugin-architecture.md) for the capability matrix)
+1. Pick a device that isn't already supported (see the [Plugin Architecture Guide](docs/dev/plugin-architecture.md) for the capability matrix)
 2. Open an issue describing the device, the protocol you intend to use, and the data you'll surface
 3. Submit a PR with a new Gradle module under `plugins/shipped/<device-name>/` (these modules are compiled into official builds), declaring only capabilities from the official read-only enum. For device data drivers the relevant capabilities are typically `GLUCOSE_SOURCE`, `INSULIN_SOURCE`, `PUMP_STATUS`, `BGM_SOURCE`, `CALIBRATION_TARGET`, and/or `BOLUS_CATEGORY_PROVIDER`. The `DATA_SYNC` capability is reserved for future external-sync integrations (Nightscout, Tidepool); its interface is not yet defined and it is not currently implementable
 4. Include unit tests, especially for parsing and `SafetyLimits` validation of incoming values
@@ -49,6 +49,7 @@ GlycemicGPT is a monitoring and analysis platform. The plugin SDK exists for one
 - [Before You Submit](#before-you-submit)
 - [Pull Request Process](#pull-request-process)
 - [Code Style](#code-style)
+- [Documentation](#documentation)
 - [AI-Assisted Development & Attribution Policy](#ai-assisted-development--attribution-policy)
 - [Project Structure](#project-structure)
 - [Plugin Development](#plugin-development)
@@ -226,7 +227,7 @@ feature branch --> squash merge --> develop --> merge --> main
 - **`main`** is the stable release branch. Do **not** target PRs to `main`.
 - Feature branches are created from `develop` and squash-merged back.
 
-> **Note on the GitHub branch counter:** GitHub's branch comparison may show `develop` as a number of commits *behind* `main`. This is a cosmetic SHA-graph artifact, not a content drift -- after a release-please version bump or automated changelog update on `main`, the `sync-main-to-develop` workflow cherry-picks those commits back to `develop` as new commits with new SHAs. GitHub compares SHAs, so the original `main`-side commits register as missing on `develop` even though the file content (version number, `CHANGELOG.md`) is identical. See [docs/branching-strategy.md](docs/branching-strategy.md) for the full release cycle.
+> **Note on the GitHub branch counter:** GitHub's branch comparison may show `develop` as a number of commits *behind* `main`. This is a cosmetic SHA-graph artifact, not a content drift -- after a release-please version bump or automated changelog update on `main`, the `sync-main-to-develop` workflow cherry-picks those commits back to `develop` as new commits with new SHAs. GitHub compares SHAs, so the original `main`-side commits register as missing on `develop` even though the file content (version number, `CHANGELOG.md`) is identical. See [docs/dev/branching-strategy.md](docs/dev/branching-strategy.md) for the full release cycle.
 
 ### Creating a Feature Branch
 
@@ -415,7 +416,7 @@ This is a medical platform. We take security seriously. The Security Scan Gate r
 | `scripts/security/` | Everything |
 | Docs, config, or other non-code files | Nothing -- security gate reports green instantly |
 
-Mobile-only PRs skip the Docker stack entirely (~2 min instead of ~25 min). For the full breakdown of what each test suite does, see [docs/security-testing.md](docs/security-testing.md).
+Mobile-only PRs skip the Docker stack entirely (~2 min instead of ~25 min). For the full breakdown of what each test suite does, see [docs/dev/security-testing.md](docs/dev/security-testing.md).
 
 ### 🚨 What If the Security Scan Finds Something?
 
@@ -503,6 +504,68 @@ reason = "Not exploitable -- only affects feature X which we don't use"
 - Vitest for testing
 - Multi-provider AI proxy (routes requests to Claude, OpenAI, Ollama, etc.)
 - Follows same TypeScript conventions as frontend
+
+---
+
+## 📚 Documentation
+
+When you add or change a feature, update the docs in `docs/`. Documentation is part of the change, not a separate concern.
+
+**File format:**
+
+- Use `.md` (standard Markdown). It renders on GitHub for PR review and browsing, and the website at `glycemicgpt.org/docs` renders it the same way.
+- `.mdx` is allowed only when a page actually needs to embed JSX components. We don't have any today and probably never will -- default to `.md`.
+
+**Frontmatter (required at the top of every page):**
+
+```markdown
+---
+title: A short page title
+description: One-sentence description for the website's sidebar and search.
+---
+```
+
+Only `title` and `description`. No other fields -- the website handles structure via `_meta.json` files.
+
+**Where pages go:**
+
+| Audience | Location |
+|---|---|
+| Users self-hosting the platform (the primary audience) | Top-level `docs/`, `docs/install/`, `docs/daily-use/`, `docs/troubleshooting/`, `docs/caregivers/`, `docs/concepts/` |
+| Developers contributing code | `docs/dev/` |
+
+The user-facing pages are written for non-technical diabetics and caregivers. If you're adding a developer-track page, put it in `docs/dev/` and tone can stay technical.
+
+**Sidebar ordering:**
+
+Each directory may have a `_meta.json` listing pages in the order they appear in the website's sidebar:
+
+```json
+{
+  "title": "Section Title",
+  "pages": ["index", "page-one", "page-two"]
+}
+```
+
+If `_meta.json` is absent, the sidebar falls back to alphabetical. Don't include the `.md` extension in the `pages` array.
+
+**Links and assets:**
+
+- Cross-doc links use **relative paths**: `[Get Started](../get-started.md)`. The website's sync script rewrites these to website-relative URLs.
+- Image references use **relative paths**: `![Install screen](./assets/install-step-1.png)`.
+- Don't use absolute URLs for in-repo content -- relative paths render correctly on both GitHub and the website.
+
+**Tone for user-facing docs:**
+
+- Lead with the goal, not the tool ("See your glucose on a dashboard" beats "Configuring the FastAPI service")
+- Plain language ("pair your pump" not "establish a BLE GATT connection")
+- One outcome per page
+- Prerequisites in a callout box (`>`-style blockquote) at the top of any install / setup page
+- Symptoms-first troubleshooting -- titles like "BG isn't updating," not "Diagnosing the SSE event loop"
+- Never give medical advice -- always defer to "consult your healthcare provider"
+- Honest tradeoffs when two paths exist (Docker vs Kubernetes, etc.)
+
+See the existing pages under `docs/` for examples.
 
 ---
 
@@ -594,7 +657,7 @@ GlycemicGPT/
 
 ### Plugin Development
 
-The mobile app uses a capability-based plugin architecture. New device support (pumps, CGMs, BGMs) is added as plugin modules. See the [Plugin Architecture Guide](docs/plugin-architecture.md) for:
+The mobile app uses a capability-based plugin architecture. New device support (pumps, CGMs, BGMs) is added as plugin modules. See the [Plugin Architecture Guide](docs/dev/plugin-architecture.md) for:
 
 - How to create a new plugin module
 - Capability interfaces and mutual-exclusion rules

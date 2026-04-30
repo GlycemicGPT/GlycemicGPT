@@ -1,5 +1,5 @@
 ---
-# Story 1.4: Kubernetes Deployment Manifests
+# Kubernetes Deployment Manifests
 # ConfigMap for non-sensitive configuration
 apiVersion: v1
 kind: ConfigMap
@@ -31,11 +31,15 @@ data:
   # Session configuration
   SESSION_EXPIRE_HOURS: "24"
 
-  # Logging configuration (Story 1.5)
+  # AI Sidecar (in-cluster service)
+  AI_SIDECAR_URL: "http://glycemicgpt-sidecar:3456"
+  SIDECAR_LOG_LEVEL: "info"
+
+  # Logging configuration 
   LOG_LEVEL: "INFO"
   SERVICE_NAME: "glycemicgpt-api"
 
-  # Backup configuration (Story 1.5)
+  # Backup configuration 
   BACKUP_PATH: "/backups"
   BACKUP_RETENTION_DAYS: "7"
   BACKUP_SCHEDULE: "0 2 * * *"

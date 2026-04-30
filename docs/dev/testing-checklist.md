@@ -1,3 +1,8 @@
+---
+title: Local Dev Testing Checklist
+description: Manual QA checklist for verifying GlycemicGPT features end-to-end.
+---
+
 # GlycemicGPT Local Dev Server Testing Checklist
 
 ## Prerequisites
