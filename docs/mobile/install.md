@@ -9,17 +9,29 @@ This guide covers installing the app on your phone. It assumes you've already go
 
 > **Before you start, you need:**
 >
-> - An Android phone running **Android 11 or newer** (API 30+)
-> - Bluetooth Low Energy support (essentially every modern phone)
-> - The platform already running and reachable -- either at `http://<your-computer-ip>:3000` (local) or `https://yourdomain.com` (always-on deployment)
+> - An Android phone running **Android 11 or newer**
+> - Bluetooth support (essentially every phone made in the past decade)
+> - The platform already running and reachable -- either at `http://<your-computer-ip>:3000` (local) or `https://yourdomain.com` (always-on deployment). If you don't know your computer's IP, see the box below.
 > - The platform URL written down -- you'll paste it into the app
+
+> **iOS / iPhone:** Today only Android is supported. iOS is on the roadmap (see [ROADMAP.md](../../ROADMAP.md)) but not available yet. If you only have an iPhone, you can still use the dashboard in your phone's browser -- you just won't get live pump data without an Android phone for the companion app.
+
+> **How to find your computer's IP address (for "trying it locally"):**
+>
+> - **macOS:** Apple menu → System Settings → Network → click your active connection (Wi-Fi or Ethernet) → look for "IP Address."
+> - **Windows:** Settings → Network & Internet → click your connection → look for "IPv4 address."
+> - **Linux (Ubuntu / Fedora / etc.):** open a terminal and run `ip addr show` -- look for the `inet` line under your active network adapter (usually `wlan0` for Wi-Fi or `eth0`/`enp...` for Ethernet).
+>
+> The IP usually starts with `192.168.` or `10.0.` -- something like `192.168.1.42`. Your platform URL will then be `http://192.168.1.42:3000`.
+
+> **For the local path, your phone must be on the same Wi-Fi as the computer running the platform.** The "trying it locally" mode only works on your home network -- if you want to use the dashboard from work, the grocery store, etc., you need an [always-on deployment](../get-started.md#choose-your-path).
 
 ## Step 1: Download the APK
 
 GlycemicGPT ships its Android app as a signed APK on GitHub Releases.
 
 1. Open [github.com/GlycemicGPT/GlycemicGPT/releases](https://github.com/GlycemicGPT/GlycemicGPT/releases) on your phone (or a computer)
-2. Find the **latest stable release** (the topmost release that isn't tagged "Pre-release")
+2. Find the **latest stable release** -- the topmost entry on the page *without* a yellow "Pre-release" label. (GitHub uses the "Pre-release" label for in-progress builds that haven't been promoted to stable yet.)
 3. Under **Assets**, download `app-release.apk`
 
 If you'd rather get the latest development build (newer features, less tested), use the [`dev-latest` pre-release](https://github.com/GlycemicGPT/GlycemicGPT/releases/tag/dev-latest) and download `app-debug.apk` instead.

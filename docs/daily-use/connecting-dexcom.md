@@ -46,6 +46,10 @@ How often the platform checks Dexcom is configurable -- typical values are 5 to 
 
 You can change this in **Settings → Integrations → Dexcom → Polling interval**.
 
+## Does this affect the regular Dexcom app on my phone?
+
+No. GlycemicGPT reads from Dexcom's servers using your account credentials in exactly the same way the Dexcom mobile app, Dexcom Clarity, and the Dexcom website all do. Your phone keeps streaming readings to Dexcom; Dexcom's official alerts on your phone keep firing as before; Clarity, Share, and Follow all keep working normally. GlycemicGPT is an additional, parallel reader of the same cloud data -- it doesn't replace or interfere with anything.
+
 ## What happens if my Dexcom password changes?
 
 The platform's stored credentials become invalid. The dashboard will eventually show the integration as **Disconnected**. Update your password in **Settings → Integrations → Dexcom**.

@@ -22,8 +22,10 @@ You can always start locally and migrate to an always-on setup later -- your set
 >   - **RAM:** 2 GB minimum, 4 GB recommended. (One part of the platform uses about 1 GB on its own to do the AI knowledge-base lookup; the rest is light.)
 >   - **Disk:** 5 GB minimum, 10 GB recommended. The platform's files take about 3 GB; the rest grows slowly with your data over time.
 >   - **CPU:** any modern dual-core works. The platform sits mostly idle except when the AI is answering a question.
->   - **OS:** macOS, Linux, or Windows. On Windows you'll also need WSL2 (Windows Subsystem for Linux 2 -- a Microsoft feature that lets your Windows machine run Linux software; the [Microsoft setup guide](https://learn.microsoft.com/en-us/windows/wsl/install) walks you through it).
+>   - **OS:** macOS, Linux, or Windows. **Windows users:** see the note below before you start -- you'll need to install one extra Microsoft component first.
 > - **An Android phone** for the companion app (required to connect your pump over Bluetooth)
+
+> **Windows users only:** GlycemicGPT runs on Linux software. Windows lets you run that software through a Microsoft feature called **WSL2** (Windows Subsystem for Linux 2). It's free and Microsoft-supported, but it does add some setup steps before this guide. Plan to spend roughly an extra half-hour up front following [Microsoft's WSL2 setup guide](https://learn.microsoft.com/en-us/windows/wsl/install). After that, the rest of this guide works the same as it does on macOS or Linux. macOS and Linux users can skip this note.
 
 ## A note on the terminal
 
@@ -191,7 +193,23 @@ The first time you sign in, you'll see a safety disclaimer. Read it, accept it, 
 
 ## Step 8: Configure your AI provider
 
-**GlycemicGPT does not host an AI service.** You bring your own. The platform supports five different ways to plug AI in, so you can use whichever you already pay for (or run yourself). Pick one and configure it in the dashboard at **Settings → AI Provider**.
+**GlycemicGPT does not host an AI service.** You bring your own. The platform supports five different ways to plug one in -- you only need to pick one.
+
+### Pick the option that fits you
+
+Most people land here. Read the row that matches you, then jump to that option below:
+
+| If this is you... | Do this | Cost |
+|---|---|---|
+| **You already pay for Claude (Pro / Max)** | Option 1 | $0 extra (uses your subscription) |
+| **You already pay for ChatGPT (Plus / Team)** | Option 2 | $0 extra (uses your subscription) |
+| **No subscription, want the easiest cloud option** | Option 3 (Claude API key) | A few cents to a few dollars per month |
+| **No subscription, want the cheapest cloud option** | Option 4 (OpenAI API key, cheaper models) | Often under $1 per month |
+| **You want everything to stay on your own computer** | Option 5 (local Ollama) | $0, but you need a beefy enough computer |
+
+If you're not sure which to pick, the strongest recommendation for typical users is **Option 1** if you already pay for Claude, otherwise **Option 3**. You can switch at any time from **Settings → AI Provider** without losing data.
+
+For a deeper comparison (privacy, quality, switching), see [BYOAI](./concepts/byoai.md).
 
 ### Option 1: Use your existing Claude subscription (Pro / Max)
 
@@ -283,6 +301,16 @@ Heads up: setting up the watch face is more involved than the rest of this guide
 See [Watch face install](./mobile/wear-os.md) for the full procedure.
 
 ## What's next?
+
+You can now:
+
+- Open the dashboard and watch glucose flow in
+- Ask the AI a question about your data ("how did I do overnight?", "what patterns do you see this week?")
+- Set up alerts so the platform tells you when something needs attention
+- Invite a family member or other trusted person as a caregiver
+- Print a Time-in-Range summary to bring to your next endocrinologist appointment
+
+Where to go from here:
 
 - **Connect your CGM** -- [Connecting your Dexcom](./daily-use/connecting-dexcom.md)
 - **Connect your pump (cloud)** -- [Connecting your Tandem pump](./daily-use/connecting-tandem-cloud.md)

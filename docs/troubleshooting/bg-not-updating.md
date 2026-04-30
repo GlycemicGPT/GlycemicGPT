@@ -9,16 +9,17 @@ The dashboard opens, you can sign in, but your glucose readings aren't current -
 
 ## What is your data path?
 
-Two real paths today, with different things to check:
+Three common setups, with different things to check:
 
-| Your CGM | Path glucose data takes |
+| Your setup | Path glucose data takes |
 |---|---|
-| Any Dexcom CGM (G6 or G7) | Dexcom's cloud → GlycemicGPT API directly (the mobile app is **not** in this path for Dexcom) |
-| Tandem t:slim X2 with built-in CGM stream | Pump → mobile app over Bluetooth → platform |
+| Dexcom CGM only (no pump, or non-Tandem pump) | Dexcom's cloud → GlycemicGPT API directly (the mobile app is **not** in this path for Dexcom) |
+| Dexcom CGM + Tandem t:slim X2 (most common combo) | Glucose comes from Dexcom's cloud (same as above). The Tandem pump and the Dexcom CGM are separate devices in this setup. |
+| Tandem t:slim X2 with the pump's built-in CGM stream (no separate Dexcom account configured) | Pump → mobile app over Bluetooth → platform |
 
-If you only use a Dexcom CGM and don't have a Tandem pump, **the mobile app is not in the glucose data path** -- the platform pulls from Dexcom directly using your Dexcom account. Skip to the Dexcom section.
+If you only use a Dexcom CGM, or you use a Dexcom CGM alongside a Tandem pump, **the mobile app is not in the glucose data path** -- the platform pulls from Dexcom directly using your Dexcom account. Skip to the Dexcom section.
 
-If you have a Tandem pump that streams CGM data, the mobile app is the data path. Use the Tandem section.
+If your Tandem pump is the source of the CGM stream (rare for current Tandem users; happens when the pump is paired to the CGM directly and you don't run the Dexcom app on your phone), the mobile app is the data path. Use the Tandem section.
 
 ## Dexcom path
 

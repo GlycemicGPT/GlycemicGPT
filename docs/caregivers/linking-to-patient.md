@@ -9,6 +9,24 @@ If you're new to the caregiver model, read the [Caregivers Overview](./overview.
 
 > **Both the patient and the caregiver use the same GlycemicGPT platform.** The caregiver is a regular GlycemicGPT user account on your platform; what makes them a caregiver is the link between their account and yours. They sign in at the same URL you do.
 
+## If the patient is a child or a dependent you manage
+
+The most common caregiver scenario is a parent (or other primary caregiver) running GlycemicGPT for a child with type 1 diabetes. The page below describes a flow with two separate adults each with their own account, but if the patient is a minor or someone whose care you manage, **you'll typically hold both accounts yourself**:
+
+- The **patient account** is the one whose dashboard shows the child's data. Set this up first using the child's name (or whatever label you prefer). This account "owns" the data on the platform.
+- The **caregiver account** is yours -- a separate account that's linked to the patient account. This is the one you sign in to day-to-day; it's also the one that receives escalated alerts and can be granted to other family members later (other parent, grandparent, school nurse).
+
+The flow:
+
+1. Sign up for the platform once with the patient details. Get the dashboard working, pump connected, AI configured. (This is the [Get Started](../get-started.md) guide.)
+2. From that account, go to **Settings → Caregivers** and follow the **Patient side** steps below to generate an invitation for yourself.
+3. Sign out, sign back up as a new account using your own email. (You can also use a different browser or an incognito window to avoid signing out repeatedly.)
+4. Follow the **Caregiver side** steps below to accept the invitation under your new account.
+
+You now have two accounts on your platform: the patient account (rarely used directly) and your caregiver account (used daily). To add another family member as an additional caregiver, sign back in to the patient account and generate a new invitation for them. You can have as many caregivers as you want.
+
+This same pattern works for any "I'm running this on behalf of someone else" situation: an adult child managing a parent's diabetes, a spouse managing the other spouse's data, etc.
+
 ## Patient side: generating an invitation
 
 These steps are done by the patient in their own dashboard.

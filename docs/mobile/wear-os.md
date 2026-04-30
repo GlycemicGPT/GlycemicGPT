@@ -9,7 +9,7 @@ GlycemicGPT ships an optional Wear OS watch face that shows your glucose, trend 
 
 ## What you'll need
 
-- A Wear OS watch running **Wear OS 5 or newer** (API 35+). Newer watches running **Wear OS 6** (API 36+) get a smoother experience -- the phone app can push the watch face to them automatically.
+- A Wear OS watch running **Wear OS 5 or newer**. Newer watches running **Wear OS 6** get a smoother experience -- the phone app can push the watch face to them automatically.
 - The GlycemicGPT phone app already installed and signed in (see [Install the Android App](./install.md))
 - Your phone and watch already paired through the Wear OS app
 - A computer with **Android Platform Tools** installed -- this gives you the `adb` command. Install with:
@@ -55,7 +55,7 @@ On your computer:
 adb connect 192.168.1.42:5555
 ```
 
-Replace the IP and port with what your watch shows. The watch will pop a dialog asking to allow ADB access -- accept it. (You may need to also tap "Always allow from this computer" so you don't get prompted again.)
+Replace the IP and port with what your watch shows at the top of the **Developer Options** screen on the watch (the value you noted in step 1, in the form `<ip>:<port>`). The watch will pop a dialog asking to allow ADB access -- accept it. (You may need to also tap "Always allow from this computer" so you don't get prompted again.)
 
 Verify the connection:
 
