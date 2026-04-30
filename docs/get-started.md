@@ -227,6 +227,8 @@ This opens a browser window where you sign in to your Claude account. After you 
 
 In the GlycemicGPT dashboard, go to **Settings → AI Provider**, choose **Claude (subscription)**, and paste the token. The AI bridge stores it and uses it for all your AI requests from now on.
 
+> **Heads up on subscription tokens:** The CLI commands above (`claude-code setup-token`, `codex login`) are official, vendor-published tools, but using their tokens from a third-party server (the AI bridge) for ongoing background calls is not a use case Anthropic or OpenAI has publicly endorsed. It works today, but tokens can stop working without notice if a vendor update changes how they're scoped. If you need rock-solid reliability (caregiver alerts, someone else's data flowing through this), use Option 3 or 4 -- direct API keys are explicitly designed for server use. See [BYOAI -- Subscription-token note](./concepts/byoai.md#a-note-on-the-subscription-token-options-options-1-and-2) for the longer discussion.
+
 ### Option 2: Use your existing ChatGPT subscription (Plus / Team)
 
 If you already pay for [ChatGPT](https://chat.openai.com) (Plus, Team, or Enterprise), you can use that subscription with GlycemicGPT. Same idea as Claude -- you'll use OpenAI's official command-line tool to get a token.
