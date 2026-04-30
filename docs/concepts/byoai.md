@@ -3,7 +3,18 @@ title: BYOAI -- Bring Your Own AI
 description: Why GlycemicGPT doesn't bundle an AI, and how to plug in your own.
 ---
 
-GlycemicGPT does not host an AI service. You bring your own. This page explains why, what your options are, and the trade-offs.
+GlycemicGPT does not host an AI service. You bring your own. This page explains your options, what each costs, and how to choose.
+
+## Quick pick
+
+If you don't want to read the whole page, here's the short version:
+
+- **You already pay for Claude (Pro / Max)** → Option 1. No additional cost. Best quality.
+- **You already pay for ChatGPT (Plus / Team)** → Option 2. No additional cost.
+- **You don't have either subscription and want the easiest path** → Option 3 (Claude API key). Roughly $1-5/month for typical use.
+- **You want everything to stay on your computer** → Option 5 (local Ollama). Free, but quality depends on your hardware.
+
+You can change your mind any time without losing data. Full details, cost ranges, and privacy implications for each option are below.
 
 ## Why BYOAI?
 
@@ -13,7 +24,7 @@ Three reasons this is the right model for the project:
 
 1. **Cost transparency.** You see what you're paying for. The project doesn't mark up or skim your AI usage.
 2. **Privacy.** Your AI conversations go directly between your platform and your chosen provider. The project's servers are not in the path.
-3. **Choice.** You can use a frontier model (Claude Opus, GPT-4-class) for the best quality, a cheaper model for cost savings, or a fully local model (Ollama, vLLM) for maximum privacy. The platform doesn't lock you into any one provider.
+3. **Choice.** You can use a premium model (Claude Opus, GPT-4-class) for the best quality, a cheaper model for cost savings, or a fully local model for maximum privacy. The platform doesn't lock you into any one provider.
 
 ## Five real options
 
@@ -88,16 +99,16 @@ This same option works for any OpenAI-compatible endpoint: LM Studio, vLLM, llam
 - **Privacy:** strongest -- nothing leaves your network
 - **Quality:** depends entirely on the model you run. 7B-8B models are notably weaker than frontier cloud models on diabetes-relevant reasoning. 70B+ models are competitive but require serious hardware.
 
-## How to choose
+## How to choose -- detailed
 
-Decision tree:
+The Quick pick section at the top of this page covers the common cases. For the longer version:
 
-- **You already pay for Claude (Pro/Max)** → Option 1, no question
-- **You already pay for ChatGPT (Plus/Team)** → Option 2
-- **You want top quality and don't mind cloud AI** → Option 1 or 3 (Claude) for diabetes reasoning, in my opinion the strongest
+- **You already pay for Claude (Pro / Max)** → Option 1, no question
+- **You already pay for ChatGPT (Plus / Team)** → Option 2
+- **You want top quality and don't mind cloud AI** → Option 1 or 3 (Claude is the strongest for diabetes reasoning, in the project lead's experience)
 - **You want low cost and don't mind cloud AI** → Option 4 (OpenAI API with cheaper models like GPT-4o-mini)
 - **You want maximum privacy or fully offline operation** → Option 5 (local Ollama)
-- **You're on a homelab and have GPUs to spare** → Option 5 with a frontier-class local model (Llama 3.1 70B, Qwen 2.5 72B, etc.)
+- **You're on a homelab and have GPUs to spare** → Option 5 with a top-tier local model (Llama 3.1 70B, Qwen 2.5 72B, etc.)
 
 You can switch between options at any time without losing data. The provider only affects new AI calls; everything already saved on your platform stays.
 
@@ -122,7 +133,7 @@ Reasons:
 | OpenAI API key | OpenAI's servers | No (per OpenAI API terms) |
 | Local Ollama | Your network only | No (it's your machine) |
 
-In every case, the **GlycemicGPT project does not see, log, or use any of these messages** -- the platform is just a relay between you and your chosen provider.
+In every case, the **GlycemicGPT project does not see, log, or use any of these messages** -- the platform's AI bridge just passes them between you and your chosen provider.
 
 ## Switching providers
 

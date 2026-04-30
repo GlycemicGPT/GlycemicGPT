@@ -80,11 +80,13 @@ A system where software algorithms automatically adjust insulin delivery based o
 
 ### Platform
 
-The backend services (web, API, sidecar, database, cache). What you run with `docker compose up -d`.
+The backend services (web, API, AI bridge, database, cache). What you run with `docker compose up -d`.
 
-### Sidecar
+### AI bridge
 
-The AI bridge service (sometimes called "the relay" or "the sidecar" in technical contexts). When you chat with the AI, your message goes through this service, which forwards it to your configured AI provider and streams the response back. Keeping the AI bridge separate from the main API means the rest of the platform doesn't have to know which AI provider you're using.
+A small service that lives between the main GlycemicGPT API and whichever AI provider you've chosen. When you chat with the AI, your message goes through the AI bridge, which forwards it to your configured provider (Claude, OpenAI, Ollama, etc.) and streams the response back. Keeping the AI bridge separate means the rest of the platform doesn't need to know which AI provider you're using -- you can switch providers without re-deploying anything.
+
+In Docker `docker compose ps` output the AI bridge appears as `sidecar` (or `ai-sidecar`) -- that's the literal service name. You'll occasionally see it called "sidecar" or "the relay" in older docs or technical contexts; it's the same thing.
 
 ### BYOAI -- Bring Your Own AI
 

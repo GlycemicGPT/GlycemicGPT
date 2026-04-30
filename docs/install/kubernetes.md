@@ -32,7 +32,7 @@ GlycemicGPT in Kubernetes runs as five Deployments plus PostgreSQL and Redis. Th
 |---|---|---|
 | `web` | Next.js dashboard, port 3000 | `k8s/base/web.yaml` |
 | `api` | FastAPI backend, port 8000 | `k8s/base/api.yaml` |
-| `sidecar` | AI relay (LLM proxy), port 3456 | `k8s/base/sidecar.yaml` |
+| `sidecar` | AI bridge (LLM proxy), port 3456 | `k8s/base/sidecar.yaml` |
 | `db` | PostgreSQL with PVC | `k8s/base/postgres.yaml` |
 | `redis` | Redis cache | `k8s/base/redis.yaml` |
 | Ingress | External access + TLS | `k8s/base/ingress.yaml` |

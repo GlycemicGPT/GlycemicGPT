@@ -10,11 +10,13 @@ You opened AI chat in the dashboard, asked something, and it never responded -- 
 When you send a message in AI chat, this happens:
 
 1. The browser sends your message to the **API** service
-2. The API forwards it to the **sidecar** service (the AI bridge)
-3. The sidecar uses your configured AI provider credential (subscription token or API key) to call the actual AI provider (Claude, OpenAI, Ollama, etc.)
-4. The AI provider responds; the sidecar returns the response to the API; the API streams it back to the browser
+2. The API forwards it to the **AI bridge** (a small service that lives between the API and whichever AI provider you set up)
+3. The AI bridge uses your configured AI provider credential (subscription token or API key) to call the actual AI provider (Claude, OpenAI, Ollama, etc.)
+4. The AI provider responds; the AI bridge returns the response to the API; the API streams it back to the browser
 
 A failure can happen at any step.
+
+> The AI bridge runs as a service named `sidecar` (or `ai-sidecar`) inside Docker, so when you see those names in commands below, that's what we're talking about.
 
 ## Step 1: Is your AI provider configured?
 
@@ -22,22 +24,22 @@ In the dashboard, **Settings → AI Provider** -- you should see a configured pr
 
 If a provider is configured but you're not sure it's working, click **Test connection**. The dashboard tries a small request to the provider and reports back.
 
-## Step 2: Is the sidecar running?
+## Step 2: Is the AI bridge running?
 
 ```bash
 docker compose ps
 ```
 
-Look for the `sidecar` (or `ai-sidecar`) service. If it's not `healthy`, AI chat won't work because the API can't reach it.
+Look for the `sidecar` (or `ai-sidecar`) service -- that's the AI bridge. If it's not `healthy`, AI chat won't work because the API can't reach it.
 
 ```bash
 docker compose logs --tail=100 sidecar
 ```
 
-Common sidecar issues:
+Common AI bridge issues:
 
-- **Sidecar exits immediately on start** -- often a missing `SIDECAR_API_KEY` env var. Check `.env`.
-- **Sidecar reports "no Claude token configured"** when you try to chat -- you set up the Claude API key but the sidecar wasn't restarted to pick it up. Run `docker compose restart sidecar`.
+- **The service exits immediately on start** -- often a missing `SIDECAR_API_KEY` env var. Check `.env`.
+- **"no Claude token configured" error** when you try to chat -- you set up the Claude API key but the AI bridge wasn't restarted to pick it up. Run `docker compose restart sidecar`.
 
 ## Step 3: Is your provider credential still valid?
 
@@ -66,7 +68,7 @@ Direct API keys can fail because:
 - **No credit on the account** -- both Anthropic and OpenAI require pre-purchased credit. Check your billing dashboard.
 - **Rate limit hit** -- temporary, retry in a few minutes.
 
-Check the sidecar logs for the actual error from the provider:
+Check the AI bridge logs for the actual error from the provider:
 
 ```bash
 docker compose logs --tail=50 sidecar
@@ -105,7 +107,7 @@ The model name in your AI Provider config (e.g. `llama3.1:8b`) must match exactl
 
 If the message just sits there and nothing happens (no error, no response):
 
-- **Check the sidecar logs** in real time: `docker compose logs -f sidecar`
+- **Check the AI bridge logs** in real time: `docker compose logs -f sidecar`
 - **Check API logs**: `docker compose logs -f api`
 - Send a test message and watch for activity
 

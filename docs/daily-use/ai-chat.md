@@ -37,14 +37,14 @@ If you ask something that needs your doctor, expect the AI to say so explicitly.
 
 Depends on the model you've configured (see [Get Started -- Step 8](../get-started.md#step-8-configure-your-ai-provider)). In general:
 
-- **Frontier models** (Claude Opus, Claude Sonnet, GPT-4-class) are more accurate and less prone to hallucination
-- **Smaller / cheaper models** (GPT-3.5-class, smaller Ollama models) hallucinate more, especially on diabetes-specific topics
+- **Premium models** (Claude Opus, Claude Sonnet, GPT-4-class) are more accurate and less likely to make things up
+- **Smaller / cheaper models** (GPT-3.5-class, smaller Ollama models) get more wrong answers, especially on diabetes-specific topics
 
-If you're using a smaller model and seeing weird answers, switching to a frontier model often fixes it. The trade-off is cost or subscription requirements.
+If you're using a smaller model and seeing weird answers, switching to a premium model often fixes it. The trade-off is cost or subscription requirements.
 
-## How the AI knows about diabetes (RAG)
+## How the AI knows about diabetes
 
-GlycemicGPT augments the model's general knowledge with a curated knowledge base of clinical diabetes research, NIH resources, and clinical guidelines. When you ask a question, the platform retrieves relevant passages from this knowledge base and includes them in the prompt to the AI. This is called retrieval-augmented generation (RAG).
+GlycemicGPT keeps a small library of clinical diabetes research, NIH resources, and clinical guidelines on the platform. When you ask a question, the platform looks up relevant passages from this library and sends them along with your question to the AI. The AI then has both your data and grounded clinical information to answer with. (The technical name for this approach is "retrieval-augmented generation," or RAG -- see the [glossary](../concepts/glossary.md#rag).)
 
 This is why the AI can answer "what's a normal IoB after a meal" with reasonably accurate information even if you're using a model that wouldn't know that out-of-the-box.
 
@@ -54,7 +54,7 @@ The knowledge base is being expanded -- see [ROADMAP.md](../../ROADMAP.md) §Pha
 
 Each conversation in AI chat is a session. Sessions persist on the platform's database, so you can come back to a chat later and continue where you left off, or scroll back through previous conversations.
 
-If a conversation gets weird or hallucinated answers, **start a new session** rather than trying to argue the AI back to reality. Fresh sessions get a fresh context window with the latest data.
+If a conversation gets weird or wrong answers, **start a new session** rather than trying to argue the AI back to reality. AI models have a limited amount of conversation they can hold in mind at once -- starting fresh gives the model a clean slate with the latest data.
 
 ## Privacy
 

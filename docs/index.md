@@ -3,19 +3,19 @@ title: GlycemicGPT
 description: Open-source AI-powered diabetes management you self-host.
 ---
 
-GlycemicGPT is an open-source platform that brings together your diabetes data and gives you AI-powered insight into your patterns. You run it on your own infrastructure -- your data stays with you. The platform shows you what's happening in plain language and helps you have better conversations with your endocrinologist.
+GlycemicGPT is an open-source platform that brings together your diabetes data and gives you AI-powered insight into your patterns. You install it on a computer or server you control -- your data stays with you. The platform shows you what's happening in plain language and helps you have better conversations with your endocrinologist.
 
 > **GlycemicGPT does not deliver insulin and is not a substitute for medical advice.** It's a monitoring and analysis tool that complements professional healthcare, not a replacement for it. Always consult your healthcare provider for medical decisions.
 
 ## How it works (and what you'll need)
 
-GlycemicGPT has three things that work together:
+GlycemicGPT has three pieces that work together:
 
-1. **The platform** -- runs on a computer or server you control. It stores your data, runs the AI, and serves the dashboard you view in a browser.
+1. **The platform** -- runs on a computer or server you control. It stores your data, runs the AI features, and serves the dashboard you view in a browser.
 2. **The Android companion app** -- runs on your phone. It connects to your insulin pump over Bluetooth and forwards data to the platform.
-3. **An AI provider** -- GlycemicGPT does not host AI itself. You bring your own. Options include using an existing Claude or ChatGPT subscription you already pay for, providing a Claude or OpenAI API key, or running a local model like Ollama. See [BYOAI](./concepts/byoai.md) for the full picture and how to choose.
+3. **An AI provider** -- GlycemicGPT does not host AI itself. You bring your own. The simplest option is using a Claude or ChatGPT subscription you already pay for; other options exist too. See [BYOAI](./concepts/byoai.md) for the full picture and how to choose.
 
-**All three are required today.** The platform alone cannot read pump data over Bluetooth -- that's the phone app's job. The platform also doesn't generate AI insights without an AI provider configured -- it's a relay between you and whichever provider you bring. (This may change as the project evolves and other data paths are added -- see [ROADMAP.md](../ROADMAP.md).)
+Setup wires these together so they talk to each other. Each piece has a specific job: the phone app gets pump data into the platform; the AI provider answers your chat questions; the platform pulls everything together and shows it to you. (As the project evolves, other ways of connecting these may become available -- see [ROADMAP.md](../ROADMAP.md).)
 
 A Wear OS watch face is also available but **optional**.
 
@@ -64,6 +64,8 @@ You can also bring your own reverse proxy or run it behind any existing infrastr
 | Dexcom G7 | Supported via cloud API |
 | Tandem t:slim X2 | Supported via Bluetooth (through the mobile app) and cloud (t:connect) |
 
+For Tandem users: the two paths complement each other -- Bluetooth gives you live data on the dashboard, and the cloud path fills in history. Most people end up using both. See [Connecting Your Tandem Pump](./daily-use/connecting-tandem-cloud.md) for the side-by-side comparison.
+
 Support for additional pumps and CGMs is on the roadmap, along with integrations with other open-source diabetes platforms many people already use -- Nightscout, Loop, AAPS, xDrip. See [ROADMAP.md](../ROADMAP.md) for what's planned.
 
 ## What it does
@@ -82,6 +84,16 @@ Support for additional pumps and CGMs is on the roadmap, along with integrations
 - It does not replace your endocrinologist or healthcare team
 - It does not phone home, collect telemetry, or share your data with anyone
 - It does not use your data to train AI models
+
+## What it costs
+
+GlycemicGPT itself is free and open source. The platform, the Android app, and the watch face all cost nothing. You will, though, end up paying for some pieces of what makes it work:
+
+- **An AI provider.** This is the only meaningful recurring cost. If you already pay for [Claude](https://claude.ai) (Pro / Max) or [ChatGPT](https://chat.openai.com) (Plus / Team), you can plug that in and pay nothing extra. If you use Anthropic or OpenAI API keys directly instead, expect a few cents to a few dollars a month for typical use. Running a local model (e.g. Ollama) is free but requires a beefier computer.
+- **A computer to run the platform on.** A laptop or desktop you already own is fine. If you'd rather not leave your laptop on all the time, a small always-on machine (mini-PC, Raspberry Pi, NAS, or a $5-10/month cloud server) covers it.
+- **(Optional) A domain name** if you want a friendly URL like `glucose.yourname.com` for accessing the platform from anywhere. Around $10-15/year. Not required if you only use it on your home network.
+
+There are no per-user fees, no premium tier, no subscription to GlycemicGPT itself. See [BYOAI](./concepts/byoai.md) for the full breakdown of AI provider options and cost.
 
 ## Project status
 
