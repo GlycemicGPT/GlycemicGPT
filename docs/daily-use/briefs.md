@@ -39,6 +39,17 @@ If the brief is set to "morning" and there's no glucose data for the previous da
 
 If you want a brief outside the schedule (e.g., to summarize a specific period before an endo appointment), go to **Briefs → Generate brief** and pick the date range. The platform queues the request and the brief appears within a minute or two.
 
+## Briefs are not AGP
+
+If you're coming from Tidepool, Dexcom Clarity, or your endocrinologist's reporting tools, you're probably used to **AGP (Ambulatory Glucose Profile)** -- the standardized clinical chart that overlays glucose curves across days to surface patterns, with a fixed set of statistics (average glucose, GMI, time-in-range, glucose variability). AGP is the lingua franca for endo appointments.
+
+GlycemicGPT does **not** generate AGP today. Daily briefs are AI-written prose summaries, not the structured clinical artifact your endo expects. They have different jobs:
+
+- **AGP** -- pre-built, deterministic, what you bring to your endo appointment
+- **GlycemicGPT briefs** -- daily / weekly prose you read for yourself, with the AI chat behind it for follow-up
+
+If you need AGP today, generate it from [Tidepool](https://www.tidepool.org/) or your CGM's official app (Clarity, LibreView, etc.). AGP-style export from GlycemicGPT is on the roadmap.
+
 ## Brief quality depends on data quality
 
 A brief is only as useful as the data the AI has to work with:
@@ -64,7 +75,7 @@ If you'd rather not have automated briefs, go to **Settings → Briefs** and tog
 Same root causes as any AI quality issue:
 
 - **Sparse / weird data** -- if your CGM had a 6-hour gap, the brief might say "no overnight data available"
-- **Smaller models hallucinate more** -- using a frontier model (Claude Opus, GPT-4-class) gives sharper briefs
+- **Smaller models hallucinate more** -- using a premium model (Claude Opus, GPT-4-class) gives sharper briefs
 - **The AI just gets it wrong sometimes** -- AI is not infallible. Use briefs as starting points for conversations with your endo, not gospel.
 
 A hallucination-feedback mechanism (so you can flag a bad brief and have it regenerated from a fresh session) is on the roadmap -- see [ROADMAP.md](../../ROADMAP.md) §Phase 1 AI Engine 2.0.

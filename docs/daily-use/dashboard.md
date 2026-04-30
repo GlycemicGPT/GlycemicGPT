@@ -75,7 +75,9 @@ Most cards (TIR, the chart) have a period selector: 24h, 7 days, 30 days. Note: 
 
 ## Printing reports for your endocrinologist
 
-Click **Reports** in the navigation to generate a printable summary for an endocrinologist appointment. You can pick the date range; the report includes Time in Range, glucose statistics, and key patterns the AI surfaced. AI-enhanced report features are on the [roadmap](../../ROADMAP.md) (Phase 2).
+Click **Reports** in the navigation to generate a printable summary for an endocrinologist appointment. You can pick the date range; the report includes Time in Range, glucose statistics, and key patterns the AI surfaced.
+
+> **GlycemicGPT does not generate AGP today.** [AGP (Ambulatory Glucose Profile)](../concepts/glossary.md#agp----ambulatory-glucose-profile) is the standardized clinical chart most endocrinologists prefer. Today's GlycemicGPT report is a summary-style report, not AGP. If your endo wants AGP, generate it from [Tidepool](https://www.tidepool.org/), Dexcom Clarity, or LibreView -- they all produce it. AGP-style reports are on the [roadmap](../../ROADMAP.md) (Phase 2).
 
 ## A few honest reminders
 

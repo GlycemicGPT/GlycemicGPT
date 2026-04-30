@@ -16,7 +16,9 @@ Tandem pumps can flow data into GlycemicGPT through two paths: cloud (this page)
 
 > **Before you start, you need:**
 >
-> - A Tandem pump (t:slim X2 or Mobi) with the official t:connect mobile / desktop app already syncing your pump to the Tandem cloud
+> - A Tandem pump (t:slim X2 or Mobi -- see Mobi caveat below) with the official t:connect mobile / desktop app already syncing your pump to the Tandem cloud
+
+> **Mobi caveat:** the Mobi shares most of the t:slim X2 protocol and the GlycemicGPT cloud integration is expected to work with Mobi, but the project lead does not own a Mobi for continuous verification. Mobi field reports welcome via [Discord](https://discord.gg/QbyhCQKDBs).
 > - Your Tandem account email and password
 > - GlycemicGPT running and you signed in
 
@@ -78,6 +80,18 @@ It does **not** read CGM data via t:connect for the live dashboard -- the cloud 
 If your Tandem account password changes, the platform's credentials become invalid. The integration will eventually show as **Disconnected**. Update the password in **Settings → Integrations → Tandem**.
 
 If you see Tandem-side errors in the platform logs, sign in at [tconnect.tandemdiabetes.com](https://tconnect.tandemdiabetes.com) to confirm your account is in good standing. If t:connect itself is down or your account is locked, GlycemicGPT can only show what t:connect has.
+
+## Stability of the t:connect cloud path
+
+Honest disclosure: GlycemicGPT's t:connect integration sits on top of an unofficial-from-our-side path. Tandem does not publish a developer API, and the project (along with [tconnectsync](https://github.com/jwoglom/tconnectsync), which we use, and others in the diabetes-OSS world) reverse-engineers the cloud's authentication and endpoints to make this integration work.
+
+What this means in practice:
+
+- **Tandem can break it.** They've broken similar community projects before -- [tconnectpatcher](https://github.com/jamoocha/tconnectpatcher), an earlier reverse-engineering effort, died in 2022 when its targeted t:connect version (v1.2 from 2020) got rotated out. Auth flows, endpoints, and response shapes change without notice.
+- **When it breaks, fixes take time.** The maintainers of the underlying tconnectsync library are responsive but unpaid; expect days to weeks for a fix when Tandem rotates something major.
+- **The Bluetooth path through the mobile app is more stable** because it talks to the pump directly, not to Tandem's cloud. If you're using GlycemicGPT primarily for live data, treat the cloud integration as a backup / history-fill-in path and the Bluetooth path as primary.
+
+If you depend on the cloud path for caregiver alerts or anything time-sensitive, plan for the integration to occasionally lag by a day or two during a Tandem-side rotation.
 
 ## Still stuck?
 

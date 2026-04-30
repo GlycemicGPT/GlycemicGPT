@@ -5,6 +5,8 @@ description: Hook GlycemicGPT up to your Dexcom account so glucose flows into th
 
 GlycemicGPT pulls Dexcom data from Dexcom's cloud using your normal Dexcom account credentials. You don't need to do anything on your phone for this; the platform checks Dexcom for new data directly on a schedule.
 
+> **If you're already running Nightscout:** today, GlycemicGPT pulls from Dexcom Share independently of Nightscout. If you also have Nightscout pulling from Dexcom Share, both will hit Dexcom's servers with your credentials -- not broken, but wasteful. The Phase 2 roadmap item for [Nightscout-as-data-source](../concepts/relationship-to-other-tools.md#nightscout) will let GlycemicGPT read from your Nightscout's `/entries.json` instead, eliminating the duplicate. Watch [ROADMAP.md](../../ROADMAP.md) for timing.
+
 > **Before you start, you need:**
 >
 > - A Dexcom CGM (sensor + transmitter) actively transmitting data
@@ -59,6 +61,18 @@ The platform's stored credentials become invalid. The dashboard will eventually 
 - Your Dexcom credentials are encrypted on the platform using your `SECRET_KEY` (set in `.env`)
 - Glucose readings live on your platform's database
 - GlycemicGPT does not send your data anywhere else (see [Privacy](../concepts/privacy.md))
+
+## Why does this use my password instead of OAuth?
+
+Dexcom does have an [official developer API](https://developer.dexcom.com/) that uses OAuth, which would be the obvious privacy-preferring choice. The reasons GlycemicGPT does not use it today:
+
+- **Approval-gated.** Dexcom's developer API requires per-application approval. The library this project uses ([pydexcom](https://github.com/gagebenne/pydexcom)) bypasses that approval gate by using the same Share-API path the official Dexcom Follow / Clarity apps use, with the user's own credentials.
+- **Heavily rate-limited.** The official developer API caps polling at intervals that don't match what live monitoring needs.
+- **Same path the rest of the OSS world uses.** Nightscout's `dexcom-share` plugin, Sugarmate, Spike, and the broader diabetes-OSS community all rely on the same Share-API path. We're not introducing a new pattern here -- we're using the established one.
+
+The trade-off is that GlycemicGPT stores your Dexcom *password* (encrypted, but reversibly with your `SECRET_KEY`) instead of an OAuth token. If your `SECRET_KEY` is compromised AND someone has access to your database, they could decrypt the Dexcom password. The mitigations are: keep your `SECRET_KEY` secret, don't reuse passwords across services, and use a long generated string for `SECRET_KEY`.
+
+If Dexcom's developer API becomes practical for hobbyist projects (rate limits relaxed, approval streamlined), this project will move to it. Until then, this is the path that works.
 
 ## Which Dexcom models work?
 

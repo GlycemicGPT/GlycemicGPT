@@ -7,6 +7,8 @@ GlycemicGPT supports a caregiver model for any trusted relationship: parents man
 
 > **Caregiver access is opt-in by the patient, always.** A caregiver cannot be added to your account without your explicit consent. You control what they see and can revoke their access at any time.
 
+> **Coming from Nightscout?** [Nightscout](https://nightscout.github.io/) has had follower-token access for years -- you generate a read-only bearer token, your follower puts it in their app, they see your data. GlycemicGPT's caregiver model is similar in spirit but account-based rather than token-based, with finer-grained per-permission controls (separate toggles for dashboard, alerts, briefs, AI questions). The trade-off is that each caregiver needs their own GlycemicGPT account on your platform, which is more setup than handing out a token. See [Linking a caregiver](./linking-to-patient.md) for the flow.
+
 ## What a caregiver can do
 
 When you link a caregiver to your account, they get their own GlycemicGPT account with limited access to your data:

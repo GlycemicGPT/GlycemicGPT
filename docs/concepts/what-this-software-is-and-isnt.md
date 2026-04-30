@@ -81,14 +81,16 @@ Not as a medical device, no -- and the project's positioning is explicitly to st
 
 ## Why monitoring-only?
 
-Monitoring-only is a deliberate scope decision, not a limitation we wish were different. Reasons:
+Monitoring and analysis is the entire product. We're built to **complement** closed-loop systems, not be one. Reasons:
 
-- It keeps the project clearly outside FDA medical-device classification, which is essential for an open-source project without the resources to pursue clearance
-- It aligns with the project's [Privacy-First](./privacy.md) principle -- read paths have a much smaller blast radius than write paths
-- It honors the precedent of how monitoring-and-analysis tools have historically been distributed: as patient-empowering software, not regulated devices
-- It complements rather than competes with closed-loop projects like Loop and AAPS -- those projects are right for users who want closed-loop; GlycemicGPT is right for users who want comprehensive monitoring + AI insight
+- **The space is well-served at the closed-loop layer.** [Loop](https://loopkit.github.io/loopdocs/), [AAPS](https://androidaps.readthedocs.io/), [Trio](https://triodocs.org/), and [iAPS](https://iaps-app.org/) have been operating in production for years; collectively they support a wide range of pumps and have tens of thousands of users. The world doesn't need another DIY closed-loop project.
+- **Monitoring + AI-grounded chat over your own data is the gap.** No existing tool layers natural-language interrogation of your CGM and pump data on top of self-hosted infrastructure. That's the gap GlycemicGPT fills.
+- **Smaller blast radius matches our [Privacy-First](./privacy.md) principle.** Read-only data flows have a much smaller failure surface than write-back paths. A bug in monitoring software shows you the wrong number; a bug in dosing software harms someone.
+- **Clearly outside FDA medical-device classification.** Essential for an open-source project without the resources to pursue clearance. This isn't a constraint we resent -- it's the deliberate scope.
 
-If you want closed-loop, use Loop or AAPS. If you want monitoring + AI analysis on data you control, GlycemicGPT is for you.
+The closed-loop projects don't apologize for being closed-loop, and we don't apologize for being monitoring-only. They're different categories of tool.
+
+If you want closed-loop, use Loop or AAPS. If you want monitoring + AI chat over data you control, GlycemicGPT is for you. Many people will use both. See [Relationship to other tools](./relationship-to-other-tools.md) for the full breakdown.
 
 ## What about the future?
 

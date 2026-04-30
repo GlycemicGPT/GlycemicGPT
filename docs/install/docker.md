@@ -168,6 +168,55 @@ docker compose up -d
 
 The `:latest` tag pulls whatever the most recent stable release is.
 
+#### What happens during an upgrade
+
+When the API container starts, it automatically runs any pending database schema migrations (we use Alembic). For most upgrades you don't need to do anything beyond the two commands above. A few things to be aware of:
+
+- **Take a backup before major upgrades.** See [Backups](#backups) below. If a migration fails partway through, the easiest recovery is restoring the dump.
+- **Migrations that fail will keep the API container in a restart loop** -- you'll see the same migration error repeating in `docker compose logs api`. Read the error, fix it (usually a manual SQL fix), and the container will succeed on the next restart.
+- **Released breaking-change migrations are called out in the release notes** on the GitHub Releases page. For non-breaking releases the upgrade is push-button; for breaking ones, read the notes first.
+
+If the schema change between versions is too disruptive, the safest path is: take a `pg_dump`, `docker compose down -v` (which drops the volume), `docker compose up -d` on the new version (which creates a fresh schema), then restore your dump selectively. This is rarely needed -- documenting it for completeness.
+
+### Backups
+
+GlycemicGPT does not ship an automated backup service in the default Docker setup. (The Kubernetes deployment does -- a daily `pg_dump` CronJob to a PVC; see [Install with Kubernetes](./kubernetes.md).) For Docker users, you take backups manually or via a host-side cron job.
+
+#### Manual backup
+
+```bash
+docker compose exec db pg_dump -U glycemicgpt glycemicgpt > glycemicgpt-backup-$(date +%Y%m%d).sql
+```
+
+That gives you a complete SQL dump of every table -- glucose, pump events, AI chat history, accounts, settings. Move the file off the host (S3, another machine, an external drive) so a host failure doesn't lose your only backup.
+
+#### Restore from a backup
+
+```bash
+# Stop the API and web services so nothing writes while we restore
+docker compose stop api web sidecar
+
+# Pipe the dump back in
+cat glycemicgpt-backup-20260429.sql | docker compose exec -T db psql -U glycemicgpt glycemicgpt
+
+# Restart
+docker compose start api web sidecar
+```
+
+#### Recurring backup via host cron
+
+A typical setup: a host-side cron line that runs `pg_dump` daily and rotates the last 14 days. Example for `crontab -e`:
+
+```cron
+0 3 * * * cd /home/you/glycemicgpt && docker compose exec -T db pg_dump -U glycemicgpt glycemicgpt | gzip > backups/glycemicgpt-$(date +\%Y\%m\%d).sql.gz && find backups/ -name "glycemicgpt-*.sql.gz" -mtime +14 -delete
+```
+
+Adjust the path. Make sure `backups/` exists. Test the restore at least once before relying on it -- backups that have never been restored are not real backups.
+
+#### Backups vs exports
+
+This is *backup* -- a SQL dump suitable for restoring to another GlycemicGPT instance. If you want exports in CSV or other portable formats for use outside GlycemicGPT, see [Exporting your data](../daily-use/data-export.md).
+
 ## Deploying for public access
 
 Two paths, depending on what you want:

@@ -1,9 +1,11 @@
 ---
 title: GlycemicGPT
-description: Open-source AI-powered diabetes management you self-host.
+description: Self-hosted diabetes monitoring with an AI chat layer over your own CGM and pump data.
 ---
 
-GlycemicGPT is an open-source platform that brings together your diabetes data and gives you AI-powered insight into your patterns. You install it on a computer or server you control -- your data stays with you. The platform shows you what's happening in plain language and helps you have better conversations with your endocrinologist.
+GlycemicGPT reads your CGM and your insulin pump, stores the data on a server you control, and lets you ask plain-English questions about it. "What happened overnight?", "is there a pattern in my dawn-phenomenon highs?", "did the post-meal correction land?" -- the AI chat answers from your own history, grounded in clinical references. Daily AI-written briefs and configurable alerts run on the same data.
+
+If you're already running [Nightscout](https://nightscout.github.io/), [Loop](https://loopkit.github.io/loopdocs/), [AAPS](https://androidaps.readthedocs.io/), [xDrip+](https://github.com/NightscoutFoundation/xDrip), or [Tidepool](https://www.tidepool.org/) -- GlycemicGPT is designed to coexist with those, not replace them. See [Relationship to other tools](./concepts/relationship-to-other-tools.md) for the honest comparison.
 
 > **GlycemicGPT does not deliver insulin and is not a substitute for medical advice.** It's a monitoring and analysis tool that complements professional healthcare, not a replacement for it. Always consult your healthcare provider for medical decisions.
 
@@ -18,6 +20,8 @@ GlycemicGPT has three pieces that work together:
 Setup wires these together so they talk to each other. Each piece has a specific job: the phone app gets pump data into the platform; the AI provider answers your chat questions; the platform pulls everything together and shows it to you. (As the project evolves, other ways of connecting these may become available -- see [ROADMAP.md](../ROADMAP.md).)
 
 A Wear OS watch face is also available but **optional**.
+
+> **iPhone users:** the web dashboard, AI chat, daily briefs, alerts, and Dexcom integration all work fine in iPhone Safari -- no Android phone needed for any of that. The Android companion app is only required for **live Bluetooth pump data**. If you don't have a pump (or you're fine with cloud-only pump data via t:connect), an iPhone alone covers most of what GlycemicGPT does. iOS companion app support is on the [roadmap](../ROADMAP.md).
 
 If a family member, friend, or other trusted person needs visibility into the platform too -- to receive escalated alerts, view your dashboard, or otherwise help support your care -- GlycemicGPT supports a [caregiver model](./caregivers/overview.md). Caregivers get their own opt-in, read-only access to your data on your platform.
 
@@ -59,23 +63,47 @@ You can also bring your own reverse proxy or run it behind any existing infrastr
 
 ## Currently supported devices
 
-| Device | Status |
-|---|---|
-| Dexcom G7 | Supported via cloud API |
-| Tandem t:slim X2 | Supported via Bluetooth (through the mobile app) and cloud (t:connect) |
+The honest matrix. "Verified" means daily-tested on real hardware; "expected to work" means the protocol path is implemented but the project lead doesn't have the hardware to verify continuously; "planned" means on the roadmap; "not supported" means not today and not actively planned (file an issue if it should be).
 
-For Tandem users: the two paths complement each other -- Bluetooth gives you live data on the dashboard, and the cloud path fills in history. Most people end up using both. See [Connecting Your Tandem Pump](./daily-use/connecting-tandem-cloud.md) for the side-by-side comparison.
+### CGMs
 
-Support for additional pumps and CGMs is on the roadmap, along with integrations with other open-source diabetes platforms many people already use -- Nightscout, Loop, AAPS, xDrip. See [ROADMAP.md](../ROADMAP.md) for what's planned.
+| CGM | Status | Notes |
+|---|---|---|
+| Dexcom G7 | **Verified** | Cloud-API path, polled from Dexcom every 5-10 min. Project lead's daily-driver CGM. |
+| Dexcom G6 | **Expected to work** | Same cloud-API path as G7 (pydexcom supports both); not continuously tested by the project. |
+| Dexcom Stelo | **Not yet** | Planned once the underlying library adds Stelo support. |
+| Freestyle Libre 2 / 3 / 3+ | **Not supported today** | Roadmap. Recommended path until then: xDrip+ → Nightscout, then Phase 2 Nightscout integration. |
+| Eversense | **Not supported today** | Roadmap. |
+| Medtronic Guardian | **Not supported today** | Tied to Medtronic pump support; see roadmap. |
 
-## What it does
+### Insulin pumps
+
+| Pump | Status | Notes |
+|---|---|---|
+| Tandem t:slim X2 | **Verified** (BLE + cloud) | Project lead's daily-driver pump. Bluetooth path via the mobile app gives live data; t:connect cloud path gives history. |
+| Tandem Mobi | **Driver implemented, hardware-unverified** | The Mobi shares most of the t:slim X2 protocol; the driver compiles and treats Mobi as supported, but the project lead does not own a Mobi for continuous verification. Field reports welcome via [Discord](https://discord.gg/QbyhCQKDBs). |
+| Omnipod (DASH / Eros) | **Not supported today** | Roadmap. |
+| Medtronic 5xx / 7xx series | **Not supported today** | Roadmap. |
+| Dana RS / Dana-i | **Not supported today** | Roadmap. |
+| Accu-Chek Combo | **Not supported today** | Roadmap. |
+
+For Tandem users: the Bluetooth and cloud paths complement each other -- Bluetooth gives live data, cloud fills in history. Most people end up using both. See [Connecting Your Tandem Pump](./daily-use/connecting-tandem-cloud.md).
+
+If your device isn't here today, the path forward is usually [Nightscout integration (Phase 2)](./concepts/relationship-to-other-tools.md#nightscout) -- once that lands, anything that flows into Nightscout flows into GlycemicGPT. See [ROADMAP.md](../ROADMAP.md) for the full picture.
+
+## What's distinctive
+
+What GlycemicGPT does that the existing OSS tools don't:
+
+- **AI chat over your own data**, grounded in clinical references via retrieval-augmented generation. Ask questions in plain English and get answers that reason over *your* glucose history, *your* boluses, *your* basal patterns -- not generic diabetes information. ([How AI chat works](./daily-use/ai-chat.md))
+- **Daily / weekly AI-written briefs** that summarize what happened in prose, not just statistics, and surface novel patterns worth following up on with the AI chat. ([Daily briefs](./daily-use/briefs.md))
+
+What it shares with the existing OSS tools (table stakes; not novel):
 
 - Real-time glucose monitoring with trend charts
-- Time in Range tracking and pattern recognition
-- AI chat that knows your data and answers questions in plain language
-- Daily AI-generated briefs that summarize your day
-- Configurable alerts that can reach you (and a caregiver) through multiple channels
-- Printable reports for endocrinologist appointments
+- Time in Range tracking
+- Configurable alerts with caregiver escalation
+- Printable reports for endocrinologist appointments (note: AGP-style reports are roadmap; today's reports are summary-style)
 - Self-hosted -- all your data stays on infrastructure you control
 
 ## What it doesn't do
@@ -105,3 +133,5 @@ GlycemicGPT is **alpha software** in active development. It's functional and in 
 - **GitHub** -- [GlycemicGPT/GlycemicGPT](https://github.com/GlycemicGPT/GlycemicGPT)
 - **Roadmap** -- [where the project is going](../ROADMAP.md)
 - **Contributing** -- [Contributing Guide](../CONTRIBUTING.md)
+- **Governance** -- [how the project is run](../GOVERNANCE.md)
+- **Acknowledgments** -- [the projects this one stands on](./concepts/acknowledgments.md)

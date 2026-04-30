@@ -44,7 +44,23 @@ If you're using a smaller model and seeing weird answers, switching to a premium
 
 ## How the AI knows about diabetes
 
-GlycemicGPT keeps a small library of clinical diabetes research, NIH resources, and clinical guidelines on the platform. When you ask a question, the platform looks up relevant passages from this library and sends them along with your question to the AI. The AI then has both your data and grounded clinical information to answer with. (The technical name for this approach is "retrieval-augmented generation," or RAG -- see the [glossary](../concepts/glossary.md#rag).)
+GlycemicGPT keeps a small library of clinical diabetes references on the platform. When you ask a question, the platform looks up relevant passages from this library and sends them along with your question to the AI. The AI then has both your data and grounded clinical information to answer with. (The technical name for this approach is "retrieval-augmented generation," or RAG -- see the [glossary](../concepts/glossary.md#rag).)
+
+### What's in the reference library today
+
+The current library is small and skewed toward type 1. As of April 2026 it includes:
+
+- **[ADA Standards of Care in Diabetes 2024](https://diabetesjournals.org/care/issue/47/Supplement_1)** -- the primary clinical reference for adult and pediatric T1/T2 management
+- **NIH and JDRF educational material** for non-clinical phrasing of common topics (insulin action time, carb counting, hypoglycemia recognition)
+- **A small set of peer-reviewed research papers** on dawn phenomenon, exercise / glucose interaction, sleep / glucose interaction, and continuous-glucose-monitoring statistics
+
+What it does **not** contain today: ISPAD pediatric guidelines (planned), pregnancy / gestational diabetes guidelines (planned), pump-specific clinical guidance, mental-health-and-diabetes resources (planned).
+
+### Honest caveat about library size
+
+The library is small enough that for many questions, the AI is reasoning from its base training plus your data, not from anything in the library. The library helps for clinical-reference questions ("what counts as severe hypoglycemia per ADA?"). It does not transform a smaller / cheaper AI model into a clinical expert.
+
+The library is being expanded -- see [ROADMAP.md](../../ROADMAP.md) §Phase 1 AI Engine 2.0. If there's a specific reference you'd like to see added, open an issue with the citation.
 
 This is why the AI can answer "what's a normal IoB after a meal" with reasonably accurate information even if you're using a model that wouldn't know that out-of-the-box.
 

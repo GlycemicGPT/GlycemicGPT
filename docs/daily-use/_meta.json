@@ -6,6 +6,7 @@
     "connecting-tandem-cloud",
     "ai-chat",
     "briefs",
-    "alerts"
+    "alerts",
+    "data-export"
   ]
 }
