@@ -1,5 +1,5 @@
 ---
-# Story 16.12: cert-manager ClusterIssuer for Let's Encrypt
+# cert-manager ClusterIssuer for Let's Encrypt
 # Prerequisites:
 #   kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
 apiVersion: cert-manager.io/v1

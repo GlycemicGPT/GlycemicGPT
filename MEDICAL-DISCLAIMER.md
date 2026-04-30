@@ -50,14 +50,16 @@ All AI-generated content in this software is labeled as suggestions, not medical
 
 4. **If you experience a diabetes emergency, contact your healthcare provider or emergency services immediately.** Do not rely on this software for emergency medical guidance.
 
-## Future Pump Control Features
+## Project-Owned Unofficial Builds and Third-Party Forks
 
-Pump control capabilities (insulin delivery commands) are not included in pre-built releases of this software. If such features are implemented in the future:
+GlycemicGPT is a monitoring and analysis platform across all builds it ships. The plugin SDK is read-only by design and is published in two contexts:
 
-- They will be available only by building from source code
-- They will require explicit user opt-in and acknowledgment of risks
-- They will be subject to additional safety validation pipelines
-- Users who build from source assume full responsibility as the "manufacturer" of their personal build
+1. **Official builds** -- Docker images, web app, and the App Store / Google Play mobile apps. These do not load custom plugins at runtime.
+2. **Project-owned unofficial builds** -- planned sideloaded Android and iOS apps (see [ROADMAP.md](ROADMAP.md) §Phase 3) that include the read-only plugin SDK so users can extend the platform with additional **device data drivers**. The project does not ship, document, or solicit any plugin that controls insulin delivery or modifies pump settings; the SDK has no insulin delivery primitives (no bolus dosing, no basal rate changes, no therapeutic write surface). The same monitoring-only stance applies to project-owned unofficial builds as to official builds.
+
+**Third-party forks are a separate matter.** Forks of this project that modify the SDK to add device control, insulin delivery, or any other pump-write functionality operate **outside the GlycemicGPT project**. The maintainers do not review them, recommend them, accept liability for them, or accept contributions to this repository whose intent is to enable them.
+
+Users who choose to build, install, or run a third-party fork that introduces device control become the **manufacturer of their personal medical device** and accept full responsibility for that decision. This follows the same legal posture used by DIY diabetes projects such as Loop and AndroidAPS -- independent, community-built systems whose users have long operated as the manufacturers of their own personal medical devices.
 
 ## Untested Device Compatibility
 
@@ -95,4 +97,4 @@ This software is licensed under the GNU General Public License v3.0 (GPL-3.0). P
 
 See the [LICENSE](LICENSE) file for the complete GPL-3.0 text.
 
-**Jurisdictional note:** Limitation of liability clauses for personal injury may be unenforceable in some jurisdictions, including under EU consumer protection law, UK consumer rights legislation, and Australian consumer law. The build-from-source distribution model, where the individual user is the "manufacturer" of their personal build, is the primary risk mitigation strategy. This disclaimer does not constitute legal advice.
+**Jurisdictional note:** Limitation of liability clauses for personal injury may be unenforceable in some jurisdictions, including under EU consumer protection law, UK consumer rights legislation, and Australian consumer law. The primary risk mitigation strategy of this project is its monitoring-only design -- shipped builds do not provide device control or insulin delivery capability. Users who run forks of this project that add such capabilities operate under a build-from-source model where the individual user becomes the "manufacturer" of their personal build, consistent with the precedent set by Loop, AndroidAPS, and other DIY diabetes projects. This disclaimer does not constitute legal advice.

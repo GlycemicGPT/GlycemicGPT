@@ -244,7 +244,7 @@ Container images pushed to GHCR (`ghcr.io/glycemicgpt/*`) use the built-in `GITH
 
 ## Security
 
-Security findings are handled automatically by CI (see [docs/security-testing.md](docs/security-testing.md)). The governance implications:
+Security findings are handled automatically by CI (see [docs/dev/security-testing.md](docs/dev/security-testing.md)). The governance implications:
 
 - **Suppression decisions** (accepting a known risk) require project lead approval
 - **Security infrastructure changes** (scan workflows, evaluator scripts) require project lead review (enforced via CODEOWNERS)

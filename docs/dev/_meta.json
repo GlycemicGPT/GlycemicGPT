@@ -1,0 +1,13 @@
+{
+  "title": "Developer Reference",
+  "pages": [
+    "branching-strategy",
+    "testing-checklist",
+    "docker-integration-testing",
+    "real-data-pipeline-verification",
+    "security-testing",
+    "plugin-architecture",
+    "wear-os-architecture",
+    "k8s-external-access"
+  ]
+}

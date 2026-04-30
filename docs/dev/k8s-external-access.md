@@ -1,3 +1,8 @@
+---
+title: Kubernetes External Access & TLS
+description: Exposing a Kubernetes-deployed GlycemicGPT to the internet with TLS.
+---
+
 # Kubernetes External Access & TLS Setup
 
 This guide covers exposing GlycemicGPT to the internet with TLS encryption, which is required for the mobile app to connect securely.

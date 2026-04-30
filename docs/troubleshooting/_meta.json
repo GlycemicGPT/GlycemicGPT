@@ -1,0 +1,11 @@
+{
+  "title": "Troubleshooting",
+  "pages": [
+    "index",
+    "dashboard-wont-load",
+    "bg-not-updating",
+    "cant-pair-pump",
+    "ai-chat-not-working",
+    "alerts-or-briefs-not-firing"
+  ]
+}

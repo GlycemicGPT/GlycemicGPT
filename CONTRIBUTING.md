@@ -15,53 +15,26 @@ Before writing any code, please understand these non-negotiable rules:
 - 🏷️ **All** AI-generated outputs must be clearly labeled as **suggestions, not medical advice**
 - 💉 Insulin dosing recommendations must **always** include safety disclaimers
 - 🧪 Test thoroughly -- a wrong number on a glucose chart is not just a UI bug, it's a safety issue
-- 🔒 Safety limits (glucose range, max bolus, max basal) are enforced by the platform via `SafetyLimits` (backend-synced, user-configurable). Plugins must respect these as read-only constraints -- see the [Plugin Architecture Guide](docs/plugin-architecture.md).
-- 🚫 **No unsupervised device control** -- see below
+- 🔒 Safety limits (glucose range, max bolus, max basal) are enforced by the platform via `SafetyLimits` (backend-synced, user-configurable). These limits validate incoming pump and CGM history values; when a reading falls outside the limits, plugins must discard it (do not return, emit, or persist it) and log the rejection with the violated limit -- see the [Plugin Architecture Guide](docs/dev/plugin-architecture.md).
+- 🚫 **No device control** -- GlycemicGPT is a monitoring and analysis platform
 
-### Device Control Plugins
+### Device Data Drivers
 
-GlycemicGPT is a **monitoring-only platform** in all pre-built releases. It reads data from pumps and CGMs but does not send commands to them. No pre-built APK distributed via GitHub Releases will ever include a plugin capable of insulin delivery.
+GlycemicGPT is a monitoring and analysis platform. The plugin SDK exists for one purpose: **community-built device data drivers that read from new hardware**. Pumps, CGMs, BGMs, and other diabetes devices all have proprietary protocols, and a plugin SDK is the only realistic way to support the long tail of devices the community uses. Plugins read glucose values, insulin-on-board, basal rates, bolus history, and pump status. They do not control devices.
 
-That said, we recognize that some pumps -- like the Tandem Mobi and Omnipod -- have no physical screen and **require** an app to deliver insulin. A monitoring-only platform cannot fully support these devices. We welcome contributions that help the community use GlycemicGPT with screenless pumps, but there is a hard line between what we ship and what users build for themselves.
+**The project does not provide, distribute, document, or solicit plugins that expose any therapeutic write or control surface -- no bolus dosing, no basal rate changes, no pump-setting modifications.** This applies to every official build (Docker images, APKs, App Store / Play Store releases) and to every contribution merged into this repository. Pull requests that introduce therapeutic write primitives will not be merged. Non-therapeutic device-management operations that already exist in the SDK (CGM calibration, BLE pair/unpair, connect/disconnect) are session and lifecycle operations -- not therapy -- and remain permitted.
 
-**How we handle this -- two contribution tiers:**
+**Forks are not endorsed.** Forks of this project that add device control capabilities operate outside the GlycemicGPT project. The maintainers do not review them, recommend them, accept liability for them, or accept contributions to this repository whose intent is to enable them. Users who choose to run such forks become the manufacturer of their own personal medical device, consistent with the legal posture of Loop, AndroidAPS, and other DIY diabetes projects -- see [MEDICAL-DISCLAIMER.md](MEDICAL-DISCLAIMER.md).
 
-| Tier | What | Shipped in releases? | Example |
-|------|------|---------------------|---------|
-| **Monitoring plugins** | Read data from devices (glucose, pump status, history) | Yes -- compiled by CI, included in APKs | Tandem reader, Dexcom G7 |
-| **Reference implementations** | Source code demonstrating pump control patterns | **Never** -- not compiled, not in any build artifact | Tandem Mobi delivery example |
+**Platform safety enforcement.** The plugin SDK has no insulin delivery primitives -- there is no API on any capability interface for issuing a bolus, modifying basal rates, or otherwise writing therapeutic state to a pump. The AI layer has no architectural path to such a write surface. Device-management commands that *do* exist in the SDK (CGM calibration, BLE pair/unpair, connect/disconnect) are session/lifecycle operations, not therapy. Runtime-loaded plugins are sandboxed via `RestrictedPluginContext`, which is the current architectural restriction. The plugin registry will additionally be hardened to refuse loading any plugin declaring a capability outside the official enum; see [ROADMAP.md](ROADMAP.md) §Phase 1. Safety constraints (glucose range, max bolus, max basal) are platform-defined and backend-synced; plugins use them to drop implausible readings and cannot bypass them.
 
-**Monitoring plugins** follow the standard contribution flow: submit a PR with a new Gradle module, it gets reviewed, merged, and shipped in the next release.
+**Contributing a data driver:**
 
-**Pump control reference implementations** are different. They live in the repo as source code (under `plugins/reference/`) but are **not** Gradle modules, **not** in `settings.gradle.kts`, and **never** compiled by our CI/CD pipeline. They exist purely as working examples that demonstrate how to build a pump control plugin against the plugin SDK (`:pump-driver-api`).
-
-**If a user wants to use a pump control plugin, they must build it themselves:**
-
-1. Study the reference implementation source code in the repo
-2. Create their own project, depending on the published plugin SDK
-3. Compile the plugin in their own development environment (Android Studio on their machine)
-4. Load the resulting plugin into GlycemicGPT via the app's custom plugin loader
-
-By building and loading a pump control plugin, the user accepts full responsibility as the "manufacturer" of their personal build. This is the same model used by AndroidAPS, Loop, and other open-source diabetes projects. See [MEDICAL-DISCLAIMER.md](MEDICAL-DISCLAIMER.md) for the complete legal framework.
-
-**The platform protects users regardless.** Whether a plugin is shipped or user-built, the platform enforces safety limits that cannot be bypassed:
-
-- Maximum single bolus cap and maximum daily insulin cap
-- Glucose range validation (values outside bounds are rejected)
-- Maximum basal rate limits
-- Explicit user confirmation required for every delivery command
-- Biometric authentication (fingerprint or face ID) before any insulin action
-
-AI-powered features (analysis, suggestions, pattern recognition) can integrate with pump control plugins -- the platform's safety layer applies equally to AI-informed and manual workflows. The guardrails are in the platform, not in blanket prohibitions.
-
-**Non-negotiable rules for pump control reference implementations:**
-
-- Must use the platform's `SafetyLimits` -- hardcoded bypass of safety limits will not be merged
-- Must require explicit user confirmation for every delivery command
-- Must never be wired into the app's build system (no Gradle module, no CI compilation)
-- Must include clear documentation that the user assumes manufacturer responsibility
-
-PRs that violate these safety principles will not be merged regardless of code quality.
+1. Pick a device that isn't already supported (see the [Plugin Architecture Guide](docs/dev/plugin-architecture.md) for the capability matrix)
+2. Open an issue describing the device, the protocol you intend to use, and the data you'll surface
+3. Submit a PR with a new Gradle module under `plugins/shipped/<device-name>/` (these modules are compiled into official builds), declaring only capabilities from the official read-only enum. For device data drivers the relevant capabilities are typically `GLUCOSE_SOURCE`, `INSULIN_SOURCE`, `PUMP_STATUS`, `BGM_SOURCE`, `CALIBRATION_TARGET`, and/or `BOLUS_CATEGORY_PROVIDER`. The `DATA_SYNC` capability is reserved for future external-sync integrations (Nightscout, Tidepool); its interface is not yet defined and it is not currently implementable
+4. Include unit tests, especially for parsing and `SafetyLimits` validation of incoming values
+5. Existing plugins (`:tandem-pump-driver`, under `plugins/shipped/tandem/`) serve as the reference implementation. Runtime-loaded plugins (under `plugins/example/`) are a separate, advanced contribution path -- they are not compiled into official builds and run with `RestrictedPluginContext`
 
 ---
 
@@ -76,6 +49,7 @@ PRs that violate these safety principles will not be merged regardless of code q
 - [Before You Submit](#before-you-submit)
 - [Pull Request Process](#pull-request-process)
 - [Code Style](#code-style)
+- [Documentation](#documentation)
 - [AI-Assisted Development & Attribution Policy](#ai-assisted-development--attribution-policy)
 - [Project Structure](#project-structure)
 - [Plugin Development](#plugin-development)
@@ -240,11 +214,11 @@ npm test       # Run tests
 We use a **develop/main** branching model:
 
 ```
-feature branch --> squash merge --> develop --> rebase merge --> main
-                                      |                           |
-                                  dev builds                  stable releases
-                                  debug APKs                  signed APKs
-                                  Docker :dev                 Docker :latest
+feature branch --> squash merge --> develop --> merge --> main
+                                      |                     |
+                                  dev builds           stable releases
+                                  debug APKs           signed APKs
+                                  Docker :dev          Docker :latest
 ```
 
 ### Rules
@@ -252,6 +226,8 @@ feature branch --> squash merge --> develop --> rebase merge --> main
 - **`develop`** is the integration branch. **All contributor PRs target `develop`.**
 - **`main`** is the stable release branch. Do **not** target PRs to `main`.
 - Feature branches are created from `develop` and squash-merged back.
+
+> **Note on the GitHub branch counter:** GitHub's branch comparison may show `develop` as a number of commits *behind* `main`. This is a cosmetic SHA-graph artifact, not a content drift -- after a release-please version bump or automated changelog update on `main`, the `sync-main-to-develop` workflow cherry-picks those commits back to `develop` as new commits with new SHAs. GitHub compares SHAs, so the original `main`-side commits register as missing on `develop` even though the file content (version number, `CHANGELOG.md`) is identical. See [docs/dev/branching-strategy.md](docs/dev/branching-strategy.md) for the full release cycle.
 
 ### Creating a Feature Branch
 
@@ -440,7 +416,7 @@ This is a medical platform. We take security seriously. The Security Scan Gate r
 | `scripts/security/` | Everything |
 | Docs, config, or other non-code files | Nothing -- security gate reports green instantly |
 
-Mobile-only PRs skip the Docker stack entirely (~2 min instead of ~25 min). For the full breakdown of what each test suite does, see [docs/security-testing.md](docs/security-testing.md).
+Mobile-only PRs skip the Docker stack entirely (~2 min instead of ~25 min). For the full breakdown of what each test suite does, see [docs/dev/security-testing.md](docs/dev/security-testing.md).
 
 ### 🚨 What If the Security Scan Finds Something?
 
@@ -528,6 +504,68 @@ reason = "Not exploitable -- only affects feature X which we don't use"
 - Vitest for testing
 - Multi-provider AI proxy (routes requests to Claude, OpenAI, Ollama, etc.)
 - Follows same TypeScript conventions as frontend
+
+---
+
+## 📚 Documentation
+
+When you add or change a feature, update the docs in `docs/`. Documentation is part of the change, not a separate concern.
+
+**File format:**
+
+- Use `.md` (standard Markdown). It renders on GitHub for PR review and browsing, and the website at `glycemicgpt.org/docs` renders it the same way.
+- `.mdx` is allowed only when a page actually needs to embed JSX components. We don't have any today and probably never will -- default to `.md`.
+
+**Frontmatter (required at the top of every page):**
+
+```markdown
+---
+title: A short page title
+description: One-sentence description for the website's sidebar and search.
+---
+```
+
+Only `title` and `description`. No other fields -- the website handles structure via `_meta.json` files.
+
+**Where pages go:**
+
+| Audience | Location |
+|---|---|
+| Users self-hosting the platform (the primary audience) | Top-level `docs/`, `docs/install/`, `docs/daily-use/`, `docs/troubleshooting/`, `docs/caregivers/`, `docs/concepts/` |
+| Developers contributing code | `docs/dev/` |
+
+The user-facing pages are written for non-technical diabetics and caregivers. If you're adding a developer-track page, put it in `docs/dev/` and tone can stay technical.
+
+**Sidebar ordering:**
+
+Each directory may have a `_meta.json` listing pages in the order they appear in the website's sidebar:
+
+```json
+{
+  "title": "Section Title",
+  "pages": ["index", "page-one", "page-two"]
+}
+```
+
+If `_meta.json` is absent, the sidebar falls back to alphabetical. Don't include the `.md` extension in the `pages` array.
+
+**Links and assets:**
+
+- Cross-doc links use **relative paths**: `[Get Started](../get-started.md)`. The website's sync script rewrites these to website-relative URLs.
+- Image references use **relative paths**: `![Install screen](./assets/install-step-1.png)`.
+- Don't use absolute URLs for in-repo content -- relative paths render correctly on both GitHub and the website.
+
+**Tone for user-facing docs:**
+
+- Lead with the goal, not the tool ("See your glucose on a dashboard" beats "Configuring the FastAPI service")
+- Plain language ("pair your pump" not "establish a BLE GATT connection")
+- One outcome per page
+- Prerequisites in a callout box (`>`-style blockquote) at the top of any install / setup page
+- Symptoms-first troubleshooting -- titles like "BG isn't updating," not "Diagnosing the SSE event loop"
+- Never give medical advice -- always defer to "consult your healthcare provider"
+- Honest tradeoffs when two paths exist (Docker vs Kubernetes, etc.)
+
+See the existing pages under `docs/` for examples.
 
 ---
 
@@ -619,7 +657,7 @@ GlycemicGPT/
 
 ### Plugin Development
 
-The mobile app uses a capability-based plugin architecture. New device support (pumps, CGMs, BGMs) is added as plugin modules. See the [Plugin Architecture Guide](docs/plugin-architecture.md) for:
+The mobile app uses a capability-based plugin architecture. New device support (pumps, CGMs, BGMs) is added as plugin modules. See the [Plugin Architecture Guide](docs/dev/plugin-architecture.md) for:
 
 - How to create a new plugin module
 - Capability interfaces and mutual-exclusion rules
