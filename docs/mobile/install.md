@@ -14,7 +14,7 @@ This guide covers installing the app on your phone. It assumes you've already go
 > - The platform already running and reachable -- either at `http://<your-computer-ip>:3000` (local) or `https://yourdomain.com` (always-on deployment). If you don't know your computer's IP, see the box below.
 > - The platform URL written down -- you'll paste it into the app
 
-> **iOS / iPhone:** Today only Android is supported. iOS is on the roadmap (see [ROADMAP.md](../../ROADMAP.md)) but not available yet. If you only have an iPhone, you can still use the dashboard in your phone's browser -- you just won't get live pump data without an Android phone for the companion app.
+> **iOS / iPhone:** Today only Android is supported. iOS is on the roadmap (see [ROADMAP.md](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/ROADMAP.md)) but not available yet. If you only have an iPhone, you can still use the dashboard in your phone's browser -- you just won't get live pump data without an Android phone for the companion app.
 
 > **How to find your computer's IP address (for "trying it locally"):**
 >

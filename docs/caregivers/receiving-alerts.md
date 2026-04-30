@@ -13,7 +13,7 @@ The escalation flow:
 2. The platform notifies the patient through their configured channels (in-app, push notification, etc.)
 3. The patient has a configurable window (default 15 minutes) to acknowledge the alert
 4. If they don't acknowledge it, the alert **escalates to you** -- you get a notification on your configured channels
-5. The notification includes context: the threshold that was crossed, the current glucose value, how long it's been low, and recent history
+5. The notification includes a brief context (patient identifier, what triggered the alert, current glucose value, severity) -- see [What's in an escalated alert](#whats-in-an-escalated-alert) below for the exact fields shipped today
 6. You can call/text/check on the patient as appropriate
 
 **Acknowledging an alert is the patient's action, not yours.** When you get an escalated alert and you reach the patient, the patient acknowledges it from their end. This is intentional -- the system tracks "did the patient respond" as a real signal, separate from "did the caregiver react."
@@ -46,15 +46,16 @@ Today's escalation message contains:
 - **Current glucose** at the time the alert escalated
 - **Severity** (warning, urgent, etc.)
 
-The message is intentionally brief so it works across SMS / Telegram / push without being truncated. Richer context (recent trend, last bolus, time-since-last-interaction) is on the [roadmap](../../ROADMAP.md) but is **not** in today's escalation messages -- if you need that, open the dashboard.
+The message is intentionally brief so it works across SMS / Telegram / push without being truncated. Richer context (recent trend, last bolus, time-since-last-interaction) is on the [roadmap](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/ROADMAP.md) but is **not** in today's escalation messages -- if you need that, open the dashboard.
 
 ## What you should do
 
 This is not medical advice -- the appropriate response depends on the patient, the alert type, and your relationship. General patterns:
 
 - **Urgent low**: call or text the patient. If they don't respond and you're nearby, check on them. If they're not answering and you're concerned, the standard hypoglycemia response (glucagon, emergency services) is your call to make based on their care plan.
-- **Sustained high**: less urgent. A check-in text is usually enough; this isn't a "drop everything" alert.
-- **Stale data**: their CGM may have disconnected, sensor expired, or their phone died. Often a non-emergency.
+- **Low warning** / **High warning**: less urgent. A check-in text is usually enough; these aren't "drop everything" alerts.
+- **Urgent high**: prolonged or extreme high glucose; check in, especially if it's overnight or unusual for the patient.
+- **IoB warning**: a notable amount of insulin is on board; check in if the alert came around a time the patient might have stacked corrections.
 
 If you're a caregiver for someone you don't see in person regularly, agree in advance on what each alert type means and what response the patient wants.
 
@@ -64,11 +65,9 @@ If the patient acknowledges the alert before you can react, the escalation windo
 
 Some caregivers find it useful to still check in even on resolved alerts ("I see you went low at 2am, you OK?") -- that's a relationship choice, not a system feature.
 
-## Quiet hours for caregivers
+## Suppressing alerts during specific hours
 
-If you'd rather not receive non-urgent escalations during specific hours (e.g., overnight), you can configure quiet hours on **your** end (caregiver account settings) independently of the patient's quiet hours.
-
-**Urgent-low escalations always fire regardless of quiet hours**, by design. You cannot suppress urgent-low. This is intentional safety behavior.
+> **Quiet-hours / time-window suppression is not implemented today** -- neither on the patient side nor the caregiver side. If non-urgent overnight escalations are a problem for you, today's options are: ask the patient to disable escalation for the less-urgent alert types, or mute notifications at the OS level on your phone during the hours you don't want to be paged. A quiet-hours feature is on the roadmap; until it lands, escalations fire whenever the patient doesn't acknowledge in time.
 
 ## Providing context to the AI about the patient (future)
 

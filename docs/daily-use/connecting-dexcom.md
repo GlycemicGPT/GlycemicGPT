@@ -5,7 +5,7 @@ description: Hook GlycemicGPT up to your Dexcom account so glucose flows into th
 
 GlycemicGPT pulls Dexcom data from Dexcom's cloud using your normal Dexcom account credentials. You don't need to do anything on your phone for this; the platform checks Dexcom for new data directly on a schedule.
 
-> **If you're already running Nightscout:** today, GlycemicGPT pulls from Dexcom Share independently of Nightscout. If you also have Nightscout pulling from Dexcom Share, both will hit Dexcom's servers with your credentials -- not broken, but wasteful. The Phase 2 roadmap item for [Nightscout-as-data-source](../concepts/relationship-to-other-tools.md#nightscout) will let GlycemicGPT read from your Nightscout's `/entries.json` instead, eliminating the duplicate. Watch [ROADMAP.md](../../ROADMAP.md) for timing.
+> **If you're already running Nightscout:** today, GlycemicGPT pulls from Dexcom Share independently of Nightscout. If you also have Nightscout pulling from Dexcom Share, both will hit Dexcom's servers with your credentials -- not broken, but wasteful. The Phase 2 roadmap item for [Nightscout-as-data-source](../concepts/relationship-to-other-tools.md#nightscout) will let GlycemicGPT read from your Nightscout's `/entries.json` instead, eliminating the duplicate. Watch [ROADMAP.md](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/ROADMAP.md) for timing.
 
 > **Before you start, you need:**
 >
@@ -31,10 +31,11 @@ In your GlycemicGPT dashboard:
 2. Find **Dexcom** and click **Connect**
 3. Paste the **email address** for your Dexcom account
 4. Paste the **password** for your Dexcom account
-5. Pick your **server region** (US / OUS for outside-US -- if you're in the US, pick US)
-6. Click **Save**
+5. Click **Save**
 
 GlycemicGPT stores your credentials encrypted on the platform and uses them to check Dexcom for new data on your behalf. The platform never sends your password anywhere except to Dexcom itself, and you can delete the credentials at any time by disconnecting the integration.
+
+> **Outside the US?** Dexcom routes account traffic differently in different regions. Today the GlycemicGPT integration assumes the US Share endpoint; explicit US / OUS region configuration in the UI is on the roadmap. If you're outside the US and the integration won't authenticate, [open an issue](https://github.com/GlycemicGPT/GlycemicGPT/issues/new/choose) -- we'd want to track that.
 
 ### 3. Wait for the first sync
 
@@ -44,9 +45,7 @@ If after 5-10 minutes you don't see glucose data, see [BG isn't updating](../tro
 
 ## How often does it sync?
 
-How often the platform checks Dexcom is configurable -- typical values are 5 to 10 minutes. Checking more often means fresher data on the dashboard but slightly higher load on Dexcom's servers; less often is fine for most users.
-
-You can change this in **Settings → Integrations → Dexcom → Polling interval**.
+The platform checks Dexcom on a fixed default interval (5 minutes). The polling interval is configured server-side via the `DEXCOM_SYNC_INTERVAL_MINUTES` environment variable today; a per-user UI control to change this from the dashboard is on the roadmap. For most users 5 minutes matches Dexcom's own update cadence and there's no reason to change it.
 
 ## Does this affect the regular Dexcom app on my phone?
 
@@ -78,7 +77,7 @@ If Dexcom's developer API becomes practical for hobbyist projects (rate limits r
 
 Any Dexcom CGM that uploads to Dexcom's cloud through the standard Dexcom mobile app should work -- this includes Dexcom G7 and Dexcom G6, since both stream to the same Dexcom cloud the platform reads from. The platform's daily testing is on G7, so G7 is the most validated model; G6 is expected to work but has had less direct testing.
 
-If you have a non-Dexcom CGM (Freestyle Libre, Medtronic Guardian, etc.) it won't work today. Support for additional CGMs and integrations with platforms like Nightscout (which can bridge other CGMs) is on the roadmap -- see [ROADMAP.md](../../ROADMAP.md) §Phase 2.
+If you have a non-Dexcom CGM (Freestyle Libre, Medtronic Guardian, etc.) it won't work today. Support for additional CGMs and integrations with platforms like Nightscout (which can bridge other CGMs) is on the roadmap -- see [ROADMAP.md](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/ROADMAP.md) §Phase 2.
 
 ## Still stuck?
 

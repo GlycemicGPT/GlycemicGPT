@@ -53,7 +53,7 @@ Both deliver the standard diabetes-platform table stakes (real-time glucose, ale
 **If you already run Nightscout today:**
 
 - **Phase 1 (today):** GlycemicGPT and Nightscout work side-by-side without interference. They both pull from Dexcom's cloud independently using your Dexcom account credentials. There's no integration between them yet -- this means two tools polling Dexcom on your behalf, which is wasteful but not broken.
-- **Phase 2 (planned):** GlycemicGPT will be able to use your Nightscout instance as a data source. You'd configure GlycemicGPT to read CGM entries and pump data from your Nightscout's `/api/v1/entries.json` and `/api/v1/treatments.json` endpoints, eliminating the duplicate Dexcom polling. See [ROADMAP.md](../../ROADMAP.md).
+- **Phase 2 (planned):** GlycemicGPT will be able to use your Nightscout instance as a data source. You'd configure GlycemicGPT to read CGM entries and pump data from your Nightscout's `/api/v1/entries.json` and `/api/v1/treatments.json` endpoints, eliminating the duplicate Dexcom polling. See [ROADMAP.md](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/ROADMAP.md).
 
 If you're a Nightscout admin curious about what GlycemicGPT adds on top of what you already run, the answer is: AI chat, AI-written briefs, AGP visualization on the home dashboard, and finer-grained caregiver permissions. The data model overlaps; the analytical surface above the data is where they differ.
 

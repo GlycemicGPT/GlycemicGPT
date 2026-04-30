@@ -55,7 +55,7 @@ The RAG infrastructure exists -- the vector store, the retrieval pipeline, the t
 This means:
 
 - The architecture supports adding clinical references (ADA Standards of Care, ISPAD pediatric guidelines, peer-reviewed research, etc.) and is designed for it
-- The actual seed-data load is on the roadmap -- see [ROADMAP.md](../../ROADMAP.md) §Phase 1 AI Engine 2.0
+- The actual seed-data load is on the roadmap -- see [ROADMAP.md](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/ROADMAP.md) §Phase 1 AI Engine 2.0
 - For now, treat AI answers about *general diabetes facts* with the same skepticism you'd apply to any LLM answer; AI answers about *your own data* benefit from the data being passed in directly with your question
 
 If there's a specific reference you'd like to see prioritized for the curated library, [open an issue](https://github.com/GlycemicGPT/GlycemicGPT/issues/new/choose) with the citation.
@@ -75,7 +75,7 @@ This is a real property of the technology. It can't be eliminated; it can be mit
 
 **On the roadmap:**
 
-- **A hallucination-feedback mechanism** so you can flag a bad answer in the UI, have the platform regenerate from a clean session, and contribute the flagged exchange back to the project (with your consent and your data redacted). This builds an evaluation set over time we can use to measure model quality on diabetes-relevant reasoning. See [ROADMAP.md](../../ROADMAP.md) §Phase 1 AI Engine 2.0.
+- **A hallucination-feedback mechanism** so you can flag a bad answer in the UI, have the platform regenerate from a clean session, and contribute the flagged exchange back to the project (with your consent and your data redacted). This builds an evaluation set over time we can use to measure model quality on diabetes-relevant reasoning. See [ROADMAP.md](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/ROADMAP.md) §Phase 1 AI Engine 2.0.
 - **Curated knowledge base population** as described above -- moving from "RAG architecture exists" to "RAG architecture is loaded with vetted clinical references."
 - **Internal evaluations on diabetes-specific reasoning** -- the project has not yet conducted formal evals comparing model quality on common diabetes questions. Building this is on the roadmap; until we have it, we can't make precise quality claims.
 - **Source attribution in AI responses** -- when answers cite the curated library, surfacing the underlying source so you can read the reference yourself.
@@ -84,7 +84,7 @@ This is a real property of the technology. It can't be eliminated; it can be mit
 
 This is why the AI can answer "what's a normal IoB after a meal" with reasonably accurate information even if you're using a model that wouldn't know that out-of-the-box.
 
-The knowledge base is being expanded -- see [ROADMAP.md](../../ROADMAP.md) §Phase 1 AI Engine 2.0.
+The knowledge base is being expanded -- see [ROADMAP.md](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/ROADMAP.md) §Phase 1 AI Engine 2.0.
 
 ## Sessions and history
 

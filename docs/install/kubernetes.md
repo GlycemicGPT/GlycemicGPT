@@ -171,7 +171,7 @@ That setup is more sophisticated than this guide -- it's reference material for 
 
 ## A helm chart is on the roadmap
 
-The current Kustomize-based deployment works, but for users who prefer Helm a first-class chart is on the roadmap. When it lands, this page will be rewritten as a `helm install glycemicgpt` walkthrough, and the prox-ops example above will become a `values.yaml` reference. See [ROADMAP.md](../../ROADMAP.md) §Phase 1.
+The current Kustomize-based deployment works, but for users who prefer Helm a first-class chart is on the roadmap. When it lands, this page will be rewritten as a `helm install glycemicgpt` walkthrough, and the prox-ops example above will become a `values.yaml` reference. See [ROADMAP.md](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/ROADMAP.md) §Phase 1.
 
 ## Troubleshooting
 

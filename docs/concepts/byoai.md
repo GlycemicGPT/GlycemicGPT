@@ -124,6 +124,48 @@ This option points GlycemicGPT at any URL that speaks the OpenAI Chat Completion
 - **Privacy:** strongest for local models -- nothing leaves your network. Router services have their own privacy / training policies; check them.
 - **Quality:** depends on the model. **The project has not yet conducted formal evals on what local model size produces reliable results for GlycemicGPT's use cases.** Community feedback so far suggests smaller (7B-8B) models miss nuance on insulin-action timing and pattern interpretation, but we don't yet have a recommended minimum or a measured "this model does well, this one doesn't" list. If you have hardware to run something in the 13B-30B range, that's a reasonable starting point to experiment from -- and please report what works back to the project. Treat any local-model output the way you'd treat any AI suggestion -- as a thread to pull on, not advice to act on.
 
+## Realistic cost ranges
+
+The project has not yet conducted formal cost telemetry, so the numbers below are **rough estimates** based on token-pricing math and observed usage patterns. Treat them as ballpark, not a guarantee. Pricing on the vendor side also changes -- always confirm against the linked pricing pages.
+
+### What drives cost on Options 3 and 4 (direct API keys)
+
+Two things consume tokens in GlycemicGPT:
+
+- **Daily briefs.** Each brief packages your previous day's data and asks the AI to write a summary. The data payload alone can be 5K-20K input tokens depending on how much glucose / insulin / pump data you have for the day; the AI response is typically 1K-2K output tokens. **One brief per day is the default.**
+- **AI chat.** Each chat turn includes your message, the conversation history, your current data context, and the AI's response. A short single-turn question might use 5K-15K input + 500 output tokens. A long multi-turn conversation with deep context-pulls can run 30K-100K+ input tokens by the end. **This is the bigger swing factor by far.**
+
+If RAG retrieval ever becomes populated (currently architecture-only), each request will also include the retrieved reference chunks -- adding maybe 5K-15K input tokens per request.
+
+### Approximate monthly ranges (single user, US pricing)
+
+These are **order-of-magnitude estimates only**. Do your own math against [Anthropic's pricing](https://www.anthropic.com/pricing) and [OpenAI's pricing](https://openai.com/api/pricing/).
+
+| Usage profile | Cheap models (GPT-4o-mini, Haiku) | Mid-tier (Sonnet, GPT-4o) | Premium (Opus, GPT-4) |
+|---|---|---|---|
+| **Briefs only, no chat** (1 brief/day) | under $1/month | $1-5/month | $5-15/month |
+| **Light** (1 brief/day, ~5 short chat turns/day) | $1-5/month | $5-20/month | $20-60/month |
+| **Average** (1 brief/day, ~15 chat turns/day with multi-turn conversations) | $3-10/month | $15-50/month | $50-150/month |
+| **Heavy** (multiple briefs, deep multi-turn AI chat sessions, frequent re-asks) | $10-30/month | $50-150/month | **$150-400+/month** |
+
+**The "few cents to a few dollars" framing earlier versions of these docs used was misleading** -- it's true at the very low end of the table, but only there. A realistic adult-T1 user who actually engages with the AI features regularly can absolutely spend $20-100+ per month on direct API usage. If that matters to your decision, the **subscription paths (Options 1 and 2) cap your cost** at your subscription price -- which is why they're the recommendation when you have one.
+
+### What about the subscription options (1 and 2)?
+
+Your existing Claude Pro / Max or ChatGPT Plus / Team subscription includes a usage allowance -- routing GlycemicGPT through it consumes that same allowance. You don't pay anything extra for the AI; you may, on heavy usage days, hit your subscription's rate limits earlier than you would just chatting with Claude / ChatGPT manually. Subscription paths give you predictable cost (the monthly subscription price, no surprises) but unpredictable headroom (limits aren't published in detail and Anthropic / OpenAI tune them).
+
+### What about local models (Option 5)?
+
+Free at the API layer -- you only pay for the electricity and hardware to run the model. The trade-off is quality (smaller models miss more nuance) and hardware investment (a strong local model needs serious VRAM).
+
+### Concrete recommendation if cost matters
+
+1. Set a hard billing limit on your Anthropic or OpenAI account at a number you're comfortable with (e.g., $25/month) **before** plugging the API key in.
+2. Run for the first month and watch the actual usage in your provider's billing dashboard.
+3. Adjust: pick a cheaper model, scale back AI chat usage, or move to a subscription path if you find you're hitting your limit.
+
+This is more honest than us guessing for you. AI pricing moves; your usage patterns are personal; the only number that matters is what *you* spend.
+
 ## How to choose -- detailed
 
 The Quick pick section at the top of this page covers the common cases. For the longer version:

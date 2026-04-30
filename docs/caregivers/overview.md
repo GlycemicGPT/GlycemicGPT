@@ -14,9 +14,9 @@ GlycemicGPT supports a caregiver model for any trusted relationship: parents man
 When you link a caregiver to your account, they get their own GlycemicGPT account with limited access to your data:
 
 - **View your dashboard** (read-only) -- they see your glucose, TIR, IoB, recent activity, but cannot change settings or delete data
-- **Receive escalated alerts** -- if you don't acknowledge a critical alert (urgent low, sustained high) within a configured time window, the alert escalates to your caregiver
-- **Read your daily briefs** (if you've enabled brief sharing)
-- **Ask the AI questions about your data** *(coming in ROADMAP §Phase 2 -- not in the platform today)*
+- **Receive escalated alerts** -- if you don't acknowledge a critical alert (urgent-low, urgent-high, etc.) within a configured time window, the alert escalates to your caregiver
+- **Read your daily briefs** (planned permission toggle -- the per-permission control for briefs is roadmap; see [issue #521](https://github.com/GlycemicGPT/GlycemicGPT/issues/521) for the related caregiver-onboarding overhaul)
+- **Ask the AI questions about your data** *(coming in ROADMAP §Phase 2 -- the permission toggle exists in the data model as `can_view_ai_suggestions` but the AI-as-caregiver flow is not in the platform today)*
 
 What a caregiver **cannot do**:
 
@@ -51,9 +51,9 @@ For caregivers who'd benefit from always-on access (e.g., a parent who needs to 
 
 ## Can caregivers manage multiple patients?
 
-Yes. A single caregiver account on a platform can be linked to multiple patient accounts. This is the typical setup for a parent of multiple children with type 1, or a partner who supports two family members.
+The data model supports this -- a single caregiver account can be linked to multiple patient accounts at the API level, the typical setup for a parent of multiple children with type 1 or a partner supporting two family members.
 
-The caregiver dashboard shows a patient picker; they pick whose data they're looking at right now.
+> **Note on UI status:** the caregiver-side patient-picker UI for switching between linked patients is **not yet shipped**. Today, multi-patient support works at the API and data-model level but the dashboard doesn't have a polished switcher control. The full caregiver-flow overhaul tracking the missing UI pieces is in [issue #521](https://github.com/GlycemicGPT/GlycemicGPT/issues/521).
 
 ## Can a patient have multiple caregivers?
 
@@ -75,7 +75,7 @@ A caregiver linking to your account does not give them access to:
 
 Caregiver-provided context (e.g., a caregiver responds to an escalated alert with "stressful day at work today") is logged transparently in your data -- nothing the caregiver tells the AI about you is hidden from you. This is a load-bearing principle of the caregiver model: collaborative care, not surveillance.
 
-See [ROADMAP.md](../../ROADMAP.md) §Phase 2 Multi-Session Caregiver Escalation for the planned evolution of caregiver features.
+See [ROADMAP.md](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/ROADMAP.md) §Phase 2 Multi-Session Caregiver Escalation for the planned evolution of caregiver features.
 
 ## Revoking a caregiver
 

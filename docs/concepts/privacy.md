@@ -7,7 +7,7 @@ GlycemicGPT is a privacy-first project. This page is the honest version: where y
 
 ## What "privacy-first" means in practice
 
-The project's [Privacy-First guiding principle](../../ROADMAP.md) states:
+The project's [Privacy-First guiding principle](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/ROADMAP.md) states:
 
 > User health data stays on user-controlled infrastructure. The platform does not phone home, collect telemetry, transmit data to GlycemicGPT or any third party, or use user data to train AI models.
 

@@ -46,20 +46,13 @@ If this is your first caregiver, you'll see an empty list with a **Invite caregi
 
 ### 2. Click "Invite caregiver"
 
-A form appears. Fill in:
+A simple form appears. You give the invitation a label (so you remember who it's for -- "Mom," "school nurse," etc.) and the platform generates a one-time invitation code. The code is valid for 7 days; if the caregiver doesn't accept it in that window, you'll need to generate a new one.
 
-- **Caregiver's name (or label)** -- so you remember who this invitation is for. Examples: "Mom," "Dr. Smith's nurse," "school nurse."
-- **Their email** -- the address they'll use to sign in to GlycemicGPT
-- **Permissions** -- pick what they can see and do:
-  - **View dashboard** (read-only)
-  - **Receive escalated alerts** -- they get alert notifications when you don't acknowledge urgent alerts in time
-  - **Read daily briefs**
-  - **Ask AI questions about my data** *(coming in a future release; reserved checkbox today)*
-- **Escalation window** (only applies if alert escalation is on) -- how long after an unacknowledged alert before it escalates to this caregiver. Default 15 minutes.
+> **Note:** today the invitation form does not let you pre-set the caregiver's permissions. Permissions are configured **after** the caregiver accepts and the link is established (Step 6 below). The caregiver-onboarding overhaul tracked in [issue #521](https://github.com/GlycemicGPT/GlycemicGPT/issues/521) will eventually allow setting permissions during invitation.
 
-### 3. Generate the invitation code
+### 3. The invitation code is generated
 
-Click **Generate invitation**. The platform creates a one-time-use code -- a long random string. The code is valid for 7 days; if the caregiver doesn't accept it in that window, you'll need to generate a new one.
+The platform produces a one-time-use code -- a long random string -- as soon as you confirm the invitation.
 
 ### 4. Share the code
 
@@ -84,6 +77,18 @@ You'll see the invitation status in **Settings → Caregivers**:
 
 You can revoke a pending invitation at any time -- click it and choose **Cancel invitation**.
 
+### 6. Configure permissions (after the caregiver accepts)
+
+Once the link is **Active**, click the caregiver in **Settings → Caregivers** to set what they can see:
+
+- **View glucose / history / IoB** (read-only data access)
+- **Receive escalated alerts** -- they get notifications when you don't acknowledge in time
+- **View AI suggestions** *(reserved permission today; the AI-as-caregiver flow is on the roadmap)*
+
+You can change these at any time without re-inviting them.
+
+> **Per-caregiver brief sharing** is a planned permission toggle but not in today's UI; once the caregiver-onboarding overhaul ([issue #521](https://github.com/GlycemicGPT/GlycemicGPT/issues/521)) lands, briefs will be a separately-toggled permission.
+
 ## Caregiver side: accepting the invitation
 
 These steps are done by the caregiver, with the invitation code in hand.
@@ -106,9 +111,9 @@ Paste the invitation code the patient gave you. The platform validates it and cr
 
 ### 4. You're now a caregiver
 
-Your dashboard shows the patient(s) you have access to. If you're a caregiver for multiple patients, a patient picker lets you switch between them.
+Your dashboard shows the patient's data you have access to.
 
-If you only have caregiver access to one patient, the dashboard goes straight to their data.
+> **Multi-patient caregivers:** the data model supports a single caregiver linked to multiple patients, but the dashboard's patient-picker UI for switching between linked patients is still on the way (tracked under [issue #521](https://github.com/GlycemicGPT/GlycemicGPT/issues/521)). If you're a caregiver for multiple patients today, you may need to use multiple browser sessions or wait for the picker to land.
 
 ## After linking: ongoing management
 

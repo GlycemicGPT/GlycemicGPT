@@ -494,7 +494,7 @@ Detailed device-connection walkthroughs are in [Daily Use](../daily-use/connecti
 
 Docker Compose is the right choice for most users. Use Kubernetes only if you already run a homelab or production Kubernetes cluster and prefer to deploy GlycemicGPT alongside your other workloads. See [Install with Kubernetes](./kubernetes.md).
 
-A one-click managed deploy (Railway, Fly.io) is on the roadmap -- see [ROADMAP.md](../../ROADMAP.md) §Phase 4.
+A one-click managed deploy (Railway, Fly.io) is on the roadmap -- see [ROADMAP.md](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/ROADMAP.md) §Phase 4.
 
 ## Troubleshooting
 

@@ -11,10 +11,10 @@ You've set up alerts (or daily briefs) and they're not showing up the way you ex
 
 In the dashboard:
 
-- **Alerts** -- **Settings → Alerts**. Make sure the threshold for the alert type you expected is enabled and set to a sensible value.
-- **Briefs** -- **Settings → Briefs**. Make sure frequency is set (daily / weekly) and a generation time is selected.
+- **Alerts** -- **Settings → Alerts**. Make sure the threshold for the alert type you expected is set to a sensible value. Today's alert types are low / urgent-low / high / urgent-high / IoB warning.
+- **Briefs** -- **Settings → Briefs**. Make sure briefs are enabled and a generation time is selected. (Briefs are daily today; weekly is a roadmap item.)
 
-If you're not sure whether an alert *should* have fired, check **Activity → Alerts** for the recent alert history. If the platform fired it but you didn't receive it, the issue is delivery (Step 3 below). If the platform didn't fire it at all, the threshold or condition isn't being met.
+If you're not sure whether an alert *should* have fired, check **Dashboard → Alerts** for the recent alert history. If the platform fired it but you didn't receive it, the issue is delivery (Step 3 below). If the platform didn't fire it at all, the threshold or condition isn't being met.
 
 ## Step 2: Is the AI provider working? (Briefs only)
 
@@ -35,9 +35,9 @@ Open **Settings → Communications**. Each channel has a status indicator. Most 
 - **The mobile app must be installed and signed in** for push to work. Confirm in the app: open it, you should see your dashboard. If it's signed out, sign in -- push registers on sign-in.
 - **Battery optimization is killing the app.** Android aggressively shuts down background apps to save battery -- a known cause of missed alerts. Exempt GlycemicGPT in Settings → Battery → Battery optimization → GlycemicGPT → Don't optimize.
 - **Notification permission is off.** On Android 13+, notifications require explicit permission. In phone Settings → Apps → GlycemicGPT → Notifications → make sure it's allowed.
-- **Do Not Disturb is active.** Both the OS-level Do Not Disturb and any in-app quiet hours suppress non-urgent alerts. Urgent-low alerts always fire regardless.
+- **Do Not Disturb is active.** OS-level Do Not Disturb on your phone suppresses notifications. Check that GlycemicGPT is in any "allowed during DND" exception list, or temporarily disable DND when troubleshooting.
 
-To rule the app out: trigger a test alert from **Settings → Alerts → Send test alert**. If the test arrives, the channel works and your real alert configuration is the issue. If the test doesn't arrive, the channel itself is broken.
+> Note: there's no built-in "send test alert" button today. If you need to verify your channel is working end-to-end, the practical test is temporarily lowering your high-warning threshold below your current glucose value, waiting for the next polling cycle, and seeing if the alert arrives. Restore your real threshold afterward.
 
 ### Telegram alerts aren't arriving
 
@@ -50,15 +50,14 @@ To rule the app out: trigger a test alert from **Settings → Alerts → Send te
 - **The dashboard tab needs to be open.** In-app banners are delivered through the open dashboard session. If you closed the tab, push or Telegram are the channels that can still reach you.
 - **The browser may be blocking the persistent connection.** Try a different browser to rule it out.
 
-## Step 4: Quiet hours, cooldowns, and escalation windows
+## Step 4: Deduplication window and escalation timing
 
 A surprising number of "missing alerts" are actually working as configured -- just not the way the user remembered configuring them:
 
-- **Quiet hours** in **Settings → Alerts** suppress non-urgent alerts during the configured window. Urgent-low alerts always fire.
-- **Cooldown** between alerts of the same type prevents repeated notifications. If you got an alert 10 minutes ago and the cooldown is 30 minutes, a second condition won't re-fire.
-- **Escalation window** delays caregiver delivery. If you set escalation to 15 minutes and acknowledge the alert in 12 minutes, the caregiver never gets it (this is intentional -- so the caregiver isn't pinged for false alarms).
+- **Deduplication window** -- the platform suppresses repeats of the same alert type within a 30-minute window. If you got an alert 10 minutes ago and the same condition is still active, a second one won't fire. (This window is currently global, not configurable per alert type.)
+- **Escalation timing** -- caregiver delivery is delayed by the configured tier delays. Defaults: reminder at 5 min, primary contact at 10 min, all contacts at 20 min after the original alert. If you acknowledge before the relevant tier fires, the caregiver never gets pinged (this is intentional -- so the caregiver isn't pinged for false alarms). Configure under **Settings → Alerts**.
 
-Open **Settings → Alerts** and confirm the values match your expectations.
+Note: quiet-hours / time-window suppression is **not implemented today** -- if you set a high-warning to 180 mg/dL it will fire whenever you're above 180, regardless of time of day. Quiet hours are on the roadmap.
 
 ## Step 5: Brief never appeared
 
@@ -82,4 +81,4 @@ Plus:
 - Which alert / brief you expected
 - When you expected it
 - What channel you expected to receive it on
-- Whether a test alert (Settings → Alerts → Send test alert) arrives
+- The result of the temporary-threshold test described in Step 3 (did the manually-triggered alert arrive)

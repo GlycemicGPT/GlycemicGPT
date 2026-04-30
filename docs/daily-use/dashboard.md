@@ -17,8 +17,9 @@ The dashboard has several main areas:
 - **Time in Range (TIR)** -- five-bucket breakdown of how your glucose has been distributed
 - **Insulin on Board (IoB)** -- how much active insulin is in your system
 - **Insulin summary** -- bolus / basal breakdown, recent insulin events
-- **Pump status** -- battery, reservoir, basal rate (if you have a pump connected)
-- **Recent activity** -- a chronological feed of glucose readings, boluses, alerts, and AI insights
+- **Pump status** -- battery, reservoir, basal rate (rendered inline in the glucose hero card when a pump is connected)
+- **Bolus review** -- a tabular view of recent insulin events
+- **Connection status banner** at the top, showing whether the platform is currently receiving data
 
 The exact arrangement depends on your screen size -- on phones it stacks vertically, on larger screens it spreads out.
 
@@ -77,7 +78,7 @@ If you have a Tandem pump connected, GlycemicGPT reads IoB directly from the pum
 
 ## Pump status
 
-Visible only when you have a pump connected. Cards show:
+Pump information (battery, reservoir, basal rate, IoB) renders inline in the glucose hero card when your pump is connected and reporting:
 
 - **Battery** -- the pump's remaining battery percentage
 - **Reservoir** -- how much insulin is left in the cartridge / pod
@@ -85,26 +86,25 @@ Visible only when you have a pump connected. Cards show:
 
 If any of these are missing or stale, the data flow from your pump has likely stalled -- see [BG isn't updating](../troubleshooting/bg-not-updating.md).
 
-## Recent activity
+## Bolus review
 
-A chronological feed of what's been happening:
-
-- New glucose readings as they come in
-- Boluses you delivered (read from your pump)
-- Alerts that fired
-- AI insights / daily briefs
-
-The feed updates in real time -- you don't need to refresh.
+A tabular view of recent insulin events -- when each bolus was delivered, how much, and whether it was a manual bolus or a Control-IQ correction.
 
 ## Period selector
 
-Most cards (TIR, the chart) have a period selector: 24h, 7 days, 30 days. Note: time periods longer than what the platform has actually collected will show only the data that's there. If you only started running GlycemicGPT yesterday, picking "30 days" will show that one day of data over a 30-day axis -- the rest will appear empty until your platform fills in over time. This isn't a bug; the platform can't show what it hasn't received yet.
+Different cards offer different period ranges:
+
+- **TIR bar / glucose chart** -- 24h / 3 days / 7 days / 14 days / 30 days
+- **CGM summary stats** -- selectable window (matches your TIR selection)
+- **AGP chart** -- 7 days / 14 days / 30 days / 90 days
+
+Time periods longer than what the platform has actually collected will show only the data that's there. If you only started running GlycemicGPT yesterday, picking "30 days" on the TIR bar will show that one day of data; the rest of the window appears empty until your platform fills in over time. This isn't a bug; the platform can't show what it hasn't received yet.
 
 ## Printing reports for your endocrinologist
 
-Click **Reports** in the navigation to generate a printable summary for an endocrinologist appointment. You can pick the date range; the report includes Time in Range, glucose statistics, and key patterns the AI surfaced.
+A clinical-style printable report exists today; access it from **Settings → Data → Reports**. You can pick a date range; the generated report includes Time in Range, glucose statistics, and key patterns. (A direct **Reports** link in the main sidebar is on the roadmap; today the entry point is under Settings → Data.)
 
-> The dashboard already shows an [AGP chart](#agp-chart) (the standardized clinical visualization). What's still on the roadmap is a **printable / exportable AGP-format report** in the standard PDF format clinicians sometimes print. If your endo specifically wants the standard AGP PDF, today the easier path is generating it from [Tidepool](https://www.tidepool.org/), Dexcom Clarity, or LibreView -- which all produce it in the standard format. We expect to close this gap; tracking in [ROADMAP.md](../../ROADMAP.md).
+> The dashboard already shows an [AGP chart](#agp-chart) (the standardized clinical visualization). What's still on the roadmap is a **printable / exportable AGP-format report** in the standard PDF format clinicians sometimes print. If your endo specifically wants the standard AGP PDF, today the easier path is generating it from [Tidepool](https://www.tidepool.org/), Dexcom Clarity, or LibreView -- which all produce it in the standard format. We expect to close this gap; tracking in [ROADMAP.md](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/ROADMAP.md).
 
 ## A few honest reminders
 

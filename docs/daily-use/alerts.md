@@ -1,24 +1,29 @@
 ---
 title: Configuring Alerts
-description: Get notified when your glucose crosses a threshold or a pattern breaks.
+description: Get notified when your glucose crosses a threshold, with optional caregiver escalation.
 ---
 
 GlycemicGPT can alert you when your glucose crosses thresholds you set, and (if you've linked a caregiver) escalate to them when you don't respond.
 
 > **Alerts are not a substitute for your CGM's own alerts.** Your CGM device's native alerts run on the device itself and don't depend on the platform being up, the network being available, or your phone being charged. Always keep CGM alerts enabled. GlycemicGPT alerts are a supplement, not a replacement.
 
-## What you can set alerts for
+## Alert types today
 
 In the dashboard, **Settings → Alerts** has thresholds for:
 
-- **Low glucose** -- glucose below your low threshold
-- **Urgent low glucose** -- glucose below an urgent-low threshold (typically 55 mg/dL or below)
-- **High glucose** -- glucose above your high threshold
-- **Sustained high** -- glucose stays above a threshold for a configured duration
-- **Stale data** -- no glucose readings for longer than expected (CGM disconnect, sensor issue)
-- **Predictive alerts** -- glucose is trending toward a threshold based on the current rate of change *(coming in ROADMAP §Phase 4)*
+- **Low glucose** (warning) -- glucose at or below your low threshold (default 70 mg/dL)
+- **Urgent low glucose** -- glucose at or below your urgent-low threshold (default 55 mg/dL)
+- **High glucose** (warning) -- glucose at or above your high threshold (default 180 mg/dL)
+- **Urgent high glucose** -- glucose at or above your urgent-high threshold (default 250 mg/dL)
+- **IoB warning** -- insulin-on-board exceeds a configurable safety threshold
 
-For each, you can set the threshold value and the cooldown (how long between repeated alerts for the same condition).
+You can set the threshold value for each. Alert types not yet shipped (and how to track them):
+
+- **Sustained-high alerts** (e.g., "above target for 90 minutes") -- on the roadmap, not in today's alert types
+- **Stale-data alerts** ("no readings for 30 minutes") -- on the roadmap, not in today's alert types
+- **Predictive alerts** (trajectory-based "you'll be low in 15 minutes") -- on the roadmap, see [ROADMAP.md](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/ROADMAP.md) §Phase 4
+- **Per-alert-type cooldown configuration** -- the platform applies a global 30-minute deduplication window between repeats of the same alert type today; making this configurable per type is a future enhancement
+- **Quiet hours / time-window suppression** -- not implemented today; on the roadmap
 
 ## Where alerts are delivered
 
@@ -26,57 +31,57 @@ Multiple channels can be configured under **Settings → Communications**:
 
 | Channel | Best for | Notes |
 |---|---|---|
-| In-app banner | When you're using the dashboard | Always available |
+| In-app banner | When you're using the dashboard | Always available; delivered via Server-Sent Events to the open dashboard |
 | Push notifications (Android app) | When you're not actively in the app | Requires the [mobile app](../mobile/install.md) installed and signed in |
 | Telegram | If you prefer Telegram for notifications | Requires a Telegram bot configured -- alpha feature today |
 
-You can pick which channels each alert type uses. Some users want urgent lows on every channel, sustained highs only in-app, and so on.
+You can pick which channels each alert type uses. Some users want urgent lows on every channel, less-urgent alerts only in-app, and so on.
 
 ## Caregiver escalation
 
-If you've [linked a caregiver](../caregivers/linking-to-patient.md), alerts can escalate to them when you don't acknowledge an alert within a configured time window. The default escalation flow:
+If you've [linked a caregiver](../caregivers/linking-to-patient.md), alerts can escalate to them when you don't acknowledge an alert within a configured time window. The escalation flow has three tiers:
 
-1. Alert fires -- you get notified on your selected channels
-2. You either acknowledge it (tap "I'm OK" or similar) or it sits there
-3. If you don't acknowledge within the escalation window (configurable, default 15 minutes), the caregiver gets the alert with full context (the threshold that was crossed, the current value, how long it's been low, your recent history)
+1. **Reminder** (default 5 minutes after the alert fires) -- the platform reminds *you* to acknowledge
+2. **Primary contact** (default 10 minutes) -- if you still haven't acknowledged, your designated primary caregiver gets notified
+3. **All contacts** (default 20 minutes) -- if still no acknowledgment, all linked caregivers with escalation permission get notified
 
-Escalation is configured per-alert-type. You can choose to skip escalation for less-urgent alerts (sustained high) and only escalate the urgent ones (urgent low).
+Each tier's delay is configurable per user (Settings → Alerts → Escalation timing). Escalation is configured per-alert-type -- you can disable escalation for the less-urgent types and keep it on for urgent-low.
 
-## Quiet hours
-
-You can set quiet hours in **Settings → Alerts → Quiet hours**. During quiet hours, non-urgent alerts are suppressed. Urgent-low alerts always fire regardless of quiet hours -- you cannot disable urgent-low alerts during quiet hours, by design.
+The escalation message itself is intentionally brief -- patient identifier, what triggered the alert, current glucose, severity. See [Receiving alerts as a caregiver](../caregivers/receiving-alerts.md) for the caregiver side.
 
 ## Acknowledging alerts
 
 When an alert fires, the in-app banner or notification has an **Acknowledge** button. Tapping it:
 
-- Stops the alert from re-firing for the configured cooldown
-- Stops the escalation timer (if configured)
+- Stops the escalation timer (so caregivers don't get pinged)
 - Logs the acknowledgment for the daily brief / patterns
+- Marks the alert as resolved in your alert history
+
+You can see the recent alert history at **Dashboard → Alerts**.
 
 ## Why is my alert not firing?
 
 Common causes:
 
 - **Threshold isn't crossing** -- check your dashboard chart. Did the actual glucose value cross the threshold you set?
-- **Cooldown active** -- if the same alert fired recently, the cooldown is suppressing repeats
+- **Deduplication window** -- if the same alert type fired in the last 30 minutes, the platform suppresses the repeat
 - **Channel not configured** -- check **Settings → Communications**
 - **Mobile app not signed in / running** -- push notifications require the app
 - **Telegram bot not configured** -- if you set Telegram as a channel but never finished the bot setup
 
-For pattern-based alerts (sustained high, etc.), the alert needs continuous data to evaluate the pattern. If your CGM had a gap during the trigger window, the platform may not fire.
+See [Alerts or briefs aren't firing](../troubleshooting/alerts-or-briefs-not-firing.md) for the full troubleshooting walkthrough.
 
 ## Why am I getting too many alerts?
 
-Aggressive thresholds or short cooldowns are the usual cause. Tune them in **Settings → Alerts**:
+Aggressive thresholds are the usual cause. Tune them in **Settings → Alerts**:
 
-- Increase the threshold (e.g., high alert at 200 mg/dL instead of 180)
-- Increase the cooldown (e.g., 30 minutes instead of 10) so the same condition doesn't re-fire constantly
-- Move some alerts off your most-distracting channel (e.g., move sustained-high to in-app only, leave urgent-low on push)
+- Raise the high-warning threshold (e.g., 200 mg/dL instead of 180) so it fires less often
+- Move some alert types off your most-distracting channel (e.g., move high-warning to in-app only, leave urgent-low on push)
+- Adjust caregiver escalation timing so you have more breathing room before a caregiver gets pinged
 
 ## Alerts and your healthcare provider
 
-When you talk with your endocrinologist about your alert thresholds, the platform can include alert history in your printable reports -- they can see when alerts fired and how you responded. This is in **Reports** (the printable PDF you can take to appointments).
+When you talk with your endocrinologist about your alert thresholds, the platform can include alert history in your printable reports -- they can see when alerts fired and how you responded. Reports are accessible today from **Settings → Data → Reports**.
 
 ## Privacy
 

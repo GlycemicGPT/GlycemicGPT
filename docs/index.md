@@ -17,11 +17,11 @@ GlycemicGPT has three pieces that work together:
 2. **The Android companion app** -- runs on your phone. It connects to your insulin pump over Bluetooth and forwards data to the platform.
 3. **An AI provider** -- GlycemicGPT does not host AI itself. You bring your own. The simplest option is using a Claude or ChatGPT subscription you already pay for; other options exist too. See [BYOAI](./concepts/byoai.md) for the full picture and how to choose.
 
-Setup wires these together so they talk to each other. Each piece has a specific job: the phone app gets pump data into the platform; the AI provider answers your chat questions; the platform pulls everything together and shows it to you. (As the project evolves, other ways of connecting these may become available -- see [ROADMAP.md](../ROADMAP.md).)
+Setup wires these together so they talk to each other. Each piece has a specific job: the phone app gets pump data into the platform; the AI provider answers your chat questions; the platform pulls everything together and shows it to you. (As the project evolves, other ways of connecting these may become available -- see [ROADMAP.md](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/ROADMAP.md).)
 
 A Wear OS watch face is also available but **optional**.
 
-> **iPhone users:** the web dashboard, AI chat, daily briefs, alerts, and Dexcom integration all work fine in iPhone Safari -- no Android phone needed for any of that. The Android companion app is only required for **live Bluetooth pump data**. If you don't have a pump (or you're fine with cloud-only pump data via t:connect), an iPhone alone covers most of what GlycemicGPT does. iOS companion app support is on the [roadmap](../ROADMAP.md).
+> **iPhone users:** the web dashboard, AI chat, daily briefs, alerts, and Dexcom integration all work fine in iPhone Safari -- no Android phone needed for any of that. The Android companion app is only required for **live Bluetooth pump data**. If you don't have a pump (or you're fine with cloud-only pump data via t:connect), an iPhone alone covers most of what GlycemicGPT does. iOS companion app support is on the [roadmap](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/ROADMAP.md).
 
 If a family member, friend, or other trusted person needs visibility into the platform too -- to receive escalated alerts, view your dashboard, or otherwise help support your care -- GlycemicGPT supports a [caregiver model](./caregivers/overview.md). Caregivers get their own opt-in, read-only access to your data on your platform.
 
@@ -89,7 +89,7 @@ The honest matrix. "Verified" means daily-tested on real hardware; "expected to 
 
 For Tandem users: the Bluetooth and cloud paths complement each other -- Bluetooth gives live data, cloud fills in history. Most people end up using both. See [Connecting Your Tandem Pump](./daily-use/connecting-tandem-cloud.md).
 
-If your device isn't here today, the path forward is usually [Nightscout integration (Phase 2)](./concepts/relationship-to-other-tools.md#nightscout) -- once that lands, anything that flows into Nightscout flows into GlycemicGPT. See [ROADMAP.md](../ROADMAP.md) for the full picture.
+If your device isn't here today, the path forward is usually [Nightscout integration (Phase 2)](./concepts/relationship-to-other-tools.md#nightscout) -- once that lands, anything that flows into Nightscout flows into GlycemicGPT. See [ROADMAP.md](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/ROADMAP.md) for the full picture.
 
 ## What's distinctive
 
@@ -117,7 +117,7 @@ What it shares with the existing OSS tools (table stakes; not novel):
 
 GlycemicGPT itself is free and open source. The platform, the Android app, and the watch face all cost nothing. You will, though, end up paying for some pieces of what makes it work:
 
-- **An AI provider.** This is the only meaningful recurring cost. If you already pay for [Claude](https://claude.ai) (Pro / Max) or [ChatGPT](https://chat.openai.com) (Plus / Team), you can plug that in and pay nothing extra. If you use Anthropic or OpenAI API keys directly instead, expect a few cents to a few dollars a month for typical use. Running a local model (e.g. Ollama) is free but requires a beefier computer.
+- **An AI provider.** This is the only meaningful recurring cost, and it can vary widely. If you already pay for [Claude](https://claude.ai) (Pro / Max) or [ChatGPT](https://chat.openai.com) (Plus / Team), you can plug that in and pay nothing extra -- subscription tiers cap your cost at the monthly subscription price. If you use Anthropic or OpenAI **API keys** directly, you pay per token used; daily AI briefs and active AI chat sessions can add up. The project has not yet measured typical costs in a publishable way; we recommend setting a billing limit on your provider account and watching the first month. See [BYOAI -- realistic cost ranges](./concepts/byoai.md#realistic-cost-ranges) for an honest discussion. Running a local model is free but requires a beefier computer.
 - **A computer to run the platform on.** A laptop or desktop you already own is fine. If you'd rather not leave your laptop on all the time, a small always-on machine (mini-PC, Raspberry Pi, NAS, or a $5-10/month cloud server) covers it.
 - **(Optional) A domain name** if you want a friendly URL like `glucose.yourname.com` for accessing the platform from anywhere. Around $10-15/year. Not required if you only use it on your home network.
 
@@ -131,7 +131,7 @@ GlycemicGPT is **alpha software** in active development. It's functional and in 
 
 - **Discord** -- [join the community](https://discord.gg/QbyhCQKDBs) for real-time chat, questions, and project discussion
 - **GitHub** -- [GlycemicGPT/GlycemicGPT](https://github.com/GlycemicGPT/GlycemicGPT)
-- **Roadmap** -- [where the project is going](../ROADMAP.md)
-- **Contributing** -- [Contributing Guide](../CONTRIBUTING.md)
-- **Governance** -- [how the project is run](../GOVERNANCE.md)
+- **Roadmap** -- [where the project is going](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/ROADMAP.md)
+- **Contributing** -- [Contributing Guide](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/CONTRIBUTING.md)
+- **Governance** -- [how the project is run](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/GOVERNANCE.md)
 - **Acknowledgments** -- [the projects this one stands on](./concepts/acknowledgments.md)

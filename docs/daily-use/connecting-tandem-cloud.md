@@ -109,7 +109,7 @@ The pull direction must be configured first (the upload reuses the same credenti
 
 ### Future: pump-report-only configuration
 
-A future direction (not implemented today) is to allow users who *don't* want a direct pump integration at all to instead configure GlycemicGPT to ingest the pump reports they manually generate from t:connect (PDF / CSV exports). This would let GlycemicGPT analyze pump history for users who want to keep their pump data flow entirely separate from a real-time integration. Track this in [ROADMAP.md](../../ROADMAP.md).
+A future direction (not implemented today) is to allow users who *don't* want a direct pump integration at all to instead configure GlycemicGPT to ingest the pump reports they manually generate from t:connect (PDF / CSV exports). This would let GlycemicGPT analyze pump history for users who want to keep their pump data flow entirely separate from a real-time integration. Track this in [ROADMAP.md](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/ROADMAP.md).
 
 ## Privacy
 

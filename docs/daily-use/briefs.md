@@ -3,7 +3,7 @@ title: Daily Briefs
 description: AI-generated summaries of your day, automatically.
 ---
 
-A daily brief is an AI-generated summary of what happened with your glucose, insulin, and patterns over the past day (or week, or other configured interval). They show up in your dashboard automatically -- you don't have to ask for them.
+A daily brief is an AI-generated summary of what happened with your glucose, insulin, and patterns over the past day. Today briefs run on a daily cadence; weekly / longer cadences are a roadmap item but not shipped yet. They show up in your dashboard automatically -- you don't have to ask for them.
 
 > **Briefs are informational summaries, not medical advice.** They highlight patterns the AI noticed -- often things worth discussing with your healthcare provider. They are not a clinical assessment.
 
@@ -25,17 +25,19 @@ Briefs are written in plain language, not clinical jargon -- they're meant to be
 
 You configure this in **Settings → Briefs**:
 
-- **Frequency** -- daily, weekly, or both
+- **Enable / disable** the daily brief
 - **Time of day** -- when the daily brief gets generated (default: morning)
-- **Delivery channels** -- in-app only, push notification, or Telegram (if configured)
+- **Timezone** -- so the time-of-day setting reflects your local time
+- **Delivery channel** -- in-app (web only), Telegram (if configured), or both
 
 If the brief is set to "morning" and there's no glucose data for the previous day, the brief will say so -- the AI can't summarize what isn't there.
 
 ## Where to read them
 
 - **In the dashboard** -- a Briefs panel on the home screen and a dedicated page
-- **Push notification** (if enabled) -- a short summary, click to read the full brief in the app
 - **Telegram** (if configured) -- the full brief delivered as a message
+
+> Note on push notifications: brief delivery to a phone via push notification (rather than Telegram) is a roadmap item, not shipping today. If you want briefs on your phone today, the path is Telegram.
 
 ## Manually generating a brief
 
@@ -82,4 +84,4 @@ Same root causes as any AI quality issue:
 - **Smaller models hallucinate more** -- using a premium model (Claude Opus, GPT-4-class) gives sharper briefs
 - **The AI just gets it wrong sometimes** -- AI is not infallible. Use briefs as starting points for conversations with your endo, not gospel.
 
-A hallucination-feedback mechanism (so you can flag a bad brief and have it regenerated from a fresh session) is on the roadmap -- see [ROADMAP.md](../../ROADMAP.md) §Phase 1 AI Engine 2.0.
+A hallucination-feedback mechanism (so you can flag a bad brief and have it regenerated from a fresh session) is on the roadmap -- see [ROADMAP.md](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/ROADMAP.md) §Phase 1 AI Engine 2.0.

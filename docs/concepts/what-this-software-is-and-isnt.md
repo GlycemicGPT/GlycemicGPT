@@ -51,7 +51,7 @@ The platform does not transmit telemetry, analytics, or any data to GlycemicGPT'
 - Goes to your configured AI provider when you chat with the AI (Claude, OpenAI, your local Ollama -- whichever you set up). The provider sees your messages, like any other AI service. The provider has their own retention and training policies; the project does not control those.
 - Goes to your Cloudflare or VPS provider if you've deployed it there (they see encrypted HTTPS traffic, same as any web service)
 
-The platform is also explicit, as a load-bearing project commitment: **no user data is used to train AI models**. This is documented in [Privacy](./privacy.md) and in the project's [Privacy-First guiding principle](../../ROADMAP.md).
+The platform is also explicit, as a load-bearing project commitment: **no user data is used to train AI models**. This is documented in [Privacy](./privacy.md) and in the project's [Privacy-First guiding principle](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/ROADMAP.md).
 
 ### The mobile app is not a closed-loop interface
 
@@ -94,4 +94,4 @@ If you want closed-loop, use Loop or AAPS. If you want monitoring + AI chat over
 
 ## What about the future?
 
-The [project roadmap](../../ROADMAP.md) lays out where things are going. The monitoring-only stance is permanent for the project's first-party releases. Major near-term items: more device support, integrations with platforms like Nightscout, mobile app refinement, behavioral pattern detection (still in monitoring/analysis territory). Closed-loop is explicitly out of scope.
+The [project roadmap](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/ROADMAP.md) lays out where things are going. The monitoring-only stance is permanent for the project's first-party releases. Major near-term items: more device support, integrations with platforms like Nightscout, mobile app refinement, behavioral pattern detection (still in monitoring/analysis territory). Closed-loop is explicitly out of scope.

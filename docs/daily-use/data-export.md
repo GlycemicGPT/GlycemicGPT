@@ -14,13 +14,14 @@ GlycemicGPT runs on infrastructure you control, and "self-hosted" doesn't mean m
 In **Settings → Data → Export**, you can download CSVs for:
 
 - **Glucose readings** (timestamps + values + source)
-- **Insulin events** (boluses, basal changes, IoB snapshots)
-- **Pump status snapshots** (battery, reservoir, basal rate over time)
-- **Alerts** that fired
-- **AI chat history** (messages and AI responses)
+- **Pump events** (boluses, basal changes, Control-IQ corrections)
 - **Daily briefs**
+- **Alerts** that fired
+- **Meal analyses, correction analyses, suggestion responses, safety logs** (analytical artifacts the platform stores)
 
-You can pick a date range. Exports are point-in-time -- there is no scheduled / recurring export today.
+Exports are point-in-time -- there is no scheduled / recurring export today, and the export UI doesn't yet offer a date-range filter (date filtering is on the roadmap).
+
+> Note: **AI chat history** is *not* in the per-table CSV exports today. To get your chat history out, use the full database dump path described below.
 
 CSVs are not a structured clinical format -- they are simple tables suitable for opening in spreadsheet software, importing into Python / R, or ingesting into your own pipeline. If you need a structured format, see "Roadmap" below.
 
