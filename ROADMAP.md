@@ -44,6 +44,26 @@ The core platform is live, functional, and in daily use by the project lead.
 
 ---
 
+## Ongoing -- Community Feedback & Bug Fixes
+
+**This is not a phase. It runs perpetually.**
+
+GlycemicGPT is shipped software, used by real people managing real chronic disease, and inevitably has bugs. Listening to early-adopter feedback and fixing the things people actually run into is a permanent project commitment, not a one-time stability push relegated to a single phase.
+
+What this commitment looks like in practice:
+
+- **User-reported bugs are prioritized over speculative work.** A real "this broke for me on Safari" report outranks a roadmap item for a feature nobody has asked for. We finish the bug, then return to phase work.
+- **The bug backlog is public.** All known bugs and broken features live on the [GitHub issue tracker](https://github.com/GlycemicGPT/GlycemicGPT/issues) under the `bug` label. We do not silently archive issues without explanation.
+- **Fix decisions are explained.** When we close an issue as won't-fix, deferred, or duplicate, we say why -- so users can decide whether to escalate, fork, or work around.
+- **Discord support feeds the tracker.** Live problem-solving in the Discord [#support channel](https://discord.gg/QbyhCQKDBs) results in tracker issues for anything reproducible. Problems do not live only on Discord and disappear.
+- **Security and data-loss bugs interrupt phase work.** A bug that loses user data, exposes credentials, breaks the platform's monitoring-only safety stance, or otherwise causes harm gets fixed immediately, regardless of what phase work is in flight.
+
+This commitment applies underneath every phase below. A roadmap that does not include "we will keep fixing what you tell us is broken" is not a credible roadmap. The phased work below describes the project's *direction*; the bug-fix commitment describes its *posture*.
+
+To report a bug: [open an issue](https://github.com/GlycemicGPT/GlycemicGPT/issues/new/choose) with reproduction steps, your deployment environment, and (with sensitive values redacted) relevant log output.
+
+---
+
 ## Phase 1 -- Stability & Trust
 
 **Focus:** Harden the platform, build community confidence, and establish legal and organizational foundations.
@@ -117,10 +137,62 @@ Many people with diabetes already have working setups with established tools. Gl
 
 These integrations follow a no-touch philosophy: GlycemicGPT reads data from your existing platform and runs AI analysis on top of it. It does not modify, control, or interfere with your existing diabetes management setup.
 
+### Pump Report Ingestion (Adoption Path for Users Without Direct Integration)
+
+A meaningful share of pump users -- particularly those not in the closed-loop / DIY-tooling space -- do not want continuous direct device integration. They use their pump's official mobile app, generate official pump reports from the vendor's portal (Tandem t:connect, Omnipod's portal, Medtronic CareLink, etc.), and want a way to get analysis of those reports without changing their day-to-day workflow.
+
+This adoption path lets GlycemicGPT meet those users where they already are.
+
+**The flow:**
+
+1. User deploys the GlycemicGPT backend and turns on the integration for their pump vendor (Tandem, Omnipod, Medtronic, Dana, etc.) from Settings → Integrations
+2. The integration authenticates with the vendor's portal using the user's existing credentials -- the same credentials they use to access their own pump reports
+3. On a configurable schedule (daily by default; configurable from 6h to 7d), GlycemicGPT fetches the official pump reports the vendor publishes -- the same artifacts the user's endocrinologist would receive
+4. The platform parses the reports into the same structured internal data model used by direct integrations (boluses, basal patterns, settings changes, alarms, IoB samples)
+5. Dashboards, AGP views, TIR statistics, and the bolus-review table populate from the parsed report data
+6. The AI engine analyzes the report data, surfaces patterns, and feeds findings into the RAG system so the AI chat can answer questions grounded in the report-derived events
+
+**Why this matters:**
+
+- **Lowers the barrier of entry substantially.** Users do not need to pair their pump to GlycemicGPT's mobile app over Bluetooth, configure cloud-upload impersonation, or modify their existing day-to-day pump workflow at all. They configure the integration once and the platform pulls and analyzes their reports automatically on the schedule they pick.
+- **Reaches users outside the closed-loop community.** Many pump users follow their endocrinologist's recommended workflow (use the official app, share reports at appointments) and have no interest in DIY device integration. This path serves them without asking them to change anything.
+- **Operates as a pure analysis layer.** GlycemicGPT becomes a data-analysis surface on top of the pump vendor's authoritative reports -- spotting trends and surfacing considerations to discuss with the medical team, without changing how data is collected or transmitted.
+- **Adoption-driven growth.** Direct device integration has a high friction floor (BLE pairing, mobile app installation, ongoing maintenance). Pump-report ingestion has a much lower one (configure credentials, done). This is the path most likely to bring new users into the project.
+
+**Initial vendor scope:**
+
+- **Tandem t:connect** -- already partially supported via the existing direct cloud integration; expand to fetch the vendor's published clinician-facing reports rather than just the event stream
+- **Insulet Omnipod** (DASH and 5) -- via the Omnipod portal
+- **Medtronic CareLink** -- via the CareLink portal (Medtronic 5xx / 7xx series)
+- **Dana RS / Dana-i** -- via the SOOIL portal where available
+- **Accu-Chek Combo** -- via Roche's reporting portal where available
+
+Each integration requires reverse-engineering the vendor's report-portal API (similar in shape to the existing Tandem cloud work), which is meaningful per-vendor engineering investment. Vendors are added in priority order driven by community demand and engineering bandwidth.
+
+**Cross-cutting work touched by this path:**
+
+Implementation is not a single feature -- it touches:
+
+- **Storage** -- a unified internal model for report-derived events alongside direct-integration events, so the rest of the platform doesn't need to know the source of each data point
+- **Dashboard rendering** -- treating report-derived data as a first-class data source in glucose / TIR / AGP / bolus-review components
+- **AI engine** -- incorporating report-derived events into RAG and pattern-detection logic so the AI can reason over them the same way it reasons over directly-integrated data
+- **Settings UI** -- per-vendor integration cards with credential entry, schedule configuration, last-sync status, and manual trigger
+- **Background scheduler** -- per-user, per-integration schedule management with backoff handling for vendor-side outages and rate limiting
+- **Logging and operations** -- visibility into what was pulled, when, and any vendor-side errors, with redaction of sensitive payload contents
+
+**Scope and tradeoffs:**
+
+- This path is **lower fidelity than direct integration.** Reports are typically generated daily or on-demand, so dashboard data isn't real-time. Live alerts are not possible from this path alone -- users wanting live alerts continue to need the direct CGM integration (and the direct pump BLE integration if they want live IoB and reservoir).
+- This path is **complementary, not competing,** with direct integration. A common pattern: direct CGM integration for live glucose, report ingestion for the pump side instead of pairing the pump over Bluetooth.
+- Vendor-side report APIs are not officially published. Each integration is reverse-engineered and may break when vendors update their portals -- the same fragility tradeoff documented for the existing Tandem cloud integration.
+
+This path is the **third pillar** of how a user can adopt GlycemicGPT, alongside (1) direct device integration via BLE / cloud and (2) third-party platform relays (Nightscout / Loop / AAPS / xDrip+).
+
 ### Device Data Support Expansion
 
-- Additional CGM data support (Libre, Medtronic Guardian)
-- Additional pump data reading (Omnipod, Medtronic)
+- Additional CGM data support (Libre, Medtronic Guardian, Eversense)
+- **Linx CGM via Pancares cloud** ([#523](https://github.com/GlycemicGPT/GlycemicGPT/issues/523)) -- Linx is a sub-$50 BLE CGM that uploads to the [Pancares cloud platform](https://equil.pancares.com/login), with strong appeal for users in regions where mainstream CGMs are inaccessible or unaffordable. Community-requested. Integration would require reverse-engineering Pancares' cloud API: the auth flow appears to use a clinician-account-issued QR code (`rppId=...`), and the data path between the Linx mobile app and Pancares is not publicly documented. The project is evaluating priority and engineering effort; if you have insight into Pancares' protocol or can contribute reverse-engineering work, please add to the issue thread.
+- Additional **direct pump data reading** drivers via BLE (Omnipod, Medtronic, Dana) -- complementary to the report-ingestion path described in [Pump Report Ingestion](#pump-report-ingestion-adoption-path-for-users-without-direct-integration) above. Direct drivers give live data; report ingestion gives lower-friction adoption.
 - Community plugin development examples and tutorials for device data drivers
 
 ### AI-Enhanced Endo Reports
@@ -250,6 +322,8 @@ These principles guide every decision on the roadmap:
 4. **Meet users where they are.** Integrations with existing platforms (Nightscout, Loop, AAPS, xDrip) are prioritized over requiring users to switch tools. GlycemicGPT should enhance, not replace.
 
 5. **Open source, always.** The platform is GPL-3.0 licensed. The source code is freely available. Community contributions are welcomed and encouraged. Financial transparency is maintained through Open Collective.
+
+6. **Bug fixes are a perpetual commitment.** Listening to early-adopter feedback and fixing real-world bugs is not a phase that ends. User-reported bugs are prioritized over speculative roadmap work. The bug backlog is public on GitHub Issues. Security and data-loss bugs interrupt phase work for immediate fixing. See [Ongoing -- Community Feedback & Bug Fixes](#ongoing----community-feedback--bug-fixes) for the full posture.
 
 ---
 

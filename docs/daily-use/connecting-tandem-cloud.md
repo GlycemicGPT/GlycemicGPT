@@ -109,7 +109,9 @@ The pull direction must be configured first (the upload reuses the same credenti
 
 ### Future: pump-report-only configuration
 
-A future direction (not implemented today) is to allow users who *don't* want a direct pump integration at all to instead configure GlycemicGPT to ingest the pump reports they manually generate from t:connect (PDF / CSV exports). This would let GlycemicGPT analyze pump history for users who want to keep their pump data flow entirely separate from a real-time integration. Track this in [ROADMAP.md](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/ROADMAP.md).
+For users who don't want a direct pump integration at all, the project plans a separate ingestion path that pulls official pump reports from each vendor's portal (Tandem t:connect, Omnipod, Medtronic CareLink, Dana, etc.) on a configurable schedule and feeds them into GlycemicGPT's analysis layer. This is a **third adoption pillar** alongside (1) direct device integration and (2) third-party platform relays like Nightscout. It's not in the platform today.
+
+See [ROADMAP -- Pump Report Ingestion](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/ROADMAP.md#pump-report-ingestion-adoption-path-for-users-without-direct-integration) for the full scope.
 
 ## Privacy
 
