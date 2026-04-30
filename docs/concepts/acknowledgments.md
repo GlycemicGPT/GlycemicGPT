@@ -5,16 +5,32 @@ description: The projects, people, and prior art that GlycemicGPT stands on.
 
 GlycemicGPT exists because of work that came before it. This page acknowledges the projects whose code, research, or community advocacy directly inform what's shipping here. None of the projects below are affiliated with GlycemicGPT; we're listing them because their work made ours possible.
 
-## Pump and CGM reverse-engineering
+## Pump and CGM library credits
 
-The Tandem Bluetooth integration in GlycemicGPT's mobile app is built on top of, or directly informed by, several open-source projects -- in particular, the years of Bluetooth reverse-engineering work done by the controlX2 / pumpX2 community.
+This project's diabetes-device integrations are built on top of -- or directly informed by -- several MIT-licensed open-source libraries. The categorization below distinguishes "runtime dependency" (we ship and consume the library directly) from "architectural reference" (we studied the work to build our own, no code is imported).
 
-- **[pumpX2](https://github.com/jwoglom/pumpx2)** by [@jwoglom](https://github.com/jwoglom) and contributors -- a Java library for talking to Tandem t:slim X2 / Mobi pumps over Bluetooth Low Energy. The opcodes, packet formats, and authentication flow that GlycemicGPT's Tandem driver uses are directly informed by pumpX2's documentation and source. Without this work the project's mobile-app pump driver would not exist.
-- **[controlX2](https://github.com/jwoglom/controlx2)** -- the Android / Wear OS app built on top of pumpX2. Provided the practical reference for how a Tandem-targeting Android app handles BLE pairing, reconnection, and stream parsing in the real world.
-- **[tconnectsync](https://github.com/jwoglom/tconnectsync)** -- the Tandem t:connect cloud sync library used by GlycemicGPT's backend to fetch pump history when the cloud path is configured.
-- **[pydexcom](https://github.com/gagebenne/pydexcom)** -- the Python Dexcom Share library used by GlycemicGPT's backend to pull glucose data from Dexcom's cloud.
+### James Woglom ([@jwoglom](https://github.com/jwoglom))
 
-If you're using GlycemicGPT's Tandem integration, you're using the work of the pumpX2 contributors. We are deeply grateful and try to credit accurately. If anyone reading this thinks our use of these libraries should be called out differently or more prominently, please [open an issue](https://github.com/GlycemicGPT/GlycemicGPT/issues/new/choose).
+Three of jwoglom's open-source projects directly inform our Tandem support:
+
+- **[pumpX2](https://github.com/jwoglom/pumpx2)** -- *architectural reference, not a runtime dependency.* Java library implementing a reverse-engineered Bluetooth protocol for Tandem t:slim X2 / Mobi pumps. GlycemicGPT's Tandem mobile-app driver is an independent Kotlin port informed by pumpX2's protocol documentation, opcodes, message formats, and EC-JPAKE authentication flow. We do not import pumpX2; we use its test vectors to validate parser correctness in our own code. Crediting this work is required by the MIT license and matters: without pumpX2's published reverse-engineering, this project's pump driver would not exist.
+- **[controlX2](https://github.com/jwoglom/controlx2)** -- *architectural reference, not a runtime dependency.* Android / Wear OS reference app built on pumpX2. We studied its BLE service lifecycle, reconnection state machines, and pairing flow patterns. No code is imported.
+- **[tconnectsync](https://github.com/jwoglom/tconnectsync)** -- ***runtime dependency.*** Python library for talking to Tandem's t:connect cloud (`TandemSourceApi`). Consumed via `apps/api/pyproject.toml` as `tconnectsync>=2.3.0`. Used by `tandem_sync.py` (cloud download) and for OAuth token acquisition in `tandem_upload.py` (cloud upload).
+
+All three are MIT-licensed by James Woglom. Per-library attribution lives in:
+
+- [`apps/mobile/THIRD_PARTY_LICENSES.md`](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/apps/mobile/THIRD_PARTY_LICENSES.md) -- mobile-side credit for pumpX2 and controlX2 (architectural references)
+- [`apps/api/THIRD_PARTY_LICENSES.md`](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/apps/api/THIRD_PARTY_LICENSES.md) -- API-side credit for tconnectsync (runtime dependency)
+
+In-source headers also reference the upstream MIT license in the relevant Tandem driver files (`TandemProtocol.kt`, `JpakeAuthenticator.kt`, `EcJpake.kt`, `Hkdf.kt`).
+
+If you're using GlycemicGPT's Tandem integration, you're benefiting from years of jwoglom's reverse-engineering work. We are deeply grateful and try to credit accurately. If anything on this page or in the per-package license files reads as inadequate or wrong, please [open an issue](https://github.com/GlycemicGPT/GlycemicGPT/issues/new/choose) -- correctness matters.
+
+### Gage Benne ([@gagebenne](https://github.com/gagebenne))
+
+- **[pydexcom](https://github.com/gagebenne/pydexcom)** -- ***runtime dependency.*** Python library for fetching glucose data from Dexcom's cloud using the user's Dexcom account credentials (the same path the official Dexcom Follow / Clarity apps use). Consumed via `apps/api/pyproject.toml` as `pydexcom>=0.2.0`. Used by `apps/api/src/services/dexcom_sync.py` on a polling schedule.
+
+MIT-licensed by Gage Benne. Credit lives in [`apps/api/THIRD_PARTY_LICENSES.md`](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/apps/api/THIRD_PARTY_LICENSES.md).
 
 ## The diabetes-OSS movement
 

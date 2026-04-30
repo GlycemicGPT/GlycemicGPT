@@ -7,6 +7,13 @@ This page covers the full caregiver linking flow -- generating the invitation as
 
 If you're new to the caregiver model, read the [Caregivers Overview](./overview.md) first.
 
+> **Known gaps -- being addressed in [issue #521](https://github.com/GlycemicGPT/GlycemicGPT/issues/521):**
+>
+> - **Email-based invitations are not yet supported.** The platform doesn't have SMTP configured today, so invitation codes are shared manually. Cloud / public deployments will eventually want SMTP for a polished invite-by-email flow.
+> - **Self-signup is always enabled.** There's no admin setting today to disable the public signup endpoint, which means anyone who reaches your platform's URL can create an account. **For cloud / public deployments, this is a security concern** until the disable-signup setting lands. For now: only run a publicly-reachable deployment with people you trust on your network, or accept the risk consciously.
+>
+> Both are tracked in [issue #521](https://github.com/GlycemicGPT/GlycemicGPT/issues/521). The workarounds described on this page are the official offline / no-SMTP path until those land.
+
 > **Both the patient and the caregiver use the same GlycemicGPT platform.** The caregiver is a regular GlycemicGPT user account on your platform; what makes them a caregiver is the link between their account and yours. They sign in at the same URL you do.
 
 ## If the patient is a child or a dependent you manage

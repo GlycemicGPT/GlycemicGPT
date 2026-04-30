@@ -3,21 +3,23 @@ title: Relationship to other open-source diabetes tools
 description: How GlycemicGPT compares to and coexists with Nightscout, Loop, AAPS, xDrip+, Tidepool, and the rest.
 ---
 
-If you've been managing diabetes with open-source software for any length of time, you already have tools you depend on -- Nightscout, Loop, AAPS, xDrip+, Tidepool, Sugarmate, or some combination. This page is the honest "where does GlycemicGPT fit" answer for each of them.
+If you've been managing diabetes with open-source software for any length of time, you already have tools you depend on -- Nightscout, Loop, AAPS, xDrip+, Tidepool, or some combination. This page is the honest "where does GlycemicGPT fit" answer for each of them.
 
-Short version: **GlycemicGPT is designed to coexist with the tools you already use, not replace them.** Most of the projects below have been operating for years -- some for over a decade -- and have communities and integrations that GlycemicGPT does not and will not duplicate. What GlycemicGPT specifically adds is an AI-grounded chat layer over *your own* CGM and pump data, packaged as a self-hostable service. That's the differentiator. Everything else is in the service of getting your data into a place where the AI layer is useful.
+Short version: **GlycemicGPT is a self-hosted diabetes monitoring and analysis platform.** It aggregates your CGM and pump data, computes the clinical statistics you'd expect (Time in Range, GMI, glucose variability, AGP percentile bands, IoB context, bolus and basal patterns), runs AI-generated daily briefs over that data, and offers an AI chat that can answer questions about your own history with retrieval-augmented grounding. It's designed to coexist with the tools you already use, not replace all of them. What's distinctive is that it bundles the analysis platform and the AI layer in one self-hostable system, with privacy-first BYOAI -- you bring the AI provider you trust, your data stays on infrastructure you control.
+
+The breakdown by tool is below.
 
 ## Quick reference
 
 | Tool | What it does | Relationship to GlycemicGPT |
 |---|---|---|
-| [Nightscout](https://nightscout.github.io/) | Web dashboard, alerts, follower auth, broad CGM/pump bridging | Coexists. Phase 2 will let GlycemicGPT pull from your Nightscout instead of a duplicate Dexcom Share connection. |
-| [Loop](https://loopkit.github.io/loopdocs/) | iOS closed-loop insulin delivery | Different category. GlycemicGPT is monitoring/analysis only; Loop closes the loop. Use both. |
-| [AndroidAPS / AAPS](https://androidaps.readthedocs.io/) | Android closed-loop with broad pump support | Same: different category. Use both. |
-| [Trio](https://triodocs.org/) / [iAPS](https://iaps-app.org/) | Loop forks for iOS | Same as Loop. Use both. |
+| [Nightscout](https://nightscout.github.io/) | Web dashboard, alerts, follower auth, broad CGM/pump bridging | Closest peer in the OSS world. Phase 2 will let GlycemicGPT pull from your Nightscout instead of polling Dexcom independently. |
+| [Loop](https://loopkit.github.io/loopdocs/) | iOS closed-loop insulin delivery | Different category. GlycemicGPT is monitoring/analysis only; Loop closes the loop. We recommend you use both. |
+| [AndroidAPS / AAPS](https://androidaps.readthedocs.io/) | Android closed-loop with broad pump support | Same: different category. We recommend you use both. |
+| [Trio](https://triodocs.org/) / [iAPS](https://iaps-app.org/) | Loop forks for iOS | Same as Loop. We recommend you use both. |
 | [xDrip+](https://github.com/NightscoutFoundation/xDrip) | Android CGM relay, statistics, Libre via NFC | Coexists. xDrip+ is a more mature CGM-side companion than anything GlycemicGPT does for non-Dexcom CGMs today. |
-| [Tidepool](https://www.tidepool.org/) | Cloud upload + endo-facing reports (AGP) | Coexists. Tidepool is the lingua franca for endo appointments; GlycemicGPT does not generate AGP today. |
-| [Sugarmate](https://sugarmate.io/) | Commercial CGM dashboard with daily emails, watch face | Closest direct comparison for daily-brief framing. GlycemicGPT is self-hosted and AI-chat-driven; Sugarmate is hosted. |
+| [Tidepool](https://www.tidepool.org/) | Cloud upload + endo-facing reports (AGP) | Coexists. Tidepool is the lingua franca for endo appointments -- we recommend keeping a Tidepool account even if GlycemicGPT becomes your daily-driver dashboard. |
+| [Sugarmate](https://sugarmate.io/) | Commercial CGM dashboard with daily emails, watch face | Closest commercial-product comparison. Sugarmate is hosted and (as of writing) does not use AI; GlycemicGPT is self-hosted and AI-driven. |
 | [Spike](https://spike-app.com/) | iOS CGM relay | xDrip+ analog for iOS. Coexists. |
 | [GlucoseDirect](https://github.com/creepymonster/GlucoseDirect) | Open-source iOS Libre reader | Coexists. |
 | [OpenAPS](https://openaps.org/) | The original DIY closed-loop project | Historical. GlycemicGPT respects the lineage but is not closed-loop. |
@@ -26,25 +28,34 @@ The longer breakdown is below.
 
 ## Nightscout
 
-[Nightscout](https://nightscout.github.io/) is the open-source diabetes dashboard that has been running on Heroku / Render / Atlas + Vercel for over a decade. It has follower authentication via bearer tokens, broad CGM and pump bridging via plugins (`dexcom-share`, `mm-connect`, `omnipod`, etc.), and a rich JSON API that everything else in the diabetes-OSS ecosystem learned to speak.
+[Nightscout](https://nightscout.github.io/) is the open-source diabetes dashboard that has been running on Heroku / Render / Atlas + Vercel for over a decade. It has follower authentication via bearer tokens, broad CGM and pump bridging via plugins, and a rich JSON API that everything else in the diabetes-OSS ecosystem learned to speak.
 
-**Where GlycemicGPT overlaps:**
+Nightscout is GlycemicGPT's closest peer in the OSS world. Both are self-hosted dashboards over your own diabetes data. The differences:
 
-- Both store CGM and pump data on a server you control.
-- Both have web dashboards.
-- Both can deliver alerts.
+**Nightscout's strengths:**
 
-**Where GlycemicGPT is different:**
+- A decade of production use across thousands of installations
+- The broadest CGM and pump bridging matrix in the OSS world via the plugin ecosystem (Dexcom Share, MM Connect, Omnipod, more)
+- Follower-token authentication -- a battle-tested model for sharing read-only access
+- Light footprint -- runs as a single Node process; trivial Render / Heroku deploy
+- The JSON API is the de-facto standard the rest of the diabetes-OSS world integrates with
 
-- The headline value of GlycemicGPT is the AI chat layer over your own data -- "what happened overnight?", "is there a pattern in my dawn-phenomenon highs?" -- grounded in clinical references via retrieval-augmented generation. Nightscout has rich statistics and reports but does not have a natural-language chat interface.
-- GlycemicGPT runs as a Docker stack rather than a single Node process, which means more services to manage and a heavier ongoing footprint than a Render-deployed Nightscout.
+**GlycemicGPT's distinctive additions on top of the same monitoring-platform category:**
+
+- **AI chat over your own data**, with retrieval-augmented grounding designed to keep answers tied to your actual history rather than reflexive AI hallucination. ([How AI chat works](../daily-use/ai-chat.md))
+- **AI-generated daily and weekly briefs** that read your data and write prose summaries, surfacing patterns the AI noticed.
+- **Per-permission caregiver model** (separate toggles for dashboard / alerts / briefs / AI questions) rather than Nightscout's single read-only follower token.
+- **AGP percentile-band visualization** rendered on the home dashboard alongside the standard Time-in-Range / glucose / IoB views.
+- **Plugin SDK that's read-only by architectural construction** -- no `PUMP_CONTROL` capability exists; insulin delivery is structurally outside the project's scope.
+
+Both deliver the standard diabetes-platform table stakes (real-time glucose, alerts, statistics, dashboard).
 
 **If you already run Nightscout today:**
 
-- **Phase 1 (today):** GlycemicGPT and Nightscout work side-by-side without interference. They both pull from Dexcom's cloud independently. There is no integration. This means two tools polling Dexcom Share with your account credentials, which is wasteful but not broken.
-- **Phase 2 (planned):** GlycemicGPT will be able to use your Nightscout instance as a data source. You'd configure GlycemicGPT to read CGM entries and pump data from your Nightscout's `/api/v1/entries.json` and `/api/v1/treatments.json` endpoints, eliminating the duplicate Dexcom Share connection. Tracking issue and timeline live in [ROADMAP.md](../../ROADMAP.md).
+- **Phase 1 (today):** GlycemicGPT and Nightscout work side-by-side without interference. They both pull from Dexcom's cloud independently using your Dexcom account credentials. There's no integration between them yet -- this means two tools polling Dexcom on your behalf, which is wasteful but not broken.
+- **Phase 2 (planned):** GlycemicGPT will be able to use your Nightscout instance as a data source. You'd configure GlycemicGPT to read CGM entries and pump data from your Nightscout's `/api/v1/entries.json` and `/api/v1/treatments.json` endpoints, eliminating the duplicate Dexcom polling. See [ROADMAP.md](../../ROADMAP.md).
 
-If you're a Nightscout admin curious about adding LLM chat over your existing data, the honest answer is: watch this, file feedback on the Nightscout-as-data-source path in Phase 2, but don't move yet.
+If you're a Nightscout admin curious about what GlycemicGPT adds on top of what you already run, the answer is: AI chat, AI-written briefs, AGP visualization on the home dashboard, and finer-grained caregiver permissions. The data model overlaps; the analytical surface above the data is where they differ.
 
 ## Loop, AndroidAPS / AAPS, Trio, iAPS
 
@@ -57,10 +68,10 @@ GlycemicGPT is a different category of tool. It does not, will not, and cannot d
 **If you're already a Looper / AAPS user:**
 
 - GlycemicGPT does not replace any of what your closed-loop system does. There is no overlap at the dosing layer.
-- GlycemicGPT can read the CGM data your loop is acting on (today via Dexcom directly; later via Nightscout if you have one). The AI chat then answers questions about *what your loop did* -- "what happened during this overnight series of microboluses?", "did the loop catch the post-meal rise on time?".
-- The benefit is purely retrospective analysis. It does not affect or interact with your loop's runtime decisions.
+- GlycemicGPT can read the CGM data your loop is acting on (today via Dexcom directly; later via Nightscout if you have one). Then the analysis layer and the AI chat answer questions about *what your loop did* -- "what happened during this overnight series of microboluses?", "did the loop catch the post-meal rise on time?", "is there a weekly pattern in correction frequency?".
+- The benefit is retrospective analysis and pattern interrogation. It does not affect or interact with your loop's runtime decisions.
 
-If you're a Looper deciding whether GlycemicGPT is for you: it's a complement, not an alternative. You already have closed-loop and good real-time monitoring; this adds an interrogable AI layer on top. Most Loopers won't need it daily.
+We recommend Loopers run both: closed-loop for runtime delivery, GlycemicGPT for the analysis and AI layer over the data your loop generates.
 
 ## Tidepool
 
@@ -68,11 +79,11 @@ If you're a Looper deciding whether GlycemicGPT is for you: it's a complement, n
 
 **Relationship to GlycemicGPT:**
 
-- **GlycemicGPT does not generate AGP today.** The reports it does generate are AI-generated daily / weekly briefs in plain language -- useful for self-reflection, but not the structured artifact your endo expects to read at an appointment.
-- **No integration today.** You can use both independently: Tidepool for endo appointments, GlycemicGPT for AI chat and pattern interrogation.
-- **Roadmap:** AGP-style reports and Tidepool data export are both on the roadmap (see [ROADMAP.md](../../ROADMAP.md)).
+- **Tidepool is hosted and free; GlycemicGPT is self-hosted.** They're solving different operator-side problems.
+- **GlycemicGPT renders AGP** on the home dashboard today (percentile bands by hour, configurable window). What we don't yet have is **Tidepool-format export / import** -- so taking a GlycemicGPT-generated report into a Tidepool-equivalent format for an appointment is a roadmap item.
+- **No data integration between them today.** Tidepool isn't on the Phase 2 integration list yet.
 
-If you currently rely on Tidepool for endo-facing reports, **keep using Tidepool**. GlycemicGPT does not yet replace that workflow.
+If you currently rely on Tidepool for endo appointments, **keep using Tidepool**. We recommend keeping a Tidepool account even if GlycemicGPT becomes your daily-driver dashboard, because Tidepool's structured reports remain the format clinicians most consistently know how to read.
 
 ## xDrip+
 
@@ -82,17 +93,18 @@ If you currently rely on Tidepool for endo-facing reports, **keep using Tidepool
 
 - xDrip+ is a far more mature CGM-side tool for non-Dexcom sensors than anything GlycemicGPT does today. If you use a Libre or an older Dexcom, **xDrip+ is your CGM companion, not the GlycemicGPT mobile app.**
 - xDrip+ uploads to Nightscout. Once GlycemicGPT can read from Nightscout (Phase 2), the data flow is: sensor → xDrip+ → Nightscout → GlycemicGPT. That's the canonical path for non-Dexcom CGMs once Phase 2 lands.
-- The two coexist without conflict today. They're solving different problems.
+- The two coexist without conflict today. They're solving different problems at different layers.
 
 ## Sugarmate
 
-[Sugarmate](https://sugarmate.io/) is a commercial CGM dashboard with daily emailed summaries, watch face, and a Slack/Discord-style notification surface. It's the closest direct comparison for the "daily brief" framing in GlycemicGPT.
+[Sugarmate](https://sugarmate.io/) is a commercial CGM dashboard with daily emailed summaries, watch face, and a Slack/Discord-style notification surface. It's the closest direct comparison for GlycemicGPT's daily-brief framing among general-audience tools.
 
-**How they're different:**
+**How they differ:**
 
-- Sugarmate is **hosted** -- you give them your Dexcom credentials, they show you a dashboard. GlycemicGPT is **self-hosted** -- you run it on your computer or server, your data stays with you.
-- Sugarmate's daily summary is deterministic statistics in a templated email. GlycemicGPT's daily brief is AI-generated prose, with the AI chat behind it for follow-up questions.
-- Sugarmate has years of polish; GlycemicGPT is alpha software.
+- **Sugarmate is hosted; GlycemicGPT is self-hosted.** You give Sugarmate your Dexcom credentials, they show you a dashboard. You run GlycemicGPT on your own infrastructure, your data never goes to a project-controlled server.
+- **Sugarmate's daily summaries are deterministic** -- statistics rendered into a templated email. As of writing, Sugarmate does not use AI for summaries or analysis. **GlycemicGPT's daily briefs are AI-generated prose** that reasons over your data and writes a summary in plain language, with the AI chat behind it for follow-up questions.
+- **GlycemicGPT does AI chat over your own data**; Sugarmate does not have a chat layer.
+- **Sugarmate has years of polish; GlycemicGPT is alpha software.**
 
 If Sugarmate works for you and self-hosting isn't appealing, Sugarmate is the lower-effort option.
 
@@ -104,15 +116,13 @@ If Sugarmate works for you and self-hosting isn't appealing, Sugarmate is the lo
 
 ## "Should I switch?"
 
-The honest answer for most readers landing on this page:
-
-- **You already have Nightscout?** Keep it. Run GlycemicGPT alongside it for the AI chat, with the understanding that data integration is Phase 2.
-- **You're a Looper?** Keep Looping. GlycemicGPT is supplementary analysis on top, not a replacement for any part of your closed-loop stack.
-- **You use Tidepool for endo appointments?** Keep using Tidepool until GlycemicGPT generates AGP-style reports. They will both want to be in your stack.
-- **You have nothing today and are evaluating from scratch?** GlycemicGPT can be your full stack on its own (CGM → dashboard → AI). But the existing tools have years of polish; you'd be choosing AI-first novelty over years of community shake-down.
+- **You already have Nightscout?** Keep it. Run GlycemicGPT alongside it today; Phase 2 will give you a real integration. The AI chat, AI briefs, and AGP-on-the-home-dashboard are the additions on top of what Nightscout gives you.
+- **You're a Looper?** Keep Looping. GlycemicGPT is the analysis and AI layer on top, not a replacement for any part of your closed-loop stack. We recommend running both.
+- **You use Tidepool for endo appointments?** Keep using Tidepool until GlycemicGPT supports a Tidepool-equivalent export. Tidepool will likely remain in your stack indefinitely as the clinician-facing report format.
+- **You have nothing today and are evaluating from scratch?** GlycemicGPT can be your full stack on its own (CGM → dashboard → AI). The existing tools have years of polish; you'd be choosing AI-first novelty over years of community shake-down. That's a fair trade for some users; not for others.
 
 ## Why this page exists
 
-The diabetes-OSS community has been building tools collaboratively since the OpenAPS days. This project takes that work seriously and does not want to misrepresent itself as inventing things the community already has. If you find we've described another tool inaccurately on this page, or we've missed a tool that should be here, [open an issue](https://github.com/GlycemicGPT/GlycemicGPT/issues/new/choose) -- it'll get fixed.
+The diabetes-OSS community has been building tools collaboratively since the OpenAPS days. This project takes that work seriously and does not want to misrepresent itself as inventing things the community already has -- or undersell what GlycemicGPT actually does on top of the existing tools. If you find we've described another tool inaccurately on this page, or we've missed a tool that should be here, [open an issue](https://github.com/GlycemicGPT/GlycemicGPT/issues/new/choose) -- it'll get fixed.
 
 See also: [Acknowledgments](./acknowledgments.md) for the projects whose work directly informs GlycemicGPT's implementation.

@@ -90,7 +90,7 @@ Monitoring and analysis is the entire product. We're built to **complement** clo
 
 The closed-loop projects don't apologize for being closed-loop, and we don't apologize for being monitoring-only. They're different categories of tool.
 
-If you want closed-loop, use Loop or AAPS. If you want monitoring + AI chat over data you control, GlycemicGPT is for you. Many people will use both. See [Relationship to other tools](./relationship-to-other-tools.md) for the full breakdown.
+If you want closed-loop, use Loop or AAPS. If you want monitoring + AI chat over data you control, GlycemicGPT is for you. **We recommend you use both.** See [Relationship to other tools](./relationship-to-other-tools.md) for the full breakdown.
 
 ## What about the future?
 

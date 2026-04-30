@@ -44,23 +44,41 @@ If you're using a smaller model and seeing weird answers, switching to a premium
 
 ## How the AI knows about diabetes
 
-GlycemicGPT keeps a small library of clinical diabetes references on the platform. When you ask a question, the platform looks up relevant passages from this library and sends them along with your question to the AI. The AI then has both your data and grounded clinical information to answer with. (The technical name for this approach is "retrieval-augmented generation," or RAG -- see the [glossary](../concepts/glossary.md#rag).)
+GlycemicGPT is built around a **retrieval-augmented generation (RAG)** architecture: when you ask a question, the platform looks up relevant clinical references on top of your own glucose, insulin, and pump data, and sends both to the AI as part of the prompt. The AI's answer is then *grounded* in your history plus a curated knowledge base, rather than coming entirely from the model's general training. This is the main mechanism we use to keep AI answers anchored to your real situation.
 
-### What's in the reference library today
+### Honest status of the knowledge base today
 
-The current library is small and skewed toward type 1. As of April 2026 it includes:
+The RAG infrastructure exists -- the vector store, the retrieval pipeline, the trust-tier system that distinguishes authoritative references from user-provided notes. **What's not yet shipped is a populated curated library.** Today's deployments effectively run with the AI reasoning from the model's general training plus your data, with the curated layer pending.
 
-- **[ADA Standards of Care in Diabetes 2024](https://diabetesjournals.org/care/issue/47/Supplement_1)** -- the primary clinical reference for adult and pediatric T1/T2 management
-- **NIH and JDRF educational material** for non-clinical phrasing of common topics (insulin action time, carb counting, hypoglycemia recognition)
-- **A small set of peer-reviewed research papers** on dawn phenomenon, exercise / glucose interaction, sleep / glucose interaction, and continuous-glucose-monitoring statistics
+This means:
 
-What it does **not** contain today: ISPAD pediatric guidelines (planned), pregnancy / gestational diabetes guidelines (planned), pump-specific clinical guidance, mental-health-and-diabetes resources (planned).
+- The architecture supports adding clinical references (ADA Standards of Care, ISPAD pediatric guidelines, peer-reviewed research, etc.) and is designed for it
+- The actual seed-data load is on the roadmap -- see [ROADMAP.md](../../ROADMAP.md) §Phase 1 AI Engine 2.0
+- For now, treat AI answers about *general diabetes facts* with the same skepticism you'd apply to any LLM answer; AI answers about *your own data* benefit from the data being passed in directly with your question
 
-### Honest caveat about library size
+If there's a specific reference you'd like to see prioritized for the curated library, [open an issue](https://github.com/GlycemicGPT/GlycemicGPT/issues/new/choose) with the citation.
 
-The library is small enough that for many questions, the AI is reasoning from its base training plus your data, not from anything in the library. The library helps for clinical-reference questions ("what counts as severe hypoglycemia per ADA?"). It does not transform a smaller / cheaper AI model into a clinical expert.
+## AI is non-deterministic, and what we do about it
 
-The library is being expanded -- see [ROADMAP.md](../../ROADMAP.md) §Phase 1 AI Engine 2.0. If there's a specific reference you'd like to see added, open an issue with the citation.
+A useful framing if you're new to AI tools in healthcare contexts: **AI models are non-deterministic.** Unlike traditional software that gives the same output for the same input every time, an AI can give you slightly different answers to the same question on different days, or for different users with similar data. They can also generate confident-sounding answers that are wrong -- the failure mode usually called *hallucination*.
+
+This is a real property of the technology. It can't be eliminated; it can be mitigated. Here's how GlycemicGPT addresses it today, and what we're doing next:
+
+**Today, our mitigations:**
+
+- **Your data is sent with every question.** The AI doesn't rely on memory of "what your numbers usually are" -- it sees your actual data each time. This grounds answers in real history.
+- **RAG retrieval (architecture in place; curated content rolling out).** As the curated library lands, AI answers to clinical-reference questions will pull from authoritative sources alongside your data. The trust-tier system distinguishes authoritative content from user-provided notes.
+- **Strong scope guardrails in the prompt.** The platform's system prompt explicitly instructs the AI not to give specific dosing recommendations or diagnostic claims, and to defer to your healthcare team. This won't catch every failure mode, but it shapes the typical response.
+- **Fresh sessions for fresh problems.** When a conversation gets weird, starting a new session is a reset that often fixes it -- the AI gets a clean view of your latest data without the prior conversation's context drift.
+
+**On the roadmap:**
+
+- **A hallucination-feedback mechanism** so you can flag a bad answer in the UI, have the platform regenerate from a clean session, and contribute the flagged exchange back to the project (with your consent and your data redacted). This builds an evaluation set over time we can use to measure model quality on diabetes-relevant reasoning. See [ROADMAP.md](../../ROADMAP.md) §Phase 1 AI Engine 2.0.
+- **Curated knowledge base population** as described above -- moving from "RAG architecture exists" to "RAG architecture is loaded with vetted clinical references."
+- **Internal evaluations on diabetes-specific reasoning** -- the project has not yet conducted formal evals comparing model quality on common diabetes questions. Building this is on the roadmap; until we have it, we can't make precise quality claims.
+- **Source attribution in AI responses** -- when answers cite the curated library, surfacing the underlying source so you can read the reference yourself.
+
+**Bottom line:** AI is a thread to pull on, not a source of truth. The platform is designed to give you the AI's reasoning in a frame that makes follow-up easy (a chat session you can interrogate further) rather than as final-answer pronouncements. If an AI answer about your own pattern doesn't match what you observe, trust your observation and flag it -- that feedback is how the system improves.
 
 This is why the AI can answer "what's a normal IoB after a meal" with reasonably accurate information even if you're using a model that wouldn't know that out-of-the-box.
 

@@ -9,13 +9,15 @@ A daily brief is an AI-generated summary of what happened with your glucose, ins
 
 ## What's in a brief
 
-A typical daily brief includes:
+The AI brief generator passes your data (Time in Range, average glucose, low / high counts, Control-IQ correction count, total insulin, optional pump profile, optional IoB context) to your configured AI provider with a prompt asking for a plain-language summary that touches on patterns, post-meal spikes, overnight trends, and meaningful Control-IQ activity.
 
-- **Time in Range summary** -- how the day compared to your target ranges
-- **Notable highs and lows** -- when they happened, possible context (meal timing, missed bolus, etc.)
-- **Insulin patterns** -- bolus timing, frequency, any unusual patterns
-- **Sleep / overnight** -- how your glucose behaved overnight
-- **Suggestions for follow-up** -- questions the AI thinks are worth asking your endo, or patterns to watch in the next few days
+Because the brief is AI-generated prose rather than a fixed-template report, exact sections are not guaranteed -- the AI structures the response based on what your data actually shows. A typical brief mentions:
+
+- **Time-in-Range performance** for the day
+- **Notable highs and lows** -- when they happened and possible context
+- **Insulin / Control-IQ patterns** the AI noticed
+- **Overnight behavior** if there's anything interesting to note
+- **Suggestions for follow-up** when the AI sees a pattern worth pulling on
 
 Briefs are written in plain language, not clinical jargon -- they're meant to be easy to read.
 
@@ -39,16 +41,18 @@ If the brief is set to "morning" and there's no glucose data for the previous da
 
 If you want a brief outside the schedule (e.g., to summarize a specific period before an endo appointment), go to **Briefs → Generate brief** and pick the date range. The platform queues the request and the brief appears within a minute or two.
 
-## Briefs are not AGP
+## Briefs are different from AGP
 
-If you're coming from Tidepool, Dexcom Clarity, or your endocrinologist's reporting tools, you're probably used to **AGP (Ambulatory Glucose Profile)** -- the standardized clinical chart that overlays glucose curves across days to surface patterns, with a fixed set of statistics (average glucose, GMI, time-in-range, glucose variability). AGP is the lingua franca for endo appointments.
+GlycemicGPT does render an [AGP (Ambulatory Glucose Profile)](../concepts/glossary.md#agp----ambulatory-glucose-profile) chart on the home dashboard -- percentile bands by hour-of-day across a configurable window. AGP is the standardized clinical chart your endocrinologist most consistently knows how to read, and you can see one in GlycemicGPT today.
 
-GlycemicGPT does **not** generate AGP today. Daily briefs are AI-written prose summaries, not the structured clinical artifact your endo expects. They have different jobs:
+Daily briefs are a *different artifact*: AI-written prose summaries of recent activity, focused on what's interesting or unusual rather than the structured clinical picture AGP gives. They have different jobs:
 
-- **AGP** -- pre-built, deterministic, what you bring to your endo appointment
-- **GlycemicGPT briefs** -- daily / weekly prose you read for yourself, with the AI chat behind it for follow-up
+- **AGP (on the dashboard)** -- deterministic percentile bands, fixed statistics, the clinical-format view
+- **Briefs** -- prose for self-reflection, with the AI chat behind them for follow-up questions
 
-If you need AGP today, generate it from [Tidepool](https://www.tidepool.org/) or your CGM's official app (Clarity, LibreView, etc.). AGP-style export from GlycemicGPT is on the roadmap.
+You'll often want both: AGP for "how am I doing structurally over time," briefs for "what stood out yesterday and is there a thread to pull on."
+
+> Note: a printable AGP-style report (the kind you'd hand to your endocrinologist) is a roadmap item -- the dashboard AGP is the visualization, but the standardized exported / printable report format is still being built.
 
 ## Brief quality depends on data quality
 

@@ -9,23 +9,25 @@ GlycemicGPT does not host an AI service. You bring your own. This page explains 
 
 If you don't want to read the whole page, here's the short version:
 
-- **You want strongest privacy and have the hardware to run a local model** → Option 5 (local Ollama). Nothing leaves your network. Free.
+- **You want strongest privacy and have the hardware to run a local model** → Option 5 (local AI). Nothing leaves your network. Free.
 - **You already pay for Claude (Pro / Max)** → Option 1. No additional cost. Best AI quality among cloud options.
 - **You already pay for ChatGPT (Plus / Team)** → Option 2. No additional cost.
-- **You don't have either subscription and want a vendor-supported cloud path** → Option 3 (Claude API key). Roughly $1-5/month for typical use.
-- **You want the cheapest cloud path** → Option 4 (OpenAI API key with smaller models). Often under $1/month.
+- **You don't have either subscription and want a vendor-supported cloud path** → Option 3 (Claude API key) or Option 4 (OpenAI API key). You pay per token directly to the vendor.
+- **You want one credential that works across many models** → Option 5 also covers OpenAI-compatible router services like [OpenRouter](https://openrouter.ai/) (untested by the project but should work since it speaks the OpenAI-compatible API).
 
-You can change your mind any time without losing data. Full details, cost ranges, and privacy implications for each option are below.
+> **Honest note on cost:** GlycemicGPT's actual usage cost on the API-key options depends on how often you use AI chat, how long your conversations get, how many briefs you generate, and which model you pick. The project has not yet measured this in a way we can publish a credible "$X/month" number. Smaller / cheaper models cost less, premium models cost more, but the meaningful number is "your usage on your model." Set a billing limit on your Anthropic / OpenAI account and watch it for the first month if cost matters.
+
+You can change your mind any time without losing data. Full details, privacy implications, and the subscription-token reliability discussion are below.
 
 ## Why we built it this way
 
-Most diabetes-tech platforms that include AI either bundle a model (paying the inference cost on your behalf and passing it on as a subscription) or charge you per-message. GlycemicGPT takes a different approach: you plug in your own AI provider credential -- either an existing subscription you already pay for or an API key -- and the platform routes AI requests through it.
+GlycemicGPT routes AI requests through a credential **you provide** -- either an existing subscription you already pay for, an API key, an AI router service like OpenRouter, or a local model running on your own hardware. The project itself does not host or charge for AI.
 
 Three reasons:
 
 1. **Cost transparency.** You see what you're paying for. The project doesn't mark up or skim your AI usage.
 2. **Privacy.** Your AI conversations go directly between your platform and your chosen provider. The project's servers are not in the path.
-3. **Choice.** You can use a premium model (Claude Opus, GPT-4-class) for the best quality, a cheaper model for cost savings, or a fully local model for maximum privacy. The platform doesn't lock you into any one provider.
+3. **Choice.** You can use a premium cloud model (Claude Opus, GPT-4-class), a cheaper model for cost savings, an AI router for access to many models with one credential, or a fully local model for maximum privacy. The platform doesn't lock you into any one provider.
 
 ## Five real options
 
@@ -75,7 +77,7 @@ If you'd rather pay per token directly to Anthropic instead of via a subscriptio
 3. Create an API key (starts with `sk-ant-...`)
 4. Paste it into GlycemicGPT
 
-- **Cost:** pay per token, billed by Anthropic. Typically $3-15 per million input tokens depending on the model.
+- **Cost:** pay per token, billed by Anthropic. Anthropic's per-million-token rates vary by model (current rates on [Anthropic's pricing page](https://www.anthropic.com/pricing)). What this means in practice for GlycemicGPT depends entirely on your usage -- the project hasn't yet measured typical monthly cost in a publishable way. Set a billing alert on your Anthropic console and watch the first month if cost matters.
 - **Privacy:** API traffic is not used for training, per [Anthropic's Commercial Terms of Service](https://www.anthropic.com/legal/commercial-terms) (different document from the consumer terms covering Options 1 / 2)
 - **Quality:** any Claude model you have access to
 
@@ -90,28 +92,37 @@ Same as Claude API key, but for OpenAI.
 3. Create an API key (starts with `sk-...`)
 4. Paste it into GlycemicGPT
 
-- **Cost:** pay per token, billed by OpenAI
+- **Cost:** pay per token, billed by OpenAI. OpenAI's per-million-token rates vary by model (current rates on [OpenAI's pricing page](https://openai.com/api/pricing/)). Same caveat as the Claude API option -- the project hasn't yet measured typical GlycemicGPT cost; set a billing alert and watch the first month.
 - **Privacy:** API traffic is not used for training by default, per [OpenAI's API data-usage policy](https://openai.com/enterprise-privacy) (different document from the consumer ChatGPT terms covering Option 2)
 - **Quality:** any OpenAI model
 
-### Option 5: Local model via Ollama (or any OpenAI-compatible endpoint)
+### Option 5: OpenAI-compatible endpoint (local model, AI router, or any compatible server)
 
-If you want AI to never leave your network -- the strongest privacy stance -- run a model locally.
+This option points GlycemicGPT at any URL that speaks the OpenAI Chat Completions API. Common uses:
 
-[Ollama](https://ollama.com) is the easiest option:
+**Run a fully local model on your own hardware** -- the strongest privacy stance, since nothing leaves your network. Several mature options:
 
-1. Install Ollama on your computer or server
-2. Pull a model: `ollama pull llama3.1:8b` (or whichever model you prefer)
-3. In GlycemicGPT, **Settings → AI Provider → OpenAI-compatible**:
-   - Base URL: `http://localhost:11434/v1` (or your Ollama server's URL)
-   - Model name: the model you pulled
-   - API key: any non-empty string (Ollama doesn't check it)
+- **[Ollama](https://ollama.com)** -- the easiest local-model server. `ollama pull <model>`, then point GlycemicGPT at `http://localhost:11434/v1`.
+- **[LM Studio](https://lmstudio.ai/)** -- GUI-driven; easier on Windows / macOS for users new to local AI.
+- **[vLLM](https://docs.vllm.ai/)** / **[llama.cpp server](https://github.com/ggerganov/llama.cpp)** -- for users who want maximum performance / control.
+- **[Text Generation Inference (TGI)](https://github.com/huggingface/text-generation-inference)** -- HuggingFace's serving stack.
 
-This same option works for any OpenAI-compatible endpoint: LM Studio, vLLM, llama.cpp's server mode, OpenRouter, Together, Groq, etc.
+**Use an AI router service** -- one credential, access to many models, OpenAI-compatible API.
 
-- **Cost:** free if you're running on your own hardware
-- **Privacy:** strongest -- nothing leaves your network. Vendor terms-of-service questions (Options 1 and 2) do not apply.
-- **Quality:** depends entirely on the model you run. **The project has not yet conducted formal evals comparing local vs cloud models on diabetes-specific reasoning.** Anecdotally and based on community feedback: smaller 7B-8B models often miss nuance on insulin-action timing and pattern interpretation; mid-range 30B-class models do meaningfully better; 70B+ models are competitive with cloud frontier models but require serious hardware (24GB+ VRAM). If you're running this for live use and can't afford to be wrong, treat any local-model output the way you'd treat any AI suggestion -- as a thread to pull on, not advice to act on.
+- **[OpenRouter](https://openrouter.ai/)** is the best-known option. You'd paste an OpenRouter API key here and pick whichever model you want (Claude, GPT, Llama, Mistral, Qwen, others). **Note: OpenRouter is not actively tested by the project**, but since it speaks the OpenAI-compatible API, it should work. If you try it and hit issues, [file an issue](https://github.com/GlycemicGPT/GlycemicGPT/issues/new/choose) -- official support is on the table once we know what users are actually doing here.
+- Other router services (Together, Groq, etc.) follow the same pattern. Same caveat: they should work, but aren't tested.
+
+**To configure**, go to **Settings → AI Provider → OpenAI-compatible** and set:
+
+- **Base URL** -- the endpoint URL (e.g. `http://localhost:11434/v1` for Ollama, `https://openrouter.ai/api/v1` for OpenRouter)
+- **Model name** -- whichever model the endpoint exposes
+- **API key** -- if the endpoint requires one (router services do; local servers usually don't, but the field still requires any non-empty string)
+
+**Properties of this option:**
+
+- **Cost:** free for local models running on your own hardware. Router services charge per token (rates vary by provider).
+- **Privacy:** strongest for local models -- nothing leaves your network. Router services have their own privacy / training policies; check them.
+- **Quality:** depends on the model. **The project has not yet conducted formal evals on what local model size produces reliable results for GlycemicGPT's use cases.** Community feedback so far suggests smaller (7B-8B) models miss nuance on insulin-action timing and pattern interpretation, but we don't yet have a recommended minimum or a measured "this model does well, this one doesn't" list. If you have hardware to run something in the 13B-30B range, that's a reasonable starting point to experiment from -- and please report what works back to the project. Treat any local-model output the way you'd treat any AI suggestion -- as a thread to pull on, not advice to act on.
 
 ## How to choose -- detailed
 
@@ -120,9 +131,9 @@ The Quick pick section at the top of this page covers the common cases. For the 
 - **You already pay for Claude (Pro / Max)** → Option 1, no question
 - **You already pay for ChatGPT (Plus / Team)** → Option 2
 - **You want top quality and don't mind cloud AI** → Option 1 or 3 (Claude is the strongest for diabetes reasoning, in the project lead's experience)
-- **You want low cost and don't mind cloud AI** → Option 4 (OpenAI API with cheaper models like GPT-4o-mini)
-- **You want maximum privacy or fully offline operation** → Option 5 (local Ollama)
-- **You're on a homelab and have GPUs to spare** → Option 5 with a top-tier local model (Llama 3.1 70B, Qwen 2.5 72B, etc.)
+- **You want maximum privacy or fully offline operation** → Option 5 with a local server (Ollama, LM Studio, vLLM, llama.cpp, etc.)
+- **You're on a homelab and have GPU headroom** → Option 5 with the largest model your hardware can comfortably run
+- **You want one credential that works across many models / providers** → Option 5 pointed at an AI router service like OpenRouter (untested but should work)
 
 You can switch between options at any time without losing data. The provider only affects new AI calls; everything already saved on your platform stays.
 
@@ -145,7 +156,8 @@ Reasons:
 | ChatGPT subscription | OpenAI's servers | Plan-dependent (opt-out available) | [OpenAI Terms of Use](https://openai.com/policies/terms-of-use) |
 | Claude API key | Anthropic's servers | No | [Anthropic Commercial Terms](https://www.anthropic.com/legal/commercial-terms) |
 | OpenAI API key | OpenAI's servers | No, by default | [OpenAI API privacy](https://openai.com/enterprise-privacy) |
-| Local Ollama | Your network only | No (it's your machine) | n/a |
+| Local model (Option 5) | Your network only | No (it's your machine) | n/a |
+| AI router (Option 5, e.g. OpenRouter) | The router's servers, then forwarded to the underlying model provider | Depends on the router and the model -- read the router's policy AND the upstream model provider's policy | Provider-specific |
 
 The links above are the source of truth -- if anything on this page conflicts with what those policies currently say, the policies are right and we should fix this page. Last reviewed: April 2026.
 

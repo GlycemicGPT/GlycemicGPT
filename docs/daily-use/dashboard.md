@@ -9,11 +9,14 @@ The dashboard is the main view in GlycemicGPT. It pulls together your latest glu
 
 ## Layout overview
 
-The dashboard has a few main areas:
+The dashboard has several main areas:
 
-- **Glucose** -- your current blood glucose, trend arrow, and recent readings
-- **Time in Range (TIR)** -- how much of the past day / week you've been in your target glucose range
+- **Glucose** -- your current blood glucose, trend arrow, and recent readings chart
+- **CGM summary statistics** -- average glucose, standard deviation, coefficient of variation (CV%), GMI, and CGM-active percentage over the selected window
+- **AGP chart** -- Ambulatory Glucose Profile percentile bands by hour-of-day across the selected window
+- **Time in Range (TIR)** -- five-bucket breakdown of how your glucose has been distributed
 - **Insulin on Board (IoB)** -- how much active insulin is in your system
+- **Insulin summary** -- bolus / basal breakdown, recent insulin events
 - **Pump status** -- battery, reservoir, basal rate (if you have a pump connected)
 - **Recent activity** -- a chronological feed of glucose readings, boluses, alerts, and AI insights
 
@@ -41,6 +44,30 @@ A bar showing how your glucose has been distributed across these zones over the 
 You can change the time window with the period selector. Longer windows are useful for talking with your endocrinologist; shorter windows are useful for "how am I doing today."
 
 > **Time in Range is a guideline, not a goal in itself.** Your endocrinologist may have specific recommendations for your TIR targets based on your treatment plan.
+
+## CGM summary statistics
+
+A panel showing the standard CGM-statistic set computed over your selected window:
+
+- **Average glucose** -- mean blood glucose over the window
+- **Standard deviation** -- how much your glucose varies around that average
+- **CV% (coefficient of variation)** -- standard deviation as a percentage of the average; a normalized variability metric clinicians use
+- **GMI (Glucose Management Indicator)** -- an estimate of A1C derived from your CGM data. Different from a lab-measured A1C but useful as a between-appointments check.
+- **CGM active %** -- how much of the window your CGM was actually reporting (e.g., low values indicate sensor warmups, gaps, or disconnects)
+
+These match the standard set produced by Tidepool, Dexcom Clarity, and clinical CGM-reporting tools.
+
+## AGP chart
+
+The dashboard renders an [Ambulatory Glucose Profile](../concepts/glossary.md#agp----ambulatory-glucose-profile) -- the standardized clinical chart that overlays glucose curves across days to surface daily patterns, with percentile bands by hour-of-day:
+
+- **p50** -- median glucose at each hour
+- **p25 / p75** -- inter-quartile range
+- **p10 / p90** -- the wider distribution
+
+The window is selectable (typically 7 / 14 / 30 / 90 days). AGP is the lingua franca clinicians use; having it on the home dashboard means you can see what your endo would see without exporting anywhere.
+
+> Note: a *printable* AGP-format report (the standardized PDF format clinicians often print) is a roadmap item -- the dashboard AGP visualization is what's available today.
 
 ## Insulin on Board (IoB)
 
@@ -77,7 +104,7 @@ Most cards (TIR, the chart) have a period selector: 24h, 7 days, 30 days. Note: 
 
 Click **Reports** in the navigation to generate a printable summary for an endocrinologist appointment. You can pick the date range; the report includes Time in Range, glucose statistics, and key patterns the AI surfaced.
 
-> **GlycemicGPT does not generate AGP today.** [AGP (Ambulatory Glucose Profile)](../concepts/glossary.md#agp----ambulatory-glucose-profile) is the standardized clinical chart most endocrinologists prefer. Today's GlycemicGPT report is a summary-style report, not AGP. If your endo wants AGP, generate it from [Tidepool](https://www.tidepool.org/), Dexcom Clarity, or LibreView -- they all produce it. AGP-style reports are on the [roadmap](../../ROADMAP.md) (Phase 2).
+> The dashboard already shows an [AGP chart](#agp-chart) (the standardized clinical visualization). What's still on the roadmap is a **printable / exportable AGP-format report** in the standard PDF format clinicians sometimes print. If your endo specifically wants the standard AGP PDF, today the easier path is generating it from [Tidepool](https://www.tidepool.org/), Dexcom Clarity, or LibreView -- which all produce it in the standard format. We expect to close this gap; tracking in [ROADMAP.md](../../ROADMAP.md).
 
 ## A few honest reminders
 
