@@ -10,6 +10,16 @@ on:
       - ".github/renovate.json5"
       - ".github/workflows/renovate.yml"
   workflow_dispatch:
+    inputs:
+      log_level:
+        description: 'Renovate log level for this run (scheduled runs always use info)'
+        type: choice
+        required: false
+        default: info
+        options:
+          - info
+          - debug
+          - trace
 
 permissions:
   contents: write
@@ -36,5 +46,5 @@ jobs:
           configurationFile: .github/renovate.json5
           token: ${{ steps.generate-token.outputs.token }}
         env:
-          LOG_LEVEL: info
+          LOG_LEVEL: ${{ inputs.log_level || 'info' }}
           RENOVATE_REPOSITORIES: ${{ github.repository }}
