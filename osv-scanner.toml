@@ -26,13 +26,6 @@ reason = "Dev-only dependency (jest toolchain), not in production; fix requires 
 id = "GHSA-f886-m6hf-6m8v"
 reason = "Dev-only transitive dependency (jest/eslint toolchain); fix requires breaking major version upgrade; not in production builds"
 
-# pygments 2.19.2 -- latest available version, no fix released yet.
-# Low severity (CVSS 3.3). ReDoS in specific lexer patterns; not
-# exploitable in our usage (server-side syntax highlighting only).
-[[IgnoredVulns]]
-id = "GHSA-5239-wwwm-4pmq"
-reason = "No fix available (2.19.2 is latest); low severity ReDoS; not exploitable in our server-side usage"
-
 # postcss 8.4.31 -- nested inside next (apps/web/node_modules/next/node_modules/postcss).
 # Next bundles its own postcss for build-time CSS compilation. The CVE is XSS via
 # unescaped </style> in CSS Stringify Output -- requires processing untrusted CSS
