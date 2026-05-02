@@ -80,7 +80,7 @@ jobs:
     outputs:
       has_deployable_changes: ${{ steps.check.outputs.has_deployable_changes }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 2
 
@@ -135,7 +135,7 @@ jobs:
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 
       - name: Checkout main
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: main
           token: ${{ steps.generate-token.outputs.token }}
@@ -330,7 +330,7 @@ jobs:
             echo "tag_name=${{ needs.fallback-release.outputs.tag_name }}" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ steps.version-info.outputs.tag_name }}
 
@@ -465,7 +465,7 @@ jobs:
             echo "tag_name=${{ needs.fallback-release.outputs.tag_name }}" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Generate token for glycemicgpt-release
         id: release-token

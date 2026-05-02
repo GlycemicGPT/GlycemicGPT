@@ -28,7 +28,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Semgrep
         run: pip install semgrep
@@ -86,7 +86,7 @@ jobs:
     timeout-minutes: 55
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -401,7 +401,7 @@ jobs:
     steps:
       - name: Checkout
         if: always()
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           sparse-checkout: scripts/security
 

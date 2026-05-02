@@ -35,7 +35,7 @@ jobs:
           private-key: ${{ secrets.MERGE_APP_PRIVATE_KEY }}
 
       - name: Checkout develop
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: develop
           token: ${{ steps.merge-token.outputs.token }}

@@ -43,7 +43,7 @@ jobs:
       sidecar: ${{ steps.changes.outputs.sidecar }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Detect changed paths
         id: changes
@@ -71,7 +71,7 @@ jobs:
       needs.detect-changes.outputs.api == 'true'
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -128,7 +128,7 @@ jobs:
       needs.detect-changes.outputs.web == 'true'
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -185,7 +185,7 @@ jobs:
       needs.detect-changes.outputs.sidecar == 'true'
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
