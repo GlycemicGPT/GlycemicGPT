@@ -246,16 +246,16 @@ Read this as: "if a Renovate PR changes a dependency in the **Dep Category** col
 | Web build/dev (`eslint*`, `jest`, `@testing-library/*`, `postcss`, `tailwindcss`, `autoprefixer`, `typescript`, `@types/*`) | npm / `apps/web/package-lock.json` | `apps/web/**` (devDep) | Same as web framework. devDeps don't ship to runtime. | SAFE (patch+minor) |
 | Sidecar runtime (`express`) | npm / `sidecar/package-lock.json` | `sidecar/**` -> sidecar=true | Semgrep TS; OSV. Sidecar is internal-only (see Threat model); no internet exposure means no DAST is required at the sidecar boundary. AI traffic transits via API endpoints which are DAST-covered. | SAFE (patch+minor) |
 | Sidecar build/test (`tsx`, `typescript`, `vitest`, `@types/*`) | npm / `sidecar/package-lock.json` | `sidecar/**` (devDep) | Semgrep TS; OSV | SAFE (patch+minor) |
-| Mobile crypto (`bouncycastle`, `sqlcipher-android`, `androidx.security:security-crypto`) | gradle / `libs.versions.toml` | `apps/mobile/**` -> mobile=true | Semgrep `p/kotlin` + `p/secrets`; Android Gate (lint, unit tests); OSV recursive. **Gap**: no behavioral assertion on SQLCipher round-trip or `EncryptedSharedPreferences` contract; unit tests cover the wrappers but not the cipher itself. A silent cipher regression in a sqlcipher-android patch (e.g., key-derivation-iteration or HMAC change) would not be caught. | Always manual until a SQLCipher round-trip + EncryptedSharedPreferences contract test lands |
-| Mobile HTTP (`okhttp`, `retrofit`, `moshi`) | gradle | `apps/mobile/**` | Semgrep Kotlin; Android Gate; OSV | SAFE (patch+minor) |
-| Mobile UI / Compose / Hilt / Room / Wear OS / work | gradle | `apps/mobile/**` | Semgrep Kotlin; Android Gate (build, lint, unit tests on `:app`, `:pump-driver-api`, `:tandem-pump-driver`, `:wear-device`, `:watchface`); OSV | SAFE (patch+minor) |
+| Mobile crypto (`bouncycastle`, `sqlcipher-android`, `androidx.security:security-crypto`) | gradle / `libs.versions.toml` | `apps/mobile/**` or `plugins/**` -> mobile=true | Semgrep `p/kotlin` + `p/secrets`; Android Gate (lint, unit tests); OSV recursive. **Gap**: no behavioral assertion on SQLCipher round-trip or `EncryptedSharedPreferences` contract; unit tests cover the wrappers but not the cipher itself. A silent cipher regression in a sqlcipher-android patch (e.g., key-derivation-iteration or HMAC change) would not be caught. | Always manual until a SQLCipher round-trip + EncryptedSharedPreferences contract test lands |
+| Mobile HTTP (`okhttp`, `retrofit`, `moshi`) | gradle | `apps/mobile/**` or `plugins/**` | Semgrep Kotlin; Android Gate; OSV | SAFE (patch+minor) |
+| Mobile UI / Compose / Hilt / Room / Wear OS / work | gradle | `apps/mobile/**` or `plugins/**` | Semgrep Kotlin; Android Gate (build, lint, unit tests on `:app`, `:pump-driver-api`, `:tandem-pump-driver`, `:wear-device`, `:watchface`); OSV | SAFE (patch+minor) |
 | Docker base images (`python`, `node`, `alpine`) | docker / Dockerfiles | `**/Dockerfile*` -> infra=true -> `run_all=true` | Everything: full SAST + full DAST (auth, IDOR, fuzzer, ZAP, nuclei, both unauth scans); OSV | SAFE (digest + patch) |
 | Docker service images (`pgvector/pgvector`, `redis`) | docker / docker-compose / Dockerfiles | `**/Dockerfile*` or `docker-compose*.yml` -> infra=true -> `run_all=true` | Everything: full SAST + full DAST; OSV | SAFE (digest + patch) |
 | docker-compose / infra config | docker-compose / `docker-compose*.yml` | `docker-compose*.yml` -> infra=true | Same as above (run_all) | SAFE (digest + patch) |
 | GitHub Actions (`actions/checkout`, `dorny/paths-filter`, `docker/*`, etc.) | github-actions / `.github/workflows/*.yml` | See **GitHub Actions Supply-Chain Hygiene** below | SHA-pin freezes audited code; `zizmor` static analysis; OSV-on-workflows scans for known compromises | SAFE (patch+minor) **after** all three controls in the next section are in place. Until then: manual. |
 | Vendored Swagger / Redoc (SHA-pinned in `apps/api/Dockerfile`) | regex / Dockerfile | `**/Dockerfile*` -> infra=true -> run_all | Full DAST + ZAP Web (catches CSP/XSS regressions in served Swagger HTML) | SAFE (patch). Renovate already requires hash refresh in same PR. |
 | Kustomize / K8s manifests (`k8s/base/*.yaml`) | n/a -- not Renovate-managed | n/a | n/a | Always manual |
-| `scripts/security/requirements.txt` (security tooling itself) | manual -- not Renovate | `scripts/security/**` -> security=true -> run_all | Full SAST + DAST + OSV | n/a (manual) |
+| `scripts/security/requirements.txt` (security tooling itself) | manual -- not Renovate | `scripts/security/**` or `.github/workflows/security-scan*` -> security=true -> run_all | Full SAST + DAST + OSV | n/a (manual) |
 
 ### GitHub Actions Supply-Chain Hygiene
 
@@ -265,11 +265,11 @@ For GlycemicGPT specifically, the blast radius is high. The `glycemicgpt-merge` 
 
 Three controls close this gap. All three must be in place before GitHub Actions enter the auto-merge tier:
 
-1. **SHA-pin third-party actions.** Replace `uses: dorny/paths-filter@v3` with `uses: dorny/paths-filter@<commit-SHA>  # v3.0.2`. Renovate keeps the SHAs current via `extends: ["helpers:pinGitHubActionDigests"]` while preserving the trailing `# v3.0.2` comment for human readability. First-party `actions/*` (GitHub-owned) is lower-risk and may stay tag-pinned at the team's discretion.
-2. **`zizmor` workflow static analysis.** A new CI job runs on PRs that touch `.github/workflows/**` and catches command-injection-via-input, excessive `permissions:` grants, dangerous `pull_request_target` patterns, and cache poisoning. Wire as a required status check on develop.
-3. **OSV-Scanner on workflow files.** The `.github/workflows/**` glob is added to the `dependency-scan.yml` `detect-changes` filter so workflow changes trigger OSV. Known-compromised actions (with CVEs) trip the same gate that already catches Python/Node CVEs.
+1. **SHA-pin third-party actions.** Today, third-party actions are tag-pinned (e.g., `uses: dorny/paths-filter@v3`); these need to be replaced with SHA pins (`uses: dorny/paths-filter@<commit-SHA>  # v3.0.2`). The `helpers:pinGitHubActionDigests` Renovate preset will need to be added to the `extends` array in `.github/renovate.json5` so Renovate keeps the SHAs current automatically while preserving the trailing `# v3.0.2` comment. First-party `actions/*` (GitHub-owned) is lower-risk and may stay tag-pinned at the team's discretion.
+2. **`zizmor` workflow static analysis.** A new CI job (not yet present) needs to run on PRs that touch `.github/workflows/**` and catch command-injection-via-input, excessive `permissions:` grants, dangerous `pull_request_target` patterns, and cache poisoning. Wire as a required status check on develop once added.
+3. **OSV-Scanner on workflow files.** The `.github/workflows/**` glob needs to be added to the `dependency-scan.yml` `detect-changes` filter so workflow changes trigger OSV. Known-compromised actions (with CVEs) would then trip the same gate that already catches Python/Node CVEs.
 
-Until all three are in place, GitHub Actions bumps stay manual regardless of update type.
+None of these three controls is in place today. Until all three land, GitHub Actions bumps stay manual regardless of update type.
 
 ### Auto-merge eligibility tiers
 
