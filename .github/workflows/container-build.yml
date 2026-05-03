@@ -43,7 +43,7 @@ jobs:
       sidecar: ${{ steps.changes.outputs.sidecar }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Detect changed paths
         id: changes
@@ -71,7 +71,7 @@ jobs:
       needs.detect-changes.outputs.api == 'true'
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
@@ -128,7 +128,7 @@ jobs:
       needs.detect-changes.outputs.web == 'true'
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
@@ -185,7 +185,7 @@ jobs:
       needs.detect-changes.outputs.sidecar == 'true'
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
@@ -238,7 +238,7 @@ jobs:
       !contains(needs.*.result, 'failure')
     steps:
       - name: Update release with container info
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
             const version = '${{ github.event.release.tag_name }}'.replace('v', '');
