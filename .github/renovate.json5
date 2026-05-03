@@ -222,6 +222,80 @@
         "androidx.wear.*:*"
       ],
       "groupName": "AndroidX Wear OS"
+    },
+    // Group GitHub built-in actions (actions/*).
+    // Owned by GitHub itself, lower individual blast radius. Bundle them
+    // into one PR per cycle so the dashboard isn't flooded with one PR
+    // per action when monthly bumps land.
+    {
+      "description": "Group GitHub built-in actions",
+      "matchManagers": ["github-actions"],
+      "matchPackageNames": ["actions/*"],
+      "groupName": "GitHub Actions"
+    },
+    // Group Docker GitHub Actions (docker/*).
+    // The Docker actions (build-push, login, metadata, setup-buildx,
+    // setup-qemu) are co-released and almost always bumped together.
+    {
+      "description": "Group Docker GitHub Actions",
+      "matchManagers": ["github-actions"],
+      "matchPackageNames": ["docker/*"],
+      "groupName": "Docker Actions"
+    },
+    // Group all other third-party CI actions (gradle, dorny, astral-sh,
+    // googleapis, renovatebot) into one PR per cycle. Each is SHA-pinned
+    // (PR #541 / #543) so even when this group bundles multiple updates
+    // the per-action audit is straightforward. When adding a new vendor
+    // action to the workflows, extend this list so it doesn't fall
+    // through to a one-PR-per-action ungrouped state.
+    {
+      "description": "Group third-party CI actions",
+      "matchManagers": ["github-actions"],
+      "matchPackageNames": [
+        "gradle/*",
+        "dorny/*",
+        "astral-sh/*",
+        "googleapis/*",
+        "renovatebot/*"
+      ],
+      "groupName": "Third-party CI actions"
+    },
+    // Group web markdown renderers. react-markdown + remark-gfm are
+    // typically co-versioned and the rendering surface is the same
+    // (XSS-relevant per the audit doc -- see docs/dev/security-testing.md
+    // dependency auto-merge coverage table).
+    {
+      "description": "Group web markdown renderers",
+      "matchManagers": ["npm"],
+      "matchPackageNames": [
+        "react-markdown",
+        "remark-gfm",
+        "remark-*",
+        "rehype-*"
+      ],
+      "groupName": "Web markdown renderers"
+    },
+    // Group Python data-source SDKs. These vendor-API clients are
+    // unrelated codebases but share the same risk profile (read-only
+    // vendor data; covered by api=true SAST/DAST per the audit doc).
+    // Bundling reduces dashboard noise without coupling unrelated
+    // upgrade decisions, since each row in the bundle is reviewed
+    // independently in the same PR.
+    //
+    // Rule order is load-bearing: this rule MUST stay below the
+    // "Python dependencies" catch-all (matchManagers: pep621) above.
+    // Renovate uses last-rule-wins on groupName -- if this rule moves
+    // above, these SDKs would be re-absorbed into "Python dependencies".
+    {
+      "description": "Group Python data-source SDKs",
+      "matchManagers": ["pep621"],
+      "matchPackageNames": [
+        "pydexcom",
+        "tconnectsync",
+        "apscheduler",
+        "fastembed"
+      ],
+      "groupName": "Python data-source SDKs"
     }
   ]
 }
