@@ -1,0 +1,64 @@
+name: Auto-merge Renovate PRs
+
+# Reads the "automerge" label set by Renovate (per the tier rules in
+# .github/renovate.json5) and enables GitHub auto-merge using
+# glycemicgpt-merge -- a bypass actor on develop's ruleset. Required
+# status checks still gate the actual merge; the bypass only skips
+# the CODEOWNERS approval requirement.
+#
+# See docs/dev/security-testing.md "Dependency Auto-Merge Coverage"
+# for the contract this enforces.
+
+on:
+  # Note: `labeled` is intentionally NOT included. Renovate sets the
+  # "automerge" label at PR creation time (captured by `opened`), so
+  # `labeled` is unnecessary -- and it would let any user with triage
+  # permission bypass the review gate by labeling a Renovate PR.
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: read
+
+concurrency:
+  # One auto-merge attempt per PR at a time. Auto-merge state is
+  # idempotent (re-enabling is a no-op), so let in-flight runs finish
+  # rather than cancelling them mid-execution.
+  group: auto-merge-renovate-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  auto-merge:
+    name: Enable auto-merge for Renovate PR
+    # Hard guards:
+    #   1. PR author is glycemicgpt-renovate (cannot be impersonated).
+    #   2. PR carries the automerge label (set by Renovate's tier rules).
+    #   3. PR targets develop -- glycemicgpt-merge is also a bypass actor
+    #      on main, so this guard prevents an accidental main-target
+    #      auto-merge if Renovate's baseBranches config ever changes.
+    if: |
+      github.event.pull_request.user.login == 'glycemicgpt-renovate[bot]'
+      && contains(github.event.pull_request.labels.*.name, 'automerge')
+      && github.event.pull_request.base.ref == 'develop'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Generate token for glycemicgpt-merge
+        id: merge-token
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
+        with:
+          app-id: ${{ secrets.MERGE_APP_ID }}
+          private-key: ${{ secrets.MERGE_APP_PRIVATE_KEY }}
+
+      - name: Enable auto-merge
+        # `--auto` queues the merge; GitHub waits for required status
+        # checks to pass before processing. If checks fail, the PR
+        # sits with auto-merge enabled but no merge fires. If new
+        # commits arrive on the PR branch, GitHub re-evaluates checks
+        # against the new HEAD before merging.
+        env:
+          GH_TOKEN: ${{ steps.merge-token.outputs.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          gh pr merge --auto --squash "$PR"
+          echo "::notice::auto-merge enabled for PR #$PR"
