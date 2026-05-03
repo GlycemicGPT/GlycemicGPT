@@ -1,0 +1,107 @@
+name: Auto-merge Renovate PRs
+
+# Reads the "automerge" label set by Renovate (per the tier rules in
+# .github/renovate.json5) and enables GitHub auto-merge using
+# glycemicgpt-merge -- a bypass actor on develop's ruleset. Required
+# status checks still gate the actual merge; the bypass only skips
+# the CODEOWNERS approval requirement.
+#
+# See docs/dev/security-testing.md "Dependency Auto-Merge Coverage"
+# for the contract this enforces.
+
+on:
+  # Note: `labeled` is intentionally NOT included. Renovate sets the
+  # "automerge" label at PR creation time (captured by `opened`), so
+  # `labeled` is unnecessary -- and it would let any user with triage
+  # permission bypass the review gate by labeling a Renovate PR.
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+# Empty permissions -- this job uses glycemicgpt-merge's app token for
+# the merge call; GITHUB_TOKEN is never used and there is no checkout.
+permissions: {}
+
+concurrency:
+  # One auto-merge attempt per PR at a time. Auto-merge state is
+  # idempotent (re-enabling is a no-op), so let in-flight runs finish
+  # rather than cancelling them mid-execution.
+  group: auto-merge-renovate-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  auto-merge:
+    name: Enable auto-merge for Renovate PR
+    # Hard guards:
+    #   1. PR author is glycemicgpt-renovate (cannot be impersonated).
+    #   2. PR carries the automerge label (set by Renovate's tier rules).
+    #   3. PR targets develop -- glycemicgpt-merge is also a bypass actor
+    #      on main, so this guard prevents an accidental main-target
+    #      auto-merge if Renovate's baseBranches config ever changes.
+    if: |
+      github.event.pull_request.user.login == 'glycemicgpt-renovate[bot]'
+      && contains(github.event.pull_request.labels.*.name, 'automerge')
+      && github.event.pull_request.base.ref == 'develop'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Generate token for glycemicgpt-merge
+        id: merge-token
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
+        with:
+          app-id: ${{ secrets.MERGE_APP_ID }}
+          private-key: ${{ secrets.MERGE_APP_PRIVATE_KEY }}
+
+      - name: Verify Renovate PR only touches dep-manifest files
+        # Defense in depth against a compromised Renovate App. The hard
+        # `if:` above guarantees the PR was opened by Renovate, but does
+        # not constrain WHAT Renovate could have put in the PR. A
+        # compromised Renovate could in principle slip arbitrary code or
+        # workflow changes alongside a "dep bump" -- the bot-author
+        # check would still pass.
+        #
+        # This step refuses to auto-merge when the PR touches any file
+        # outside the allowlist of paths Renovate is legitimately
+        # supposed to modify (lockfiles, manifests, Dockerfiles,
+        # workflow `uses:` pins, etc.). Anything else falls through to
+        # human review.
+        #
+        # If Renovate ever needs to touch a path not listed here (e.g.,
+        # a new ecosystem with a new lockfile location), extend the
+        # allowlist in the same PR that adds the manager to
+        # .github/renovate.json5.
+        env:
+          GH_TOKEN: ${{ steps.merge-token.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          ALLOWED='^(apps/api/(uv\.lock|pyproject\.toml)|apps/web/package(-lock)?\.json|sidecar/package(-lock)?\.json|apps/mobile/(gradle/(libs\.versions\.toml|wrapper/gradle-wrapper\.properties)|.*build\.gradle\.kts)|plugins/.*build\.gradle\.kts|scripts/security/requirements\.txt|.*[Dd]ockerfile.*|docker-compose.*\.ya?ml|\.github/workflows/.*\.ya?ml|osv-scanner\.toml|\.github/renovate\.json5)$'
+          UNEXPECTED=$(gh pr diff "$PR" --name-only | grep -vE "$ALLOWED" || true)
+          if [ -n "$UNEXPECTED" ]; then
+            echo "::error::Renovate PR touches files outside the dep-manifest allowlist; refusing to auto-merge"
+            echo "Unexpected files:"
+            echo "$UNEXPECTED" | sed 's/^/  - /'
+            echo ""
+            echo "If this is a legitimate Renovate pattern not covered by the"
+            echo "allowlist, extend the ALLOWED regex in this workflow."
+            echo "Otherwise, treat this PR as suspicious and review manually."
+            exit 1
+          fi
+          echo "::notice::all changed files are within the Renovate dep-manifest allowlist"
+
+      - name: Enable auto-merge
+        # `--auto` queues the merge; GitHub waits for required status
+        # checks to pass before processing. If checks fail, the PR
+        # sits with auto-merge enabled but no merge fires. If new
+        # commits arrive on the PR branch, GitHub re-evaluates checks
+        # against the new HEAD before merging.
+        env:
+          GH_TOKEN: ${{ steps.merge-token.outputs.token }}
+          # GH_REPO is required because this workflow does not check
+          # out the repo (no git context for `gh` to infer from).
+          # Without GH_REPO, `gh pr merge` errors with "no GitHub repo
+          # selected" -- and the auto-merge silently never fires.
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          gh pr merge --auto --squash "$PR"
+          echo "::notice::auto-merge enabled for PR #$PR"

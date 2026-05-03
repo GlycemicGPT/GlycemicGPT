@@ -104,36 +104,139 @@
   ],
   // Package rules
   "packageRules": [
-    // Auto-merge patch and minor updates into develop via PR.
-    // Branch protection requires PRs, so automergeType must be "pr".
-    // develop is the testing ground -- we verify before promoting to main.
+    // ====================================================================
+    // Auto-merge contract -- the per-category rationale lives in the
+    // "Dependency Auto-Merge Coverage" section of docs/dev/security-testing.md
+    // (currently in PR #540, not yet on develop -- the contract is
+    // expected to land before this PR is enabled in production).
+    //
+    // Renovate adds the "automerge" label to PRs that match a tier rule
+    // below. The .github/workflows/auto-merge-renovate.yml workflow reads
+    // the label and uses glycemicgpt-merge (a bypass actor on develop) to
+    // call `gh pr merge --auto --squash`. Required status checks still
+    // gate the actual merge -- the bypass only skips the CODEOWNERS
+    // approval requirement, not the security/test gates.
+    //
+    // Default-deny: a PR without the "automerge" label sits for human
+    // review. The tier rules below are the explicit allow-list.
+    // ====================================================================
+
+    // Tier A -- always auto-merge (digest pins, lockfile maintenance).
+    // Behavior change is bounded by what already passed the full
+    // required-check suite.
+    //
+    // CRITICAL: Tier A digest does NOT include github-actions. Renovate's
+    // pinGitHubActionDigests preset emits a `digest` updateType when a
+    // tag is re-pointed upstream. The tj-actions/changed-files and
+    // reviewdog 2025 incidents were exactly tag-re-pointing attacks --
+    // auto-merging those digest PRs would defeat the SHA-pinning
+    // defense. github-actions stays Tier D (manual) until the
+    // Workflow Lint Gate is tightened (#542).
     {
-      "description": "Auto-merge patch and minor updates",
-      "matchUpdateTypes": ["patch", "minor"],
-      "automerge": true,
-      "automergeType": "pr",
-      "matchPackageNames": ["*"]
-    },
-    // Auto-merge digest updates (container images)
-    {
-      "description": "Auto-merge digest updates",
+      "description": "Tier A: auto-merge label for container/lockfile/regex digests",
+      "matchManagers": ["docker-compose", "dockerfile", "regex"],
       "matchUpdateTypes": ["digest"],
-      "automerge": true,
-      "automergeType": "pr"
+      "addLabels": ["automerge"]
     },
-    // Auto-merge lockfile maintenance
     {
-      "description": "Auto-merge lockfile maintenance",
+      "description": "Tier A: auto-merge label for lockfile maintenance",
       "matchUpdateTypes": ["lockFileMaintenance"],
-      "automerge": true,
-      "automergeType": "pr"
+      "addLabels": ["automerge"]
     },
-    // Require manual review for major updates (can be breaking)
+
+    // Tier B -- auto-merge label for patch+minor across covered managers.
+    // Excludes github-actions (until the Workflow Lint Gate is tightened
+    // from advisory to required -- tracked in #542). Excludes regex
+    // manager (vendored Swagger/Redoc -- patch only, separate rule below).
     {
-      "description": "Require manual review for major updates",
+      "description": "Tier B: auto-merge label for platform deps patch+minor",
+      "matchManagers": [
+        "pep621",
+        "npm",
+        "gradle",
+        "gradle-wrapper",
+        "docker-compose",
+        "dockerfile"
+      ],
+      "matchUpdateTypes": ["patch", "minor"],
+      "addLabels": ["automerge"]
+    },
+
+    // Tier B (regex) -- vendored Swagger/Redoc patch only. Renovate
+    // already requires the SHA-256 hash to be refreshed in the same PR.
+    //
+    // CRITICAL: matchPackageNames scopes this to ONLY swagger-ui-dist
+    // and redoc. The regex manager also covers the `go install` version
+    // pin manager (in customManagers above) which catches CI security
+    // tools like osv-scanner and nuclei. Those should NOT auto-merge
+    // silently because they run with full repo access during CI -- a
+    // compromised tool version would have a much larger blast radius
+    // than a vendored frontend doc viewer.
+    {
+      "description": "Tier B: auto-merge label for vendored docs (regex manager, scoped)",
+      "matchManagers": ["regex"],
+      "matchPackageNames": ["swagger-ui-dist", "redoc"],
+      "matchUpdateTypes": ["patch"],
+      "addLabels": ["automerge"]
+    },
+
+    // Tier C override -- web markdown renderer minors require human
+    // review (XSS-relevant per the audit doc). Patches still auto-merge
+    // because the broader npm rule above matches them. This rule uses
+    // `labels:` (replaces) instead of `addLabels:` (accumulates) to
+    // strip any "automerge" label set by an earlier rule.
+    {
+      "description": "Tier C override: web markdown renderer minors stay manual; patches still auto-merge via Tier B",
+      "matchManagers": ["npm"],
+      "matchPackageNames": [
+        "react-markdown",
+        "remark-gfm",
+        "remark-*",
+        "rehype-*"
+      ],
+      "matchUpdateTypes": ["minor"],
+      "labels": ["dependencies", "needs-review"]
+    },
+
+    // Tier D -- major version bumps always manual (can be breaking).
+    // Uses labels: (replaces) so the "automerge" label from earlier
+    // rules is stripped. Major bumps are matched by matchUpdateTypes
+    // separately from the patch+minor rules above, so this only
+    // applies to major-typed PRs.
+    {
+      "description": "Tier D: major updates always manual",
       "matchUpdateTypes": ["major"],
-      "automerge": false,
-      "labels": ["dependencies", "major"]
+      "labels": ["dependencies", "major", "needs-review"]
+    },
+
+    // Tier D override -- mobile crypto stays manual on every update
+    // type until a SQLCipher round-trip + EncryptedSharedPreferences
+    // contract test lands (audit doc gap). Two rules so the
+    // "security-sensitive" label survives major bumps too -- placed
+    // AFTER the major rule above so last-wins on labels keeps the
+    // security-sensitive flag visible in either case. labels: replaces,
+    // which is what strips any "automerge" label set by Tier B.
+    {
+      "description": "Tier D override: mobile crypto patch+minor (no auto-merge until SQLCipher round-trip test)",
+      "matchManagers": ["gradle"],
+      "matchPackageNames": [
+        "org.bouncycastle:bcprov-jdk18on",
+        "net.zetetic:sqlcipher-android",
+        "androidx.security:security-crypto"
+      ],
+      "matchUpdateTypes": ["patch", "minor"],
+      "labels": ["dependencies", "needs-review", "security-sensitive"]
+    },
+    {
+      "description": "Tier D override: mobile crypto major (preserves security-sensitive flag)",
+      "matchManagers": ["gradle"],
+      "matchPackageNames": [
+        "org.bouncycastle:bcprov-jdk18on",
+        "net.zetetic:sqlcipher-android",
+        "androidx.security:security-crypto"
+      ],
+      "matchUpdateTypes": ["major"],
+      "labels": ["dependencies", "major", "needs-review", "security-sensitive"]
     },
     // Group Python dependencies
     {
