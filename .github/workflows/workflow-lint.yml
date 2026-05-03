@@ -1,0 +1,98 @@
+name: Workflow Lint
+
+# Static analysis of GitHub Actions workflow files using zizmor.
+# Defends against compromised/misconfigured workflows that could leak
+# CI secrets (the same class of attack as the tj-actions/changed-files
+# and reviewdog 2025 incidents).
+#
+# zizmor catches:
+#   - Untrusted input flowing into shell commands (template injection)
+#   - Excessive permissions: grants
+#   - Dangerous pull_request_target patterns (fork code execution)
+#   - Cache poisoning patterns
+#   - Self-hosted runner risks
+#   - Action references that evaluate at runtime
+#
+# ROLLOUT STATUS: ADVISORY (does not fail builds).
+# zizmor surfaces findings on the existing workflow corpus that need to
+# be triaged in follow-up PRs (template injection, excessive permissions,
+# cache poisoning, missing persist-credentials: false). Once the baseline
+# is clean, this gate will be tightened to fail on errors, then warnings,
+# then registered as a required status check on develop. Tracking issue
+# will be filed once this PR lands.
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - '.github/workflows/**'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - '.github/workflows/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workflow-lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  zizmor:
+    name: Workflow Lint Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # No git-push needed -- zizmor only reads files. Disabling
+          # token persistence reduces exposure when the step's external
+          # tooling (pip + zizmor) runs.
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install zizmor
+        run: pip install zizmor==1.5.2
+
+      - name: Run zizmor (advisory)
+        # ADVISORY MODE: does not fail the build. We collect findings,
+        # post a summary, and upload SARIF for review. Tighten to a
+        # failing gate once baseline findings are triaged.
+        run: |
+          set +e
+          zizmor --persona=auditor --format sarif .github/workflows/ > zizmor.sarif
+          ZIZMOR_EXIT=$?
+          # Always also print the human-readable output so it shows in run logs
+          zizmor --persona=auditor .github/workflows/ || true
+          echo "::notice::zizmor exited with $ZIZMOR_EXIT (advisory mode -- not failing build)"
+          # Summary counts for visibility
+          if [ -s zizmor.sarif ]; then
+            python3 -c "
+          import json
+          with open('zizmor.sarif') as f:
+              data = json.load(f)
+          counts = {}
+          for run in data.get('runs', []):
+              for r in run.get('results', []):
+                  level = r.get('level', 'unknown')
+                  counts[level] = counts.get(level, 0) + 1
+          for level, n in sorted(counts.items()):
+              print(f'::notice::zizmor {level}: {n}')
+          " || true
+          fi
+          exit 0
+
+      - name: Upload SARIF artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zizmor-sarif
+          path: zizmor.sarif
+          if-no-files-found: ignore
+          retention-days: 30

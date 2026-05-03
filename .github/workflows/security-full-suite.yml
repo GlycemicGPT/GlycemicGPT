@@ -312,7 +312,7 @@ jobs:
         run: |
           docker run --rm --network="host" \
             -v "$(pwd)/scripts/security:/zap/wrk/:rw" \
-            ghcr.io/zaproxy/zaproxy:stable \
+            ghcr.io/zaproxy/zaproxy@sha256:707fc6b9fd8327ba48bb7b49d0c5732c179b045dab9c99f8b95410627dff4a00 \
             zap.sh -cmd -autorun /zap/wrk/zap-api-plan.resolved.yaml || true
 
       - name: Evaluate ZAP API results
@@ -324,7 +324,7 @@ jobs:
         run: |
           docker run --rm --network="host" \
             -v "$(pwd)/scripts/security:/zap/wrk/:rw" \
-            ghcr.io/zaproxy/zaproxy:stable \
+            ghcr.io/zaproxy/zaproxy@sha256:707fc6b9fd8327ba48bb7b49d0c5732c179b045dab9c99f8b95410627dff4a00 \
             zap.sh -cmd -autorun /zap/wrk/zap-web-plan.resolved.yaml || true
 
       - name: Evaluate ZAP Web results
@@ -339,7 +339,7 @@ jobs:
         run: |
           docker run --rm --network="host" \
             -v "$(pwd)/scripts/security:/zap/wrk/:rw" \
-            ghcr.io/zaproxy/zaproxy:stable \
+            ghcr.io/zaproxy/zaproxy@sha256:707fc6b9fd8327ba48bb7b49d0c5732c179b045dab9c99f8b95410627dff4a00 \
             zap.sh -cmd -autorun /zap/wrk/zap-unauth-api-plan.yaml || true
 
       - name: Evaluate ZAP Unauthenticated API results
@@ -353,7 +353,7 @@ jobs:
         run: |
           docker run --rm --network="host" \
             -v "$(pwd)/scripts/security:/zap/wrk/:rw" \
-            ghcr.io/zaproxy/zaproxy:stable \
+            ghcr.io/zaproxy/zaproxy@sha256:707fc6b9fd8327ba48bb7b49d0c5732c179b045dab9c99f8b95410627dff4a00 \
             zap.sh -cmd -autorun /zap/wrk/zap-unauth-web-plan.yaml || true
 
       - name: Evaluate ZAP Unauthenticated Web results

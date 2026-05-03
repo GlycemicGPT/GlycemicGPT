@@ -4,7 +4,12 @@
     "config:recommended",
     "docker:enableMajor",
     ":dependencyDashboard",
-    ":semanticCommits"
+    ":semanticCommits",
+    // Pin GitHub Actions to commit SHAs (preserves trailing
+    // "# vX.Y.Z" comment for human readability). Defends against
+    // mutable-tag re-pointing attacks (e.g., tj-actions/changed-files,
+    // reviewdog 2025 incidents). Renovate keeps the SHAs current.
+    "helpers:pinGitHubActionDigests"
   ],
   // Target develop as the integration branch -- all dependency
   // updates land here first so we can test before promoting to main.
