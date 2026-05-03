@@ -20,19 +20,28 @@ jobs:
   # is PR-only.
   #
   # Each gateable job has `needs: detect-changes` + a fail-open `if:`:
-  #   if: needs.detect-changes.result != 'success'
+  #   if: |
+  #     !cancelled()
+  #     && (
+  #       needs.detect-changes.result != 'success'
   #       || needs.detect-changes.outputs.<flag> == 'true'
   #       || github.event_name == 'push'
+  #     )
   #
-  # When the `if:` evaluates false, GitHub reports the job as "skipped"
-  # and that DOES satisfy the required-status-check rule on develop.
-  # However, if `detect-changes` itself FAILS (network blip, paths-filter
-  # transient bug, runner hiccup), dependent jobs would otherwise be
-  # skipped with reason "dependent job failed", which GitHub treats as
-  # a FAILURE for required-check purposes -- blocking every PR. The
-  # `needs.detect-changes.result != 'success'` clause fail-opens that
-  # path: a flaky detect-changes degrades to "run the job," not "block
-  # the PR."
+  # When the inner expression evaluates false, GitHub reports the job as
+  # "skipped" and that DOES satisfy the required-status-check rule on
+  # develop.
+  #
+  # The `!cancelled()` prefix is load-bearing. GitHub Actions implicitly
+  # applies `success()` to job-level `if` conditions, which means a job
+  # with `needs:` whose upstream FAILED would short-circuit the entire
+  # `if` to false (regardless of what the inner expression evaluates to)
+  # and report as "dependent job failed" -- a FAILURE for required-check
+  # purposes. `!cancelled()` overrides the implicit `success()` so the
+  # inner expression is honored even when `detect-changes` failed,
+  # letting the dependent job run unconditionally and report its own
+  # real result. (`!cancelled()` is preferred over `always()` because
+  # we still want to skip if the workflow itself was cancelled.)
   detect-changes:
     name: Detect Component Changes
     runs-on: ubuntu-latest
@@ -63,7 +72,13 @@ jobs:
   test-backend:
     name: Backend Tests
     needs: detect-changes
-    if: needs.detect-changes.result != 'success' || needs.detect-changes.outputs.api == 'true' || github.event_name == 'push'
+    if: |
+      !cancelled()
+      && (
+        needs.detect-changes.result != 'success'
+        || needs.detect-changes.outputs.api == 'true'
+        || github.event_name == 'push'
+      )
     runs-on: ubuntu-latest
 
     services:
@@ -118,7 +133,13 @@ jobs:
   test-frontend:
     name: Frontend Tests
     needs: detect-changes
-    if: needs.detect-changes.result != 'success' || needs.detect-changes.outputs.web == 'true' || github.event_name == 'push'
+    if: |
+      !cancelled()
+      && (
+        needs.detect-changes.result != 'success'
+        || needs.detect-changes.outputs.web == 'true'
+        || github.event_name == 'push'
+      )
     runs-on: ubuntu-latest
 
     defaults:
@@ -150,7 +171,13 @@ jobs:
   lint-backend:
     name: Backend Lint
     needs: detect-changes
-    if: needs.detect-changes.result != 'success' || needs.detect-changes.outputs.api == 'true' || github.event_name == 'push'
+    if: |
+      !cancelled()
+      && (
+        needs.detect-changes.result != 'success'
+        || needs.detect-changes.outputs.api == 'true'
+        || github.event_name == 'push'
+      )
     runs-on: ubuntu-latest
 
     defaults:
@@ -183,7 +210,13 @@ jobs:
   lint-frontend:
     name: Frontend Lint
     needs: detect-changes
-    if: needs.detect-changes.result != 'success' || needs.detect-changes.outputs.web == 'true' || github.event_name == 'push'
+    if: |
+      !cancelled()
+      && (
+        needs.detect-changes.result != 'success'
+        || needs.detect-changes.outputs.web == 'true'
+        || github.event_name == 'push'
+      )
     runs-on: ubuntu-latest
 
     defaults:
@@ -485,7 +518,13 @@ jobs:
   test-sidecar:
     name: Sidecar Tests
     needs: detect-changes
-    if: needs.detect-changes.result != 'success' || needs.detect-changes.outputs.sidecar == 'true' || github.event_name == 'push'
+    if: |
+      !cancelled()
+      && (
+        needs.detect-changes.result != 'success'
+        || needs.detect-changes.outputs.sidecar == 'true'
+        || github.event_name == 'push'
+      )
     runs-on: ubuntu-latest
 
     defaults:
