@@ -220,12 +220,13 @@ GlycemicGPT also does not run AI models. The `apps/api` Python SDKs (`anthropic`
 
 ### Defense-in-depth controls outside the test surface
 
-Two controls in `.github/renovate.json5` complement the in-CI tests and are part of why patch+minor auto-merge is acceptable:
+Several controls complement the in-CI tests and are part of why patch+minor auto-merge is acceptable:
 
-- **`minimumReleaseAge: "3 days"`** (line 24) -- newly published versions wait 3 days before Renovate creates a PR. This is the primary defense against compromised-publish events of the kind that hit `event-stream`, `colors.js`, and `chalk`/`debug`. Vulnerability-flagged updates override to `0 days` (line 55), which is intentional and correct.
-- **`internalChecksFilter: "strict"`** (line 25) -- Renovate refuses to surface updates that fail its own pre-PR sanity checks (e.g., missing changelog metadata, parse failures).
+- **`minimumReleaseAge: "3 days"`** in `.github/renovate.json5` -- newly published versions wait 3 days before Renovate creates a PR. This is the primary defense against compromised-publish events of the kind that hit `event-stream`, `colors.js`, and `chalk`/`debug`. Vulnerability-flagged updates skip the soak window automatically (Renovate also auto-bypasses `prHourlyLimit`, `prConcurrentLimit`, and `schedule` for security alerts by design).
+- **`internalChecksFilter: "strict"`** in `.github/renovate.json5` -- Renovate refuses to surface updates that fail its own pre-PR sanity checks (e.g., missing changelog metadata, parse failures).
+- **File-scope guard in `.github/workflows/auto-merge-renovate.yml`** -- before any auto-merge call, the workflow verifies the PR ONLY touches files in a hardcoded allowlist (lockfiles, manifests, Dockerfiles, workflow `uses:` pins, Renovate's own config). If a Renovate PR touches anything outside that list (source code, CODEOWNERS, README, etc.), the workflow refuses to merge and the PR falls through to human review. This is the load-bearing control if `glycemicgpt-renovate` itself is ever compromised -- a malicious "dep bump" PR that also slips in code changes is rejected at the workflow level even before the required-check gates evaluate.
 
-This contract assumes the Renovate App itself (`glycemicgpt-renovate`) is uncompromised. The App's repository permissions are the upper bound on what Renovate can do; review them when permissions change. App-level compromise is out of scope for the dep-coverage table -- it would invalidate every row.
+This contract assumes the Renovate App itself (`glycemicgpt-renovate`) is uncompromised. The App's repository permissions are the upper bound on what Renovate can do; review them when permissions change. The file-scope guard above is the safety net if that assumption ever breaks.
 
 ### Coverage table
 
@@ -265,7 +266,7 @@ For GlycemicGPT specifically, the blast radius is high. The `glycemicgpt-merge` 
 
 Two controls close this gap. Both must be operational before GitHub Actions enter the auto-merge tier.
 
-1. **SHA-pin third-party actions.** All third-party actions in `.github/workflows/**` are pinned by commit SHA (e.g., `uses: dorny/paths-filter@d1c1ffe0248fe513906c8e24db8ea791d46f8590 # v3.0.3`). The `helpers:pinGitHubActionDigests` Renovate preset is enabled in `.github/renovate.json5` so SHAs stay current automatically while preserving the trailing `# vX.Y.Z` comment for human readability. First-party `actions/*` (GitHub-owned, stronger account security) are still tag-pinned today; Renovate's preset will produce a follow-up conversion PR moving them to SHAs as well. **Status: landed in PR #541.**
+1. **SHA-pin every action.** All actions in `.github/workflows/**` are pinned by commit SHA (e.g., `uses: dorny/paths-filter@d1c1ffe0248fe513906c8e24db8ea791d46f8590 # v3.0.3`). The `helpers:pinGitHubActionDigests` Renovate preset is enabled in `.github/renovate.json5` so SHAs stay current automatically while preserving the trailing `# vX.Y.Z` comment for human readability. **Status: landed.** Third-party SHAs in PR #541; first-party `actions/*` SHAs in PR #543 (Renovate's automated conversion).
 2. **`zizmor` workflow static analysis.** `.github/workflows/workflow-lint.yml` runs zizmor on PRs that touch `.github/workflows/**` and catches command-injection-via-input, excessive `permissions:` grants, dangerous `pull_request_target` patterns, cache poisoning, missing `persist-credentials: false`, and unpinned action references. **Status: landed in PR #541 in advisory mode** (does not fail builds; surfaces findings as run-log output and downloadable SARIF). Tightening to a required status check, with findings flowing through `create-finding-issues.py` like SAST/DAST findings do today, is tracked in #542.
 
 A third control was originally planned -- OSV-Scanner over workflow files -- but was withdrawn after verifying that OSV-Scanner v2.3.3 has no GitHub Actions extractor (the path filter would have triggered the scan but extracted nothing). CVE alerting on actions remains via Renovate / Dependabot vulnerability alerts, which is a separate pipeline from OSV-Scanner and operates correctly.
@@ -277,29 +278,23 @@ GitHub Actions bumps stay manual until the `Workflow Lint Gate` is tightened fro
 | Tier | Definition | Examples |
 |---|---|---|
 | **A -- always auto-merge** | Digest pins and lockfile maintenance. Behavior change is bounded by what already passed the full required-check suite. | Docker base image digest; `lockFileMaintenance` |
-| **B -- auto-merge patch+minor** | Categories marked SAFE in the coverage table above. | All Python, web framework + UI + build, sidecar runtime + dev, mobile, GitHub Actions (after hygiene controls land), vendored docs |
+| **B -- auto-merge patch+minor** | Categories marked SAFE in the coverage table above. | All Python, web framework + UI + build, sidecar runtime + dev, mobile, vendored docs. GitHub Actions are tier-D-pending until #542 tightens the Workflow Lint Gate. |
 | **C -- manual on minor** | Categories where minor bumps warrant human eyes. Patches still auto-merge. | Web markdown renderers (`react-markdown`, `remark-gfm`) |
 | **D -- always manual** | Major bumps, categories with documented coverage gaps, K8s manifests, and any category not represented in the coverage table above. | All `major` updates; mobile crypto (until SQLCipher round-trip test lands); K8s/Kustomize files; new ecosystems |
 
 ### How this contract is enforced
 
-The intended enforcement design is:
+The enforcement chain has five steps. All steps must succeed for an auto-merge to fire; failure at any step means the PR sits for human review.
 
-1. Renovate's package rules in `.github/renovate.json5` add (or do not add) the `automerge` label to each PR based on the dep category and update type.
-2. A workflow (`.github/workflows/auto-merge-renovate.yml`) reads the label, mints a `glycemicgpt-merge` token, and calls `gh pr merge --auto --squash` for labeled PRs.
-3. The `--auto` flag queues the merge but does not bypass required status checks -- if any of the gates in the **Tests That Fire** column fail, the merge does not fire.
-4. `glycemicgpt-merge` is in the bypass-actor list for develop and main branch protection, so the merge can land despite CODEOWNERS without a human approval -- but only after every required check passes.
+1. **Renovate sets the label.** `.github/renovate.json5` package rules add (or do not add) the `automerge` label to each PR based on the dep category and update type. Tier C/D categories never receive the label; Tier A/B do.
+2. **The auto-merge workflow's `if:` filter.** `.github/workflows/auto-merge-renovate.yml` triggers on `pull_request: [opened, reopened, synchronize]` and runs the merge job ONLY when (a) the PR author is `glycemicgpt-renovate[bot]`, (b) the PR carries the `automerge` label, and (c) the PR targets `develop`. Bot-author check prevents impersonation; `labeled` event is intentionally NOT triggered so triage-permission users cannot bypass the gate by labeling a non-Renovate PR.
+3. **File-scope guard.** Before invoking the merge, the workflow checks that the PR ONLY touches files in a hardcoded allowlist (lockfiles, manifests, Dockerfiles, workflow `uses:` pins, Renovate's own config). Any file outside the allowlist aborts the auto-merge -- defense in depth against a compromised Renovate that tries to slip arbitrary code into a "dep bump."
+4. **`glycemicgpt-merge` calls `gh pr merge --auto --squash`.** The workflow mints a `glycemicgpt-merge` token (via the `MERGE_APP_ID` and `MERGE_APP_PRIVATE_KEY` secrets) and uses it for the merge call. `glycemicgpt-merge` is in the bypass-actor list for develop's ruleset, so it can complete the merge despite CODEOWNERS without a human approval.
+5. **Required status checks gate the merge.** `--auto` queues the merge; GitHub waits for all required checks to pass before processing. The bypass actor status of `glycemicgpt-merge` does NOT bypass required checks. If `Security Scan Gate`, `Backend Tests`, or any other required gate fails, the merge does not fire and the PR sits with auto-merge "armed" until checks pass (or someone manually closes it).
 
-This is default-deny: a PR without the `automerge` label sits until a human reviews it.
+Default-deny: a PR without the `automerge` label sits until a human reviews it.
 
-### Rollout status
-
-**As of this section landing, the enforcement mechanism above is not yet active.** The current `.github/renovate.json5` package rule (lines 99-105) sets `automerge: true` for `patch` and `minor` updates against `matchPackageNames: ["*"]` with no label gate. The `auto-merge-renovate.yml` workflow does not exist yet. Until both land:
-
-- Renovate marks every patch+minor PR for auto-merge -- but the existing CODEOWNERS gate on develop blocks the actual merge, so PRs effectively wait for human approval today.
-- This contract describes the **target** state, not current behavior. Read the table to understand which categories are intended to be auto-merge eligible; do not assume merges are gated by the table yet.
-
-The enforcement work lands in a follow-up PR (Phase 1 of the Renovate auto-merge plan). At that point this section becomes the operational contract.
+**Status: operational on develop as of PR #547.**
 
 ### When to update this section
 
