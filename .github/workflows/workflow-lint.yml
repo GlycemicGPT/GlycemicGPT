@@ -46,6 +46,11 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+        with:
+          # No git-push needed -- zizmor only reads files. Disabling
+          # token persistence reduces exposure when the step's external
+          # tooling (pip + zizmor) runs.
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
