@@ -164,9 +164,18 @@
 
     // Tier B (regex) -- vendored Swagger/Redoc patch only. Renovate
     // already requires the SHA-256 hash to be refreshed in the same PR.
+    //
+    // CRITICAL: matchPackageNames scopes this to ONLY swagger-ui-dist
+    // and redoc. The regex manager also covers the `go install` version
+    // pin manager (in customManagers above) which catches CI security
+    // tools like osv-scanner and nuclei. Those should NOT auto-merge
+    // silently because they run with full repo access during CI -- a
+    // compromised tool version would have a much larger blast radius
+    // than a vendored frontend doc viewer.
     {
-      "description": "Tier B: auto-merge label for vendored docs (regex manager)",
+      "description": "Tier B: auto-merge label for vendored docs (regex manager, scoped)",
       "matchManagers": ["regex"],
+      "matchPackageNames": ["swagger-ui-dist", "redoc"],
       "matchUpdateTypes": ["patch"],
       "addLabels": ["automerge"]
     },

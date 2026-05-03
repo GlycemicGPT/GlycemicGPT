@@ -17,8 +17,9 @@ on:
   pull_request:
     types: [opened, reopened, synchronize]
 
-permissions:
-  contents: read
+# Empty permissions -- this job uses glycemicgpt-merge's app token for
+# the merge call; GITHUB_TOKEN is never used and there is no checkout.
+permissions: {}
 
 concurrency:
   # One auto-merge attempt per PR at a time. Auto-merge state is
@@ -58,6 +59,11 @@ jobs:
         # against the new HEAD before merging.
         env:
           GH_TOKEN: ${{ steps.merge-token.outputs.token }}
+          # GH_REPO is required because this workflow does not check
+          # out the repo (no git context for `gh` to infer from).
+          # Without GH_REPO, `gh pr merge` errors with "no GitHub repo
+          # selected" -- and the auto-merge silently never fires.
+          GH_REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
         run: |
           gh pr merge --auto --squash "$PR"
