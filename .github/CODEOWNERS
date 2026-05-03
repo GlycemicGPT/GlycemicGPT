@@ -30,7 +30,15 @@
 /scripts/security/ @jlengelbrecht @GlycemicGPT/maintainers
 /.github/workflows/security-scan.yml @jlengelbrecht @GlycemicGPT/maintainers
 /.github/workflows/security-full-suite.yml @jlengelbrecht @GlycemicGPT/maintainers
-/docs/security-testing.md @jlengelbrecht @GlycemicGPT/maintainers
+/.github/workflows/workflow-lint.yml @jlengelbrecht @GlycemicGPT/maintainers
+/docs/dev/security-testing.md @jlengelbrecht @GlycemicGPT/maintainers
+
+# All GitHub Actions workflows: maintainer review required.
+# Workflow files run with access to repo secrets and (for bypass-actor
+# bots) write access to protected branches. A malicious or careless
+# workflow change can compromise the release pipeline. Defense-in-depth
+# alongside the SHA-pinning + zizmor controls landed in PR #541.
+/.github/workflows/ @jlengelbrecht @GlycemicGPT/maintainers
 
 # Release & CI configuration: project lead explicitly requested
 /.github/workflows/release.yml @jlengelbrecht @GlycemicGPT/maintainers
