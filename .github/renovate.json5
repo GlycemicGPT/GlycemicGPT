@@ -55,17 +55,15 @@
   "timezone": "America/Chicago",
   // Schedule for updates (weekdays during work hours)
   "schedule": ["after 9am and before 5pm every weekday"],
-  // Vulnerability alerts get priority. Bypass the global prHourlyLimit
-  // and prConcurrentLimit so security fixes are never starved behind
-  // stuck non-security PRs (0 = unlimited per Renovate semantics).
-  // minimumReleaseAge is also overridden to 0 days -- security
-  // exposure beats the soak window for known-CVE updates.
+  // Vulnerability alerts. Renovate already auto-bypasses prHourlyLimit,
+  // prConcurrentLimit, branchConcurrentLimit, schedule, AND
+  // minimumReleaseAge for vulnerabilityAlerts PRs by design -- security
+  // PRs "skip the line" without any explicit override needed. So the
+  // global caps above are safe to tighten without starving CVE fixes.
+  // (Per Renovate docs: those nested overrides are non-functional here.)
   "vulnerabilityAlerts": {
     "enabled": true,
-    "labels": ["security", "dependencies"],
-    "minimumReleaseAge": "0 days",
-    "prHourlyLimit": 0,
-    "prConcurrentLimit": 0
+    "labels": ["security", "dependencies"]
   },
   // Custom managers for versions that Renovate can't auto-detect.
   "customManagers": [
