@@ -22,9 +22,11 @@
   "semanticCommits": "enabled",
   "semanticCommitType": "chore",
   "semanticCommitScope": "deps",
-  // PR settings
-  "prHourlyLimit": 5,
-  "prConcurrentLimit": 10,
+  // PR settings -- bounded queue depth to keep CI minutes predictable
+  // and to give maintainers a manageable review surface as the project
+  // grows. Tightened from 5/10 to 3/6 in the Renovate auto-merge plan.
+  "prHourlyLimit": 3,
+  "prConcurrentLimit": 6,
   // Stability settings
   "minimumReleaseAge": "3 days",
   "internalChecksFilter": "strict",
@@ -53,11 +55,17 @@
   "timezone": "America/Chicago",
   // Schedule for updates (weekdays during work hours)
   "schedule": ["after 9am and before 5pm every weekday"],
-  // Vulnerability alerts get priority
+  // Vulnerability alerts get priority. Bypass the global prHourlyLimit
+  // and prConcurrentLimit so security fixes are never starved behind
+  // stuck non-security PRs (0 = unlimited per Renovate semantics).
+  // minimumReleaseAge is also overridden to 0 days -- security
+  // exposure beats the soak window for known-CVE updates.
   "vulnerabilityAlerts": {
     "enabled": true,
     "labels": ["security", "dependencies"],
-    "minimumReleaseAge": "0 days"
+    "minimumReleaseAge": "0 days",
+    "prHourlyLimit": 0,
+    "prConcurrentLimit": 0
   },
   // Custom managers for versions that Renovate can't auto-detect.
   "customManagers": [
