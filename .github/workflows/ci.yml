@@ -11,9 +11,59 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
+  # Path-filter PRs so we don't spin up VMs for components that didn't
+  # change. On push to main/develop the gated jobs always run -- skipping
+  # is PR-only.
+  #
+  # Each gateable job has `needs: detect-changes` + a fail-open `if:`:
+  #   if: needs.detect-changes.result != 'success'
+  #       || needs.detect-changes.outputs.<flag> == 'true'
+  #       || github.event_name == 'push'
+  #
+  # When the `if:` evaluates false, GitHub reports the job as "skipped"
+  # and that DOES satisfy the required-status-check rule on develop.
+  # However, if `detect-changes` itself FAILS (network blip, paths-filter
+  # transient bug, runner hiccup), dependent jobs would otherwise be
+  # skipped with reason "dependent job failed", which GitHub treats as
+  # a FAILURE for required-check purposes -- blocking every PR. The
+  # `needs.detect-changes.result != 'success'` clause fail-opens that
+  # path: a flaky detect-changes degrades to "run the job," not "block
+  # the PR."
+  detect-changes:
+    name: Detect Component Changes
+    runs-on: ubuntu-latest
+    outputs:
+      api: ${{ steps.filter.outputs.api }}
+      web: ${{ steps.filter.outputs.web }}
+      sidecar: ${{ steps.filter.outputs.sidecar }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+      - uses: dorny/paths-filter@d1c1ffe0248fe513906c8e24db8ea791d46f8590 # v3.0.3
+        id: filter
+        with:
+          # Mirrors the path semantics in security-scan.yml so contributors
+          # only have one mental model. Anything inside apps/api/** triggers
+          # backend; anything inside apps/web/** triggers frontend; etc.
+          # Tests and lockfiles are co-located under those trees so no
+          # extra patterns are needed.
+          filters: |
+            api:
+              - 'apps/api/**'
+            web:
+              - 'apps/web/**'
+            sidecar:
+              - 'sidecar/**'
+
   test-backend:
     name: Backend Tests
+    needs: detect-changes
+    if: needs.detect-changes.result != 'success' || needs.detect-changes.outputs.api == 'true' || github.event_name == 'push'
     runs-on: ubuntu-latest
 
     services:
@@ -38,6 +88,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
@@ -65,6 +117,8 @@ jobs:
 
   test-frontend:
     name: Frontend Tests
+    needs: detect-changes
+    if: needs.detect-changes.result != 'success' || needs.detect-changes.outputs.web == 'true' || github.event_name == 'push'
     runs-on: ubuntu-latest
 
     defaults:
@@ -74,6 +128,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
 
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -93,6 +149,8 @@ jobs:
 
   lint-backend:
     name: Backend Lint
+    needs: detect-changes
+    if: needs.detect-changes.result != 'success' || needs.detect-changes.outputs.api == 'true' || github.event_name == 'push'
     runs-on: ubuntu-latest
 
     defaults:
@@ -102,6 +160,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
@@ -122,6 +182,8 @@ jobs:
 
   lint-frontend:
     name: Frontend Lint
+    needs: detect-changes
+    if: needs.detect-changes.result != 'success' || needs.detect-changes.outputs.web == 'true' || github.event_name == 'push'
     runs-on: ubuntu-latest
 
     defaults:
@@ -131,6 +193,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
 
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -156,6 +220,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Generate token for glycemicgpt-ci
         id: ci-token
@@ -419,6 +484,8 @@ jobs:
 
   test-sidecar:
     name: Sidecar Tests
+    needs: detect-changes
+    if: needs.detect-changes.result != 'success' || needs.detect-changes.outputs.sidecar == 'true' || github.event_name == 'push'
     runs-on: ubuntu-latest
 
     defaults:
@@ -428,6 +495,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
 
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
