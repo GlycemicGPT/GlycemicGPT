@@ -212,9 +212,9 @@ This contract governs Renovate only. Dependabot is not enabled in this repositor
 
 Coverage is scoped to what an end-user deploying GlycemicGPT exposes to the internet. The deploy examples (`deploy/examples/cloudflare-tunnel/`, `prod-caddy/`, `public-cloud/`, `external-redis/`) reverse-proxy only the web service. The API is reachable through Next.js rewrites on the docker network.
 
-**The AI sidecar is internal-only.** No `ports:` mapping in any deploy example, no Caddyfile / cloudflared upstream points at it. This is the load-bearing fact behind the sidecar row's "no DAST required" verdict. If a future deploy example exposes the sidecar, that row must be re-evaluated.
+**The AI sidecar is internal-only.** No `ports:` mapping in any deploy example, no Caddyfile / cloudflared upstream points at it. The sidecar row's "no DAST required" verdict depends on this; if a future deploy example exposes the sidecar, re-evaluate that row.
 
-The API-to-sidecar boundary is enforced by a shared bearer token (`SIDECAR_API_KEY`, see `sidecar/src/server.ts`). The SSRF tests in `scripts/security/test-research-security.py` are the load-bearing control that prevents a compromised dependency from turning the API into an SSRF gadget that reaches the sidecar via its docker-network address (which falls within RFC1918 and is therefore blocked by the existing SSRF allowlist).
+The API-to-sidecar boundary is enforced by a shared bearer token (`SIDECAR_API_KEY`, see `sidecar/src/server.ts`). SSRF tests in `scripts/security/test-research-security.py` block outbound requests to RFC1918 addresses, which includes the docker-network address where the sidecar lives.
 
 GlycemicGPT also does not run AI models. The `apps/api` Python SDKs (`anthropic`, `openai`) and the sidecar's CLI subprocesses are HTTP/process bridges to models that the user hosts (subscription, BYOAI key, or local LLM). Prompt-injection or jailbreak testing of our code is out of scope -- there is no model in our containers to attack. Bridge-layer concerns (key handling, IDOR on AI endpoints, malformed-input crashes) are covered by the existing IDOR / secrets / fuzz suites.
 
@@ -224,9 +224,9 @@ Several controls complement the in-CI tests and are part of why patch+minor auto
 
 - **`minimumReleaseAge: "3 days"`** in `.github/renovate.json5` -- newly published versions wait 3 days before Renovate creates a PR. This is the primary defense against compromised-publish events of the kind that hit `event-stream`, `colors.js`, and `chalk`/`debug`. Vulnerability-flagged updates skip the soak window automatically (Renovate also auto-bypasses `prHourlyLimit`, `prConcurrentLimit`, and `schedule` for security alerts by design).
 - **`internalChecksFilter: "strict"`** in `.github/renovate.json5` -- Renovate refuses to surface updates that fail its own pre-PR sanity checks (e.g., missing changelog metadata, parse failures).
-- **File-scope guard in `.github/workflows/auto-merge-renovate.yml`** -- before any auto-merge call, the workflow verifies the PR ONLY touches files in a hardcoded allowlist (lockfiles, manifests, Dockerfiles, workflow `uses:` pins, Renovate's own config). If a Renovate PR touches anything outside that list (source code, CODEOWNERS, README, etc.), the workflow refuses to merge and the PR falls through to human review. This is the load-bearing control if `glycemicgpt-renovate` itself is ever compromised -- a malicious "dep bump" PR that also slips in code changes is rejected at the workflow level even before the required-check gates evaluate.
+- **File-scope guard in `.github/workflows/auto-merge-renovate.yml`** -- before any auto-merge call, the workflow verifies the PR only touches files in a hardcoded allowlist (lockfiles, manifests, Dockerfiles, workflow `uses:` pins, Renovate's own config). A Renovate PR that touches anything outside that list -- source code, CODEOWNERS, README, etc. -- is rejected and falls through to human review.
 
-This contract assumes the Renovate App itself (`glycemicgpt-renovate`) is uncompromised. The App's repository permissions are the upper bound on what Renovate can do; review them when permissions change. The file-scope guard above is the safety net if that assumption ever breaks.
+This contract assumes the Renovate App is uncompromised. The App's repository permissions are the upper bound on what Renovate can do; review them when permissions change.
 
 ### Coverage table
 
@@ -260,11 +260,9 @@ Read this as: "if a Renovate PR changes a dependency in the **Dep Category** col
 
 ### GitHub Actions Supply-Chain Hygiene
 
-GitHub Actions are pinned by string (`uses: actions/checkout@v4`) and the strings reference mutable tags. A maintainer (or anyone who compromises a maintainer's account) can re-point a tag to a different commit; the next workflow run executes whatever code the tag now points to, with access to every secret exposed to that workflow. This is not theoretical: `tj-actions/changed-files` and `reviewdog` were both compromised this way during 2025, leaking secrets from thousands of repositories.
+GitHub Actions are pinned by string (`uses: actions/checkout@v4`) and those strings reference mutable tags. A maintainer (or anyone who compromises a maintainer's account) can re-point a tag to a different commit; the next workflow run executes whatever code the tag now points to. The `tj-actions/changed-files` and `reviewdog` 2025 incidents are well-known examples of this attack class.
 
-For GlycemicGPT specifically, the blast radius is high. The `glycemicgpt-merge` and `glycemicgpt-release` private keys are exposed to CI; both apps are bypass actors on `develop` and `main` branch protection. A compromised workflow could push directly to either branch, build poisoned release artifacts, and ship them to GHCR with valid pipeline signatures. In a medical-data context that is a serious supply-chain risk.
-
-Two controls close this gap. Both must be operational before GitHub Actions enter the auto-merge tier.
+Two controls protect against this. Both must be operational before GitHub Actions enter the auto-merge tier.
 
 1. **SHA-pin every action.** All actions in `.github/workflows/**` are pinned by commit SHA (e.g., `uses: dorny/paths-filter@d1c1ffe0248fe513906c8e24db8ea791d46f8590 # v3.0.3`). The `helpers:pinGitHubActionDigests` Renovate preset is enabled in `.github/renovate.json5` so SHAs stay current automatically while preserving the trailing `# vX.Y.Z` comment for human readability. **Status: landed.** Third-party SHAs in PR #541; first-party `actions/*` SHAs in PR #543 (Renovate's automated conversion).
 2. **`zizmor` workflow static analysis.** `.github/workflows/workflow-lint.yml` runs zizmor on PRs that touch `.github/workflows/**` and catches command-injection-via-input, excessive `permissions:` grants, dangerous `pull_request_target` patterns, cache poisoning, missing `persist-credentials: false`, and unpinned action references. **Status: landed in PR #541 in advisory mode** (does not fail builds; surfaces findings as run-log output and downloadable SARIF). Tightening to a required status check, with findings flowing through `create-finding-issues.py` like SAST/DAST findings do today, is tracked in #542.
@@ -288,9 +286,9 @@ The enforcement chain has five steps. All steps must succeed for an auto-merge t
 
 1. **Renovate sets the label.** `.github/renovate.json5` package rules add (or do not add) the `automerge` label to each PR based on the dep category and update type. Tier C/D categories never receive the label; Tier A/B do.
 2. **The auto-merge workflow's `if:` filter.** `.github/workflows/auto-merge-renovate.yml` triggers on `pull_request: [opened, reopened, synchronize]` and runs the merge job ONLY when (a) the PR author is `glycemicgpt-renovate[bot]`, (b) the PR carries the `automerge` label, and (c) the PR targets `develop`. Bot-author check prevents impersonation; `labeled` event is intentionally NOT triggered so triage-permission users cannot bypass the gate by labeling a non-Renovate PR.
-3. **File-scope guard.** Before invoking the merge, the workflow checks that the PR ONLY touches files in a hardcoded allowlist (lockfiles, manifests, Dockerfiles, workflow `uses:` pins, Renovate's own config). Any file outside the allowlist aborts the auto-merge -- defense in depth against a compromised Renovate that tries to slip arbitrary code into a "dep bump."
-4. **`glycemicgpt-merge` calls `gh pr merge --auto --squash`.** The workflow mints a `glycemicgpt-merge` token (via the `MERGE_APP_ID` and `MERGE_APP_PRIVATE_KEY` secrets) and uses it for the merge call. `glycemicgpt-merge` is in the bypass-actor list for develop's ruleset, so it can complete the merge despite CODEOWNERS without a human approval.
-5. **Required status checks gate the merge.** `--auto` queues the merge; GitHub waits for all required checks to pass before processing. The bypass actor status of `glycemicgpt-merge` does NOT bypass required checks. If `Security Scan Gate`, `Backend Tests`, or any other required gate fails, the merge does not fire and the PR sits with auto-merge "armed" until checks pass (or someone manually closes it).
+3. **File-scope guard.** Before invoking the merge, the workflow checks that the PR only touches files in a hardcoded allowlist (lockfiles, manifests, Dockerfiles, workflow `uses:` pins, Renovate's own config). Any file outside the allowlist aborts the auto-merge.
+4. **The merge bot calls `gh pr merge --auto --squash`.** The workflow mints a token from a dedicated GitHub App and uses it for the merge call. The merge bot is configured to bypass the CODEOWNERS approval requirement on develop's ruleset.
+5. **Required status checks gate the merge.** `--auto` queues the merge; GitHub waits for all required checks to pass before processing. Bypass-actor status only skips the CODEOWNERS approval requirement, not the required checks. If any required gate fails, the merge does not fire and the PR sits with auto-merge "armed" until checks pass (or someone manually closes it).
 
 Default-deny: a PR without the `automerge` label sits until a human reviews it.
 
