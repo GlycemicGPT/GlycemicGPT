@@ -336,16 +336,200 @@ class AuthManagerTest {
         assertTrue(manager.authState.value is AuthState.Expired)
     }
 
+    // --- refreshForInterceptor (called from TokenRefreshInterceptor on 401) ---
+
     @Test
-    fun `onInterceptorRefreshSuccess sets Authenticated`() {
+    fun `refreshForInterceptor short-circuits when valid token is already stored`() = runTest {
+        // Fast path: another caller already produced a valid access token.
+        // refreshForInterceptor should return that token without hitting the
+        // network. This is the bug-fix path for issue #520 -- when multiple
+        // queued 401s arrive after an access token expired, only the first
+        // one should refresh; every subsequent caller gets the freshly-stored
+        // token here.
+        every { authTokenStore.getToken() } returns "already-fresh-token"
+        // Wire up a refresh client that throws on any call -- if the fast path
+        // works, this client is never asked to do anything.
+        every { refreshClientProvider.refreshClient } returns
+            mockClientThrowing(IllegalStateException("Network call should not happen on fast path"))
+
         val manager = createManager()
+        // originalToken=null is the load-bearing case: AuthInterceptor sends
+        // the request with no Authorization header when the access token was
+        // already expired client-side. The fast path should still trigger.
+        val result = manager.refreshForInterceptor(null)
+
+        assertEquals("already-fresh-token", result)
+    }
+
+    @Test
+    fun `refreshForInterceptor refreshes when stored token equals originalToken`() = runTest {
+        // Loop-guard: if the server 401s a fresh access token (e.g. revoked
+        // session, IP change, server bug), the stored token equals the one
+        // the request just used. Returning the stored token would loop the
+        // request forever. We must actually refresh in that case.
+        every { authTokenStore.getToken() } returns "rejected-token"
+        every { authTokenStore.getRefreshToken() } returns "valid-refresh"
+        every { authTokenStore.isRefreshTokenExpired() } returns false
         every { authTokenStore.getTokenExpiresAtMs() } returns System.currentTimeMillis() + 3_600_000
 
-        // Simulate a prior login so retainedScope is set
+        val body = """
+            {
+                "access_token": "post-refresh-token",
+                "refresh_token": "post-refresh-refresh",
+                "token_type": "bearer",
+                "expires_in": 3600,
+                "user": {"id": "1", "email": "user@test.com", "role": "user"}
+            }
+        """.trimIndent()
+        every { refreshClientProvider.refreshClient } returns mockClientReturning(fakeResponse(200, body))
+
+        val manager = createManager()
+        manager.onLoginSuccess(testScope)
+        // The request that got 401 carried "rejected-token" and the store
+        // still has "rejected-token" -- must refresh, not return the same
+        // rejected value.
+        val result = manager.refreshForInterceptor(originalToken = "rejected-token")
+
+        assertEquals("post-refresh-token", result)
+        verify { authTokenStore.saveCredentials(any(), "post-refresh-token", any(), any()) }
+    }
+
+    @Test
+    fun `refreshForInterceptor performs refresh when no valid token stored`() = runTest {
+        // Simulate AuthTokenStore's real behavior: getToken returns null until
+        // saveCredentials persists a value, then returns the saved value. Without
+        // this, the recursive proactive-refresh timer that fires on success would
+        // re-enter performRefresh forever (state-based fast path requires a
+        // non-null token).
+        var savedAccess: String? = null
+        every { authTokenStore.getToken() } answers { savedAccess }
+        every { authTokenStore.saveCredentials(any(), any(), any(), any()) } answers {
+            savedAccess = secondArg<String>()
+        }
+        every { authTokenStore.getRefreshToken() } returns "valid-refresh"
+        every { authTokenStore.isRefreshTokenExpired() } returns false
+        every { authTokenStore.getTokenExpiresAtMs() } returns System.currentTimeMillis() + 3_600_000
+
+        val body = """
+            {
+                "access_token": "fresh-access",
+                "refresh_token": "fresh-refresh",
+                "token_type": "bearer",
+                "expires_in": 3600,
+                "user": {"id": "1", "email": "user@test.com", "role": "user"}
+            }
+        """.trimIndent()
+        every { refreshClientProvider.refreshClient } returns mockClientReturning(fakeResponse(200, body))
+
+        val manager = createManager()
+        manager.onLoginSuccess(testScope) // sets retainedScope so success branch can reschedule
+        val result = manager.refreshForInterceptor(null)
+
+        assertEquals("fresh-access", result)
+        assertEquals(AuthState.Authenticated, manager.authState.value)
+        verify { authTokenStore.saveCredentials("https://test.example.com", "fresh-access", any(), "user@test.com") }
+        verify { authTokenStore.saveRefreshToken("fresh-refresh") }
+    }
+
+    @Test
+    fun `refreshForInterceptor returns null and sets Expired on 401 from server`() = runTest {
+        every { authTokenStore.getToken() } returns null
+        every { authTokenStore.getRefreshToken() } returns "valid-refresh"
+        every { authTokenStore.isRefreshTokenExpired() } returns false
+        every { refreshClientProvider.refreshClient } returns mockClientReturning(fakeResponse(401))
+
+        val manager = createManager()
+        val result = manager.refreshForInterceptor(null)
+
+        assertEquals(null, result)
+        assertTrue(manager.authState.value is AuthState.Expired)
+        verify { authTokenStore.clearToken() }
+    }
+
+    @Test
+    fun `refreshForInterceptor returns null on transient server error without changing state`() = runTest {
+        // 5xx during interceptor refresh should NOT logout the user. The
+        // caller's request will see the 401 and the app keeps trying.
+        // (We avoid onLoginSuccess here because that schedules a proactive
+        // refresh that would re-enter performRefresh under the test
+        // scheduler's auto-advancing virtual time.)
+        every { authTokenStore.getToken() } returns null
+        every { authTokenStore.getRefreshToken() } returns "valid-refresh"
+        every { authTokenStore.isRefreshTokenExpired() } returns false
+        every { refreshClientProvider.refreshClient } returns mockClientReturning(fakeResponse(503))
+
+        val manager = createManager()
+        val result = manager.refreshForInterceptor(null)
+
+        assertEquals(null, result)
+        // Should not be Expired
+        assertTrue(manager.authState.value !is AuthState.Expired)
+        verify(exactly = 0) { authTokenStore.clearToken() }
+    }
+
+    /**
+     * Regression for issue #520. The proactive refresh timer
+     * ([performRefresh]) and the reactive interceptor refresh
+     * ([refreshForInterceptor]) MUST share a single mutex so they cannot
+     * both rotate the refresh token. Before this fix they had independent
+     * locks and could each successfully rotate, leaving any in-flight
+     * requests carrying a now-twice-stale refresh token, which the server's
+     * replay detector then rejected.
+     *
+     * Two concurrent callers should produce exactly ONE network call.
+     */
+    @Test
+    fun `proactive and interceptor refresh share a single mutex`() = runTest {
+        // First call: getToken() returns null (must refresh).
+        // After a successful refresh, getToken() should return the new token
+        // so the second caller takes the fast path and does not hit the network.
+        var refreshed = false
+        every { authTokenStore.getToken() } answers {
+            if (refreshed) "fresh-access" else null
+        }
+        every { authTokenStore.getRefreshToken() } returns "valid-refresh"
+        every { authTokenStore.isRefreshTokenExpired() } returns false
+        every { authTokenStore.getTokenExpiresAtMs() } returns System.currentTimeMillis() + 3_600_000
+
+        val body = """
+            {
+                "access_token": "fresh-access",
+                "refresh_token": "fresh-refresh",
+                "token_type": "bearer",
+                "expires_in": 3600,
+                "user": {"id": "1", "email": "user@test.com", "role": "user"}
+            }
+        """.trimIndent()
+
+        // Track network call count to prove the second caller skipped it.
+        var networkCallCount = 0
+        val client = mockk<OkHttpClient> {
+            every { newCall(any()) } answers {
+                mockk { every { execute() } answers {
+                    networkCallCount++
+                    // Flip `refreshed` so getToken() reports the new value the
+                    // moment any subsequent caller checks. Subsequent callers
+                    // run after this one releases the mutex (sequential
+                    // execution under UnconfinedTestDispatcher), so they hit
+                    // the fast path.
+                    refreshed = true
+                    fakeResponse(200, body)
+                } }
+            }
+        }
+        every { refreshClientProvider.refreshClient } returns client
+
+        val manager = createManager()
         manager.onLoginSuccess(testScope)
 
-        manager.onInterceptorRefreshSuccess()
+        // Run both refresh paths sequentially under the test scheduler.
+        // The mutex serializes them; the second caller hits the fast path.
+        manager.performRefresh(testScope)
+        val interceptorToken = manager.refreshForInterceptor(null)
 
-        assertEquals(AuthState.Authenticated, manager.authState.value)
+        assertEquals("fresh-access", interceptorToken)
+        // Critical assertion: only one network call happened total.
+        assertEquals("expected one /refresh call across both paths, got $networkCallCount",
+            1, networkCallCount)
     }
 }
