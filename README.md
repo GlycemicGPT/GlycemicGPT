@@ -5,7 +5,7 @@
 <h1 align="center">GlycemicGPT</h1>
 
 <p align="center">
-  <strong>Open source AI-powered diabetes management platform.</strong><br/>
+  <strong>Open source diabetes platform with AI-powered analysis at its core.</strong><br/>
   <em>Because no one should manage diabetes alone.</em>
 </p>
 
@@ -55,7 +55,7 @@
 
 ## Overview
 
-GlycemicGPT bridges the gap between diabetes device data and actionable AI-powered insights. It connects to your Dexcom G7 CGM and Tandem insulin pump via BLE, displays real-time glucose trends, and provides AI-generated analysis of your diabetes data.
+GlycemicGPT is an open source diabetes platform built around AI-powered analysis. It connects directly to your CGM and insulin pump for a full standalone experience — real-time monitoring, daily AI briefs, pattern detection, conversational AI chat, and caregiver alerting. Already running Nightscout? GlycemicGPT can also pull data from your existing instance and add AI analysis on top, no changes required to your current setup. See the [Relationship to other tools](https://glycemicgpt.org/docs/platform/concepts/relationship-to-other-tools) page for the honest comparison.
 
 **Currently supported devices:**
 
@@ -65,18 +65,22 @@ GlycemicGPT bridges the gap between diabetes device data and actionable AI-power
 | Tandem t:slim X2 | Insulin Pump | BLE (direct) + Cloud API | Verified |
 | Tandem Mobi | Insulin Pump | BLE (direct) + Cloud API | Protocol-compatible (see note) |
 
-> **Tandem Mobi note:** The Mobi uses the same BLE protocol, authentication, and data formats as the t:slim X2. Our Tandem plugin is designed to read data from both models, but **Mobi support has not been verified against physical hardware**. Protocol compatibility does not guarantee correct operation on untested devices. Use of GlycemicGPT to read data from Mobi hardware is entirely at your own risk -- see [MEDICAL-DISCLAIMER.md](MEDICAL-DISCLAIMER.md) for full liability terms. If you have a Mobi and can help validate data reading, please open an issue.
+> **Tandem Mobi note:** The Mobi uses the same BLE protocol, authentication, and data formats as the t:slim X2. Our Tandem plugin reads data from both models, but **Mobi support has not been verified against physical hardware**. Protocol compatibility does not guarantee correct operation on untested devices. Use with Mobi hardware is entirely at your own risk — see [MEDICAL-DISCLAIMER.md](MEDICAL-DISCLAIMER.md) for full liability terms. If you have a Mobi and can help validate data reading, please open an issue.
 
-Support for additional pumps and CGMs is planned for future releases. The mobile app uses a [capability-based plugin architecture](docs/dev/plugin-architecture.md) designed for extensibility -- see [CONTRIBUTING.md](CONTRIBUTING.md) if you'd like to help add support for your device.
+Support for reading data from additional pumps and CGMs is planned. The mobile app uses a [capability-based plugin architecture](docs/dev/plugin-architecture.md) for community device data drivers — see [CONTRIBUTING.md](CONTRIBUTING.md) if you'd like to help add data reading support for your device. If your device isn't supported today, the recommended path is the upcoming Nightscout integration — once that lands, anything that flows into Nightscout flows into GlycemicGPT.
 
 **What it does:**
 
+- AI-powered daily briefs, meal analysis, and pattern recognition (BYOAI — bring your own AI key)
+- Conversational AI chat backed by clinical diabetes knowledge base
+- Configurable alerts with caregiver escalation and multi-channel delivery (Telegram, push, in-app)
 - Real-time glucose monitoring with trend charts and Time in Range tracking
 - BLE connectivity to Tandem pumps (basal, bolus, IoB, reservoir, battery)
-- AI-powered daily briefs, meal analysis, and pattern recognition (BYOAI -- bring your own AI key)
-- Configurable alerts with Telegram delivery and caregiver escalation
+- Nightscout API integration for existing ecosystem users (coming soon)
 - Android phone app + Wear OS companion with watch face complications
 - Self-hosted Docker stack with web dashboard and REST API
+- Up to 10 years of personal diabetes data storage
+- Printable reports for endocrinologist appointments
 
 **Key Principles:**
 
@@ -117,7 +121,7 @@ For deployments beyond local development, see:
 | Backend | FastAPI, Python 3.12 |
 | Mobile | Kotlin, Jetpack Compose, BLE |
 | Wear OS | Kotlin, Wear Compose, Watch Face |
-| Plugin System | Extensible device support via [plugin architecture](docs/dev/plugin-architecture.md) |
+| Plugin System | Community device data drivers via [plugin architecture](docs/dev/plugin-architecture.md) |
 | AI Sidecar | TypeScript, Express, multi-provider proxy |
 | Database | PostgreSQL 16, SQLAlchemy 2.0 |
 | Cache | Redis 7 |
