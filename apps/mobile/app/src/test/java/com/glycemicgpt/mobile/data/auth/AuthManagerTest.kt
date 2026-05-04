@@ -476,7 +476,16 @@ class AuthManagerTest {
      * requests carrying a now-twice-stale refresh token, which the server's
      * replay detector then rejected.
      *
-     * Two concurrent callers should produce exactly ONE network call.
+     * What this test asserts: under [UnconfinedTestDispatcher] both paths
+     * complete with exactly ONE network call -- the second caller's
+     * fast-path correctly observes the freshly-stored token from the first
+     * caller and returns it without re-entering the refresh logic.
+     *
+     * What this test does NOT directly assert: lock contention behavior
+     * under genuine concurrent execution. The fast-path / shared-state
+     * behavior here is the load-bearing guarantee for the burst-of-401s
+     * scenario. The mutex's actual contention semantics are a property of
+     * [kotlinx.coroutines.sync.Mutex] itself.
      */
     @Test
     fun `proactive and interceptor refresh share a single mutex`() = runTest {

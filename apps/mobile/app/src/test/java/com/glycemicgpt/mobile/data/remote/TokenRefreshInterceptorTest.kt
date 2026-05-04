@@ -189,7 +189,10 @@ class TokenRefreshInterceptorTest {
         val response = interceptor.intercept(chain)
 
         assertEquals(200, response.code)
-        coVerify(exactly = 1) { authManager.refreshForInterceptor(any()) }
+        // Pin the regression: the originalToken arg MUST be null when there
+        // was no Authorization header on the request (that was the exact
+        // bug shape -- AuthInterceptor omits the header for expired tokens).
+        coVerify(exactly = 1) { authManager.refreshForInterceptor(null) }
         verify {
             chain.proceed(match { req ->
                 req.header("Authorization") == "Bearer fresh-access-token"
