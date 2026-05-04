@@ -1,55 +1,75 @@
 name: Cleanup Container Images
 
+# Removes stale untagged manifests from GHCR while preserving every tagged
+# release artifact (latest, dev, sha-<short>, semver tags).
+#
+# WHY NOT actions/delete-package-versions:
+# That action's `ignore-versions` regex is matched against the package
+# version's NAME field, which for container packages on GHCR is the SHA256
+# manifest digest -- not the tag. So a regex like `latest|0\.5\.0` never
+# matches anything (digests are sha256:... strings) and tagged versions get
+# culled by the date-based `min-versions-to-keep` cutoff. This was the
+# root cause of issue #550 ("no latest tag").
+#
+# dataaxiom/ghcr-cleanup-action operates on tags via wildcard/regex and
+# is multi-platform-aware (it reads manifest lists and preserves all
+# referenced platform sub-manifests automatically), so we can safely
+# delete untagged orphans without breaking arm64/amd64 fan-out.
+
 on:
   schedule:
     - cron: '0 0 * * 0'  # Weekly on Sunday at midnight
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (log what would be deleted, change nothing)'
+        type: boolean
+        default: true
 
 permissions:
   packages: write
 
 jobs:
-  cleanup-api:
-    name: Cleanup API Images
+  cleanup:
+    name: Cleanup ${{ matrix.package }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - glycemicgpt-api
+          - glycemicgpt-web
+          - glycemicgpt-sidecar
     steps:
-      - name: Delete old API image versions
-        uses: actions/delete-package-versions@e5bc658cc4c965c472efe991f8beea3981499c55 # v5
+      - name: Cleanup ${{ matrix.package }}
+        uses: dataaxiom/ghcr-cleanup-action@cd0cdb900b5dbf3a6f2cc869f0dbb0b8211f50c4 # v1.0.16
         with:
-          package-name: glycemicgpt-api
-          package-type: container
-          min-versions-to-keep: 10
-          delete-only-untagged-versions: false
-          ignore-versions: '^(latest|dev|sha-.*|\\d+\\.\\d+\\.\\d+|\\d+\\.\\d+)$'
-
-  cleanup-web:
-    name: Cleanup Web Images
-    runs-on: ubuntu-latest
-    steps:
-      - name: Delete old Web image versions
-        uses: actions/delete-package-versions@e5bc658cc4c965c472efe991f8beea3981499c55 # v5
-        with:
-          package-name: glycemicgpt-web
-          package-type: container
-          min-versions-to-keep: 10
-          delete-only-untagged-versions: false
-          ignore-versions: '^(latest|dev|sha-.*|\\d+\\.\\d+\\.\\d+|\\d+\\.\\d+)$'
-
-  cleanup-sidecar:
-    name: Cleanup Sidecar Images
-    runs-on: ubuntu-latest
-    steps:
-      - name: Delete old Sidecar image versions
-        uses: actions/delete-package-versions@e5bc658cc4c965c472efe991f8beea3981499c55 # v5
-        with:
-          package-name: glycemicgpt-sidecar
-          package-type: container
-          min-versions-to-keep: 10
-          delete-only-untagged-versions: false
-          ignore-versions: '^(latest|dev|sha-.*|\\d+\\.\\d+\\.\\d+|\\d+\\.\\d+)$'
-
-  # NOTE: Do NOT add a "cleanup untagged versions" job here.
-  # Multi-platform images (linux/amd64 + linux/arm64) store platform-specific
-  # manifests as UNTAGGED sub-versions in GHCR. Deleting these breaks all
-  # tagged images because the manifest list points to deleted content.
-  # The tagged cleanup above (min-versions-to-keep: 10) is sufficient.
+          token: ${{ secrets.GITHUB_TOKEN }}
+          owner: ${{ github.repository_owner }}
+          package: ${{ matrix.package }}
+          # Preserve every tag we publish. Wildcard syntax is built-in.
+          # Patterns covered:
+          #   latest                  - rolling pointer to most recent stable release
+          #   dev                     - rolling pointer to latest develop build
+          #   sha-*                   - per-commit immutable tags
+          #   <major>.<minor>.<patch> - stable semver release tags (e.g. 0.5.0)
+          #   <major>.<minor>         - minor-line floating tags (e.g. 0.5)
+          exclude-tags: latest,dev,sha-*,*.*.*,*.*
+          # Of versions matching the above patterns, keep all (no upper bound).
+          # GHCR storage is free for public repos so we don't trade safety for space.
+          # Untagged sub-manifests of those tagged versions are kept automatically
+          # via the action's manifest-list awareness.
+          keep-n-tagged: 100
+          # Cap orphaned untagged manifests (build attestations etc. that no
+          # tagged version references) to a reasonable history.
+          keep-n-untagged: 20
+          # Only touch images older than 14 days so an in-flight build/release
+          # is never disturbed.
+          older-than: 14 days
+          # Validate every multi-architecture manifest after cleanup -- fails
+          # the run if any tagged image is missing a referenced platform layer.
+          validate: true
+          # workflow_dispatch defaults to dry_run=true so first manual run is
+          # observation only; scheduled runs have no input so dry_run resolves
+          # to false and the action actually deletes.
+          dry-run: ${{ github.event.inputs.dry_run || 'false' }}
