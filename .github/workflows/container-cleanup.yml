@@ -31,22 +31,25 @@ permissions:
 
 jobs:
   cleanup:
-    name: Cleanup ${{ matrix.package }}
+    name: Cleanup container packages
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        package:
-          - glycemicgpt-api
-          - glycemicgpt-web
-          - glycemicgpt-sidecar
+    # Belt-and-suspenders against accidental concurrent runs (e.g. a manual
+    # workflow_dispatch firing while the weekly schedule is mid-run). The
+    # upstream action is not designed for concurrent execution.
+    concurrency:
+      group: container-cleanup
+      cancel-in-progress: false
     steps:
-      - name: Cleanup ${{ matrix.package }}
+      - name: Cleanup container packages
+        # Action supports a comma-separated package list (v1.0.12+) and
+        # processes them sequentially in a single run, which is the upstream
+        # author's recommended pattern. A matrix here would parallelize
+        # cleanup jobs and is explicitly discouraged.
         uses: dataaxiom/ghcr-cleanup-action@cd0cdb900b5dbf3a6f2cc869f0dbb0b8211f50c4 # v1.0.16
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           owner: ${{ github.repository_owner }}
-          package: ${{ matrix.package }}
+          packages: glycemicgpt-api,glycemicgpt-web,glycemicgpt-sidecar
           # Preserve every tag we publish. Wildcard syntax is built-in.
           # Patterns covered:
           #   latest                  - rolling pointer to most recent stable release
