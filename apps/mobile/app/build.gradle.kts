@@ -105,6 +105,15 @@ android {
             excludes += "/META-INF/versions/9/OSGI-INF/MANIFEST.MF"
         }
     }
+
+    testOptions {
+        unitTests.all {
+            // Default Android test JVM heap (512MB) is too small for our
+            // mockk-based tests; relaxed mocks of large interfaces and
+            // coroutine-aware tests accumulate enough heap pressure to OOM.
+            it.maxHeapSize = "2g"
+        }
+    }
 }
 
 ksp {
