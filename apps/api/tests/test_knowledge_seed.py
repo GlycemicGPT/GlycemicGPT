@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_session_maker
 from src.models.knowledge_chunk import KnowledgeChunk
+from src.services import knowledge_seed
 from src.services.embedding import EMBEDDING_DIM
 from src.services.knowledge_seed import seed_knowledge_base
 
@@ -75,14 +76,18 @@ async def seed_session() -> AsyncGenerator[AsyncSession, None]:
 def fake_embed():
     """Stub the embedding model so unit tests don't load 500MB of weights.
 
-    Returns one zero-vector at the dimension declared by the embedding
-    module. Importing EMBEDDING_DIM rather than hardcoding the number
-    means switching to a different model shape automatically updates
-    the test stub -- otherwise tests would silently keep passing while
-    pgvector rejected production inserts."""
+    Returns one zero-vector per input text at the dimension declared by
+    the embedding module. Using a side_effect (vs. fixed return_value)
+    means the stub correctly handles batch sizes other than one --
+    every test using this fixture today asserts assert_not_called(), but
+    that's a brittle invariant for a stub to depend on. Importing
+    EMBEDDING_DIM rather than hardcoding the number means switching to a
+    different model shape automatically updates the test stub --
+    otherwise tests would silently keep passing while pgvector rejected
+    production inserts."""
     with patch(
         "src.services.knowledge_seed.embed_texts",
-        return_value=[[0.0] * EMBEDDING_DIM],
+        side_effect=lambda texts: [[0.0] * EMBEDDING_DIM for _ in texts],
     ) as m:
         yield m
 
@@ -147,9 +152,15 @@ async def test_skips_when_embedding_offline_only(
 ) -> None:
     """Air-gapped deployments set embedding_offline_only=True so the seed
     must not trigger an embedding-model download. Even with a populated
-    knowledge dir, the seed bails out without calling embed_texts."""
-    with patch("src.services.knowledge_seed.settings") as mock_settings:
-        mock_settings.embedding_offline_only = True
+    knowledge dir, the seed bails out without calling embed_texts.
+
+    Patches only the embedding_offline_only attribute (rather than the
+    entire settings object) so any access to other settings fields
+    inside seed_knowledge_base() goes through the real settings object
+    and would raise AttributeError on typos -- patching the whole
+    object as an unspecced MagicMock would silently return truthy
+    MagicMocks for misspelled attributes and mask real bugs."""
+    with patch.object(knowledge_seed.settings, "embedding_offline_only", True):
         inserted = await seed_knowledge_base(seed_session)
 
     assert inserted == 0

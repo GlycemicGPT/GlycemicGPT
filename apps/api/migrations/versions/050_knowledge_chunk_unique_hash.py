@@ -35,10 +35,11 @@ depends_on = None
 
 def upgrade() -> None:
     # Partial unique index keyed on (content_hash, user_id). NULLS NOT
-    # DISTINCT (Postgres 15+) makes the user_id IS NULL case equal so
-    # shared bootstrap chunks (user_id NULL) cannot duplicate either.
-    # Using a real (non-functional) index keeps ON CONFLICT inference
-    # straightforward in pg_insert(...).on_conflict_do_nothing().
+    # DISTINCT (requires Postgres 16, per the project's documented
+    # minimum) makes the user_id IS NULL case equal so shared bootstrap
+    # chunks (user_id NULL) cannot duplicate either. Using a real
+    # (non-functional) index keeps ON CONFLICT inference straightforward
+    # in pg_insert(...).on_conflict_do_nothing().
     op.execute(
         """
         CREATE UNIQUE INDEX ix_knowledge_chunks_content_hash_unique

@@ -98,11 +98,13 @@ the passage rather than weakening the regex set.
    clinical, this is the wrong place — clinical content belongs in
    the user-controlled tiers.
 2. Add a new `.md` file in this directory with an `# H1` title.
-3. Per-chunk `content_hash` dedup means re-running the seed is
-   idempotent. Adding a new file picks it up automatically on next
-   API restart.
-4. The Dockerfile copies the entire directory into the image, so new
-   files ship with the next container build.
+3. **Rebuild the container image** (`docker compose build api` or your
+   equivalent) so the Dockerfile `COPY` picks up the new file -- a
+   restart of the existing image is **not** sufficient because the
+   image was built from the previous source tree. The seed runs
+   automatically on the next API startup after the rebuild. Per-chunk
+   `content_hash` dedup means re-running the seed is idempotent, so
+   it's safe to restart freely.
 
 ## Files excluded from ingestion
 
