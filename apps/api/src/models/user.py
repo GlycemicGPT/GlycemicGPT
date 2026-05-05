@@ -92,6 +92,11 @@ class User(Base, TimestampMixin):
         back_populates="user",
         cascade="all, delete-orphan",
     )
+    nightscout_connections = relationship(
+        "NightscoutConnection",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
     glucose_readings = relationship(
         "GlucoseReading",
         back_populates="user",

@@ -37,6 +37,7 @@ from src.routers import (
     integrations,
     knowledge,
     meal_analysis,
+    nightscout,
     research,
     safety,
     system,
@@ -164,6 +165,7 @@ app.include_router(disclaimer.router)
 app.include_router(auth.router)
 app.include_router(system.router)
 app.include_router(integrations.router)
+app.include_router(nightscout.router)
 app.include_router(glucose_stream.router)
 app.include_router(ai.router)
 app.include_router(briefs.router)
