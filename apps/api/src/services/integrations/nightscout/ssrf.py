@@ -102,7 +102,12 @@ async def resolve_host(
         # `TimeoutError` since Python 3.11; the project requires 3.11+
         # so catching the builtin covers both.
         raise ValueError(f"DNS resolution timed out for {hostname}") from exc
-    except socket.gaierror as exc:
+    except OSError as exc:
+        # `getaddrinfo` documents `gaierror` (a subclass of OSError),
+        # but the underlying syscall can also surface plain OSError
+        # (e.g., "Network is unreachable" / EAI_SYSTEM). Catch the
+        # base class so any resolution failure maps cleanly to
+        # ValueError -- the contract callers rely on.
         raise ValueError(f"Could not resolve host: {hostname}") from exc
 
     out: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = []

@@ -69,6 +69,29 @@ async def test_validate_target_preserves_path_prefix():
     assert target.base_url == "https://example.com/nightscout"
 
 
+def test_httpx_preserves_subpath_with_leading_slash_request_path():
+    """Lock in the httpx behavior the client relies on: when the
+    base_url has a sub-path (e.g. `/nightscout`) and requests are made
+    with a leading-slash path (e.g. `/api/v1/entries.json`), the
+    resulting wire URL must be `https://host/nightscout/api/...`,
+    NOT `https://host/api/...` (which would drop the prefix and
+    break sub-path Nightscout deployments).
+
+    Older httpx versions stripped the prefix in this case; current
+    versions merge correctly. This regression test guards against a
+    future bump that re-introduces the bug.
+    """
+    import httpx
+
+    client = httpx.AsyncClient(base_url="https://example.com/nightscout")
+    try:
+        req = client.build_request("GET", "/api/v1/entries.json")
+        assert str(req.url) == "https://example.com/nightscout/api/v1/entries.json"
+    finally:
+        # build_request doesn't open connections, but be tidy.
+        pass
+
+
 @pytest.mark.asyncio
 async def test_validate_target_strips_trailing_slash():
     with patch.object(

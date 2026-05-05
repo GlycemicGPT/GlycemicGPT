@@ -24,12 +24,16 @@ Auth modes:
 
 Pagination:
 
-- v1 endpoints accept `count=N` (max ~50000) and `find[<field>][$gte]`
-  for time bounds. The client paginates by fetching newest-first and
-  paging by the oldest dateString seen so far.
-- v3 endpoints have a different shape (`limit`, `lastModified`). The
-  v1 path is the primary; v3 is a thin parallel for instances that
-  prefer it.
+- The fetch methods issue a **single request** with `count=N` and an
+  optional `find[<field>][$gte]` lower bound. They do NOT loop. Story
+  43.4's background sync calls them on a fixed cadence, so multi-page
+  pagination is unnecessary as long as `count` exceeds one cycle's
+  worth of records (5000 covers a week of 5-min CGM, far more than
+  any sane sync interval). If a future caller needs to drain a large
+  backlog in one go, layer a paging loop on top.
+- v3 endpoints have a different shape (`limit`, `lastModified`) and
+  are not implemented for fetches in this client; `_require_v1_for_fetch`
+  raises `NotImplementedError` for v3 callers.
 
 Retry policy:
 
@@ -86,6 +90,12 @@ DEFAULT_PAGE_SIZE = 5000
 MAX_RETRIES_429 = 3
 MAX_RETRIES_5XX = 1
 RETRY_BASE_DELAY_SECONDS = 1.0
+# Server-supplied Retry-After is bounded by the user's URL (any
+# Nightscout instance, including misconfigured or hostile ones), so
+# clamp before sleeping. A pathological `Retry-After: 86400` from a
+# misbehaving proxy would otherwise pin the connection-test endpoint
+# or a sync worker for hours.
+RETRY_AFTER_CAP_SECONDS = 30.0
 
 
 def _sha1_api_secret(secret: str) -> str:
@@ -310,18 +320,20 @@ class NightscoutClient:
                 raise NightscoutNetworkError(msg) from None
 
             if resp.status_code == 429:
+                retry_after = _parse_retry_after(resp.headers.get("Retry-After"))
                 if attempts_429 >= MAX_RETRIES_429:
-                    retry_after = _parse_retry_after(resp.headers.get("Retry-After"))
                     raise NightscoutRateLimitError(
                         "Nightscout rate limit exceeded after retries",
                         retry_after_seconds=retry_after,
                     )
-                # Honor server's Retry-After when present; fall back
-                # to exponential backoff with jitter otherwise.
-                retry_after = _parse_retry_after(resp.headers.get("Retry-After"))
-                delay = retry_after if retry_after is not None else _backoff_delay(
-                    attempts_429
-                )
+                # Honor server's Retry-After when present, but clamp
+                # to a sane ceiling so a hostile/misconfigured server
+                # can't pin us for hours. Fall back to exponential
+                # backoff with jitter otherwise.
+                if retry_after is not None:
+                    delay = min(retry_after, RETRY_AFTER_CAP_SECONDS)
+                else:
+                    delay = _backoff_delay(attempts_429)
                 attempts_429 += 1
                 logger.info(
                     "nightscout_429_backoff",
@@ -406,6 +418,13 @@ class NightscoutClient:
             return ConnectionTestOutcome(ok=False, error=str(exc))
         except NightscoutNetworkError as exc:
             return ConnectionTestOutcome(ok=False, error=f"network: {exc}")
+        except NightscoutRateLimitError as exc:
+            # _test_v3 doesn't catch rate-limit-exhaustion locally
+            # (only _test_v1 does, for its server-error path); cover
+            # it here so test_connection() always returns an outcome.
+            return ConnectionTestOutcome(ok=False, error=f"rate limited: {exc}")
+        except NightscoutServerError as exc:
+            return ConnectionTestOutcome(ok=False, error=f"server error: {exc}")
 
     def _should_use_v1_only(self) -> bool:
         return self._api_version == NightscoutApiVersion.V1 or (
@@ -523,9 +542,10 @@ class NightscoutClient:
         silently sending v1 paths with a v3 token (the previous
         behavior of this code).
         """
-        if self._effective_api_version == NightscoutApiVersion.V3 or (
-            self._api_version == NightscoutApiVersion.V3
-        ):
+        # `_effective_api_version` is seeded from `_api_version`
+        # whenever the latter isn't AUTO, so checking the effective
+        # value alone covers both explicit-v3 and auto-resolved-to-v3.
+        if self._effective_api_version == NightscoutApiVersion.V3:
             raise NotImplementedError(
                 f"v3 {what} fetches are not yet implemented. Use api_version=v1 "
                 "or wait for v3 fetch support to land."
@@ -682,9 +702,18 @@ def _backoff_delay(attempt: int) -> float:
 
 
 def _parse_retry_after(value: str | None) -> float | None:
+    """Parse a Retry-After header as seconds.
+
+    Returns None for missing, malformed, or negative values. The HTTP
+    spec also allows an HTTP-date form, which we don't support; servers
+    in the wild use the integer-seconds form.
+    """
     if not value:
         return None
     try:
-        return float(value)
+        parsed = float(value)
     except (ValueError, TypeError):
         return None
+    if parsed < 0:
+        return None
+    return parsed

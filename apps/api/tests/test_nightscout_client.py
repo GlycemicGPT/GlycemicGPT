@@ -30,7 +30,9 @@ from src.models.nightscout_connection import (
 )
 from src.services.integrations.nightscout.client import (
     DEFAULT_PAGE_SIZE,
+    MAX_RETRIES_5XX,
     MAX_RETRIES_429,
+    RETRY_AFTER_CAP_SECONDS,
     NightscoutClient,
     _backoff_delay,
     _parse_retry_after,
@@ -304,9 +306,11 @@ class TestRetryPolicy:
         assert exc_info.value.retry_after_seconds == 30.0
 
     @pytest.mark.asyncio
-    async def test_500_retries_once_then_raises(self):
+    async def test_500_retries_then_raises(self):
         c = _make_client()
-        responses = [_resp(500), _resp(500)]
+        # Size from MAX_RETRIES_5XX so the test stays in lockstep with
+        # the constant if it's ever bumped.
+        responses = [_resp(500)] * (MAX_RETRIES_5XX + 1)
         with (
             patch.object(c._client, "request", new=AsyncMock(side_effect=responses)),
             patch(
@@ -320,7 +324,9 @@ class TestRetryPolicy:
     @pytest.mark.asyncio
     async def test_500_then_200_succeeds_on_retry(self):
         c = _make_client()
-        responses = [_resp(503), _resp(200, [{"sgv": 100}])]
+        # MAX_RETRIES_5XX failures followed by a success should be
+        # within budget regardless of how the constant is tuned.
+        responses = [_resp(503)] * MAX_RETRIES_5XX + [_resp(200, [{"sgv": 100}])]
         with (
             patch.object(c._client, "request", new=AsyncMock(side_effect=responses)),
             patch(
@@ -330,6 +336,28 @@ class TestRetryPolicy:
         ):
             result = await c.fetch_entries()
         assert result == [{"sgv": 100}]
+
+    @pytest.mark.asyncio
+    async def test_429_retry_after_clamped_to_cap(self):
+        """Pathological Retry-After should not pin us for hours."""
+        c = _make_client()
+        responses = [
+            _resp(429, headers={"Retry-After": "86400"}),
+            _resp(200, []),
+        ]
+        sleep_mock = AsyncMock()
+        with (
+            patch.object(c._client, "request", new=AsyncMock(side_effect=responses)),
+            patch(
+                "src.services.integrations.nightscout.client.asyncio.sleep",
+                new=sleep_mock,
+            ),
+        ):
+            result = await c.fetch_entries()
+        assert result == []
+        # First (and only) sleep should be the clamped cap, not 86400.
+        sleep_mock.assert_awaited_once()
+        assert sleep_mock.await_args.args[0] == RETRY_AFTER_CAP_SECONDS
 
 
 # ---------------------------------------------------------------------------
@@ -561,6 +589,46 @@ class TestConnectionTest:
         assert outcome.ok is False
         assert "network" in (outcome.error or "").lower()
 
+    @pytest.mark.asyncio
+    async def test_v3_server_error_returns_failure_outcome(self):
+        """5xx burst on /api/v3/version (after retry exhaustion)
+        must surface as an outcome, not propagate as an exception.
+        `_test_v3` doesn't catch it locally -- the outer handler in
+        `test_connection` is what saves us."""
+        c = _make_client(
+            auth_type=NightscoutAuthType.TOKEN, api_version=NightscoutApiVersion.V3
+        )
+        responses = [_resp(500)] * (MAX_RETRIES_5XX + 1)
+        with (
+            patch.object(c._client, "request", new=AsyncMock(side_effect=responses)),
+            patch(
+                "src.services.integrations.nightscout.client.asyncio.sleep",
+                new=AsyncMock(),
+            ),
+        ):
+            outcome = await c.test_connection()
+        assert outcome.ok is False
+        assert "server error" in (outcome.error or "").lower()
+
+    @pytest.mark.asyncio
+    async def test_v3_rate_limit_returns_failure_outcome(self):
+        """429 storm on v3 probes (after retry exhaustion) must surface
+        as an outcome, not propagate as an exception."""
+        c = _make_client(
+            auth_type=NightscoutAuthType.TOKEN, api_version=NightscoutApiVersion.V3
+        )
+        responses = [_resp(429, headers={"Retry-After": "1"})] * (MAX_RETRIES_429 + 1)
+        with (
+            patch.object(c._client, "request", new=AsyncMock(side_effect=responses)),
+            patch(
+                "src.services.integrations.nightscout.client.asyncio.sleep",
+                new=AsyncMock(),
+            ),
+        ):
+            outcome = await c.test_connection()
+        assert outcome.ok is False
+        assert "rate limited" in (outcome.error or "").lower()
+
 
 # ---------------------------------------------------------------------------
 # Helper functions
@@ -579,9 +647,15 @@ class TestHelpers:
 
     def test_parse_retry_after_seconds(self):
         assert _parse_retry_after("30") == 30.0
+        assert _parse_retry_after("0") == 0.0
         assert _parse_retry_after("") is None
         assert _parse_retry_after(None) is None
         assert _parse_retry_after("not-a-number") is None
+
+    def test_parse_retry_after_rejects_negatives(self):
+        """Negative values are nonsensical; treat as missing."""
+        assert _parse_retry_after("-1") is None
+        assert _parse_retry_after("-30.5") is None
 
 
 # ---------------------------------------------------------------------------
