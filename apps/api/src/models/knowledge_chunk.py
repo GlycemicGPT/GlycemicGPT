@@ -18,12 +18,30 @@ from src.models.base import Base
 class KnowledgeChunk(Base):
     """A single chunk of knowledge content with an embedding vector.
 
-    Trust tiers:
-    - AUTHORITATIVE: FDA labels, ADA guidelines (highest trust)
+    Trust tiers (use the class-level constants below, not string literals):
+    - AUTHORITATIVE: FDA labels, ADA guidelines, repo-shipped bootstrap content (highest trust)
     - RESEARCHED: AI-fetched from user-configured sources
     - USER_PROVIDED: User-uploaded documents (per-user scoped)
     - EXTRACTED: Facts extracted from user conversations
+
+    AUTHORITATIVE is special-cased in [knowledge_retrieval.retrieve_knowledge]:
+    it bypasses the injection-risk filter, so only content we trust to be safe
+    against prompt injection should ever be tagged AUTHORITATIVE.
     """
+
+    # Tier constants. Plain strings rather than a DB enum so adding a tier
+    # later doesn't require a schema migration. Using literals at call sites
+    # caused issue #563 -- the seed used "CURATED" while every other call
+    # site used the four below, so seeding was a silent no-op even when
+    # the function ran. Reference these constants exclusively from now on.
+    TIER_AUTHORITATIVE = "AUTHORITATIVE"
+    TIER_RESEARCHED = "RESEARCHED"
+    TIER_USER_PROVIDED = "USER_PROVIDED"
+    TIER_EXTRACTED = "EXTRACTED"
+
+    VALID_TIERS = frozenset(
+        {TIER_AUTHORITATIVE, TIER_RESEARCHED, TIER_USER_PROVIDED, TIER_EXTRACTED}
+    )
 
     __tablename__ = "knowledge_chunks"
 

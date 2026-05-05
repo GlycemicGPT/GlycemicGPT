@@ -78,6 +78,31 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.warning("Embedding model preload failed", exc_info=True)
 
+    # Seed the bootstrap knowledge base (issue #563). Idempotent across
+    # restarts; safe under concurrent replicas via an advisory lock.
+    # Catches narrow expected failure classes (DB outages, file-system
+    # errors) so a transient infra issue doesn't crash startup -- the
+    # rest of the app works fine without seed data, we just lose the
+    # "living clinical knowledge" augment for AI chat. Programming
+    # errors (ImportError, attribute errors etc.) are NOT caught: those
+    # indicate a broken build and should fail loud at startup.
+    try:
+        from sqlalchemy.exc import SQLAlchemyError
+
+        from src.database import get_session_maker
+        from src.services.knowledge_seed import seed_knowledge_base
+
+        session_maker = get_session_maker()
+        async with session_maker() as db:
+            inserted = await seed_knowledge_base(db)
+            logger.info("Knowledge base seed complete", chunks_inserted=inserted)
+    except (SQLAlchemyError, OSError) as exc:
+        logger.warning(
+            "Knowledge base seed failed (continuing without RAG seed)",
+            error=str(exc),
+            exc_info=True,
+        )
+
     yield
 
     # Shutdown

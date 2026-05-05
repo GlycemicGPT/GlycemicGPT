@@ -118,6 +118,14 @@ class Settings(BaseSettings):
     research_pipeline_interval_hours: int = Field(default=168, ge=1)  # Weekly default
     research_pipeline_enabled: bool = True
 
+    # Knowledge seed (issue #563 follow-up): set to True for air-gapped or
+    # firewalled deployments so the seed does not trigger an embedding-model
+    # download at startup. The model cache (~500 MB) must be pre-populated
+    # in this mode (mount it at /home/glycemicgpt/.cache/fastembed). Seed
+    # is skipped cleanly with an explicit log line; AI chat works without
+    # bootstrap RAG augmentation.
+    embedding_offline_only: bool = False
+
     # Testing
     testing: bool = False  # Set to True during tests to disable connection pooling
 
