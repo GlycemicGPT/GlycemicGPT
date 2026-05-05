@@ -101,6 +101,7 @@ class NightscoutConnectionCreate(BaseModel):
     )
     initial_sync_window_days: int = Field(
         default=7,
+        validate_default=True,  # Run _check_window against the default
         description="Days of history to backfill on first sync. 0 means 'all available'.",
     )
 
@@ -163,7 +164,7 @@ class NightscoutConnectionUpdate(BaseModel):
 
     @model_validator(mode="after")
     def _at_least_one_field(self) -> "NightscoutConnectionUpdate":
-        if not any(getattr(self, f) is not None for f in self.model_fields):
+        if not any(getattr(self, f) is not None for f in type(self).model_fields):
             raise ValueError("at least one field must be provided")
         return self
 

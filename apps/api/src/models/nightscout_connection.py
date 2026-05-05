@@ -48,7 +48,8 @@ class NightscoutApiVersion(str, enum.Enum):
 
     - v1: cgm-remote-monitor v1 (most widely deployed)
     - v3: modern Nightscout v3 (Nocturne also implements this)
-    - auto: client tries v3 first, falls back to v1
+    - auto: client tries v1 first (more widely deployed), falls back
+      to v3 if the v1 status endpoint returns 404
     """
 
     V1 = "v1"
@@ -128,6 +129,7 @@ class NightscoutConnection(Base, TimestampMixin):
             NightscoutAuthType,
             name="nightscoutauthtype",
             values_callable=lambda e: [member.value for member in e],
+            create_type=False,  # Created by migration 051
         ),
         nullable=False,
         default=NightscoutAuthType.AUTO,
@@ -141,6 +143,7 @@ class NightscoutConnection(Base, TimestampMixin):
             NightscoutApiVersion,
             name="nightscoutapiversion",
             values_callable=lambda e: [member.value for member in e],
+            create_type=False,  # Created by migration 051
         ),
         nullable=False,
         default=NightscoutApiVersion.AUTO,
@@ -148,11 +151,13 @@ class NightscoutConnection(Base, TimestampMixin):
 
     # Soft-delete flag. False rather than DELETE to preserve historical
     # per-source attribution on chunks the connection ingested.
+    # No standalone index here -- the composite index
+    # (user_id, is_active) created in migration 051 covers the
+    # primary access path: "user's active connections."
     is_active: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
         default=True,
-        index=True,
     )
 
     # Sync configuration (resolved decisions 2026-05-05).
@@ -173,6 +178,7 @@ class NightscoutConnection(Base, TimestampMixin):
             NightscoutSyncStatus,
             name="nightscoutsyncstatus",
             values_callable=lambda e: [member.value for member in e],
+            create_type=False,  # Created by migration 051
         ),
         nullable=False,
         default=NightscoutSyncStatus.NEVER,

@@ -666,6 +666,19 @@ async def test_post_test_records_failure_in_status(http_client):
         body = resp.json()
         assert body["last_sync_status"] == NightscoutSyncStatus.AUTH_FAILED.value
         assert body["last_sync_error"] == "Authentication rejected"
+
+        # Recovery: a subsequent successful test should clear the
+        # error and flip the status back to OK.
+        with _patch_test_connection(_ok_outcome()):
+            await http_client.post(
+                f"/api/integrations/nightscout/{cid}/test", cookies=cookies
+            )
+        resp = await http_client.get(
+            f"/api/integrations/nightscout/{cid}", cookies=cookies
+        )
+        body = resp.json()
+        assert body["last_sync_status"] == NightscoutSyncStatus.OK.value
+        assert body["last_sync_error"] is None
     finally:
         await _cleanup_nightscout_users([email])
 

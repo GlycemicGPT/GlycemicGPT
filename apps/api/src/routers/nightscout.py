@@ -402,13 +402,9 @@ async def run_test(
         credential=decrypt_credential(conn.encrypted_credential),
         api_version=conn.api_version,
     )
-    conn.last_sync_status = (
-        NightscoutSyncStatus.OK if outcome.ok else _outcome_to_status(outcome)
-    )
-    if outcome.error:
-        conn.last_sync_error = outcome.error
-    else:
-        conn.last_sync_error = None
+    # _outcome_to_status returns OK when outcome.ok; no need for a guard.
+    conn.last_sync_status = _outcome_to_status(outcome)
+    conn.last_sync_error = outcome.error  # None on success
     await db.commit()
 
     return _outcome_to_response(outcome)

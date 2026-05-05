@@ -220,7 +220,20 @@ async def _validate_nightscout_url(url: str) -> _ValidatedTarget:
 
 
 def _sha1_hex(s: str) -> str:
-    return hashlib.sha1(s.encode("utf-8")).hexdigest()  # noqa: S324
+    """SHA-1 of the API_SECRET for the Nightscout v1 `api-secret` header.
+
+    SHA-1 here is a PROTOCOL REQUIREMENT, not a cryptographic-strength
+    choice. Nightscout v1 servers compare the SHA-1 hex digest of their
+    configured API_SECRET against the value in this header; sending
+    SHA-256 (or any other digest) is rejected as an invalid credential.
+    See: https://github.com/nightscout/cgm-remote-monitor/blob/master/lib/server/auth.js
+    Static-analysis suppressions:
+    - `noqa: S324` -- bandit "use of insecure hash" (Python lint)
+    - `nosemgrep` -- Semgrep insecure-hash-algorithm-sha1 rule
+    Both are false positives for this protocol-compatibility usage; we
+    are not signing or authenticating anything ourselves.
+    """
+    return hashlib.sha1(s.encode("utf-8")).hexdigest()  # noqa: S324  # nosemgrep: python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1
 
 
 @contextlib.asynccontextmanager
