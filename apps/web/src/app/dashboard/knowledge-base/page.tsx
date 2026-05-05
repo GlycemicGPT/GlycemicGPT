@@ -35,10 +35,11 @@ import {
 } from "@/lib/api";
 import { MarkdownContent } from "@/components/ui/markdown-content";
 
-// Trust tier colors
+// Trust tier colors. Must match the API's KnowledgeChunk.VALID_TIERS frozenset.
+// CURATED was dropped in the issue #563 fix -- it was never a real tier in the
+// four-tier design; sending it from the dropdown caused a 422 from the regex.
 const TIER_STYLES: Record<string, { bg: string; text: string; label: string }> = {
   AUTHORITATIVE: { bg: "bg-emerald-500/20", text: "text-emerald-400", label: "Authoritative" },
-  CURATED: { bg: "bg-emerald-500/15", text: "text-emerald-300", label: "Curated" },
   RESEARCHED: { bg: "bg-blue-500/20", text: "text-blue-400", label: "AI Researched" },
   USER_PROVIDED: { bg: "bg-amber-500/20", text: "text-amber-400", label: "User Upload" },
   EXTRACTED: { bg: "bg-purple-500/20", text: "text-purple-400", label: "Extracted" },
@@ -358,9 +359,9 @@ export default function KnowledgeBasePage() {
         >
           <option value="">All Tiers</option>
           <option value="AUTHORITATIVE">Authoritative</option>
-          <option value="CURATED">Curated</option>
           <option value="RESEARCHED">AI Researched</option>
           <option value="USER_PROVIDED">User Uploads</option>
+          <option value="EXTRACTED">Extracted</option>
         </select>
       </div>
 

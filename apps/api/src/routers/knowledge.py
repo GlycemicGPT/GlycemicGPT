@@ -32,7 +32,10 @@ async def list_knowledge_documents(
     trust_tier: str | None = Query(
         default=None,
         description="Filter by trust tier",
-        pattern="^(AUTHORITATIVE|CURATED|RESEARCHED|USER_PROVIDED|EXTRACTED)$",
+        # Must match KnowledgeChunk.VALID_TIERS. CURATED was previously
+        # accepted here as a leftover of issue #563's tier-name drift; no
+        # chunks have ever existed with that tier so dropping it is safe.
+        pattern="^(AUTHORITATIVE|RESEARCHED|USER_PROVIDED|EXTRACTED)$",
     ),
     search: str | None = Query(default=None, max_length=200, description="Search text"),
     page: int = Query(default=1, ge=1),

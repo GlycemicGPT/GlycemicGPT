@@ -72,7 +72,7 @@ async def retrieve_knowledge(
                 # Exclude injection-flagged chunks from untrusted sources
                 or_(
                     KnowledgeChunk.injection_risk.is_(False),
-                    KnowledgeChunk.trust_tier == "AUTHORITATIVE",
+                    KnowledgeChunk.trust_tier == KnowledgeChunk.TIER_AUTHORITATIVE,
                 ),
                 # Must have an embedding
                 KnowledgeChunk.embedding.is_not(None),

@@ -58,6 +58,10 @@ RUN mkdir -p src/static/swagger-ui src/static/redoc && \
 COPY migrations/ ./migrations/
 COPY alembic.ini ./
 COPY scripts/ ./scripts/
+# Bootstrap knowledge content for the RAG system. Copied as a directory so
+# any markdown added under apps/api/knowledge/ ships with the image and is
+# picked up by seed_knowledge_base() at startup.
+COPY knowledge/ ./knowledge/
 
 # Make start script executable
 RUN chmod +x ./scripts/start.sh
