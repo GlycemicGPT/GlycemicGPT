@@ -253,3 +253,90 @@ class NightscoutConnectionDeletedResponse(BaseModel):
         "Connection deactivated. Historical data and per-source attribution "
         "are preserved."
     )
+
+
+# ---------------------------------------------------------------------------
+# Read endpoints (consumed by the mobile cloud-source plugin + the
+# onboarding wizard)
+# ---------------------------------------------------------------------------
+
+
+class NightscoutGlucoseReadingDTO(BaseModel):
+    """A glucose reading row stripped to what the mobile plugin needs.
+
+    Internal `user_id` and DB UUIDs are omitted; downstream consumers
+    only need the timestamp + value + trend + source attribution.
+    """
+
+    model_config = {"from_attributes": True}
+
+    ns_id: str | None
+    reading_timestamp: datetime
+    value: int
+    trend: str
+    trend_rate: float | None
+    source: str
+
+
+class NightscoutPumpEventDTO(BaseModel):
+    """A pump event row stripped to what the mobile plugin needs."""
+
+    model_config = {"from_attributes": True}
+
+    ns_id: str | None
+    event_timestamp: datetime
+    event_type: str
+    units: float | None
+    duration_minutes: int | None
+    is_automated: bool
+    metadata_json: dict[str, Any] | None
+    meal_event_id: uuid.UUID | None
+    source: str
+
+
+class NightscoutDataResponse(BaseModel):
+    """Merged read response for the cloud-source mobile plugin.
+
+    The plugin pulls this with `?since=<ISO>` to backfill its Room DB
+    incrementally. Both arrays are sorted ascending by timestamp; pagination
+    is via the `since` cursor on subsequent calls. `limit` caps the total
+    rows returned across both arrays so a single page is bounded.
+    """
+
+    connection_id: uuid.UUID
+    fetched_at: datetime
+    glucose_readings: list[NightscoutGlucoseReadingDTO]
+    pump_events: list[NightscoutPumpEventDTO]
+
+
+class NightscoutProfileSegmentDTO(BaseModel):
+    """A single (time, value) entry from a Nightscout profile schedule."""
+
+    model_config = {"extra": "allow"}
+
+    time: str  # "HH:MM"
+    value: float
+
+
+class NightscoutProfileSnapshotResponse(BaseModel):
+    """Read response for the onboarding wizard's profile pre-fill source.
+
+    Returned with empty arrays when no snapshot exists yet (the connection
+    has been added but profile sync hasn't run). The wizard renders a
+    "no profile detected" state in that case.
+    """
+
+    model_config = {"from_attributes": True}
+
+    connection_id: uuid.UUID
+    has_snapshot: bool
+    fetched_at: datetime | None
+    source_default_profile_name: str | None
+    source_units: str | None
+    source_timezone: str | None
+    source_dia_hours: float | None
+    basal_segments: list[dict[str, Any]] | None
+    carb_ratio_segments: list[dict[str, Any]] | None
+    sensitivity_segments: list[dict[str, Any]] | None
+    target_low_segments: list[dict[str, Any]] | None
+    target_high_segments: list[dict[str, Any]] | None

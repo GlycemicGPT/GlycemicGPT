@@ -1128,10 +1128,28 @@ class TestFixtureInvariants:
         "aaps_profile_switch_percentage.json": "aaps",
         "xdrip_empty_eventtype_with_carbs.json": "xdrip+",
         "xdrip4ios_bg_check_treatment.json": "xdrip4ios",
+        # Tier-2 treatments
+        "aaps_effective_profile_switch_as_note.json": "aaps",
+        "aaps_extended_bolus_emulating_tbr.json": "aaps",
+        "aaps_temp_basal_superbolus.json": "aaps",
+        "aaps_temp_basal_emulated_suspend.json": "aaps",
+        "aaps_carbs_with_protein_fat.json": "aaps",
+        "aaps_therapy_event_site_change.json": "aaps",
+        "aaps_therapy_event_sensor_start.json": "aaps",
+        "loop_pump_suspend_as_temp_basal.json": "loop",
+        "loop_square_bolus.json": "loop",
+        "loop_override_with_remote_address.json": "loop",
+        "careportal_combo_bolus.json": "unknown",
+        "bolus_wizard_with_carbs.json": "aaps",
+        "trio_exercise_override.json": "trio",
+        "trio_temp_target_manual.json": "trio",
         # devicestatus fixtures
         "loop_devicestatus.json": "loop",
         "aaps_devicestatus.json": "aaps",
         "oref0_devicestatus_with_predbgs.json": "oref0",
+        "loop_failure_devicestatus.json": "loop",
+        "loop_hybrid_dose_devicestatus.json": "loop",
+        "trio_devicestatus_with_tdd.json": "trio",
     }
 
     def test_treatment_fixtures_route_to_known_semantic_kinds(self):
