@@ -279,7 +279,15 @@ class NightscoutGlucoseReadingDTO(BaseModel):
 
 
 class NightscoutPumpEventDTO(BaseModel):
-    """A pump event row stripped to what the mobile plugin needs."""
+    """A pump event row stripped to what the mobile plugin needs.
+
+    `metadata_json` carries clinically-meaningful extras filtered through
+    a storage-side allowlist (see `_pump_events_mapper._METADATA_ALLOWLIST`).
+    The DTO field is `repr=False` so that any future log/audit trail of
+    this object doesn't echo free-text `notes` / `reason` content; the
+    underlying value is still serialized normally to JSON callers (the
+    data owner's own authenticated client).
+    """
 
     model_config = {"from_attributes": True}
 
@@ -289,7 +297,7 @@ class NightscoutPumpEventDTO(BaseModel):
     units: float | None
     duration_minutes: int | None
     is_automated: bool
-    metadata_json: dict[str, Any] | None
+    metadata_json: dict[str, Any] | None = Field(default=None, repr=False)
     meal_event_id: uuid.UUID | None
     source: str
 

@@ -884,6 +884,173 @@ class TestReadEndpoints:
 
 
 # ---------------------------------------------------------------------------
+# Storage-side PII allowlist -- identifier-shaped values from the upstream
+# wire format must NOT reach metadata_json.
+# ---------------------------------------------------------------------------
+
+
+class TestMetadataAllowlist:
+    """The translator filters metadata_json through a storage-side
+    allowlist so identifier-shaped values (`remoteAddress`,
+    `syncIdentifier`, AAPS `pumpId`/`pumpType`/`pumpSerial`) and the
+    per-treatment `enteredBy` username/email never land in JSONB.
+
+    Defense in depth: a future allowlist gap surfaces here, before
+    the wire DTO ever sees the value.
+    """
+
+    @pytest.mark.asyncio
+    async def test_remote_address_dropped_from_override_metadata(self, translator_ctx):
+        session, user_id, conn_id = translator_ctx
+        await translate_treatments(
+            [_load("treatments", "loop_override_with_remote_address")],
+            session=session,
+            user_id=str(user_id),
+            connection_id=str(conn_id),
+        )
+        await session.flush()
+
+        rows = (
+            (
+                await session.execute(
+                    select(PumpEvent).where(PumpEvent.user_id == user_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(rows) == 1
+        md = rows[0].metadata_json or {}
+        # The fixture has remoteAddress="device-token-stub" -- must not
+        # reach storage.
+        assert "remote_address" not in md
+        assert "remoteAddress" not in md
+        # Source attribution (`source` at row level) covers what we need;
+        # the per-treatment entered_by username should never persist.
+        assert "source_entered_by" not in md
+        # Sanity: clinically-meaningful keys still made it through.
+        assert md.get("correction_range") == [140, 160]
+
+    @pytest.mark.asyncio
+    async def test_aaps_pump_dedupe_triple_dropped_from_bolus_metadata(
+        self, translator_ctx
+    ):
+        session, user_id, conn_id = translator_ctx
+        await translate_treatments(
+            [_load("treatments", "aaps_v3_smb_correction_bolus")],
+            session=session,
+            user_id=str(user_id),
+            connection_id=str(conn_id),
+        )
+        await session.flush()
+
+        rows = (
+            (
+                await session.execute(
+                    select(PumpEvent).where(PumpEvent.user_id == user_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(rows) == 1
+        md = rows[0].metadata_json or {}
+        # AAPS pump composite dedup triple -- never persisted.
+        assert "pump_id" not in md
+        assert "pump_type" not in md
+        assert "pump_serial" not in md
+        # And the raw enteredBy value never persists either.
+        assert "source_entered_by" not in md
+        # Clinical keys preserved.
+        assert md.get("bolus_subtype") == "smb"
+
+    def test_allowlist_covers_every_literal_key_the_mappers_set(self):
+        """Drift guard: every literal key the mappers write into extras
+        MUST appear in `_METADATA_ALLOWLIST`, otherwise a clinically-
+        meaningful key would be silently filtered away.
+
+        Parses the mapper module's source for `extras["<key>"] = ...`
+        literals + the inline-dict literals the mappers initialize
+        with -- catches the static call sites without needing each
+        fixture to flex every branch.
+        """
+        import ast
+        import inspect
+
+        from src.services.integrations.nightscout import _pump_events_mapper
+        from src.services.integrations.nightscout._pump_events_mapper import (
+            _METADATA_ALLOWLIST,
+        )
+
+        # Read source through `inspect.getsource` so the test is
+        # independent of the pytest CWD (which can differ between
+        # local runs and CI).
+        tree = ast.parse(inspect.getsource(_pump_events_mapper))
+
+        keys: set[str] = set()
+        # `extras["<key>"] = ...`
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Assign)
+                and len(node.targets) == 1
+                and isinstance(t := node.targets[0], ast.Subscript)
+                and isinstance(t.value, ast.Name)
+                and t.value.id == "extras"
+                and isinstance(t.slice, ast.Constant)
+                and isinstance(t.slice.value, str)
+            ):
+                keys.add(t.slice.value)
+            # `extras: dict[...] = {"<key>": ..., ...}` initialisers
+            elif (
+                isinstance(node, ast.AnnAssign)
+                and isinstance(node.target, ast.Name)
+                and node.target.id == "extras"
+                and isinstance(node.value, ast.Dict)
+            ):
+                for k in node.value.keys:
+                    if isinstance(k, ast.Constant) and isinstance(k.value, str):
+                        keys.add(k.value)
+
+        # Sanity: scan picked SOMETHING up (catch a future syntactic
+        # refactor that hides the writes from this AST walk).
+        assert len(keys) >= 20, f"AST scan looks broken: only found {keys}"
+
+        missing = keys - _METADATA_ALLOWLIST
+        assert not missing, (
+            f"Mapper writes these extras keys that aren't on the allowlist; "
+            f"either add them or stop writing them: {sorted(missing)}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_loop_sync_identifier_dropped_from_bolus_metadata(
+        self, translator_ctx
+    ):
+        session, user_id, conn_id = translator_ctx
+        await translate_treatments(
+            [_load("treatments", "loop_correction_bolus")],
+            session=session,
+            user_id=str(user_id),
+            connection_id=str(conn_id),
+        )
+        await session.flush()
+
+        rows = (
+            (
+                await session.execute(
+                    select(PumpEvent).where(PumpEvent.user_id == user_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(rows) == 1
+        md = rows[0].metadata_json or {}
+        # Loop syncIdentifier (HealthKit dedupe key) -- never persisted.
+        assert "sync_identifier" not in md
+        assert "syncIdentifier" not in md
+
+
+# ---------------------------------------------------------------------------
 # Cross-source coexistence -- partial-index relaxation must allow a Tandem
 # direct row and a Nightscout-relayed row to share the same
 # (user_id, event_timestamp, event_type) without conflict.

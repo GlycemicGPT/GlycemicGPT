@@ -26,6 +26,79 @@ from typing import Any
 from src.models.pump_data import PumpEventType
 from src.services.integrations.nightscout.models import NightscoutTreatment
 
+# Storage-side allowlist of metadata keys. Anything not in this set is
+# dropped at ingest. The list is the union of:
+#   - Per-event-type clinical / structural extras the mappers below set
+#   - Source sub-attribution (uploader, raw device string, relayed flag)
+#   - Free-text fields with clinical value (`notes`, `reason`)
+# Identifier-shaped values (`remote_address`, `sync_identifier`,
+# `pump_id` / `pump_type` / `pump_serial`, the per-treatment `entered_by`
+# username/email) are NOT on the allowlist and are dropped before the
+# blob ever reaches PostgreSQL. `source` already carries attribution at
+# row level; we don't need a parallel identifier inside the JSONB.
+#
+# Residual fingerprint risk: `source_device` carries the upstream
+# `device` string verbatim, which several uploaders pad with build
+# tags or phone-model suffixes (Loop's `Loop://iPhone-7Plus/<build>`,
+# AAPS's `AndroidAPS-<ver>-<phone>`). It's not a stable per-user
+# identifier, but it is a coarse fingerprint. We keep it because
+# `source_uploader` alone is too lossy for "this came from Loop on
+# iOS vs. Loop on macOS" debugging, and the value never reaches an
+# unauthenticated surface (auth-gated to the data owner; `repr=False`
+# on the DTO field). Tightening this is tracked as future work.
+_METADATA_ALLOWLIST: frozenset[str] = frozenset(
+    {
+        # source sub-attribution
+        "source_uploader",
+        "source_device",
+        "source_relayed",
+        # free-text clinical
+        "notes",
+        "reason",
+        # bolus
+        "bolus_subtype",
+        "programmed_units",
+        "insulin_type",
+        "bolus_calculator_result",
+        # carb entry
+        "carbs_grams",
+        "protein_grams",
+        "fat_grams",
+        "duration_field_value",
+        "loop_carbs_uses_seconds",
+        # temp basal
+        "rate_u_per_hr",
+        "absolute_u_per_hr",
+        "percent_delta",
+        "aaps_type",
+        # combo bolus
+        "split_now_pct",
+        "split_ext_pct",
+        "split_invalid",
+        "extended_emulated",
+        # override
+        "correction_range",
+        "multiplier",
+        "duration_type",
+        "indefinite",
+        # temp target
+        "target_top_mgdl",
+        "target_bottom_mgdl",
+        # profile switch
+        "profile",
+        "original_profile_name",
+        "percentage",
+        "timeshift",
+        "original_duration",
+        "original_end",
+        "profile_json",
+        "effective_profile_switch_via_note",
+        # device / note
+        "device_event_type",
+        "raw_event_type",
+    }
+)
+
 
 def _build_metadata(
     treatment: NightscoutTreatment,
@@ -36,26 +109,33 @@ def _build_metadata(
 
     Always includes:
     - source_uploader (detected from device + entered_by)
-    - source_device + source_entered_by (raw strings, preserved)
+    - source_device (raw device string, preserved)
     - source_relayed (true if the entered_by ends in @ns / @ns loader)
-    - notes (free-text, redacted at the model layer via repr=False but
-      preserved as data here)
+    - notes (free-text, redacted at the wire layer via repr=False but
+      preserved as data here for clinical value)
 
-    Per-event-type extras get merged in via the `extra` dict.
+    Identifier-shaped values are intentionally not stored:
+    `treatment.entered_by` (often a username or email-like string) is
+    consumed only for the `source_relayed` heuristic and discarded;
+    `remote_address`, `sync_identifier`, and the AAPS pump dedup triple
+    are filtered by the `_METADATA_ALLOWLIST` after `extra` is merged.
+    Per-event-type extras get merged in via the `extra` dict and then
+    filtered.
     """
     eb = treatment.entered_by or ""
     relayed = eb.endswith("@ns") or eb.endswith("@ns loader")
     base: dict[str, Any] = {
         "source_uploader": treatment.uploader,
         "source_device": treatment.device,
-        "source_entered_by": treatment.entered_by,
         "source_relayed": relayed,
     }
     if treatment.notes:
         base["notes"] = treatment.notes
     if extra:
         base.update(extra)
-    return base
+    # Drop everything not on the allowlist. Identifier-shaped or
+    # PII-shaped values that bypass this filter are a privacy bug.
+    return {k: v for k, v in base.items() if k in _METADATA_ALLOWLIST}
 
 
 def _base_event(
@@ -107,17 +187,12 @@ def _map_bolus(treatment: NightscoutTreatment, base: dict[str, Any]) -> dict[str
         extras["programmed_units"] = treatment.programmed
     if treatment.insulin_type:
         extras["insulin_type"] = treatment.insulin_type
-    # AAPS pump composite dedup triple
-    if treatment.pump_id is not None:
-        extras["pump_id"] = treatment.pump_id
-    if treatment.pump_type:
-        extras["pump_type"] = treatment.pump_type
-    if treatment.pump_serial:
-        extras["pump_serial"] = treatment.pump_serial
-    # Loop syncIdentifier (separate from server-assigned _id; useful
-    # for round-tripping back to Loop's HealthKit cache).
-    if treatment.sync_identifier:
-        extras["sync_identifier"] = treatment.sync_identifier
+    # NOTE: AAPS pump composite dedup triple (pump_id / pump_type /
+    # pump_serial), Loop syncIdentifier, and any other dedupe-only
+    # identifiers are intentionally NOT stored. Server-assigned `_id`
+    # already gives us per-connection dedupe via the partial unique
+    # index on (source, ns_id), and stable device/serial identifiers
+    # are a privacy footgun in a JSONB blob.
     # AAPS Bolus Wizard inputs (carbs, BG, target, ISF, CR, IOB) --
     # preserved verbatim for AI analysis context.
     if treatment.bolus_calculator_result:
@@ -256,8 +331,9 @@ def _map_override(
     elif treatment.percentage is not None:
         # AAPS percentage as multiplier (e.g. 110% = 1.1)
         extras["multiplier"] = treatment.percentage / 100.0
-    if treatment.remote_address:
-        extras["remote_address"] = treatment.remote_address
+    # NOTE: `treatment.remote_address` (an IP address recorded by AAPS
+    # for some override sources) is intentionally not stored -- privacy
+    # footgun with no clinical value.
     if treatment.duration_type:
         extras["duration_type"] = treatment.duration_type
     if treatment.is_indefinite_trio_override:
