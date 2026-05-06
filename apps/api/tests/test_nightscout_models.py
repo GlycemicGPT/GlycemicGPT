@@ -8,10 +8,13 @@ the ORM-mapping layer (PR2) consumes these typed results.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 
+import httpx
 import pytest
 
 from src.services.integrations.nightscout.models import (
@@ -643,7 +646,7 @@ class TestGlucoseGapFilter:
             {
                 "type": "sgv",
                 "sgv": 5,
-                "date": 1778421600000,
+                "date": 1778068800000,
                 "dateString": "2026-05-06T12:00:00Z",
             }
         )
@@ -654,7 +657,7 @@ class TestGlucoseGapFilter:
             {
                 "type": "sgv",
                 "sgv": 1100,
-                "date": 1778421600000,
+                "date": 1778068800000,
                 "dateString": "2026-05-06T12:00:00Z",
             }
         )
@@ -665,7 +668,7 @@ class TestGlucoseGapFilter:
             {
                 "type": "sgv",
                 "sgv": 0,
-                "date": 1778421600000,
+                "date": 1778068800000,
                 "dateString": "2026-05-06T12:00:00Z",
             }
         )
@@ -676,7 +679,7 @@ class TestGlucoseGapFilter:
             {
                 "type": "sgv",
                 "sgv": 120,
-                "date": 1778421600000,
+                "date": 1778068800000,
                 "dateString": "2026-05-06T12:00:00Z",
             }
         )
@@ -694,7 +697,7 @@ class TestDirectionNormalization:
             {
                 "type": "sgv",
                 "sgv": 120,
-                "date": 1778421600000,
+                "date": 1778068800000,
                 "direction": "NOT COMPUTABLE",
             }
         )
@@ -705,7 +708,7 @@ class TestDirectionNormalization:
             {
                 "type": "sgv",
                 "sgv": 120,
-                "date": 1778421600000,
+                "date": 1778068800000,
                 "direction": "NOT_COMPUTABLE",
             }
         )
@@ -718,7 +721,7 @@ class TestDirectionNormalization:
             {
                 "type": "sgv",
                 "sgv": 220,
-                "date": 1778421600000,
+                "date": 1778068800000,
                 "direction": "TripleUp",
             }
         )
@@ -1188,3 +1191,359 @@ class TestFixtureInvariants:
                 data = json.loads(path.read_text())
                 # Should not raise
                 model.model_validate(data)
+
+
+# ---------------------------------------------------------------------------
+# Gap-closing tests -- coverage for paths not exercised by the main suite
+# ---------------------------------------------------------------------------
+
+
+class TestTimestampFallbackChain:
+    """Synthesis §2.1: treatments use the chain `mills → date → timestamp →
+    created_at`. Entries use `date → dateString → sysTime → mills`. Earlier
+    tests only cover the first hop in each chain."""
+
+    def test_treatment_with_only_mills_resolves(self):
+        # oref0 / xDrip+ paths sometimes ship `mills` without `created_at`
+        t = NightscoutTreatment.model_validate(
+            {"eventType": "Bolus", "insulin": 1, "mills": 1778068800000}
+        )
+        assert t.canonical_timestamp == datetime(2026, 5, 6, 12, 0, 0, tzinfo=UTC)
+
+    def test_treatment_with_only_timestamp_string_resolves(self):
+        # Trio uses ISO `timestamp` alongside `created_at`; verify the
+        # fallback works when only `timestamp` is present.
+        t = NightscoutTreatment.model_validate(
+            {"eventType": "Bolus", "insulin": 1, "timestamp": "2026-05-06T12:00:00Z"}
+        )
+        assert t.canonical_timestamp == datetime(2026, 5, 6, 12, 0, 0, tzinfo=UTC)
+
+    def test_treatment_created_at_wins_over_alternates(self):
+        # When created_at is present, it should win even if other
+        # timestamp fields disagree.
+        t = NightscoutTreatment.model_validate(
+            {
+                "eventType": "Bolus",
+                "insulin": 1,
+                "created_at": "2026-05-06T12:00:00Z",
+                "date": 0,  # epoch zero would be 1970 if used
+                "timestamp": "1999-01-01T00:00:00Z",
+            }
+        )
+        assert t.canonical_timestamp == datetime(2026, 5, 6, 12, 0, 0, tzinfo=UTC)
+
+    def test_entry_with_only_datestring_resolves(self):
+        e = NightscoutEntry.model_validate(
+            {"type": "sgv", "sgv": 120, "dateString": "2026-05-06T12:00:00Z"}
+        )
+        assert e.canonical_timestamp == datetime(2026, 5, 6, 12, 0, 0, tzinfo=UTC)
+
+    def test_entry_with_only_systime_resolves(self):
+        # NS 15+ instances may emit only `sysTime` on certain projections.
+        e = NightscoutEntry.model_validate(
+            {"type": "sgv", "sgv": 120, "sysTime": "2026-05-06T12:00:00Z"}
+        )
+        assert e.canonical_timestamp == datetime(2026, 5, 6, 12, 0, 0, tzinfo=UTC)
+
+
+class TestParseOpenapsUriCaseInsensitivity:
+    """Locks the CodeRabbit-caught fix: detect_uploader passes the
+    lowercased `dev` to parse_openaps_uri so mixed-case URIs work."""
+
+    def test_mixed_case_oref0_uri_detected(self):
+        assert detect_uploader(None, "OpenAPS://my-rig/medtronic-722") == "oref0"
+
+    def test_mixed_case_aaps_uri_detected(self):
+        assert detect_uploader(None, "OpenAPS://AndroidAPS") == "aaps"
+
+    def test_uppercase_loop_uri_detected(self):
+        assert detect_uploader(None, "LOOP://iPhone") == "loop"
+
+
+class TestSoftDeleteRouting:
+    """AAPS sets isValid=false to soft-delete a record. The model
+    must short-circuit semantic_kind to `unknown` so the ORM-mapping
+    layer can choose to drop or propagate the deletion."""
+
+    def test_isvalid_false_returns_unknown(self):
+        t = NightscoutTreatment.model_validate(
+            {
+                "eventType": "Meal Bolus",
+                "carbs": 60,
+                "insulin": 5,
+                "isValid": False,
+                "created_at": "2026-05-06T12:00:00Z",
+            }
+        )
+        assert t.semantic_kind == "unknown"
+
+    def test_isvalid_true_routes_normally(self):
+        t = NightscoutTreatment.model_validate(
+            {
+                "eventType": "Meal Bolus",
+                "carbs": 60,
+                "insulin": 5,
+                "isValid": True,
+                "created_at": "2026-05-06T12:00:00Z",
+            }
+        )
+        assert t.semantic_kind == "meal_bolus_pair"
+
+    def test_isvalid_unset_routes_normally(self):
+        # Default is None -- not False -- so absence shouldn't suppress.
+        t = NightscoutTreatment.model_validate(
+            {
+                "eventType": "Meal Bolus",
+                "carbs": 60,
+                "insulin": 5,
+                "created_at": "2026-05-06T12:00:00Z",
+            }
+        )
+        assert t.semantic_kind == "meal_bolus_pair"
+
+
+class TestComboSplitValidation:
+    """Synthesis §2.6: splitNow + splitExt must sum to 100 for a
+    well-formed Combo Bolus. The translator should be able to
+    detect malformed splits."""
+
+    def test_60_40_split_is_valid(self):
+        t = NightscoutTreatment.model_validate(
+            {
+                "eventType": "Combo Bolus",
+                "insulin": 5,
+                "splitNow": 60,
+                "splitExt": 40,
+                "duration": 120,
+                "created_at": "2026-05-06T12:00:00Z",
+            }
+        )
+        assert t.combo_split_valid is True
+
+    def test_50_50_split_is_valid(self):
+        t = NightscoutTreatment.model_validate(
+            {
+                "eventType": "Combo Bolus",
+                "insulin": 4,
+                "splitNow": 50,
+                "splitExt": 50,
+                "duration": 90,
+                "created_at": "2026-05-06T12:00:00Z",
+            }
+        )
+        assert t.combo_split_valid is True
+
+    def test_mismatched_split_is_invalid(self):
+        t = NightscoutTreatment.model_validate(
+            {
+                "eventType": "Combo Bolus",
+                "splitNow": 60,
+                "splitExt": 50,
+                "created_at": "2026-05-06T12:00:00Z",
+            }
+        )
+        assert t.combo_split_valid is False
+
+    def test_missing_split_is_invalid(self):
+        t = NightscoutTreatment.model_validate(
+            {
+                "eventType": "Combo Bolus",
+                "splitNow": 60,
+                "created_at": "2026-05-06T12:00:00Z",
+            }
+        )
+        assert t.combo_split_valid is False
+
+
+class TestExtraFieldsPreserved:
+    """The models use `extra="allow"` so PR2's ORM-mapping layer can
+    read uploader-specific fields not declared on the model. Verify
+    extras actually survive validation."""
+
+    def test_unknown_treatment_field_survives_validation(self):
+        t = NightscoutTreatment.model_validate(
+            {
+                "eventType": "Bolus",
+                "insulin": 1,
+                "myCustomField": "uploader-specific-value",
+                "created_at": "2026-05-06T12:00:00Z",
+            }
+        )
+        # __pydantic_extra__ holds extras when extra="allow"
+        assert t.__pydantic_extra__ is not None
+        assert t.__pydantic_extra__.get("myCustomField") == "uploader-specific-value"
+
+    def test_unknown_entry_field_survives_validation(self):
+        e = NightscoutEntry.model_validate(
+            {
+                "type": "sgv",
+                "sgv": 120,
+                "date": 1778068800000,
+                "tideline": "experimental-uploader-extension",
+            }
+        )
+        assert e.__pydantic_extra__ is not None
+        assert e.__pydantic_extra__.get("tideline") == "experimental-uploader-extension"
+
+
+class TestProfileActiveProfileEdgeCases:
+    def test_default_profile_missing_returns_none(self):
+        p = NightscoutProfile.model_validate(
+            {"startDate": "2026-05-01T00:00:00Z", "store": {"Default": {"dia": 5}}}
+        )
+        # No defaultProfile pointer -> nothing to look up
+        assert p.active_profile() is None
+
+    def test_default_profile_pointing_to_missing_name_returns_none(self):
+        p = NightscoutProfile.model_validate(
+            {
+                "defaultProfile": "Nonexistent",
+                "startDate": "2026-05-01T00:00:00Z",
+                "store": {"Default": {"dia": 5}},
+            }
+        )
+        assert p.active_profile() is None
+
+    def test_default_profile_case_sensitive_match(self):
+        # Per synthesis §7.4: profile name match is case-sensitive.
+        # "Default" != "default" (Trio uses lowercase, Loop tends to
+        # capitalize).
+        p = NightscoutProfile.model_validate(
+            {
+                "defaultProfile": "default",
+                "startDate": "2026-05-01T00:00:00Z",
+                "store": {"Default": {"dia": 5}},
+            }
+        )
+        assert p.active_profile() is None  # case mismatch
+
+    def test_store_missing_returns_none(self):
+        p = NightscoutProfile.model_validate(
+            {"defaultProfile": "Default", "startDate": "2026-05-01T00:00:00Z"}
+        )
+        assert p.active_profile() is None
+
+
+# ---------------------------------------------------------------------------
+# Live integration tests -- run against a real local Nightscout instance
+# ---------------------------------------------------------------------------
+#
+# Run by pointing NIGHTSCOUT_TEST_URL at a running instance, e.g.:
+#
+#   NIGHTSCOUT_TEST_URL=http://127.0.0.1:1337 \
+#   NIGHTSCOUT_TEST_SECRET=glycemicgpt-test-secret-min12chars \
+#   uv run pytest tests/test_nightscout_models.py -m integration
+#
+# Skipped automatically when NIGHTSCOUT_TEST_URL isn't set, so CI is
+# unaffected. Catches drift between our synthetic fixtures and what
+# cgm-remote-monitor actually emits on the wire.
+
+_NS_URL = os.environ.get("NIGHTSCOUT_TEST_URL")
+_NS_SECRET = os.environ.get(
+    "NIGHTSCOUT_TEST_SECRET", "glycemicgpt-test-secret-min12chars"
+)
+_skip_no_live = pytest.mark.skipif(
+    not _NS_URL,
+    reason="set NIGHTSCOUT_TEST_URL to run integration tests against a real instance",
+)
+
+
+def _v1_headers() -> dict[str, str]:
+    """Build the SHA-1 api-secret header for v1 auth."""
+    return {
+        "api-secret": hashlib.sha1(_NS_SECRET.encode("utf-8")).hexdigest()  # noqa: S324  # nosemgrep: python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1
+    }
+
+
+@_skip_no_live
+@pytest.mark.integration
+class TestLiveInstanceParsing:
+    """Bulk-parse real responses from the local Nightscout instance.
+
+    Asserts that every record returned by cgm-remote-monitor 15.0.8
+    parses cleanly through our Pydantic models. Catches:
+    - Schema drift (a server version emits a new field shape)
+    - Missing optional-field handling (we declared a field as `int` but
+      the server emits it as `float`, etc.)
+    - Encoding edge cases not covered by synthetic fixtures
+    """
+
+    def test_entries_bulk_parse_no_validation_errors(self):
+        with httpx.Client(timeout=10.0) as client:
+            resp = client.get(
+                f"{_NS_URL}/api/v1/entries.json",
+                params={"count": 200},
+                headers=_v1_headers(),
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        assert isinstance(data, list)
+        for raw in data:
+            # Should not raise -- model accepts the wire shape
+            entry = NightscoutEntry.model_validate(raw)
+            # Sanity: every entry has a resolvable timestamp
+            assert entry.canonical_timestamp is not None, raw
+
+    def test_treatments_bulk_parse_no_validation_errors(self):
+        with httpx.Client(timeout=10.0) as client:
+            resp = client.get(
+                f"{_NS_URL}/api/v1/treatments.json",
+                params={"count": 200},
+                headers=_v1_headers(),
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        assert isinstance(data, list)
+        for raw in data:
+            t = NightscoutTreatment.model_validate(raw)
+            # Every treatment must route to a recognized semantic kind
+            # (no surprise eventTypes from the seeded data).
+            assert t.semantic_kind != "unknown", raw
+            # Sanity: timestamp resolves
+            assert t.canonical_timestamp is not None, raw
+
+    def test_devicestatus_bulk_parse_no_validation_errors(self):
+        with httpx.Client(timeout=10.0) as client:
+            resp = client.get(
+                f"{_NS_URL}/api/v1/devicestatus.json",
+                params={"count": 50},
+                headers=_v1_headers(),
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        assert isinstance(data, list)
+        # devicestatus may be empty in the seeded test instance
+        for raw in data:
+            NightscoutDeviceStatus.model_validate(raw)
+
+    def test_profile_bulk_parse_no_validation_errors(self):
+        with httpx.Client(timeout=10.0) as client:
+            resp = client.get(
+                f"{_NS_URL}/api/v1/profile.json",
+                headers=_v1_headers(),
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        # Profile endpoint returns a list (even if empty / single-element)
+        assert isinstance(data, list)
+        for raw in data:
+            NightscoutProfile.model_validate(raw)
+
+    def test_seeded_entries_have_expected_uploader(self):
+        """seed.py uses `device: "glycemicgpt-test-seeder"` -- verify
+        our uploader detection routes that to "unknown" (it's our test
+        seeder, not a real upstream uploader)."""
+        with httpx.Client(timeout=10.0) as client:
+            resp = client.get(
+                f"{_NS_URL}/api/v1/entries.json",
+                params={"count": 5},
+                headers=_v1_headers(),
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        if not data:
+            pytest.skip("no entries in test instance to verify against")
+        for raw in data:
+            if raw.get("device", "").startswith("glycemicgpt"):
+                # Our seeder -- unknown is expected
+                assert detect_uploader(None, raw["device"]) == "unknown"

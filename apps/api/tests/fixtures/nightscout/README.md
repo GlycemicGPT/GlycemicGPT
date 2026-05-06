@@ -97,13 +97,26 @@ The full priority list is in the synthesis doc §4.
 
 1. Create the JSON file in the appropriate subdirectory (`entries/`,
    `treatments/`, `devicestatus/`, `profile/`).
-2. Use synthetic data only -- round-number BGs, fixed test date, no
-   patient-derived values.
+2. Use synthetic data only -- round-number BGs within the medically
+   plausible range (40-400 mg/dL for normal readings), fixed test
+   date, no patient-derived values. Where a fixture is intentionally
+   testing boundary or gap behavior, include explicit boundary values
+   (e.g., the gap fixtures use `sgv: 5` and `sgv: 1100` to lock the
+   `is_glucose_gap` rule).
 3. Add a row to the table above with the upstream source citation
    (URL + file path + line range when possible).
 4. Add a parser test in `apps/api/tests/test_nightscout_models.py`
    that loads the fixture and asserts the routing decision (e.g.,
-   `semantic_kind`, `is_smb`, `is_glucose_gap`).
+   `semantic_kind`, `is_smb`, `is_glucose_gap`). Tests must:
+   - **Mock all external services** (Dexcom Share, Tandem cloud, AI
+     providers, real Nightscout instances). Parser tests load JSON
+     from the fixture directory and exercise the in-process Pydantic
+     models -- no network or filesystem access outside `tests/fixtures/`
+     is permitted.
+   - **Cover edge cases** including null/empty values, empty/`<none>`
+     eventTypes (xDrip+ behavior), and glucose boundary values
+     (40-400 mg/dL valid range plus the `sgv < 20` / `sgv > 1000`
+     gap thresholds).
 
 ## Licensing
 

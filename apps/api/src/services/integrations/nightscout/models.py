@@ -203,7 +203,9 @@ def detect_uploader(entered_by: str | None, device: str | None) -> str:
     # avoids mismatching AAPS records that have no enteredBy hint
     # (common on devicestatus uploads).
     if dev.startswith("openaps://"):
-        host, _ = parse_openaps_uri(device)
+        # Pass the lowercased value so case variants like
+        # "OpenAPS://" parse correctly.
+        host, _ = parse_openaps_uri(dev)
         return "oref0" if host is not None else "aaps"
     # Profile Switch from oref0 uses bare "OpenAPS" enteredBy.
     if eb == "openaps":
