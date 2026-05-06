@@ -17,6 +17,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -85,13 +86,35 @@ class PumpEvent(Base):
     __table_args__ = (
         # Index for querying recent events for a user
         Index("ix_pump_events_user_timestamp", "user_id", "event_timestamp"),
-        # Unique constraint to prevent duplicate events
+        # Natural-key uniqueness for direct-integration rows only.
+        # Nightscout-sourced rows (`ns_id IS NOT NULL`) opt out of
+        # this index so two upstream events at the same timestamp
+        # (e.g. two AAPS SMBs in the same second with different
+        # `_id`s) don't silently drop one. They dedupe via the
+        # `ix_pump_events_source_nsid` partial unique index below.
         Index(
             "ix_pump_events_user_event_unique",
             "user_id",
             "event_timestamp",
             "event_type",
             unique=True,
+            postgresql_where=text("ns_id IS NULL"),
+        ),
+        # Per-source partial unique index for Nightscout-sourced
+        # events; mirrors the migration's `ix_pump_events_source_nsid`
+        # so SQLAlchemy knows about it.
+        Index(
+            "ix_pump_events_source_nsid",
+            "source",
+            "ns_id",
+            unique=True,
+            postgresql_where=text("ns_id IS NOT NULL"),
+        ),
+        # Sibling lookup for split meal-bolus pairs.
+        Index(
+            "ix_pump_events_meal_event_id",
+            "meal_event_id",
+            postgresql_where=text("meal_event_id IS NOT NULL"),
         ),
     )
 

@@ -23,6 +23,25 @@ Lands the storage layer for the Nightscout translator:
   fetch; downstream consumers (AI chat, advanced web views) read recent
   rows for closed-loop analysis context.
 
+**Operational notes:**
+
+- The PumpEventType enum extension uses `op.execute("COMMIT")` followed
+  by `ALTER TYPE ... ADD VALUE IF NOT EXISTS` -- this is the required
+  PostgreSQL pattern (enum-value adds can't run inside a transaction)
+  and mirrors migration 036. If the migration errors out *after* the
+  COMMIT but before later DDL completes, the new enum values persist
+  on re-run; the rest of the schema is recreated fresh thanks to
+  `IF NOT EXISTS` guards. Rollback cannot remove the new enum values.
+
+- Downgrade restores the non-partial `ix_pump_events_user_event_unique`
+  index. If Nightscout-sourced rows already exist with duplicate
+  `(user_id, event_timestamp, event_type)` values (the partial-index
+  shape this migration introduces tolerates these), the
+  `op.create_index` call in `downgrade()` will fail with a uniqueness
+  violation. Ops should clean up Nightscout-sourced duplicates (or
+  delete all `pump_events` rows where `source LIKE 'nightscout:%'`)
+  before downgrading.
+
 Revision ID: 052_nightscout_translator
 Revises: 051_nightscout_connections
 Create Date: 2026-05-06

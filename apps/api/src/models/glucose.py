@@ -7,7 +7,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, Float, ForeignKey, Index, Integer, Text
+from sqlalchemy import DateTime, Enum, Float, ForeignKey, Index, Integer, Text, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -70,6 +70,19 @@ class GlucoseReading(Base):
             "user_id",
             "reading_timestamp",
             unique=True,
+        ),
+        # Per-source partial unique index for Nightscout-relayed
+        # readings; mirrors the migration's
+        # `ix_glucose_readings_source_nsid` so SQLAlchemy is aware of
+        # it. Only fires when ns_id IS NOT NULL -- direct-integration
+        # rows (Dexcom, etc.) leave ns_id NULL and use the natural-key
+        # dedupe via the `(user_id, reading_timestamp)` index above.
+        Index(
+            "ix_glucose_readings_source_nsid",
+            "source",
+            "ns_id",
+            unique=True,
+            postgresql_where=text("ns_id IS NOT NULL"),
         ),
     )
 

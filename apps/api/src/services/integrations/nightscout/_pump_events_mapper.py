@@ -155,7 +155,7 @@ def _map_carb_entry(
     base.update(
         {
             "units": None,  # carb-only, no insulin
-            "duration_minutes": int(treatment.duration)
+            "duration_minutes": round(treatment.duration)
             if treatment.duration is not None and treatment.uploader != "loop"
             else None,
             "metadata_json": _build_metadata(treatment, extra=extras),
@@ -188,7 +188,7 @@ def _map_temp_basal(
     base.update(
         {
             "units": None,
-            "duration_minutes": int(treatment.duration)
+            "duration_minutes": round(treatment.duration)
             if treatment.duration is not None
             else None,
             "metadata_json": _build_metadata(treatment, extra=extras),
@@ -231,7 +231,7 @@ def _map_combo_bolus(
     base.update(
         {
             "units": treatment.insulin,
-            "duration_minutes": int(treatment.duration)
+            "duration_minutes": round(treatment.duration)
             if treatment.duration is not None
             else None,
             "metadata_json": _build_metadata(treatment, extra=extras),
@@ -263,7 +263,7 @@ def _map_override(
     base.update(
         {
             "units": None,
-            "duration_minutes": int(treatment.duration)
+            "duration_minutes": round(treatment.duration)
             if treatment.duration is not None
             else None,
             "metadata_json": _build_metadata(treatment, extra=extras),
@@ -285,7 +285,7 @@ def _map_temp_target(
     base.update(
         {
             "units": None,
-            "duration_minutes": int(treatment.duration)
+            "duration_minutes": round(treatment.duration)
             if treatment.duration is not None
             else None,
             "metadata_json": _build_metadata(treatment, extra=extras),
@@ -313,7 +313,7 @@ def _map_profile_switch(
     base.update(
         {
             "units": None,
-            "duration_minutes": int(treatment.duration)
+            "duration_minutes": round(treatment.duration)
             if treatment.duration is not None
             else None,
             "metadata_json": _build_metadata(treatment, extra=extras),
@@ -344,7 +344,7 @@ def _map_simple_note(
     base.update(
         {
             "units": None,
-            "duration_minutes": int(treatment.duration)
+            "duration_minutes": round(treatment.duration)
             if treatment.duration is not None
             else None,
             "metadata_json": _build_metadata(treatment, extra=extras),
