@@ -278,12 +278,15 @@ def _map_temp_basal(
 def _map_temp_basal_suspend(
     treatment: NightscoutTreatment, base: dict[str, Any]
 ) -> dict[str, Any]:
-    """Pump suspend signaled via a zero-rate Temp Basal (with duration)."""
-    base = _map_temp_basal(treatment, base)
-    # Override the event_type set by base_event (which was TEMP_BASAL)
-    # to the dedicated SUSPEND value.
-    base["event_type"] = PumpEventType.SUSPEND
-    return base
+    """Pump suspend signaled via a zero-rate Temp Basal (with duration).
+
+    `base["event_type"]` is already `PumpEventType.SUSPEND` -- the
+    routing table in `map_treatment_to_pump_events` passes SUSPEND to
+    `_base_event` for `temp_basal_suspend`. We delegate to
+    `_map_temp_basal` only to reuse its rate / reason / aaps_type
+    extras; the event_type is correct on entry.
+    """
+    return _map_temp_basal(treatment, base)
 
 
 def _map_combo_bolus(

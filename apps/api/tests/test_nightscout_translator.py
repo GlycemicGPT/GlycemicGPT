@@ -1270,7 +1270,9 @@ class TestLiveEndToEndPipeline:
         assert len(rows) == outcome.inserted
         # Glucose values fall in the physiological range (catches a
         # mg/dL <-> mmol/L unit-conversion regression at the seam).
-        assert all(20 <= r.value <= 600 for r in rows)
+        # Project guideline: physiological range is 40-400 mg/dL.
+        # mg/dL <-> mmol/L misconversion would land far outside this.
+        assert all(40 <= r.value <= 400 for r in rows)
 
     @pytest.mark.asyncio
     async def test_live_treatments_round_trip_through_translator(self, translator_ctx):

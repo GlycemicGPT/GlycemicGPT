@@ -352,8 +352,8 @@ class NightscoutProfileSnapshotResponse(BaseModel):
     source_units: str | None
     source_timezone: str | None
     source_dia_hours: float | None
-    basal_segments: list[dict[str, Any]] | None
-    carb_ratio_segments: list[dict[str, Any]] | None
-    sensitivity_segments: list[dict[str, Any]] | None
-    target_low_segments: list[dict[str, Any]] | None
-    target_high_segments: list[dict[str, Any]] | None
+    basal_segments: list[NightscoutProfileSegmentDTO] | None
+    carb_ratio_segments: list[NightscoutProfileSegmentDTO] | None
+    sensitivity_segments: list[NightscoutProfileSegmentDTO] | None
+    target_low_segments: list[NightscoutProfileSegmentDTO] | None
+    target_high_segments: list[NightscoutProfileSegmentDTO] | None
