@@ -1,0 +1,51 @@
+{
+  "_id": "65f4d1a2c8e3d2f1a0b1c501",
+  "defaultProfile": "Default",
+  "startDate": "2026-05-01T00:00:00.000Z",
+  "units": "mg/dl",
+  "store": {
+    "Default": {
+      "dia": 5,
+      "carbs_hr": 20,
+      "delay": 20,
+      "timezone": "America/Los_Angeles",
+      "units": "mg/dl",
+      "carbratio": [
+        {"time": "06:00", "value": 10, "timeAsSeconds": 21600},
+        {"time": "12:00", "value": 12, "timeAsSeconds": 43200},
+        {"time": "18:00", "value": 11, "timeAsSeconds": 64800}
+      ],
+      "sens": [
+        {"time": "06:00", "value": 50, "timeAsSeconds": 21600},
+        {"time": "22:00", "value": 60, "timeAsSeconds": 79200}
+      ],
+      "basal": [
+        {"time": "06:00", "value": 0.85, "timeAsSeconds": 21600},
+        {"time": "10:00", "value": 0.95, "timeAsSeconds": 36000},
+        {"time": "22:00", "value": 0.75, "timeAsSeconds": 79200}
+      ],
+      "target_low": [
+        {"time": "06:00", "value": 90, "timeAsSeconds": 21600},
+        {"time": "22:00", "value": 100, "timeAsSeconds": 79200}
+      ],
+      "target_high": [
+        {"time": "06:00", "value": 130, "timeAsSeconds": 21600},
+        {"time": "22:00", "value": 140, "timeAsSeconds": 79200}
+      ]
+    },
+    "Exercise": {
+      "dia": 5,
+      "carbs_hr": 20,
+      "delay": 20,
+      "timezone": "America/Los_Angeles",
+      "units": "mg/dl",
+      "carbratio": [{"time": "00:00", "value": 12, "timeAsSeconds": 0}],
+      "sens": [{"time": "00:00", "value": 70, "timeAsSeconds": 0}],
+      "basal": [{"time": "00:00", "value": 0.6, "timeAsSeconds": 0}],
+      "target_low": [{"time": "00:00", "value": 130, "timeAsSeconds": 0}],
+      "target_high": [{"time": "00:00", "value": 150, "timeAsSeconds": 0}]
+    }
+  },
+  "created_at": "2026-05-01T00:00:00.000Z",
+  "mills": 1777593600000
+}

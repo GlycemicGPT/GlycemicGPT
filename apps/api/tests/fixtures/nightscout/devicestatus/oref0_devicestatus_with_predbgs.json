@@ -1,0 +1,61 @@
+{
+  "_id": "65f4c1a2c8e3d2f1a0b1c403",
+  "device": "openaps://my-rig/medtronic-722",
+  "openaps": {
+    "iob": {
+      "iob": 0.85,
+      "activity": 0.008,
+      "basaliob": 0.3,
+      "bolusiob": 0.55,
+      "netbasalinsulin": 0.1,
+      "bolusinsulin": 1.0,
+      "lastBolusTime": 1778076000000,
+      "timestamp": "2026-05-06T14:30:00Z",
+      "mills": 1778077800000
+    },
+    "suggested": {
+      "temp": "absolute",
+      "bg": 110,
+      "tick": "-1",
+      "eventualBG": 95,
+      "insulinReq": 0,
+      "reservoir": null,
+      "deliverAt": "2026-05-06T14:30:00.000Z",
+      "timestamp": "2026-05-06T14:30:00.000Z",
+      "sensitivityRatio": 1,
+      "COB": 15,
+      "IOB": 0.85,
+      "rate": 0.6,
+      "duration": 30,
+      "predBGs": {
+        "IOB": [110, 108, 105, 102, 98, 95],
+        "ZT": [110, 108, 106, 103, 100, 97],
+        "COB": [110, 112, 116, 120, 122, 122],
+        "UAM": [110, 109, 107, 104, 101, 98]
+      },
+      "reason": "COB: 15, Dev: -3, BGI: -1.5, ISF: 60, CR: 12, minPredBG 95, COBpredBG 122, eventualBG 95 == target"
+    },
+    "enacted": {
+      "received": true,
+      "rate": 0.6,
+      "duration": 30,
+      "deliverAt": "2026-05-06T14:30:00.000Z",
+      "timestamp": "2026-05-06T14:30:00.000Z",
+      "reason": "Microbolusing 0.1U"
+    },
+    "version": "0.7.1"
+  },
+  "pump": {
+    "clock": {"clock": "2026-05-06T14:30:00Z"},
+    "battery": {"voltage": 1.45, "string": "normal"},
+    "reservoir": null,
+    "status": {
+      "suspended": false,
+      "bolusing": false,
+      "status": "normal",
+      "timestamp": "2026-05-06T14:30:00Z"
+    }
+  },
+  "uploader": {"battery": 76},
+  "created_at": "2026-05-06T14:30:00.000Z"
+}
