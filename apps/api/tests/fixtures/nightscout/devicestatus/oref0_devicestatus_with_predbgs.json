@@ -1,6 +1,6 @@
 {
   "_id": "65f4c1a2c8e3d2f1a0b1c403",
-  "device": "openaps://my-rig/medtronic-722",
+  "device": "openaps://example-rig/medtronic-722",
   "openaps": {
     "iob": {
       "iob": 0.85,

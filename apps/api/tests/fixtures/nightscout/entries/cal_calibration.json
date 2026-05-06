@@ -4,7 +4,7 @@
   "date": 1778072400000,
   "dateString": "2026-05-06T13:00:00.000Z",
   "sysTime": "2026-05-06T13:00:00.000Z",
-  "device": "openaps://my-rig/medtronic-722",
+  "device": "openaps://example-rig/medtronic-722",
   "slope": 1000,
   "intercept": 10000,
   "scale": 1

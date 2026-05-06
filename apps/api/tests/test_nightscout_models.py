@@ -76,7 +76,7 @@ class TestUploaderDetection:
 
     def test_oref0_via_openaps_device_uri(self):
         # Distinguished from AAPS by presence of host segment after `openaps://`
-        assert detect_uploader(None, "openaps://my-rig/medtronic-722") == "oref0"
+        assert detect_uploader(None, "openaps://example-rig/medtronic-722") == "oref0"
 
     def test_oref0_profile_switch_uses_bare_openaps_string(self):
         assert detect_uploader("OpenAPS", None) == "oref0"
@@ -98,8 +98,8 @@ class TestUploaderDetection:
 
 class TestOpenapsUriParsing:
     def test_full_uri(self):
-        host, ref = parse_openaps_uri("openaps://my-rig/medtronic-722")
-        assert host == "my-rig"
+        host, ref = parse_openaps_uri("openaps://example-rig/medtronic-722")
+        assert host == "example-rig"
         assert ref == "medtronic-722"
 
     def test_aaps_degenerate_one_segment(self):
@@ -587,9 +587,9 @@ class TestDeviceStatusOref0:
         assert fixture.pump_reservoir is None
 
     def test_structured_openaps_uri(self, fixture):
-        # device: "openaps://my-rig/medtronic-722" parses into rig + ref
+        # device: "openaps://example-rig/medtronic-722" parses into rig + ref
         host, ref = parse_openaps_uri(fixture.device)
-        assert host == "my-rig"
+        assert host == "example-rig"
         assert ref == "medtronic-722"
         assert fixture.uploader_name == "oref0"
 
@@ -792,7 +792,7 @@ class TestAdversarialRegressions:
         assert detect_uploader(None, "openaps://samsung SM-G970F") == "aaps"
         assert detect_uploader(None, "openaps://AndroidAPS") == "aaps"
         # oref0 still wins when there's a host segment
-        assert detect_uploader(None, "openaps://my-rig/medtronic-722") == "oref0"
+        assert detect_uploader(None, "openaps://example-rig/medtronic-722") == "oref0"
 
     def test_h1_aaps_devicestatus_fixture_uploader_detection(self):
         # Lock against the exact aaps_devicestatus.json fixture
@@ -1251,7 +1251,7 @@ class TestParseOpenapsUriCaseInsensitivity:
     lowercased `dev` to parse_openaps_uri so mixed-case URIs work."""
 
     def test_mixed_case_oref0_uri_detected(self):
-        assert detect_uploader(None, "OpenAPS://my-rig/medtronic-722") == "oref0"
+        assert detect_uploader(None, "OpenAPS://example-rig/medtronic-722") == "oref0"
 
     def test_mixed_case_aaps_uri_detected(self):
         assert detect_uploader(None, "OpenAPS://AndroidAPS") == "aaps"
@@ -1439,17 +1439,27 @@ class TestProfileActiveProfileEdgeCases:
 # cgm-remote-monitor actually emits on the wire.
 
 _NS_URL = os.environ.get("NIGHTSCOUT_TEST_URL")
-_NS_SECRET = os.environ.get(
-    "NIGHTSCOUT_TEST_SECRET", "glycemicgpt-test-secret-min12chars"
-)
+_NS_SECRET = os.environ.get("NIGHTSCOUT_TEST_SECRET")
 _skip_no_live = pytest.mark.skipif(
-    not _NS_URL,
-    reason="set NIGHTSCOUT_TEST_URL to run integration tests against a real instance",
+    not _NS_URL or not _NS_SECRET,
+    reason=(
+        "set both NIGHTSCOUT_TEST_URL and NIGHTSCOUT_TEST_SECRET to run "
+        "integration tests against a real instance"
+    ),
 )
 
 
 def _v1_headers() -> dict[str, str]:
-    """Build the SHA-1 api-secret header for v1 auth."""
+    """Build the SHA-1 api-secret header for v1 auth.
+
+    Skips at runtime if `NIGHTSCOUT_TEST_SECRET` isn't set -- the class
+    decorator already handles the static skip, but this guard satisfies
+    the type checker (the `_NS_SECRET.encode` call needs a non-None
+    str) and gives a clear failure mode if the helper is ever called
+    from a non-skipped context.
+    """
+    if not _NS_SECRET:
+        pytest.skip("set NIGHTSCOUT_TEST_SECRET to run integration tests")
     return {
         "api-secret": hashlib.sha1(_NS_SECRET.encode("utf-8")).hexdigest()  # noqa: S324  # nosemgrep: python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1
     }
