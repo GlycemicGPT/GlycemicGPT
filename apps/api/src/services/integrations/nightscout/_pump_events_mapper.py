@@ -82,6 +82,9 @@ def _base_event(
         "received_at": received_at or datetime.now(UTC),
         "source": source,
         "ns_id": treatment.id,
+        # Uniform schema across all rows in a multi-row INSERT VALUES
+        # clause — meal-bolus pairs overwrite this with a shared UUID.
+        "meal_event_id": None,
     }
 
 

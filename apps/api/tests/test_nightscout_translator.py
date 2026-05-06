@@ -16,6 +16,7 @@ indexes, and the per-target conflict resolution.
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
@@ -880,3 +881,368 @@ class TestReadEndpoints:
 
             await session.execute(delete(User).where(User.id == other_id))
             await session.commit()
+
+
+# ---------------------------------------------------------------------------
+# Cross-source coexistence -- partial-index relaxation must allow a Tandem
+# direct row and a Nightscout-relayed row to share the same
+# (user_id, event_timestamp, event_type) without conflict.
+# ---------------------------------------------------------------------------
+
+
+class TestCrossSourceCoexistence:
+    """DDL-level regression locks for the partial unique indexes.
+
+    These tests insert PumpEvent rows directly (bypassing the translator
+    and its ON CONFLICT path) to pin the schema invariant: the relaxed
+    `ix_pump_events_user_event_unique` (`WHERE ns_id IS NULL`) and
+    `ix_pump_events_source_nsid` (`WHERE ns_id IS NOT NULL`) must allow
+    a direct-integration row and a Nightscout-sourced row -- or two
+    Nightscout-sourced rows with different `_id`s -- to coexist at the
+    same timestamp + event_type.
+
+    The full upsert path (translator + ON CONFLICT) is exercised by
+    `TestLiveEndToEndPipeline`; these tests fail fast if someone
+    "tightens" the index again without thinking through the
+    cross-source case, even before the live tests would catch it.
+    """
+
+    @pytest.mark.asyncio
+    async def test_tandem_direct_and_nightscout_at_same_timestamp_both_persist(
+        self, translator_ctx
+    ):
+        from sqlalchemy import select
+
+        from src.models.pump_data import PumpEvent, PumpEventType
+
+        session, user_id, conn_id = translator_ctx
+        same_ts = datetime(2026, 5, 6, 14, 30, 0, tzinfo=UTC)
+        now = datetime.now(UTC)
+
+        # 1. Direct-integration row (Tandem-shaped: ns_id IS NULL)
+        tandem_row = PumpEvent(
+            user_id=user_id,
+            event_type=PumpEventType.BOLUS,
+            event_timestamp=same_ts,
+            units=0.5,
+            is_automated=True,
+            received_at=now,
+            source="tandem",
+            ns_id=None,
+        )
+        session.add(tandem_row)
+        await session.flush()
+
+        # 2. Nightscout-relayed row at SAME timestamp + same event_type
+        # but with ns_id set. Different source tag, different ns_id, so
+        # the partial unique index `ix_pump_events_source_nsid` doesn't
+        # conflict either.
+        ns_row = PumpEvent(
+            user_id=user_id,
+            event_type=PumpEventType.BOLUS,
+            event_timestamp=same_ts,
+            units=0.3,
+            is_automated=True,
+            received_at=now,
+            source=f"nightscout:{conn_id}",
+            ns_id="65f4b1a2c8e3d2f1a0b1c999",
+            metadata_json={"bolus_subtype": "smb", "source_uploader": "loop"},
+        )
+        session.add(ns_row)
+        await session.flush()
+
+        # Both rows should coexist
+        rows = (
+            (
+                await session.execute(
+                    select(PumpEvent).where(PumpEvent.user_id == user_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(rows) == 2
+        sources = {r.source for r in rows}
+        assert sources == {"tandem", f"nightscout:{conn_id}"}
+
+    @pytest.mark.asyncio
+    async def test_two_nightscout_smbs_at_same_second_both_persist(
+        self, translator_ctx
+    ):
+        """The exact scenario the partial-index relaxation was built for:
+        two AAPS SMBs at the same second with different `_id`s -- the
+        old (non-partial) unique index would have dropped one.
+        """
+        from sqlalchemy import select
+
+        from src.models.pump_data import PumpEvent, PumpEventType
+
+        session, user_id, conn_id = translator_ctx
+        same_ts = datetime(2026, 5, 6, 14, 30, 0, tzinfo=UTC)
+        now = datetime.now(UTC)
+        source = f"nightscout:{conn_id}"
+
+        for ns_id, units in [
+            ("65f4b1a2c8e3d2f1a0b1d001", 0.1),
+            ("65f4b1a2c8e3d2f1a0b1d002", 0.2),
+        ]:
+            session.add(
+                PumpEvent(
+                    user_id=user_id,
+                    event_type=PumpEventType.BOLUS,
+                    event_timestamp=same_ts,
+                    units=units,
+                    is_automated=True,
+                    received_at=now,
+                    source=source,
+                    ns_id=ns_id,
+                )
+            )
+        await session.flush()
+
+        rows = (
+            (
+                await session.execute(
+                    select(PumpEvent)
+                    .where(PumpEvent.user_id == user_id)
+                    .order_by(PumpEvent.units.asc())
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(rows) == 2
+        assert [r.units for r in rows] == [0.1, 0.2]
+
+
+# ---------------------------------------------------------------------------
+# Live end-to-end pipeline: NightscoutClient.fetch -> translator -> DB.
+# Gated by NIGHTSCOUT_TEST_URL env var; skipped in CI. Catches drift
+# between what the live cgm-remote-monitor returns and what the translator
+# expects -- the seam our isolated unit tests cannot exercise.
+# ---------------------------------------------------------------------------
+
+_NS_URL = os.environ.get("NIGHTSCOUT_TEST_URL")
+_NS_SECRET = os.environ.get("NIGHTSCOUT_TEST_SECRET")
+_skip_no_live = pytest.mark.skipif(
+    not _NS_URL or not _NS_SECRET,
+    reason="set both NIGHTSCOUT_TEST_URL and NIGHTSCOUT_TEST_SECRET to run "
+    "live integration tests against a real Nightscout instance",
+)
+
+
+@_skip_no_live
+@pytest.mark.integration
+class TestLiveEndToEndPipeline:
+    """Fetch real data via NightscoutClient, translate it, query the DB.
+
+    Validates the seam between:
+    - The HTTP client (ships entries/treatments/devicestatus dicts)
+    - The translator (parses dicts via Pydantic models, routes via
+      semantic_kind, writes to ORM)
+    - The DB (partial unique indexes, dedupe, source attribution)
+
+    Wire-format issues that would only surface here include: schema
+    drift between cgm-remote-monitor versions and our Pydantic models;
+    UTF-8 in `enteredBy` that breaks the metadata_json serialization;
+    timezone or timestamp-format anomalies the synthetic fixtures miss.
+    """
+
+    @pytest.mark.asyncio
+    async def test_live_entries_round_trip_to_glucose_readings(self, translator_ctx):
+        from sqlalchemy import select
+
+        from src.models.glucose import GlucoseReading
+        from src.models.nightscout_connection import (
+            NightscoutApiVersion,
+            NightscoutAuthType,
+        )
+        from src.services.integrations.nightscout.client import NightscoutClient
+
+        session, user_id, conn_id = translator_ctx
+
+        # Fetch real entries from the local instance
+        async with await NightscoutClient.create(
+            base_url=_NS_URL,
+            auth_type=NightscoutAuthType.SECRET,
+            credential=_NS_SECRET,
+            api_version=NightscoutApiVersion.V1,
+        ) as client:
+            entries = await client.fetch_entries(count=200)
+
+        # Translate -> ORM
+        outcome = await translate_entries(
+            entries,
+            session=session,
+            user_id=str(user_id),
+            connection_id=str(conn_id),
+        )
+        await session.commit()
+
+        # No parse failures -- if real cgm-remote-monitor responses
+        # don't fit our Pydantic model, this is where it surfaces.
+        assert outcome.failed == 0, "live entries failed Pydantic parse"
+
+        # Inserted count + skipped (gaps) should equal the fetch count
+        # exactly (modulo cal entries which we drop entirely)
+        assert outcome.inserted + outcome.skipped == len(entries)
+
+        # Spot-check the inserted rows
+        rows = (
+            (
+                await session.execute(
+                    select(GlucoseReading).where(
+                        GlucoseReading.user_id == user_id,
+                        GlucoseReading.source == f"nightscout:{conn_id}",
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(rows) == outcome.inserted
+        # Glucose values fall in the physiological range (catches a
+        # mg/dL <-> mmol/L unit-conversion regression at the seam).
+        assert all(20 <= r.value <= 600 for r in rows)
+
+    @pytest.mark.asyncio
+    async def test_live_treatments_round_trip_through_translator(self, translator_ctx):
+        from sqlalchemy import select
+
+        from src.models.nightscout_connection import (
+            NightscoutApiVersion,
+            NightscoutAuthType,
+        )
+        from src.models.pump_data import PumpEvent
+        from src.services.integrations.nightscout.client import NightscoutClient
+
+        session, user_id, conn_id = translator_ctx
+
+        async with await NightscoutClient.create(
+            base_url=_NS_URL,
+            auth_type=NightscoutAuthType.SECRET,
+            credential=_NS_SECRET,
+            api_version=NightscoutApiVersion.V1,
+        ) as client:
+            treatments = await client.fetch_treatments(count=200)
+
+        # Pre-compute the expected pump_events row count by mirroring
+        # the translator's routing decisions: fingerstick treatments
+        # divert to glucose_readings; the mapper hard-drops
+        # temp_basal_cancel / fingerstick_bg_check / unknown (the last
+        # also covers soft-deletes); meal_bolus_pair splits to two rows;
+        # else one row. Records without a resolvable timestamp drop too.
+        from src.services.integrations.nightscout.models import NightscoutTreatment
+
+        drop_kinds = {"temp_basal_cancel", "fingerstick_bg_check", "unknown"}
+        expected_pump_rows = 0
+        for raw in treatments:
+            try:
+                t = NightscoutTreatment.model_validate(raw)
+            except Exception:
+                continue
+            if t.is_fingerstick_treatment:
+                continue
+            if t.semantic_kind in drop_kinds:
+                continue
+            if t.canonical_timestamp is None:
+                continue
+            expected_pump_rows += 2 if t.semantic_kind == "meal_bolus_pair" else 1
+
+        pump_outcome, _glucose_outcome = await translate_treatments(
+            treatments,
+            session=session,
+            user_id=str(user_id),
+            connection_id=str(conn_id),
+        )
+        await session.commit()
+
+        assert pump_outcome.failed == 0, "live treatments failed Pydantic parse"
+
+        rows = (
+            (
+                await session.execute(
+                    select(PumpEvent).where(
+                        PumpEvent.user_id == user_id,
+                        PumpEvent.source == f"nightscout:{conn_id}",
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        # Cardinality match against the kind-derived expectation -- this
+        # would catch a mapper that silently drops a kind, an upsert
+        # that double-inserts, or a pair-splitter regression.
+        assert len(rows) == expected_pump_rows, (
+            f"expected {expected_pump_rows} pump_events rows from "
+            f"{len(treatments)} treatments, got {len(rows)}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_live_pipeline_is_idempotent_on_refetch(self, translator_ctx):
+        """Run the full pipeline twice -- second run must dedupe to zero."""
+        from sqlalchemy import func, select
+
+        from src.models.glucose import GlucoseReading
+        from src.models.nightscout_connection import (
+            NightscoutApiVersion,
+            NightscoutAuthType,
+        )
+        from src.services.integrations.nightscout.client import NightscoutClient
+
+        session, user_id, conn_id = translator_ctx
+
+        async with await NightscoutClient.create(
+            base_url=_NS_URL,
+            auth_type=NightscoutAuthType.SECRET,
+            credential=_NS_SECRET,
+            api_version=NightscoutApiVersion.V1,
+        ) as client:
+            entries = await client.fetch_entries(count=100)
+
+        first = await translate_entries(
+            entries,
+            session=session,
+            user_id=str(user_id),
+            connection_id=str(conn_id),
+        )
+        await session.commit()
+
+        # Snapshot row count after pass 1 -- a regression that both
+        # double-inserts AND under-counts in the outcome counter would
+        # slip past `second.inserted == 0` alone.
+        count_after_first = await session.scalar(
+            select(func.count(GlucoseReading.id)).where(
+                GlucoseReading.user_id == user_id
+            )
+        )
+
+        second = await translate_entries(
+            entries,
+            session=session,
+            user_id=str(user_id),
+            connection_id=str(conn_id),
+        )
+        await session.commit()
+
+        assert second.inserted == 0, (
+            "re-fetching the same entries inserted duplicates -- "
+            "dedupe via (source, ns_id) partial index isn't holding"
+        )
+        # Everything in `entries` either landed first time (inserted)
+        # or was skipped (cal records / gap readings / no timestamp).
+        # Second time around, the inserted-on-first-pass rows hit the
+        # ON CONFLICT skip path; the rejected ones are skipped at the
+        # mapper layer like before.
+        assert second.skipped + second.failed >= first.inserted
+
+        count_after_second = await session.scalar(
+            select(func.count(GlucoseReading.id)).where(
+                GlucoseReading.user_id == user_id
+            )
+        )
+        assert count_after_second == count_after_first, (
+            f"row count drifted across re-fetch: "
+            f"{count_after_first} -> {count_after_second}"
+        )
