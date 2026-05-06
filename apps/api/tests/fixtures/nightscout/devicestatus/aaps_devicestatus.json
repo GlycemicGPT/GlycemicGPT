@@ -1,0 +1,68 @@
+{
+  "_id": "65f4c1a2c8e3d2f1a0b1c402",
+  "created_at": "2026-05-06T14:30:00.000Z",
+  "device": "openaps://samsung SM-G970F",
+  "pump": {
+    "clock": "2026-05-06T14:29:30Z",
+    "battery": {"percent": 78},
+    "reservoir": 117.2,
+    "status": {
+      "status": "normal",
+      "bolusing": false,
+      "suspended": false,
+      "timestamp": "2026-05-06T14:29:30Z"
+    },
+    "extended": {
+      "Version": "AAPS-3.2.0",
+      "LastBolus": "2026-05-06T14:00:00Z",
+      "LastBolusAmount": 4.5,
+      "BaseBasalRate": 0.85,
+      "ActiveProfile": "Default"
+    }
+  },
+  "openaps": {
+    "iob": {
+      "iob": 1.234,
+      "basaliob": 0.456,
+      "activity": 0.0123,
+      "time": "2026-05-06T14:30:00Z"
+    },
+    "suggested": {
+      "temp": "absolute",
+      "bg": 145,
+      "tick": "+2",
+      "eventualBG": 130,
+      "snoozeBG": 130,
+      "rate": 0.6,
+      "duration": 30,
+      "deliverAt": "2026-05-06T14:30:00.000Z",
+      "timestamp": "2026-05-06T14:30:00.000Z",
+      "sensitivityRatio": 1,
+      "COB": 0,
+      "IOB": 1.234,
+      "reason": "COB: 0, Dev: 5, BGI: -1.2, ISF: 50, CR: 10, minPredBG 110, IOBpredBG 130, eventualBG 130 < 140"
+    },
+    "enacted": {
+      "temp": "absolute",
+      "bg": 145,
+      "tick": "+2",
+      "rate": 0.6,
+      "duration": 30,
+      "received": true,
+      "deliverAt": "2026-05-06T14:30:00.000Z",
+      "timestamp": "2026-05-06T14:30:00.000Z",
+      "predBGs": {
+        "IOB": [145, 144, 142, 138, 134, 130],
+        "ZT": [145, 144, 142, 140, 137, 135]
+      },
+      "reason": "COB: 0, Dev: 5, BGI: -1.2, ISF: 50, CR: 10, minPredBG 110, IOBpredBG 130, eventualBG 130 < 140"
+    },
+    "version": "3.2.0"
+  },
+  "uploader": {
+    "battery": 92,
+    "batteryVoltage": 4150
+  },
+  "uploaderBattery": 92,
+  "isCharging": false
+}

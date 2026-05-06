@@ -37,7 +37,7 @@ Pagination:
 
 Retry policy:
 
-- 429 → exponential backoff up to 3 attempts then raise NightscoutRateLimitError
+- 429 → exponential backoff, up to MAX_RETRIES_429 retries (4 attempts total) then raise NightscoutRateLimitError
 - 5xx → one retry with jitter then raise NightscoutServerError
 - 401/403 → raise NightscoutAuthError immediately (no retry)
 - 404 → raise NightscoutNotFoundError (auto-detect uses this)

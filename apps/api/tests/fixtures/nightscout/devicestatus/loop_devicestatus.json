@@ -1,0 +1,65 @@
+{
+  "_id": "65f4c1a2c8e3d2f1a0b1c401",
+  "device": "loop://iPhone",
+  "created_at": "2026-05-06T14:30:00Z",
+  "pump": {
+    "clock": "2026-05-06T14:30:00Z",
+    "pumpID": "12345",
+    "manufacturer": "Insulet",
+    "model": "Omnipod DASH",
+    "battery": {"percent": 87},
+    "suspended": false,
+    "bolusing": false,
+    "reservoir": 145.3,
+    "secondsFromGMT": -25200,
+    "iob": null,
+    "reservoir_display_override": "Replace soon",
+    "reservoir_level_override": 1
+  },
+  "uploader": {
+    "name": "iPhone",
+    "timestamp": "2026-05-06T14:30:00Z",
+    "battery": 87
+  },
+  "loop": {
+    "name": "Loop",
+    "version": "3.4.1",
+    "timestamp": "2026-05-06T14:30:00Z",
+    "iob": {
+      "timestamp": "2026-05-06T14:30:00Z",
+      "iob": 1.2,
+      "basaliob": 0.4
+    },
+    "cob": {
+      "timestamp": "2026-05-06T14:30:00Z",
+      "cob": 12
+    },
+    "predicted": {
+      "startDate": "2026-05-06T14:30:00Z",
+      "values": [120, 122, 125, 128, 130, 130, 128],
+      "COB": [120, 124, 130, 138, 145, 150, 148],
+      "IOB": [120, 121, 121, 120, 119, 118, 117]
+    },
+    "automaticDoseRecommendation": {
+      "timestamp": "2026-05-06T14:30:00Z",
+      "bolusVolume": 0,
+      "tempBasalAdjustment": {"rate": 0.6, "duration": 30}
+    },
+    "recommendedBolus": 0,
+    "enacted": {
+      "rate": 0.6,
+      "duration": 30,
+      "timestamp": "2026-05-06T14:30:00Z",
+      "received": true,
+      "bolusVolume": 0
+    },
+    "currentCorrectionRange": {"minValue": 100, "maxValue": 120}
+  },
+  "override": {
+    "timestamp": "2026-05-06T14:30:00Z",
+    "active": false,
+    "name": "(none)",
+    "duration": 0,
+    "multiplier": 1.0
+  }
+}

@@ -63,7 +63,13 @@ async def test_connection(
         # outcome rather than propagated to the router. The router has
         # no story for handling exceptions here -- it expects an
         # outcome it can persist.
-        return ConnectionTestOutcome(ok=False, error=f"unexpected error: {exc}")
+        # Sanitize: only the exception class name (no str(exc)) makes
+        # it into `last_sync_error`, since str() on httpx / h11 / DNS
+        # exceptions can quote URLs, headers, or credentials. The
+        # caller still has the type information for triage.
+        return ConnectionTestOutcome(
+            ok=False, error=f"unexpected error: {type(exc).__name__}"
+        )
 
     try:
         async with client:
@@ -72,4 +78,10 @@ async def test_connection(
         # `client.test_connection()` already catches its expected
         # error classes and returns an outcome. This handler exists
         # for the same defense-in-depth reason as above.
-        return ConnectionTestOutcome(ok=False, error=f"unexpected error: {exc}")
+        # Sanitize: only the exception class name (no str(exc)) makes
+        # it into `last_sync_error`, since str() on httpx / h11 / DNS
+        # exceptions can quote URLs, headers, or credentials. The
+        # caller still has the type information for triage.
+        return ConnectionTestOutcome(
+            ok=False, error=f"unexpected error: {type(exc).__name__}"
+        )
