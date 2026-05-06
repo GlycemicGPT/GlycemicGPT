@@ -9,7 +9,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from tconnectsync.api.common import ApiException
@@ -946,7 +946,12 @@ async def sync_tandem_for_user(
                 source="tandem",
             )
             .on_conflict_do_nothing(
-                index_elements=["user_id", "event_timestamp", "event_type"]
+                index_elements=["user_id", "event_timestamp", "event_type"],
+                # The (user_id, event_timestamp, event_type) unique
+                # index is partial: applies only to direct-integration
+                # rows (`ns_id IS NULL`). Tandem direct sync writes
+                # ns_id=NULL so the partial index applies.
+                index_where=text("ns_id IS NULL"),
             )
         )
 

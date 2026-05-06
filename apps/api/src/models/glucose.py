@@ -7,7 +7,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, Float, ForeignKey, Index, Integer
+from sqlalchemy import DateTime, Enum, Float, ForeignKey, Index, Integer, Text, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -71,6 +71,19 @@ class GlucoseReading(Base):
             "reading_timestamp",
             unique=True,
         ),
+        # Per-source partial unique index for Nightscout-relayed
+        # readings; mirrors the migration's
+        # `ix_glucose_readings_source_nsid` so SQLAlchemy is aware of
+        # it. Only fires when ns_id IS NOT NULL -- direct-integration
+        # rows (Dexcom, etc.) leave ns_id NULL and use the natural-key
+        # dedupe via the `(user_id, reading_timestamp)` index above.
+        Index(
+            "ix_glucose_readings_source_nsid",
+            "source",
+            "ns_id",
+            unique=True,
+            postgresql_where=text("ns_id IS NOT NULL"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -125,6 +138,17 @@ class GlucoseReading(Base):
     source: Mapped[str] = mapped_column(
         default="dexcom",
         nullable=False,
+    )
+
+    # Nightscout-server-assigned `_id` (or client-generated
+    # `identifier`). Used as the per-connection dedupe key when
+    # re-fetching the same record across sync cycles. NULL for
+    # direct-integration readings (Dexcom, etc.); the partial unique
+    # index `ix_glucose_readings_source_nsid` on (source, ns_id)
+    # WHERE ns_id IS NOT NULL handles the dedupe.
+    ns_id: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
     )
 
     # Relationship to user

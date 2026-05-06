@@ -1,0 +1,12 @@
+{
+  "_id": "65f4b1a2c8e3d2f1a0b1c40e",
+  "eventType": "Temporary Target",
+  "reason": "Eating Soon",
+  "targetTop": 90,
+  "targetBottom": 80,
+  "duration": 60,
+  "id": "b9c0d1e2-f3a4-4567-8901-bcdef0123456",
+  "created_at": "2026-05-06T11:00:00.000Z",
+  "enteredBy": "Trio",
+  "units": "mg/dl"
+}

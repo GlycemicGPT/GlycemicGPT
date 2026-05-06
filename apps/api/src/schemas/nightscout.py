@@ -253,3 +253,107 @@ class NightscoutConnectionDeletedResponse(BaseModel):
         "Connection deactivated. Historical data and per-source attribution "
         "are preserved."
     )
+
+
+# ---------------------------------------------------------------------------
+# Read endpoints (consumed by the mobile cloud-source plugin + the
+# onboarding wizard)
+# ---------------------------------------------------------------------------
+
+
+class NightscoutGlucoseReadingDTO(BaseModel):
+    """A glucose reading row stripped to what the mobile plugin needs.
+
+    Internal `user_id` and DB UUIDs are omitted; downstream consumers
+    only need the timestamp + value + trend + source attribution.
+    """
+
+    model_config = {"from_attributes": True}
+
+    ns_id: str | None
+    reading_timestamp: datetime
+    value: int
+    trend: str
+    trend_rate: float | None
+    source: str
+
+
+class NightscoutPumpEventDTO(BaseModel):
+    """A pump event row stripped to what the mobile plugin needs.
+
+    `metadata_json` carries clinically-meaningful extras filtered through
+    a storage-side allowlist (see `_pump_events_mapper._METADATA_ALLOWLIST`).
+    The DTO field is `repr=False` so that any future log/audit trail of
+    this object doesn't echo free-text `notes` / `reason` content; the
+    underlying value is still serialized normally to JSON callers (the
+    data owner's own authenticated client).
+    """
+
+    model_config = {"from_attributes": True}
+
+    ns_id: str | None
+    event_timestamp: datetime
+    event_type: str
+    units: float | None
+    duration_minutes: int | None
+    is_automated: bool
+    metadata_json: dict[str, Any] | None = Field(default=None, repr=False)
+    meal_event_id: uuid.UUID | None
+    source: str
+
+
+class NightscoutDataResponse(BaseModel):
+    """Merged read response for the cloud-source mobile plugin.
+
+    The plugin pulls this with `?since=<ISO>` to backfill its Room DB
+    incrementally. Both arrays are sorted ascending by timestamp.
+    Pagination is via the `since` cursor on subsequent calls; the
+    cursor is **inclusive** (`>=`) to avoid losing rows that share a
+    timestamp with the boundary, so callers MUST dedupe by `ns_id`
+    locally -- duplicates are bounded to ~1 row per page boundary per
+    array.
+
+    `limit` applies **per array**, not across both -- a single response
+    may contain up to `limit` glucose readings AND up to `limit` pump
+    events. `effective_limit_per_array` echoes the value used so the
+    client doesn't have to track the cap.
+    """
+
+    connection_id: uuid.UUID
+    fetched_at: datetime
+    effective_limit_per_array: int
+    glucose_readings: list[NightscoutGlucoseReadingDTO]
+    pump_events: list[NightscoutPumpEventDTO]
+
+
+class NightscoutProfileSegmentDTO(BaseModel):
+    """A single (time, value) entry from a Nightscout profile schedule."""
+
+    model_config = {"extra": "allow"}
+
+    time: str  # "HH:MM"
+    value: float
+
+
+class NightscoutProfileSnapshotResponse(BaseModel):
+    """Read response for the onboarding wizard's profile pre-fill source.
+
+    Returned with empty arrays when no snapshot exists yet (the connection
+    has been added but profile sync hasn't run). The wizard renders a
+    "no profile detected" state in that case.
+    """
+
+    model_config = {"from_attributes": True}
+
+    connection_id: uuid.UUID
+    has_snapshot: bool
+    fetched_at: datetime | None
+    source_default_profile_name: str | None
+    source_units: str | None
+    source_timezone: str | None
+    source_dia_hours: float | None
+    basal_segments: list[NightscoutProfileSegmentDTO] | None
+    carb_ratio_segments: list[NightscoutProfileSegmentDTO] | None
+    sensitivity_segments: list[NightscoutProfileSegmentDTO] | None
+    target_low_segments: list[NightscoutProfileSegmentDTO] | None
+    target_high_segments: list[NightscoutProfileSegmentDTO] | None
