@@ -1536,6 +1536,12 @@ async def push_pump_events(
         .values(rows)
         .on_conflict_do_nothing(
             index_elements=["user_id", "event_timestamp", "event_type"],
+            # The (user_id, event_timestamp, event_type) unique index
+            # is partial -- it applies only to direct-integration rows
+            # (`ns_id IS NULL`). Including the WHERE clause here is
+            # required for PostgreSQL to recognize the partial index
+            # as the ON CONFLICT target.
+            index_where=text("ns_id IS NULL"),
         )
     )
     result = await db.execute(stmt)
