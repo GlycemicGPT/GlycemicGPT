@@ -297,6 +297,50 @@ class TestTreatmentsPath:
         assert carb.metadata_json["carbs_grams"] == 60
 
     @pytest.mark.asyncio
+    async def test_meal_bolus_pair_dedupes_on_refetch(self, translator_ctx):
+        """Re-translating the same meal_bolus_pair must not double-insert.
+
+        Regression for the bug where the synthesized ns_id suffix
+        included a fresh uuid4(), making (source, ns_id) different on
+        each sync cycle so the partial unique index never matched.
+        """
+        session, user_id, conn_id = translator_ctx
+        raw = _load("treatments", "careportal_meal_bolus")
+
+        # First fetch: 2 rows inserted (bolus + carbs).
+        first_pump, _ = await translate_treatments(
+            [raw],
+            session=session,
+            user_id=str(user_id),
+            connection_id=str(conn_id),
+        )
+        await session.flush()
+        assert first_pump.inserted == 2
+
+        # Second fetch of the same record: 0 inserts, 2 dedupe-skips.
+        second_pump, _ = await translate_treatments(
+            [raw],
+            session=session,
+            user_id=str(user_id),
+            connection_id=str(conn_id),
+        )
+        await session.flush()
+        assert second_pump.inserted == 0
+        assert second_pump.skipped == 2
+
+        # Verify the DB still has exactly 2 rows.
+        rows = (
+            (
+                await session.execute(
+                    select(PumpEvent).where(PumpEvent.user_id == user_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(rows) == 2
+
+    @pytest.mark.asyncio
     async def test_xdrip4ios_bg_check_routes_to_glucose_readings(self, translator_ctx):
         session, user_id, conn_id = translator_ctx
         pump_outcome, glucose_outcome = await translate_treatments(

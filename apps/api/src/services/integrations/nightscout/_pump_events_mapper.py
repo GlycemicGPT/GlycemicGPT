@@ -403,8 +403,11 @@ def map_treatment_to_pump_events(
 
     if kind == "meal_bolus_pair":
         # Split into bolus + carbs rows, linked via meal_event_id.
-        meal_event_id = uuid.uuid4()
-
+        # Both meal_event_id and the role suffixes on ns_id MUST be
+        # deterministic functions of the source treatment id -- otherwise
+        # re-fetching the same record on a later sync produces fresh
+        # UUIDs, the (source, ns_id) dedupe never matches, and we
+        # silently double-insert the bolus + carbs rows on every cycle.
         bolus_base = _base_event(
             treatment,
             user_id=user_id,
@@ -423,20 +426,30 @@ def map_treatment_to_pump_events(
             return []
         bolus_row = _map_bolus(treatment, bolus_base)
         carb_row = _map_carb_entry(treatment, carb_base)
+
+        # Derive a deterministic UUID from the source ns_id so the
+        # sibling-link is stable across re-fetches. If the upstream
+        # has no ns_id at all (rare; some uploaders POST without
+        # `_id`), fall back to a uuid4 -- there's nothing stable to
+        # derive from, so the dedupe-via-ns_id path won't fire either
+        # way for that record.
+        meal_event_id = (
+            uuid.uuid5(uuid.NAMESPACE_OID, treatment.id)
+            if treatment.id
+            else uuid.uuid4()
+        )
         bolus_row["meal_event_id"] = meal_event_id
         carb_row["meal_event_id"] = meal_event_id
-        # `ns_id` is the same on both rows (they're projections of one
-        # source treatment). The unique index on (source, ns_id) means
-        # we have to disambiguate. Suffix with a delimiter that real
-        # NS `_id` values cannot contain: server `_id`s are 24-hex
-        # MongoDB ObjectIds; client-generated `identifier`/`syncIdentifier`
-        # values are typically UUIDs or hex strings, neither of which
-        # contains `#`. Including the meal_event_id keeps the suffix
-        # unique even if the source ns_id happens to end in `:role=bolus`.
+
+        # ns_id suffixes use `#` as a delimiter that real NS `_id`
+        # values cannot contain (24-hex ObjectIds and UUID/hex
+        # identifiers don't carry `#`). The role tag alone is enough
+        # to disambiguate the two rows from a single source record;
+        # we don't need meal_event_id in the suffix.
         if bolus_row.get("ns_id"):
-            bolus_row["ns_id"] = f"{bolus_row['ns_id']}#meal-{meal_event_id}:role=bolus"
+            bolus_row["ns_id"] = f"{bolus_row['ns_id']}#role=bolus"
         if carb_row.get("ns_id"):
-            carb_row["ns_id"] = f"{carb_row['ns_id']}#meal-{meal_event_id}:role=carbs"
+            carb_row["ns_id"] = f"{carb_row['ns_id']}#role=carbs"
         return [bolus_row, carb_row]
 
     if kind not in routing:

@@ -52,13 +52,21 @@ def map_devicestatus_to_snapshot(
             if isinstance(status, dict) and isinstance(status.get("suspended"), bool):
                 pump_suspended = status["suspended"]
 
+    # Defensively truncate to the column lengths so an over-long
+    # upstream value (e.g., a verbose Loop iAPS build string in
+    # `device`) doesn't fail the whole insert batch. The column caps
+    # match `DeviceStatusSnapshot.source_uploader` (40) and
+    # `DeviceStatusSnapshot.source_device` (200).
+    source_uploader = (ds.uploader_name or "")[:40] or None
+    source_device = (ds.device or "")[:200] or None
+
     return {
         "user_id": user_id,
         "nightscout_connection_id": nightscout_connection_id,
         "snapshot_timestamp": timestamp,
         "received_at": received_at or datetime.now(UTC),
-        "source_uploader": ds.uploader_name,
-        "source_device": ds.device,
+        "source_uploader": source_uploader,
+        "source_device": source_device,
         "ns_id": ds.id,
         "iob_units": ds.iob_value,
         "cob_grams": _extract_cob(ds),

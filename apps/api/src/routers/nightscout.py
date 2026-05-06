@@ -463,6 +463,13 @@ async def read_connection_data(
     conn = await _load_owned(db, connection_id, current_user.id)
     source_tag = f"nightscout:{conn.id}"
 
+    # Defend against naive datetimes from clients: PostgreSQL's TIMESTAMP
+    # WITH TIME ZONE compares against naive values using the session's
+    # `timezone` setting, which silently shifts the cursor on a non-UTC
+    # session. Force UTC at the boundary.
+    if since is not None and since.tzinfo is None:
+        since = since.replace(tzinfo=UTC)
+
     glucose_q = (
         select(GlucoseReading)
         .where(

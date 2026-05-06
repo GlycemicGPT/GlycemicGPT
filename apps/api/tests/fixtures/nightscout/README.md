@@ -104,7 +104,7 @@ for full verification details.
 | `aaps_therapy_event_sensor_start.json` | `eventType: "Sensor Start"` with `transmitterId`. Anchors CGM noise/calibration windows. |
 | `loop_pump_suspend_as_temp_basal.json` | Loop convention: `Temp Basal` rate=0, `reason: "suspend"`, duration ≥30 min. Per `LoopKit/NightscoutService DoseEntry.swift:46`. |
 | `loop_square_bolus.json` | Loop bolus with delivery duration ≥30 min, classified `bolusType: "Square"` (per `BolusNightscoutTreatment.swift:62`, `bolusType: duration >= 30 min ? .Square : .Normal`). Translator preserves `bolus_subtype=square` in metadata. |
-| `loop_override_with_remote_address.json` | Loop override triggered via remote command: `enteredBy: "Loop (via remote command)"`, `remoteAddress` populated. Per `OverrideTreament.swift:43-48`. |
+| `loop_override_with_remote_address.json` | Loop override triggered via remote command: `enteredBy: "Loop (via remote command)"`, `remoteAddress` populated. Per `OverrideTreatment.swift:43-48`. |
 | `careportal_combo_bolus.json` | Care Portal Combo Bolus: `splitNow: 60, splitExt: 40` (sums to 100 per the constraint). |
 | `bolus_wizard_with_carbs.json` | AAPS `eventType: "Bolus Wizard"` with insulin AND carbs. The 4th carb encoding (`isCarbBolus = isMealBolus OR (isBolusWizard AND carbs > 0)` per Reporter heuristic). Routes as meal_bolus_pair → split into bolus + carbs rows. Includes `bolusCalculatorResult` JSON for AI analysis context. |
 | `trio_exercise_override.json` | Trio override toggle uploads as `eventType: "Exercise"` per `Trio/Sources/APS/Storage/OverrideStorage.swift`. Indefinite would use `duration: 43200`. |
