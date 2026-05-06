@@ -1,0 +1,16 @@
+{
+  "_id": "65f4b1a2c8e3d2f1a0b1c401",
+  "eventType": "Note",
+  "notes": "MyProfile (80%, 2h)",
+  "originalProfileName": "MyProfile",
+  "originalCustomizedName": "MyProfile (80%, 2h)",
+  "originalPercentage": 80,
+  "originalTimeshift": 0,
+  "originalDuration": 7200000,
+  "originalEnd": 1778086800000,
+  "profileJson": "{\"units\":\"mg/dl\",\"timezone\":\"America/Los_Angeles\",\"dia\":5,\"basal\":[{\"time\":\"00:00\",\"value\":0.68}],\"sens\":[{\"time\":\"00:00\",\"value\":50}],\"carbratio\":[{\"time\":\"00:00\",\"value\":10}],\"target_low\":[{\"time\":\"00:00\",\"value\":80}],\"target_high\":[{\"time\":\"00:00\",\"value\":140}]}",
+  "created_at": "2026-05-06T16:00:00.000Z",
+  "date": 1778083200000,
+  "isValid": true,
+  "enteredBy": "openaps://AndroidAPS"
+}

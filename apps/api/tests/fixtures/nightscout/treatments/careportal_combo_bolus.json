@@ -1,0 +1,13 @@
+{
+  "_id": "65f4b1a2c8e3d2f1a0b1c40b",
+  "eventType": "Combo Bolus",
+  "carbs": 75,
+  "insulin": 6.0,
+  "splitNow": 60,
+  "splitExt": 40,
+  "duration": 120,
+  "notes": "high-fat meal split bolus",
+  "created_at": "2026-05-06T19:00:00.000Z",
+  "enteredBy": "test-user",
+  "utcOffset": 0
+}

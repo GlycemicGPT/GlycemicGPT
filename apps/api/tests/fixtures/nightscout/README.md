@@ -83,15 +83,44 @@ verification pass:
 See `_bmad-output/planning-artifacts/nightscout-translator-fixture-survey.md` §10
 for full verification details.
 
-## Tier 2 / Tier 3 fixtures
+### Tier 2 fixtures (this PR — translator routing edge cases)
 
-Out of scope for this PR. The follow-up PR (Story 43.3 PR2) ships:
-- 16 Tier-2 fixtures covering edge cases (Effective Profile Switch as Note,
-  Extended Bolus emulating TBR, AAPS Temp Basal Type subtypes, etc.)
-- 17 Tier-3 fixtures as regression locks (V3 RemoteTreatment, Nocturne
-  Suspend Pump, xDrip4iOS suffix-extension `_id`, etc.)
+#### entries/
 
-The full priority list is in the synthesis doc §4.
+| Fixture | Source |
+|---|---|
+| `xdrip_sgv_noisy.json` | xDrip+ Android with `noise: 4` (heavy) and `direction: "NOT COMPUTABLE"` (canonical spaced form). Locks the defensive direction-enum parser and the noise-int coercion path. |
+
+#### treatments/
+
+| Fixture | Source |
+|---|---|
+| `aaps_effective_profile_switch_as_note.json` | AAPS uploads Effective Profile Switch as `eventType: "Note"` with `originalProfileName` populated (telltale). Routes to the profile-switch translator path despite the Note eventType. Per `mapping/aaps/profile-switch.md`. |
+| `aaps_extended_bolus_emulating_tbr.json` | AAPS extended-bolus-emulating-TBR shape: outer `Temp Basal` envelope with nested `extendedEmulated` Combo Bolus. Translator's `is_combo_bolus` detection requires both (a) Temp Basal envelope AND (b) bolus-bearing `extendedEmulated` payload. |
+| `aaps_temp_basal_superbolus.json` | AAPS `type: "SUPERBOLUS"` (1 of 5 Temp Basal Type values). Routes as Temp Basal with `aaps_type=SUPERBOLUS` preserved in metadata. |
+| `aaps_temp_basal_emulated_suspend.json` | AAPS `type: "EMULATED_PUMP_SUSPEND"` with rate=0, percent=-100, duration=60. Routes as suspend (rate=0 + duration ≥30). |
+| `aaps_carbs_with_protein_fat.json` | High-fat meal: `carbs + protein + fat + duration` per `mapping/aaps/nightscout-models.md`. Captures AAPS extended-meal nutrition. |
+| `aaps_therapy_event_site_change.json` | NSTherapyEvent path: `eventType: "Site Change"`. Routes to device_event (was on the deliberate-skip list pre-cross-validation; promoted because therapy events anchor occlusion analysis). |
+| `aaps_therapy_event_sensor_start.json` | `eventType: "Sensor Start"` with `transmitterId`. Anchors CGM noise/calibration windows. |
+| `loop_pump_suspend_as_temp_basal.json` | Loop convention: `Temp Basal` rate=0, `reason: "suspend"`, duration ≥30 min. Per `LoopKit/NightscoutService DoseEntry.swift:46`. |
+| `loop_square_bolus.json` | Loop bolus with delivery duration ≥30 min, classified `bolusType: "Square"` (per `BolusNightscoutTreatment.swift:62`, `bolusType: duration >= 30 min ? .Square : .Normal`). Translator preserves `bolus_subtype=square` in metadata. |
+| `loop_override_with_remote_address.json` | Loop override triggered via remote command: `enteredBy: "Loop (via remote command)"`, `remoteAddress` populated. Per `OverrideTreament.swift:43-48`. |
+| `careportal_combo_bolus.json` | Care Portal Combo Bolus: `splitNow: 60, splitExt: 40` (sums to 100 per the constraint). |
+| `bolus_wizard_with_carbs.json` | AAPS `eventType: "Bolus Wizard"` with insulin AND carbs. The 4th carb encoding (`isCarbBolus = isMealBolus OR (isBolusWizard AND carbs > 0)` per Reporter heuristic). Routes as meal_bolus_pair → split into bolus + carbs rows. Includes `bolusCalculatorResult` JSON for AI analysis context. |
+| `trio_exercise_override.json` | Trio override toggle uploads as `eventType: "Exercise"` per `Trio/Sources/APS/Storage/OverrideStorage.swift`. Indefinite would use `duration: 43200`. |
+| `trio_temp_target_manual.json` | Trio manual temp-target preset uploads as `eventType: "Temporary Target"` via a separate code path from override toggles -- two distinct features. |
+
+#### devicestatus/
+
+| Fixture | Source |
+|---|---|
+| `loop_failure_devicestatus.json` | Loop failure cycle: `loop.failureReason` populated, NO `loop.enacted` block. Mutually exclusive at the source per `LoopStatus.swift` `enacted` guard. |
+| `loop_hybrid_dose_devicestatus.json` | Loop hybrid dose: `automaticDoseRecommendation` carries both `tempBasalAdjustment` AND `bolusVolume` simultaneously. Tests parser handling of combined cycles. |
+| `trio_devicestatus_with_tdd.json` | Trio's `enacted.TDD` plus `insulin: { TDD, bolus, temp_basal, scheduled_basal }` sub-object on suggested/enacted. TDD also injected into the `reason` string per `NightscoutManager.swift`. |
+
+### Tier 3 fixtures (deferred to follow-up PR)
+
+17 regression-lock fixtures from the synthesis doc §4 (V3 RemoteTreatment envelope, Nocturne unknown event types, xDrip4iOS suffix-extension `_id`, AAPS Bolus Wizard `bolusCalculatorResult` deeper variants, isValid soft-delete, pre-v14 legacy treatment, etc.). Not required for translator correctness on the 95% case; useful as defensive locks once we have community beta data flowing.
 
 ## Adding a new fixture
 

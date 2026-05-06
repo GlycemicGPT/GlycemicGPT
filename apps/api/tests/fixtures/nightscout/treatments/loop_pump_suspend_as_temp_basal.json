@@ -1,0 +1,16 @@
+{
+  "eventType": "Temp Basal",
+  "created_at": "2026-05-06T15:00:00Z",
+  "timestamp": "2026-05-06T15:00:00Z",
+  "enteredBy": "Loop",
+  "device": "loop://iPhone",
+  "syncIdentifier": "TB-SUSPEND-A1B2C3D4",
+  "insulinType": "Humalog",
+  "temp": "absolute",
+  "rate": 0,
+  "absolute": 0,
+  "duration": 30,
+  "amount": 0,
+  "automatic": true,
+  "reason": "suspend"
+}
