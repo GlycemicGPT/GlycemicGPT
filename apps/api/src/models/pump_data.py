@@ -16,15 +16,26 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    Text,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.models.base import Base
 
 
 class PumpEventType(str, enum.Enum):
-    """Types of pump events from Tandem t:connect."""
+    """Types of pump events.
+
+    Direct-integration values (basal, bolus, correction, suspend,
+    resume, bg_reading, battery, reservoir) are written by direct
+    pump drivers (Tandem). The remaining values are written by the
+    Nightscout translator to cover events that flow in from
+    cloud-mediated integrations (carbs, overrides, profile switches,
+    combo boluses, temp targets, notes, device events, APS-offline
+    markers); type-specific extras that don't fit the column schema
+    land in `metadata_json`.
+    """
 
     BASAL = "basal"  # Basal insulin delivery
     BOLUS = "bolus"  # Manual bolus
@@ -34,6 +45,15 @@ class PumpEventType(str, enum.Enum):
     BG_READING = "bg_reading"  # CGM reading from pump (has IoB)
     BATTERY = "battery"  # Battery percentage from pump
     RESERVOIR = "reservoir"  # Reservoir insulin units remaining
+    # --- Cloud-mediated event types (Nightscout translator) ---
+    CARBS = "carbs"  # Carb-only entry (no insulin)
+    OVERRIDE = "override"  # Loop/AAPS Temporary Override or Trio Exercise toggle
+    PROFILE_SWITCH = "profile_switch"  # Profile change (real or AAPS EPS-as-Note)
+    COMBO_BOLUS = "combo_bolus"  # Combo Bolus or AAPS extendedEmulated TBR
+    TEMP_TARGET = "temp_target"  # Temporary Target adjustment
+    NOTE = "note"  # Free-text note / Announcement
+    DEVICE_EVENT = "device_event"  # Site/Sensor/Insulin/Battery change
+    APS_OFFLINE = "aps_offline"  # OpenAPS Offline / loop-down marker
 
 
 class PumpActivityMode(str, enum.Enum):
@@ -166,6 +186,38 @@ class PumpEvent(Base):
         String(50),
         default="tandem",
         nullable=False,
+    )
+
+    # Type-specific extras that don't fit the typed columns above.
+    # Examples: override correctionRange / multiplier / remoteAddress;
+    # profile-switch tuple (originalProfileName, percentage, timeshift,
+    # duration, profileJson); AAPS pump composite dedup triple
+    # (pumpId, pumpType, pumpSerial); Loop syncIdentifier; xDrip+ uuid.
+    # Nullable -- direct integrations leave this blank.
+    metadata_json: Mapped[dict | None] = mapped_column(
+        JSONB,
+        nullable=True,
+    )
+
+    # Links the bolus + carb_entry rows produced when an upstream
+    # meal-bolus pair (carbs + insulin in one record) is split into
+    # two internal events. Both rows share the same meal_event_id so
+    # downstream consumers can correlate them. NULL for non-paired
+    # events.
+    meal_event_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        nullable=True,
+    )
+
+    # Nightscout-server-assigned `_id` (or client-generated
+    # `identifier` / `syncIdentifier`). Used as the per-connection
+    # dedupe key when re-fetching the same record across sync cycles.
+    # NULL for direct-integration events; the partial unique index
+    # `ix_pump_events_source_nsid` on (source, ns_id) WHERE ns_id IS
+    # NOT NULL handles the dedupe.
+    ns_id: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
     )
 
     # Relationship to user

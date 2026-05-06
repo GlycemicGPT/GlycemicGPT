@@ -7,7 +7,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, Float, ForeignKey, Index, Integer
+from sqlalchemy import DateTime, Enum, Float, ForeignKey, Index, Integer, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -125,6 +125,17 @@ class GlucoseReading(Base):
     source: Mapped[str] = mapped_column(
         default="dexcom",
         nullable=False,
+    )
+
+    # Nightscout-server-assigned `_id` (or client-generated
+    # `identifier`). Used as the per-connection dedupe key when
+    # re-fetching the same record across sync cycles. NULL for
+    # direct-integration readings (Dexcom, etc.); the partial unique
+    # index `ix_glucose_readings_source_nsid` on (source, ns_id)
+    # WHERE ns_id IS NOT NULL handles the dedupe.
+    ns_id: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
     )
 
     # Relationship to user
