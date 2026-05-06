@@ -24,13 +24,35 @@ the table-level `source` column alone (uploader sub-attribution is
 recoverable by joining back to the connection's recent treatments if
 needed).
 
-Conflict resolution: when a Nightscout-sourced row matches a
-direct-integration row (e.g. Tandem cloud + Nightscout-relayed Tandem
-data at the same timestamp), the unique index on (user_id,
-reading_timestamp) / (user_id, event_timestamp, event_type) means
-ON CONFLICT DO NOTHING keeps whichever was inserted first. Direct
-integrations typically write before the Nightscout sync runs, so they
-win by default per the resolved decision.
+Conflict resolution semantics:
+
+- Same source, same `ns_id`: re-fetch is a no-op (per-source partial
+  unique index dedupes).
+- Cross-source on glucose_readings (`user_id`, `reading_timestamp`):
+  ON CONFLICT DO NOTHING keeps whichever was inserted first. Direct
+  integrations (Tandem cloud, etc.) typically write before the
+  Nightscout sync runs, so in practice they win the race -- but this
+  is **first-writer-wins, not enforced priority**. A Nightscout-only
+  user gets Nightscout-attributed rows; a user with both has whichever
+  source ran first per timestamp.
+- Cross-source on pump_events: the pre-existing
+  `(user_id, event_timestamp, event_type)` unique index now applies
+  only WHERE `ns_id IS NULL` (i.e. to direct-integration rows).
+  Nightscout-sourced rows dedupe via the partial unique index on
+  `(source, ns_id) WHERE ns_id IS NOT NULL`. This avoids the bug where
+  two AAPS SMBs at the same second would silently drop one.
+
+`received_at` is set on insert and is **not** updated on conflict --
+think of it as `first_received_at`. There is currently no
+`last_observed_at` column; if a downstream consumer needs to know when
+we last re-saw a record, that's a follow-up.
+
+Soft-delete propagation is **not yet implemented**: when an upstream
+record is soft-deleted (`isValid: false`) on Nightscout, the input
+model returns `semantic_kind == "unknown"` and the translator drops
+the record on the parse side. A pre-existing row in our DB with the
+same `ns_id` is left in place. Tracked as a known limitation; needs
+either an `is_retracted` column or DELETE-on-soft-delete logic.
 """
 
 from __future__ import annotations
@@ -307,23 +329,36 @@ async def _upsert_glucose_readings(
        across sync cycles.
 
     Either constraint firing means the row is a duplicate; skip it.
-    Returns the number of rows actually inserted.
+    Uses `RETURNING id` to count actual inserts because
+    `result.rowcount` is not reliable under ON CONFLICT DO NOTHING
+    across drivers (asyncpg returns -1 / None for various edge cases
+    and SQLAlchemy explicitly documents rowcount as unreliable here).
     """
     if not rows:
         return 0
-    stmt = insert(GlucoseReading).values(rows).on_conflict_do_nothing()
+    stmt = (
+        insert(GlucoseReading)
+        .values(rows)
+        .on_conflict_do_nothing()
+        .returning(GlucoseReading.id)
+    )
     result = await session.execute(stmt)
-    # rowcount reflects rows that actually inserted (PostgreSQL).
-    return result.rowcount or 0
+    return len(result.scalars().all())
 
 
 async def _upsert_pump_events(session: AsyncSession, rows: list[dict[str, Any]]) -> int:
-    """Bulk-insert pump events with ON CONFLICT DO NOTHING."""
+    """Bulk-insert pump events with ON CONFLICT DO NOTHING.
+
+    Uses RETURNING to count actual inserts (rowcount is unreliable
+    under ON CONFLICT DO NOTHING).
+    """
     if not rows:
         return 0
-    stmt = insert(PumpEvent).values(rows).on_conflict_do_nothing()
+    stmt = (
+        insert(PumpEvent).values(rows).on_conflict_do_nothing().returning(PumpEvent.id)
+    )
     result = await session.execute(stmt)
-    return result.rowcount or 0
+    return len(result.scalars().all())
 
 
 async def _upsert_devicestatus_snapshots(
@@ -331,13 +366,19 @@ async def _upsert_devicestatus_snapshots(
 ) -> int:
     """Bulk-insert devicestatus snapshots with ON CONFLICT DO NOTHING.
 
-    Per-connection unique on (nightscout_connection_id, ns_id).
+    Per-connection unique on (nightscout_connection_id, ns_id). Uses
+    RETURNING to count actual inserts.
     """
     if not rows:
         return 0
-    stmt = insert(DeviceStatusSnapshot).values(rows).on_conflict_do_nothing()
+    stmt = (
+        insert(DeviceStatusSnapshot)
+        .values(rows)
+        .on_conflict_do_nothing()
+        .returning(DeviceStatusSnapshot.id)
+    )
     result = await session.execute(stmt)
-    return result.rowcount or 0
+    return len(result.scalars().all())
 
 
 async def _upsert_profile_snapshot(session: AsyncSession, row: dict[str, Any]) -> None:

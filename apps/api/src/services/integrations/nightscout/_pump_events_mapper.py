@@ -120,10 +120,14 @@ def _map_bolus(treatment: NightscoutTreatment, base: dict[str, Any]) -> dict[str
     if treatment.bolus_calculator_result:
         extras["bolus_calculator_result"] = treatment.bolus_calculator_result
 
+    # An SMB is by definition an automated micro-bolus, even when the
+    # uploader didn't set `automatic=true` (older AAPS versions, Trio's
+    # bare `eventType: "SMB"` shape). Conflating with `is_automated`
+    # keeps dashboard "automated bolus" filters honest.
     base.update(
         {
             "units": treatment.insulin,
-            "is_automated": treatment.automatic is True,
+            "is_automated": treatment.automatic is True or treatment.is_smb,
             "metadata_json": _build_metadata(treatment, extra=extras),
         }
     )
@@ -423,12 +427,16 @@ def map_treatment_to_pump_events(
         carb_row["meal_event_id"] = meal_event_id
         # `ns_id` is the same on both rows (they're projections of one
         # source treatment). The unique index on (source, ns_id) means
-        # we have to disambiguate. Suffix the ns_id with the role so
-        # the second row doesn't collide.
+        # we have to disambiguate. Suffix with a delimiter that real
+        # NS `_id` values cannot contain: server `_id`s are 24-hex
+        # MongoDB ObjectIds; client-generated `identifier`/`syncIdentifier`
+        # values are typically UUIDs or hex strings, neither of which
+        # contains `#`. Including the meal_event_id keeps the suffix
+        # unique even if the source ns_id happens to end in `:role=bolus`.
         if bolus_row.get("ns_id"):
-            bolus_row["ns_id"] = f"{bolus_row['ns_id']}-bolus"
+            bolus_row["ns_id"] = f"{bolus_row['ns_id']}#meal-{meal_event_id}:role=bolus"
         if carb_row.get("ns_id"):
-            carb_row["ns_id"] = f"{carb_row['ns_id']}-carbs"
+            carb_row["ns_id"] = f"{carb_row['ns_id']}#meal-{meal_event_id}:role=carbs"
         return [bolus_row, carb_row]
 
     if kind not in routing:

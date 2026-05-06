@@ -70,7 +70,10 @@ class NightscoutProfileSnapshot(Base):
     source_default_profile_name: Mapped[str | None] = mapped_column(
         String(120), nullable=True
     )
-    source_units: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Real-world Nightscout values fit in 5 chars ("mg/dl"), but Loop
+    # historically emits the full HKUnit description (`"milligramsPerDeciliter"`,
+    # 22 chars) so 40 leaves room without imposing a meaningful cap.
+    source_units: Mapped[str | None] = mapped_column(String(40), nullable=True)
     source_timezone: Mapped[str | None] = mapped_column(String(60), nullable=True)
     source_dia_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
     source_start_date: Mapped[datetime | None] = mapped_column(

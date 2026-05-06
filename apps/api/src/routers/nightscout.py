@@ -436,9 +436,14 @@ async def read_connection_data(
     current_user: DiabeticOrAdminUser,
     since: datetime | None = Query(
         default=None,
-        description="Return rows whose timestamp is strictly > this value. "
+        description="Return rows whose timestamp is >= this value. "
         "Omit on first call; pass the highest timestamp from the previous "
-        "page on subsequent calls.",
+        "page on subsequent calls. Inclusive comparison (`>=`) guards "
+        "against losing rows that share a timestamp with the cursor "
+        "boundary (e.g. the bolus + carbs rows of a split meal-bolus "
+        "pair land at identical timestamps). Callers MUST dedupe by "
+        "`ns_id` locally -- duplicates are bounded to ~1 row per page "
+        "boundary per array.",
     ),
     limit: int = Query(default=500, ge=1, le=_MAX_DATA_LIMIT),
     db: AsyncSession = Depends(get_db),
@@ -449,6 +454,11 @@ async def read_connection_data(
     Both arrays are filtered to `source = "nightscout:<id>"` -- the
     caller never sees data from other sources, so coexistence with
     BLE plugins on the same user is clean.
+
+    `limit` applies **per array** -- a single response can contain
+    up to `limit` glucose readings AND up to `limit` pump events. The
+    response field `effective_limit_per_array` echoes the value used
+    so callers don't have to track the cap.
     """
     conn = await _load_owned(db, connection_id, current_user.id)
     source_tag = f"nightscout:{conn.id}"
@@ -463,7 +473,7 @@ async def read_connection_data(
         .limit(limit)
     )
     if since is not None:
-        glucose_q = glucose_q.where(GlucoseReading.reading_timestamp > since)
+        glucose_q = glucose_q.where(GlucoseReading.reading_timestamp >= since)
     glucose_rows = (await db.execute(glucose_q)).scalars().all()
 
     events_q = (
@@ -476,12 +486,13 @@ async def read_connection_data(
         .limit(limit)
     )
     if since is not None:
-        events_q = events_q.where(PumpEvent.event_timestamp > since)
+        events_q = events_q.where(PumpEvent.event_timestamp >= since)
     event_rows = (await db.execute(events_q)).scalars().all()
 
     return NightscoutDataResponse(
         connection_id=conn.id,
         fetched_at=datetime.now(UTC),
+        effective_limit_per_array=limit,
         glucose_readings=[
             NightscoutGlucoseReadingDTO(
                 ns_id=g.ns_id,

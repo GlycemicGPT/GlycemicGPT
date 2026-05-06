@@ -87,6 +87,25 @@ def upgrade() -> None:
         unique=True,
         postgresql_where=sa.text("ns_id IS NOT NULL"),
     )
+    # Relax the existing (user_id, event_timestamp, event_type) unique
+    # index to NOT apply to Nightscout-sourced rows -- otherwise, two
+    # legitimate but distinct events at the same timestamp (e.g. two
+    # AAPS SMBs in the same second with different `_id`s, or a real
+    # bolus that happens to share a timestamp with a Loop SMB) would
+    # collide and silently drop one. Direct integrations (Tandem,
+    # Dexcom) keep the natural-key dedupe by being on the WHERE
+    # ns_id IS NULL branch; Nightscout-sourced rows dedupe via the
+    # `ix_pump_events_source_nsid` partial index above.
+    op.drop_index(
+        "ix_pump_events_user_event_unique", table_name="pump_events"
+    )
+    op.create_index(
+        "ix_pump_events_user_event_unique",
+        "pump_events",
+        ["user_id", "event_timestamp", "event_type"],
+        unique=True,
+        postgresql_where=sa.text("ns_id IS NULL"),
+    )
     # Index for the meal-bolus-pair sibling lookup ("find the carb_entry
     # row paired with this bolus row").
     op.create_index(
@@ -142,7 +161,7 @@ def upgrade() -> None:
         ),
         # Source metadata (from Nightscout's profile document)
         sa.Column("source_default_profile_name", sa.String(120), nullable=True),
-        sa.Column("source_units", sa.String(20), nullable=True),
+        sa.Column("source_units", sa.String(40), nullable=True),
         sa.Column("source_timezone", sa.String(60), nullable=True),
         sa.Column("source_dia_hours", sa.Float(), nullable=True),
         # Time-segmented schedules. Each is a list of {"time": "HH:MM",
@@ -273,6 +292,17 @@ def downgrade() -> None:
     op.drop_index(
         "ix_pump_events_source_nsid",
         table_name="pump_events",
+    )
+    # Restore the original (un-partial) unique index. Drop the partial
+    # one first since they share a name.
+    op.drop_index(
+        "ix_pump_events_user_event_unique", table_name="pump_events"
+    )
+    op.create_index(
+        "ix_pump_events_user_event_unique",
+        "pump_events",
+        ["user_id", "event_timestamp", "event_type"],
+        unique=True,
     )
     op.drop_column("pump_events", "ns_id")
     op.drop_column("pump_events", "meal_event_id")

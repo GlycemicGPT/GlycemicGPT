@@ -55,7 +55,12 @@ def map_profile_to_snapshot(
         "sensitivity_segments": _segments(active, "sens"),
         "target_low_segments": _segments(active, "target_low"),
         "target_high_segments": _segments(active, "target_high"),
-        "profile_json_full": profile.model_dump(by_alias=True, exclude_none=True),
+        # `mode="json"` so any datetime / UUID values in the profile
+        # tree serialize to strings rather than Python objects -- the
+        # JSONB column rejects raw datetime objects at write time.
+        "profile_json_full": profile.model_dump(
+            by_alias=True, exclude_none=True, mode="json"
+        ),
     }
 
 

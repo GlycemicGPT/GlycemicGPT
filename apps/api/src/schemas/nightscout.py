@@ -298,13 +298,22 @@ class NightscoutDataResponse(BaseModel):
     """Merged read response for the cloud-source mobile plugin.
 
     The plugin pulls this with `?since=<ISO>` to backfill its Room DB
-    incrementally. Both arrays are sorted ascending by timestamp; pagination
-    is via the `since` cursor on subsequent calls. `limit` caps the total
-    rows returned across both arrays so a single page is bounded.
+    incrementally. Both arrays are sorted ascending by timestamp.
+    Pagination is via the `since` cursor on subsequent calls; the
+    cursor is **inclusive** (`>=`) to avoid losing rows that share a
+    timestamp with the boundary, so callers MUST dedupe by `ns_id`
+    locally -- duplicates are bounded to ~1 row per page boundary per
+    array.
+
+    `limit` applies **per array**, not across both -- a single response
+    may contain up to `limit` glucose readings AND up to `limit` pump
+    events. `effective_limit_per_array` echoes the value used so the
+    client doesn't have to track the cap.
     """
 
     connection_id: uuid.UUID
     fetched_at: datetime
+    effective_limit_per_array: int
     glucose_readings: list[NightscoutGlucoseReadingDTO]
     pump_events: list[NightscoutPumpEventDTO]
 
