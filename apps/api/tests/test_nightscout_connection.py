@@ -867,13 +867,14 @@ class TestSsrfGuard:
         """A hostname that resolves to AWS IMDS must be rejected even
         if the hostname itself is a regular FQDN."""
         from src.services.integrations.nightscout import connection_test as ct
+        from src.services.integrations.nightscout import ssrf as ct_ssrf
 
         async def fake_resolve(_hostname):
             import ipaddress as ip
 
             return [ip.ip_address("169.254.169.254")]
 
-        with patch.object(ct, "_resolve_host", new=fake_resolve):
+        with patch.object(ct_ssrf, "resolve_host", new=fake_resolve):
             outcome = await ct.test_connection(
                 "https://attacker.example.com",
                 ct.NightscoutAuthType.SECRET,
@@ -886,13 +887,14 @@ class TestSsrfGuard:
     @pytest.mark.asyncio
     async def test_rejects_alibaba_metadata(self):
         from src.services.integrations.nightscout import connection_test as ct
+        from src.services.integrations.nightscout import ssrf as ct_ssrf
 
         async def fake_resolve(_hostname):
             import ipaddress as ip
 
             return [ip.ip_address("100.100.100.200")]
 
-        with patch.object(ct, "_resolve_host", new=fake_resolve):
+        with patch.object(ct_ssrf, "resolve_host", new=fake_resolve):
             outcome = await ct.test_connection(
                 "https://attacker.example.com",
                 ct.NightscoutAuthType.SECRET,
@@ -905,13 +907,14 @@ class TestSsrfGuard:
     @pytest.mark.asyncio
     async def test_rejects_oracle_metadata(self):
         from src.services.integrations.nightscout import connection_test as ct
+        from src.services.integrations.nightscout import ssrf as ct_ssrf
 
         async def fake_resolve(_hostname):
             import ipaddress as ip
 
             return [ip.ip_address("192.0.0.192")]
 
-        with patch.object(ct, "_resolve_host", new=fake_resolve):
+        with patch.object(ct_ssrf, "resolve_host", new=fake_resolve):
             outcome = await ct.test_connection(
                 "https://attacker.example.com",
                 ct.NightscoutAuthType.SECRET,
@@ -926,13 +929,14 @@ class TestSsrfGuard:
         """169.254.169.254 expressed as ::ffff:169.254.169.254 must
         also be blocked."""
         from src.services.integrations.nightscout import connection_test as ct
+        from src.services.integrations.nightscout import ssrf as ct_ssrf
 
         async def fake_resolve(_hostname):
             import ipaddress as ip
 
             return [ip.ip_address("::ffff:169.254.169.254")]
 
-        with patch.object(ct, "_resolve_host", new=fake_resolve):
+        with patch.object(ct_ssrf, "resolve_host", new=fake_resolve):
             outcome = await ct.test_connection(
                 "https://attacker.example.com",
                 ct.NightscoutAuthType.SECRET,
@@ -945,13 +949,14 @@ class TestSsrfGuard:
     @pytest.mark.asyncio
     async def test_rejects_aws_ipv6_imds(self):
         from src.services.integrations.nightscout import connection_test as ct
+        from src.services.integrations.nightscout import ssrf as ct_ssrf
 
         async def fake_resolve(_hostname):
             import ipaddress as ip
 
             return [ip.ip_address("fd00:ec2::254")]
 
-        with patch.object(ct, "_resolve_host", new=fake_resolve):
+        with patch.object(ct_ssrf, "resolve_host", new=fake_resolve):
             outcome = await ct.test_connection(
                 "https://attacker.example.com",
                 ct.NightscoutAuthType.SECRET,
@@ -964,6 +969,7 @@ class TestSsrfGuard:
     @pytest.mark.asyncio
     async def test_rejects_private_ip_when_homelab_disabled(self):
         from src.services.integrations.nightscout import connection_test as ct
+        from src.services.integrations.nightscout import ssrf as ct_ssrf
 
         async def fake_resolve(_hostname):
             import ipaddress as ip
@@ -971,8 +977,8 @@ class TestSsrfGuard:
             return [ip.ip_address("10.0.0.5")]
 
         with (
-            patch.object(ct, "_resolve_host", new=fake_resolve),
-            patch.object(ct.settings, "allow_private_ai_urls", False),
+            patch.object(ct_ssrf, "resolve_host", new=fake_resolve),
+            patch.object(ct_ssrf.settings, "allow_private_ai_urls", False),
         ):
             outcome = await ct.test_connection(
                 "https://internal.example.com",
@@ -986,11 +992,12 @@ class TestSsrfGuard:
     @pytest.mark.asyncio
     async def test_dns_resolution_failure_yields_clean_error(self):
         from src.services.integrations.nightscout import connection_test as ct
+        from src.services.integrations.nightscout import ssrf as ct_ssrf
 
         async def fake_resolve(_hostname):
             raise ValueError("Could not resolve host: nonexistent.example.invalid")
 
-        with patch.object(ct, "_resolve_host", new=fake_resolve):
+        with patch.object(ct_ssrf, "resolve_host", new=fake_resolve):
             outcome = await ct.test_connection(
                 "https://nonexistent.example.invalid",
                 ct.NightscoutAuthType.SECRET,
