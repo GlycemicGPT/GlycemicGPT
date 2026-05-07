@@ -19,7 +19,13 @@
 
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { Activity, Clock } from "lucide-react";
+import { Activity } from "lucide-react";
+import {
+  listIntegrations,
+  listNightscoutConnections,
+  type IntegrationResponse,
+  type NightscoutConnectionResponse,
+} from "@/lib/api";
 import { AnimatedCard } from "@/components/ui/animated-card";
 import { PageTransition } from "@/components/ui/page-transition";
 
@@ -32,6 +38,7 @@ import {
   AgpChart,
   InsulinSummaryStats,
   BolusReviewTable,
+  DataSourcesFreshnessCard,
   PERIOD_LABELS,
 } from "@/components/dashboard";
 import { useGlucoseStreamContext, useUserContext } from "@/providers";
@@ -74,6 +81,58 @@ export default function DashboardPage() {
   // Fetch latest pump status (basal, battery, reservoir) for hero card
   const pumpStatus = usePumpStatus(chartRefreshKey);
 
+  // Per-source freshness for the "Data Sources" card. Fetched once on
+  // mount + every 30s after that, with `freshnessNow` advancing every
+  // 30s so relative-time labels walk forward without a refetch. 30s
+  // (not 60s) so the worst-case "lagging" flash before the 1-min
+  // scheduler tick is bounded.
+  const [nightscoutConnections, setNightscoutConnections] = useState<
+    NightscoutConnectionResponse[]
+  >([]);
+  const [dexcomIntegration, setDexcomIntegration] =
+    useState<IntegrationResponse | null>(null);
+  const [tandemIntegration, setTandemIntegration] =
+    useState<IntegrationResponse | null>(null);
+  const [freshnessNow, setFreshnessNow] = useState<number>(() => Date.now());
+
+  useEffect(() => {
+    let cancelled = false;
+    const refetch = async () => {
+      try {
+        const [integrationsResult, nsResult] = await Promise.allSettled([
+          listIntegrations(),
+          listNightscoutConnections(),
+        ]);
+        if (cancelled) return;
+        if (integrationsResult.status === "fulfilled") {
+          const data = integrationsResult.value;
+          setDexcomIntegration(
+            data.integrations.find((i) => i.integration_type === "dexcom") ||
+              null
+          );
+          setTandemIntegration(
+            data.integrations.find((i) => i.integration_type === "tandem") ||
+              null
+          );
+        }
+        if (nsResult.status === "fulfilled") {
+          setNightscoutConnections(nsResult.value.connections);
+        }
+      } catch {
+        // Best-effort: leaving stale state during a transient API blip
+        // is preferable to clobbering the rendered freshness rows.
+      }
+    };
+    void refetch();
+    const refetchInterval = setInterval(() => void refetch(), 30_000);
+    const tickInterval = setInterval(() => setFreshnessNow(Date.now()), 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(refetchInterval);
+      clearInterval(tickInterval);
+    };
+  }, []);
+
   // Redirect caregivers to the caregiver-specific dashboard (Story 8.3)
   useEffect(() => {
     if (user?.role === "caregiver") {
@@ -109,22 +168,6 @@ export default function DashboardPage() {
   const glucoseValue = glucose?.value ?? null;
   const glucoseTrend = glucose?.trend ?? "Unknown";
   const iob = glucose?.iob?.current ?? null;
-  const minutesAgo = glucose?.minutes_ago ?? null;
-  const isStale = glucose?.is_stale ?? false;
-
-  // Format "last updated" text
-  const getLastUpdatedText = (): string => {
-    if (minutesAgo === null) return "No data";
-    if (minutesAgo < 1) return "Just now";
-    if (minutesAgo === 1) return "1m ago";
-    return `${minutesAgo}m ago`;
-  };
-
-  const getFreshnessText = (): string => {
-    if (!isLive) return "Connecting...";
-    if (isStale) return "Data is stale";
-    return "Data is fresh";
-  };
 
   // Derive in-range pct from detail stats for the metrics card
   const inRangePct = tirStats?.buckets?.find(
@@ -212,19 +255,39 @@ export default function DashboardPage() {
               <p className="text-slate-500 text-xs mt-1">Target: {targetRange}</p>
             </article>
 
-            {/* Last Updated Card */}
-            <article className="bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="p-2 bg-emerald-500/10 rounded-lg">
-                  <Clock className="h-5 w-5 text-emerald-400" aria-hidden="true" />
-                </div>
-                <h3 className="text-slate-500 dark:text-slate-400 text-sm">Last Updated</h3>
-              </div>
-              <p className="text-3xl font-bold text-emerald-400" aria-label={`Last updated: ${getLastUpdatedText()}`}>
-                {getLastUpdatedText()}
-              </p>
-              <p className="text-slate-500 text-xs mt-1">{getFreshnessText()}</p>
-            </article>
+            {/* Data Sources card -- per-source freshness with status
+                pills. Replaces the old single-row "Last Updated" card.
+                Returns null when the user has zero configured sources,
+                in which case the parent grid silently shrinks. */}
+            <DataSourcesFreshnessCard
+              nightscoutConnections={nightscoutConnections}
+              dexcom={dexcomIntegration}
+              tandem={tandemIntegration}
+              now={freshnessNow}
+            />
+            {/* When no sources are configured, fall back to the
+                glucose-stream freshness signal so the grid slot
+                isn't empty during initial onboarding. */}
+            {nightscoutConnections.length === 0 &&
+              !dexcomIntegration &&
+              !tandemIntegration && (
+                <article className="bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800">
+                  <h3 className="text-slate-500 dark:text-slate-400 text-sm mb-2">
+                    Data Sources
+                  </h3>
+                  <p className="text-sm text-slate-500">
+                    No data sources configured yet. Connect a CGM, pump, or
+                    Nightscout instance from{" "}
+                    <a
+                      href="/dashboard/settings/integrations"
+                      className="text-blue-400 hover:underline"
+                    >
+                      Settings → Integrations
+                    </a>
+                    .
+                  </p>
+                </article>
+              )}
           </div>
         </section>
       </AnimatedCard>

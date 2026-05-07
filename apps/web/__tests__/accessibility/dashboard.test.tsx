@@ -87,7 +87,11 @@ describe("Dashboard Page Accessibility", () => {
       const h3s = screen.getAllByRole("heading", { level: 3 });
       expect(h3s.length).toBeGreaterThanOrEqual(2);
       expect(h3s.some(h => h.textContent?.includes("Time in Range"))).toBe(true);
-      expect(h3s.some(h => h.textContent?.includes("Last Updated"))).toBe(true);
+      // The old single-row "Last Updated" card was replaced by the
+      // multi-source "Data Sources" card in Story 43.5 phase 3. Both
+      // the populated card and its empty-state fallback render an h3
+      // with this text.
+      expect(h3s.some(h => h.textContent?.includes("Data Sources"))).toBe(true);
     });
   });
 
@@ -128,12 +132,18 @@ describe("Dashboard Page Accessibility", () => {
       expect(tirValue).toBeInTheDocument();
     });
 
-    it("provides accessible label for last updated value", () => {
+    it("renders a Data Sources card with discoverable content", () => {
       render(<DashboardPage />, { wrapper: LayoutWrapper });
 
-      // When no data, should show "No data"
-      const lastUpdated = screen.getByLabelText(/last updated/i);
-      expect(lastUpdated).toBeInTheDocument();
+      // The new Data Sources card replaces the old "Last Updated"
+      // card. With no integrations configured (the test fixture
+      // returns empty lists), the empty-state fallback renders the
+      // h3 + an actionable hint pointing to Settings → Integrations.
+      const heading = screen.getByRole("heading", {
+        level: 3,
+        name: /data sources/i,
+      });
+      expect(heading).toBeInTheDocument();
     });
   });
 });

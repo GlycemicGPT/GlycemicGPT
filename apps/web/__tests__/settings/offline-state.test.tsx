@@ -80,6 +80,7 @@ jest.mock("../../src/lib/api", () => {
     testNightscoutConnection: jest.fn().mockRejectedValue(networkError),
     syncNightscoutConnection: jest.fn().mockRejectedValue(networkError),
     deleteNightscoutConnection: jest.fn().mockRejectedValue(networkError),
+    patchNightscoutConnection: jest.fn().mockRejectedValue(networkError),
     // Telegram
     getTelegramStatus: jest.fn().mockRejectedValue(networkError),
     generateTelegramCode: jest.fn().mockRejectedValue(networkError),
