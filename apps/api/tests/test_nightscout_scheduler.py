@@ -338,11 +338,11 @@ class TestRunNightscoutSyncAllUsers:
 
         from src.services.integrations.nightscout import scheduler as sched_mod
 
-        # 2.0s gives discovery + `_sync_one`'s refetch generous
-        # headroom even on a slow CI runner before fake_sync's sleep
-        # traps. fake_sync sleeps 10s so the budget still fires
-        # comfortably in the middle.
-        monkeypatch.setattr(sched_mod, "_TICK_WALL_BUDGET_SECONDS", 2.0)
+        # 5s budget gives discovery + `_sync_one`'s refetch wide
+        # headroom on slow CI before fake_sync's sleep traps. The 6x
+        # gap to the 30s sleep ensures the budget fires comfortably
+        # mid-sleep.
+        monkeypatch.setattr(sched_mod, "_TICK_WALL_BUDGET_SECONDS", 5.0)
 
         session, user_id = scheduler_ctx
         slow = _mk_connection(user_id, name="slow-conn")
@@ -359,7 +359,7 @@ class TestRunNightscoutSyncAllUsers:
                 return _ok_result(conn.id)
             entered_fake_sync.set()
             try:
-                await _asyncio.sleep(10.0)  # well past the budget
+                await _asyncio.sleep(30.0)  # well past the budget
                 completed_for_test_user.append(conn.id)
                 return _ok_result(conn.id)
             except _asyncio.CancelledError:
