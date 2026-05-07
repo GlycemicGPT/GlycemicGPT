@@ -74,6 +74,12 @@ jest.mock("../../src/lib/api", () => {
     disconnectDexcom: jest.fn().mockRejectedValue(networkError),
     connectTandem: jest.fn().mockRejectedValue(networkError),
     disconnectTandem: jest.fn().mockRejectedValue(networkError),
+    // Nightscout (third-party integration -- new in PR #575)
+    listNightscoutConnections: jest.fn().mockRejectedValue(networkError),
+    createNightscoutConnection: jest.fn().mockRejectedValue(networkError),
+    testNightscoutConnection: jest.fn().mockRejectedValue(networkError),
+    syncNightscoutConnection: jest.fn().mockRejectedValue(networkError),
+    deleteNightscoutConnection: jest.fn().mockRejectedValue(networkError),
     // Telegram
     getTelegramStatus: jest.fn().mockRejectedValue(networkError),
     generateTelegramCode: jest.fn().mockRejectedValue(networkError),

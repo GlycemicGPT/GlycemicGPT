@@ -23,11 +23,19 @@ import {
   disconnectDexcom,
   connectTandem,
   disconnectTandem,
+  listNightscoutConnections,
+  createNightscoutConnection,
+  deleteNightscoutConnection,
+  testNightscoutConnection,
+  syncNightscoutConnection,
   type IntegrationResponse,
+  type NightscoutConnectionCreate,
+  type NightscoutConnectionResponse,
 } from "@/lib/api";
 import { OfflineBanner } from "@/components/ui/offline-banner";
 import { PumpIntegrationsSection } from "@/components/integrations/pump-integrations-section";
 import { CGMIntegrationsSection } from "@/components/integrations/cgm-integrations-section";
+import { NightscoutIntegrationsSection } from "@/components/integrations/nightscout-integrations-section";
 
 export default function IntegrationsPage() {
   const [isLoading, setIsLoading] = useState(true);
@@ -38,6 +46,9 @@ export default function IntegrationsPage() {
   // Integration state
   const [dexcom, setDexcom] = useState<IntegrationResponse | null>(null);
   const [tandem, setTandem] = useState<IntegrationResponse | null>(null);
+  const [nightscoutConnections, setNightscoutConnections] = useState<
+    NightscoutConnectionResponse[]
+  >([]);
 
   // Dexcom form
   const [dexcomEmail, setDexcomEmail] = useState("");
@@ -58,27 +69,47 @@ export default function IntegrationsPage() {
   }, [success]);
 
   const fetchIntegrations = useCallback(async () => {
-    try {
-      setError(null);
-      const data = await listIntegrations();
+    setError(null);
+    // Settled so a Nightscout endpoint blip doesn't take down the
+    // Dexcom/Tandem sections (and vice versa). The "offline" banner
+    // only fires when BOTH calls fail (i.e. the API itself is
+    // unreachable), not when one section's endpoint 4xx/5xx's.
+    const [integrationsResult, nightscoutResult] = await Promise.allSettled([
+      listIntegrations(),
+      listNightscoutConnections(),
+    ]);
 
-      const dexcomInt = data.integrations.find(
-        (i) => i.integration_type === "dexcom"
+    if (integrationsResult.status === "fulfilled") {
+      const data = integrationsResult.value;
+      setDexcom(
+        data.integrations.find((i) => i.integration_type === "dexcom") || null
       );
-      const tandemInt = data.integrations.find(
-        (i) => i.integration_type === "tandem"
+      setTandem(
+        data.integrations.find((i) => i.integration_type === "tandem") || null
       );
-
-      setDexcom(dexcomInt || null);
-      setTandem(tandemInt || null);
-      setIsOffline(false);
-    } catch (err) {
-      if (!(err instanceof Error && err.message.includes("401"))) {
-        setIsOffline(true);
-      }
-    } finally {
-      setIsLoading(false);
     }
+    if (nightscoutResult.status === "fulfilled") {
+      setNightscoutConnections(nightscoutResult.value.connections);
+    }
+
+    const integrationsFailed = integrationsResult.status === "rejected";
+    const nightscoutFailed = nightscoutResult.status === "rejected";
+    const isAuthError = (err: unknown) =>
+      err instanceof Error && err.message.includes("401");
+
+    if (
+      integrationsFailed &&
+      nightscoutFailed &&
+      !isAuthError(integrationsResult.reason) &&
+      !isAuthError(nightscoutResult.reason)
+    ) {
+      // Both endpoints failed -- API itself is unreachable.
+      setIsOffline(true);
+    } else {
+      setIsOffline(false);
+    }
+
+    setIsLoading(false);
   }, []);
 
   useEffect(() => {
@@ -154,6 +185,102 @@ export default function IntegrationsPage() {
       );
     } finally {
       setIsTandemConnecting(false);
+    }
+  };
+
+  const refetchNightscoutConnections = useCallback(async () => {
+    const ns = await listNightscoutConnections();
+    setNightscoutConnections(ns.connections);
+  }, []);
+
+  const handleCreateNightscout = async (body: NightscoutConnectionCreate) => {
+    setError(null);
+    setSuccess(null);
+    try {
+      const result = await createNightscoutConnection(body);
+      // Refetch is best-effort: even if the list endpoint blips, the
+      // create succeeded server-side and the success banner should
+      // still appear so the user knows their save landed.
+      try {
+        await refetchNightscoutConnections();
+      } catch {
+        // intentional: don't suppress the success message just because
+        // the follow-up list fetch failed; next refresh will reconcile.
+      }
+      if (result.test.ok) {
+        setSuccess("Nightscout connection saved and verified");
+      } else {
+        setSuccess(
+          "Nightscout connection saved (initial test did not validate auth — check the connection's status)"
+        );
+      }
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to create Nightscout connection"
+      );
+      // Re-raise so the section's local create-form error display fires too.
+      throw err;
+    }
+  };
+
+  const handleDeleteNightscout = async (connectionId: string) => {
+    setError(null);
+    setSuccess(null);
+    try {
+      await deleteNightscoutConnection(connectionId);
+      // Refetch — the server soft-deletes (is_active=false) so the row
+      // stays in DB; the GET endpoint filters those out.
+      await refetchNightscoutConnections();
+      setSuccess("Nightscout connection removed");
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to delete Nightscout connection"
+      );
+    }
+  };
+
+  const handleTestNightscout = async (connectionId: string) => {
+    try {
+      const result = await testNightscoutConnection(connectionId);
+      // Refresh is best-effort so a transient list-fetch failure
+      // doesn't mask the actual test outcome the caller will render.
+      try {
+        await refetchNightscoutConnections();
+      } catch {
+        // intentional: don't lose the test result on refetch failure.
+      }
+      return result;
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to test Nightscout connection"
+      );
+      // Re-raise: the section component renders the failure inline.
+      throw err;
+    }
+  };
+
+  const handleSyncNightscout = async (connectionId: string) => {
+    try {
+      const result = await syncNightscoutConnection(connectionId);
+      try {
+        await refetchNightscoutConnections();
+      } catch {
+        // best-effort refetch -- sync result is the user-visible outcome.
+      }
+      return result;
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to sync Nightscout connection"
+      );
+      throw err;
     }
   };
 
@@ -267,6 +394,18 @@ export default function IntegrationsPage() {
           onDexcomPasswordChange={setDexcomPassword}
           onConnectDexcom={handleConnectDexcom}
           onDisconnectDexcom={handleDisconnectDexcom}
+        />
+      )}
+
+      {/* Third-Party Integrations (Nightscout) */}
+      {!isLoading && (
+        <NightscoutIntegrationsSection
+          connections={nightscoutConnections}
+          isOffline={isOffline}
+          onCreate={handleCreateNightscout}
+          onDelete={handleDeleteNightscout}
+          onTest={handleTestNightscout}
+          onSync={handleSyncNightscout}
         />
       )}
 

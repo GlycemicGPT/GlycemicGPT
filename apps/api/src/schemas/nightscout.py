@@ -255,6 +255,32 @@ class NightscoutConnectionDeletedResponse(BaseModel):
     )
 
 
+class NightscoutManualSyncResponse(BaseModel):
+    """Response shape for POST /api/integrations/nightscout/{id}/sync.
+
+    Story 43.4 AC10 -- the user-triggered "sync now" path. The
+    background scheduler returns the same shape internally; only this
+    endpoint exposes it to clients.
+    """
+
+    connection_id: uuid.UUID
+    status: NightscoutSyncStatus
+    entries_inserted: int
+    entries_skipped: int
+    entries_failed: int
+    treatments_inserted_pump: int
+    treatments_inserted_glucose: int
+    treatments_failed: int
+    devicestatuses_inserted: int
+    devicestatuses_failed: int
+    profile_synced: bool
+    duration_ms: int
+    error: str | None = Field(
+        default=None,
+        description="Human-readable failure reason when status != ok",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Read endpoints (consumed by the mobile cloud-source plugin + the
 # onboarding wizard)

@@ -1879,6 +1879,170 @@ export async function disconnectTandem(): Promise<void> {
 }
 
 // ============================================================================
+// Story 43.x: Nightscout Cloud-Mediated Integration
+// ============================================================================
+
+export type NightscoutAuthType = "auto" | "secret" | "token";
+export type NightscoutApiVersion = "auto" | "v1" | "v3";
+// Mirrors `apps/api/src/models/nightscout_connection.py::NightscoutSyncStatus`.
+// `never` is the default for a newly-created connection (no sync attempted
+// yet); `unreachable` is set after repeated failures pause polling.
+export type NightscoutSyncStatus =
+  | "never"
+  | "ok"
+  | "error"
+  | "auth_failed"
+  | "rate_limited"
+  | "network"
+  | "unreachable";
+
+export interface NightscoutConnectionResponse {
+  id: string;
+  name: string;
+  base_url: string;
+  auth_type: NightscoutAuthType;
+  api_version: NightscoutApiVersion;
+  is_active: boolean;
+  has_credential: boolean;
+  sync_interval_minutes: number;
+  initial_sync_window_days: number;
+  last_sync_status: NightscoutSyncStatus;
+  last_synced_at: string | null;
+  last_sync_error: string | null;
+  // Shape varies per uploader; treat as opaque and narrow at the consumer.
+  detected_uploaders_json: unknown;
+  last_evaluated_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NightscoutConnectionListResponse {
+  connections: NightscoutConnectionResponse[];
+}
+
+export interface NightscoutConnectionTestResult {
+  ok: boolean;
+  server_version: string | null;
+  api_version_detected: NightscoutApiVersion | null;
+  auth_validated: boolean;
+  error: string | null;
+}
+
+export interface NightscoutConnectionCreatedResponse {
+  connection: NightscoutConnectionResponse;
+  test: NightscoutConnectionTestResult;
+}
+
+export interface NightscoutConnectionCreate {
+  name: string;
+  base_url: string;
+  auth_type?: NightscoutAuthType;
+  credential: string;
+  api_version?: NightscoutApiVersion;
+  sync_interval_minutes?: number;
+  initial_sync_window_days?: number;
+}
+
+export async function listNightscoutConnections(): Promise<NightscoutConnectionListResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/nightscout`
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to list Nightscout connections: ${response.status}`
+    );
+  }
+  return response.json();
+}
+
+export async function createNightscoutConnection(
+  body: NightscoutConnectionCreate
+): Promise<NightscoutConnectionCreatedResponse> {
+  const response = await apiFetch(`${API_BASE_URL}/api/integrations/nightscout`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to create Nightscout connection: ${response.status}`
+    );
+  }
+  return response.json();
+}
+
+export async function testNightscoutConnection(
+  connectionId: string
+): Promise<NightscoutConnectionTestResult> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/nightscout/${encodeURIComponent(
+      connectionId
+    )}/test`,
+    { method: "POST" }
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to test Nightscout connection: ${response.status}`
+    );
+  }
+  return response.json();
+}
+
+export interface NightscoutManualSyncResponse {
+  connection_id: string;
+  status: NightscoutSyncStatus;
+  entries_inserted: number;
+  entries_skipped: number;
+  entries_failed: number;
+  treatments_inserted_pump: number;
+  treatments_inserted_glucose: number;
+  treatments_failed: number;
+  devicestatuses_inserted: number;
+  devicestatuses_failed: number;
+  profile_synced: boolean;
+  duration_ms: number;
+  error: string | null;
+}
+
+export async function syncNightscoutConnection(
+  connectionId: string
+): Promise<NightscoutManualSyncResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/nightscout/${encodeURIComponent(
+      connectionId
+    )}/sync`,
+    { method: "POST" }
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to sync Nightscout connection: ${response.status}`
+    );
+  }
+  return response.json();
+}
+
+export async function deleteNightscoutConnection(
+  connectionId: string
+): Promise<void> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/nightscout/${encodeURIComponent(
+      connectionId
+    )}`,
+    { method: "DELETE" }
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to delete Nightscout connection: ${response.status}`
+    );
+  }
+}
+
+// ============================================================================
 // Story 18.3: Tandem Cloud Upload
 // ============================================================================
 
