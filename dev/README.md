@@ -24,8 +24,10 @@ data. Useful for:
 # Start the local Nightscout test stack first (lives outside this repo):
 cd ~/dev-test/nightscout && docker compose up -d
 
-# Then run the uploader from anywhere; it talks to NS over 127.0.0.1:1337
-python3 dev/ns_synthetic_uploader.py
+# Then run the uploader. NS_API_SECRET is required -- whatever you
+# set as the API_SECRET env var on the NS container.
+NS_API_SECRET="<your-test-stack-secret>" \
+  python3 dev/ns_synthetic_uploader.py
 ```
 
 Stops on Ctrl-C. No backfill — only posts forward in time.
@@ -35,11 +37,18 @@ Stops on Ctrl-C. No backfill — only posts forward in time.
 | Variable | Default | Purpose |
 |---|---|---|
 | `NS_BASE_URL` | `http://127.0.0.1:1337` | Nightscout URL |
-| `NS_API_SECRET` | the dev-stack secret | Plaintext API_SECRET; SHA-1'd into the api-secret header |
+| `NS_API_SECRET` | **REQUIRED** (no default) | Plaintext API_SECRET; SHA-1'd into the api-secret header |
 | `NS_CADENCE_SECONDS` | `60` | Seconds between entries |
 | `NS_BASELINE_MGDL` | `120` | Mean of the random walk |
 | `NS_VOLATILITY` | `5` | Per-step jitter (mg/dL) |
 | `NS_DEVICE_NAME` | `glycemicgpt-synthetic-uploader` | `device` field on each entry |
+
+`NS_API_SECRET` is intentionally required (no default). Even though
+this script only talks to a local-only test instance, baking a
+secret-shaped string into source code is bad hygiene — it gets
+flagged by secret scanners, leaks into deploy contexts that
+shouldn't have dev-only constants, and obscures genuine
+misconfiguration.
 
 ### Implementation notes
 

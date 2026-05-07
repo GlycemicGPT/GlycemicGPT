@@ -21,9 +21,10 @@ Usage:
 Environment:
     NS_BASE_URL          base URL of the Nightscout instance
                           (default http://127.0.0.1:1337)
-    NS_API_SECRET        plaintext API_SECRET; gets SHA-1 hashed in the
-                          api-secret header
-                          (default glycemicgpt-test-secret-min12chars)
+    NS_API_SECRET        REQUIRED. Plaintext API_SECRET for the
+                          target instance; gets SHA-1 hashed in the
+                          api-secret header. Whatever you set as the
+                          `API_SECRET` env on the NS container.
     NS_CADENCE_SECONDS   seconds between entries
                           (default 60)
     NS_BASELINE_MGDL     mean of the random walk
@@ -127,7 +128,20 @@ def _post_entry(
 
 def main() -> int:
     base_url = os.environ.get("NS_BASE_URL", "http://127.0.0.1:1337")
-    secret = os.environ.get("NS_API_SECRET", "glycemicgpt-test-secret-min12chars")
+    # Required: don't bake in a default secret value, even for a
+    # dev-only test stack. Forcing the operator to set it explicitly
+    # keeps a stray credential out of the repo and surfaces
+    # misconfiguration immediately rather than silently uploading
+    # to whatever instance happens to share the default secret.
+    secret = os.environ.get("NS_API_SECRET")
+    if not secret:
+        print(
+            "ERROR: NS_API_SECRET environment variable is required.\n"
+            "Set it to the plaintext API_SECRET of your target "
+            "Nightscout instance. See dev/README.md for usage.",
+            file=sys.stderr,
+        )
+        return 2
     cadence = float(os.environ.get("NS_CADENCE_SECONDS", "60"))
     baseline = float(os.environ.get("NS_BASELINE_MGDL", "120"))
     volatility = float(os.environ.get("NS_VOLATILITY", "5"))

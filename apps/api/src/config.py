@@ -77,7 +77,13 @@ class Settings(BaseSettings):
     # Per-connection cadence is honored via the column on the connection
     # row, not via the global tick.
     nightscout_sync_enabled: bool = True
-    nightscout_sync_tick_interval_minutes: int = 1
+    # Bounded so a misconfigured env var (0 / negative / absurdly
+    # large) can't crash APScheduler at startup or starve the
+    # scheduler entirely. 1 minute = the per-connection minimum the
+    # connection model already enforces; 60 minutes ceiling on the
+    # global tick is generous (per-connection cadence is what users
+    # actually tune).
+    nightscout_sync_tick_interval_minutes: int = Field(default=1, ge=1, le=60)
 
     # Predictive Alert Engine (Story 6.2)
     alert_check_interval_minutes: int = 5  # Run alert engine every 5 minutes
