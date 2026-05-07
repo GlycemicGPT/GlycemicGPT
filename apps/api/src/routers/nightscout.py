@@ -6,6 +6,7 @@ platforms) instances; plus read endpoints that the cloud-source mobile
 plugin and the onboarding wizard consume.
 """
 
+import asyncio
 import uuid
 from datetime import UTC, datetime
 
@@ -35,12 +36,16 @@ from src.schemas.nightscout import (
     NightscoutConnectionUpdate,
     NightscoutDataResponse,
     NightscoutGlucoseReadingDTO,
+    NightscoutManualSyncResponse,
     NightscoutProfileSnapshotResponse,
     NightscoutPumpEventDTO,
 )
 from src.services.integrations.nightscout.connection_test import (
     ConnectionTestOutcome,
     test_connection,
+)
+from src.services.integrations.nightscout.sync import (
+    sync_nightscout_for_connection,
 )
 
 logger = get_logger(__name__)
@@ -50,6 +55,11 @@ router = APIRouter(
     tags=["integrations", "nightscout"],
 )
 
+# Manual sync wraps a synchronous translator round-trip; bound the
+# worker so a slow / unresponsive user-controlled NS URL can't pin a
+# request thread for the full upstream client timeout (often 30s+).
+_SYNC_TIMEOUT_SECONDS = 20.0
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -57,19 +67,27 @@ router = APIRouter(
 
 
 async def _load_owned(
-    db: AsyncSession, connection_id: uuid.UUID, user_id: uuid.UUID
+    db: AsyncSession,
+    connection_id: uuid.UUID,
+    user_id: uuid.UUID,
+    *,
+    require_active: bool = False,
 ) -> NightscoutConnection:
     """Fetch a connection ensuring it belongs to the requesting user.
 
     Returns 404 (not 403) on cross-tenant access so we don't leak the
-    existence of other users' connection IDs.
+    existence of other users' connection IDs. Same 404 when
+    `require_active=True` and the row was soft-deleted (`is_active=False`)
+    -- that path is gated for endpoints that perform side effects
+    (sync, test) so a deleted-but-known-id can't be reanimated.
     """
-    result = await db.execute(
-        select(NightscoutConnection).where(
-            NightscoutConnection.id == connection_id,
-            NightscoutConnection.user_id == user_id,
-        )
-    )
+    where = [
+        NightscoutConnection.id == connection_id,
+        NightscoutConnection.user_id == user_id,
+    ]
+    if require_active:
+        where.append(NightscoutConnection.is_active.is_(True))
+    result = await db.execute(select(NightscoutConnection).where(*where))
     conn = result.scalar_one_or_none()
     if conn is None:
         raise HTTPException(
@@ -398,7 +416,9 @@ async def run_test(
     Updates `last_sync_status` to reflect the outcome so the dashboard
     UI shows current health without waiting for the scheduled sync.
     """
-    conn = await _load_owned(db, connection_id, current_user.id)
+    # Soft-deleted connections must not be reanimated via test/sync; we
+    # 404 them here even though the row is still in the DB.
+    conn = await _load_owned(db, connection_id, current_user.id, require_active=True)
     outcome = await test_connection(
         base_url=conn.base_url,
         auth_type=conn.auth_type,
@@ -411,6 +431,72 @@ async def run_test(
     await db.commit()
 
     return _outcome_to_response(outcome)
+
+
+@router.post(
+    "/{connection_id}/sync",
+    response_model=NightscoutManualSyncResponse,
+    responses={
+        200: {"description": "Sync executed (check `status` for outcome)"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        404: {"model": ErrorResponse, "description": "Connection not found"},
+    },
+)
+async def run_sync(
+    connection_id: uuid.UUID,
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> NightscoutManualSyncResponse:
+    """Manually trigger a sync for one connection (Story 43.4 AC10).
+
+    Synchronous from the user's POV: the request blocks until the
+    fetch + translate completes (subject to `_SYNC_TIMEOUT_SECONDS`).
+    Updates `last_synced_at` (only on full success) and
+    `last_sync_status` regardless. Same code path the background
+    scheduler uses, so the manual button validates the scheduler's
+    behavior.
+
+    Soft-deleted connections are 404'd here so a stale connection ID
+    can't be used to reanimate sync activity for a deactivated
+    instance.
+    """
+    conn = await _load_owned(db, connection_id, current_user.id, require_active=True)
+    try:
+        result = await asyncio.wait_for(
+            sync_nightscout_for_connection(db, conn),
+            timeout=_SYNC_TIMEOUT_SECONDS,
+        )
+    except TimeoutError:
+        # Caller-controlled URL: bound the worker. Surface as NETWORK
+        # status (matches what we'd record for a hung-socket case) and
+        # write back to the connection so the UI badge updates.
+        # Roll back first: the cancelled sync may have flushed partial
+        # rows; we don't want to commit those alongside the status
+        # update. The translator's ON CONFLICT DO NOTHING means the
+        # next successful sync will re-write what we drop here.
+        await db.rollback()
+        conn.last_sync_status = NightscoutSyncStatus.NETWORK
+        conn.last_sync_error = f"Sync exceeded {_SYNC_TIMEOUT_SECONDS}s timeout"
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail=conn.last_sync_error,
+        ) from None
+    return NightscoutManualSyncResponse(
+        connection_id=conn.id,
+        status=result.status,
+        entries_inserted=result.entries_inserted,
+        entries_skipped=result.entries_skipped,
+        entries_failed=result.entries_failed,
+        treatments_inserted_pump=result.treatments_inserted_pump,
+        treatments_inserted_glucose=result.treatments_inserted_glucose,
+        treatments_failed=result.treatments_failed,
+        devicestatuses_inserted=result.devicestatuses_inserted,
+        devicestatuses_failed=result.devicestatuses_failed,
+        profile_synced=result.profile_synced,
+        duration_ms=result.duration_ms,
+        error=result.error,
+    )
 
 
 # ---------------------------------------------------------------------------
