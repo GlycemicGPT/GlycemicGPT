@@ -402,14 +402,15 @@ def _post_entry(
     state: PatientState,
     prev_bg: float,
     device: str,
+    posted_at: datetime.datetime,
 ) -> None:
     payload = [
         {
             "type": "sgv",
             "sgv": int(round(state.bg)),
             "direction": _direction_for(prev_bg, state.bg),
-            "date": int(state.sim_time.timestamp() * 1000),
-            "dateString": _iso_z(state.sim_time),
+            "date": int(posted_at.timestamp() * 1000),
+            "dateString": _iso_z(posted_at),
             "device": device,
         }
     ]
@@ -423,18 +424,19 @@ def _post_meal(
     carbs: float,
     bolus: float,
     device: str,
+    posted_at: datetime.datetime,
 ) -> None:
     """Loop's "Meal Bolus" treatment carries both carbs and insulin
     on a single record."""
     payload = [
         {
             "eventType": "Meal Bolus",
-            "created_at": _iso_z(state.sim_time),
+            "created_at": _iso_z(posted_at),
             "carbs": round(carbs, 1),
             "insulin": bolus,
             "absorptionTime": int(CARB_ABSORPTION_MINUTES * 60),  # Loop = seconds
             "enteredBy": "loop://realistic-emulator",
-            "_id": f"emu-meal-{int(state.sim_time.timestamp())}",
+            "_id": f"emu-meal-{int(posted_at.timestamp() * 1000)}",
         }
     ]
     _post(base_url, "/api/v1/treatments.json", secret_hash, payload)
@@ -445,14 +447,15 @@ def _post_correction(
     secret_hash: str,
     state: PatientState,
     units: float,
+    posted_at: datetime.datetime,
 ) -> None:
     payload = [
         {
             "eventType": "Correction Bolus",
-            "created_at": _iso_z(state.sim_time),
+            "created_at": _iso_z(posted_at),
             "insulin": units,
             "enteredBy": "loop://realistic-emulator",
-            "_id": f"emu-corr-{int(state.sim_time.timestamp())}",
+            "_id": f"emu-corr-{int(posted_at.timestamp() * 1000)}",
         }
     ]
     _post(base_url, "/api/v1/treatments.json", secret_hash, payload)
@@ -461,6 +464,7 @@ def _post_correction(
 def _build_devicestatus(
     state: PatientState,
     device: str,
+    posted_at: datetime.datetime,
 ) -> dict:
     """A Loop-shaped devicestatus payload.
 
@@ -468,6 +472,11 @@ def _build_devicestatus(
     a 6-hour `predicted` BG curve, the most recent enacted basal,
     and pump status. Enough for the dashboard's planned closed-loop
     UI surfaces (Story 43.12) to read.
+
+    All timestamp fields use `posted_at` (wall-clock now). The
+    physiology used to build the predicted curve still derives from
+    `state` (sim-time-anchored) so meal-window decisions and IoB /
+    COB decay stay consistent across the run.
     """
     # Project BG forward up to 6 hours using the same physiology
     # used by the live state machine: insulin still on board lowers
@@ -503,28 +512,26 @@ def _build_devicestatus(
         ):
             break
 
-    now = state.sim_time
-
     return {
         "device": device,
-        "created_at": _iso_z(now),
+        "created_at": _iso_z(posted_at),
         "loop": {
             "version": "Loop 3.4.5 (realistic-emulator)",
             "iob": {
-                "timestamp": _iso_z(now),
+                "timestamp": _iso_z(posted_at),
                 "iob": round(state.iob, 3),
             },
             "cob": {
-                "timestamp": _iso_z(now),
+                "timestamp": _iso_z(posted_at),
                 "cob": round(state.cob, 1),
             },
             "predicted": {
-                "startDate": _iso_z(now),
+                "startDate": _iso_z(posted_at),
                 "values": predicted,
             },
             "recommendedBolus": 0.0,
             "enacted": {
-                "timestamp": _iso_z(now),
+                "timestamp": _iso_z(posted_at),
                 "rate": BASAL_U_PER_HR,
                 "duration": 30,
                 "received": True,
@@ -544,12 +551,13 @@ def _post_devicestatus(
     secret_hash: str,
     state: PatientState,
     device: str,
+    posted_at: datetime.datetime,
 ) -> None:
     _post(
         base_url,
         "/api/v1/devicestatus.json",
         secret_hash,
-        [_build_devicestatus(state, device)],
+        [_build_devicestatus(state, device, posted_at)],
     )
 
 
@@ -619,13 +627,23 @@ def main() -> int:
     def _parse_float(name: str, default: str) -> float | None:
         raw = os.environ.get(name, default)
         try:
-            return float(raw)
+            value = float(raw)
         except ValueError:
             print(
                 f"ERROR: {name} must be a number (got {raw!r})",
                 file=sys.stderr,
             )
             return None
+        if not math.isfinite(value):
+            # `float("nan")` and `float("inf")` parse cleanly but break
+            # downstream sleep / clamp / iteration math; reject them
+            # at the boundary.
+            print(
+                f"ERROR: {name} must be a finite number (got {raw!r})",
+                file=sys.stderr,
+            )
+            return None
+        return value
 
     compression = _parse_float("NS_TIME_COMPRESSION", "10")
     if compression is None:
@@ -636,8 +654,18 @@ def main() -> int:
     duration_hours = _parse_float("NS_DURATION_HOURS", "24")
     if duration_hours is None:
         return 2
+    if duration_hours < 0:
+        # `0` is the documented "unbounded" sentinel; negative values
+        # would silently behave as unbounded too.
+        print("ERROR: NS_DURATION_HOURS must be >= 0 (0 = unbounded)", file=sys.stderr)
+        return 2
     starting_bg = _parse_float("NS_STARTING_BG", "120")
     if starting_bg is None:
+        return 2
+    if starting_bg <= 0:
+        # The model clamps to 40-400 internally but a non-positive
+        # starting value means the user typo'd something.
+        print("ERROR: NS_STARTING_BG must be > 0", file=sys.stderr)
         return 2
     device = os.environ.get("NS_DEVICE_NAME", "loop://iPhone/realistic-emulator")
     profile_name = os.environ.get("NS_PROFILE_NAME", "Default")
@@ -692,8 +720,14 @@ def main() -> int:
             return 1
         print(f"[emu] WARN: profile ensure {exc.reason} -- continuing.", flush=True)
 
-    # Anchor sim time to "now" so the dashboard's recent-window views
-    # see the data. Forward-only: we never emit timestamps in the past.
+    # Sim-time is anchored to wall-clock now so dawn-phenomenon and
+    # meal-window decisions feel "right now"-ish. Sim-time then drives
+    # ONLY physiology (insulin / carb decay, meal-window hour-of-day,
+    # dawn bias). Every Nightscout-facing timestamp uses wall-clock
+    # `posted_at` -- if we used sim-time for those under any
+    # compression > 1, the "5-minute" entry stamps would race ahead of
+    # wall-clock and downstream readers would see future-dated data
+    # with negative ages.
     state = PatientState(
         starting_bg=starting_bg,
         starting_sim_time=datetime.datetime.now(datetime.UTC),
@@ -714,6 +748,11 @@ def main() -> int:
 
     while not stopping and state.sim_minute < sim_minutes_max:
         prev_bg = state.bg
+        # One wall-clock instant for every NS-facing timestamp on this
+        # tick. Computed once so the entry, treatment, and devicestatus
+        # all share the same `created_at` / `dateString`.
+        posted_at = datetime.datetime.now(datetime.UTC)
+
         # Decide on meals / corrections BEFORE advancing -- so the
         # newly-added boluses / carbs affect THIS tick's BG move.
         meal = state.maybe_meal()
@@ -722,7 +761,9 @@ def main() -> int:
             state.consume_carbs(carbs_g)
             state.deliver_bolus(bolus_u)
             try:
-                _post_meal(base_url, secret_hash, state, carbs_g, bolus_u, device)
+                _post_meal(
+                    base_url, secret_hash, state, carbs_g, bolus_u, device, posted_at
+                )
             except (urllib.error.HTTPError, urllib.error.URLError) as exc:
                 print(f"[emu] meal post failed: {exc}", flush=True)
         else:
@@ -731,15 +772,15 @@ def main() -> int:
                 state.deliver_bolus(corr)
                 state.last_correction_min = state.sim_minute
                 try:
-                    _post_correction(base_url, secret_hash, state, corr)
+                    _post_correction(base_url, secret_hash, state, corr, posted_at)
                 except (urllib.error.HTTPError, urllib.error.URLError) as exc:
                     print(f"[emu] correction post failed: {exc}", flush=True)
 
         state.advance_5_min()
 
         try:
-            _post_entry(base_url, secret_hash, state, prev_bg, device)
-            _post_devicestatus(base_url, secret_hash, state, device)
+            _post_entry(base_url, secret_hash, state, prev_bg, device, posted_at)
+            _post_devicestatus(base_url, secret_hash, state, device, posted_at)
         except (urllib.error.HTTPError, urllib.error.URLError) as exc:
             print(f"[emu] entry/devicestatus post failed: {exc}", flush=True)
         except Exception as exc:  # noqa: BLE001 - keep loop running
