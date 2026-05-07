@@ -5,23 +5,46 @@ this is shipped in any production image — these files live in the repo
 so they're reviewable and version-controlled, but they're never copied
 into a Dockerfile context.
 
-## Which Nightscout test driver should I use?
+## Who are these scripts for?
 
-Two scripts are available, with different goals:
+GlycemicGPT integrates with Nightscout, Loop, AAPS, and iAPS. To
+validate any code that touches that surface end-to-end against a
+real Nightscout deployment, you'd otherwise need:
+
+1. A running Nightscout instance (Mongo + Node, separately deployed).
+2. A real CGM (Dexcom G6/G7) feeding it.
+3. A real closed-loop system (Loop on iPhone, AAPS on Android,
+   iAPS) generating treatments, devicestatus, and profile data.
+4. Realistically: an actual diabetes diagnosis on the contributor.
+
+That filters down to a tiny pool of contributors. These two scripts
+let anyone with a local Nightscout test stack drive that integration
+surface without any of (2)-(4). They're test fixtures-as-scripts.
+
+## Which Nightscout test driver should I use?
 
 | | `ns_synthetic_uploader.py` | `ns_realistic_emulator.py` |
 |---|---|---|
-| Purpose | Quick "data flows" smoke test | Full-realism patient simulation |
-| BG model | Mean-reverting random walk + sine | IoB / COB physiology + meals + corrections |
-| Treatments emitted | None | `Meal Bolus`, `Correction Bolus` |
-| Devicestatus emitted | None | Loop-shaped subtree (iob, cob, predicted, enacted) |
-| Profile posted | No | Yes, if none exists |
-| Best for | Fastest path to "is the scheduler ticking?" | Exercising closed-loop fields, dashboard widgets, dedupe / freshness math against realistic data shapes |
+| **Purpose** | "Is data flowing?" smoke test | Full-realism patient simulation |
+| **BG model** | Mean-reverting random walk + sine | IoB / COB physiology + meals + corrections |
+| **Treatments** | None | `Meal Bolus`, `Correction Bolus` |
+| **Devicestatus** | None | Loop-shaped subtree (iob, cob, predicted, enacted) |
+| **Profile** | No | Yes, if none exists |
+| **When to reach for it** | "Did my scheduler change still tick?" "Did the entries route still work?" | "Does my IoB widget render the right value?" "Does my AGP chart look like a real patient?" "Does my dedupe handle Loop's overlapping bolus records?" |
 
-Use `ns_synthetic_uploader.py` when you just need any data flowing.
-Use `ns_realistic_emulator.py` when verifying widgets that read
-treatments, IoB/COB, or predicted-glucose state — i.e. anything that
-should look like a real Loop / iAPS user on the dashboard.
+If you're not sure, start with `ns_synthetic_uploader.py` — it's
+faster to spin up. Switch to `ns_realistic_emulator.py` the moment
+you need a treatment, an IoB number, a predicted-BG curve, or
+anything that should look like a real Loop / iAPS user.
+
+### Prerequisite for both
+
+A local Nightscout test stack reachable on `http://127.0.0.1:1337`
+(or wherever you point `NS_BASE_URL`). This is NOT shipped with
+GlycemicGPT — set it up separately with Mongo + Nightscout's own
+docker-compose. If you don't have one yet, see the upstream
+[Nightscout docker-compose docs](https://nightscout.github.io/nightscout/new_docker/).
+Once it's up, point either script at it.
 
 ## `ns_synthetic_uploader.py`
 
@@ -82,38 +105,92 @@ misconfiguration.
 
 ## `ns_realistic_emulator.py`
 
-Drives the same local Nightscout instance with data that looks like a
-real Loop / iAPS user's day: meals at meal times, post-meal BG rises,
-insulin lowering BG over its duration of action, dawn phenomenon,
-correction boluses on persistent highs, and Loop-shaped devicestatus
-on every reading.
+A patient-physiology state machine that posts continuous Loop-shaped
+data to a local Nightscout instance. Lets you exercise the parts of
+the GlycemicGPT integration that only fire on realistic data: IoB
+display, COB display, predicted-glucose curves, AGP charts,
+treatments tables, dedupe across overlapping bolus records, the
+per-source freshness widget, the Insulin Summary panel.
 
-### Why this exists
+### When to use it
 
-The simple uploader random-walks a single SGV value, which is fine for
-"is the scheduler ticking?" but doesn't exercise the closed-loop
-plumbing — `loop_subtree_json`, predicted-BG curves, IoB/COB,
-treatments, dedupe across overlapping bolus records — and the
-resulting dashboard charts look mechanical rather than physiological.
-This script outputs continuous data that matches what the integration
-will see in production.
+- You're working on a dashboard widget that reads anything beyond
+  an `sgv` value. (CGM Summary, IoB, AGP, Bolus Review, Insulin
+  Summary, predicted-BG, freshness.)
+- You're touching the Nightscout translator
+  (`apps/api/src/services/integrations/nightscout/translator.py`)
+  and want to validate the round trip.
+- You're modifying the bolus-dedupe CTE or any code that reads
+  `loop_subtree_json` / `openaps_subtree_json`.
+- You're demoing a feature that should "look like a real patient"
+  on the dashboard.
 
-### Quick start
+### When NOT to use it
+
+- You only need "is the scheduler ticking?" → use
+  `ns_synthetic_uploader.py`, it's faster to spin up.
+- You're testing application code that doesn't touch Nightscout at
+  all. (Auth, AI chat, mobile-app local data, Tandem BLE, ...)
+- You're trying to test edge cases the model doesn't simulate
+  (sensor failures, Bluetooth dropouts, double-bolus user errors).
+  For those, post hand-crafted treatments directly to the NS API
+  rather than reaching for this script.
+
+### Why it exists
+
+The simpler `ns_synthetic_uploader.py` random-walks a single SGV
+value — fine for smoke tests but doesn't exercise the closed-loop
+plumbing (`loop_subtree_json`, predicted-BG, IoB / COB, treatments,
+dedupe). Without this script, validating any of those code paths
+end-to-end requires a real Loop / iAPS / AAPS user feeding a real
+Nightscout, which is impractical for most contributors. This script
+fills that gap.
+
+### How to run it
+
+You need:
+
+1. The local Nightscout test stack already running. Confirm with
+   `curl http://127.0.0.1:1337/api/v1/status.json` — should return 200.
+2. The `API_SECRET` you set on that stack.
+
+Then:
 
 ```bash
 NS_API_SECRET="<your-test-stack-secret>" \
   python3 dev/ns_realistic_emulator.py
 ```
 
-Defaults run at 10× time compression: ~30 seconds of wall-clock per
-"5 simulated minutes," so a full simulated day lands in ~144
-wall-minutes (~2.4 hours). For a faster sweep set
-`NS_TIME_COMPRESSION=60` (one simulated day in ~24 wall-minutes) or
-`NS_DURATION_HOURS=4` to cap the run. The dashboard's recent-window
-views see fresh data arriving continuously, and treatments /
-devicestatus appear at the same cadence Loop posts them.
+That runs the default — 24 simulated hours at 10× compression, which
+takes ~144 wall-clock minutes (~2.4 h). For most derisks you want a
+faster run; set `NS_DURATION_HOURS=6` and `NS_TIME_COMPRESSION=60`
+to land 6 simulated hours in ~6 wall-minutes, with full meal + bolus
++ correction coverage:
 
-Stops on Ctrl-C. No state persistence — restart starts a fresh patient.
+```bash
+NS_API_SECRET="<your-test-stack-secret>" \
+NS_TIME_COMPRESSION=60 \
+NS_DURATION_HOURS=6 \
+  python3 dev/ns_realistic_emulator.py
+```
+
+Stops on Ctrl-C. No state persistence — restart starts a fresh
+patient. To keep two derisk runs identical, pass `NS_RANDOM_SEED`.
+
+### How to verify it actually drove your code
+
+After a run, point the GlycemicGPT API at the same NS instance:
+
+1. Bring up the GlycemicGPT stack: `docker compose up --build -d`
+2. Sign in to the web app, go to `Settings → Integrations`.
+3. Add a Nightscout connection: URL = `http://host.docker.internal:1337`
+   (or your host's IP from inside the API container), `API_SECRET` =
+   the same one you used for the emulator, sync interval = 1 min.
+4. Trigger an immediate sync from the UI, then go to the dashboard.
+5. The widget you're working on should populate from emulator data.
+
+If a widget renders empty, that's the signal your code path isn't
+reading the data the emulator generated — debug from there.
 
 ### Tunables (env vars)
 
