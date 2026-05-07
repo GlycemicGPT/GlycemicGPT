@@ -165,6 +165,12 @@ def _base_event(
         # Uniform schema across all rows in a multi-row INSERT VALUES
         # clause — meal-bolus pairs overwrite this with a shared UUID.
         "meal_event_id": None,
+        # Set explicitly here so every row dict carries the key.
+        # Without it, the multi-row INSERT normalizer pads missing
+        # keys to None, which violates the NOT NULL constraint.
+        # `_map_bolus` (and any other mapper that needs a non-default
+        # value) overrides this in their own `.update()`.
+        "is_automated": False,
     }
 
 
@@ -263,12 +269,29 @@ def _map_temp_basal(
     if treatment.type:
         extras["aaps_type"] = treatment.type
 
+    # `units` carries the temp-basal rate in U/hr so the dashboard's
+    # pump-status widget (which reads `units` for BASAL events) can
+    # render the rate. Prefer `rate`, fall back to `absolute` (AAPS
+    # convention -- they're equal in absolute-mode anyway). Percent-
+    # mode treatments stay None on units; the percent-delta lives in
+    # metadata_json.
+    rate_u_hr: float | None = None
+    if treatment.rate is not None:
+        rate_u_hr = float(treatment.rate)
+    elif treatment.absolute is not None:
+        rate_u_hr = float(treatment.absolute)
+
     base.update(
         {
-            "units": None,
+            "units": rate_u_hr,
             "duration_minutes": round(treatment.duration)
             if treatment.duration is not None
             else None,
+            # Loop / AAPS / Trio set `automatic: true` on enacted
+            # temp basals; respect it. Without this, treatment-
+            # derived BASAL rows render is_automated=False on the
+            # dashboard even when the loop algorithm enacted them.
+            "is_automated": treatment.automatic is True,
             "metadata_json": _build_metadata(treatment, extra=extras),
         }
     )

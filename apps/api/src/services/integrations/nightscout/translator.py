@@ -82,6 +82,10 @@ from src.services.integrations.nightscout._profile_mapper import (
 from src.services.integrations.nightscout._pump_events_mapper import (
     map_treatment_to_pump_events,
 )
+from src.services.integrations.nightscout._pump_status_extractor import (
+    extract_pump_events_from_devicestatuses,
+    fetch_initial_last_state,
+)
 from src.services.integrations.nightscout.models import (
     NightscoutDeviceStatus,
     NightscoutEntry,
@@ -247,9 +251,26 @@ async def translate_devicestatuses(
     connection_id: str,
     received_at: datetime | None = None,
 ) -> TranslateOutcome:
-    """Translate raw devicestatus dicts to device_status_snapshots upserts."""
+    """Translate raw devicestatus dicts to device_status_snapshots upserts.
+
+    Also extracts BATTERY / RESERVOIR / BASAL pump_events from each
+    devicestatus's `pump.battery.percent` / `pump.reservoir` /
+    `loop.enacted.rate`. Without that promotion, the dashboard's
+    pump-status widget (which reads pump_events filtered by event_type)
+    never sees Nightscout-sourced telemetry, even though the data was
+    correctly stored in `device_status_snapshots`. The pump_events
+    rows are deduped per-type with a 1-min min-interval guard.
+
+    The `inserted` / `skipped` / `failed` counts in the returned
+    outcome reflect the **devicestatus_snapshots** insert outcome
+    only. The pump_events spawned alongside are best-effort -- a
+    failure there is logged via the broader exception path but does
+    not change the snapshot count, since the snapshots are the
+    authoritative store.
+    """
     received = received_at or datetime.now(UTC)
-    rows: list[dict[str, Any]] = []
+    snapshot_rows: list[dict[str, Any]] = []
+    parsed: list[NightscoutDeviceStatus] = []
     failed = 0
     skipped = 0
 
@@ -259,6 +280,7 @@ async def translate_devicestatuses(
         except Exception:
             failed += 1
             continue
+        parsed.append(ds)
         row = map_devicestatus_to_snapshot(
             ds,
             user_id=user_id,
@@ -268,10 +290,30 @@ async def translate_devicestatuses(
         if row is None:
             skipped += 1
             continue
-        rows.append(row)
+        snapshot_rows.append(row)
 
-    inserted = await _upsert_devicestatus_snapshots(session, rows)
-    skipped += len(rows) - inserted
+    inserted = await _upsert_devicestatus_snapshots(session, snapshot_rows)
+    skipped += len(snapshot_rows) - inserted
+
+    # Promote pump telemetry to pump_events for dashboard widgets.
+    # Sort chronologically so the dedupe walk produces the right
+    # value-change decisions across the batch (NS doesn't guarantee
+    # response ordering).
+    parsed_sorted = sorted(
+        parsed,
+        key=lambda ds: ds.created_at or "",
+    )
+    last_state = await fetch_initial_last_state(session, user_id)
+    pump_event_rows = extract_pump_events_from_devicestatuses(
+        parsed_sorted,
+        user_id=user_id,
+        source=f"nightscout:{connection_id}",
+        last_state=last_state,
+        received_at=received,
+    )
+    if pump_event_rows:
+        await _upsert_pump_events(session, pump_event_rows)
+
     return TranslateOutcome(inserted=inserted, skipped=skipped, failed=failed)
 
 
@@ -351,14 +393,38 @@ async def _upsert_pump_events(session: AsyncSession, rows: list[dict[str, Any]])
 
     Uses RETURNING to count actual inserts (rowcount is unreliable
     under ON CONFLICT DO NOTHING).
+
+    SQLAlchemy 2.x rejects `.values(rows)` when the dicts have
+    mismatched keys -- bolus rows lack `duration_minutes`, temp-basal
+    rows have it, and the multi-row VALUES clause renders missing
+    columns as bound parameters that the dialect won't bind. We
+    normalize to a uniform key set before inserting so each mapper
+    can keep returning the slim type-specific dict it built.
     """
     if not rows:
         return 0
+    rows = _normalize_row_shapes(rows)
     stmt = (
         insert(PumpEvent).values(rows).on_conflict_do_nothing().returning(PumpEvent.id)
     )
     result = await session.execute(stmt)
     return len(result.scalars().all())
+
+
+def _normalize_row_shapes(
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Pad each dict so every row has the same key set.
+
+    Missing keys default to None. We don't assume any particular set
+    of "expected" columns -- we just take the union of whatever the
+    mappers produced. New mapper outputs (future event types,
+    additional context fields) work without touching this function.
+    """
+    all_keys: set[str] = set()
+    for r in rows:
+        all_keys.update(r.keys())
+    return [{k: r.get(k) for k in all_keys} for r in rows]
 
 
 async def _upsert_devicestatus_snapshots(
