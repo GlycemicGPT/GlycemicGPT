@@ -104,6 +104,7 @@ jest.mock("@/lib/api", () => ({
   testNightscoutConnection: jest.fn().mockResolvedValue({ ok: true }),
   syncNightscoutConnection: jest.fn().mockResolvedValue({}),
   deleteNightscoutConnection: jest.fn().mockResolvedValue(undefined),
+  patchNightscoutConnection: jest.fn().mockResolvedValue({}),
   // Caregivers
   listLinkedCaregivers: jest.fn().mockResolvedValue({ caregivers: [] }),
   listCaregiverInvitations: jest.fn().mockResolvedValue({ invitations: [] }),
