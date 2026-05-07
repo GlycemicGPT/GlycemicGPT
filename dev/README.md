@@ -106,10 +106,12 @@ NS_API_SECRET="<your-test-stack-secret>" \
 ```
 
 Defaults run at 10× time compression: ~30 seconds of wall-clock per
-"5 simulated minutes," so you can watch a full simulated day land in
-~24 minutes. The dashboard's recent-window views see fresh data
-arriving continuously, and treatments / devicestatus appear at the
-same cadence Loop posts them.
+"5 simulated minutes," so a full simulated day lands in ~144
+wall-minutes (~2.4 hours). For a faster sweep set
+`NS_TIME_COMPRESSION=60` (one simulated day in ~24 wall-minutes) or
+`NS_DURATION_HOURS=4` to cap the run. The dashboard's recent-window
+views see fresh data arriving continuously, and treatments /
+devicestatus appear at the same cadence Loop posts them.
 
 Stops on Ctrl-C. No state persistence — restart starts a fresh patient.
 

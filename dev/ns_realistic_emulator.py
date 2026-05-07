@@ -19,9 +19,9 @@ predictive BG, COB) or produce data that visually resembles a real
 patient on the dashboard. This script does.
 
 Time compression: by default each wall-clock 30 seconds emits one
-"5-minute" reading -- so a full simulated day lands in ~24 minutes.
-Set `NS_TIME_COMPRESSION=1` for realtime (5-min cadence; useful only
-for long-running derisks).
+"5-minute" reading, so a full simulated day lands in ~144 wall-min
+(~2.4 hours). Set `NS_TIME_COMPRESSION=60` for "an hour of sim per
+wall-minute" (a simulated day in ~24 wall-min) or `=1` for realtime.
 
 NOT shipped in any production image. Stdlib-only by design (no
 httpx / requests) so it runs anywhere a Python 3.11+ interpreter is
@@ -615,13 +615,31 @@ def main() -> int:
             file=sys.stderr,
         )
         return 2
-    compression = float(os.environ.get("NS_TIME_COMPRESSION", "10"))
+
+    def _parse_float(name: str, default: str) -> float | None:
+        raw = os.environ.get(name, default)
+        try:
+            return float(raw)
+        except ValueError:
+            print(
+                f"ERROR: {name} must be a number (got {raw!r})",
+                file=sys.stderr,
+            )
+            return None
+
+    compression = _parse_float("NS_TIME_COMPRESSION", "10")
+    if compression is None:
+        return 2
     if compression <= 0:
         print("ERROR: NS_TIME_COMPRESSION must be > 0", file=sys.stderr)
         return 2
-    duration_hours = float(os.environ.get("NS_DURATION_HOURS", "24"))
+    duration_hours = _parse_float("NS_DURATION_HOURS", "24")
+    if duration_hours is None:
+        return 2
+    starting_bg = _parse_float("NS_STARTING_BG", "120")
+    if starting_bg is None:
+        return 2
     device = os.environ.get("NS_DEVICE_NAME", "loop://iPhone/realistic-emulator")
-    starting_bg = float(os.environ.get("NS_STARTING_BG", "120"))
     profile_name = os.environ.get("NS_PROFILE_NAME", "Default")
     seed_env = os.environ.get("NS_RANDOM_SEED")
     if seed_env is not None:
@@ -634,10 +652,11 @@ def main() -> int:
             )
             return 2
 
-    # Wall-clock seconds per simulated 5-minute tick:
-    #   compression=1   -> 300s wall  (realtime, 5-min cadence)
-    #   compression=10  -> 30s  wall  (one simulated day in ~24 min)
-    #   compression=60  -> 5s   wall  (one simulated day in 4 min)
+    # Wall-clock seconds per simulated 5-minute tick. One simulated
+    # day = 288 ticks, so wall time per sim-day = 288 * this value.
+    #   compression=1   -> 300s wall/tick  (realtime; 24 wall-hr per sim-day)
+    #   compression=10  -> 30s  wall/tick  (~144 wall-min per sim-day)
+    #   compression=60  -> 5s   wall/tick  (~24  wall-min per sim-day)
     wall_seconds_per_tick = 300.0 / compression
 
     secret_hash = _hash_secret(secret)
