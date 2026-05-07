@@ -72,6 +72,19 @@ _PAUSED_STATUSES = frozenset({NightscoutSyncStatus.AUTH_FAILED})
 # also indirectly bound DB-pool and FD pressure.
 _MAX_PARALLEL_SYNCS = 8
 
+# Hard ceiling on how long a single scheduler tick may spend in the
+# parallel sync phase. APScheduler is configured with `coalesce=True`
+# and `max_instances=1`, so a tick that runs longer than its base
+# interval (default 60s) silently delays the next tick. This budget
+# is the contract: at this many seconds, in-flight syncs are
+# cancelled and the tick returns. The cancelled connections will be
+# re-discovered as due on the next tick (their `last_synced_at` is
+# only updated on success), so no data is lost.
+#
+# Set below the default 60s tick interval so even a maximally slow
+# tick doesn't push past the next scheduled fire.
+_TICK_WALL_BUDGET_SECONDS = 45.0
+
 
 async def run_nightscout_sync_all_users() -> None:
     """One tick of the scheduler.
@@ -129,10 +142,52 @@ async def run_nightscout_sync_all_users() -> None:
         async with sem:
             return await _sync_one(session_maker, conn_id, user_id)
 
-    statuses = await asyncio.gather(
-        *(_bounded(cid, uid) for (cid, uid) in due_ids),
-        return_exceptions=False,
-    )
+    gather_started = datetime.now(UTC)
+    try:
+        statuses = await asyncio.wait_for(
+            asyncio.gather(
+                *(_bounded(cid, uid) for (cid, uid) in due_ids),
+                return_exceptions=False,
+            ),
+            timeout=_TICK_WALL_BUDGET_SECONDS,
+        )
+    except TimeoutError:
+        # Past the wall budget. Cancellation propagates to every
+        # in-flight `_sync_one` via the gather; any partial DB writes
+        # roll back when their session context exits. Each cancelled
+        # connection's `last_synced_at` was not advanced, so the next
+        # tick will pick it up again -- no data lost, just a missed
+        # cycle. Don't raise: APScheduler would log + skip the next
+        # tick as a side-effect.
+        #
+        # Trade-off: a `_sync_one` that already classified a real
+        # failure (e.g. AUTH_FAILED) and was about to commit a
+        # `last_sync_status` update can have that write rolled back
+        # by cancellation. The next tick re-runs the same connection
+        # and is expected to reproduce the same failure classification,
+        # so the status field self-heals on the next cycle.
+        gather_duration_ms = int(
+            (datetime.now(UTC) - gather_started).total_seconds() * 1000
+        )
+        logger.warning(
+            "nightscout_scheduler_tick_budget_exceeded",
+            due_count=len(due_ids),
+            budget_seconds=_TICK_WALL_BUDGET_SECONDS,
+            gather_duration_ms=gather_duration_ms,
+            tick_duration_ms=int((datetime.now(UTC) - started).total_seconds() * 1000),
+        )
+        # Always emit `tick_completed` so dashboards / alerting that
+        # count one per tick don't see a gap on overrun.
+        logger.info(
+            "nightscout_scheduler_tick_completed",
+            due_count=len(due_ids),
+            success=0,
+            failures=0,
+            cancelled=len(due_ids),
+            partial=True,
+            duration_ms=int((datetime.now(UTC) - started).total_seconds() * 1000),
+        )
+        return
 
     success = sum(1 for s in statuses if s is True)
     failures = sum(1 for s in statuses if s is False)
