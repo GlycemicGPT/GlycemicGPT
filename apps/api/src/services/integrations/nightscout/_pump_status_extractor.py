@@ -50,6 +50,18 @@ from src.services.integrations.nightscout.models import NightscoutDeviceStatus
 # bound on row volume is 60 rows/hour/type.
 _MIN_INTERVAL_SECONDS = 60.0
 
+# Per-type epsilon for the value-change comparison. Battery comes
+# in as int so equality is exact. Basal rate is set by the loop
+# algorithm in clean increments. Reservoir is the only one where
+# uploaders may emit slightly different floats for the "same"
+# reading (`145.5` vs `145.5000000001`); a tiny epsilon prevents
+# float-drift from triggering unnecessary inserts.
+_VALUE_EPSILON = {
+    "battery": 0.0,  # int-valued, exact equality safe
+    "reservoir": 0.05,  # one-tenth of a unit; tighter than uploader rounding
+    "basal": 0.0,  # loop chooses clean rates, exact equality safe
+}
+
 
 class _LastEmittedRow(TypedDict, total=False):
     """One slot in the carry-over state passed across batches."""
@@ -94,11 +106,10 @@ def _should_emit(
     last_ts = last.get("timestamp")
     if last_value is None or last_ts is None:
         return True
-    if new_value == last_value:
+    epsilon = _VALUE_EPSILON.get(event_kind, 0.0)
+    if abs(new_value - last_value) <= epsilon:
         return False
-    if (new_ts - last_ts).total_seconds() < _MIN_INTERVAL_SECONDS:
-        return False
-    return True
+    return (new_ts - last_ts).total_seconds() >= _MIN_INTERVAL_SECONDS
 
 
 def _extract_loop_enacted_rate(ds: NightscoutDeviceStatus) -> float | None:
@@ -254,10 +265,21 @@ def extract_pump_events_from_devicestatuses(
     return rows
 
 
-async def fetch_initial_last_state(session, user_id: str) -> LastEmittedState:
+async def fetch_initial_last_state(
+    session, user_id: str, *, source: str
+) -> LastEmittedState:
     """Query the DB for the most recent BATTERY / RESERVOIR / BASAL
-    rows for this user, so a fresh sync's first devicestatus respects
-    the 1-min min-interval against any pre-existing rows.
+    rows for this user AND this NS connection's source string, so a
+    fresh sync's first devicestatus respects the 1-min min-interval
+    against any pre-existing rows.
+
+    Filters on `source` so a user running both a direct integration
+    (Tandem cloud writes BATTERY rows with `source = "tandem"`,
+    `ns_id IS NULL`) AND a Nightscout connection doesn't seed the
+    NS-side dedupe state from cross-source rows. Without this filter,
+    a Tandem row written 30s ago would suppress a legitimate NS-side
+    BATTERY row, and the value-change comparison would be against a
+    value the NS uploader never saw.
 
     Imported lazily by the translator to keep this module
     SQLAlchemy-free at the unit-test boundary -- the extractor proper
@@ -280,6 +302,7 @@ async def fetch_initial_last_state(session, user_id: str) -> LastEmittedState:
             select(PumpEvent.units, PumpEvent.event_timestamp)
             .where(
                 PumpEvent.user_id == user_id,
+                PumpEvent.source == source,
                 PumpEvent.event_type == et,
                 PumpEvent.event_timestamp >= cutoff,
             )

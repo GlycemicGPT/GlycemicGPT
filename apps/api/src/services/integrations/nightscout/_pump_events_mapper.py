@@ -338,6 +338,10 @@ def _map_combo_bolus(
             "duration_minutes": round(treatment.duration)
             if treatment.duration is not None
             else None,
+            # AAPS extended_emulated combo boluses can carry
+            # `automatic: true`; respect it so dashboard's "automated
+            # bolus" filter is honest. Mirrors `_map_bolus`.
+            "is_automated": treatment.automatic is True,
             "metadata_json": _build_metadata(treatment, extra=extras),
         }
     )

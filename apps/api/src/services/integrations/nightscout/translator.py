@@ -65,6 +65,7 @@ from typing import Any
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.logging_config import get_logger
 from src.models.device_status_snapshot import DeviceStatusSnapshot
 from src.models.glucose import GlucoseReading
 from src.models.nightscout_profile_snapshot import NightscoutProfileSnapshot
@@ -91,6 +92,15 @@ from src.services.integrations.nightscout.models import (
     NightscoutEntry,
     NightscoutProfile,
     NightscoutTreatment,
+)
+
+logger = get_logger(__name__)
+
+# Sentinel for `sorted()` on devicestatus batches when `created_at`
+# is missing -- avoids TypeError from comparing datetime with str ""
+# in Python 3. ISO-format string sorts before any real timestamp.
+_NULL_CREATED_AT_SENTINEL = (
+    datetime.min.replace(tzinfo=UTC).isoformat().replace("+00:00", "Z")
 )
 
 
@@ -296,23 +306,44 @@ async def translate_devicestatuses(
     skipped += len(snapshot_rows) - inserted
 
     # Promote pump telemetry to pump_events for dashboard widgets.
-    # Sort chronologically so the dedupe walk produces the right
-    # value-change decisions across the batch (NS doesn't guarantee
-    # response ordering).
+    # Best-effort: a failure here logs + swallows so the snapshots
+    # outcome (already computed above) is still returned. Sort
+    # chronologically so the dedupe walk produces the right
+    # value-change decisions across the batch -- NS doesn't
+    # guarantee response ordering. Sort by the wire string (also a
+    # str when present) and fall back to a low sentinel for missing
+    # timestamps; both paths produce a string so Python 3 doesn't
+    # raise TypeError on mixed-type comparison.
     parsed_sorted = sorted(
         parsed,
-        key=lambda ds: ds.created_at or "",
+        key=lambda ds: ds.created_at or _NULL_CREATED_AT_SENTINEL,
     )
-    last_state = await fetch_initial_last_state(session, user_id)
-    pump_event_rows = extract_pump_events_from_devicestatuses(
-        parsed_sorted,
-        user_id=user_id,
-        source=f"nightscout:{connection_id}",
-        last_state=last_state,
-        received_at=received,
-    )
-    if pump_event_rows:
-        await _upsert_pump_events(session, pump_event_rows)
+    source = f"nightscout:{connection_id}"
+    try:
+        last_state = await fetch_initial_last_state(session, user_id, source=source)
+        pump_event_rows = extract_pump_events_from_devicestatuses(
+            parsed_sorted,
+            user_id=user_id,
+            source=source,
+            last_state=last_state,
+            received_at=received,
+        )
+        if pump_event_rows:
+            # The (source, ns_id) partial unique index dedupes
+            # duplicates at the DB level via ON CONFLICT DO NOTHING,
+            # so a concurrent sync race (manual trigger + scheduler
+            # tick on the same connection both reading the same
+            # `last_state` snapshot) is caught at the storage layer;
+            # we don't need a row lock.
+            await _upsert_pump_events(session, pump_event_rows)
+    except Exception:
+        # The promotion is opportunistic: snapshots are the
+        # authoritative store and have already landed. Don't let a
+        # transient failure here mask the snapshot outcome.
+        logger.exception(
+            "nightscout_pump_events_promotion_failed",
+            extra={"user_id": user_id, "connection_id": connection_id},
+        )
 
     return TranslateOutcome(inserted=inserted, skipped=skipped, failed=failed)
 

@@ -23,6 +23,12 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+# Importing NightscoutSyncStatus eagerly registers the SQLAlchemy
+# mapper for NightscoutConnection, which `_base_event` and `_map_bolus`
+# need at construction time. Without this module-level import, running
+# the regression-class tests in isolation (e.g. via -k filters) raises
+# an InvalidRequestError because the mapper hasn't been configured.
+from src.models.nightscout_connection import NightscoutSyncStatus  # noqa: F401
 from src.models.pump_data import PumpEventType
 from src.services.integrations.nightscout._pump_status_extractor import (
     _MIN_INTERVAL_SECONDS,
@@ -389,7 +395,6 @@ class TestMealBolusMultiRowRegression:
     """
 
     def test_base_event_sets_is_automated(self):
-        from src.models.nightscout_connection import NightscoutSyncStatus  # noqa: F401
         from src.services.integrations.nightscout._pump_events_mapper import (
             _base_event,
         )
