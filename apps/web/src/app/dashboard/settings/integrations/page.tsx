@@ -28,8 +28,10 @@ import {
   deleteNightscoutConnection,
   testNightscoutConnection,
   syncNightscoutConnection,
+  patchNightscoutConnection,
   type IntegrationResponse,
   type NightscoutConnectionCreate,
+  type NightscoutConnectionUpdate,
   type NightscoutConnectionResponse,
 } from "@/lib/api";
 import { OfflineBanner } from "@/components/ui/offline-banner";
@@ -284,6 +286,32 @@ export default function IntegrationsPage() {
     }
   };
 
+  const handleUpdateNightscout = async (
+    connectionId: string,
+    patch: NightscoutConnectionUpdate
+  ) => {
+    try {
+      const result = await patchNightscoutConnection(connectionId, patch);
+      // Refetch so the canonical column value replaces any optimistic
+      // override the section component is holding.
+      try {
+        await refetchNightscoutConnections();
+      } catch {
+        // best-effort
+      }
+      return result;
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to update Nightscout connection"
+      );
+      // Re-raise: the section's interval picker rolls back the
+      // optimistic value when this throws.
+      throw err;
+    }
+  };
+
   const handleDisconnectTandem = async () => {
     setError(null);
     setSuccess(null);
@@ -406,6 +434,7 @@ export default function IntegrationsPage() {
           onDelete={handleDeleteNightscout}
           onTest={handleTestNightscout}
           onSync={handleSyncNightscout}
+          onUpdate={handleUpdateNightscout}
         />
       )}
 

@@ -2042,6 +2042,46 @@ export async function deleteNightscoutConnection(
   }
 }
 
+// PATCH body for `update_connection`. The backend re-tests the
+// connection ONLY when url / credential / auth_type / api_version
+// change (see apps/api/src/routers/nightscout.py:292). Sending only
+// `sync_interval_minutes` (the picker's payload) is a fast in-place
+// update with no network round-trip to the user's NS instance --
+// safe to fire on every chip click.
+export interface NightscoutConnectionUpdate {
+  name?: string;
+  base_url?: string;
+  auth_type?: NightscoutAuthType;
+  credential?: string;
+  api_version?: NightscoutApiVersion;
+  is_active?: boolean;
+  sync_interval_minutes?: number;
+  initial_sync_window_days?: number;
+}
+
+export async function patchNightscoutConnection(
+  connectionId: string,
+  body: NightscoutConnectionUpdate
+): Promise<NightscoutConnectionCreatedResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/nightscout/${encodeURIComponent(
+      connectionId
+    )}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to update Nightscout connection: ${response.status}`
+    );
+  }
+  return response.json();
+}
+
 // ============================================================================
 // Story 18.3: Tandem Cloud Upload
 // ============================================================================

@@ -19,11 +19,23 @@ import type {
   NightscoutApiVersion,
   NightscoutAuthType,
   NightscoutConnectionCreate,
+  NightscoutConnectionCreatedResponse,
   NightscoutConnectionResponse,
   NightscoutConnectionTestResult,
+  NightscoutConnectionUpdate,
   NightscoutManualSyncResponse,
   NightscoutSyncStatus,
 } from "@/lib/api";
+
+// Preset cadences. Below 5 min offers diminishing returns (NS
+// uploaders themselves typically push every 5 min); above 60 min is
+// the territory of "low-priority backup connection." Power users who
+// genuinely need a 7-min cadence can hit the API directly.
+const SYNC_INTERVAL_PRESETS_MINUTES = [1, 5, 15, 30, 60] as const;
+
+function formatInterval(minutes: number): string {
+  return minutes < 60 ? `${minutes}m` : `${minutes / 60}h`;
+}
 
 const SYNC_STATUS_LABEL: Record<NightscoutSyncStatus, string> = {
   never: "Pending",
@@ -78,6 +90,10 @@ interface NightscoutIntegrationsSectionProps {
   onDelete: (connectionId: string) => Promise<void>;
   onTest: (connectionId: string) => Promise<NightscoutConnectionTestResult>;
   onSync: (connectionId: string) => Promise<NightscoutManualSyncResponse>;
+  onUpdate: (
+    connectionId: string,
+    patch: NightscoutConnectionUpdate
+  ) => Promise<NightscoutConnectionCreatedResponse>;
 }
 
 export function NightscoutIntegrationsSection({
@@ -87,6 +103,7 @@ export function NightscoutIntegrationsSection({
   onDelete,
   onTest,
   onSync,
+  onUpdate,
 }: NightscoutIntegrationsSectionProps) {
   const [name, setName] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
@@ -101,7 +118,17 @@ export function NightscoutIntegrationsSection({
   const [testingIds, setTestingIds] = useState<Set<string>>(() => new Set());
   const [syncingIds, setSyncingIds] = useState<Set<string>>(() => new Set());
   const [deletingIds, setDeletingIds] = useState<Set<string>>(() => new Set());
+  const [updatingIds, setUpdatingIds] = useState<Set<string>>(() => new Set());
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  // Optimistic override of `sync_interval_minutes` per connection.
+  // Click reflects the chosen chip immediately; on PATCH success we
+  // clear the override (parent will refetch with the canonical value);
+  // on failure we clear the override + surface the error in the live
+  // region. Map keyed by connection id so cross-row clicks don't race.
+  const [intervalOverride, setIntervalOverride] = useState<
+    Record<string, number>
+  >({});
 
   // True when ANY action is in flight on this connection -- used to
   // disable the row's other action buttons too. Avoids "test while
@@ -109,7 +136,8 @@ export function NightscoutIntegrationsSection({
   const isBusy = (connectionId: string) =>
     testingIds.has(connectionId) ||
     syncingIds.has(connectionId) ||
-    deletingIds.has(connectionId);
+    deletingIds.has(connectionId) ||
+    updatingIds.has(connectionId);
 
   const addToSet =
     (setter: Dispatch<SetStateAction<Set<string>>>) => (id: string) =>
@@ -272,6 +300,48 @@ export function NightscoutIntegrationsSection({
     }
   };
 
+  const handleIntervalChange = async (
+    connectionId: string,
+    minutes: number
+  ) => {
+    // Optimistic: reflect chosen chip immediately so the click feels
+    // instant. Roll back if the PATCH fails.
+    setIntervalOverride((prev) => ({ ...prev, [connectionId]: minutes }));
+    addToSet(setUpdatingIds)(connectionId);
+    setPerConnectionResult((prev) => {
+      const { [connectionId]: _drop, ...rest } = prev;
+      return rest;
+    });
+    try {
+      await onUpdate(connectionId, { sync_interval_minutes: minutes });
+      // Parent refetches the list; canonical interval will replace the
+      // override on next render. Clear the override so the row falls
+      // back to the server-sourced value.
+      setIntervalOverride((prev) => {
+        const { [connectionId]: _drop, ...rest } = prev;
+        return rest;
+      });
+    } catch (err) {
+      // Roll back the optimistic value.
+      setIntervalOverride((prev) => {
+        const { [connectionId]: _drop, ...rest } = prev;
+        return rest;
+      });
+      setPerConnectionResult((prev) => ({
+        ...prev,
+        [connectionId]: {
+          ok: false,
+          message:
+            err instanceof Error
+              ? err.message
+              : "Failed to update sync interval",
+        },
+      }));
+    } finally {
+      removeFromSet(setUpdatingIds)(connectionId);
+    }
+  };
+
   return (
     <CollapsibleSection title="Third-Party Integrations" icon={Cloud}>
       <div className="space-y-4">
@@ -339,12 +409,59 @@ export function NightscoutIntegrationsSection({
                                 "never"
                               )}
                             </span>
-                            <span>Every {conn.sync_interval_minutes} min</span>
                             <span>
                               {conn.api_version === "auto"
                                 ? "Auto API"
                                 : `API ${conn.api_version}`}
                             </span>
+                          </div>
+
+                          <div className="mt-2 flex items-center gap-2 flex-wrap">
+                            <span
+                              className="text-xs text-slate-500 dark:text-slate-400"
+                              id={`ns-interval-label-${conn.id}`}
+                            >
+                              Sync every:
+                            </span>
+                            <div
+                              role="radiogroup"
+                              aria-labelledby={`ns-interval-label-${conn.id}`}
+                              className="flex gap-1 flex-wrap"
+                            >
+                              {SYNC_INTERVAL_PRESETS_MINUTES.map((m) => {
+                                const current =
+                                  intervalOverride[conn.id] ??
+                                  conn.sync_interval_minutes;
+                                const selected = current === m;
+                                const updating = updatingIds.has(conn.id);
+                                return (
+                                  <button
+                                    key={m}
+                                    type="button"
+                                    role="radio"
+                                    aria-checked={selected}
+                                    onClick={() =>
+                                      !selected &&
+                                      handleIntervalChange(conn.id, m)
+                                    }
+                                    disabled={isOffline || updating || selected}
+                                    data-testid={`nightscout-interval-${conn.id}-${m}`}
+                                    className={clsx(
+                                      "px-2 py-0.5 rounded-full text-xs font-medium transition-colors",
+                                      "border",
+                                      selected
+                                        ? "border-blue-500/50 bg-blue-500/10 text-blue-400"
+                                        : "border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800",
+                                      "disabled:cursor-not-allowed",
+                                      !selected &&
+                                        "disabled:opacity-50"
+                                    )}
+                                  >
+                                    {formatInterval(m)}
+                                  </button>
+                                );
+                              })}
+                            </div>
                           </div>
                           {conn.last_sync_error && (
                             <p
