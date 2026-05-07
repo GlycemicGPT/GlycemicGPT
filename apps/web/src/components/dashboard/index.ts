@@ -83,3 +83,5 @@ export {
   type BolusReviewTableProps,
 } from "./bolus-review-table";
 
+export { DataSourcesFreshnessCard } from "./data-sources-freshness-card";
+
