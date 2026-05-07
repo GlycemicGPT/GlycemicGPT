@@ -284,9 +284,17 @@ class PatientState:
 
         Returns True if a refill happened this tick (the lens may
         want to post a Site Change treatment).
+
+        On Omnipod (the modeled pump) each pod ships with its own
+        non-replaceable battery, so a pod swap restores both the
+        reservoir AND the battery to fresh. Without this reset, a
+        long-running emulator drains pump_battery_pct toward 0
+        across many simulated pod changes, which contradicts the
+        device-state story the lens is rendering.
         """
         if self.reservoir_u <= RESERVOIR_REFILL_THRESHOLD_U:
             self.reservoir_u = RESERVOIR_CAPACITY_U
+            self.pump_battery_pct = 100.0
             return True
         return False
 
