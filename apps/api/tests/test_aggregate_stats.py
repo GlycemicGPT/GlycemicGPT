@@ -798,6 +798,234 @@ class TestBolusReview:
 
 
 @pytest.mark.asyncio
+class TestInsulinSummarySourceAgnostic:
+    """Insulin Summary must render data from ANY integration that
+    writes to `pump_events`, not just Tandem / Mobile.
+
+    Pre-PR behavior (issue #574): a `_best_source` filter selected
+    one of `("mobile", "tandem")` and ignored Nightscout-sourced
+    rows entirely. Now that the filter is gone, an NS-only user
+    sees their boluses + basal in the widget like every other user.
+    """
+
+    async def test_only_nightscout_pump_events_rendered(self):
+        """User has zero Tandem/Mobile rows but full Nightscout
+        coverage -- the widget must populate."""
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie, user_id = await register_and_login(client)
+
+            # Per-test unique source so the partial unique index on
+            # `(source, ns_id) WHERE ns_id IS NOT NULL` (PR #572)
+            # doesn't conflict with leftover rows from prior test runs.
+            run_token = uuid.uuid4().hex[:12]
+            ns_source = f"nightscout:{uuid.uuid4()}"
+
+            async for db in get_db():
+                uid = uuid.UUID(user_id)
+                cutoff = _boundary_cutoff(days=7)
+
+                # 144 basal events (1/hr for 6 complete days), all NS
+                for h in range(144):
+                    ts = cutoff + timedelta(hours=h + 1)
+                    db.add(
+                        PumpEvent(
+                            user_id=uid,
+                            event_type=PumpEventType.BASAL,
+                            event_timestamp=ts,
+                            units=0.7,
+                            is_automated=True,
+                            received_at=ts,
+                            source=ns_source,
+                            ns_id=f"basal-{run_token}-{h}",
+                        )
+                    )
+                # 18 boluses (3/day * 6 days) at 4.0U each, all NS
+                for d in range(6):
+                    day_start = cutoff + timedelta(days=d)
+                    for meal_h in [8, 12, 18]:
+                        ts = day_start + timedelta(hours=meal_h)
+                        db.add(
+                            PumpEvent(
+                                user_id=uid,
+                                event_type=PumpEventType.BOLUS,
+                                event_timestamp=ts,
+                                units=4.0,
+                                is_automated=False,
+                                received_at=ts,
+                                source=ns_source,
+                                ns_id=f"bolus-{run_token}-{d}-{meal_h}",
+                            )
+                        )
+                await db.commit()
+                break
+
+            resp = await client.get(
+                "/api/integrations/insulin/summary?days=7",
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        # Pre-PR: this would all be 0 because _best_source filtered out
+        # the NS rows. Post-PR: the widget renders the real numbers.
+        assert data["bolus_count"] == 18, f"NS-only boluses didn't render: {data}"
+        assert data["basal_units"] > 0, f"NS-only basal didn't render: {data}"
+        assert data["tdd"] > 0
+
+    async def test_mixed_sources_both_contribute(self):
+        """User with both Tandem AND Nightscout boluses sees both."""
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie, user_id = await register_and_login(client)
+
+            run_token = uuid.uuid4().hex[:12]
+            ns_source = f"nightscout:{uuid.uuid4()}"
+
+            async for db in get_db():
+                uid = uuid.UUID(user_id)
+                cutoff = _boundary_cutoff(days=7)
+
+                # 1 Tandem bolus on day 0
+                db.add(
+                    PumpEvent(
+                        user_id=uid,
+                        event_type=PumpEventType.BOLUS,
+                        event_timestamp=cutoff + timedelta(days=0, hours=12),
+                        units=3.0,
+                        is_automated=False,
+                        received_at=cutoff + timedelta(days=0, hours=12),
+                        source="tandem",
+                    )
+                )
+                # 1 Nightscout bolus on day 1 (different timestamp -- not a
+                # cross-source duplicate, a separate delivery)
+                db.add(
+                    PumpEvent(
+                        user_id=uid,
+                        event_type=PumpEventType.BOLUS,
+                        event_timestamp=cutoff + timedelta(days=1, hours=12),
+                        units=2.0,
+                        is_automated=False,
+                        received_at=cutoff + timedelta(days=1, hours=12),
+                        source=ns_source,
+                        ns_id=f"ns-bolus-{run_token}",
+                    )
+                )
+                await db.commit()
+                break
+
+            resp = await client.get(
+                "/api/integrations/insulin/summary?days=7",
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        # Both deliveries counted: 2 bolus events, 5.0 U total bolus
+        assert data["bolus_count"] == 2
+
+    async def test_cross_source_duplicate_at_same_ts_units_deduped(self):
+        """Two sources reporting the SAME bolus (same timestamp + units)
+        get folded into one delivery by the GROUP BY in the bolus CTE.
+        This is the natural dedupe boundary for non-divergent reports."""
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie, user_id = await register_and_login(client)
+
+            run_token = uuid.uuid4().hex[:12]
+            ns_source = f"nightscout:{uuid.uuid4()}"
+
+            async for db in get_db():
+                uid = uuid.UUID(user_id)
+                cutoff = _boundary_cutoff(days=7)
+                ts = cutoff + timedelta(days=2, hours=12)
+                # Same delivery, two source rows
+                db.add(
+                    PumpEvent(
+                        user_id=uid,
+                        event_type=PumpEventType.BOLUS,
+                        event_timestamp=ts,
+                        units=4.0,
+                        is_automated=False,
+                        received_at=ts,
+                        source="tandem",
+                    )
+                )
+                db.add(
+                    PumpEvent(
+                        user_id=uid,
+                        event_type=PumpEventType.BOLUS,
+                        event_timestamp=ts,
+                        units=4.0,
+                        is_automated=False,
+                        received_at=ts,
+                        source=ns_source,
+                        ns_id=f"dup-bolus-{run_token}",
+                    )
+                )
+                await db.commit()
+                break
+
+            resp = await client.get(
+                "/api/integrations/insulin/summary?days=7",
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        # Same-ts + same-units across two sources = one delivery
+        # (the GROUP BY collapses them).
+        assert data["bolus_count"] == 1
+
+
+@pytest.mark.asyncio
+class TestBolusReviewSourceAgnostic:
+    """Recent Boluses table must render rows from any integration."""
+
+    async def test_only_nightscout_boluses_rendered(self):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie, user_id = await register_and_login(client)
+
+            run_token = uuid.uuid4().hex[:12]
+            ns_source = f"nightscout:{uuid.uuid4()}"
+
+            async for db in get_db():
+                uid = uuid.UUID(user_id)
+                cutoff = _boundary_cutoff(days=7)
+                # 5 NS boluses in window
+                for i in range(5):
+                    ts = cutoff + timedelta(days=i, hours=12)
+                    db.add(
+                        PumpEvent(
+                            user_id=uid,
+                            event_type=PumpEventType.BOLUS,
+                            event_timestamp=ts,
+                            units=3.0 + i * 0.1,
+                            is_automated=False,
+                            received_at=ts,
+                            source=ns_source,
+                            ns_id=f"bolus-{run_token}-{i}",
+                        )
+                    )
+                await db.commit()
+                break
+
+            resp = await client.get(
+                "/api/integrations/bolus/review?days=7&limit=10",
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        # Pre-PR: total_count would be 0 because _best_source filtered
+        # NS out. Post-PR: all 5 render.
+        assert data["total_count"] == 5
+        assert len(data["boluses"]) == 5
+
+
+@pytest.mark.asyncio
 class TestCrossUserIsolation:
     """Verify users cannot see each other's data across all endpoints."""
 
@@ -1113,10 +1341,22 @@ class TestTirDetail:
 
 @pytest.mark.asyncio
 class TestSourceFilteringAndDedup:
-    """Story 30.10: source filtering and bolus/correction dedup tests."""
+    """Bolus/correction dedup tests.
 
-    async def test_source_test_excluded(self):
-        """Events with source='test' should be excluded from insulin summary."""
+    Note: the original Story 30.10 source-priority filtering (mobile >
+    tandem; exclude 'test') was removed when widgets became
+    source-agnostic. The dedup CTE in the bolus query is what now
+    handles same-timestamp same-units cross-source duplicates; the
+    `source` column is treated as attribution metadata only.
+    """
+
+    async def test_arbitrary_source_strings_are_rendered(self):
+        """The widget renders rows regardless of source value.
+
+        Pre-PR: `source='test'` was excluded by `_best_source`'s
+        priority filter. Post-PR: `source` has no semantic meaning at
+        the read layer -- whatever's in pump_events renders.
+        """
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"
         ) as client:
@@ -1127,7 +1367,6 @@ class TestSourceFilteringAndDedup:
                 uid = uuid.UUID(user_id)
                 cutoff = _boundary_cutoff(days=1)
                 ts = cutoff + timedelta(hours=1)
-                # Insert bolus and basal with source='test' -- should be ignored
                 db.add(
                     PumpEvent(
                         user_id=uid,
@@ -1159,8 +1398,8 @@ class TestSourceFilteringAndDedup:
             )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["tdd"] == 0.0
-        assert data["bolus_count"] == 0
+        assert data["bolus_count"] == 1
+        assert data["tdd"] > 0
 
     async def test_bolus_correction_dedup(self):
         """Same delivery stored as both bolus and correction should be counted once."""
@@ -1212,8 +1451,19 @@ class TestSourceFilteringAndDedup:
         # correction_units is daily avg (3.0 / 1 day = 3.0)
         assert abs(data["correction_units"] - 3.0) < 0.5
 
-    async def test_cross_source_prefers_mobile(self):
-        """When both mobile and tandem have data, only mobile is aggregated."""
+    async def test_cross_source_distinct_timestamps_both_count(self):
+        """Two sources reporting bolus at DIFFERENT timestamps count as
+        separate deliveries.
+
+        The bolus CTE dedupes by `(event_timestamp, units)`. Two rows
+        with different timestamps don't share a group, so they
+        contribute two distinct deliveries. This is the right answer
+        for "two sources, two physically different boluses."
+
+        Cross-source duplicates AT THE SAME timestamp+units are
+        deduped naturally (covered by `test_bolus_correction_dedup`
+        and the source-agnostic dedupe test).
+        """
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"
         ) as client:
@@ -1223,7 +1473,6 @@ class TestSourceFilteringAndDedup:
                 now = datetime.now(UTC)
                 uid = uuid.UUID(user_id)
                 ts = _stable_test_ts(days=1)
-                # Mobile bolus
                 db.add(
                     PumpEvent(
                         user_id=uid,
@@ -1235,7 +1484,6 @@ class TestSourceFilteringAndDedup:
                         source="mobile",
                     )
                 )
-                # Tandem bolus at slightly different timestamp (cloud sync)
                 db.add(
                     PumpEvent(
                         user_id=uid,
@@ -1256,9 +1504,8 @@ class TestSourceFilteringAndDedup:
             )
         assert resp.status_code == 200
         data = resp.json()
-        # Only the mobile bolus (4.0 U) should be counted, not both
-        assert data["bolus_count"] == 1
-        assert abs(data["bolus_units"] - 4.0) < 0.5
+        # Different timestamps => two distinct deliveries.
+        assert data["bolus_count"] == 2
 
     async def test_tandem_fallback_when_no_mobile(self):
         """When only tandem data exists, it should be used for aggregation."""
@@ -1317,8 +1564,9 @@ class TestSourceFilteringAndDedup:
         assert data["bolus_count"] == 1
         assert data["basal_units"] > 0
 
-    async def test_bolus_review_excludes_test_source(self):
-        """Bolus review endpoint should exclude source='test' events."""
+    async def test_bolus_review_renders_all_sources(self):
+        """Bolus review renders rows from any source -- the table is
+        a literal projection of pump_events by event_type + window."""
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"
         ) as client:
@@ -1328,7 +1576,6 @@ class TestSourceFilteringAndDedup:
                 now = datetime.now(UTC)
                 uid = uuid.UUID(user_id)
                 ts = _stable_test_ts(days=1)
-                # One mobile bolus (should appear) and one test bolus (excluded)
                 db.add(
                     PumpEvent(
                         user_id=uid,
@@ -1360,7 +1607,6 @@ class TestSourceFilteringAndDedup:
             )
         assert resp.status_code == 200
         data = resp.json()
-        # Only the mobile bolus should appear
-        assert data["total_count"] == 1
-        assert len(data["boluses"]) == 1
-        assert abs(data["boluses"][0]["units"] - 3.0) < 0.01
+        # Both rows render -- source no longer filters at the read layer.
+        assert data["total_count"] == 2
+        assert len(data["boluses"]) == 2
