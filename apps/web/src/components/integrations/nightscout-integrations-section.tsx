@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
 import {
   Cloud,
   Link2,
@@ -26,21 +26,23 @@ import type {
 } from "@/lib/api";
 
 const SYNC_STATUS_LABEL: Record<NightscoutSyncStatus, string> = {
+  never: "Pending",
   ok: "Connected",
   error: "Error",
   auth_failed: "Auth Failed",
   rate_limited: "Rate Limited",
   network: "Network Error",
-  unknown: "Pending",
+  unreachable: "Unreachable",
 };
 
 const SYNC_STATUS_COLOR: Record<NightscoutSyncStatus, string> = {
+  never: "text-slate-500 bg-slate-500/10",
   ok: "text-green-400 bg-green-500/10",
   error: "text-red-400 bg-red-500/10",
   auth_failed: "text-red-400 bg-red-500/10",
   rate_limited: "text-amber-400 bg-amber-500/10",
   network: "text-amber-400 bg-amber-500/10",
-  unknown: "text-slate-500 bg-slate-500/10",
+  unreachable: "text-red-400 bg-red-500/10",
 };
 
 function SyncStatusBadge({ status }: { status: NightscoutSyncStatus }) {
@@ -94,10 +96,35 @@ export function NightscoutIntegrationsSection({
   const [apiVersion, setApiVersion] = useState<NightscoutApiVersion>("auto");
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
-  const [testingId, setTestingId] = useState<string | null>(null);
-  const [syncingId, setSyncingId] = useState<string | null>(null);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  // Per-connection busy state. Sets (not single IDs) so two concurrent
+  // actions on different connections don't clobber each other's spinners.
+  const [testingIds, setTestingIds] = useState<Set<string>>(() => new Set());
+  const [syncingIds, setSyncingIds] = useState<Set<string>>(() => new Set());
+  const [deletingIds, setDeletingIds] = useState<Set<string>>(() => new Set());
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  // True when ANY action is in flight on this connection -- used to
+  // disable the row's other action buttons too. Avoids "test while
+  // syncing" or "delete while testing" foot-guns.
+  const isBusy = (connectionId: string) =>
+    testingIds.has(connectionId) ||
+    syncingIds.has(connectionId) ||
+    deletingIds.has(connectionId);
+
+  const addToSet =
+    (setter: Dispatch<SetStateAction<Set<string>>>) => (id: string) =>
+      setter((prev) => {
+        const next = new Set(prev);
+        next.add(id);
+        return next;
+      });
+  const removeFromSet =
+    (setter: Dispatch<SetStateAction<Set<string>>>) => (id: string) =>
+      setter((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
   const [perConnectionResult, setPerConnectionResult] = useState<
     Record<string, { ok: boolean; message: string }>
   >({});
@@ -134,7 +161,7 @@ export function NightscoutIntegrationsSection({
   };
 
   const handleTest = async (connectionId: string) => {
-    setTestingId(connectionId);
+    addToSet(setTestingIds)(connectionId);
     setPerConnectionResult((prev) => {
       const { [connectionId]: _drop, ...rest } = prev;
       return rest;
@@ -159,12 +186,12 @@ export function NightscoutIntegrationsSection({
         },
       }));
     } finally {
-      setTestingId(null);
+      removeFromSet(setTestingIds)(connectionId);
     }
   };
 
   const handleSync = async (connectionId: string) => {
-    setSyncingId(connectionId);
+    addToSet(setSyncingIds)(connectionId);
     setPerConnectionResult((prev) => {
       const { [connectionId]: _drop, ...rest } = prev;
       return rest;
@@ -210,12 +237,12 @@ export function NightscoutIntegrationsSection({
         },
       }));
     } finally {
-      setSyncingId(null);
+      removeFromSet(setSyncingIds)(connectionId);
     }
   };
 
   const handleDelete = async (connectionId: string) => {
-    setDeletingId(connectionId);
+    addToSet(setDeletingIds)(connectionId);
     try {
       await onDelete(connectionId);
       // Drop any in-memory test result for the deleted connection so the
@@ -241,7 +268,7 @@ export function NightscoutIntegrationsSection({
         },
       }));
     } finally {
-      setDeletingId(null);
+      removeFromSet(setDeletingIds)(connectionId);
     }
   };
 
@@ -332,7 +359,7 @@ export function NightscoutIntegrationsSection({
                           <button
                             type="button"
                             onClick={() => handleSync(conn.id)}
-                            disabled={isOffline || syncingId === conn.id}
+                            disabled={isOffline || isBusy(conn.id)}
                             data-testid={`nightscout-sync-${conn.id}`}
                             className={clsx(
                               "px-3 py-1.5 rounded-lg text-xs font-medium",
@@ -342,7 +369,7 @@ export function NightscoutIntegrationsSection({
                               "transition-colors flex items-center gap-1"
                             )}
                           >
-                            {syncingId === conn.id ? (
+                            {syncingIds.has(conn.id) ? (
                               <Loader2 className="h-3 w-3 animate-spin" />
                             ) : (
                               <RefreshCw className="h-3 w-3" />
@@ -352,7 +379,7 @@ export function NightscoutIntegrationsSection({
                           <button
                             type="button"
                             onClick={() => handleTest(conn.id)}
-                            disabled={isOffline || testingId === conn.id}
+                            disabled={isOffline || isBusy(conn.id)}
                             data-testid={`nightscout-test-${conn.id}`}
                             className={clsx(
                               "px-3 py-1.5 rounded-lg text-xs font-medium",
@@ -363,7 +390,7 @@ export function NightscoutIntegrationsSection({
                               "transition-colors flex items-center gap-1"
                             )}
                           >
-                            {testingId === conn.id ? (
+                            {testingIds.has(conn.id) ? (
                               <Loader2 className="h-3 w-3 animate-spin" />
                             ) : (
                               <Link2 className="h-3 w-3" />
@@ -373,7 +400,7 @@ export function NightscoutIntegrationsSection({
                           <button
                             type="button"
                             onClick={() => setConfirmDeleteId(conn.id)}
-                            disabled={isOffline || deletingId === conn.id}
+                            disabled={isOffline || isBusy(conn.id)}
                             data-testid={`nightscout-delete-${conn.id}`}
                             className={clsx(
                               "px-3 py-1.5 rounded-lg text-xs font-medium",
@@ -383,7 +410,7 @@ export function NightscoutIntegrationsSection({
                               "transition-colors flex items-center gap-1"
                             )}
                           >
-                            {deletingId === conn.id ? (
+                            {deletingIds.has(conn.id) ? (
                               <Loader2 className="h-3 w-3 animate-spin" />
                             ) : (
                               <Unlink className="h-3 w-3" />
@@ -408,7 +435,7 @@ export function NightscoutIntegrationsSection({
                             <button
                               type="button"
                               onClick={() => handleDelete(conn.id)}
-                              disabled={deletingId === conn.id}
+                              disabled={deletingIds.has(conn.id)}
                               data-testid={`nightscout-confirm-delete-${conn.id}`}
                               className={clsx(
                                 "px-3 py-1.5 rounded-lg text-xs font-medium",
@@ -417,7 +444,7 @@ export function NightscoutIntegrationsSection({
                                 "transition-colors flex items-center gap-1"
                               )}
                             >
-                              {deletingId === conn.id ? (
+                              {deletingIds.has(conn.id) ? (
                                 <Loader2 className="h-3 w-3 animate-spin" />
                               ) : null}
                               Delete connection
@@ -425,7 +452,7 @@ export function NightscoutIntegrationsSection({
                             <button
                               type="button"
                               onClick={() => setConfirmDeleteId(null)}
-                              disabled={deletingId === conn.id}
+                              disabled={deletingIds.has(conn.id)}
                               className={clsx(
                                 "px-3 py-1.5 rounded-lg text-xs font-medium",
                                 "border border-slate-300 dark:border-slate-700",

@@ -93,11 +93,17 @@ jest.mock("@/lib/api", () => ({
   updateProfile: jest.fn().mockResolvedValue({}),
   changePassword: jest.fn().mockResolvedValue({}),
   // Integrations
-  listIntegrations: jest.fn().mockResolvedValue({ dexcom: { connected: false }, tandem: { connected: false } }),
+  listIntegrations: jest.fn().mockResolvedValue({ integrations: [] }),
   connectDexcom: jest.fn().mockResolvedValue({}),
   disconnectDexcom: jest.fn().mockResolvedValue(undefined),
   connectTandem: jest.fn().mockResolvedValue({}),
   disconnectTandem: jest.fn().mockResolvedValue(undefined),
+  // Nightscout (third-party integration -- new in PR #575)
+  listNightscoutConnections: jest.fn().mockResolvedValue({ connections: [] }),
+  createNightscoutConnection: jest.fn().mockResolvedValue({}),
+  testNightscoutConnection: jest.fn().mockResolvedValue({ ok: true }),
+  syncNightscoutConnection: jest.fn().mockResolvedValue({}),
+  deleteNightscoutConnection: jest.fn().mockResolvedValue(undefined),
   // Caregivers
   listLinkedCaregivers: jest.fn().mockResolvedValue({ caregivers: [] }),
   listCaregiverInvitations: jest.fn().mockResolvedValue({ invitations: [] }),

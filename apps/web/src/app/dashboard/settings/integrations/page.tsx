@@ -69,31 +69,47 @@ export default function IntegrationsPage() {
   }, [success]);
 
   const fetchIntegrations = useCallback(async () => {
-    try {
-      setError(null);
-      const [data, ns] = await Promise.all([
-        listIntegrations(),
-        listNightscoutConnections(),
-      ]);
+    setError(null);
+    // Settled so a Nightscout endpoint blip doesn't take down the
+    // Dexcom/Tandem sections (and vice versa). The "offline" banner
+    // only fires when BOTH calls fail (i.e. the API itself is
+    // unreachable), not when one section's endpoint 4xx/5xx's.
+    const [integrationsResult, nightscoutResult] = await Promise.allSettled([
+      listIntegrations(),
+      listNightscoutConnections(),
+    ]);
 
-      const dexcomInt = data.integrations.find(
-        (i) => i.integration_type === "dexcom"
+    if (integrationsResult.status === "fulfilled") {
+      const data = integrationsResult.value;
+      setDexcom(
+        data.integrations.find((i) => i.integration_type === "dexcom") || null
       );
-      const tandemInt = data.integrations.find(
-        (i) => i.integration_type === "tandem"
+      setTandem(
+        data.integrations.find((i) => i.integration_type === "tandem") || null
       );
-
-      setDexcom(dexcomInt || null);
-      setTandem(tandemInt || null);
-      setNightscoutConnections(ns.connections);
-      setIsOffline(false);
-    } catch (err) {
-      if (!(err instanceof Error && err.message.includes("401"))) {
-        setIsOffline(true);
-      }
-    } finally {
-      setIsLoading(false);
     }
+    if (nightscoutResult.status === "fulfilled") {
+      setNightscoutConnections(nightscoutResult.value.connections);
+    }
+
+    const integrationsFailed = integrationsResult.status === "rejected";
+    const nightscoutFailed = nightscoutResult.status === "rejected";
+    const isAuthError = (err: unknown) =>
+      err instanceof Error && err.message.includes("401");
+
+    if (
+      integrationsFailed &&
+      nightscoutFailed &&
+      !isAuthError(integrationsResult.reason) &&
+      !isAuthError(nightscoutResult.reason)
+    ) {
+      // Both endpoints failed -- API itself is unreachable.
+      setIsOffline(true);
+    } else {
+      setIsOffline(false);
+    }
+
+    setIsLoading(false);
   }, []);
 
   useEffect(() => {

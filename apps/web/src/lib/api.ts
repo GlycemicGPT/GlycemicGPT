@@ -1884,13 +1884,17 @@ export async function disconnectTandem(): Promise<void> {
 
 export type NightscoutAuthType = "auto" | "secret" | "token";
 export type NightscoutApiVersion = "auto" | "v1" | "v3";
+// Mirrors `apps/api/src/models/nightscout_connection.py::NightscoutSyncStatus`.
+// `never` is the default for a newly-created connection (no sync attempted
+// yet); `unreachable` is set after repeated failures pause polling.
 export type NightscoutSyncStatus =
+  | "never"
   | "ok"
   | "error"
   | "auth_failed"
   | "rate_limited"
   | "network"
-  | "unknown";
+  | "unreachable";
 
 export interface NightscoutConnectionResponse {
   id: string;
