@@ -92,8 +92,15 @@ class TestClampedInterval:
 async def scheduler_ctx() -> AsyncGenerator[tuple[AsyncSession, uuid.UUID], None]:
     """Provide a session + a user that owns several test connections.
 
-    Mirrors the pattern used by other Nightscout test files -- own
-    session_maker so cross-loop teardown noise stays cosmetic.
+    Cleanup uses a *fresh* session from the session_maker rather than
+    reusing the test's session: a poisoned session from a cross-loop
+    teardown would silently swallow the DELETEs otherwise, leaving
+    @example.com user rows + their connections accumulating in the
+    dev DB. Each leaked row then shows up in the scheduler's
+    discovery query on every tick, dilating wall-clock tick duration.
+    Cleanup failures here surface loudly via re-raise so future
+    leaks are caught at the source instead of masquerading as a
+    slow scheduler.
     """
     session_maker = get_session_maker()
     session = session_maker()
@@ -103,28 +110,28 @@ async def scheduler_ctx() -> AsyncGenerator[tuple[AsyncSession, uuid.UUID], None
     await session.flush()
     user_id = user.id
     await session.commit()
+
     try:
         yield session, user_id
     finally:
+        # Close the test's session first. A close-failure here is
+        # benign (it usually means the test's loop already shut down)
+        # so we swallow it. The DELETE/COMMIT path below uses a fresh
+        # session and is NOT swallowed -- a real cleanup failure must
+        # surface so future leaks don't silently accumulate.
         try:
-            await session.rollback()
-            await session.execute(
+            await session.close()
+        except Exception:
+            pass
+
+        async with session_maker() as cleanup:
+            await cleanup.execute(
                 delete(NightscoutConnection).where(
                     NightscoutConnection.user_id == user_id
                 )
             )
-            await session.execute(delete(User).where(User.id == user_id))
-            await session.commit()
-        except Exception:
-            # Broad catch on cleanup: a SQLAlchemy / asyncpg cross-loop
-            # error here would otherwise mask the real test failure.
-            # Cosmetic noise during teardown is the price.
-            pass
-        finally:
-            try:
-                await session.close()
-            except Exception:
-                pass
+            await cleanup.execute(delete(User).where(User.id == user_id))
+            await cleanup.commit()
 
 
 def _mk_connection(
@@ -314,6 +321,65 @@ class TestRunNightscoutSyncAllUsers:
             await run_nightscout_sync_all_users()
 
         assert synced_ok_for_test_user == {a_id, c_id}
+
+    @pytest.mark.asyncio
+    async def test_tick_budget_exceeded_cancels_in_flight_syncs(
+        self, scheduler_ctx, monkeypatch
+    ):
+        """Slow upstream cannot extend a tick past the wall budget.
+
+        APScheduler is configured `coalesce=True, max_instances=1`,
+        so a tick that runs longer than its base interval delays
+        every subsequent tick by the overrun. The budget cap
+        prevents a slow upstream from silently dilating the
+        scheduler.
+        """
+        import asyncio as _asyncio
+
+        from src.services.integrations.nightscout import scheduler as sched_mod
+
+        # 5s budget gives discovery + `_sync_one`'s refetch wide
+        # headroom on slow CI before fake_sync's sleep traps. The 6x
+        # gap to the 30s sleep ensures the budget fires comfortably
+        # mid-sleep.
+        monkeypatch.setattr(sched_mod, "_TICK_WALL_BUDGET_SECONDS", 5.0)
+
+        session, user_id = scheduler_ctx
+        slow = _mk_connection(user_id, name="slow-conn")
+        session.add(slow)
+        await session.commit()
+        slow_id = slow.id
+
+        entered_fake_sync = _asyncio.Event()
+        cancelled_for_test_user: list[uuid.UUID] = []
+        completed_for_test_user: list[uuid.UUID] = []
+
+        async def fake_sync(_session, conn):
+            if conn.user_id != user_id:
+                return _ok_result(conn.id)
+            entered_fake_sync.set()
+            try:
+                await _asyncio.sleep(30.0)  # well past the budget
+                completed_for_test_user.append(conn.id)
+                return _ok_result(conn.id)
+            except _asyncio.CancelledError:
+                cancelled_for_test_user.append(conn.id)
+                raise
+
+        with patch(
+            "src.services.integrations.nightscout.scheduler.sync_nightscout_for_connection",
+            side_effect=fake_sync,
+        ):
+            # Must NOT raise -- budget exceedance is logged + swallowed.
+            await run_nightscout_sync_all_users()
+
+        # If fake_sync was reached at all, the slow path must have been
+        # cancelled (never completed).
+        assert entered_fake_sync.is_set(), (
+            "fake_sync was never entered; widen the budget so the test exercises cancellation"
+        )
+        assert slow_id in cancelled_for_test_user
+        assert slow_id not in completed_for_test_user
 
     @pytest.mark.asyncio
     async def test_no_connections_for_test_user_means_no_call(self, scheduler_ctx):
