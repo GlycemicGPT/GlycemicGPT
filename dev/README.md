@@ -152,10 +152,12 @@ NS_DURATION_HOURS=6 \
   python3 dev/ns_emulator.py --platform loop
 ```
 
-NS-side timestamps are always wall-clock — never future-dated. So
-under high compression, entries arrive at unrealistic wall-clock
-cadence (every 5 wall-seconds at 60×) but each entry's `dateString`
-is `now`. Downstream readers see continuous past-stamped data.
+Each entry's `dateString` is the actual wall-clock instant when the
+emulator posted it. NS-side timestamps are never future-dated. So
+high compression only changes the cadence (many entries in quick
+succession — at 60× compression, one every 5 wall-seconds) without
+shifting their timestamps off real time. As wall-clock advances,
+those entries become "past" relative to whatever query reads them.
 
 ### Common tunables (env vars)
 
@@ -173,6 +175,21 @@ Per-lens tunables are documented inside each lens module.
 
 ### How to verify it actually drove your code
 
+#### One-time setup: connect the API container to the Nightscout network
+
+The local Nightscout test stack runs on its own Docker network
+(`nightscout_default`) and isn't reachable from inside the
+GlycemicGPT API container by default. Connect it once per dev box:
+
+```bash
+docker network connect nightscout_default glycemicgpt-api-1
+```
+
+This persists for the life of the API container — only re-run after
+you `docker compose down` + `up` the GlycemicGPT stack.
+
+#### Then drive the integration
+
 ```bash
 # 1. Bring up the GlycemicGPT stack
 docker compose up --build -d
@@ -180,8 +197,6 @@ docker compose up --build -d
 # 2. Sign in to the web app, go to Settings → Integrations
 # 3. Add a Nightscout connection:
 #      URL = http://glycemicgpt-test-nightscout:1337
-#      (the API container needs to be on the NS docker network -- one-time:
-#       docker network connect nightscout_default glycemicgpt-api-1)
 #      api-secret = same one you used for the emulator
 #      sync_interval = 1 min
 
