@@ -1809,9 +1809,6 @@ _MAX_BASAL_RATE = 15.0
 # and should not accumulate phantom insulin.
 _BASAL_MAX_GAP_HOURS = 2.0
 
-# Source priority for aggregation: mobile BLE > tandem cloud. Never use 'test'.
-_SOURCE_PRIORITY = ("mobile", "tandem")
-
 
 def _boundary_aligned_cutoff(
     days: int,
@@ -1852,37 +1849,6 @@ def _boundary_aligned_cutoff(
     # days=7 means "since 6 days before the effective boundary".
     # Convert back to UTC for DB queries.
     return (effective_boundary - timedelta(days=max(days - 1, 0))).astimezone(UTC)
-
-
-async def _best_source(
-    db: AsyncSession,
-    user_id: uuid.UUID,
-    cutoff: datetime,
-    event_types: list[PumpEventType],
-    now: datetime | None = None,
-) -> str | None:
-    """Return the highest-priority source that has data in the time window.
-
-    Uses a single query to fetch all sources present, then picks the best.
-    """
-    upper = now or datetime.now(UTC)
-    result = await db.execute(
-        select(PumpEvent.source)
-        .select_from(PumpEvent)
-        .where(
-            PumpEvent.user_id == user_id,
-            PumpEvent.event_timestamp >= cutoff,
-            PumpEvent.event_timestamp <= upper,
-            PumpEvent.source.in_(_SOURCE_PRIORITY),
-            PumpEvent.event_type.in_(event_types),
-        )
-        .distinct()
-    )
-    sources = {row[0] for row in result.all()}
-    for src in _SOURCE_PRIORITY:
-        if src in sources:
-            return src
-    return None
 
 
 def _compute_percentile(data: list[float], pct: float) -> float:
@@ -2144,19 +2110,17 @@ async def get_insulin_summary(
             raise HTTPException(status_code=422, detail=str(e)) from e
         period_days = days
 
-    # Determine best data source for bolus/correction events.
-    bolus_source = await _best_source(
-        db,
-        current_user.id,
-        cutoff,
-        [PumpEventType.BOLUS, PumpEventType.CORRECTION],
-        now=now,
-    )
-
-    # Bolus/correction: dedup CTE collapses mobile dual-creation records
-    # (same delivery stored as both 'bolus' and 'correction' at same timestamp).
-    # GROUP BY (event_timestamp, units) merges duplicates; bool_or picks
-    # the more specific 'correction' label when both exist.
+    # Bolus/correction: dedup CTE collapses dual-creation records
+    # (same delivery stored as both 'bolus' and 'correction' at the same
+    # timestamp+units). `GROUP BY (event_timestamp, units)` is the dedupe
+    # key; `bool_or(... = correction)` picks the more specific label
+    # when both exist for the same delivery. The grouping naturally
+    # handles cross-source duplicates too (e.g. one row from mobile BLE
+    # + one from Tandem cloud + one from Nightscout — same ts and units
+    # → merged into one delivery). No source filter, by design: this
+    # widget renders any bolus the canonical table holds, regardless of
+    # which integration wrote it. See issue #574 / source-agnostic-
+    # widgets discussion.
     _bolus_table = PumpEvent.__tablename__
     _bolus_val = PumpEventType.BOLUS.value
     _correction_val = PumpEventType.CORRECTION.value
@@ -2169,7 +2133,6 @@ async def get_insulin_summary(
             WHERE user_id = :user_id
               AND event_timestamp >= :cutoff AND event_timestamp <= :now
               AND event_type IN (:bolus_type, :correction_type)
-              AND source = :source
               AND units IS NOT NULL AND units >= 0 AND units <= :max_bolus
             GROUP BY event_timestamp, units
         )
@@ -2180,33 +2143,34 @@ async def get_insulin_summary(
         GROUP BY is_correction
     """
     )
-    if bolus_source is not None:
-        bolus_result = await db.execute(
-            bolus_query,
-            {
-                "user_id": str(current_user.id),
-                "cutoff": cutoff,
-                "now": now,
-                "bolus_type": _bolus_val,
-                "correction_type": _correction_val,
-                "source": bolus_source,
-                "max_bolus": float(_MAX_BOLUS_UNITS),
-            },
-        )
-        bolus_rows = bolus_result.all()
-    else:
-        bolus_rows = []
-
-    # Determine best data source for basal events (independent of bolus source).
-    basal_source = await _best_source(
-        db, current_user.id, cutoff, [PumpEventType.BASAL], now=now
+    bolus_result = await db.execute(
+        bolus_query,
+        {
+            "user_id": str(current_user.id),
+            "cutoff": cutoff,
+            "now": now,
+            "bolus_type": _bolus_val,
+            "correction_type": _correction_val,
+            "max_bolus": float(_MAX_BOLUS_UNITS),
+        },
     )
+    bolus_rows = bolus_result.all()
 
-    # Basal: time-weighted rate integration using SQL LEAD() window function.
-    # Each basal record stores units = rate in U/hr (not delivered amount).
-    # We compute actual delivery as rate * time_until_next_record, capped at
-    # _BASAL_MAX_GAP_HOURS to handle pump disconnections/gaps.
-    # Uses PostgreSQL EXTRACT(EPOCH) and LEAST() -- not portable to SQLite.
+    # Basal: time-weighted rate integration using SQL LEAD() window
+    # function. Each basal record stores units = rate in U/hr (not
+    # delivered amount). Actual delivery = rate * time_until_next_record,
+    # capped at _BASAL_MAX_GAP_HOURS to handle pump disconnections/gaps.
+    # Uses PostgreSQL EXTRACT(EPOCH) and LEAST() -- not portable to
+    # SQLite.
+    #
+    # No source filter: any integration that writes basal-rate-change
+    # events to the canonical table contributes. Cross-source overlap
+    # (rare in practice -- a user with both Tandem cloud and Loop-via-
+    # NS reporting the same pump) produces same-timestamp rows that the
+    # LEAD ordering folds into zero-duration intervals, so the
+    # integrated total is approximately correct without explicit
+    # row-level dedupe. A precise dedupe scheme would land at write
+    # time, not in this read query.
     _table = PumpEvent.__tablename__
     _basal_val = PumpEventType.BASAL.value
     basal_query = text(  # nosemgrep: avoid-sqlalchemy-text
@@ -2216,7 +2180,6 @@ async def get_insulin_summary(
             FROM {_table}
             WHERE user_id = :user_id
               AND event_type = :event_type
-              AND source = :source
               AND units IS NOT NULL
               AND units >= 0
               AND units <= :max_rate
@@ -2229,7 +2192,6 @@ async def get_insulin_summary(
             FROM {_table}
             WHERE user_id = :user_id
               AND event_type = :event_type
-              AND source = :source
               AND units IS NOT NULL
               AND units >= 0
               AND units <= :max_rate
@@ -2262,22 +2224,18 @@ async def get_insulin_summary(
             > GREATEST(event_timestamp, :cutoff)
     """
     )
-    if basal_source is not None:
-        basal_result = await db.execute(
-            basal_query,
-            {
-                "user_id": str(current_user.id),
-                "cutoff": cutoff,
-                "now": now,
-                "event_type": _basal_val,
-                "source": basal_source,
-                "max_rate": float(_MAX_BASAL_RATE),
-                "max_gap": float(_BASAL_MAX_GAP_HOURS),
-            },
-        )
-        basal_units = float(basal_result.scalar() or 0.0)
-    else:
-        basal_units = 0.0
+    basal_result = await db.execute(
+        basal_query,
+        {
+            "user_id": str(current_user.id),
+            "cutoff": cutoff,
+            "now": now,
+            "event_type": _basal_val,
+            "max_rate": float(_MAX_BASAL_RATE),
+            "max_gap": float(_BASAL_MAX_GAP_HOURS),
+        },
+    )
+    basal_units = float(basal_result.scalar() or 0.0)
 
     bolus_units = 0.0
     correction_units = 0.0
@@ -2373,58 +2331,36 @@ async def get_bolus_review(
             raise HTTPException(status_code=422, detail=str(e)) from e
         period_days = days
 
-    # Determine best source to avoid cross-source duplicates.
-    review_source = await _best_source(
-        db,
-        current_user.id,
-        cutoff,
-        [PumpEventType.BOLUS, PumpEventType.CORRECTION],
-        now=now,
-    )
-
-    if review_source is None:
-        return BolusReviewResponse(
-            boluses=[], total_count=0, period_days=max(1, round(period_days))
-        )
+    # No source filter: render any bolus / correction in the time
+    # window regardless of which integration wrote it (Tandem direct,
+    # mobile BLE, Nightscout-relayed Loop / AAPS / OmniPod, future
+    # Tidepool, etc.). Cross-source duplicate suppression at the row
+    # level is its own piece of work (write-time content-hash dedupe);
+    # for the table view, displaying both rows with their distinct
+    # source labels is an acceptable interim. See issue #574.
+    bolus_filter = [
+        PumpEvent.user_id == current_user.id,
+        PumpEvent.event_timestamp >= cutoff,
+        PumpEvent.event_timestamp <= now,
+        PumpEvent.units.is_not(None),
+        PumpEvent.units >= 0,
+        PumpEvent.units <= _MAX_BOLUS_UNITS,
+        PumpEvent.event_type.in_(
+            [
+                PumpEventType.BOLUS,
+                PumpEventType.CORRECTION,
+            ]
+        ),
+    ]
 
     # Count total
-    count_result = await db.execute(
-        select(func.count()).where(
-            PumpEvent.user_id == current_user.id,
-            PumpEvent.event_timestamp >= cutoff,
-            PumpEvent.event_timestamp <= now,
-            PumpEvent.units.is_not(None),
-            PumpEvent.units >= 0,
-            PumpEvent.units <= _MAX_BOLUS_UNITS,
-            PumpEvent.event_type.in_(
-                [
-                    PumpEventType.BOLUS,
-                    PumpEventType.CORRECTION,
-                ]
-            ),
-            PumpEvent.source == review_source,
-        )
-    )
+    count_result = await db.execute(select(func.count()).where(*bolus_filter))
     total = count_result.scalar() or 0
 
     # Fetch page
     result = await db.execute(
         select(PumpEvent)
-        .where(
-            PumpEvent.user_id == current_user.id,
-            PumpEvent.event_timestamp >= cutoff,
-            PumpEvent.event_timestamp <= now,
-            PumpEvent.units.is_not(None),
-            PumpEvent.units >= 0,
-            PumpEvent.units <= _MAX_BOLUS_UNITS,
-            PumpEvent.event_type.in_(
-                [
-                    PumpEventType.BOLUS,
-                    PumpEventType.CORRECTION,
-                ]
-            ),
-            PumpEvent.source == review_source,
-        )
+        .where(*bolus_filter)
         .order_by(PumpEvent.event_timestamp.desc(), PumpEvent.id.desc())
         .offset(offset)
         .limit(limit)
