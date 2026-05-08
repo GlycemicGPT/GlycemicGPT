@@ -22,9 +22,10 @@ Currently shipped lenses:
   - aaps_v1 : AndroidAPS NSClient legacy (NS API v1, SHA-1 secret)
   - aaps_v3 : AndroidAPS NSClientV3 (NS API v3, JWT subject)
   - trio    : Trio (iOS oref-derived, NS API v1, SHA-1 secret)
+  - oref0   : OpenAPS oref0 (Raspberry Pi, the original oref impl)
 
 Planned (each its own PR -- see dev/README.md for status):
-  - oref0, iaps, xdrip_plus, xdrip4ios, librelink_up, share2ns,
+  - iaps, xdrip_plus, xdrip4ios, librelink_up, share2ns,
     tconnectsync, manual
 
 Each lens is anchored to its source-of-truth document in the
@@ -225,6 +226,15 @@ class PatientState:
         self.sim_time = starting_sim_time
         self.sim_minute = 0.0
         self.boluses: list[_Bolus] = []
+        # Running sum of all delivered insulin since simulation start
+        # (units). The `boluses` list above only retains DIA-active
+        # entries (advance_5_min prunes them after ~4h), so summing
+        # `b.units for b in boluses` undercounts cumulative delivery
+        # on long soak runs -- which broke the lens's running-TDD
+        # estimate. This running total is monotonically increasing
+        # for the life of the PatientState; pruning DIA-expired
+        # entries from `boluses` does not affect it.
+        self.total_bolus_units_delivered: float = 0.0
         self.carb_events: list[_CarbEvent] = []
         self.last_correction_min: float = -math.inf
         # Wall-clock instant of the most recent bolus delivery (any
@@ -279,6 +289,7 @@ class PatientState:
         if units <= 0:
             return
         self.boluses.append(_Bolus(units, self.sim_minute))
+        self.total_bolus_units_delivered += units
         self.reservoir_u = max(0.0, self.reservoir_u - units)
         if at is not None:
             self.last_bolus_at = at
@@ -2214,7 +2225,7 @@ class TrioLens(Lens):
         # rough magnitude check ("does this user dose ~30U/day or
         # ~70U/day?"). Hours elapsed in sim-time, not wall-time.
         sim_hours_elapsed = max(state.sim_minute / 60.0, 1.0 / 60.0)
-        bolus_total = sum(b.units for b in state.boluses)
+        bolus_total = state.total_bolus_units_delivered
         tdd_estimate = bolus_total + SCHEDULED_BASAL_U_HR * sim_hours_elapsed
 
         # Trio Determination JSON uses CAPITAL keys (IOB / COB /
@@ -2497,6 +2508,531 @@ class TrioLens(Lens):
 
 
 # ---------------------------------------------------------------------------
+# oref0 lens (the original OpenAPS, Raspberry Pi command-line)
+# ---------------------------------------------------------------------------
+#
+# oref0 is the reference implementation that AAPS, iAPS, FreeAPS X, and
+# Trio all forked from. It runs on a Raspberry Pi as a Linux command-line
+# system (NOT iOS, NOT Android) and uploads to Nightscout via a shell
+# script (`bin/oref0-ns-loop.sh`) that calls into Node helpers
+# (`bin/ns-status.js`).
+#
+# oref0 is the SIMPLEST oref-family wire format. Its descendants added
+# fields; oref0 itself emits the bare original shape:
+#
+# - **Identity**: TWO different URI shapes on the same upload pipeline:
+#   * devicestatus: `device: "openaps://" + os.hostname()` -- scheme
+#     and hostname only, no path component. Per upstream
+#     `bin/ns-status.js`.
+#   * treatments: `enteredBy: "openaps://medtronic/<model>"` -- adds
+#     a `/<model>` path component. Per upstream
+#     `bin/mm-format-ns-treatments.sh`. The reference repo's claim
+#     of bare `"openaps"` enteredBy turned out to be stale; upstream's
+#     algorithm-driven pipeline uses the URI form. Care Portal manual
+#     entries on real oref0 boxes can have blank or bare `"openaps"`,
+#     but the Nightscout-via-pump-history pipeline (which is what
+#     this lens models) uses the URI form.
+#   * Note: the GlycemicGPT translator's `parse_openaps_uri` requires
+#     a non-empty path component to classify as oref0; the bare
+#     `openaps://hostname` form (no path) gets classified as `aaps`.
+#     Real oref0 deployments hit this same translator-side limitation
+#     in production. No functional impact since no code paths branch
+#     on `uploader == "oref0"`.
+#
+# - **No client-side dedupe**: no `id` UUID, no `pumpId` / `pumpType` /
+#   `pumpSerial` triple. Relies entirely on Nightscout's server-side
+#   `_id` allocation and `created_at + eventType`-based dedupe at the
+#   API layer.
+#
+# - **Bolus eventType preserves the Meal/Correction distinction**:
+#   `"Meal Bolus"`, `"Correction Bolus"`, and `"SMB"` are all distinct
+#   on the wire (Trio collapsed Meal/Correction into a generic `"Bolus"`
+#   on its upload code path; oref0 keeps them separate).
+#
+# - **Carb / FPU support is glucose-only**: no `fat` / `protein` macros
+#   on Carb Correction records — that's a Trio (FPU) extension. oref0
+#   ships only `carbs`.
+#
+# - **`pump` subtree is leaner than Trio's**: `clock`, `battery`,
+#   `reservoir`, `status` only. No `bolusIncrement` (Trio-specific).
+#   Battery may be either an int or an object depending on pump driver.
+#
+# - **`uploader` shape defaults to AAPS-style top-level int**: in
+#   `bin/ns-status.js`, when the uploader_input is a number, it
+#   serializes as `{ battery: <int> }` nested OR as a top-level
+#   `uploaderBattery` field depending on the helper invocation. We
+#   emit the top-level int (most-common in real oref0 deployments).
+#
+# - **Determination JSON capitalization** matches the oref-family
+#   convention: `IOB`, `COB`, `ISF`, `CR`, `TDD`, `predBGs.{IOB,COB,
+#   UAM,ZT}` all CAPITAL. `received` (correctly spelled, lowercase)
+#   in `enacted`.
+#
+# - **No iOS-specific profile fields**: no `bundleIdentifier`, no
+#   `deviceToken`, no `isAPNSProduction`, no `teamID`, no
+#   `overridePresets`. Just the standard NS profile shape (defaultProfile,
+#   store, startDate, mills, units).
+#
+# Source-of-truth files cross-checked:
+#   - `mapping/oref0/data-models.md` (treatment + devicestatus shapes)
+#   - upstream `openaps/oref0:bin/ns-status.js` (devicestatus payload)
+#   - upstream `openaps/oref0:lib/bolus.js` (eventType assignment)
+#   - upstream `openaps/oref0:examples/suggested.json` (Determination shape)
+#   - upstream `openaps/oref0:bin/oref0-ns-loop.sh` (carb upload flow)
+
+
+OREF0_VERSION = "0.7.0"
+# Default hostname is fixed (`"openaps-emulator"`) so devicestatus
+# records are run-to-run reproducible: under a fixed `NS_RANDOM_SEED`
+# every `device` field is identical, which makes diffs between
+# emulator runs review-friendly. Real oref0 boxes use
+# `socket.gethostname()`. Set `NS_OREF0_HOSTNAME` to override (e.g.,
+# to your actual Pi's hostname when stress-testing the translator's
+# `parse_openaps_uri` heuristic against varied real-world inputs).
+OREF0_HOSTNAME = os.environ.get("NS_OREF0_HOSTNAME", "openaps-emulator")
+# `device` on devicestatus: `"openaps://<hostname>"` -- scheme and
+# hostname only, NO path component. Per upstream
+# `openaps/oref0:bin/ns-status.js`:
+#   `device: 'openaps://' + os.hostname(),`
+# Note: the GlycemicGPT translator's `detect_uploader` (in
+# `apps/api/src/services/integrations/nightscout/models.py`) requires
+# a non-empty path component to classify as oref0; the bare
+# `openaps://hostname` form (no path) gets classified as `aaps`. Real
+# oref0 deployments hit this same misclassification in production.
+# That's a translator-side limitation, not a lens defect -- per the
+# repo rule, upstream wins. Treatments separately use the
+# `openaps://<driver>/<model>` form below, which DOES classify
+# correctly.
+OREF0_DEVICE_LABEL = f"openaps://{OREF0_HOSTNAME}"
+# `enteredBy` on treatments uses the URI form
+# `"openaps://<pump-driver>/<model>"` (scheme + hostname + a
+# `/<model>` path component), per upstream
+# `openaps/oref0:bin/mm-format-ns-treatments.sh`:
+#   `.enteredBy = "openaps://medtronic/'$model'"`
+# Modeled patient runs an older Medtronic 722 (a popular oref0 box;
+# pre-encryption Medtronic + Carelink stick = canonical oref0 setup
+# from 2015-2018). The translator parses this form to
+# `(host="medtronic", ref="722")` and classifies as oref0 correctly.
+# Note: Care Portal manual entries on real oref0 boxes would have
+# blank or `"openaps"` literal `enteredBy`; this lens uses only the
+# URI form for consistency.
+OREF0_PUMP_DRIVER = "medtronic"
+OREF0_PUMP_MODEL = "722"
+OREF0_ENTERED_BY = f"openaps://{OREF0_PUMP_DRIVER}/{OREF0_PUMP_MODEL}"
+
+
+class Oref0Lens(Lens):
+    """oref0 (original OpenAPS) lens. See architecture comment block
+    above for the full vs-Trio / vs-AAPS wire-format diff."""
+
+    name = "oref0"
+
+    def __init__(
+        self, base_url: str, api_secret: str, device_label: str | None = None
+    ) -> None:
+        super().__init__(base_url, api_secret, device_label)
+        # Once-per-sim-day Temp Target (oref0 reads NS-side TempTargets
+        # on every loop tick to influence its target_bg in
+        # determine-basal). Real oref0 users set Temporary Targets via
+        # the Nightscout Care Portal during exercise / sleep / sick days.
+        self._last_temp_target_date: str | None = None
+        # 80/20 SMB-vs-manual correction split, seed-aware.
+        seed_env = os.environ.get("NS_RANDOM_SEED")
+        try:
+            self._rng = (
+                random.Random(int(seed_env)) if seed_env else random.Random()
+            )
+        except ValueError:
+            self._rng = random.Random()
+
+    @classmethod
+    def default_device_label(cls) -> str:
+        return OREF0_DEVICE_LABEL
+
+    # ---- profile --------------------------------------------------------
+
+    def ensure_profile(self) -> None:
+        """oref0 profile is the bare standard NS profile shape -- no
+        iOS-specific fields like Trio's bundleIdentifier / deviceToken /
+        teamID / overridePresets, and no AAPS-specific keys. Real
+        oref0 users typically set their profile via Nightscout's web
+        UI or via `oref0-set-up-ns-profile`; the upload itself is
+        the same standard shape."""
+        try:
+            existing = http_get(
+                self.base_url, "/api/v1/profile.json", self._auth_headers
+            )
+            if existing:
+                return
+        except urllib.error.HTTPError:
+            pass
+
+        now_iso = iso_z(datetime.datetime.now(datetime.UTC))
+        profile_name = "openaps"
+        payload = {
+            "defaultProfile": profile_name,
+            "store": {
+                profile_name: {
+                    "dia": str(DIA_MINUTES // 60),
+                    "carbratio": [{"time": "00:00", "value": ICR_GRAMS_PER_UNIT}],
+                    "sens": [{"time": "00:00", "value": ISF_MGDL_PER_UNIT}],
+                    "basal": [{"time": "00:00", "value": SCHEDULED_BASAL_U_HR}],
+                    "target_low": [{"time": "00:00", "value": TARGET_BG_MGDL - 10}],
+                    "target_high": [{"time": "00:00", "value": TARGET_BG_MGDL + 10}],
+                    "carbs_hr": "20",
+                    "delay": "20",
+                    "timezone": "UTC",
+                    "units": "mg/dl",
+                }
+            },
+            "startDate": now_iso,
+            "mills": int(time.time() * 1000),
+            "units": "mg/dl",
+            "enteredBy": OREF0_ENTERED_BY,
+        }
+        http_post(
+            self.base_url, "/api/v1/profile.json", self._auth_headers, [payload]
+        )
+
+    # ---- per-tick hook --------------------------------------------------
+
+    def on_tick_start(
+        self, state: PatientState, posted_at: datetime.datetime
+    ) -> None:
+        """oref0's main loop runs determine-basal every 5 sim-min via
+        cron / oref0-ns-loop.sh, choosing a new temp basal each cycle.
+        Once per sim-day we also fire a Temporary Target -- real
+        oref0 users set TempTargets via the Nightscout Care Portal
+        during exercise / sleep / sick days, and oref0 reads them on
+        the next loop cycle to bias its target."""
+        rate = loop_temp_basal_decision(state)
+        state.set_temp_basal(rate, LOOP_TEMP_BASAL_DURATION_MIN)
+
+        date_iso = state.sim_time.date().isoformat()
+        hour = state.sim_time.hour
+        if 6 <= hour < 7 and self._last_temp_target_date != date_iso:
+            self._last_temp_target_date = date_iso
+            try:
+                self._post_temp_target(
+                    posted_at, target_mgdl=140, duration_min=60
+                )
+            except Exception as exc:  # noqa: BLE001 - keep loop running
+                print(
+                    f"[emu] oref0 temp_target post failed: {exc}", flush=True
+                )
+
+    # ---- entries --------------------------------------------------------
+
+    def post_entry(
+        self,
+        state: PatientState,
+        prev_bg: float,
+        posted_at: datetime.datetime,
+    ) -> None:
+        # oref0 entries: minimal sgv shape, `device` carries the full
+        # `openaps://hostname` form. No `app` field; oref0 doesn't
+        # set one.
+        payload = [
+            {
+                "type": "sgv",
+                "sgv": int(round(state.bg)),
+                "direction": direction_for(prev_bg, state.bg),
+                "date": int(posted_at.timestamp() * 1000),
+                "dateString": iso_z(posted_at),
+                "device": self.device_label,
+            }
+        ]
+        http_post(
+            self.base_url, "/api/v1/entries.json", self._auth_headers, payload
+        )
+
+    # ---- devicestatus ---------------------------------------------------
+
+    def _build_predbgs(self, state: PatientState) -> dict[str, list[int]]:
+        """oref-style predBGs (4 arrays at 5-min steps, 30-min horizon).
+        Same convention as the descendants -- oref0 was the original
+        emitter of this shape."""
+        base = state.predict_glucose(horizon_min=30)
+        return {
+            "IOB": base,
+            "COB": [int(min(BG_CEIL, v + max(0, state.cob * 0.4))) for v in base],
+            "UAM": [
+                int(min(BG_CEIL, v + max(5, state.cob * 0.5))) for v in base
+            ],
+            "ZT": [int(min(BG_CEIL, v + max(0, state.iob * 5))) for v in base],
+        }
+
+    def post_devicestatus(
+        self, state: PatientState, posted_at: datetime.datetime
+    ) -> None:
+        ts = iso_z(posted_at)
+        iob_subtree = {
+            "iob": round(state.iob, 3),
+            "basaliob": round(state.iob * 0.4, 3),
+            "bolussnooze": 0.0,
+            "activity": round(state.iob * 0.0008, 6),
+            "time": ts,
+        }
+        predicted = self._build_predbgs(state)
+        eventual_bg = (
+            predicted["IOB"][-1] if predicted["IOB"] else int(round(state.bg))
+        )
+        sim_hours_elapsed = max(state.sim_minute / 60.0, 1.0 / 60.0)
+        bolus_total = state.total_bolus_units_delivered
+        tdd_estimate = bolus_total + SCHEDULED_BASAL_U_HR * sim_hours_elapsed
+
+        cob_r = round(state.cob, 1)
+        iob_r = round(state.iob, 2)
+        target_i = int(TARGET_BG_MGDL)
+        rate_r = state.temp_basal_rate_u_hr
+        # Determination uses CAPITAL keys -- the canonical oref-wire
+        # convention. AAPS and Trio inherited this from oref0.
+        determination = {
+            "reason": (
+                f"COB: {cob_r}, IOB: {iob_r}, ISF: {ISF_MGDL_PER_UNIT}, "
+                f"CR: {ICR_GRAMS_PER_UNIT}, Target: {target_i}, "
+                f"eventualBG: {eventual_bg}, rate: {rate_r}"
+            ),
+            "temp": "absolute",
+            "bg": int(round(state.bg)),
+            "eventualBG": eventual_bg,
+            "insulinReq": 0.0,
+            "sensitivityRatio": 1.0,
+            "rate": state.temp_basal_rate_u_hr,
+            "duration": LOOP_TEMP_BASAL_DURATION_MIN,
+            "predBGs": predicted,
+            "IOB": round(state.iob, 3),
+            "COB": round(state.cob, 1),
+            "ISF": ISF_MGDL_PER_UNIT,
+            "CR": ICR_GRAMS_PER_UNIT,
+            "TDD": round(tdd_estimate, 2),
+            "deliverAt": ts,
+            "reservoir": round(state.reservoir_u, 1),
+            "current_target": int(TARGET_BG_MGDL),
+            "current_basal": SCHEDULED_BASAL_U_HR,
+            "timestamp": ts,
+        }
+        # `enacted` mirrors `suggested` plus `received: true`. Same
+        # spelling oref0's `bin/ns-status.js` uses (correctly spelled,
+        # lowercase) -- the descendants inherit this.
+        enacted = {**determination, "received": True}
+
+        # oref0's pump subtree is LEAN: no bolusIncrement (Trio-specific),
+        # no AAPS configuration block, no Loop pumpManagerStatus. Just
+        # the four fields the original `bin/ns-status.js` writes.
+        pump_subtree = {
+            "clock": ts,
+            "battery": {"percent": int(state.pump_battery_pct)},
+            "reservoir": round(state.reservoir_u, 1),
+            "status": {"status": "normal", "suspended": state.pump_suspended},
+        }
+
+        # oref0 emits `uploaderBattery` as a TOP-LEVEL int (AAPS-style),
+        # NOT a nested `uploader: {...}` object (Loop / Trio-style).
+        # Per `bin/ns-status.js#L52-L61`: when uploader_input is a
+        # plain number, it's stored as the top-level field. Real
+        # oref0 boxes default to this since they read the Pi's battery
+        # as a single integer percentage.
+        payload = [
+            {
+                "device": self.device_label,
+                "created_at": ts,
+                "uploaderBattery": int(state.phone_battery_pct),
+                "openaps": {
+                    "iob": iob_subtree,
+                    "suggested": determination,
+                    "enacted": enacted,
+                    "version": OREF0_VERSION,
+                },
+                "pump": pump_subtree,
+            }
+        ]
+        http_post(
+            self.base_url,
+            "/api/v1/devicestatus.json",
+            self._auth_headers,
+            payload,
+        )
+
+    # ---- treatments -----------------------------------------------------
+
+    def post_meal_bolus(
+        self,
+        state: PatientState,
+        carbs_g: float,
+        bolus_u: float,
+        posted_at: datetime.datetime,
+    ) -> None:
+        """oref0 uploads meals as TWO separate treatments at the same
+        `created_at`: one `Carb Correction` (carbs only) and one
+        `Meal Bolus` (insulin only). The pump-history bridge plus
+        Care Portal carb-entry flow naturally splits them; oref0
+        doesn't have a `Meal Bolus` shape with bundled carbs.
+
+        Crucially, oref0 PRESERVES the eventType distinction Trio
+        dropped: a non-SMB user-administered bolus that covered a
+        meal is `"Meal Bolus"` (not generic `"Bolus"`). The
+        translator's `_pump_events_mapper` handles `Meal Bolus` →
+        bolus pump_event with the correct semantic kind.
+        """
+        created_at = iso_z(posted_at)
+        carb_payload = [
+            {
+                "eventType": "Carb Correction",
+                "created_at": created_at,
+                "enteredBy": OREF0_ENTERED_BY,
+                "carbs": round(carbs_g, 1),
+            }
+        ]
+        bolus_payload = [
+            {
+                "eventType": "Meal Bolus",
+                "created_at": created_at,
+                "enteredBy": OREF0_ENTERED_BY,
+                "insulin": bolus_u,
+            }
+        ]
+        http_post(
+            self.base_url,
+            "/api/v1/treatments.json",
+            self._auth_headers,
+            carb_payload,
+        )
+        http_post(
+            self.base_url,
+            "/api/v1/treatments.json",
+            self._auth_headers,
+            bolus_payload,
+        )
+
+    def post_correction_bolus(
+        self,
+        state: PatientState,
+        units: float,
+        posted_at: datetime.datetime,
+    ) -> None:
+        """oref0 split: ~80% of corrections fire automatically as
+        `eventType: "SMB"` (the SMB algorithm is the modern oref0
+        default), ~20% as user-initiated `eventType: "Correction
+        Bolus"` (manual via Care Portal or pump key).
+
+        Unlike Trio, oref0 KEEPS the `Correction Bolus` eventType for
+        manual corrections -- it doesn't collapse into a generic
+        `Bolus`. The translator handles both."""
+        # Test the 20% (manual) branch first; equivalent to `is_smb =
+        # rng < 0.80` with the branches flipped. Either form gives the
+        # same distribution; we test the rarer branch first because
+        # `Correction Bolus` payload is more involved than `SMB`.
+        is_manual = self._rng.random() < 0.20
+        if is_manual:
+            payload = [
+                {
+                    "eventType": "Correction Bolus",
+                    "created_at": iso_z(posted_at),
+                    "enteredBy": OREF0_ENTERED_BY,
+                    "insulin": units,
+                }
+            ]
+        else:
+            payload = [
+                {
+                    "eventType": "SMB",
+                    "created_at": iso_z(posted_at),
+                    "enteredBy": OREF0_ENTERED_BY,
+                    "insulin": units,
+                }
+            ]
+        http_post(
+            self.base_url,
+            "/api/v1/treatments.json",
+            self._auth_headers,
+            payload,
+        )
+
+    def post_temp_basal(
+        self,
+        state: PatientState,
+        rate_u_hr: float,
+        duration_min: int,
+        posted_at: datetime.datetime,
+    ) -> None:
+        """oref0 uploads Temp Basals when the pump driver enacts them
+        (which, for an SMB-enabled box, is every cycle). Real oref0
+        deployments see every loop decision in their NS treatments
+        tab. No `automatic` flag, no pump triple, no client `id`."""
+        payload = [
+            {
+                "eventType": "Temp Basal",
+                "created_at": iso_z(posted_at),
+                "enteredBy": OREF0_ENTERED_BY,
+                "rate": rate_u_hr,
+                "absolute": rate_u_hr,
+                "duration": duration_min,
+            }
+        ]
+        http_post(
+            self.base_url,
+            "/api/v1/treatments.json",
+            self._auth_headers,
+            payload,
+        )
+
+    def post_site_change(
+        self, state: PatientState, posted_at: datetime.datetime
+    ) -> None:
+        """oref0 records pump pod/cannula changes as `Site Change`
+        treatments. Sourced from pump history `prime` events parsed
+        by `lib/pump.js`."""
+        payload = [
+            {
+                "eventType": "Site Change",
+                "created_at": iso_z(posted_at),
+                "enteredBy": OREF0_ENTERED_BY,
+                "notes": "Cannula change (emulated)",
+            }
+        ]
+        http_post(
+            self.base_url,
+            "/api/v1/treatments.json",
+            self._auth_headers,
+            payload,
+        )
+
+    # ---- private: temp target ------------------------------------------
+
+    def _post_temp_target(
+        self,
+        posted_at: datetime.datetime,
+        *,
+        target_mgdl: int,
+        duration_min: int,
+        reason: str = "Exercise",
+    ) -> None:
+        """Real oref0 users set Temporary Targets via Nightscout's
+        Care Portal during exercise / sleep / sick days. oref0's
+        main loop reads them on every cycle to bias `target_bg` in
+        determine-basal."""
+        payload = [
+            {
+                "eventType": "Temporary Target",
+                "created_at": iso_z(posted_at),
+                "enteredBy": OREF0_ENTERED_BY,
+                "targetTop": target_mgdl,
+                "targetBottom": target_mgdl - 10,
+                "duration": duration_min,
+                "reason": reason,
+                "units": "mg/dl",
+            }
+        ]
+        http_post(
+            self.base_url,
+            "/api/v1/treatments.json",
+            self._auth_headers,
+            payload,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Lens registry
 # ---------------------------------------------------------------------------
 
@@ -2505,10 +3041,11 @@ LENSES: dict[str, type[Lens]] = {
     "aaps_v1": AapsV1Lens,
     "aaps_v3": AapsV3Lens,
     "trio": TrioLens,
-    # Future: "oref0": Oref0Lens, "iaps": IapsLens,
-    # "xdrip_plus": XdripPlusLens, "xdrip4ios": Xdrip4iOSLens,
-    # "librelink_up": LibreLinkUpLens, "share2ns": Share2NsLens,
-    # "tconnectsync": TConnectSyncLens, "manual": ManualLens.
+    "oref0": Oref0Lens,
+    # Future: "iaps": IapsLens, "xdrip_plus": XdripPlusLens,
+    # "xdrip4ios": Xdrip4iOSLens, "librelink_up": LibreLinkUpLens,
+    # "share2ns": Share2NsLens, "tconnectsync": TConnectSyncLens,
+    # "manual": ManualLens.
 }
 
 
