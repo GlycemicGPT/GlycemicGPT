@@ -2261,8 +2261,60 @@ async def get_insulin_summary(
         basal_pct = 0.0
         bolus_pct = 0.0
 
+    # The per-day averages divide totals by `period_days` (default 14).
+    # If the user has less than `period_days` of pump data (just-
+    # connected NS user, fresh signup with no historical sync, anyone
+    # whose retention window starts mid-period), dividing by the full
+    # 14 dilutes the average across days that have no data and the
+    # widget reads near zero. Find the actual data span and use the
+    # smaller of (requested period, data span) as the effective
+    # divisor. Clamp to 1 hour minimum so a near-empty dataset doesn't
+    # produce absurd averages.
+    # The denominator must apply the same safety filters as the
+    # numerator -- a bogus out-of-range row (units > _MAX_BOLUS_UNITS,
+    # negative, NULL) is excluded from totals but would inflate the
+    # divisor here, understating per-day averages. Match the
+    # bolus/correction and basal range filters used above.
+    earliest_event_query = text(  # nosemgrep: avoid-sqlalchemy-text
+        f"""
+        SELECT MIN(event_timestamp) AS earliest
+        FROM {_table}
+        WHERE user_id = :user_id
+          AND event_timestamp >= :cutoff
+          AND event_timestamp <= :now
+          AND units IS NOT NULL
+          AND units >= 0
+          AND (
+            (event_type IN (:bolus_type, :correction_type)
+             AND units <= :max_bolus)
+            OR
+            (event_type = :basal_type
+             AND units <= :max_rate)
+          )
+        """
+    )
+    earliest_result = await db.execute(
+        earliest_event_query,
+        {
+            "user_id": str(current_user.id),
+            "cutoff": cutoff,
+            "now": now,
+            "bolus_type": _bolus_val,
+            "correction_type": _correction_val,
+            "basal_type": _basal_val,
+            "max_bolus": float(_MAX_BOLUS_UNITS),
+            "max_rate": float(_MAX_BASAL_RATE),
+        },
+    )
+    earliest_row = earliest_result.first()
+    if earliest_row and earliest_row.earliest:
+        actual_span_days = (now - earliest_row.earliest).total_seconds() / 86400
+        effective_period_days = max(1.0 / 24, min(period_days, actual_span_days))
+    else:
+        effective_period_days = period_days
+
     # Average per day (round only at the final output step)
-    d = max(period_days, 1)
+    d = max(effective_period_days, 1.0 / 24)
     tdd = round(tdd_total / d, 1)
     basal_avg = round(basal_units / d, 1)
     bolus_avg = round((bolus_units + correction_units) / d, 1)
@@ -2277,7 +2329,7 @@ async def get_insulin_summary(
         bolus_pct=bolus_pct,
         bolus_count=bolus_count,
         correction_count=correction_count,
-        period_days=max(1, round(period_days)),
+        period_days=max(1, round(effective_period_days)),
     )
 
 

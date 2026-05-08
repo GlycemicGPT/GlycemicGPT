@@ -59,12 +59,14 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.logging_config import get_logger
 from src.models.device_status_snapshot import DeviceStatusSnapshot
 from src.models.glucose import GlucoseReading
 from src.models.nightscout_profile_snapshot import NightscoutProfileSnapshot
@@ -82,11 +84,24 @@ from src.services.integrations.nightscout._profile_mapper import (
 from src.services.integrations.nightscout._pump_events_mapper import (
     map_treatment_to_pump_events,
 )
+from src.services.integrations.nightscout._pump_status_extractor import (
+    extract_pump_events_from_devicestatuses,
+    fetch_initial_last_state,
+)
 from src.services.integrations.nightscout.models import (
     NightscoutDeviceStatus,
     NightscoutEntry,
     NightscoutProfile,
     NightscoutTreatment,
+)
+
+logger = get_logger(__name__)
+
+# Sentinel for `sorted()` on devicestatus batches when `created_at`
+# is missing -- avoids TypeError from comparing datetime with str ""
+# in Python 3. ISO-format string sorts before any real timestamp.
+_NULL_CREATED_AT_SENTINEL = (
+    datetime.min.replace(tzinfo=UTC).isoformat().replace("+00:00", "Z")
 )
 
 
@@ -247,9 +262,26 @@ async def translate_devicestatuses(
     connection_id: str,
     received_at: datetime | None = None,
 ) -> TranslateOutcome:
-    """Translate raw devicestatus dicts to device_status_snapshots upserts."""
+    """Translate raw devicestatus dicts to device_status_snapshots upserts.
+
+    Also extracts BATTERY / RESERVOIR / BASAL pump_events from each
+    devicestatus's `pump.battery.percent` / `pump.reservoir` /
+    `loop.enacted.rate`. Without that promotion, the dashboard's
+    pump-status widget (which reads pump_events filtered by event_type)
+    never sees Nightscout-sourced telemetry, even though the data was
+    correctly stored in `device_status_snapshots`. The pump_events
+    rows are deduped per-type with a 1-min min-interval guard.
+
+    The `inserted` / `skipped` / `failed` counts in the returned
+    outcome reflect the **devicestatus_snapshots** insert outcome
+    only. The pump_events spawned alongside are best-effort -- a
+    failure there is logged via the broader exception path but does
+    not change the snapshot count, since the snapshots are the
+    authoritative store.
+    """
     received = received_at or datetime.now(UTC)
-    rows: list[dict[str, Any]] = []
+    snapshot_rows: list[dict[str, Any]] = []
+    parsed: list[NightscoutDeviceStatus] = []
     failed = 0
     skipped = 0
 
@@ -259,6 +291,7 @@ async def translate_devicestatuses(
         except Exception:
             failed += 1
             continue
+        parsed.append(ds)
         row = map_devicestatus_to_snapshot(
             ds,
             user_id=user_id,
@@ -268,10 +301,71 @@ async def translate_devicestatuses(
         if row is None:
             skipped += 1
             continue
-        rows.append(row)
+        snapshot_rows.append(row)
 
-    inserted = await _upsert_devicestatus_snapshots(session, rows)
-    skipped += len(rows) - inserted
+    inserted = await _upsert_devicestatus_snapshots(session, snapshot_rows)
+    skipped += len(snapshot_rows) - inserted
+
+    # Promote pump telemetry to pump_events for dashboard widgets.
+    # Best-effort: a failure here logs + swallows so the snapshots
+    # outcome (already computed above) is still returned. Sort
+    # chronologically so the dedupe walk produces the right
+    # value-change decisions across the batch -- NS doesn't
+    # guarantee response ordering. Sort by the wire string (also a
+    # str when present) and fall back to a low sentinel for missing
+    # timestamps; both paths produce a string so Python 3 doesn't
+    # raise TypeError on mixed-type comparison.
+    parsed_sorted = sorted(
+        parsed,
+        key=lambda ds: ds.created_at or _NULL_CREATED_AT_SENTINEL,
+    )
+    source = f"nightscout:{connection_id}"
+    # Wrap pump-event promotion in a SAVEPOINT so a DB-level error
+    # here (constraint violation, connection hiccup, schema drift)
+    # rolls back ONLY the pump-events work. Without the savepoint,
+    # asyncpg + SQLAlchemy leave the underlying connection in
+    # NEEDS_ROLLBACK state and the outer caller's `commit()` would
+    # either silently roll back the already-inserted snapshots or
+    # raise PendingRollbackError -- breaking the documented
+    # "snapshot count is preserved on pump-events failure" contract.
+    try:
+        async with session.begin_nested():
+            last_state = await fetch_initial_last_state(session, user_id, source=source)
+            pump_event_rows = extract_pump_events_from_devicestatuses(
+                parsed_sorted,
+                user_id=user_id,
+                source=source,
+                last_state=last_state,
+                received_at=received,
+            )
+            if pump_event_rows:
+                # The (source, ns_id) partial unique index dedupes
+                # duplicates at the DB level via ON CONFLICT DO NOTHING,
+                # so a concurrent sync race (manual trigger + scheduler
+                # tick on the same connection both reading the same
+                # `last_state` snapshot) is caught at the storage
+                # layer; we don't need a row lock.
+                await _upsert_pump_events(session, pump_event_rows)
+            # Now that the just-fetched devicestatus snapshots are in
+            # DB, backfill IoB / COB context onto NS-sourced bolus
+            # rows from the nearest preceding snapshot. Bounded to the
+            # last 14 days so old boluses don't get retroactive
+            # rewrites every sync.
+            await _backfill_bolus_context(
+                session,
+                user_id=user_id,
+                source=source,
+                cutoff=received - timedelta(days=14),
+            )
+    except Exception:
+        # The promotion is opportunistic: snapshots are the
+        # authoritative store and have already landed. Don't let a
+        # transient failure here mask the snapshot outcome.
+        logger.exception(
+            "nightscout_pump_events_promotion_failed",
+            extra={"user_id": user_id, "connection_id": connection_id},
+        )
+
     return TranslateOutcome(inserted=inserted, skipped=skipped, failed=failed)
 
 
@@ -351,14 +445,108 @@ async def _upsert_pump_events(session: AsyncSession, rows: list[dict[str, Any]])
 
     Uses RETURNING to count actual inserts (rowcount is unreliable
     under ON CONFLICT DO NOTHING).
+
+    SQLAlchemy 2.x rejects `.values(rows)` when the dicts have
+    mismatched keys -- bolus rows lack `duration_minutes`, temp-basal
+    rows have it, and the multi-row VALUES clause renders missing
+    columns as bound parameters that the dialect won't bind. We
+    normalize to a uniform key set before inserting so each mapper
+    can keep returning the slim type-specific dict it built.
     """
     if not rows:
         return 0
+    rows = _normalize_row_shapes(rows)
     stmt = (
         insert(PumpEvent).values(rows).on_conflict_do_nothing().returning(PumpEvent.id)
     )
     result = await session.execute(stmt)
     return len(result.scalars().all())
+
+
+async def _backfill_bolus_context(
+    session: AsyncSession,
+    *,
+    user_id: str,
+    source: str,
+    cutoff: datetime,
+) -> int:
+    """Copy IoB / COB context from the nearest preceding devicestatus
+    snapshot onto bolus / correction pump_events that don't have it.
+
+    Why this exists: Loop / AAPS / Trio post boluses as treatments
+    WITHOUT in-band IoB / COB context -- that data lives in the
+    per-cycle devicestatus posted around the same time. Without
+    correlating, the dashboard's `Recent Boluses` table (which reads
+    `iob_at_event` / `cob_at_event` / `bg_at_event` directly off the
+    pump_event row) renders those columns as `---` for every NS-
+    sourced bolus.
+
+    Bounded by:
+    - `source` -- only this NS connection's rows
+    - `cutoff` -- caller-supplied lower bound (usually 14 days ago);
+      old historical boluses don't get retroactive context updates.
+    - 15-minute snapshot window -- if no devicestatus was posted
+      within 15 min before the bolus we can't reasonably correlate
+      and `iob_at_event` stays NULL (the table cell renders `---`).
+
+    Runs after `_upsert_devicestatus_snapshots` so the just-inserted
+    snapshots are visible to the join. Should be called inside the
+    pump-events SAVEPOINT so a failure here doesn't poison the
+    snapshot insert.
+
+    Returns the number of rows updated.
+    """
+    stmt = text(  # nosemgrep: avoid-sqlalchemy-text
+        """
+        UPDATE pump_events AS pe
+        SET iob_at_event = ds.iob_units,
+            cob_at_event = ds.cob_grams
+        FROM device_status_snapshots AS ds
+        WHERE pe.user_id = :user_id
+          AND pe.source = :source
+          AND pe.event_type IN ('bolus', 'correction')
+          AND pe.iob_at_event IS NULL
+          AND pe.event_timestamp >= :cutoff
+          AND ds.user_id = pe.user_id
+          AND ds.snapshot_timestamp <= pe.event_timestamp
+          AND ds.snapshot_timestamp >= pe.event_timestamp - INTERVAL '15 minutes'
+          -- Pick the nearest preceding snapshot via anti-join: this
+          -- row's snapshot_timestamp is the maximum within the
+          -- 15-min window before the bolus.
+          AND NOT EXISTS (
+              SELECT 1 FROM device_status_snapshots AS ds2
+              WHERE ds2.user_id = pe.user_id
+                AND ds2.snapshot_timestamp <= pe.event_timestamp
+                AND ds2.snapshot_timestamp >= pe.event_timestamp - INTERVAL '15 minutes'
+                AND ds2.snapshot_timestamp > ds.snapshot_timestamp
+          )
+        """
+    )
+    result = await session.execute(
+        stmt,
+        {
+            "user_id": user_id,
+            "source": source,
+            "cutoff": cutoff,
+        },
+    )
+    return result.rowcount or 0
+
+
+def _normalize_row_shapes(
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Pad each dict so every row has the same key set.
+
+    Missing keys default to None. We don't assume any particular set
+    of "expected" columns -- we just take the union of whatever the
+    mappers produced. New mapper outputs (future event types,
+    additional context fields) work without touching this function.
+    """
+    all_keys: set[str] = set()
+    for r in rows:
+        all_keys.update(r.keys())
+    return [{k: r.get(k) for k in all_keys} for r in rows]
 
 
 async def _upsert_devicestatus_snapshots(
