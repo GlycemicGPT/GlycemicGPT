@@ -111,12 +111,12 @@ The architecture splits into:
 | `aaps_v1` | AndroidAPS NSClient legacy (NS API v1, SHA-1) | Shipped | `mapping/aaps/nightscout-sync.md` + `mapping/aaps/nsclient-schema.md` |
 | `aaps_v3` | AndroidAPS NSClientV3 (NS API v3, JWT subject) | Shipped | `mapping/aaps/nightscout-sync.md` + `mapping/aaps/nsclient-schema.md` |
 | `trio` | Trio (iOS oref-derived, NS API v1, SHA-1) | Shipped | `mapping/trio/nightscout-sync.md` + `mapping/trio/data-models.md` |
+| `oref0` | OpenAPS oref0 (Raspberry Pi, NS API v1, SHA-1) | Shipped | `mapping/oref0/data-models.md` + upstream `openaps/oref0:bin/ns-status.js` |
 
 ### Planned lenses (each its own PR)
 
 | Lens | Platform | Reference doc |
 |---|---|---|
-| `oref0` | OpenAPS oref0 (raspberry pi) | `mapping/oref0/data-models.md` |
 | `iaps` | iAPS (Trio's predecessor) | `mapping/trio/nightscout-sync.md` |
 | `xdrip_plus` | xDrip+ (Android, CGM-only) | `mapping/xdrip-android/` |
 | `xdrip4ios` | xDrip4iOS (Apple, CGM-only) | `mapping/xdrip4ios/` |
@@ -273,6 +273,62 @@ Cross-checked against upstream Trio source files
 rather than relying solely on the reference repo -- the reference
 repo's note about a `recieved` typo turned out to be stale; upstream
 uses `received` correctly.
+
+#### `oref0`
+
+The oref0 lens emits the bare original oref-family wire format. oref0
+is the Raspberry Pi command-line implementation that AAPS, iAPS, and
+Trio all forked from -- so its wire shape is the *least* embellished
+of the family. There are no `oref0`-specific tunables; it honors
+`NS_RANDOM_SEED` for the SMB-vs-manual correction split. Real oref0
+behaviors this lens models:
+
+- **Identity**: `device: "openaps://openaps-emulator"` on
+  devicestatus (scheme + hostname only, no path; upstream
+  `bin/ns-status.js` emits `"openaps://" + os.hostname()` -- this
+  lens substitutes the fixed `openaps-emulator` hostname for
+  run-to-run determinism). `enteredBy: "openaps://medtronic/722"`
+  on every treatment (scheme + hostname + a `/<model>` path
+  component, per upstream `bin/mm-format-ns-treatments.sh` which
+  stamps `openaps://medtronic/<model>` on every algorithm-driven
+  upload; `722` is a popular Medtronic model in oref0 deployments).
+  The reference repo's claim of bare `"openaps"` as enteredBy
+  literal turned out to be stale; upstream's pump-driver pipeline
+  uses the URI form. Care Portal manual entries on real oref0
+  boxes can have blank or bare `"openaps"` enteredBy, but the
+  algorithm-driven upload path (which is what this lens emulates)
+  uses the URI form.
+- **Bolus eventType PRESERVES the Meal/Correction distinction**:
+  `"Meal Bolus"` (insulin from a wizard-calculated meal dose),
+  `"Correction Bolus"` (manual user correction), `"SMB"` (algorithm
+  micro-bolus). Trio collapsed Meal/Correction into a generic
+  `"Bolus"`; oref0 does NOT.
+- **Carbs are a separate `"Carb Correction"` treatment** at the same
+  `created_at` as the meal bolus. NO `fat` / `protein` macros (FPU
+  support is a Trio extension oref0 doesn't ship).
+- **NO client-side dedupe**: no `id` UUID, no `pumpId`/`pumpType`/
+  `pumpSerial` triple. Relies entirely on Nightscout's server-side
+  `_id` and `created_at + eventType`-based dedupe.
+- **devicestatus** carries `openaps + pump`, with a TOP-LEVEL
+  `uploaderBattery` int (AAPS-style), NOT a nested `uploader`
+  object (Loop / Trio-style). NO `configuration` subtree
+  (AAPS-specific). NO `bolusIncrement` in `pump` (Trio-specific).
+- **Determination JSON** uses CAPITAL keys (`IOB`, `COB`, `ISF`,
+  `CR`, `TDD`, `predBGs.{IOB,COB,UAM,ZT}`) -- this is the canonical
+  oref-wire convention oref0 originated and the descendants
+  inherited. `received` (correctly spelled, lowercase) on `enacted`.
+- **Profile** is the bare standard NS profile shape -- NO iOS-
+  specific fields (`bundleIdentifier`, `deviceToken`,
+  `isAPNSProduction`, `teamID`, `overridePresets`); those are Trio
+  additions.
+
+Cross-checked against upstream `openaps/oref0` source rather than
+relying solely on the reference repo:
+- `openaps/oref0:bin/ns-status.js` (devicestatus payload)
+- `openaps/oref0:lib/bolus.js` (eventType assignment for Meal /
+  Correction / SMB boluses)
+- `openaps/oref0:examples/suggested.json` (Determination shape)
+- `openaps/oref0:bin/oref0-ns-loop.sh` (carb upload flow)
 
 ### How to verify it actually drove your code
 
