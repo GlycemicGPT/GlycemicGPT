@@ -2270,14 +2270,27 @@ async def get_insulin_summary(
     # smaller of (requested period, data span) as the effective
     # divisor. Clamp to 1 hour minimum so a near-empty dataset doesn't
     # produce absurd averages.
+    # The denominator must apply the same safety filters as the
+    # numerator -- a bogus out-of-range row (units > _MAX_BOLUS_UNITS,
+    # negative, NULL) is excluded from totals but would inflate the
+    # divisor here, understating per-day averages. Match the
+    # bolus/correction and basal range filters used above.
     earliest_event_query = text(  # nosemgrep: avoid-sqlalchemy-text
         f"""
         SELECT MIN(event_timestamp) AS earliest
         FROM {_table}
         WHERE user_id = :user_id
-          AND event_type IN (:bolus_type, :correction_type, :basal_type)
           AND event_timestamp >= :cutoff
           AND event_timestamp <= :now
+          AND units IS NOT NULL
+          AND units >= 0
+          AND (
+            (event_type IN (:bolus_type, :correction_type)
+             AND units <= :max_bolus)
+            OR
+            (event_type = :basal_type
+             AND units <= :max_rate)
+          )
         """
     )
     earliest_result = await db.execute(
@@ -2289,6 +2302,8 @@ async def get_insulin_summary(
             "bolus_type": _bolus_val,
             "correction_type": _correction_val,
             "basal_type": _basal_val,
+            "max_bolus": float(_MAX_BOLUS_UNITS),
+            "max_rate": float(_MAX_BASAL_RATE),
         },
     )
     earliest_row = earliest_result.first()

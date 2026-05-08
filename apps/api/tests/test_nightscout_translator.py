@@ -563,10 +563,10 @@ class TestDevicestatusPath:
         await session.flush()
 
         # Now run devicestatus translation -- the loop_devicestatus
-        # fixture is timestamped 2026-04-15T17:53:54Z and has
+        # fixture is timestamped 2026-05-06T14:30:00Z and has
         # iob.iob = 1.2; the loop_correction_bolus fixture is
-        # timestamped 2026-04-15T17:54:00Z (6 sec later), so the
-        # backfill should correlate them.
+        # timestamped 2026-05-06T14:32:18Z (~2 min later), so the
+        # backfill correlates them via the 15-min window rule.
         await translate_devicestatuses(
             [_load("devicestatus", "loop_devicestatus")],
             session=session,
