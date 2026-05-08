@@ -112,22 +112,42 @@ def _should_emit(
     return (new_ts - last_ts).total_seconds() >= _MIN_INTERVAL_SECONDS
 
 
-def _extract_loop_enacted_rate(ds: NightscoutDeviceStatus) -> float | None:
-    """Loop's `loop.enacted.rate` carries the most recent enacted temp.
+def _extract_enacted_basal_rate(ds: NightscoutDeviceStatus) -> float | None:
+    """Pull the most recently ENACTED temp basal rate from whichever
+    subtree carries it.
+
+    Sources, in priority order:
+    - Loop:  `loop.enacted.rate`        (Apple iPhone closed-loop)
+    - oref0 / AAPS / Trio: `openaps.enacted.rate`   (oref-derived)
+
+    Deliberately does NOT fall back to `openaps.suggested.rate` --
+    `suggested` is what the algorithm wanted to do, `enacted` is
+    what the pump actually delivered. Conflating the two would write
+    a "suggested but never delivered" rate as if it were enacted,
+    which misrepresents pump behavior in stored data and could
+    mislead downstream consumers reading from `pump_events`. When
+    there's no enacted record this cycle (loop failure, pump
+    disconnect, dry run), we leave the prior BASAL row in place
+    and emit nothing -- the dashboard correctly shows the most
+    recent enacted rate.
 
     Returns None when:
-    - There's no `loop` subtree (oref0 / AAPS-only payload)
-    - There's no `enacted` (loop.failureReason path)
+    - Neither subtree carries an enacted rate
     - `enacted.rate` is missing or non-numeric
+    - The subtree is shaped wrong (`enacted` is a string, etc.)
     """
-    if not ds.loop:
-        return None
-    enacted = ds.loop.get("enacted")
-    if not isinstance(enacted, dict):
-        return None
-    rate = enacted.get("rate")
-    if isinstance(rate, int | float) and not isinstance(rate, bool):
-        return float(rate)
+    if ds.loop:
+        enacted = ds.loop.get("enacted")
+        if isinstance(enacted, dict):
+            rate = enacted.get("rate")
+            if isinstance(rate, int | float) and not isinstance(rate, bool):
+                return float(rate)
+    if ds.openaps:
+        enacted = ds.openaps.get("enacted")
+        if isinstance(enacted, dict):
+            rate = enacted.get("rate")
+            if isinstance(rate, int | float) and not isinstance(rate, bool):
+                return float(rate)
     return None
 
 
@@ -191,7 +211,7 @@ def extract_pump_events_from_devicestatuses(
 
         battery_pct = ds.pump_battery_percent
         reservoir_units = ds.pump_reservoir
-        basal_rate = _extract_loop_enacted_rate(ds)
+        basal_rate = _extract_enacted_basal_rate(ds)
         iob_value = ds.iob_value
         cob_value = _extract_cob_value(ds)
 
