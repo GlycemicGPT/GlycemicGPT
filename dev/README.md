@@ -109,12 +109,12 @@ The architecture splits into:
 |---|---|---|---|
 | `loop` | Loop on iPhone (NS API v1, SHA-1 secret) | Shipped | `mapping/loop/nightscout-sync.md` |
 | `aaps_v1` | AndroidAPS NSClient legacy (NS API v1, SHA-1) | Shipped | `mapping/aaps/nightscout-sync.md` + `mapping/aaps/nsclient-schema.md` |
+| `aaps_v3` | AndroidAPS NSClientV3 (NS API v3, JWT subject) | Shipped | `mapping/aaps/nightscout-sync.md` + `mapping/aaps/nsclient-schema.md` |
 
 ### Planned lenses (each its own PR)
 
 | Lens | Platform | Reference doc |
 |---|---|---|
-| `aaps_v3` | AAPS NSClientV3 (NS API v3, JWT) | `mapping/aaps/nightscout-sync.md` |
 | `trio` | Trio (NS API v1, oref-derived) | `mapping/trio/nightscout-sync.md` |
 | `oref0` | OpenAPS oref0 (raspberry pi) | `mapping/oref0/data-models.md` |
 | `iaps` | iAPS (Trio's predecessor) | `mapping/trio/nightscout-sync.md` |
@@ -189,6 +189,45 @@ The AAPS lens emits, on its own schedule:
 Bolus payloads carry the AAPS `bolusCalculatorResult` JSON + `isBasalInsulin`, `isSMB`, `type` fields and the AAPS pump-composite dedup triple (`pumpId` / `pumpType` / `pumpSerial`).
 
 The SMB-vs-manual correction split honors `NS_RANDOM_SEED` -- set the seed and the same SMB / manual-bolus distribution will be reproduced on subsequent runs.
+
+#### `aaps_v3`
+
+The NSClientV3 lens emits the same AAPS event shapes as `aaps_v1` --
+Meal Bolus, SMB, Correction Bolus, Temp Basal (gated by
+`NS_AAPS_UPLOAD_TEMP_BASALS` exactly like v1), Site Change,
+Temporary Target, Profile Switch, plus the same physiology-driven
+schedule. The differences are all transport / identity:
+
+- **Auth**: instead of the SHA-1 `api-secret` header, this lens
+  bootstraps a NS subject named `aaps-v3-emulator` (idempotent --
+  reuses the existing subject if present), exchanges its access
+  token for a JWT via `/api/v2/authorization/request/<token>`, and
+  sends `Authorization: Bearer <jwt>`. JWT is auto-refreshed before
+  expiry. The bootstrap requires admin permissions, which the
+  api-secret SHA-1 grants to the `/api/v2/authorization/subjects`
+  endpoint -- no manual NS Admin Tools setup required.
+- **Endpoints**: posts to `/api/v3/{entries,treatments,devicestatus,profile}`
+  (without the `.json` suffix v1 uses), one document per request.
+- **Wire format additions**: every record carries a
+  client-generated UUID `identifier`, dual `date` / `mills`
+  epoch-ms timestamps, integer `utcOffset` (minutes), `app: "AAPS"`,
+  and the immutability / soft-delete flags `isReadOnly: false` /
+  `isValid: true`. NS-set fields (`srvCreated`, `srvModified`,
+  `subject`) appear on the response and via subsequent reads.
+- **Same identity for pump events**: AAPS still uses the
+  `pumpId` / `pumpType` / `pumpSerial` triple inside the body --
+  that's orthogonal to the NS `identifier`.
+
+Per-record fields are observable via either `/api/v3/...` reads
+(JWT) or `/api/v1/*.json` reads (api-secret) -- both return the
+same MongoDB documents with the v3 fields preserved. The
+GlycemicGPT translator currently reads via v1, so this lens drives
+the same translator code paths the v1 lens does, plus the v3 wire
+format end-to-end.
+
+There are no `aaps_v3`-specific tunables. `NS_AAPS_UPLOAD_TEMP_BASALS`
+and `NS_RANDOM_SEED` work identically to `aaps_v1` (the v3 lens
+inherits the v1 lens, overriding only auth + endpoints).
 
 ### How to verify it actually drove your code
 

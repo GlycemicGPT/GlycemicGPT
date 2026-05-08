@@ -18,11 +18,13 @@ platform's actual Nightscout wire format -- Loop's payloads look
 like Loop, AAPS's look like AAPS, etc.
 
 Currently shipped lenses:
-  - loop : Loop (Apple iPhone closed-loop, NS API v1, SHA-1 secret)
+  - loop    : Loop (Apple iPhone closed-loop, NS API v1, SHA-1 secret)
+  - aaps_v1 : AndroidAPS NSClient legacy (NS API v1, SHA-1 secret)
+  - aaps_v3 : AndroidAPS NSClientV3 (NS API v3, JWT subject)
 
 Planned (each its own PR -- see dev/README.md for status):
-  - aaps_v1, aaps_v3, trio, oref0, iaps, xdrip_plus, xdrip4ios,
-    librelink_up, share2ns, tconnectsync, manual
+  - trio, oref0, iaps, xdrip_plus, xdrip4ios, librelink_up,
+    share2ns, tconnectsync, manual
 
 Each lens is anchored to its source-of-truth document in the
 external `bewest/rag-nightscout-ecosystem-alignment` repo, e.g.
@@ -1131,9 +1133,15 @@ class AapsV1Lens(Lens):
         except urllib.error.HTTPError:
             pass
 
+        body = self._build_profile_body()
+        self._post_profile(body)
+
+    def _build_profile_body(self) -> dict:
+        """The AAPS profile shape -- shared by v1 and v3 (the v3 lens
+        only changes the endpoint + JSON envelope, not the contents)."""
         now_iso = iso_z(datetime.datetime.now(datetime.UTC))
         profile_name = "AAPS"
-        payload = {
+        return {
             "defaultProfile": profile_name,
             "store": {
                 profile_name: {
@@ -1150,14 +1158,19 @@ class AapsV1Lens(Lens):
                 }
             },
             "startDate": now_iso,
-            "mills": str(int(time.time() * 1000)),
+            # int (not str) -- matches the type used on this lens's
+            # entries / treatments / devicestatus mills fields, and
+            # the v3 lens's overlay. NS coerces, but staying
+            # consistent avoids a type-mismatch read later.
+            "mills": int(time.time() * 1000),
             "units": "mg/dl",
         }
+
+    def _post_profile(self, body: dict) -> None:
+        """V1 path: array body + /api/v1/profile.json + api-secret.
+        V3 lens overrides this to POST a single doc to /api/v3/profile."""
         http_post(
-            self.base_url,
-            "/api/v1/profile.json",
-            self._auth_headers,
-            [payload],
+            self.base_url, "/api/v1/profile.json", self._auth_headers, [body]
         )
 
     # ---- per-tick hooks -------------------------------------------------
@@ -1211,18 +1224,38 @@ class AapsV1Lens(Lens):
         # AAPS-uploaded entries carry an `app` field identifying the
         # uploader; the rest of the shape is the same as any other
         # uploader.
-        payload = [
-            {
-                "type": "sgv",
-                "sgv": int(round(state.bg)),
-                "direction": direction_for(prev_bg, state.bg),
-                "date": int(posted_at.timestamp() * 1000),
-                "dateString": iso_z(posted_at),
-                "device": self.device_label,
-                "app": "AAPS",
-            }
-        ]
-        http_post(self.base_url, "/api/v1/entries.json", self._auth_headers, payload)
+        body = self._build_entry_body(state, prev_bg, posted_at)
+        self._post_entry(body, posted_at=posted_at)
+
+    def _build_entry_body(
+        self,
+        state: PatientState,
+        prev_bg: float,
+        posted_at: datetime.datetime,
+    ) -> dict:
+        return {
+            "type": "sgv",
+            "sgv": int(round(state.bg)),
+            "direction": direction_for(prev_bg, state.bg),
+            "date": int(posted_at.timestamp() * 1000),
+            "dateString": iso_z(posted_at),
+            "device": self.device_label,
+            "app": "AAPS",
+        }
+
+    def _post_entry(
+        self, body: dict, *, posted_at: datetime.datetime
+    ) -> None:
+        """V1 path: array body to /api/v1/entries.json with api-secret.
+        V3 lens overrides to POST single doc to /api/v3/entries with JWT.
+        `posted_at` is unused here but the v3 override needs it for the
+        v3 overlay -- kept on the signature so callers don't have to
+        know which transport they're feeding (mirror of
+        `_post_treatment`)."""
+        del posted_at  # v1 doesn't need it
+        http_post(
+            self.base_url, "/api/v1/entries.json", self._auth_headers, [body]
+        )
 
     # ---- devicestatus ---------------------------------------------------
 
@@ -1253,6 +1286,27 @@ class AapsV1Lens(Lens):
     def post_devicestatus(
         self, state: PatientState, posted_at: datetime.datetime
     ) -> None:
+        body = self._build_devicestatus_body(state, posted_at)
+        self._post_devicestatus(body, posted_at=posted_at)
+
+    def _post_devicestatus(
+        self, body: dict, *, posted_at: datetime.datetime
+    ) -> None:
+        """V1 path: array body to /api/v1/devicestatus.json + api-secret.
+        V3 overrides to POST single doc to /api/v3/devicestatus + JWT.
+        `posted_at` is unused here but the v3 override needs it for the
+        v3 overlay (mirror of `_post_treatment`)."""
+        del posted_at  # v1 doesn't need it
+        http_post(
+            self.base_url,
+            "/api/v1/devicestatus.json",
+            self._auth_headers,
+            [body],
+        )
+
+    def _build_devicestatus_body(
+        self, state: PatientState, posted_at: datetime.datetime
+    ) -> dict:
         # `openaps` subtree mirrors the oref-1 / SMB algorithm's
         # output. Both `iob` and `suggested` are rich; `enacted`
         # mirrors `suggested` plus `received: true` and a timestamp.
@@ -1329,32 +1383,24 @@ class AapsV1Lens(Lens):
         # in an uploader subtree). Loop and Trio use a nested
         # uploader.battery instead. Our translator's NightscoutDeviceStatus
         # input model accepts both shapes (see nightscout/models.py).
-        payload = [
-            {
-                "device": self.device_label,
-                "created_at": ts,
-                "uploaderBattery": int(state.phone_battery_pct),
-                "isCharging": state.phone_is_charging,
-                "openaps": {
-                    "iob": iob_subtree,
-                    "suggested": suggested,
-                    "enacted": enacted,
-                    "version": AAPS_VERSION,
-                },
-                "pump": pump_subtree,
-                "configuration": {
-                    "pump": AAPS_PUMP_TYPE,
-                    "version": AAPS_VERSION,
-                    "aps": "OpenAPSSMB",
-                },
-            }
-        ]
-        http_post(
-            self.base_url,
-            "/api/v1/devicestatus.json",
-            self._auth_headers,
-            payload,
-        )
+        return {
+            "device": self.device_label,
+            "created_at": ts,
+            "uploaderBattery": int(state.phone_battery_pct),
+            "isCharging": state.phone_is_charging,
+            "openaps": {
+                "iob": iob_subtree,
+                "suggested": suggested,
+                "enacted": enacted,
+                "version": AAPS_VERSION,
+            },
+            "pump": pump_subtree,
+            "configuration": {
+                "pump": AAPS_PUMP_TYPE,
+                "version": AAPS_VERSION,
+                "aps": "OpenAPSSMB",
+            },
+        }
 
     # ---- treatments -----------------------------------------------------
 
@@ -1411,6 +1457,21 @@ class AapsV1Lens(Lens):
             }
         )
 
+    def _post_treatment(
+        self, body: dict, *, posted_at: datetime.datetime
+    ) -> None:
+        """V1 path: array body to /api/v1/treatments.json + api-secret.
+        V3 overrides to POST single doc to /api/v3/treatments + JWT
+        + a v3 overlay (identifier, mills, utcOffset, isReadOnly,
+        isValid). The `posted_at` arg is unused here but the v3 lens
+        needs it to derive `mills` / `date` for the overlay -- pass it
+        through unconditionally so v3 doesn't have to re-parse
+        `created_at`."""
+        del posted_at  # v1 doesn't need it
+        http_post(
+            self.base_url, "/api/v1/treatments.json", self._auth_headers, [body]
+        )
+
     def post_meal_bolus(
         self,
         state: PatientState,
@@ -1427,25 +1488,23 @@ class AapsV1Lens(Lens):
         # linked bolus + carb_entry pump_events. Other AAPS shapes
         # are exercisable by editing this method or by future
         # snack-only / extended-meal lens variants.
-        payload = [
-            {
-                "eventType": "Meal Bolus",
-                "created_at": iso_z(posted_at),
-                "enteredBy": self.device_label,
-                "device": self.device_label,
-                "insulin": bolus_u,
-                "carbs": round(carbs_g, 1),
-                "type": "NORMAL",
-                "isSMB": False,
-                "isBasalInsulin": False,
-                "insulinType": AAPS_INSULIN_TYPE,
-                "bolusCalculatorResult": self._bolus_calculator_result(
-                    state, carbs_g, bolus_u
-                ),
-                **self._aaps_pump_dedup_fields(),
-            }
-        ]
-        http_post(self.base_url, "/api/v1/treatments.json", self._auth_headers, payload)
+        body = {
+            "eventType": "Meal Bolus",
+            "created_at": iso_z(posted_at),
+            "enteredBy": self.device_label,
+            "device": self.device_label,
+            "insulin": bolus_u,
+            "carbs": round(carbs_g, 1),
+            "type": "NORMAL",
+            "isSMB": False,
+            "isBasalInsulin": False,
+            "insulinType": AAPS_INSULIN_TYPE,
+            "bolusCalculatorResult": self._bolus_calculator_result(
+                state, carbs_g, bolus_u
+            ),
+            **self._aaps_pump_dedup_fields(),
+        }
+        self._post_treatment(body, posted_at=posted_at)
 
     def post_correction_bolus(
         self,
@@ -1462,40 +1521,36 @@ class AapsV1Lens(Lens):
         # short emulator run still produces both shapes.
         is_manual = self._rng.random() < 0.20
         if is_manual:
-            payload = [
-                {
-                    "eventType": "Correction Bolus",
-                    "created_at": iso_z(posted_at),
-                    "enteredBy": self.device_label,
-                    "device": self.device_label,
-                    "insulin": units,
-                    "type": "NORMAL",
-                    "isSMB": False,
-                    "isBasalInsulin": False,
-                    "insulinType": AAPS_INSULIN_TYPE,
-                    "bolusCalculatorResult": self._bolus_calculator_result(
-                        state, 0.0, units
-                    ),
-                    **self._aaps_pump_dedup_fields(),
-                }
-            ]
+            body = {
+                "eventType": "Correction Bolus",
+                "created_at": iso_z(posted_at),
+                "enteredBy": self.device_label,
+                "device": self.device_label,
+                "insulin": units,
+                "type": "NORMAL",
+                "isSMB": False,
+                "isBasalInsulin": False,
+                "insulinType": AAPS_INSULIN_TYPE,
+                "bolusCalculatorResult": self._bolus_calculator_result(
+                    state, 0.0, units
+                ),
+                **self._aaps_pump_dedup_fields(),
+            }
         else:
-            payload = [
-                {
-                    "eventType": "SMB",
-                    "created_at": iso_z(posted_at),
-                    "enteredBy": self.device_label,
-                    "device": self.device_label,
-                    "insulin": units,
-                    "automatic": True,
-                    "type": "SMB",
-                    "isSMB": True,
-                    "isBasalInsulin": False,
-                    "insulinType": AAPS_INSULIN_TYPE,
-                    **self._aaps_pump_dedup_fields(),
-                }
-            ]
-        http_post(self.base_url, "/api/v1/treatments.json", self._auth_headers, payload)
+            body = {
+                "eventType": "SMB",
+                "created_at": iso_z(posted_at),
+                "enteredBy": self.device_label,
+                "device": self.device_label,
+                "insulin": units,
+                "automatic": True,
+                "type": "SMB",
+                "isSMB": True,
+                "isBasalInsulin": False,
+                "insulinType": AAPS_INSULIN_TYPE,
+                **self._aaps_pump_dedup_fields(),
+            }
+        self._post_treatment(body, posted_at=posted_at)
 
     def post_temp_basal(
         self,
@@ -1518,23 +1573,21 @@ class AapsV1Lens(Lens):
         if not self._upload_temp_basals:
             return
         delivered = round(rate_u_hr * (duration_min / 60.0), 3)
-        payload = [
-            {
-                "eventType": "Temp Basal",
-                "created_at": iso_z(posted_at),
-                "enteredBy": self.device_label,
-                "device": self.device_label,
-                "rate": rate_u_hr,
-                "absolute": rate_u_hr,
-                "duration": duration_min,  # MINUTES, not seconds
-                "amount": delivered,
-                "automatic": True,
-                "type": "NORMAL",
-                "insulinType": AAPS_INSULIN_TYPE,
-                **self._aaps_pump_dedup_fields(),
-            }
-        ]
-        http_post(self.base_url, "/api/v1/treatments.json", self._auth_headers, payload)
+        body = {
+            "eventType": "Temp Basal",
+            "created_at": iso_z(posted_at),
+            "enteredBy": self.device_label,
+            "device": self.device_label,
+            "rate": rate_u_hr,
+            "absolute": rate_u_hr,
+            "duration": duration_min,  # MINUTES, not seconds
+            "amount": delivered,
+            "automatic": True,
+            "type": "NORMAL",
+            "insulinType": AAPS_INSULIN_TYPE,
+            **self._aaps_pump_dedup_fields(),
+        }
+        self._post_treatment(body, posted_at=posted_at)
 
     # ---- per-day events (Profile Switch, Temporary Target) -------------
 
@@ -1550,20 +1603,18 @@ class AapsV1Lens(Lens):
         target to e.g. 140 mg/dL), low-glucose recovery (raise to
         140), or sleep (sometimes lower). Translator handles via
         `_map_temp_target` -> PumpEventType.TEMP_TARGET."""
-        payload = [
-            {
-                "eventType": "Temporary Target",
-                "created_at": iso_z(posted_at),
-                "enteredBy": self.device_label,
-                "device": self.device_label,
-                "targetTop": target_mgdl,
-                "targetBottom": target_mgdl - 10,
-                "duration": duration_min,
-                "reason": reason,
-                "units": "mg/dl",
-            }
-        ]
-        http_post(self.base_url, "/api/v1/treatments.json", self._auth_headers, payload)
+        body = {
+            "eventType": "Temporary Target",
+            "created_at": iso_z(posted_at),
+            "enteredBy": self.device_label,
+            "device": self.device_label,
+            "targetTop": target_mgdl,
+            "targetBottom": target_mgdl - 10,
+            "duration": duration_min,
+            "reason": reason,
+            "units": "mg/dl",
+        }
+        self._post_treatment(body, posted_at=posted_at)
 
     def _post_profile_switch(
         self,
@@ -1579,19 +1630,17 @@ class AapsV1Lens(Lens):
         `timeshift` (DST / travel adjustment), and a `duration` in
         minutes (0 = indefinite). Translator handles via
         `_map_profile_switch` -> PumpEventType.PROFILE_SWITCH."""
-        payload = [
-            {
-                "eventType": "Profile Switch",
-                "created_at": iso_z(posted_at),
-                "enteredBy": self.device_label,
-                "device": self.device_label,
-                "profile": profile,
-                "percentage": percentage,
-                "timeshift": timeshift,
-                "duration": duration_min,
-            }
-        ]
-        http_post(self.base_url, "/api/v1/treatments.json", self._auth_headers, payload)
+        body = {
+            "eventType": "Profile Switch",
+            "created_at": iso_z(posted_at),
+            "enteredBy": self.device_label,
+            "device": self.device_label,
+            "profile": profile,
+            "percentage": percentage,
+            "timeshift": timeshift,
+            "duration": duration_min,
+        }
+        self._post_treatment(body, posted_at=posted_at)
 
     def post_site_change(
         self, state: PatientState, posted_at: datetime.datetime
@@ -1602,16 +1651,293 @@ class AapsV1Lens(Lens):
         # NOTE: per `nsclient-schema.md`, `identifier` is server-
         # assigned; AAPS clients don't include it on POST. We
         # follow that convention and let NS assign `_id`.
-        payload = [
-            {
-                "eventType": "Site Change",
-                "created_at": iso_z(posted_at),
-                "enteredBy": self.device_label,
-                "device": self.device_label,
-                "notes": "Cannula change (emulated)",
-            }
-        ]
-        http_post(self.base_url, "/api/v1/treatments.json", self._auth_headers, payload)
+        body = {
+            "eventType": "Site Change",
+            "created_at": iso_z(posted_at),
+            "enteredBy": self.device_label,
+            "device": self.device_label,
+            "notes": "Cannula change (emulated)",
+        }
+        self._post_treatment(body, posted_at=posted_at)
+
+
+# ---------------------------------------------------------------------------
+# AAPS NSClientV3 lens (Nightscout API v3 + JWT)
+# ---------------------------------------------------------------------------
+#
+# Anchor: the two AAPS NSClient sync paths -- legacy (NSClientV1, this
+# emulator's `aaps_v1`) and modern (NSClientV3) -- share the same
+# treatment / devicestatus / entry SHAPES, but differ in auth and
+# transport:
+#
+#   - **Auth**: legacy posts the SHA-1 of the API_SECRET in an
+#     `api-secret` header against `/api/v1/*.json` paths. NSClientV3
+#     instead obtains a JWT from `/api/v2/authorization/request/<token>`
+#     where `<token>` is a NS subject access token, and sends it as
+#     `Authorization: Bearer <jwt>` against `/api/v3/*` paths.
+#
+#   - **Transport**: v3 endpoints accept ONE document per POST (not an
+#     array) and require a client-generated UUID `identifier` per
+#     record, which becomes the resource ID. The server populates
+#     `srvCreated` / `srvModified` on each record and uses
+#     `srvModified` for incremental sync via `lastModified` query
+#     params. The client also stamps `mills` (epoch ms) alongside
+#     `date`, plus an integer `utcOffset` and the immutability /
+#     soft-delete flags `isReadOnly` and `isValid`.
+#
+# Verified against the running NS test stack (15.0.8, apiVersion 3.0.5):
+# v3-posted records ARE visible via the `/api/v1/*.json` GET endpoints
+# (with their v3 fields preserved -- `identifier`, `srvCreated`,
+# `srvModified`, `subject`, `mills`), so the GlycemicGPT translator
+# (which currently only fetches v1) reads them transparently. That
+# means this lens drives the same translator code paths the v1 lens
+# does, but additionally exercises the v3 wire format end-to-end.
+#
+# Source-of-truth files cross-checked:
+#   - `mapping/aaps/nightscout-sync.md` (NSClientV3 vs legacy split)
+#   - `mapping/aaps/nsclient-schema.md` (treatment / devicestatus
+#     fields shared with v1, plus v3-only `srvCreated` /
+#     `srvModified` / `subject` / `modifiedBy` / `isReadOnly`)
+#   - cgm-remote-monitor `lib/authorization/storage.js` (subject
+#     accessToken digest format -- NS rewrites the accessToken on
+#     subject create to `<abbrev_name>-<digest_first16>`, so the
+#     lens reads back the rewritten value rather than trusting the
+#     value it sent)
+#   - cgm-remote-monitor `lib/authorization/endpoints.js` (the
+#     POST `/api/v2/authorization/subjects` endpoint accepts the
+#     api-secret SHA-1 header for admin auth, which we use to
+#     bootstrap our subject)
+
+
+AAPS_V3_DEVICE_LABEL = "openaps://AndroidAPS-NSClientV3"
+AAPS_V3_SUBJECT_NAME = "aaps-v3-emulator"
+# How many seconds before JWT expiry we proactively refresh. The NS
+# server-issued JWT has ~8h lifetime; refreshing 60s early gives us
+# slack against clock skew between dev box and NS container.
+AAPS_V3_JWT_REFRESH_BUFFER_SECONDS = 60
+
+
+class AapsV3Lens(AapsV1Lens):
+    """AAPS NSClientV3 lens. See architecture comment block above for
+    the full v1-vs-v3 wire-format diff. This class reuses every
+    AAPS-specific BODY shape (entries, devicestatus, all treatment
+    types, profile) from `AapsV1Lens` -- those are identical between
+    the two NSClient sync modes. The only overrides are the post
+    helpers (different endpoint + auth + envelope) and the auth
+    lifecycle (subject bootstrap, JWT acquisition + refresh)."""
+
+    name = "aaps_v3"
+
+    def __init__(
+        self, base_url: str, api_secret: str, device_label: str | None = None
+    ) -> None:
+        super().__init__(base_url, api_secret, device_label)
+        # NSClientV3 subjects are bootstrapped lazily on the first
+        # call that needs auth, not in __init__. That keeps unit-test
+        # construction (no NS reachable) cheap and keeps the
+        # constructor side-effect-free, matching v1's __init__.
+        self._v3_access_token: str | None = None
+        self._v3_jwt: str | None = None
+        self._v3_jwt_exp_epoch: int = 0
+
+    @classmethod
+    def default_device_label(cls) -> str:
+        # Distinct from `aaps_v1`'s label so a single NS instance can
+        # carry both lens runs in parallel without their devicestatus
+        # rows colliding -- the NSClient v3 vs v1 split is a per-
+        # uploader-app decision, so a real user runs ONE of them, not
+        # both. The translator keys pump_events by `source +
+        # device_label`, so distinct labels keep them in distinct
+        # buckets even on the same connection.
+        return AAPS_V3_DEVICE_LABEL
+
+    # ---- v3 auth lifecycle ---------------------------------------------
+
+    def _bootstrap_v3_subject(self) -> str:
+        """Idempotently ensure a NS subject named AAPS_V3_SUBJECT_NAME
+        exists, return its accessToken. Authenticated to the NS admin
+        side via the api-secret SHA-1 header.
+
+        Subjects in NS are created with a name + role list; NS REWRITES
+        the accessToken to `<abbrev_name>-<digest_first16>` on insert.
+        Any token the client sends is discarded. So we POST to create
+        (or skip if a subject by this name already exists), then GET
+        the list back to pick up the NS-assigned accessToken.
+
+        We require the `admin` role so the same subject can manage
+        records across all collections. A real AAPS user typically
+        configures a more restricted subject (e.g., careportal +
+        devicestatus-upload), but this is a dev fixture: minimum
+        viable permissions would just add subject-management noise
+        per collection.
+        """
+        list_path = "/api/v2/authorization/subjects"
+        existing = http_get(self.base_url, list_path, self._auth_headers)
+        if isinstance(existing, list):
+            for subject in existing:
+                if (
+                    isinstance(subject, dict)
+                    and subject.get("name") == AAPS_V3_SUBJECT_NAME
+                ):
+                    token = subject.get("accessToken")
+                    if isinstance(token, str) and token:
+                        return token
+
+        # Create. The placeholder accessToken is overwritten by NS;
+        # we don't trust the value we sent, only the value we read
+        # back below. Tolerate HTTPError from the create call -- if a
+        # sibling emulator instance raced us and won, NS may reject
+        # the duplicate name; the re-list below still finds the
+        # subject either way.
+        create_payload = {
+            "name": AAPS_V3_SUBJECT_NAME,
+            "accessToken": "placeholder-rewritten-by-ns",
+            "roles": ["admin"],
+            "notes": "Auto-created by GlycemicGPT ns_emulator AAPS v3 lens.",
+        }
+        try:
+            http_post(
+                self.base_url, list_path, self._auth_headers, create_payload
+            )
+        except urllib.error.HTTPError as exc:
+            # Re-raise on 401/403 (auth misconfig is fail-loud) but
+            # otherwise fall through to the re-list, which will find
+            # the subject if a concurrent caller created it.
+            if exc.code in (401, 403):
+                raise
+        # Re-list to pick up the NS-assigned accessToken.
+        listed = http_get(self.base_url, list_path, self._auth_headers)
+        if isinstance(listed, list):
+            for subject in listed:
+                if (
+                    isinstance(subject, dict)
+                    and subject.get("name") == AAPS_V3_SUBJECT_NAME
+                ):
+                    token = subject.get("accessToken")
+                    if isinstance(token, str) and token:
+                        return token
+        raise RuntimeError(
+            "ns_emulator aaps_v3: created subject but could not read it back; "
+            "check NS auth + admin permissions."
+        )
+
+    def _refresh_v3_jwt(self) -> None:
+        """Acquire (or re-acquire) a JWT from NS using the cached
+        access token. Called lazily by `_v3_headers` when the cached
+        JWT is missing or near expiry.
+
+        NS returns `{"token": "<jwt>", "iat": ..., "exp": ...}`
+        where `exp` is the JWT expiry (epoch seconds, NS issues an
+        ~8 hour TTL). We honor that as a hard ceiling -- refresh
+        slightly before to absorb dev-box-to-NS-container clock
+        skew."""
+        if self._v3_access_token is None:
+            self._v3_access_token = self._bootstrap_v3_subject()
+        path = f"/api/v2/authorization/request/{self._v3_access_token}"
+        result = http_get(self.base_url, path, {})  # unauthenticated path
+        # Don't include the parsed result in the exception message --
+        # if NS ever returned an unexpected body that nonetheless
+        # contained a token field, the message would leak through
+        # the main loop's error logging.
+        if not isinstance(result, dict):
+            raise RuntimeError(
+                "ns_emulator aaps_v3: unexpected JWT response shape "
+                f"(type={type(result).__name__})"
+            )
+        token = result.get("token")
+        exp = result.get("exp")
+        if not isinstance(token, str) or not isinstance(exp, int):
+            raise RuntimeError(
+                "ns_emulator aaps_v3: malformed JWT response "
+                "(missing/invalid token or exp field)"
+            )
+        self._v3_jwt = token
+        self._v3_jwt_exp_epoch = int(exp)
+
+    def _v3_headers(self) -> dict[str, str]:
+        """Return Bearer auth header, refreshing the JWT if needed."""
+        now = int(time.time())
+        if (
+            self._v3_jwt is None
+            or now >= self._v3_jwt_exp_epoch - AAPS_V3_JWT_REFRESH_BUFFER_SECONDS
+        ):
+            self._refresh_v3_jwt()
+        return {"Authorization": f"Bearer {self._v3_jwt}"}
+
+    # ---- v3 transport overlay ------------------------------------------
+
+    def _v3_overlay(self, posted_at: datetime.datetime) -> dict:
+        """Return v3-only fields the NS API v3 endpoints expect on
+        every record: a client-generated UUID identifier, dual
+        date/mills epoch-ms timestamps, integer utcOffset (minutes),
+        and the immutability / soft-delete flags. Also include `app`
+        -- NS API v3 enforces it on every record (`Bad or missing app
+        field` 400 otherwise), whereas v1 only requires it on
+        entries. The v1 entry builder already sets `app=AAPS` so
+        body wins for entries; for devicestatus / treatments / profile
+        the overlay value applies.
+
+        NS-side timestamps (`srvCreated`, `srvModified`, `subject`)
+        are server-assigned and intentionally NOT set here -- NS sets
+        them on insert."""
+        date_ms = int(posted_at.timestamp() * 1000)
+        return {
+            "identifier": str(uuid.uuid4()),
+            "date": date_ms,
+            "mills": date_ms,
+            "utcOffset": 0,
+            "isReadOnly": False,
+            "isValid": True,
+            "app": "AAPS",
+        }
+
+    def _post_v3_doc(
+        self, collection: str, body: dict, posted_at: datetime.datetime
+    ) -> None:
+        """Compose v3 doc = body | overlay, POST to /api/v3/<collection>
+        with Bearer JWT.
+
+        Order matters: overlay first, body last, so any field present
+        in both (`date`, `app`) takes the body's value -- the AAPS
+        body builders already set `date` correctly via
+        `posted_at.timestamp() * 1000`, but if a future caller passes
+        a body with a richer `date` (e.g. milliseconds plus tz adjust),
+        we want it to win."""
+        merged = {**self._v3_overlay(posted_at), **body}
+        http_post(
+            self.base_url, f"/api/v3/{collection}", self._v3_headers(), merged
+        )
+
+    # ---- v3 post-helper overrides --------------------------------------
+    #
+    # Each override consumes a body built by the v1 lens (unchanged
+    # AAPS payload shape) and routes it to the v3 endpoint with the
+    # v3 overlay. The body builders themselves don't need to know
+    # which transport they're feeding.
+
+    def _post_entry(
+        self, body: dict, *, posted_at: datetime.datetime
+    ) -> None:
+        self._post_v3_doc("entries", body, posted_at)
+
+    def _post_devicestatus(
+        self, body: dict, *, posted_at: datetime.datetime
+    ) -> None:
+        self._post_v3_doc("devicestatus", body, posted_at)
+
+    def _post_treatment(
+        self, body: dict, *, posted_at: datetime.datetime
+    ) -> None:
+        self._post_v3_doc("treatments", body, posted_at)
+
+    def _post_profile(self, body: dict) -> None:
+        # Profile docs don't get a per-record `posted_at` from the
+        # caller (the v1 `ensure_profile` doesn't track one). Use
+        # now() so the v3 overlay's `date` / `mills` are consistent
+        # with NS's server-time clock.
+        self._post_v3_doc(
+            "profile", body, datetime.datetime.now(datetime.UTC)
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1621,8 +1947,8 @@ class AapsV1Lens(Lens):
 LENSES: dict[str, type[Lens]] = {
     "loop": LoopLens,
     "aaps_v1": AapsV1Lens,
-    # Future: "aaps_v3": AapsV3Lens,
-    # "trio": TrioLens, "oref0": Oref0Lens, "iaps": IapsLens,
+    "aaps_v3": AapsV3Lens,
+    # Future: "trio": TrioLens, "oref0": Oref0Lens, "iaps": IapsLens,
     # "xdrip_plus": XdripPlusLens, "xdrip4ios": Xdrip4iOSLens,
     # "librelink_up": LibreLinkUpLens, "share2ns": Share2NsLens,
     # "tconnectsync": TConnectSyncLens, "manual": ManualLens.
