@@ -253,8 +253,11 @@ vs-manual correction split. Real Trio behaviors this lens models:
   `pumpType` / `pumpSerial` triple.
 - **devicestatus** carries `openaps + pump + uploader`, NO
   `configuration` subtree. `uploader` is a NESTED object
-  Loop-style (`{battery, isCharging, batteryVoltage}`), NOT
-  AAPS's top-level `uploaderBattery` int. `pump` carries
+  Loop-style. Upstream Trio's shape is
+  `{batteryVoltage?, battery, isCharging?}`; this lens emits
+  only `{battery, isCharging}` because `PatientState` doesn't
+  model phone battery voltage. AAPS-style top-level
+  `uploaderBattery` int is NOT used. `pump` carries
   `bolusIncrement`.
 - **`enacted.received`** is correctly spelled (lowercase, no typo).
 - **Determination JSON** uses CAPITAL keys (`IOB`, `COB`, `ISF`,
