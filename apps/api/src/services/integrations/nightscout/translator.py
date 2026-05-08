@@ -59,9 +59,10 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -329,9 +330,7 @@ async def translate_devicestatuses(
     # "snapshot count is preserved on pump-events failure" contract.
     try:
         async with session.begin_nested():
-            last_state = await fetch_initial_last_state(
-                session, user_id, source=source
-            )
+            last_state = await fetch_initial_last_state(session, user_id, source=source)
             pump_event_rows = extract_pump_events_from_devicestatuses(
                 parsed_sorted,
                 user_id=user_id,
@@ -347,6 +346,17 @@ async def translate_devicestatuses(
                 # `last_state` snapshot) is caught at the storage
                 # layer; we don't need a row lock.
                 await _upsert_pump_events(session, pump_event_rows)
+            # Now that the just-fetched devicestatus snapshots are in
+            # DB, backfill IoB / COB context onto NS-sourced bolus
+            # rows from the nearest preceding snapshot. Bounded to the
+            # last 14 days so old boluses don't get retroactive
+            # rewrites every sync.
+            await _backfill_bolus_context(
+                session,
+                user_id=user_id,
+                source=source,
+                cutoff=received - timedelta(days=14),
+            )
     except Exception:
         # The promotion is opportunistic: snapshots are the
         # authoritative store and have already landed. Don't let a
@@ -451,6 +461,76 @@ async def _upsert_pump_events(session: AsyncSession, rows: list[dict[str, Any]])
     )
     result = await session.execute(stmt)
     return len(result.scalars().all())
+
+
+async def _backfill_bolus_context(
+    session: AsyncSession,
+    *,
+    user_id: str,
+    source: str,
+    cutoff: datetime,
+) -> int:
+    """Copy IoB / COB context from the nearest preceding devicestatus
+    snapshot onto bolus / correction pump_events that don't have it.
+
+    Why this exists: Loop / AAPS / Trio post boluses as treatments
+    WITHOUT in-band IoB / COB context -- that data lives in the
+    per-cycle devicestatus posted around the same time. Without
+    correlating, the dashboard's `Recent Boluses` table (which reads
+    `iob_at_event` / `cob_at_event` / `bg_at_event` directly off the
+    pump_event row) renders those columns as `---` for every NS-
+    sourced bolus.
+
+    Bounded by:
+    - `source` -- only this NS connection's rows
+    - `cutoff` -- caller-supplied lower bound (usually 14 days ago);
+      old historical boluses don't get retroactive context updates.
+    - 15-minute snapshot window -- if no devicestatus was posted
+      within 15 min before the bolus we can't reasonably correlate
+      and `iob_at_event` stays NULL (the table cell renders `---`).
+
+    Runs after `_upsert_devicestatus_snapshots` so the just-inserted
+    snapshots are visible to the join. Should be called inside the
+    pump-events SAVEPOINT so a failure here doesn't poison the
+    snapshot insert.
+
+    Returns the number of rows updated.
+    """
+    stmt = text(  # nosemgrep: avoid-sqlalchemy-text
+        """
+        UPDATE pump_events AS pe
+        SET iob_at_event = ds.iob_units,
+            cob_at_event = ds.cob_grams
+        FROM device_status_snapshots AS ds
+        WHERE pe.user_id = :user_id
+          AND pe.source = :source
+          AND pe.event_type IN ('bolus', 'correction')
+          AND pe.iob_at_event IS NULL
+          AND pe.event_timestamp >= :cutoff
+          AND ds.user_id = pe.user_id
+          AND ds.snapshot_timestamp <= pe.event_timestamp
+          AND ds.snapshot_timestamp >= pe.event_timestamp - INTERVAL '15 minutes'
+          -- Pick the nearest preceding snapshot via anti-join: this
+          -- row's snapshot_timestamp is the maximum within the
+          -- 15-min window before the bolus.
+          AND NOT EXISTS (
+              SELECT 1 FROM device_status_snapshots AS ds2
+              WHERE ds2.user_id = pe.user_id
+                AND ds2.snapshot_timestamp <= pe.event_timestamp
+                AND ds2.snapshot_timestamp >= pe.event_timestamp - INTERVAL '15 minutes'
+                AND ds2.snapshot_timestamp > ds.snapshot_timestamp
+          )
+        """
+    )
+    result = await session.execute(
+        stmt,
+        {
+            "user_id": user_id,
+            "source": source,
+            "cutoff": cutoff,
+        },
+    )
+    return result.rowcount or 0
 
 
 def _normalize_row_shapes(

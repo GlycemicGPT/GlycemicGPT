@@ -536,6 +536,97 @@ class TestDevicestatusPath:
         )
         assert len(rows) == 1
 
+    @pytest.mark.asyncio
+    async def test_devicestatus_backfills_iob_context_on_recent_boluses(
+        self, translator_ctx
+    ):
+        """After devicestatus translation, NS-sourced bolus rows that
+        were inserted without iob_at_event get the context backfilled
+        from the nearest preceding devicestatus snapshot.
+
+        Regression case: Loop / AAPS / Trio post boluses as treatments
+        WITHOUT in-band IoB context -- it lives in devicestatus posted
+        around the same time. Without the backfill, the dashboard's
+        Recent Boluses table shows `---` in the IoB column for every
+        NS-sourced bolus.
+        """
+        session, user_id, conn_id = translator_ctx
+
+        # Insert a bolus first via the treatments path; it'll have
+        # iob_at_event=None (Loop's bolus payload has no IoB field).
+        await translate_treatments(
+            [_load("treatments", "loop_correction_bolus")],
+            session=session,
+            user_id=str(user_id),
+            connection_id=str(conn_id),
+        )
+        await session.flush()
+
+        # Now run devicestatus translation -- the loop_devicestatus
+        # fixture is timestamped 2026-04-15T17:53:54Z and has
+        # iob.iob = 1.2; the loop_correction_bolus fixture is
+        # timestamped 2026-04-15T17:54:00Z (6 sec later), so the
+        # backfill should correlate them.
+        await translate_devicestatuses(
+            [_load("devicestatus", "loop_devicestatus")],
+            session=session,
+            user_id=str(user_id),
+            connection_id=str(conn_id),
+        )
+        await session.flush()
+
+        from src.models.pump_data import PumpEvent, PumpEventType
+
+        bolus_row = (
+            await session.execute(
+                select(PumpEvent).where(
+                    PumpEvent.user_id == user_id,
+                    PumpEvent.event_type == PumpEventType.BOLUS,
+                )
+            )
+        ).scalar_one()
+        assert bolus_row.iob_at_event == 1.2
+        assert bolus_row.cob_at_event == 12.0
+
+    @pytest.mark.asyncio
+    async def test_backfill_skips_bolus_with_no_preceding_snapshot(
+        self, translator_ctx
+    ):
+        """If a bolus has no devicestatus posted in the 15-min window
+        before it, the backfill leaves iob_at_event NULL -- we don't
+        invent context."""
+        session, user_id, conn_id = translator_ctx
+
+        # Bolus only, no devicestatus translation at all.
+        await translate_treatments(
+            [_load("treatments", "loop_correction_bolus")],
+            session=session,
+            user_id=str(user_id),
+            connection_id=str(conn_id),
+        )
+        await session.flush()
+
+        # Run devicestatus translation with NO devicestatus rows.
+        await translate_devicestatuses(
+            [],
+            session=session,
+            user_id=str(user_id),
+            connection_id=str(conn_id),
+        )
+        await session.flush()
+
+        from src.models.pump_data import PumpEvent, PumpEventType
+
+        bolus_row = (
+            await session.execute(
+                select(PumpEvent).where(
+                    PumpEvent.user_id == user_id,
+                    PumpEvent.event_type == PumpEventType.BOLUS,
+                )
+            )
+        ).scalar_one()
+        assert bolus_row.iob_at_event is None
+
 
 # ---------------------------------------------------------------------------
 # Profile path -> nightscout_profile_snapshots (single row, upsert)
