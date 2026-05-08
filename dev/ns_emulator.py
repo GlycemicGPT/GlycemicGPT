@@ -224,6 +224,12 @@ class PatientState:
         self.boluses: list[_Bolus] = []
         self.carb_events: list[_CarbEvent] = []
         self.last_correction_min: float = -math.inf
+        # Wall-clock instant of the most recent bolus delivery (any
+        # kind). None until the first bolus fires. AAPS / oref
+        # devicestatus carries this in `openaps.iob.lastBolusTime`
+        # so the dashboard's bolus-detail view can show "last
+        # bolus N minutes ago" without scanning treatments.
+        self.last_bolus_at: datetime.datetime | None = None
         # (date_iso, "meal"|"snack", window_idx) -- prevents 4 dinners.
         self._consumed_windows: set[tuple[str, str, int]] = set()
 
@@ -264,11 +270,15 @@ class PatientState:
 
     # ---- mutations ------------------------------------------------------
 
-    def deliver_bolus(self, units: float) -> None:
+    def deliver_bolus(
+        self, units: float, *, at: datetime.datetime | None = None
+    ) -> None:
         if units <= 0:
             return
         self.boluses.append(_Bolus(units, self.sim_minute))
         self.reservoir_u = max(0.0, self.reservoir_u - units)
+        if at is not None:
+            self.last_bolus_at = at
 
     def consume_carbs(self, grams: float) -> None:
         if grams <= 0:
@@ -1184,12 +1194,22 @@ class AapsV1Lens(Lens):
         # output. Both `iob` and `suggested` are rich; `enacted`
         # mirrors `suggested` plus `received: true` and a timestamp.
         ts = iso_z(posted_at)
+        # `lastBolusTime` is the wall-clock instant of the most
+        # recent ACTUAL bolus, not "now". When no bolus has fired
+        # yet in this run, AAPS posts 0; the dashboard interprets
+        # that as "no bolus on record" and skips the "last bolus N
+        # min ago" indicator.
+        last_bolus_ms = (
+            int(state.last_bolus_at.timestamp() * 1000)
+            if state.last_bolus_at is not None
+            else 0
+        )
         iob_subtree = {
             "iob": round(state.iob, 3),
             "basaliob": round(state.iob * 0.4, 3),
             "bolussnooze": 0.0,
             "activity": round(state.iob * 0.0008, 6),
-            "lastBolusTime": int(posted_at.timestamp() * 1000),
+            "lastBolusTime": last_bolus_ms,
             "time": ts,
         }
         predicted = self._build_predbgs(state)
@@ -1276,18 +1296,25 @@ class AapsV1Lens(Lens):
     # ---- treatments -----------------------------------------------------
 
     def _aaps_pump_dedup_fields(self) -> dict:
-        """AAPS pump composite dedup triple. Always set on dose
-        treatments so the translator's AAPS-specific dedup path
-        (apps/api/src/services/integrations/nightscout/_pump_events_mapper.py
-        treatment.pump_id / pump_type / pump_serial) sees realistic
-        values.
+        """AAPS pump composite dedup triple.
+
+        Real AAPS clients post these on every pump-originated dose so
+        a server-side reconciler can dedupe duplicate uploads. The
+        GlycemicGPT translator drops the triple at metadata-allowlist
+        time (`_pump_events_mapper.py:_METADATA_ALLOWLIST` does not
+        include them; they're treated as identifier-shaped values
+        and stripped). We emit them anyway for wire-format fidelity
+        -- a future translator change that wants to use them will
+        find them in the raw fixture data.
         """
         return {
             "pumpType": AAPS_PUMP_TYPE,
             "pumpSerial": AAPS_PUMP_SERIAL,
-            # pumpId varies per dose -- a sequence number from the pump.
-            # Use an autoincrementing counter so each dose has a unique
-            # composite key.
+            # pumpId varies per dose -- the pump assigns a sequence
+            # number per delivery. We use a random int in
+            # [0, 1_000_000_000) so the composite key is
+            # collision-resistant across a multi-day run without the
+            # bookkeeping of a real autoincrement counter.
             "pumpId": int(uuid.uuid4().int % 1_000_000_000),
         }
 
@@ -1298,10 +1325,15 @@ class AapsV1Lens(Lens):
         bolus_u: float,
         posted_at: datetime.datetime,
     ) -> None:
-        # AAPS bundles meal carbs + insulin in ONE Meal Bolus
-        # treatment. Verified against real fixtures (51 Meal Bolus
-        # records in the survey set, every one with both `carbs` and
-        # `insulin` fields populated).
+        # AAPS Meal Bolus shape varies in real fixtures: some records
+        # carry both `carbs` and `insulin`, others are carbs-only
+        # (announced meal, with the bolus following separately as
+        # Correction Bolus or SMB), others are insulin-only. We
+        # always bundle both so the GlycemicGPT translator's
+        # `meal_bolus_pair` semantic kind fires and creates the
+        # linked bolus + carb_entry pump_events. Other AAPS shapes
+        # are exercisable by editing this method or by future
+        # snack-only / extended-meal lens variants.
         payload = [
             {
                 "eventType": "Meal Bolus",
@@ -1313,7 +1345,6 @@ class AapsV1Lens(Lens):
                 "type": "NORMAL",
                 "isSMB": False,
                 "insulinType": AAPS_INSULIN_TYPE,
-                "identifier": str(uuid.uuid4()),
                 **self._aaps_pump_dedup_fields(),
             }
         ]
@@ -1341,7 +1372,6 @@ class AapsV1Lens(Lens):
                 "type": "SMB",
                 "isSMB": True,
                 "insulinType": AAPS_INSULIN_TYPE,
-                "identifier": str(uuid.uuid4()),
                 **self._aaps_pump_dedup_fields(),
             }
         ]
@@ -1374,7 +1404,6 @@ class AapsV1Lens(Lens):
                 "automatic": True,
                 "type": "NORMAL",
                 "insulinType": AAPS_INSULIN_TYPE,
-                "identifier": str(uuid.uuid4()),
                 **self._aaps_pump_dedup_fields(),
             }
         ]
@@ -1386,6 +1415,9 @@ class AapsV1Lens(Lens):
         # AAPS uses `Site Change` for cannula change; the upstream
         # spec at mapping/aaps/nsclient-schema.md says the eventType
         # enum value is CANNULA_CHANGE -> "Site Change".
+        # NOTE: per `nsclient-schema.md`, `identifier` is server-
+        # assigned; AAPS clients don't include it on POST. We
+        # follow that convention and let NS assign `_id`.
         payload = [
             {
                 "eventType": "Site Change",
@@ -1393,7 +1425,6 @@ class AapsV1Lens(Lens):
                 "enteredBy": self.device_label,
                 "device": self.device_label,
                 "notes": "Cannula change (emulated)",
-                "identifier": str(uuid.uuid4()),
             }
         ]
         http_post(self.base_url, "/api/v1/treatments.json", self._auth_headers, payload)
@@ -1621,11 +1652,11 @@ def main() -> int:
         if meal is not None:
             carbs_g, bolus_u = meal
             state.consume_carbs(carbs_g)
-            state.deliver_bolus(bolus_u)
+            state.deliver_bolus(bolus_u, at=posted_at)
         else:
             correction = state.maybe_correction()
             if correction is not None:
-                state.deliver_bolus(correction)
+                state.deliver_bolus(correction, at=posted_at)
                 state.last_correction_min = state.sim_minute
 
         # Reservoir below threshold? Refill (and the lens may post

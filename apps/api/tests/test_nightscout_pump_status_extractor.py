@@ -406,10 +406,12 @@ class TestOpenapsBasalExtraction:
         assert len(basal_rows) == 1
         assert basal_rows[0]["units"] == 0.8
 
-    def test_openaps_suggested_rate_used_when_no_enacted(self):
-        """If the loop didn't dose this cycle (failureReason / dry
-        run), AAPS still posts `suggested.rate`. Use it as the most
-        recent intent."""
+    def test_openaps_suggested_only_does_not_emit_basal(self):
+        """Medical data integrity: `suggested` is what the algorithm
+        wanted to do, `enacted` is what actually happened. We must
+        not write a suggested-but-never-delivered rate as if it were
+        enacted -- that would misrepresent pump behavior in
+        `pump_events`."""
         ds = _make_aaps_ds(
             ds_id="ds1",
             when=datetime(2026, 5, 1, 12, 0, tzinfo=UTC),
@@ -420,8 +422,32 @@ class TestOpenapsBasalExtraction:
             [ds], user_id="u1", source="nightscout:c1", last_state={}
         )
         basal_rows = [r for r in rows if r["event_type"] == PumpEventType.BASAL]
+        assert basal_rows == []
+
+    def test_loop_enacted_missing_rate_falls_through_to_openaps(self):
+        """Defensive: if `loop.enacted` is present but `rate` is
+        missing/non-numeric (corrupt or dry-run record), we should
+        fall through to openaps rather than emit nothing.
+        """
+        raw = {
+            "_id": "ds1",
+            "device": "loop://iPhone",
+            "created_at": "2026-05-01T12:00:00Z",
+            "loop": {
+                "enacted": {"duration": 30},  # rate field absent
+                "iob": {"iob": 2.0},
+            },
+            "openaps": {
+                "enacted": {"rate": 1.5, "duration": 30, "received": True},
+            },
+        }
+        ds = NightscoutDeviceStatus.model_validate(raw)
+        rows = extract_pump_events_from_devicestatuses(
+            [ds], user_id="u1", source="nightscout:c1", last_state={}
+        )
+        basal_rows = [r for r in rows if r["event_type"] == PumpEventType.BASAL]
         assert len(basal_rows) == 1
-        assert basal_rows[0]["units"] == 1.2
+        assert basal_rows[0]["units"] == 1.5
 
     def test_loop_subtree_takes_precedence_over_openaps(self):
         """Mixed payload (devicestatus from a Loop user with an

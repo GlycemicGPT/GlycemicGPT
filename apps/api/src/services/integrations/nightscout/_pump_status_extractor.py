@@ -113,14 +113,23 @@ def _should_emit(
 
 
 def _extract_enacted_basal_rate(ds: NightscoutDeviceStatus) -> float | None:
-    """Pull the most recently enacted temp basal rate from whichever
+    """Pull the most recently ENACTED temp basal rate from whichever
     subtree carries it.
 
     Sources, in priority order:
     - Loop:  `loop.enacted.rate`        (Apple iPhone closed-loop)
     - oref0 / AAPS / Trio: `openaps.enacted.rate`   (oref-derived)
-      Falls back to `openaps.suggested.rate` when there's no enacted
-      record (loop didn't dose this cycle but suggested a rate).
+
+    Deliberately does NOT fall back to `openaps.suggested.rate` --
+    `suggested` is what the algorithm wanted to do, `enacted` is
+    what the pump actually delivered. Conflating the two would write
+    a "suggested but never delivered" rate as if it were enacted,
+    which misrepresents pump behavior in stored data and could
+    mislead downstream consumers reading from `pump_events`. When
+    there's no enacted record this cycle (loop failure, pump
+    disconnect, dry run), we leave the prior BASAL row in place
+    and emit nothing -- the dashboard correctly shows the most
+    recent enacted rate.
 
     Returns None when:
     - Neither subtree carries an enacted rate
@@ -137,13 +146,6 @@ def _extract_enacted_basal_rate(ds: NightscoutDeviceStatus) -> float | None:
         enacted = ds.openaps.get("enacted")
         if isinstance(enacted, dict):
             rate = enacted.get("rate")
-            if isinstance(rate, int | float) and not isinstance(rate, bool):
-                return float(rate)
-        # Fallback: suggested rate is what the algorithm wanted to do
-        # if for whatever reason it didn't record an enacted record.
-        suggested = ds.openaps.get("suggested")
-        if isinstance(suggested, dict):
-            rate = suggested.get("rate")
             if isinstance(rate, int | float) and not isinstance(rate, bool):
                 return float(rate)
     return None
