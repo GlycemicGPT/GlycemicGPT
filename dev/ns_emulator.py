@@ -21,10 +21,11 @@ Currently shipped lenses:
   - loop    : Loop (Apple iPhone closed-loop, NS API v1, SHA-1 secret)
   - aaps_v1 : AndroidAPS NSClient legacy (NS API v1, SHA-1 secret)
   - aaps_v3 : AndroidAPS NSClientV3 (NS API v3, JWT subject)
+  - trio    : Trio (iOS oref-derived, NS API v1, SHA-1 secret)
 
 Planned (each its own PR -- see dev/README.md for status):
-  - trio, oref0, iaps, xdrip_plus, xdrip4ios, librelink_up,
-    share2ns, tconnectsync, manual
+  - oref0, iaps, xdrip_plus, xdrip4ios, librelink_up, share2ns,
+    tconnectsync, manual
 
 Each lens is anchored to its source-of-truth document in the
 external `bewest/rag-nightscout-ecosystem-alignment` repo, e.g.
@@ -1941,6 +1942,561 @@ class AapsV3Lens(AapsV1Lens):
 
 
 # ---------------------------------------------------------------------------
+# Trio lens (Nightscout API v1 + SHA-1, oref-derived devicestatus)
+# ---------------------------------------------------------------------------
+#
+# Trio is the iOS closed-loop fork of iAPS / FreeAPS X (which itself
+# forked from oref0). Its NS upload pipeline is closer to AAPS than
+# to Loop -- both speak the oref `openaps.{iob,suggested,enacted}`
+# vocabulary -- but the wire details diverge enough that inheriting
+# from `AapsV1Lens` would force a wave of "delete-this" overrides.
+# This lens inherits from `Lens` directly.
+#
+# Distinctions from AAPS that this lens handles explicitly:
+#
+# - **`enteredBy` / `device`**: Trio stamps `enteredBy: "Trio"` on
+#   every treatment AND `device: "Trio"` on devicestatus, but does
+#   NOT set `device` on individual treatments (AAPS does). No
+#   `app` field anywhere -- v1 doesn't require it, and Trio doesn't
+#   send one.
+#
+# - **No pump composite dedup triple**: Trio dedupes on a
+#   client-generated UUID `id` per treatment (queryable via
+#   `find[id][$eq]=...`) instead of `pumpId`/`pumpType`/`pumpSerial`.
+#   We emit the UUID; whether the GlycemicGPT translator uses it is
+#   orthogonal.
+#
+# - **No `bolusCalculatorResult`**: Trio's bolus wizard inputs are
+#   not stamped onto the NS treatment (a real diff vs AAPS, where
+#   the Bolus Wizard JSON rides along on every meal/correction
+#   bolus).
+#
+# - **Bolus eventType is just `"Bolus"` or `"SMB"`**: per upstream
+#   `Trio/Sources/APS/Storage/PumpHistoryStorage.swift`'s
+#   `determineBolusEventType`: a dose with `isSMB=true` becomes
+#   `"SMB"`, a dose with `isExternal=true` becomes `"External
+#   Insulin"`, every other dose becomes `"Bolus"`. The `"Meal
+#   Bolus"` / `"Correction Bolus"` / `"Snack Bolus"` enum cases
+#   exist for inbound parsing of foreign uploaders' records but are
+#   never EMITTED by Trio itself. So this lens posts user-
+#   administered boluses (meal AND manual correction alike) as
+#   `"Bolus"`, and algorithm-driven SMBs as `"SMB"`. This is a real
+#   semantic loss vs AAPS but it's faithful to what Trio sends.
+#
+# - **Carbs split off into a separate treatment**: Trio uploads
+#   carbs as `eventType: "Carb Correction"` records, NEVER bundled
+#   into a Meal Bolus. Our lens posts a paired Bolus + Carb
+#   Correction (same `created_at`, separate documents).
+#
+# - **`Carb Correction` carries fat/protein**: Trio supports the
+#   FPU (Flexible Portion Unit) macros, so Carb Correction records
+#   include `fat` / `protein` Decimals. We emit zeros for fat/
+#   protein (no FPU model in our patient state) but include the
+#   keys for shape fidelity.
+#
+# - **devicestatus shape**: `openaps + pump + uploader`, NO
+#   `configuration` subtree. `uploader` is a NESTED object
+#   Loop-style (Trio's upstream model has
+#   `{batteryVoltage?, battery, isCharging?}`), NOT a top-level
+#   `uploaderBattery` int (AAPS-style). This emulator only fills
+#   the always-present fields (`battery`, `isCharging`); the
+#   optional `batteryVoltage` isn't modeled in PatientState and is
+#   omitted. `pump` carries `bolusIncrement` (Trio-specific)
+#   alongside the usual `clock`, `battery`, `reservoir`, `status`.
+#
+# - **`enacted.received`**: Trio uses the correctly-spelled
+#   `received` key (lowercase, no typo). An older note in the
+#   reference repo claimed Trio preserves an AAPS `recieved` typo;
+#   upstream `Trio/Sources/Models/Determination.swift` shows
+#   `let received: Bool?` with `case received` in CodingKeys. The
+#   reference note is stale. Per the repo-wide rule, upstream wins.
+#
+# - **Determination JSON capitalization**: `IOB`, `COB`, `ISF`,
+#   `CR`, `TDD`, `predBGs.{IOB,COB,UAM,ZT}` (capitalized -- exactly
+#   the oref0 wire convention).
+#
+# - **Profile shape**: includes Trio-specific fields
+#   (`bundleIdentifier`, `deviceToken`, `isAPNSProduction`,
+#   `overridePresets`, `teamID`). We emit minimal-but-valid values
+#   so the NS profile insert succeeds.
+#
+# Source-of-truth files cross-checked:
+#   - `Trio/Sources/Models/NightscoutTreatment.swift`
+#   - `Trio/Sources/Models/NightscoutStatus.swift`
+#   - `Trio/Sources/Models/Determination.swift`
+#   - `Model/Helper/PumpEvent+helper.swift` (EventType enum)
+#   - `Trio/Sources/APS/Storage/PumpHistoryStorage.swift`
+#     (`determineBolusEventType`)
+#   - `Trio/Sources/APS/Storage/CarbsStorage.swift` (`getCarbsNotYet`
+#     -> NightscoutTreatment(eventType: .nsCarbCorrection))
+#   - `Trio/Sources/Services/Network/Nightscout/NightscoutManager.swift`
+#     (upload pipelines, throttling)
+
+
+TRIO_VERSION = "0.7.1"
+TRIO_DEVICE_LABEL = "Trio"
+TRIO_BOLUS_INCREMENT = 0.05  # Tandem Mobi-style minimum delivery
+TRIO_BUNDLE_IDENTIFIER = "com.trio-iaps.Trio.emulator"
+
+
+class TrioLens(Lens):
+    """Trio (oref-derived iOS closed-loop, fork of iAPS / FreeAPS X)
+    lens. See architecture comment block above for the v1-vs-Trio
+    wire-format diff."""
+
+    name = "trio"
+
+    def __init__(
+        self, base_url: str, api_secret: str, device_label: str | None = None
+    ) -> None:
+        super().__init__(base_url, api_secret, device_label)
+        # Once-per-sim-day Temp Target (morning exercise, the only
+        # Trio "override-style" event that actually round-trips
+        # through Nightscout -- override presets are profile-time,
+        # not per-tick treatments).
+        self._last_temp_target_date: str | None = None
+        # 80/20 SMB-vs-manual correction split, seed-aware so
+        # NS_RANDOM_SEED gives reproducible runs end-to-end.
+        seed_env = os.environ.get("NS_RANDOM_SEED")
+        try:
+            self._rng = (
+                random.Random(int(seed_env)) if seed_env else random.Random()
+            )
+        except ValueError:
+            self._rng = random.Random()
+
+    @classmethod
+    def default_device_label(cls) -> str:
+        return TRIO_DEVICE_LABEL  # "Trio"
+
+    # ---- profile --------------------------------------------------------
+
+    def ensure_profile(self) -> None:
+        """Trio profile carries iOS-specific fields (bundleIdentifier,
+        deviceToken, isAPNSProduction, teamID, overridePresets) that
+        AAPS / Loop don't. NS doesn't enforce them, so we emit
+        minimal-but-valid placeholders -- a real Trio app would have
+        a real APNS device token from Apple Push registration."""
+        try:
+            existing = http_get(
+                self.base_url, "/api/v1/profile.json", self._auth_headers
+            )
+            if existing:
+                return
+        except urllib.error.HTTPError:
+            pass
+
+        now_iso = iso_z(datetime.datetime.now(datetime.UTC))
+        profile_name = "Trio"
+        payload = {
+            "defaultProfile": profile_name,
+            "store": {
+                profile_name: {
+                    "dia": str(DIA_MINUTES // 60),
+                    "carbratio": [{"time": "00:00", "value": ICR_GRAMS_PER_UNIT}],
+                    "sens": [{"time": "00:00", "value": ISF_MGDL_PER_UNIT}],
+                    "basal": [{"time": "00:00", "value": SCHEDULED_BASAL_U_HR}],
+                    "target_low": [{"time": "00:00", "value": TARGET_BG_MGDL - 10}],
+                    "target_high": [{"time": "00:00", "value": TARGET_BG_MGDL + 10}],
+                    "carbs_hr": "20",
+                    "delay": "20",
+                    "timezone": "UTC",
+                    "units": "mg/dl",
+                }
+            },
+            "startDate": now_iso,
+            "mills": int(time.time() * 1000),
+            "units": "mg/dl",
+            "enteredBy": TRIO_DEVICE_LABEL,
+            # Trio-specific iOS-side fields. Nightscout doesn't
+            # validate these; a real Trio user has real values.
+            "bundleIdentifier": TRIO_BUNDLE_IDENTIFIER,
+            "deviceToken": "emulator-no-apns-token",
+            "isAPNSProduction": False,
+            "teamID": "EMULATOR",
+            "overridePresets": [],
+        }
+        http_post(
+            self.base_url, "/api/v1/profile.json", self._auth_headers, [payload]
+        )
+
+    # ---- per-tick hook --------------------------------------------------
+
+    def on_tick_start(
+        self, state: PatientState, posted_at: datetime.datetime
+    ) -> None:
+        """Trio runs the oref-derived determine-basal every 5 sim-min,
+        choosing a new temp basal each cycle. Once per sim-day we also
+        fire a Temporary Target (morning-exercise scenario) -- the
+        only Trio "override-style" event that actually round-trips
+        through Nightscout."""
+        rate = loop_temp_basal_decision(state)
+        state.set_temp_basal(rate, LOOP_TEMP_BASAL_DURATION_MIN)
+
+        date_iso = state.sim_time.date().isoformat()
+        hour = state.sim_time.hour
+        if 6 <= hour < 7 and self._last_temp_target_date != date_iso:
+            self._last_temp_target_date = date_iso
+            try:
+                self._post_temp_target(
+                    posted_at, target_mgdl=140, duration_min=60
+                )
+            except Exception as exc:  # noqa: BLE001 - keep loop running
+                print(
+                    f"[emu] trio temp_target post failed: {exc}", flush=True
+                )
+
+    # ---- entries --------------------------------------------------------
+
+    def post_entry(
+        self,
+        state: PatientState,
+        prev_bg: float,
+        posted_at: datetime.datetime,
+    ) -> None:
+        # Trio sends entries with `device: "Trio"` (no `app` field on
+        # v1; Trio doesn't bother).
+        payload = [
+            {
+                "type": "sgv",
+                "sgv": int(round(state.bg)),
+                "direction": direction_for(prev_bg, state.bg),
+                "date": int(posted_at.timestamp() * 1000),
+                "dateString": iso_z(posted_at),
+                "device": self.device_label,
+            }
+        ]
+        http_post(
+            self.base_url, "/api/v1/entries.json", self._auth_headers, payload
+        )
+
+    # ---- devicestatus ---------------------------------------------------
+
+    def _build_predbgs(self, state: PatientState) -> dict[str, list[int]]:
+        """oref-style predBGs (same arrays as AAPS produces -- the
+        algorithm's parents). 30-min horizon at 5-min steps = 7
+        points. Keys are CAPITAL per oref0 wire convention."""
+        base = state.predict_glucose(horizon_min=30)
+        # UAM (Unannounced-Meal) prediction must NOT be a flat offset
+        # of IOB -- the algorithm checks UAM-vs-IOB divergence to
+        # decide whether to enable SMBs. When carbs are active
+        # (state.cob > 0), UAM trends toward COB; when COB is zero
+        # but BG is elevated, UAM should diverge upward to model the
+        # "user ate carbs they didn't enter" scenario.
+        return {
+            "IOB": base,
+            "COB": [int(min(BG_CEIL, v + max(0, state.cob * 0.4))) for v in base],
+            "UAM": [
+                int(min(BG_CEIL, v + max(5, state.cob * 0.5))) for v in base
+            ],
+            "ZT": [int(min(BG_CEIL, v + max(0, state.iob * 5))) for v in base],
+        }
+
+    def post_devicestatus(
+        self, state: PatientState, posted_at: datetime.datetime
+    ) -> None:
+        ts = iso_z(posted_at)
+        iob_subtree = {
+            "iob": round(state.iob, 3),
+            "basaliob": round(state.iob * 0.4, 3),
+            "bolussnooze": 0.0,
+            "activity": round(state.iob * 0.0008, 6),
+            "time": ts,
+        }
+        predicted = self._build_predbgs(state)
+        eventual_bg = (
+            predicted["IOB"][-1] if predicted["IOB"] else int(round(state.bg))
+        )
+        # Approximate running TDD from the in-memory bolus history +
+        # scheduled basal coverage so far. Real Trio computes a
+        # rolling 7-day average; ours is a since-sim-start sum, which
+        # is plausible enough for AI consumers that read TDD as a
+        # rough magnitude check ("does this user dose ~30U/day or
+        # ~70U/day?"). Hours elapsed in sim-time, not wall-time.
+        sim_hours_elapsed = max(state.sim_minute / 60.0, 1.0 / 60.0)
+        bolus_total = sum(b.units for b in state.boluses)
+        tdd_estimate = bolus_total + SCHEDULED_BASAL_U_HR * sim_hours_elapsed
+
+        # Trio Determination JSON uses CAPITAL keys (IOB / COB /
+        # ISF / CR / TDD), exactly the oref0 wire convention. Lower-
+        # case `iob` is the local Swift property name; the JSON key
+        # is `IOB`. See `Trio/Sources/Models/Determination.swift`
+        # CodingKeys.
+        cob_r = round(state.cob, 1)
+        iob_r = round(state.iob, 2)
+        target_i = int(TARGET_BG_MGDL)
+        rate_r = state.temp_basal_rate_u_hr
+        determination = {
+            "reason": (
+                f"COB: {cob_r}, IOB: {iob_r}, ISF: {ISF_MGDL_PER_UNIT}, "
+                f"CR: {ICR_GRAMS_PER_UNIT}, Target: {target_i}, "
+                f"eventualBG: {eventual_bg}, rate: {rate_r}"
+            ),
+            "temp": "absolute",
+            "bg": int(round(state.bg)),
+            "eventualBG": eventual_bg,
+            "insulinReq": 0.0,
+            "sensitivityRatio": 1.0,
+            "rate": state.temp_basal_rate_u_hr,
+            "duration": LOOP_TEMP_BASAL_DURATION_MIN,
+            "predBGs": predicted,
+            "IOB": round(state.iob, 3),
+            "COB": round(state.cob, 1),
+            "ISF": ISF_MGDL_PER_UNIT,
+            "CR": ICR_GRAMS_PER_UNIT,
+            "TDD": round(tdd_estimate, 2),
+            "deliverAt": ts,
+            "reservoir": round(state.reservoir_u, 1),
+            "current_target": int(TARGET_BG_MGDL),
+            # `current_basal` is the scheduled (non-temp) rate at
+            # this hour. Upstream `Determination.swift` exposes it
+            # alongside the temp `rate`, so AI consumers reading
+            # "what would the pump do without the loop?" get a
+            # meaningful answer.
+            "current_basal": SCHEDULED_BASAL_U_HR,
+            "timestamp": ts,
+        }
+        # `enacted` mirrors `suggested` plus `received: true`.
+        # `received` (correctly spelled, lowercase) is the actual
+        # upstream Trio key -- see
+        # `Trio/Sources/Models/Determination.swift` CodingKeys.
+        enacted = {**determination, "received": True}
+
+        # Trio's NSPumpStatus carries `bolusIncrement` (Mobi 0.05U)
+        # in addition to the usual fields -- a real diff vs AAPS.
+        pump_subtree = {
+            "clock": ts,
+            "battery": {"percent": int(state.pump_battery_pct)},
+            "reservoir": round(state.reservoir_u, 1),
+            "status": {"status": "normal", "suspended": state.pump_suspended},
+            "bolusIncrement": TRIO_BOLUS_INCREMENT,
+        }
+
+        # Trio's Uploader is a NESTED object (Loop-style), NOT a
+        # top-level `uploaderBattery` int (AAPS-style). Upstream has
+        # `{batteryVoltage?, battery, isCharging?}`. We omit
+        # `batteryVoltage` since PatientState doesn't model phone
+        # battery voltage; the always-required `battery` (int %) and
+        # `isCharging` (bool) cover the dashboard's read paths.
+        uploader_subtree = {
+            "battery": int(state.phone_battery_pct),
+            "isCharging": state.phone_is_charging,
+        }
+
+        payload = [
+            {
+                "device": self.device_label,
+                "created_at": ts,
+                "openaps": {
+                    "iob": iob_subtree,
+                    "suggested": determination,
+                    "enacted": enacted,
+                    "version": TRIO_VERSION,
+                },
+                "pump": pump_subtree,
+                "uploader": uploader_subtree,
+            }
+        ]
+        http_post(
+            self.base_url,
+            "/api/v1/devicestatus.json",
+            self._auth_headers,
+            payload,
+        )
+
+    # ---- treatments -----------------------------------------------------
+
+    def _new_id(self) -> str:
+        """Fresh client-generated UUID for treatment dedupe. Trio
+        keys NS treatments by this id (queries via
+        `find[id][$eq]=...`)."""
+        return str(uuid.uuid4())
+
+    def post_meal_bolus(
+        self,
+        state: PatientState,
+        carbs_g: float,
+        bolus_u: float,
+        posted_at: datetime.datetime,
+    ) -> None:
+        """Trio uploads meals as TWO separate treatments at the same
+        `created_at`: one `Carb Correction` (carbs only, with FPU
+        macros) and one `Bolus` (insulin only). The user-side bolus
+        wizard combined them; the upload pipeline splits them.
+
+        Per upstream `PumpHistoryStorage.determineBolusEventType`,
+        a non-SMB user-administered bolus is `eventType: "Bolus"`
+        regardless of whether it covered a meal or a correction.
+        Trio simply doesn't distinguish meal-bolus vs. correction-
+        bolus on the wire. So we post `"Bolus"` here, NOT `"Meal
+        Bolus"` (the latter is in the EventType enum but only
+        appears when Trio ingests other apps' records). See class
+        docstring for the full upstream-vs-Ben's-notes reconciliation.
+        """
+        created_at = iso_z(posted_at)
+        carb_payload = [
+            {
+                "eventType": "Carb Correction",
+                "created_at": created_at,
+                "enteredBy": self.device_label,
+                "carbs": round(carbs_g, 1),
+                "fat": 0,
+                "protein": 0,
+                "id": self._new_id(),
+            }
+        ]
+        bolus_payload = [
+            {
+                "eventType": "Bolus",
+                "created_at": created_at,
+                "enteredBy": self.device_label,
+                "insulin": bolus_u,
+                "id": self._new_id(),
+            }
+        ]
+        http_post(
+            self.base_url,
+            "/api/v1/treatments.json",
+            self._auth_headers,
+            carb_payload,
+        )
+        http_post(
+            self.base_url,
+            "/api/v1/treatments.json",
+            self._auth_headers,
+            bolus_payload,
+        )
+
+    def post_correction_bolus(
+        self,
+        state: PatientState,
+        units: float,
+        posted_at: datetime.datetime,
+    ) -> None:
+        """Trio split: ~80% of corrections fire automatically as
+        `eventType: "SMB"` (the SMB algorithm is the modern Trio
+        default), ~20% as user-initiated `eventType: "Bolus"`
+        (manual correction via the in-app bolus wizard). Note that
+        Trio does NOT use `eventType: "Correction Bolus"` on
+        upload -- see class docstring."""
+        is_manual = self._rng.random() < 0.20
+        if is_manual:
+            payload = [
+                {
+                    "eventType": "Bolus",
+                    "created_at": iso_z(posted_at),
+                    "enteredBy": self.device_label,
+                    "insulin": units,
+                    "id": self._new_id(),
+                }
+            ]
+        else:
+            payload = [
+                {
+                    "eventType": "SMB",
+                    "created_at": iso_z(posted_at),
+                    "enteredBy": self.device_label,
+                    "insulin": units,
+                    "id": self._new_id(),
+                }
+            ]
+        http_post(
+            self.base_url,
+            "/api/v1/treatments.json",
+            self._auth_headers,
+            payload,
+        )
+
+    def post_temp_basal(
+        self,
+        state: PatientState,
+        rate_u_hr: float,
+        duration_min: int,
+        posted_at: datetime.datetime,
+    ) -> None:
+        """Trio always uploads temp basals (no NSClient-style 'Upload
+        temp basals' opt-out toggle). Real Trio users see every loop
+        cycle's temp-basal decision in their NS treatments tab."""
+        payload = [
+            {
+                "eventType": "Temp Basal",
+                "created_at": iso_z(posted_at),
+                "enteredBy": self.device_label,
+                "rate": rate_u_hr,
+                "absolute": rate_u_hr,
+                "duration": duration_min,
+                "id": self._new_id(),
+            }
+        ]
+        http_post(
+            self.base_url,
+            "/api/v1/treatments.json",
+            self._auth_headers,
+            payload,
+        )
+
+    def post_site_change(
+        self, state: PatientState, posted_at: datetime.datetime
+    ) -> None:
+        """Trio's `EventType.nsSiteChange` -> "Site Change". On Trio
+        this fires from the pump-history `prime` event (CGM/pod
+        replacement) -- we trigger from the shared physiology engine
+        when the reservoir hits the refill threshold."""
+        payload = [
+            {
+                "eventType": "Site Change",
+                "created_at": iso_z(posted_at),
+                "enteredBy": self.device_label,
+                "id": self._new_id(),
+            }
+        ]
+        http_post(
+            self.base_url,
+            "/api/v1/treatments.json",
+            self._auth_headers,
+            payload,
+        )
+
+    # ---- private: temp target ------------------------------------------
+
+    def _post_temp_target(
+        self,
+        posted_at: datetime.datetime,
+        *,
+        target_mgdl: int,
+        duration_min: int,
+        reason: str = "Exercise",
+    ) -> None:
+        """Real Trio users set Temporary Targets for exercise (raise
+        target to e.g. 140 mg/dL), low-glucose recovery, or sleep.
+        The full Override (percentage / ISF-CR scaling / SMB-disable)
+        state is stored locally in CoreData and -- per current Trio
+        upload code -- DOES surface in the profile's
+        `overridePresets`, but not as per-event treatments. So this
+        Temp Target is the only Trio override-style event we emit on
+        the treatments timeline."""
+        payload = [
+            {
+                "eventType": "Temporary Target",
+                "created_at": iso_z(posted_at),
+                "enteredBy": self.device_label,
+                "targetTop": target_mgdl,
+                "targetBottom": target_mgdl - 10,
+                "duration": duration_min,
+                "reason": reason,
+                "units": "mg/dl",
+                "id": self._new_id(),
+            }
+        ]
+        http_post(
+            self.base_url,
+            "/api/v1/treatments.json",
+            self._auth_headers,
+            payload,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Lens registry
 # ---------------------------------------------------------------------------
 
@@ -1948,7 +2504,8 @@ LENSES: dict[str, type[Lens]] = {
     "loop": LoopLens,
     "aaps_v1": AapsV1Lens,
     "aaps_v3": AapsV3Lens,
-    # Future: "trio": TrioLens, "oref0": Oref0Lens, "iaps": IapsLens,
+    "trio": TrioLens,
+    # Future: "oref0": Oref0Lens, "iaps": IapsLens,
     # "xdrip_plus": XdripPlusLens, "xdrip4ios": Xdrip4iOSLens,
     # "librelink_up": LibreLinkUpLens, "share2ns": Share2NsLens,
     # "tconnectsync": TConnectSyncLens, "manual": ManualLens.

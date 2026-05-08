@@ -110,12 +110,12 @@ The architecture splits into:
 | `loop` | Loop on iPhone (NS API v1, SHA-1 secret) | Shipped | `mapping/loop/nightscout-sync.md` |
 | `aaps_v1` | AndroidAPS NSClient legacy (NS API v1, SHA-1) | Shipped | `mapping/aaps/nightscout-sync.md` + `mapping/aaps/nsclient-schema.md` |
 | `aaps_v3` | AndroidAPS NSClientV3 (NS API v3, JWT subject) | Shipped | `mapping/aaps/nightscout-sync.md` + `mapping/aaps/nsclient-schema.md` |
+| `trio` | Trio (iOS oref-derived, NS API v1, SHA-1) | Shipped | `mapping/trio/nightscout-sync.md` + `mapping/trio/data-models.md` |
 
 ### Planned lenses (each its own PR)
 
 | Lens | Platform | Reference doc |
 |---|---|---|
-| `trio` | Trio (NS API v1, oref-derived) | `mapping/trio/nightscout-sync.md` |
 | `oref0` | OpenAPS oref0 (raspberry pi) | `mapping/oref0/data-models.md` |
 | `iaps` | iAPS (Trio's predecessor) | `mapping/trio/nightscout-sync.md` |
 | `xdrip_plus` | xDrip+ (Android, CGM-only) | `mapping/xdrip-android/` |
@@ -228,6 +228,48 @@ format end-to-end.
 There are no `aaps_v3`-specific tunables. `NS_AAPS_UPLOAD_TEMP_BASALS`
 and `NS_RANDOM_SEED` work identically to `aaps_v1` (the v3 lens
 inherits the v1 lens, overriding only auth + endpoints).
+
+#### `trio`
+
+The Trio lens emits the iOS oref-derived wire format. There are no
+`trio`-specific tunables; it honors `NS_RANDOM_SEED` for the SMB-
+vs-manual correction split. Real Trio behaviors this lens models:
+
+- **`enteredBy: "Trio"` only** -- no `device` field on individual
+  treatments (only on devicestatus). No `app` field anywhere
+  (Trio doesn't send one over NS API v1).
+- **Bolus eventType is `"Bolus"` or `"SMB"`** -- per upstream
+  `determineBolusEventType` (`Trio/Sources/APS/Storage/PumpHistoryStorage.swift`),
+  Trio does NOT distinguish meal-bolus from manual-correction-bolus
+  on the wire. `"Meal Bolus"` / `"Correction Bolus"` enum cases
+  exist for inbound parsing of foreign uploaders' records but Trio
+  itself never emits them.
+- **Carbs are a separate `"Carb Correction"` treatment** posted at
+  the same `created_at` as the meal bolus (NOT bundled into one
+  Meal Bolus document like AAPS does). Includes `fat` and `protein`
+  macros (FPU support).
+- **Client-generated UUID `id`** on every treatment for dedupe
+  (Trio queries with `find[id][$eq]=...`). No `pumpId` /
+  `pumpType` / `pumpSerial` triple.
+- **devicestatus** carries `openaps + pump + uploader`, NO
+  `configuration` subtree. `uploader` is a NESTED object
+  Loop-style (`{battery, isCharging, batteryVoltage}`), NOT
+  AAPS's top-level `uploaderBattery` int. `pump` carries
+  `bolusIncrement`.
+- **`enacted.received`** is correctly spelled (lowercase, no typo).
+- **Determination JSON** uses CAPITAL keys (`IOB`, `COB`, `ISF`,
+  `CR`, `TDD`, `predBGs.{IOB,COB,UAM,ZT}`) per the oref0 wire
+  convention.
+- **Profile** carries Trio-specific iOS fields
+  (`bundleIdentifier`, `deviceToken`, `isAPNSProduction`,
+  `overridePresets`, `teamID`) -- emitted as placeholders.
+
+Cross-checked against upstream Trio source files
+(`Trio/Sources/Models/{NightscoutTreatment,NightscoutStatus,Determination}.swift`,
+`Trio/Sources/APS/Storage/{PumpHistoryStorage,CarbsStorage}.swift`)
+rather than relying solely on the reference repo -- the reference
+repo's note about a `recieved` typo turned out to be stale; upstream
+uses `received` correctly.
 
 ### How to verify it actually drove your code
 
