@@ -388,8 +388,13 @@ class TestExtractor:
 
 class TestOpenapsBasalExtraction:
     """The extractor reads `loop.enacted.rate` for Loop and falls
-    back to `openaps.enacted.rate` (then `openaps.suggested.rate`)
-    for AAPS / oref0 / Trio. Without this fallback, the dashboard's
+    back to `openaps.enacted.rate` for AAPS / oref0 / Trio. It
+    deliberately does NOT fall back to `openaps.suggested.rate` --
+    `suggested` is what the algorithm wanted, `enacted` is what
+    actually happened, and conflating them in `pump_events` would
+    misrepresent what the pump did (medical-data integrity). The
+    `test_openaps_suggested_only_does_not_emit_basal` test below
+    asserts this. Without the enacted fallback, the dashboard's
     basal-rate widget renders empty for any non-Loop NS user."""
 
     def test_openaps_enacted_rate_emits_basal_row(self):
