@@ -108,12 +108,12 @@ The architecture splits into:
 | Lens | Platform | Status | Reference doc |
 |---|---|---|---|
 | `loop` | Loop on iPhone (NS API v1, SHA-1 secret) | Shipped | `mapping/loop/nightscout-sync.md` |
+| `aaps_v1` | AndroidAPS NSClient legacy (NS API v1, SHA-1) | Shipped | `mapping/aaps/nightscout-sync.md` + `mapping/aaps/nsclient-schema.md` |
 
 ### Planned lenses (each its own PR)
 
 | Lens | Platform | Reference doc |
 |---|---|---|
-| `aaps_v1` | AAPS NSClient (legacy, NS API v1, SHA-1) | `mapping/aaps/nightscout-sync.md` |
 | `aaps_v3` | AAPS NSClientV3 (NS API v3, JWT) | `mapping/aaps/nightscout-sync.md` |
 | `trio` | Trio (NS API v1, oref-derived) | `mapping/trio/nightscout-sync.md` |
 | `oref0` | OpenAPS oref0 (raspberry pi) | `mapping/oref0/data-models.md` |

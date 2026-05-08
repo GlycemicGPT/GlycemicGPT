@@ -81,6 +81,46 @@ def _make_ds(
     return NightscoutDeviceStatus.model_validate(raw)
 
 
+def _make_aaps_ds(
+    *,
+    ds_id: str,
+    when: datetime,
+    enacted_rate: float | None = None,
+    suggested_rate: float | None = None,
+    iob: float | None = None,
+    cob: float | None = None,
+) -> NightscoutDeviceStatus:
+    """Build an AAPS / oref / Trio-shaped devicestatus -- openaps
+    subtree, no loop subtree. Used to verify the basal-rate
+    extractor's openaps fallback path.
+    """
+    raw = {
+        "_id": ds_id,
+        "device": "openaps://AndroidAPS",
+        "created_at": when.isoformat().replace("+00:00", "Z"),
+    }
+    openaps: dict = {}
+    if iob is not None:
+        openaps["iob"] = {"iob": iob, "time": raw["created_at"]}
+    if enacted_rate is not None:
+        openaps["enacted"] = {
+            "rate": enacted_rate,
+            "duration": 30,
+            "timestamp": raw["created_at"],
+            "received": True,
+        }
+    if suggested_rate is not None:
+        openaps["suggested"] = {
+            "rate": suggested_rate,
+            "duration": 30,
+            "deliverAt": raw["created_at"],
+            **({"COB": cob} if cob is not None else {}),
+        }
+    if openaps:
+        raw["openaps"] = openaps
+    return NightscoutDeviceStatus.model_validate(raw)
+
+
 # ---------------------------------------------------------------------------
 # extract_pump_events_from_devicestatuses
 # ---------------------------------------------------------------------------
@@ -339,6 +379,84 @@ class TestExtractor:
         # min-interval gate fires. This is the documented hazard of
         # passing unsorted input.
         assert [r["ns_id"] for r in battery_rows] == ["ds-late:battery"]
+
+
+# ---------------------------------------------------------------------------
+# Basal extraction: openaps fallback (AAPS / oref0 / Trio path)
+# ---------------------------------------------------------------------------
+
+
+class TestOpenapsBasalExtraction:
+    """The extractor reads `loop.enacted.rate` for Loop and falls
+    back to `openaps.enacted.rate` (then `openaps.suggested.rate`)
+    for AAPS / oref0 / Trio. Without this fallback, the dashboard's
+    basal-rate widget renders empty for any non-Loop NS user."""
+
+    def test_openaps_enacted_rate_emits_basal_row(self):
+        ds = _make_aaps_ds(
+            ds_id="ds1",
+            when=datetime(2026, 5, 1, 12, 0, tzinfo=UTC),
+            enacted_rate=0.8,
+            iob=2.3,
+        )
+        rows = extract_pump_events_from_devicestatuses(
+            [ds], user_id="u1", source="nightscout:c1", last_state={}
+        )
+        basal_rows = [r for r in rows if r["event_type"] == PumpEventType.BASAL]
+        assert len(basal_rows) == 1
+        assert basal_rows[0]["units"] == 0.8
+
+    def test_openaps_suggested_rate_used_when_no_enacted(self):
+        """If the loop didn't dose this cycle (failureReason / dry
+        run), AAPS still posts `suggested.rate`. Use it as the most
+        recent intent."""
+        ds = _make_aaps_ds(
+            ds_id="ds1",
+            when=datetime(2026, 5, 1, 12, 0, tzinfo=UTC),
+            suggested_rate=1.2,
+            iob=2.3,
+        )
+        rows = extract_pump_events_from_devicestatuses(
+            [ds], user_id="u1", source="nightscout:c1", last_state={}
+        )
+        basal_rows = [r for r in rows if r["event_type"] == PumpEventType.BASAL]
+        assert len(basal_rows) == 1
+        assert basal_rows[0]["units"] == 1.2
+
+    def test_loop_subtree_takes_precedence_over_openaps(self):
+        """Mixed payload (devicestatus from a Loop user with an
+        openaps-like wrapper for some reason): loop.enacted wins."""
+        raw = {
+            "_id": "ds1",
+            "device": "loop://iPhone",
+            "created_at": "2026-05-01T12:00:00Z",
+            "loop": {
+                "enacted": {"rate": 0.8, "duration": 30},
+                "iob": {"iob": 2.0},
+            },
+            "openaps": {
+                "enacted": {"rate": 99.0, "duration": 30},  # bogus
+            },
+        }
+        ds = NightscoutDeviceStatus.model_validate(raw)
+        rows = extract_pump_events_from_devicestatuses(
+            [ds], user_id="u1", source="nightscout:c1", last_state={}
+        )
+        basal_rows = [r for r in rows if r["event_type"] == PumpEventType.BASAL]
+        assert len(basal_rows) == 1
+        assert basal_rows[0]["units"] == 0.8
+
+    def test_no_basal_when_neither_subtree_has_rate(self):
+        ds = _make_aaps_ds(
+            ds_id="ds1",
+            when=datetime(2026, 5, 1, 12, 0, tzinfo=UTC),
+            iob=2.3,  # has IoB but no rate anywhere
+        )
+        rows = extract_pump_events_from_devicestatuses(
+            [ds], user_id="u1", source="nightscout:c1", last_state={}
+        )
+        basal_rows = [r for r in rows if r["event_type"] == PumpEventType.BASAL]
+        assert basal_rows == []
 
 
 # ---------------------------------------------------------------------------
