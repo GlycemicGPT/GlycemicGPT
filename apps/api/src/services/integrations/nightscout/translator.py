@@ -319,23 +319,34 @@ async def translate_devicestatuses(
         key=lambda ds: ds.created_at or _NULL_CREATED_AT_SENTINEL,
     )
     source = f"nightscout:{connection_id}"
+    # Wrap pump-event promotion in a SAVEPOINT so a DB-level error
+    # here (constraint violation, connection hiccup, schema drift)
+    # rolls back ONLY the pump-events work. Without the savepoint,
+    # asyncpg + SQLAlchemy leave the underlying connection in
+    # NEEDS_ROLLBACK state and the outer caller's `commit()` would
+    # either silently roll back the already-inserted snapshots or
+    # raise PendingRollbackError -- breaking the documented
+    # "snapshot count is preserved on pump-events failure" contract.
     try:
-        last_state = await fetch_initial_last_state(session, user_id, source=source)
-        pump_event_rows = extract_pump_events_from_devicestatuses(
-            parsed_sorted,
-            user_id=user_id,
-            source=source,
-            last_state=last_state,
-            received_at=received,
-        )
-        if pump_event_rows:
-            # The (source, ns_id) partial unique index dedupes
-            # duplicates at the DB level via ON CONFLICT DO NOTHING,
-            # so a concurrent sync race (manual trigger + scheduler
-            # tick on the same connection both reading the same
-            # `last_state` snapshot) is caught at the storage layer;
-            # we don't need a row lock.
-            await _upsert_pump_events(session, pump_event_rows)
+        async with session.begin_nested():
+            last_state = await fetch_initial_last_state(
+                session, user_id, source=source
+            )
+            pump_event_rows = extract_pump_events_from_devicestatuses(
+                parsed_sorted,
+                user_id=user_id,
+                source=source,
+                last_state=last_state,
+                received_at=received,
+            )
+            if pump_event_rows:
+                # The (source, ns_id) partial unique index dedupes
+                # duplicates at the DB level via ON CONFLICT DO NOTHING,
+                # so a concurrent sync race (manual trigger + scheduler
+                # tick on the same connection both reading the same
+                # `last_state` snapshot) is caught at the storage
+                # layer; we don't need a row lock.
+                await _upsert_pump_events(session, pump_event_rows)
     except Exception:
         # The promotion is opportunistic: snapshots are the
         # authoritative store and have already landed. Don't let a

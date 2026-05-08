@@ -58,7 +58,7 @@ _MIN_INTERVAL_SECONDS = 60.0
 # float-drift from triggering unnecessary inserts.
 _VALUE_EPSILON = {
     "battery": 0.0,  # int-valued, exact equality safe
-    "reservoir": 0.05,  # one-tenth of a unit; tighter than uploader rounding
+    "reservoir": 0.05,  # one-twentieth of a unit; tighter than uploader rounding
     "basal": 0.0,  # loop chooses clean rates, exact equality safe
 }
 
