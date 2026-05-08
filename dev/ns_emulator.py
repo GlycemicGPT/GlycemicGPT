@@ -226,6 +226,15 @@ class PatientState:
         self.sim_time = starting_sim_time
         self.sim_minute = 0.0
         self.boluses: list[_Bolus] = []
+        # Running sum of all delivered insulin since simulation start
+        # (units). The `boluses` list above only retains DIA-active
+        # entries (advance_5_min prunes them after ~4h), so summing
+        # `b.units for b in boluses` undercounts cumulative delivery
+        # on long soak runs -- which broke the lens's running-TDD
+        # estimate. This running total is monotonically increasing
+        # for the life of the PatientState; pruning DIA-expired
+        # entries from `boluses` does not affect it.
+        self.total_bolus_units_delivered: float = 0.0
         self.carb_events: list[_CarbEvent] = []
         self.last_correction_min: float = -math.inf
         # Wall-clock instant of the most recent bolus delivery (any
@@ -280,6 +289,7 @@ class PatientState:
         if units <= 0:
             return
         self.boluses.append(_Bolus(units, self.sim_minute))
+        self.total_bolus_units_delivered += units
         self.reservoir_u = max(0.0, self.reservoir_u - units)
         if at is not None:
             self.last_bolus_at = at
@@ -2215,7 +2225,7 @@ class TrioLens(Lens):
         # rough magnitude check ("does this user dose ~30U/day or
         # ~70U/day?"). Hours elapsed in sim-time, not wall-time.
         sim_hours_elapsed = max(state.sim_minute / 60.0, 1.0 / 60.0)
-        bolus_total = sum(b.units for b in state.boluses)
+        bolus_total = state.total_bolus_units_delivered
         tdd_estimate = bolus_total + SCHEDULED_BASAL_U_HR * sim_hours_elapsed
 
         # Trio Determination JSON uses CAPITAL keys (IOB / COB /
@@ -2572,7 +2582,14 @@ class TrioLens(Lens):
 
 
 OREF0_VERSION = "0.7.0"
-OREF0_HOSTNAME = "openaps-emulator"
+# Default hostname is fixed (`"openaps-emulator"`) so devicestatus
+# records are run-to-run reproducible: under a fixed `NS_RANDOM_SEED`
+# every `device` field is identical, which makes diffs between
+# emulator runs review-friendly. Real oref0 boxes use
+# `socket.gethostname()`. Set `NS_OREF0_HOSTNAME` to override (e.g.,
+# to your actual Pi's hostname when stress-testing the translator's
+# `parse_openaps_uri` heuristic against varied real-world inputs).
+OREF0_HOSTNAME = os.environ.get("NS_OREF0_HOSTNAME", "openaps-emulator")
 # `device` on devicestatus: `"openaps://<hostname>"` -- scheme and
 # hostname only, NO path component. Per upstream
 # `openaps/oref0:bin/ns-status.js`:
@@ -2761,7 +2778,7 @@ class Oref0Lens(Lens):
             predicted["IOB"][-1] if predicted["IOB"] else int(round(state.bg))
         )
         sim_hours_elapsed = max(state.sim_minute / 60.0, 1.0 / 60.0)
-        bolus_total = sum(b.units for b in state.boluses)
+        bolus_total = state.total_bolus_units_delivered
         tdd_estimate = bolus_total + SCHEDULED_BASAL_U_HR * sim_hours_elapsed
 
         cob_r = round(state.cob, 1)

@@ -279,9 +279,15 @@ uses `received` correctly.
 The oref0 lens emits the bare original oref-family wire format. oref0
 is the Raspberry Pi command-line implementation that AAPS, iAPS, and
 Trio all forked from -- so its wire shape is the *least* embellished
-of the family. There are no `oref0`-specific tunables; it honors
-`NS_RANDOM_SEED` for the SMB-vs-manual correction split. Real oref0
-behaviors this lens models:
+of the family.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `NS_OREF0_HOSTNAME` | `openaps-emulator` | Hostname stamped into `device: "openaps://<hostname>"` on devicestatus. Default is fixed so runs are review-friendly under a known `NS_RANDOM_SEED`. Set to override (e.g., your actual Pi's hostname) when stress-testing the translator's `parse_openaps_uri` heuristic against varied real-world inputs. |
+
+`NS_RANDOM_SEED` is honored for the SMB-vs-manual correction split.
+
+Real oref0 behaviors this lens models:
 
 - **Identity**: `device: "openaps://openaps-emulator"` on
   devicestatus (scheme + hostname only, no path; upstream
