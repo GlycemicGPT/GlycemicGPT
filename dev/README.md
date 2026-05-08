@@ -171,7 +171,24 @@ those entries become "past" relative to whatever query reads them.
 | `NS_RANDOM_SEED` | unset | Set int for reproducible runs |
 | `NS_STARTING_BG` | `120` | Initial blood-glucose value |
 
-Per-lens tunables are documented inside each lens module.
+### Per-lens tunables
+
+#### `aaps_v1`
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `NS_AAPS_UPLOAD_TEMP_BASALS` | `false` | When `true`, the AAPS lens posts a Temp Basal treatment every loop cycle (matches AAPS users who enable "Upload temp basals" in NSClient settings). Default off because survey of real-world AAPS fixtures shows most users keep it off for NS quota / privacy reasons. Turn on for exhaustive temp-basal mapper coverage. |
+
+The AAPS lens emits, on its own schedule:
+- **Meal Bolus** + **SMB** treatments (matches real AAPS-SMB user fixture distribution)
+- **Manual Correction Bolus** (~20% of corrections, vs SMB ~80%)
+- **Temporary Target** once per simulated day (morning exercise window 6-7am, target 140 for 60 min, reason "Exercise")
+- **Profile Switch** once per simulated day (afternoon 17-18, "Exercise" profile at 130% for 120 min)
+- **Site Change** when reservoir runs low
+
+Bolus payloads carry the AAPS `bolusCalculatorResult` JSON + `isBasalInsulin`, `isSMB`, `type` fields and the AAPS pump-composite dedup triple (`pumpId` / `pumpType` / `pumpSerial`).
+
+The SMB-vs-manual correction split honors `NS_RANDOM_SEED` -- set the seed and the same SMB / manual-bolus distribution will be reproduced on subsequent runs.
 
 ### How to verify it actually drove your code
 

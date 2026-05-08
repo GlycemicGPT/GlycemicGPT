@@ -1077,6 +1077,39 @@ AAPS_DEVICE_LABEL = "openaps://AndroidAPS"
 class AapsV1Lens(Lens):
     name = "aaps_v1"
 
+    def __init__(
+        self, base_url: str, api_secret: str, device_label: str | None = None
+    ) -> None:
+        super().__init__(base_url, api_secret, device_label)
+        # Real-world AAPS: most users have "Upload temp basals" OFF in
+        # NSClient settings (privacy + Mongo space). Survey of one
+        # patient's 133 treatments: 0 Temp Basal records. Match that
+        # by default; opt-in via env when the contributor wants
+        # exhaustive temp-basal-mapper coverage.
+        self._upload_temp_basals = os.environ.get(
+            "NS_AAPS_UPLOAD_TEMP_BASALS", "false"
+        ).lower() in ("1", "true", "yes")
+        # Once-per-sim-day gates for shapes that don't fire every
+        # cycle: Profile Switch (e.g., "Exercise" mode 17:00-19:00)
+        # and Temporary Target (e.g., morning exercise target).
+        # Track only the last-fired ISO date so memory doesn't grow
+        # across multi-day soak runs.
+        self._last_profile_switch_date: str | None = None
+        self._last_temp_target_date: str | None = None
+        # RNG for the manual-vs-SMB correction split. Honor
+        # NS_RANDOM_SEED so reproducible runs (documented in the
+        # common-tunables table) are actually reproducible end-to-end.
+        # Guard the int() so a malformed seed (e.g., the lens being
+        # instantiated outside main() with a bad env value) falls back
+        # to an unseeded RNG instead of crashing the constructor.
+        seed_env = os.environ.get("NS_RANDOM_SEED")
+        try:
+            self._rng = (
+                random.Random(int(seed_env)) if seed_env else random.Random()
+            )
+        except ValueError:
+            self._rng = random.Random()
+
     @classmethod
     def default_device_label(cls) -> str:
         return AAPS_DEVICE_LABEL
@@ -1130,12 +1163,42 @@ class AapsV1Lens(Lens):
     # ---- per-tick hooks -------------------------------------------------
 
     def on_tick_start(self, state: PatientState, posted_at: datetime.datetime) -> None:
-        """Same loop-decision approximation as Loop: every cycle,
-        the algorithm chooses a temp basal rate. AAPS does this
-        every 5 sim-min via the SMB algorithm (`OpenAPSSMBPlugin`).
+        """Per-cycle hook: set new temp basal AND occasionally fire
+        Profile Switch / Temporary Target events to exercise the
+        translator's `_map_profile_switch` and `_map_temp_target`
+        paths. These events fire at most once per sim-day at fixed
+        slots (once a real AAPS user enables 'Exercise' mode in the
+        morning, etc.).
         """
         rate = loop_temp_basal_decision(state)
         state.set_temp_basal(rate, LOOP_TEMP_BASAL_DURATION_MIN)
+
+        # Once per sim-day, in the morning exercise window (6-7am),
+        # fire a Temporary Target = "Exercise". Real AAPS users do
+        # this to raise the algorithm's target during workouts.
+        # Catch broadly: a hiccup posting one optional fixture event
+        # must not crash the per-tick hook for the whole emulator.
+        date_iso = state.sim_time.date().isoformat()
+        hour = state.sim_time.hour
+        if 6 <= hour < 7 and self._last_temp_target_date != date_iso:
+            self._last_temp_target_date = date_iso
+            try:
+                self._post_temp_target(posted_at, target_mgdl=140, duration_min=60)
+            except Exception as exc:  # noqa: BLE001
+                print(f"[emu] aaps temp_target post failed: {exc}", flush=True)
+
+        # Once per sim-day, in the late-afternoon "winding down for
+        # the day" window (17-18), fire a Profile Switch = "Exercise"
+        # at 130% (more insulin sensitivity). Real AAPS users use
+        # profile switches for sick days, exercise periods, etc.
+        if 17 <= hour < 18 and self._last_profile_switch_date != date_iso:
+            self._last_profile_switch_date = date_iso
+            try:
+                self._post_profile_switch(
+                    posted_at, profile="Exercise", percentage=130, duration_min=120
+                )
+            except Exception as exc:  # noqa: BLE001
+                print(f"[emu] aaps profile_switch post failed: {exc}", flush=True)
 
     # ---- entries --------------------------------------------------------
 
@@ -1318,6 +1381,36 @@ class AapsV1Lens(Lens):
             "pumpId": int(uuid.uuid4().int % 1_000_000_000),
         }
 
+    def _bolus_calculator_result(
+        self, state: PatientState, carbs_g: float, bolus_u: float
+    ) -> str:
+        """Build the AAPS `bolusCalculatorResult` JSON string. Real
+        AAPS sends a JSON-stringified blob from the Bolus Wizard
+        capturing the inputs at calc time (target BG, ISF, ICR, IoB,
+        carbs, etc.). Our translator preserves it verbatim into
+        `metadata_json.bolus_calculator_result` for downstream AI
+        analysis, so emit a realistic shape here.
+
+        Returns a JSON-encoded string (not a dict). The caller then
+        embeds this string as one field inside the bolus payload,
+        which is itself JSON-encoded by `http_post`. Double-encoding
+        is intentional: NS stores `bolusCalculatorResult` as a string
+        on the wire (real AAPS does the same)."""
+        return json.dumps(
+            {
+                "targetBGLow": TARGET_BG_MGDL - 10,
+                "targetBGHigh": TARGET_BG_MGDL + 10,
+                "isf": ISF_MGDL_PER_UNIT,
+                "ic": ICR_GRAMS_PER_UNIT,
+                "iob": round(state.iob, 2),
+                "bg": int(round(state.bg)),
+                "carbs": round(carbs_g, 1),
+                "bolusIOB": round(bolus_u, 2),
+                "calculatedTotalInsulin": round(bolus_u, 2),
+                "carbsEquivalent": round(carbs_g, 1),
+            }
+        )
+
     def post_meal_bolus(
         self,
         state: PatientState,
@@ -1344,7 +1437,11 @@ class AapsV1Lens(Lens):
                 "carbs": round(carbs_g, 1),
                 "type": "NORMAL",
                 "isSMB": False,
+                "isBasalInsulin": False,
                 "insulinType": AAPS_INSULIN_TYPE,
+                "bolusCalculatorResult": self._bolus_calculator_result(
+                    state, carbs_g, bolus_u
+                ),
                 **self._aaps_pump_dedup_fields(),
             }
         ]
@@ -1356,25 +1453,48 @@ class AapsV1Lens(Lens):
         units: float,
         posted_at: datetime.datetime,
     ) -> None:
-        # AAPS automated corrections come through as `eventType: "SMB"`
-        # with `automatic: true` and `type: "SMB"`. Manual corrections
-        # are `eventType: "Correction Bolus"` without those flags.
-        # We model the patient as using AAPS-SMB (the modern default)
-        # so corrections fire as SMBs.
-        payload = [
-            {
-                "eventType": "SMB",
-                "created_at": iso_z(posted_at),
-                "enteredBy": self.device_label,
-                "device": self.device_label,
-                "insulin": units,
-                "automatic": True,
-                "type": "SMB",
-                "isSMB": True,
-                "insulinType": AAPS_INSULIN_TYPE,
-                **self._aaps_pump_dedup_fields(),
-            }
-        ]
+        # AAPS modeled split: ~80% of corrections fire automatically
+        # as `eventType: "SMB"` (the OpenAPSSMB algorithm is the
+        # modern default), ~20% as manual `eventType: "Correction
+        # Bolus"` (user opens AAPS UI and bolus-corrects manually).
+        # Real-world fixture survey: 79 SMB vs 3 Correction Bolus =
+        # 96% / 4% split for that user; ours is more generous so a
+        # short emulator run still produces both shapes.
+        is_manual = self._rng.random() < 0.20
+        if is_manual:
+            payload = [
+                {
+                    "eventType": "Correction Bolus",
+                    "created_at": iso_z(posted_at),
+                    "enteredBy": self.device_label,
+                    "device": self.device_label,
+                    "insulin": units,
+                    "type": "NORMAL",
+                    "isSMB": False,
+                    "isBasalInsulin": False,
+                    "insulinType": AAPS_INSULIN_TYPE,
+                    "bolusCalculatorResult": self._bolus_calculator_result(
+                        state, 0.0, units
+                    ),
+                    **self._aaps_pump_dedup_fields(),
+                }
+            ]
+        else:
+            payload = [
+                {
+                    "eventType": "SMB",
+                    "created_at": iso_z(posted_at),
+                    "enteredBy": self.device_label,
+                    "device": self.device_label,
+                    "insulin": units,
+                    "automatic": True,
+                    "type": "SMB",
+                    "isSMB": True,
+                    "isBasalInsulin": False,
+                    "insulinType": AAPS_INSULIN_TYPE,
+                    **self._aaps_pump_dedup_fields(),
+                }
+            ]
         http_post(self.base_url, "/api/v1/treatments.json", self._auth_headers, payload)
 
     def post_temp_basal(
@@ -1386,10 +1506,17 @@ class AapsV1Lens(Lens):
     ) -> None:
         # AAPS posts `duration` in MINUTES on Temp Basal treatments
         # (Loop posts the same field in seconds). Real AAPS does this
-        # every loop cycle in absolute mode. The `type` field carries
-        # the AAPS subtype (NORMAL / EMULATED_PUMP_SUSPEND /
-        # PUMP_SUSPEND) which our translator preserves into
-        # `metadata_json.aaps_type`.
+        # every loop cycle in absolute mode IFF the user has "Upload
+        # temp basals" enabled in NSClient -- most users have it OFF
+        # to save NS quota. Survey of one user's 133 treatments
+        # showed zero Temp Basal records. Default to OFF; opt in via
+        # `NS_AAPS_UPLOAD_TEMP_BASALS=true` when the contributor
+        # wants exhaustive temp_basal mapper coverage. The `type`
+        # field carries the AAPS subtype (NORMAL /
+        # EMULATED_PUMP_SUSPEND / PUMP_SUSPEND) which our translator
+        # preserves into `metadata_json.aaps_type`.
+        if not self._upload_temp_basals:
+            return
         delivered = round(rate_u_hr * (duration_min / 60.0), 3)
         payload = [
             {
@@ -1405,6 +1532,63 @@ class AapsV1Lens(Lens):
                 "type": "NORMAL",
                 "insulinType": AAPS_INSULIN_TYPE,
                 **self._aaps_pump_dedup_fields(),
+            }
+        ]
+        http_post(self.base_url, "/api/v1/treatments.json", self._auth_headers, payload)
+
+    # ---- per-day events (Profile Switch, Temporary Target) -------------
+
+    def _post_temp_target(
+        self,
+        posted_at: datetime.datetime,
+        *,
+        target_mgdl: int,
+        duration_min: int,
+        reason: str = "Exercise",
+    ) -> None:
+        """Real AAPS users set Temporary Targets for exercise (raise
+        target to e.g. 140 mg/dL), low-glucose recovery (raise to
+        140), or sleep (sometimes lower). Translator handles via
+        `_map_temp_target` -> PumpEventType.TEMP_TARGET."""
+        payload = [
+            {
+                "eventType": "Temporary Target",
+                "created_at": iso_z(posted_at),
+                "enteredBy": self.device_label,
+                "device": self.device_label,
+                "targetTop": target_mgdl,
+                "targetBottom": target_mgdl - 10,
+                "duration": duration_min,
+                "reason": reason,
+                "units": "mg/dl",
+            }
+        ]
+        http_post(self.base_url, "/api/v1/treatments.json", self._auth_headers, payload)
+
+    def _post_profile_switch(
+        self,
+        posted_at: datetime.datetime,
+        *,
+        profile: str,
+        percentage: int,
+        duration_min: int,
+        timeshift: int = 0,
+    ) -> None:
+        """Real AAPS Profile Switch carries a `percentage` adjustment
+        (130% = +30% basal/bolus, useful for sick days), an optional
+        `timeshift` (DST / travel adjustment), and a `duration` in
+        minutes (0 = indefinite). Translator handles via
+        `_map_profile_switch` -> PumpEventType.PROFILE_SWITCH."""
+        payload = [
+            {
+                "eventType": "Profile Switch",
+                "created_at": iso_z(posted_at),
+                "enteredBy": self.device_label,
+                "device": self.device_label,
+                "profile": profile,
+                "percentage": percentage,
+                "timeshift": timeshift,
+                "duration": duration_min,
             }
         ]
         http_post(self.base_url, "/api/v1/treatments.json", self._auth_headers, payload)
