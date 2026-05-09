@@ -18,15 +18,16 @@ platform's actual Nightscout wire format -- Loop's payloads look
 like Loop, AAPS's look like AAPS, etc.
 
 Currently shipped lenses:
-  - loop      : Loop (Apple iPhone closed-loop, NS API v1, SHA-1 secret)
-  - aaps_v1   : AndroidAPS NSClient legacy (NS API v1, SHA-1 secret)
-  - aaps_v3   : AndroidAPS NSClientV3 (NS API v3, JWT subject)
-  - trio      : Trio (iOS oref-derived, NS API v1, SHA-1 secret)
-  - oref0     : OpenAPS oref0 (Raspberry Pi, the original oref impl)
-  - xdrip4ios : xDrip4iOS (iOS pure-CGM uploader, no closed-loop)
+  - loop       : Loop (Apple iPhone closed-loop, NS API v1, SHA-1 secret)
+  - aaps_v1    : AndroidAPS NSClient legacy (NS API v1, SHA-1 secret)
+  - aaps_v3    : AndroidAPS NSClientV3 (NS API v3, JWT subject)
+  - trio       : Trio (iOS oref-derived, NS API v1, SHA-1 secret)
+  - oref0      : OpenAPS oref0 (Raspberry Pi, the original oref impl)
+  - xdrip4ios  : xDrip4iOS (iOS pure-CGM uploader, no closed-loop)
+  - xdrip_plus : xDrip+ (Android pure-CGM uploader, predates xdrip4ios)
 
 Planned (each its own PR -- see dev/README.md for status):
-  - iaps, xdrip_plus, librelink_up, share2ns, tconnectsync, manual
+  - iaps, librelink_up, share2ns, tconnectsync, manual
 
 Each lens is anchored to its source-of-truth document in the
 external `bewest/rag-nightscout-ecosystem-alignment` repo, e.g.
@@ -3514,6 +3515,453 @@ class Xdrip4iOSLens(Lens):
 
 
 # ---------------------------------------------------------------------------
+# xDrip+ lens (Android pure-CGM uploader, predecessor to xdrip4ios)
+# ---------------------------------------------------------------------------
+#
+# xDrip+ (`NightscoutFoundation/xDrip`, Java/Kotlin) is the Android
+# pure-CGM Nightscout uploader. It predates xDrip4iOS by ~5 years and
+# supports a wider range of CGM data sources (Dexcom G4/G5/G6/G7,
+# Libre 1/2/3, LimiTTer, Bluetooth Wixel, MiaoMiao, Bubble, NS
+# Follower, etc.). Like xdrip4ios it's NOT a closed-loop system: no
+# algorithm, no automated dosing, no `openaps` payload.
+#
+# This lens is the SIBLING of `xdrip4ios`, but the wire format
+# diverges on every important field. Top divergences:
+#
+# - **`enteredBy: "xdrip"`** (lowercase, no plus, no version), per
+#   upstream `app/src/main/java/com/eveningoutpost/dexdrip/models/
+#   Treatments.java`'s `XDRIP_TAG = "xdrip"` constant. xdrip4ios
+#   stamps `"xDrip4iOS"` (title case + version suffix); this lens
+#   stamps the bare lowercase string.
+#
+# - **`device` is `"xDrip-<collection-method>"`**, NOT the bare
+#   transmitter name xdrip4ios uses. The collection method comes
+#   from the `DexCollectionType` enum in upstream
+#   `app/src/main/java/com/eveningoutpost/dexdrip/utils/
+#   DexCollectionType.java` -- common values include `DexcomG6`,
+#   `DexcomG5`, `LimiTTer`, `BluetoothWixel`, `MiaoMiao`,
+#   `LibreReceiver`, `NSFollower`. So entries from a typical
+#   Dexcom G6 setup stamp `device: "xDrip-DexcomG6"`.
+#
+# - **Entries carry MORE metadata than xdrip4ios**:
+#   - `filtered = ageAdjustedFiltered() * 1000` (note: `Filtered`
+#     not `RawValue`; the Android calculation uses Kalman-filter-
+#     smoothed values where iOS uses unsmoothed raw signal).
+#   - `unfiltered = usedRaw() * 1000` (the raw sensor signal
+#     "actually used" by the calc pipeline -- distinct from
+#     `filtered`, unlike xdrip4ios where both fields read from
+#     the same source).
+#   - `noise` carries the ACTUAL ordinal noise level
+#     (1=CleanSensor, 2=LightNoise, 3=MediumNoise, 4=HeavyNoise,
+#     5=Rejected). xdrip4ios hardcodes `1`.
+#   - `delta` (xDrip+ only) -- BG-change-rate calculated from
+#     slope. Computed `slope * 5 * 60 * 1000` per upstream
+#     `populateV1APIBGEntry()`.
+#   - `rssi` (xDrip+ only) -- hardcoded `100` per upstream.
+#
+# - **Devicestatus `device` is `"xDrip-<Build.MANUFACTURER><Build.MODEL>"`**
+#   (e.g., `"xDrip-Pixel7Pro"`), per upstream `postDeviceStatus()`.
+#   xdrip4ios uses the transmitter name on devicestatus too. xDrip+
+#   may post MULTIPLE devicestatus records per cycle (phone, bridge,
+#   transmitter) when the user enables the corresponding "send
+#   battery" preferences -- by default just the phone's record.
+#
+# - **Treatment vocabulary is RICHER than xdrip4ios**:
+#   - Carbs: `"Carb Correction"` (NOT xdrip4ios's bare `"Carbs"`)
+#   - Boluses: distinguishes `"Snack Bolus"`, `"Meal Bolus"`,
+#     `"Correction Bolus"` (NOT xdrip4ios's flat `"Bolus"`)
+#   - Sensor: `"Sensor Start"` AND `"Sensor Stop"` (xdrip4ios only
+#     emits Start)
+#   - `insulinJSON` array for multi-insulin tracking (NovoRapid +
+#     Tresiba, etc.) -- xdrip4ios doesn't model multi-insulin.
+#
+# - **No profile upload**, same as xdrip4ios. xDrip+ is a follower-
+#   mode consumer of the user's NS profile, never an author.
+#
+# Translator-side note: the `detect_uploader` heuristic
+# (`apps/api/src/services/integrations/nightscout/models.py`)
+# matches `"xdrip" in eb` so xDrip+ treatments classify as
+# `xdrip+` correctly via `enteredBy: "xdrip"`. The `device` form
+# `"xDrip-DexcomG6"` does start with `"xdrip-"` (lowercased), so
+# the prefix path also classifies. Devicestatus posts with `device:
+# "xDrip-Pixel7Pro"` likewise classifies via the prefix.
+#
+# Source-of-truth files cross-checked:
+#   - `mapping/xdrip-android/` (data-models + nightscout-sync)
+#   - upstream `NightscoutFoundation/xDrip/app/src/main/java/com/
+#     eveningoutpost/dexdrip/utilitymodels/NightscoutUploader.java`
+#     (REST upload logic, payload builders)
+#   - upstream `app/src/main/java/com/eveningoutpost/dexdrip/
+#     models/Treatments.java` (XDRIP_TAG = "xdrip")
+#   - upstream `app/src/main/java/com/eveningoutpost/dexdrip/
+#     models/BgReading.java` (noise / filtered / raw helpers)
+#   - upstream `app/src/main/java/com/eveningoutpost/dexdrip/
+#     utils/DexCollectionType.java` (collection-method enum)
+
+
+XDRIP_PLUS_APP_NAME = "xdrip"  # lowercase, per upstream Treatments.java
+# Modeled patient runs Dexcom G6 (most-common direct-Bluetooth CGM
+# pairing for xDrip+ users). The full `device` string composes as
+# `"xDrip-<collection-method>"`. Override via
+# `NS_XDRIP_PLUS_COLLECTION` for `LimiTTer` / `BluetoothWixel` /
+# `MiaoMiao` / `LibreReceiver` / `NSFollower` / etc.
+XDRIP_PLUS_COLLECTION = os.environ.get(
+    "NS_XDRIP_PLUS_COLLECTION", "DexcomG6"
+)
+XDRIP_PLUS_DEVICE_LABEL = f"xDrip-{XDRIP_PLUS_COLLECTION}"
+# Devicestatus `device` carries the phone's manufacturer+model, per
+# upstream `postDeviceStatus()`. Override via
+# `NS_XDRIP_PLUS_PHONE_MODEL` to match a specific Android device
+# (e.g., `"GooglePixel8"` / `"SamsungS23"` / `"OnePlus11"`).
+XDRIP_PLUS_PHONE_MODEL = os.environ.get(
+    "NS_XDRIP_PLUS_PHONE_MODEL", "Pixel7Pro"
+)
+XDRIP_PLUS_DEVICESTATUS_DEVICE = f"xDrip-{XDRIP_PLUS_PHONE_MODEL}"
+
+
+class XdripPlusLens(Lens):
+    """xDrip+ (Android pure-CGM uploader) lens. See architecture
+    comment block above for the full vs-xdrip4ios divergence list."""
+
+    name = "xdrip_plus"
+
+    def __init__(
+        self, base_url: str, api_secret: str, device_label: str | None = None
+    ) -> None:
+        super().__init__(base_url, api_secret, device_label)
+        # Once-per-sim-day `BG Check` (fingerstick) -- real xDrip+
+        # users calibrate ~daily. xdrip4ios pattern.
+        self._last_bg_check_date: str | None = None
+
+    @classmethod
+    def default_device_label(cls) -> str:
+        # Entries `device` field carries the transmitter wrapped in
+        # the `"xDrip-"` prefix. Per upstream
+        # `getDeviceString()` in NightscoutUploader.java.
+        return XDRIP_PLUS_DEVICE_LABEL
+
+    # ---- profile --------------------------------------------------------
+
+    def ensure_profile(self) -> None:
+        """xDrip+ does NOT upload a profile -- it reads the user's
+        existing NS profile to render follower-mode targets / ISF /
+        CR. Same contract as xdrip4ios. We post a baseline profile
+        if NS has none (so the test stack has a consistent state)
+        and stamp `enteredBy: "openaps"` (the Care Portal sentinel)
+        to honor the contract that xDrip+ doesn't author profiles.
+        """
+        try:
+            existing = http_get(
+                self.base_url, "/api/v1/profile.json", self._auth_headers
+            )
+            if existing:
+                return
+        except urllib.error.HTTPError:
+            pass
+
+        now_iso = iso_z(datetime.datetime.now(datetime.UTC))
+        profile_name = "Default"
+        payload = {
+            "defaultProfile": profile_name,
+            "store": {
+                profile_name: {
+                    "dia": str(DIA_MINUTES // 60),
+                    "carbratio": [{"time": "00:00", "value": ICR_GRAMS_PER_UNIT}],
+                    "sens": [{"time": "00:00", "value": ISF_MGDL_PER_UNIT}],
+                    "basal": [{"time": "00:00", "value": SCHEDULED_BASAL_U_HR}],
+                    "target_low": [{"time": "00:00", "value": TARGET_BG_MGDL - 10}],
+                    "target_high": [{"time": "00:00", "value": TARGET_BG_MGDL + 10}],
+                    "carbs_hr": "20",
+                    "delay": "20",
+                    "timezone": "UTC",
+                    "units": "mg/dl",
+                }
+            },
+            "startDate": now_iso,
+            "mills": int(time.time() * 1000),
+            "units": "mg/dl",
+            # Sentinel: xDrip+ doesn't author profiles -- per
+            # upstream, it's a follower-mode consumer only. Stamp
+            # `"openaps"` (the Care Portal default) so downstream
+            # consumers can correctly tell this profile wasn't
+            # authored by xDrip+.
+            "enteredBy": "openaps",
+        }
+        http_post(
+            self.base_url, "/api/v1/profile.json", self._auth_headers, [payload]
+        )
+
+    # ---- per-tick hook --------------------------------------------------
+
+    def on_tick_start(
+        self, state: PatientState, posted_at: datetime.datetime
+    ) -> None:
+        """xDrip+ has NO closed-loop algorithm and does NOT enact
+        temp basals. The patient runs on plain scheduled basal --
+        same pattern as xdrip4ios.
+
+        Real xDrip+ users calibrate Dexcom G4/G5/G6/G7 sensors with
+        fingerstick BG checks roughly once per day; we fire one in
+        the morning window to exercise the path."""
+        date_iso = state.sim_time.date().isoformat()
+        hour = state.sim_time.hour
+        if 7 <= hour < 8 and self._last_bg_check_date != date_iso:
+            self._last_bg_check_date = date_iso
+            try:
+                self._post_bg_check(state, posted_at)
+            except Exception as exc:  # noqa: BLE001 - keep loop running
+                print(
+                    f"[emu] xdrip_plus bg_check post failed: {exc}", flush=True
+                )
+
+    # ---- entries --------------------------------------------------------
+
+    def post_entry(
+        self,
+        state: PatientState,
+        prev_bg: float,
+        posted_at: datetime.datetime,
+    ) -> None:
+        """xDrip+ entries carry MORE metadata than xdrip4ios:
+        `filtered`, `unfiltered`, `noise` (actual ordinal),
+        `delta` (BG-change rate), `rssi`. Per upstream
+        `populateV1APIBGEntry()` in NightscoutUploader.java.
+
+        For our emulator we approximate:
+        - `filtered = bg * 1000` (Kalman-smoothed value; real xDrip+
+          differs from `unfiltered` after noise pipeline runs, but
+          for the emulator's clean trace they collapse).
+        - `unfiltered = bg * 1000 + 50` (raw sensor signal; offset
+          by 50 microvolts to keep the two fields distinguishable
+          on the wire even though our patient state has no separate
+          smoothed/unsmoothed tracks. Matches the upstream contract
+          that the two fields can differ).
+        - `noise = 1` (CleanSensor; the ordinal range 1-5 is
+          documented but our patient state has no noise model).
+        - `delta = bg - prev_bg` (mg/dL change over the 5-min cycle).
+          Upstream `slope_mgdl_per_ms * 5 * 60 * 1000` reduces to
+          mg/dL change over a 5-minute window -- same units as
+          (bg - prev_bg) for a smooth trace. Omitted entirely on
+          the very first reading (no prior BG to compare against),
+          matching upstream's behavior when slope is unknown.
+        - `rssi = 100` (hardcoded per upstream).
+        """
+        bg = state.bg
+        sgv = int(round(bg))
+        direction = direction_for(prev_bg, bg)
+        # Delta only included when we have a real prior reading.
+        # Upstream xDrip+ omits the field if slope is unknown
+        # rather than emitting a fake zero.
+        delta_mgdl: float | None = (
+            round(bg - prev_bg, 1) if prev_bg else None
+        )
+
+        entry: dict[str, object] = {
+            "type": "sgv",
+            "sgv": sgv,
+            "direction": direction,
+            "date": int(posted_at.timestamp() * 1000),
+            "dateString": iso_z(posted_at),
+            "device": self.device_label,
+            # Raw sensor metadata (xDrip family). `filtered` is the
+            # Kalman-smoothed value, `unfiltered` is the raw signal.
+            # On real xDrip+ the two diverge after noise pipeline
+            # runs; we offset `unfiltered` by 50 microvolts to keep
+            # the two fields distinguishable on the wire.
+            "filtered": int(round(bg * 1000)),
+            "unfiltered": int(round(bg * 1000)) + 50,
+            "noise": 1,  # CleanSensor; ordinal 1-5 in upstream
+            "rssi": 100,
+            "sysTime": iso_z(posted_at),
+        }
+        if delta_mgdl is not None:
+            entry["delta"] = delta_mgdl
+        http_post(
+            self.base_url,
+            "/api/v1/entries.json",
+            self._auth_headers,
+            [entry],
+        )
+
+    # ---- devicestatus ---------------------------------------------------
+
+    def post_devicestatus(
+        self, state: PatientState, posted_at: datetime.datetime
+    ) -> None:
+        """xDrip+ devicestatus is minimal (just uploader.battery
+        like xdrip4ios) BUT the `device` field carries the phone
+        model (e.g., `"xDrip-Pixel7Pro"`), NOT the transmitter
+        name. Per upstream `postDeviceStatus()`.
+
+        xDrip+ can post MULTIPLE devicestatus records per cycle
+        (phone, Bluetooth bridge, transmitter) when the user
+        enables `send_bridge_battery_to_nightscout` etc. -- by
+        default just the phone. We model the default (phone-only)."""
+        ts = iso_z(posted_at)
+        # Phone battery (the "uploader" in xDrip+ terms is the
+        # Android phone running the app).
+        uploader_subtree = {
+            "name": "transmitter",  # NS-historical; xDrip+ keeps the
+                                    # field for compatibility even
+                                    # though this record is the phone
+            "battery": int(state.phone_battery_pct),
+        }
+
+        payload = [
+            {
+                "device": XDRIP_PLUS_DEVICESTATUS_DEVICE,
+                "created_at": ts,
+                "uploader": uploader_subtree,
+            }
+        ]
+        http_post(
+            self.base_url,
+            "/api/v1/devicestatus.json",
+            self._auth_headers,
+            payload,
+        )
+
+    # ---- treatments -----------------------------------------------------
+
+    def post_meal_bolus(
+        self,
+        state: PatientState,
+        carbs_g: float,
+        bolus_u: float,
+        posted_at: datetime.datetime,
+    ) -> None:
+        """xDrip+ meals use `"Meal Bolus"` for the insulin and
+        `"Carb Correction"` for the carbs (NOT xdrip4ios's bare
+        `"Carbs"`). Per upstream `populateV1APITreatmentEntry()`
+        treatment-event-type mapping in NightscoutUploader.java.
+
+        Each treatment carries a client-generated UUID per upstream
+        (`uuid` field, set from local Treatments.uuid). NS server
+        doesn't dedupe on this -- it's xDrip+'s own bidirectional
+        sync key.
+        """
+        created_at = iso_z(posted_at)
+        # Carb Correction (richer than xdrip4ios's "Carbs").
+        http_post(
+            self.base_url,
+            "/api/v1/treatments.json",
+            self._auth_headers,
+            [
+                {
+                    "eventType": "Carb Correction",
+                    "created_at": created_at,
+                    "enteredBy": XDRIP_PLUS_APP_NAME,
+                    "carbs": round(carbs_g, 1),
+                    "uuid": str(uuid.uuid4()),
+                }
+            ],
+        )
+        # Meal Bolus (specific event type for wizard-calculated
+        # meal doses, vs the generic "Bolus" xdrip4ios uses).
+        http_post(
+            self.base_url,
+            "/api/v1/treatments.json",
+            self._auth_headers,
+            [
+                {
+                    "eventType": "Meal Bolus",
+                    "created_at": created_at,
+                    "enteredBy": XDRIP_PLUS_APP_NAME,
+                    "insulin": bolus_u,
+                    "uuid": str(uuid.uuid4()),
+                }
+            ],
+        )
+
+    def post_correction_bolus(
+        self,
+        state: PatientState,
+        units: float,
+        posted_at: datetime.datetime,
+    ) -> None:
+        """xDrip+ corrections use `"Correction Bolus"` (NOT
+        xdrip4ios's flat `"Bolus"`). xDrip+ has no algorithm so no
+        SMB events; all corrections are user-initiated through the
+        treatment-entry UI."""
+        payload = [
+            {
+                "eventType": "Correction Bolus",
+                "created_at": iso_z(posted_at),
+                "enteredBy": XDRIP_PLUS_APP_NAME,
+                "insulin": units,
+                "uuid": str(uuid.uuid4()),
+            }
+        ]
+        http_post(
+            self.base_url,
+            "/api/v1/treatments.json",
+            self._auth_headers,
+            payload,
+        )
+
+    def post_temp_basal(
+        self,
+        state: PatientState,
+        rate_u_hr: float,
+        duration_min: int,
+        posted_at: datetime.datetime,
+    ) -> None:
+        """xDrip+ does not generate Temp Basal treatments
+        algorithmically (no algorithm). Skip in our emulator -- a
+        Temp Basal posted every 5 sim-min would be wildly out-of-
+        band for an xDrip+ user, just like for xdrip4ios."""
+        return
+
+    def post_site_change(
+        self, state: PatientState, posted_at: datetime.datetime
+    ) -> None:
+        """xDrip+ supports manual `Site Change` treatments via the
+        treatment-entry UI."""
+        payload = [
+            {
+                "eventType": "Site Change",
+                "created_at": iso_z(posted_at),
+                "enteredBy": XDRIP_PLUS_APP_NAME,
+                "uuid": str(uuid.uuid4()),
+            }
+        ]
+        http_post(
+            self.base_url,
+            "/api/v1/treatments.json",
+            self._auth_headers,
+            payload,
+        )
+
+    # ---- private: BG Check ---------------------------------------------
+
+    def _post_bg_check(
+        self, state: PatientState, posted_at: datetime.datetime
+    ) -> None:
+        """Real xDrip+ users record fingerstick BG checks for
+        sensor calibration. Per upstream `populateV1APITreatmentEntry()`:
+        `eventType: "BG Check"` with `glucose` + `glucoseType:
+        "Finger"` + `units: "mg/dl"`. Same shape as xdrip4ios."""
+        glucose_value = int(round(state.bg))
+        payload = [
+            {
+                "eventType": "BG Check",
+                "created_at": iso_z(posted_at),
+                "enteredBy": XDRIP_PLUS_APP_NAME,
+                "glucose": glucose_value,
+                "glucoseType": "Finger",
+                "units": "mg/dl",
+                "uuid": str(uuid.uuid4()),
+            }
+        ]
+        http_post(
+            self.base_url,
+            "/api/v1/treatments.json",
+            self._auth_headers,
+            payload,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Lens registry
 # ---------------------------------------------------------------------------
 
@@ -3524,9 +3972,10 @@ LENSES: dict[str, type[Lens]] = {
     "trio": TrioLens,
     "oref0": Oref0Lens,
     "xdrip4ios": Xdrip4iOSLens,
-    # Future: "iaps": IapsLens, "xdrip_plus": XdripPlusLens,
-    # "librelink_up": LibreLinkUpLens, "share2ns": Share2NsLens,
-    # "tconnectsync": TConnectSyncLens, "manual": ManualLens.
+    "xdrip_plus": XdripPlusLens,
+    # Future: "iaps": IapsLens, "librelink_up": LibreLinkUpLens,
+    # "share2ns": Share2NsLens, "tconnectsync": TConnectSyncLens,
+    # "manual": ManualLens.
 }
 
 
