@@ -117,13 +117,13 @@ The architecture splits into:
 | `librelink_up` | LibreLinkUp (Abbott cloud → NS bridge) | Shipped | `mapping/nightscout-librelink-up/` + upstream `timoschlueter/nightscout-librelink-up` |
 | `share2ns` | share2nightscout-bridge (Dexcom Share cloud → NS) | Shipped | `mapping/share2nightscout-bridge/` + upstream `nightscout/share2nightscout-bridge` |
 | `tconnectsync` | tconnectsync (Tandem t:connect cloud → NS) | Shipped | `mapping/tconnectsync/` + upstream `jwoglom/tconnectsync` |
+| `manual` | Care Portal (Nightscout's built-in human-typed web UI) | Shipped | `mapping/cgm-remote-monitor/` + upstream `nightscout/cgm-remote-monitor` |
 
 ### Planned lenses (each its own PR)
 
 | Lens | Platform | Reference doc |
 |---|---|---|
 | `iaps` | iAPS (Trio's predecessor) | `mapping/trio/nightscout-sync.md` |
-| `manual` | Direct Nightscout web UI entry | `mapping/cgm-remote-monitor/` |
 
 The reference repo is reference, not authoritative — when its claims
 and a platform's actual upstream source disagree, the upstream source
@@ -642,6 +642,81 @@ Cross-checked against upstream `jwoglom/tconnectsync`:
   shape: no `direction`)
 - `tconnectsync/sync/tandemsource/update_profiles.py` (profile
   schedule shape with narrow Control-IQ target band)
+
+#### `manual`
+
+The manual lens emits the **Care Portal** wire format -- Nightscout's
+built-in web UI in `nightscout/cgm-remote-monitor` for users to type
+entries / treatments directly into NS. Care Portal is a HUMAN AT A
+KEYBOARD, not a connected device or a cloud bridge -- so the lens is
+the most architecturally distinct of the 11 shipped lenses.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `NS_MANUAL_ENTERED_BY` | `jane` | The user's typed name. Per upstream `lib/client/careportal.js:242` which presets `enteredBy` to the JWT subject or `localStorage.get('enteredBy')`. Set to empty string (`""`) to model a Care Portal POST without an `enteredBy` field, which is also a real upstream pattern. |
+
+**Top divergences vs every prior lens:**
+
+- **Identity is a username, not a machine ID**: `enteredBy` is the
+  user's typed name (e.g. `"jane"`) -- NOT a fixed machine literal
+  like `"loop"` / `"AndroidAPS"` / `"xDrip4iOS"` / `"Pump
+  (tconnectsync)"`. Per upstream `lib/client/careportal.js`.
+- **`device` is empty**: humans aren't devices. Every prior lens
+  stamps a `device` field (the lens-name); manual sets it to `""`.
+- **No periodic upload**: humans don't post on a 5-min cadence.
+  Care Portal entries are sparse and unpredictable. Our emulator
+  throttles entries to a min interval (default 30 sim-min for
+  fingerstick BG -- denser than a real Care Portal user but useful
+  for short-window dashboard testing; ~1 Note per sim-day).
+- **No devicestatus, no profile authoring, no temp basals**: Care
+  Portal doesn't post any of these. The Lens-contract methods for
+  these are no-ops. The NS profile editor is a separate UI (`/profile/`)
+  with its own POST path, NOT Care Portal.
+- **Entries are `mbg` (manual blood glucose), not `sgv` (sensor
+  glucose value)**: when a user types a fingerstick BG into Care
+  Portal it goes in as `type: "mbg"` -- no `direction` (the meter
+  doesn't report trend), no raw sensor metadata. This distinguishes
+  Care Portal entries from every other lens' `sgv` posts.
+- **Multi-eventType vocabulary**: Care Portal exposes 20+ eventTypes
+  (BG Check, Meal Bolus, Snack Bolus, Carb Correction, Correction
+  Bolus, Combo Bolus, Note, Question, Announcement, Exercise, Site
+  Change, Sensor Start / Change / Stop, Pump Battery Change,
+  Insulin Cartridge Change, Profile Switch, Temporary Target, ...).
+  We model the operationally meaningful subset that real T1D users
+  post most often: BG Check, Meal Bolus, Correction Bolus, Site
+  Change, Note. Per upstream `lib/plugins/careportal.js`'s
+  `getEventTypes()`.
+- **BG Check double-post (emulator simplification)**: the lens
+  posts BOTH an `mbg` entry AND a `BG Check` treatment at the same
+  timestamp on each fingerstick. **Upstream caveat**: Care Portal's
+  web UI does NOT actually double-post -- `lib/client/careportal.js`
+  submits a single `/api/v1/treatments.json` POST per form submit.
+  Real `mbg` entries on production NS instances come from xDrip-
+  style direct uploaders / watchface apps / scripts hitting the
+  entries endpoint, NOT Care Portal. We emit both because the
+  `BG Check` treatment's translator routing
+  (`fingerstick_bg_check`) is intentionally dropped, so without
+  the `mbg` entry the GlycemicGPT dashboard would render no BG
+  data for this lens at all. Both shapes are valid NS wire
+  formats; this is a documented divergence kept for dashboard
+  test density.
+
+**Translator-side note**: `detect_uploader` doesn't currently return
+`"care_portal"` -- empty `enteredBy` + empty `device` falls through
+to `"unknown"`. Real Care Portal users hit this same gap. No
+functional impact since no code paths branch on
+`uploader == "care_portal"`. Documented for future translator
+improvement: `enteredBy` matching a free-text human name (no machine
+URI / namespace / known-app-name) could be a recognition signal.
+
+Cross-checked against upstream `nightscout/cgm-remote-monitor`:
+- `lib/client/careportal.js` (form submission, `enteredBy` default
+  to JWT subject or localStorage, field-omission rules)
+- `lib/plugins/careportal.js` (`getEventTypes()` -- 20-strong
+  eventType vocabulary + per-type field flags)
+- `lib/server/treatments.js` (server-side ingestion -- `replaceOne`
+  upsert keyed on `created_at`; the composite `eventType + duration
+  + created_at` index is for query speed, not dedupe)
 
 ### How to verify it actually drove your code
 
