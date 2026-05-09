@@ -114,13 +114,13 @@ The architecture splits into:
 | `oref0` | OpenAPS oref0 (Raspberry Pi, NS API v1, SHA-1) | Shipped | `mapping/oref0/data-models.md` + upstream `openaps/oref0:bin/ns-status.js` |
 | `xdrip4ios` | xDrip4iOS (Apple, pure-CGM uploader) | Shipped | `mapping/xdrip4ios/` + upstream `JohanDegraeve/xdripswift` |
 | `xdrip_plus` | xDrip+ (Android, pure-CGM uploader) | Shipped | `mapping/xdrip-android/` + upstream `NightscoutFoundation/xDrip` |
+| `librelink_up` | LibreLinkUp (Abbott cloud → NS bridge) | Shipped | `mapping/nightscout-librelink-up/` + upstream `timoschlueter/nightscout-librelink-up` |
 
 ### Planned lenses (each its own PR)
 
 | Lens | Platform | Reference doc |
 |---|---|---|
 | `iaps` | iAPS (Trio's predecessor) | `mapping/trio/nightscout-sync.md` |
-| `librelink_up` | LibreLink Up bridge (Libre 2/3 → NS) | `mapping/nightscout-librelink-up/` |
 | `share2ns` | share2nightscout-bridge | `mapping/share2nightscout-bridge/` |
 | `tconnectsync` | tconnectsync (Tandem t:connect → NS) | `mapping/tconnectsync/` |
 | `manual` | Direct Nightscout web UI entry | `mapping/cgm-remote-monitor/` |
@@ -447,6 +447,65 @@ files:
   (enum of CGM data sources used in the `device` field)
 - `app/src/main/java/com/eveningoutpost/dexdrip/models/BgReading.java`
   (`noiseValue()` / `usedRaw()` / `ageAdjustedFiltered()` helpers)
+
+#### `librelink_up`
+
+The LibreLink Up lens emits the **Abbott cloud → Nightscout
+bridge** wire format. LibreLinkUp
+(`timoschlueter/nightscout-librelink-up`, Node.js / TypeScript) is
+a server-side bridge -- typically a Docker container -- that polls
+Abbott's LibreLinkUp web API on a 5-min schedule, fetches the
+recent-most Libre 2/3 readings the Abbott cloud has received from
+a paired follower account, and forwards them to Nightscout.
+
+This is the simplest lens architecturally: **strictly entries-only**.
+No closed-loop output, no raw sensor metadata, no devicestatus, no
+treatments, no profile authorship. Per upstream
+`src/nightscout/apiv1.ts`, the bridge implements only
+`uploadEntries()` and `lastEntry()`.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `NS_LIBRELINK_UP_DEVICE` | `nightscout-librelink-up` | The `device` field stamped on every entry. Per upstream `src/config.ts`'s `NIGHTSCOUT_DEVICE_NAME` default. Override to match a custom Docker deployment. |
+
+**Top distinctions vs the previous CGM-only lenses (`xdrip4ios`, `xdrip_plus`):**
+
+- **No raw sensor metadata** -- entries OMIT `filtered`,
+  `unfiltered`, `noise`, `rssi`, `delta`, `sysTime`. Abbott's cloud
+  API doesn't expose raw sensor signal; the bridge only sees
+  Abbott's processed `ValueInMgPerDl` and a trend enum.
+- **No `enteredBy` field** -- per upstream `Entry` interface in
+  `src/nightscout/interface.ts`, LibreLinkUp doesn't set this.
+  xDrip-family lenses always set it.
+- **Trend enum is a SUBSET** -- only `SingleDown`, `FortyFiveDown`,
+  `Flat`, `FortyFiveUp`, `SingleUp` (no `DoubleUp` / `DoubleDown`,
+  per upstream `mapTrendArrow`). Abbott's cloud doesn't return
+  Dexcom-style double arrows. This lens clamps the shared
+  `direction_for()` helper's output to the LibreLinkUp subset.
+- **Cloud-poll cadence** -- real LibreLinkUp polls Abbott every 5
+  minutes via `node-cron`. Subject to Abbott outages, rate limits,
+  and network latency. The emulator posts on the same 5-min
+  cadence as the rest of the lenses; real LibreLinkUp would skip
+  cycles when Abbott has no new data, but the emulator's shared
+  physiology engine always produces a BG so this lens always has
+  something to post.
+
+**Translator-side note**: `detect_uploader` doesn't recognize
+`"nightscout-librelink-up"` as a known uploader (no substring
+match for `librelink` or `abbott`). Real LibreLinkUp deployments
+hit this same gap -- entries get classified as `unknown` for the
+uploader purposes. No functional impact since no code paths branch
+on `uploader == "librelink_up"`. Documented for the future
+translator improvement.
+
+Cross-checked against upstream
+`timoschlueter/nightscout-librelink-up` source files:
+- `src/index.ts` (cron scheduler, polling loop)
+- `src/config.ts` (env-var defaults including
+  `NIGHTSCOUT_DEVICE_NAME`)
+- `src/nightscout/apiv1.ts` (`uploadEntries` payload mapping)
+- `src/nightscout/interface.ts` (Entry interface definition)
+- `src/helpers/helpers.ts` (`mapTrendArrow` -- 5-value enum)
 
 ### How to verify it actually drove your code
 
