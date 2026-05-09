@@ -115,13 +115,13 @@ The architecture splits into:
 | `xdrip4ios` | xDrip4iOS (Apple, pure-CGM uploader) | Shipped | `mapping/xdrip4ios/` + upstream `JohanDegraeve/xdripswift` |
 | `xdrip_plus` | xDrip+ (Android, pure-CGM uploader) | Shipped | `mapping/xdrip-android/` + upstream `NightscoutFoundation/xDrip` |
 | `librelink_up` | LibreLinkUp (Abbott cloud → NS bridge) | Shipped | `mapping/nightscout-librelink-up/` + upstream `timoschlueter/nightscout-librelink-up` |
+| `share2ns` | share2nightscout-bridge (Dexcom Share cloud → NS) | Shipped | `mapping/share2nightscout-bridge/` + upstream `nightscout/share2nightscout-bridge` |
 
 ### Planned lenses (each its own PR)
 
 | Lens | Platform | Reference doc |
 |---|---|---|
 | `iaps` | iAPS (Trio's predecessor) | `mapping/trio/nightscout-sync.md` |
-| `share2ns` | share2nightscout-bridge | `mapping/share2nightscout-bridge/` |
 | `tconnectsync` | tconnectsync (Tandem t:connect → NS) | `mapping/tconnectsync/` |
 | `manual` | Direct Nightscout web UI entry | `mapping/cgm-remote-monitor/` |
 
@@ -506,6 +506,50 @@ Cross-checked against upstream
 - `src/nightscout/apiv1.ts` (`uploadEntries` payload mapping)
 - `src/nightscout/interface.ts` (Entry interface definition)
 - `src/helpers/helpers.ts` (`mapTrendArrow` -- 5-value enum)
+
+#### `share2ns`
+
+The share2ns lens emits the **Dexcom Share cloud → Nightscout
+bridge** wire format. share2nightscout-bridge
+(`nightscout/share2nightscout-bridge`, Node.js) is the Dexcom
+analogue of LibreLinkUp -- a server-side bridge that polls Dexcom's
+Share servers (US: `share2.dexcom.com`, EU: `shareous1.dexcom.com`)
+on a 2.5-min schedule and forwards readings to Nightscout.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `NS_SHARE2NS_DEVICE` | `share2` | The `device` field stamped on every entry. Per upstream `index.js` which hardcodes `device: 'share2'` -- short, generic, device-agnostic. |
+
+**Top divergences vs `librelink_up`:**
+
+- **`device: "share2"`** literal (vs LibreLinkUp's
+  `"nightscout-librelink-up"`).
+- **Full 9-value Dexcom trend enum**: every entry POST carries
+  BOTH `direction` (string) AND a numeric `trend` field
+  (`DoubleUp=1, SingleUp=2, FortyFiveUp=3, Flat=4,
+  FortyFiveDown=5, SingleDown=6, DoubleDown=7, NOT COMPUTABLE=8,
+  RATE OUT OF RANGE=9`). LibreLinkUp omits `trend` entirely AND
+  only supports 5 directions.
+- **One-time devicestatus on startup**: posts
+  `{uploaderBattery: false}` ONCE to suppress the Nightscout
+  uploader-battery indicator, then never posts devicestatus
+  again. LibreLinkUp doesn't post devicestatus at all.
+
+Like LibreLinkUp, share2ns is strictly entries-focused with no
+treatments / profile authoring. Cloud bridges are one-way
+ingestion pipes.
+
+**Translator-side note**: `detect_uploader` doesn't recognize
+`"share2"` as a known uploader (no substring match for `dexcom`
+or `share`). Real share2ns deployments hit this same gap. No
+functional impact -- no code paths branch on
+`uploader == "share2ns"`. Documented for the future translator
+improvement: `device == "share2"` could be a recognition signal.
+
+Cross-checked against upstream `nightscout/share2nightscout-bridge`:
+- `index.js` (the entire bridge is a single JS file -- entry
+  mapping at lines 226-230, devicestatus at lines 265-273,
+  `matchTrend()` at lines 56-66)
 
 ### How to verify it actually drove your code
 
