@@ -4485,6 +4485,478 @@ class Share2NsLens(Lens):
 
 
 # ---------------------------------------------------------------------------
+# tconnectsync lens (Tandem t:connect cloud → Nightscout bridge, pump-side)
+# ---------------------------------------------------------------------------
+#
+# `jwoglom/tconnectsync` (Python, MIT) is the third cloud-bridge lens
+# (after `librelink_up` / `share2ns`) but it is the ARCHITECTURAL
+# OPPOSITE of those two: where LibreLinkUp / share2ns forward CGM-only
+# data from a sensor cloud, tconnectsync forwards PUMP-SIDE THERAPY
+# data from Tandem's t:connect cloud (the cloud that t:slim X2 / Mobi
+# pumps batch-upload to). It is the user's actual real-world data
+# path, since they are a Tandem user.
+#
+# Polls Tandem's t:connect ControlIQ API on a schedule (typically
+# `--auto-update` continuous mode, default ~every few minutes) and
+# converts pump events to NS treatments + entries + devicestatus +
+# profile. Real-world latency: t:connect cloud is 60-90 minutes
+# behind the pump because Tandem batches uploads on the pump side.
+# Our emulator posts at 5-min sim cadence (matching the rest of the
+# emulator's tick rate) -- documented divergence; modeling true
+# 60-90 min batched-upload latency would require buffering and is
+# orthogonal to what we want to test (NS wire-format coverage).
+#
+# Architecturally distinct from EVERY prior lens:
+#
+# - **Identity**: every record stamps `enteredBy: "Pump
+#   (tconnectsync)"` (literal string with parentheses + space).
+#   Per upstream `tconnectsync/parser/nightscout.py`'s `ENTERED_BY`
+#   constant. The local RAG document claims `ENTERED_BY =
+#   "tconnectsync"` -- per the repo memory rule, upstream wins; the
+#   RAG is stale on this field.
+#
+# - **`pump_event_id` field**: every treatment, entry, AND
+#   devicestatus carries a `pump_event_id` -- the pump's sequence
+#   number (e.g., `"12345"` for a single basal event, or
+#   `"12345,12346,12347"` for paired Exercise Mode start/stop
+#   events). Per upstream `process_*.py` helpers. tconnectsync uses
+#   this for client-side dedupe queries against NS. No prior lens
+#   uses this exact field name -- AAPS uses `pumpId/pumpType/
+#   pumpSerial`, Trio uses `id` (UUID), oref0 has no client dedupe
+#   at all.
+#
+# - **Boluses are ALL `"Combo Bolus"`**: per upstream
+#   `process_bolus.py`, every Tandem bolus -- meal, correction,
+#   extended, dual-wave, override, declined-correction -- maps to
+#   the SINGLE eventType `"Combo Bolus"`. Carbs are bundled into
+#   the same record when present. Distinguishing Meal vs Correction
+#   only happens via the `notes` field (e.g., `"Meal Bolus"`,
+#   `"Correction Bolus"`, `"(Override)"`). NO `"Meal Bolus"` /
+#   `"Correction Bolus"` / `"Bolus"` / `"SMB"` event types ever
+#   appear -- a hard divergence from every other lens.
+#
+# - **Temp Basal carries a `reason` field** with Control-IQ
+#   metadata: `"Control-IQ"`, `"Helping with Trend"`, `"Correcting
+#   High"`, `"User Requested"`, etc. Per upstream `process_basal.py`
+#   which extracts the reason from the pump event's `changetype`
+#   bitmask. AAPS/Trio temp basals have no comparable field.
+#
+# - **Site Change for cartridge / cannula / tubing fills**: per
+#   upstream `process_cartridge.py`, all three fill types map to
+#   eventType `"Site Change"` (despite "cartridge change" being a
+#   pump-side different operation than "infusion set change").
+#   Matches our emulator's reservoir-refill trigger.
+#
+# - **Devicestatus is MINIMAL pump.battery only**: per upstream
+#   `process_device_status.py`:
+#     `{ device, created_at, pump: { clock, battery: { voltage,
+#        percent, status: "<n>%" } }, pump_event_id }`
+#   NO `openaps` subtree, NO `loop` subtree, NO uploader subtree.
+#   Battery has BOTH voltage (in volts, not millivolts) AND percent
+#   AND a human-readable string. NO reservoir level on devicestatus
+#   (t:connect API doesn't expose it -- a real upstream gap, not a
+#   lens defect).
+#
+# - **Entries have NO `direction` field**: per upstream
+#   `process_cgm_reading.py`, t:connect's CGM API does not expose
+#   the trend arrow -- only the raw glucose value. So tconnectsync
+#   posts entries with `sgv` only, no `direction`. This is a real
+#   wire-format divergence vs LibreLinkUp / share2ns (both of which
+#   include direction).
+#
+# - **Profile upload is FULL pump-side schedule**: tconnectsync
+#   uploads basal / ICR / ISF / target_low / target_high schedules
+#   from the pump's active settings. Per upstream
+#   `update_profiles.py`. LibreLinkUp / share2ns do NOT upload
+#   profiles. AAPS / Trio / Loop / oref0 upload theirs but those
+#   come from app settings; tconnectsync's come from PUMP settings
+#   (Control-IQ targets are typically 110 mg/dL fixed).
+#
+# Translator-side note: `detect_uploader` does not recognize "Pump
+# (tconnectsync)" as a known uploader (no substring match for
+# `tandem` or `tconnect`). Real tconnectsync deployments hit this
+# same translator gap -- no functional impact since no code paths
+# branch on `uploader == "tconnectsync"`. Documented for the future
+# translator improvement: `enteredBy == "Pump (tconnectsync)"`
+# could be a recognition signal.
+#
+# Source-of-truth files cross-checked:
+#   - `mapping/tconnectsync/`
+#   - upstream `jwoglom/tconnectsync/tconnectsync/parser/nightscout.py`
+#     (`ENTERED_BY = "Pump (tconnectsync)"`, NightscoutEntry builders)
+#   - upstream `tconnectsync/nightscout.py` (SHA-1 auth, NS API v1)
+#   - upstream `tconnectsync/sync/tandemsource/process_bolus.py`
+#     (Combo Bolus, notes field)
+#   - upstream `process_basal.py` (Temp Basal + reason)
+#   - upstream `process_cartridge.py` (Site Change for cartridge/cannula)
+#   - upstream `process_device_status.py` (pump.battery shape)
+#   - upstream `process_cgm_reading.py` (entry: no direction)
+#   - upstream `update_profiles.py` (profile schedule shape)
+
+
+TCONNECTSYNC_ENTERED_BY = "Pump (tconnectsync)"
+# Default Control-IQ target on the t:slim X2 / Mobi pumps is a
+# narrow 110 mg/dL band -- tconnectsync uploads this literally per
+# upstream `update_profiles.py`. (Sleep mode lowers it to 112.5;
+# Exercise raises to 140-160. We model only the default band.)
+TCONNECTSYNC_CIQ_TARGET_MGDL = 110
+
+
+class TconnectsyncLens(Lens):
+    """tconnectsync (Tandem t:connect cloud → NS) lens. See
+    architecture comment block above for full divergence vs every
+    prior lens. Pump-side data: Combo Bolus treatments, Temp Basals
+    with Control-IQ reasons, pump.battery devicestatus, entries
+    WITHOUT direction, full profile schedule."""
+
+    name = "tconnectsync"
+
+    def __init__(
+        self, base_url: str, api_secret: str, device_label: str | None = None
+    ) -> None:
+        super().__init__(base_url, api_secret, device_label)
+        # Monotonic pump event sequence number. Real Tandem pumps
+        # use a hardware counter that increments with every pump
+        # event; tconnectsync extracts it from the event payload
+        # and stamps it as `pump_event_id` on every NS record. Our
+        # counter starts at a plausible mid-range value (matches
+        # what a pump that has been running for a few months
+        # would emit) so dashboards see realistic 6-digit ids.
+        self._next_seqnum = 100000
+
+    @classmethod
+    def default_device_label(cls) -> str:
+        return os.environ.get("NS_TCONNECTSYNC_DEVICE", TCONNECTSYNC_ENTERED_BY)
+
+    # ---- helpers --------------------------------------------------------
+
+    def _seqnum(self) -> str:
+        """Issue the next pump-event sequence number as a string
+        (per upstream's `pump_event_id` typing). Monotonic across
+        every record this lens emits."""
+        n = self._next_seqnum
+        self._next_seqnum += 1
+        return str(n)
+
+    # ---- profile --------------------------------------------------------
+
+    def ensure_profile(self) -> None:
+        """tconnectsync uploads a full Tandem-pump profile via
+        `update_profiles.py`: basal schedule, ICR, ISF, target
+        bands. The Control-IQ default target is a narrow 110 mg/dL
+        band (110-110); we expose it that way to match real-world
+        t:connect uploads.
+
+        Emulator simplification: this is an ENSURE-ONCE check (same
+        as every other lens in this file). Real tconnectsync runs a
+        diff between pump_settings and the existing NS profile and
+        re-POSTs whenever they drift -- per upstream
+        `update_profiles.py:54-77` (`add` vs `replace` mode). Our
+        single-tick emulator doesn't model pump-side schedule
+        changes, so a diff loop would be dead code. If a profile
+        already exists, skip; otherwise POST a baseline.
+
+        `enteredBy` on the profile record is the tconnectsync
+        identity string (NOT `"openaps"` -- this lens does author
+        a profile on behalf of the user)."""
+        try:
+            existing = http_get(
+                self.base_url, "/api/v1/profile.json", self._auth_headers
+            )
+            if existing:
+                return
+        except urllib.error.HTTPError:
+            pass
+
+        now_iso = iso_z(datetime.datetime.now(datetime.UTC))
+        profile_name = "Default"
+        ciq_target = TCONNECTSYNC_CIQ_TARGET_MGDL
+        payload = {
+            "defaultProfile": profile_name,
+            "store": {
+                profile_name: {
+                    "dia": str(DIA_MINUTES // 60),
+                    "carbratio": [{"time": "00:00", "value": ICR_GRAMS_PER_UNIT}],
+                    "sens": [{"time": "00:00", "value": ISF_MGDL_PER_UNIT}],
+                    "basal": [{"time": "00:00", "value": SCHEDULED_BASAL_U_HR}],
+                    # Control-IQ posts a SINGLE-VALUE target band
+                    # (110/110), not a wide range. AAPS/Trio/Loop
+                    # use a wider target_low/target_high split; this
+                    # narrow band is a Tandem-specific signal.
+                    "target_low": [{"time": "00:00", "value": ciq_target}],
+                    "target_high": [{"time": "00:00", "value": ciq_target}],
+                    "carbs_hr": "20",
+                    "delay": "20",
+                    "timezone": "UTC",
+                    "units": "mg/dl",
+                }
+            },
+            "startDate": now_iso,
+            "mills": int(time.time() * 1000),
+            "units": "mg/dl",
+            "enteredBy": TCONNECTSYNC_ENTERED_BY,
+        }
+        http_post(
+            self.base_url, "/api/v1/profile.json", self._auth_headers, [payload]
+        )
+
+    # ---- per-tick hook --------------------------------------------------
+
+    def on_tick_start(
+        self, state: PatientState, posted_at: datetime.datetime
+    ) -> None:
+        """Control-IQ runs ON THE PUMP every 5 min; tconnectsync
+        observes the resulting basal adjustments via cloud upload.
+        We model that here by running the same `loop_temp_basal_
+        decision` the Loop / Trio / AAPS lenses use, which gives the
+        patient realistic basal modulation. The reason string is
+        stamped on the resulting Temp Basal treatment in
+        `post_temp_basal` below."""
+        rate = loop_temp_basal_decision(state)
+        state.set_temp_basal(rate, LOOP_TEMP_BASAL_DURATION_MIN)
+
+    # ---- entries --------------------------------------------------------
+
+    def post_entry(
+        self,
+        state: PatientState,
+        prev_bg: float,
+        posted_at: datetime.datetime,
+    ) -> None:
+        """tconnectsync entries OMIT `direction` -- t:connect's CGM
+        API doesn't expose the trend arrow. Per upstream
+        `process_cgm_reading.py`. Big divergence vs LibreLinkUp /
+        share2ns / xDrip-family which all include direction.
+
+        Shape per upstream:
+            { type: 'sgv', sgv, date, dateString, device,
+              pump_event_id }
+
+        Note: `prev_bg` parameter is unused -- tconnectsync has no
+        trend data so prior BG is irrelevant for the wire payload.
+        Kept for Lens contract compatibility."""
+        sgv = int(round(state.bg))
+        payload = [
+            {
+                "type": "sgv",
+                "sgv": sgv,
+                "date": int(posted_at.timestamp() * 1000),
+                "dateString": iso_z(posted_at),
+                "device": self.device_label,
+                "pump_event_id": self._seqnum(),
+            }
+        ]
+        http_post(
+            self.base_url, "/api/v1/entries.json", self._auth_headers, payload
+        )
+
+    # ---- devicestatus ---------------------------------------------------
+
+    def post_devicestatus(
+        self, state: PatientState, posted_at: datetime.datetime
+    ) -> None:
+        """tconnectsync devicestatus is MINIMAL: just `pump.battery`
+        with voltage (volts, not millivolts), percent, and a human-
+        readable status string. NO openaps / loop / uploader
+        subtrees. NO reservoir level (t:connect API doesn't expose
+        it -- a real upstream gap). Per upstream
+        `process_device_status.py`.
+
+        Real Tandem pump batteries are 3.7V Li-ion; we map the
+        patient-state percent to a plausible voltage range
+        (3.5V dead, 4.2V full).
+        """
+        ts = iso_z(posted_at)
+        pct = int(state.pump_battery_pct)
+        # Linear pct→voltage mapping in the 3.5V (0%) to 4.2V (100%)
+        # range a real 3.7V Li-ion shows. tconnectsync passes raw
+        # volts through; we round to 2 decimals to keep the wire
+        # payload tidy and to mirror the precision a real pump
+        # reports.
+        voltage = round(3.5 + (4.2 - 3.5) * (pct / 100.0), 2)
+        battery = {
+            "voltage": voltage,
+            "percent": pct,
+            "status": f"{pct}%",
+        }
+        payload = [
+            {
+                "device": self.device_label,
+                "created_at": ts,
+                "pump": {
+                    "clock": ts,
+                    "battery": battery,
+                },
+                "pump_event_id": self._seqnum(),
+            }
+        ]
+        http_post(
+            self.base_url,
+            "/api/v1/devicestatus.json",
+            self._auth_headers,
+            payload,
+        )
+
+    # ---- treatments -----------------------------------------------------
+
+    def post_meal_bolus(
+        self,
+        state: PatientState,
+        carbs_g: float,
+        bolus_u: float,
+        posted_at: datetime.datetime,
+    ) -> None:
+        """Per upstream `process_bolus.py`, ALL Tandem boluses are
+        emitted as eventType `"Combo Bolus"` with the meal/correction
+        distinction stuffed into the `notes` field. Carbs are bundled
+        in the SAME record (not a separate Carb Correction). One
+        record per meal-bolus event."""
+        payload = [
+            {
+                "eventType": "Combo Bolus",
+                "created_at": iso_z(posted_at),
+                "enteredBy": TCONNECTSYNC_ENTERED_BY,
+                "insulin": bolus_u,
+                "carbs": round(carbs_g, 1),
+                "notes": "Meal Bolus",
+                "pump_event_id": self._seqnum(),
+            }
+        ]
+        http_post(
+            self.base_url,
+            "/api/v1/treatments.json",
+            self._auth_headers,
+            payload,
+        )
+
+    def post_correction_bolus(
+        self,
+        state: PatientState,
+        units: float,
+        posted_at: datetime.datetime,
+    ) -> None:
+        """Same `"Combo Bolus"` event type as meal boluses; only the
+        `notes` field distinguishes the two. NO carbs on a correction-
+        only bolus. NO `"SMB"` event type (Tandem doesn't have SMBs;
+        Control-IQ adjusts BASAL, not bolus, for between-meal
+        corrections)."""
+        payload = [
+            {
+                "eventType": "Combo Bolus",
+                "created_at": iso_z(posted_at),
+                "enteredBy": TCONNECTSYNC_ENTERED_BY,
+                "insulin": units,
+                "notes": "Correction Bolus",
+                "pump_event_id": self._seqnum(),
+            }
+        ]
+        http_post(
+            self.base_url,
+            "/api/v1/treatments.json",
+            self._auth_headers,
+            payload,
+        )
+
+    def post_temp_basal(
+        self,
+        state: PatientState,
+        rate_u_hr: float,
+        duration_min: int,
+        posted_at: datetime.datetime,
+    ) -> None:
+        """Tandem Control-IQ adjusts basal continuously; tconnectsync
+        forwards every adjustment as a `"Temp Basal"` treatment with
+        a `reason` field describing WHY Control-IQ made the change.
+        Per upstream `process_basal.py`'s `changetype`-bitmask reason
+        extraction (which calls `bitmask_to_list(event.changetype)`
+        and joins the resulting enum-label list).
+
+        Emulator-friendly reasons (NOT verbatim upstream enum
+        labels): we synthesize one of three human-readable strings
+        based on rate vs scheduled basal:
+        - rate < scheduled -> "Helping with Trend" (low/dropping BG)
+        - rate > scheduled -> "Correcting High"
+        - rate == scheduled -> "Control-IQ" (algorithm-controlled,
+          no specific corrective intent)
+
+        Real tconnectsync emits the underlying `Changetype` /
+        `CommandedRateSource` enum labels which can read e.g.
+        `BG_HIGH, INDUCED_LOW` -- the exact string set varies by
+        pump firmware and is hard to enumerate exhaustively. The
+        three aliases above cover the operationally meaningful
+        intent that downstream readers care about (was this
+        adjustment correcting up, correcting down, or steady-
+        state) without claiming verbatim upstream fidelity.
+        """
+        if rate_u_hr < SCHEDULED_BASAL_U_HR - 0.01:
+            reason = "Helping with Trend"
+        elif rate_u_hr > SCHEDULED_BASAL_U_HR + 0.01:
+            reason = "Correcting High"
+        else:
+            reason = "Control-IQ"
+        payload = [
+            {
+                "eventType": "Temp Basal",
+                "created_at": iso_z(posted_at),
+                "enteredBy": TCONNECTSYNC_ENTERED_BY,
+                "rate": rate_u_hr,
+                "absolute": rate_u_hr,
+                "duration": duration_min,
+                "reason": reason,
+                "pump_event_id": self._seqnum(),
+            }
+        ]
+        http_post(
+            self.base_url,
+            "/api/v1/treatments.json",
+            self._auth_headers,
+            payload,
+        )
+
+    def post_site_change(
+        self, state: PatientState, posted_at: datetime.datetime
+    ) -> None:
+        """tconnectsync emits Site Change for ALL three Tandem fill
+        types (cartridge, cannula, tubing) per upstream
+        `process_cartridge.py`. Our reservoir-refill trigger maps to
+        cartridge fill (the fill that signals an insulin reservoir
+        replacement) -- the most common Site Change source on real
+        Tandem pumps.
+
+        Notes shape matches upstream `process_cartridge.py`:
+        `"Cartridge Filled (<int>u filled)"` -- fill volume in
+        units appended in parentheses. Real downstream readers
+        (translators, AI consumers) parse this regex to extract
+        the volume; emitting the bare string would silently drop
+        coverage for that read path.
+
+        The volume is the POST-refill reservoir level. On real
+        Tandem pumps a Cartridge Filled event fires after a fresh
+        cartridge load + priming, and the logged "filled" amount
+        is the volume in the new cartridge -- which equals
+        capacity for a clean swap (Mobi 200U / X2 300U). Reading
+        `state.reservoir_u` post-refill (200U) matches this
+        upstream semantic exactly: it is the volume of the new
+        cartridge, not the delta from the prior level."""
+        reservoir_u = int(round(state.reservoir_u))
+        payload = [
+            {
+                "eventType": "Site Change",
+                "created_at": iso_z(posted_at),
+                "enteredBy": TCONNECTSYNC_ENTERED_BY,
+                "notes": f"Cartridge Filled ({reservoir_u}u filled)",
+                "pump_event_id": self._seqnum(),
+            }
+        ]
+        http_post(
+            self.base_url,
+            "/api/v1/treatments.json",
+            self._auth_headers,
+            payload,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Lens registry
 # ---------------------------------------------------------------------------
 
@@ -4498,8 +4970,8 @@ LENSES: dict[str, type[Lens]] = {
     "xdrip_plus": XdripPlusLens,
     "librelink_up": LibreLinkUpLens,
     "share2ns": Share2NsLens,
-    # Future: "iaps": IapsLens, "tconnectsync": TConnectSyncLens,
-    # "manual": ManualLens.
+    "tconnectsync": TconnectsyncLens,
+    # Future: "iaps": IapsLens, "manual": ManualLens.
 }
 
 
