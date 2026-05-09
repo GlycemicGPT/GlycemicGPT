@@ -26,9 +26,10 @@ Currently shipped lenses:
   - xdrip4ios    : xDrip4iOS (iOS pure-CGM uploader, no closed-loop)
   - xdrip_plus   : xDrip+ (Android pure-CGM uploader, predates xdrip4ios)
   - librelink_up : LibreLinkUp (Abbott cloud → NS bridge, entries-only)
+  - share2ns     : share2nightscout-bridge (Dexcom Share cloud → NS)
 
 Planned (each its own PR -- see dev/README.md for status):
-  - iaps, share2ns, tconnectsync, manual
+  - iaps, tconnectsync, manual
 
 Each lens is anchored to its source-of-truth document in the
 external `bewest/rag-nightscout-ecosystem-alignment` repo, e.g.
@@ -4213,6 +4214,277 @@ class LibreLinkUpLens(Lens):
 
 
 # ---------------------------------------------------------------------------
+# share2ns lens (Dexcom Share cloud → Nightscout bridge, entries-only)
+# ---------------------------------------------------------------------------
+#
+# share2nightscout-bridge (`nightscout/share2nightscout-bridge`,
+# Node.js) is the Dexcom equivalent of LibreLinkUp -- a server-side
+# bridge that polls Dexcom's Share cloud (US: `share2.dexcom.com`,
+# EU: `shareous1.dexcom.com`) on a schedule and forwards readings to
+# Nightscout. It is NOT a direct sensor reader (unlike xdrip4ios /
+# xdrip_plus which read Dexcom transmitters via Bluetooth); it goes
+# through Dexcom's CLOUD via a hardcoded application ID.
+#
+# Architecturally similar to `librelink_up`, but the wire format
+# diverges on three important fields:
+#
+# - **`device: "share2"`** literal -- short, generic, device-agnostic.
+#   Per upstream `nightscout/share2nightscout-bridge/index.js` which
+#   hardcodes `device: 'share2'` in the entry mapping. LibreLinkUp
+#   stamps the longer `"nightscout-librelink-up"`.
+#
+# - **Full 9-value Dexcom trend enum** -- per upstream
+#   `matchTrend()` and the entry mapping, share2ns posts BOTH
+#   `direction` (string arrow) AND `trend` (numeric 1-9) on every
+#   entry. The numeric values cover the full Dexcom vocabulary:
+#   `DoubleUp=1, SingleUp=2, FortyFiveUp=3, Flat=4,
+#   FortyFiveDown=5, SingleDown=6, DoubleDown=7, NOT COMPUTABLE=8,
+#   RATE OUT OF RANGE=9`. LibreLinkUp omits `trend` entirely AND
+#   only supports 5 direction strings (no DoubleUp/Down per
+#   Abbott's API). share2ns exposes Dexcom's full set.
+#
+# - **One-time devicestatus on startup**: posts `{uploaderBattery:
+#   false}` ONCE on first launch to suppress the Nightscout
+#   "uploader battery" indicator (Dexcom Share doesn't expose
+#   battery state, so the bridge tells NS not to render an
+#   indicator). After the first post, no devicestatus is ever
+#   posted again. Per upstream `index.js:265-273`.
+#
+# Like LibreLinkUp, share2ns is strictly entries-focused: NO
+# treatments, NO profile authoring, NO pump-side data. Cloud bridges
+# are one-way ingestion pipes.
+#
+# Translator-side note: `detect_uploader` doesn't recognize
+# `"share2"` as a known uploader (no substring match for `dexcom`
+# or `share`). Real share2ns deployments hit this same gap. No
+# functional impact since no code paths branch on
+# `uploader == "share2ns"`. Documented for the future translator
+# improvement: `device == "share2"` could be a recognition signal.
+#
+# Source-of-truth files cross-checked:
+#   - `mapping/share2nightscout-bridge/`
+#   - upstream `nightscout/share2nightscout-bridge/index.js`
+#     (the entire bridge is a single JS file; entry mapping at
+#     :226-230, devicestatus at :265-273, `matchTrend()` at :56-66)
+
+
+SHARE2NS_DEVICE_LABEL = "share2"
+# share2ns posts both `direction` (string arrow) AND `trend`
+# (numeric Dexcom enum value, 1-9) on every entry. The mapping
+# below is per upstream `index.js`'s `trendToDirection()`:
+_SHARE2NS_DIRECTION_TO_TREND = {
+    "DoubleUp": 1,
+    "SingleUp": 2,
+    "FortyFiveUp": 3,
+    "Flat": 4,
+    "FortyFiveDown": 5,
+    "SingleDown": 6,
+    "DoubleDown": 7,
+    "NOT COMPUTABLE": 8,
+    "RATE OUT OF RANGE": 9,
+}
+
+
+class Share2NsLens(Lens):
+    """share2nightscout-bridge (Dexcom Share cloud → NS) lens. See
+    architecture comment block above for the full divergence list
+    vs LibreLinkUp."""
+
+    name = "share2ns"
+
+    def __init__(
+        self, base_url: str, api_secret: str, device_label: str | None = None
+    ) -> None:
+        super().__init__(base_url, api_secret, device_label)
+        # Track whether we've already posted the one-time devicestatus
+        # `{uploaderBattery: false}` indicator-suppression record.
+        # Per upstream `index.js`, share2ns posts this exactly once
+        # on first launch and never again -- the bridge has no
+        # battery state to update.
+        self._uploader_battery_indicator_posted = False
+
+    @classmethod
+    def default_device_label(cls) -> str:
+        return os.environ.get("NS_SHARE2NS_DEVICE", SHARE2NS_DEVICE_LABEL)
+
+    # ---- profile --------------------------------------------------------
+
+    def ensure_profile(self) -> None:
+        """share2ns does NOT upload a profile -- it's a one-way
+        ingestion bridge. Real deployments expect the profile to
+        already exist (set by the user's pump-side app or via the
+        Nightscout admin UI). Same contract as LibreLinkUp / the
+        xDrip-family lenses: post a baseline profile if NS has
+        none, stamp `enteredBy: "openaps"` to honor that share2ns
+        doesn't author one."""
+        try:
+            existing = http_get(
+                self.base_url, "/api/v1/profile.json", self._auth_headers
+            )
+            if existing:
+                return
+        except urllib.error.HTTPError:
+            pass
+
+        now_iso = iso_z(datetime.datetime.now(datetime.UTC))
+        profile_name = "Default"
+        payload = {
+            "defaultProfile": profile_name,
+            "store": {
+                profile_name: {
+                    "dia": str(DIA_MINUTES // 60),
+                    "carbratio": [{"time": "00:00", "value": ICR_GRAMS_PER_UNIT}],
+                    "sens": [{"time": "00:00", "value": ISF_MGDL_PER_UNIT}],
+                    "basal": [{"time": "00:00", "value": SCHEDULED_BASAL_U_HR}],
+                    "target_low": [{"time": "00:00", "value": TARGET_BG_MGDL - 10}],
+                    "target_high": [{"time": "00:00", "value": TARGET_BG_MGDL + 10}],
+                    "carbs_hr": "20",
+                    "delay": "20",
+                    "timezone": "UTC",
+                    "units": "mg/dl",
+                }
+            },
+            "startDate": now_iso,
+            "mills": int(time.time() * 1000),
+            "units": "mg/dl",
+            "enteredBy": "openaps",
+        }
+        http_post(
+            self.base_url, "/api/v1/profile.json", self._auth_headers, [payload]
+        )
+
+    # ---- per-tick hook --------------------------------------------------
+
+    def on_tick_start(
+        self, state: PatientState, posted_at: datetime.datetime
+    ) -> None:
+        """share2ns has no algorithm and no per-tick hook to fire --
+        it just polls Dexcom Share on a 2.5-min cron and uploads
+        what it gets. Patient runs on plain scheduled basal."""
+        return
+
+    # ---- entries --------------------------------------------------------
+
+    def post_entry(
+        self,
+        state: PatientState,
+        prev_bg: float,
+        posted_at: datetime.datetime,
+    ) -> None:
+        """share2ns entries carry BOTH a string `direction` AND a
+        numeric `trend` (Dexcom's full 9-value enum), per upstream
+        `index.js`'s entry mapping at lines 226-230.
+
+        The trend numeric is what Dexcom Share returns; share2ns
+        passes it through verbatim alongside the derived string
+        direction. LibreLinkUp omits `trend` entirely.
+
+        Shape per upstream:
+            { device: 'share2', type: 'sgv', sgv, direction, trend,
+              date, dateString }
+        """
+        bg = state.bg
+        sgv = int(round(bg))
+        direction = direction_for(prev_bg, bg)
+        # Dexcom uses the full 9-value enum; the shared
+        # `direction_for()` helper produces 7 of those (no
+        # `NOT COMPUTABLE` / `RATE OUT OF RANGE` -- those are
+        # error states our patient state doesn't model). Map to
+        # the numeric form per upstream `trendToDirection()`. Fall
+        # back to `Flat=4` if the helper ever returns something
+        # unexpected.
+        trend_numeric = _SHARE2NS_DIRECTION_TO_TREND.get(direction, 4)
+
+        payload = [
+            {
+                "type": "sgv",
+                "sgv": sgv,
+                "direction": direction,
+                "trend": trend_numeric,
+                "date": int(posted_at.timestamp() * 1000),
+                "dateString": iso_z(posted_at),
+                "device": self.device_label,
+            }
+        ]
+        http_post(
+            self.base_url, "/api/v1/entries.json", self._auth_headers, payload
+        )
+
+    # ---- devicestatus ---------------------------------------------------
+
+    def post_devicestatus(
+        self, state: PatientState, posted_at: datetime.datetime
+    ) -> None:
+        """share2ns posts ONE devicestatus record on first launch
+        with `{uploaderBattery: false}` -- a sentinel that tells
+        Nightscout to suppress the uploader-battery indicator (the
+        bridge runs on a server, not a phone, so there is no
+        battery to render). Per upstream `index.js:265-273`. After
+        the first post, no devicestatus is ever posted again."""
+        if self._uploader_battery_indicator_posted:
+            return
+
+        ts = iso_z(posted_at)
+        payload = [
+            {
+                "device": self.device_label,
+                "created_at": ts,
+                "uploaderBattery": False,
+            }
+        ]
+        http_post(
+            self.base_url,
+            "/api/v1/devicestatus.json",
+            self._auth_headers,
+            payload,
+        )
+        self._uploader_battery_indicator_posted = True
+
+    # ---- everything else: NO-OP ----------------------------------------
+    #
+    # share2ns is strictly entries-only (plus the one-time
+    # devicestatus indicator). The bridge has no ability to
+    # originate treatments, profile records, or further
+    # devicestatus. Every other Lens contract method below is a
+    # no-op so the main loop's hook calls produce no wire output.
+
+    def post_meal_bolus(
+        self,
+        state: PatientState,
+        carbs_g: float,
+        bolus_u: float,
+        posted_at: datetime.datetime,
+    ) -> None:
+        """No treatments from share2ns -- one-way Dexcom→NS
+        ingestion bridge with no UI for user entry."""
+        return
+
+    def post_correction_bolus(
+        self,
+        state: PatientState,
+        units: float,
+        posted_at: datetime.datetime,
+    ) -> None:
+        """No treatments from share2ns -- see `post_meal_bolus`."""
+        return
+
+    def post_temp_basal(
+        self,
+        state: PatientState,
+        rate_u_hr: float,
+        duration_min: int,
+        posted_at: datetime.datetime,
+    ) -> None:
+        """No algorithm, no temp basals from share2ns."""
+        return
+
+    # `post_site_change` deliberately NOT overridden -- share2ns
+    # cannot originate pump-side site change events (it has no pump
+    # connection). Inherits `Lens.post_site_change`'s no-op base
+    # impl. Same pattern as the xDrip-family / LibreLinkUp lenses.
+
+
+# ---------------------------------------------------------------------------
 # Lens registry
 # ---------------------------------------------------------------------------
 
@@ -4225,8 +4497,8 @@ LENSES: dict[str, type[Lens]] = {
     "xdrip4ios": Xdrip4iOSLens,
     "xdrip_plus": XdripPlusLens,
     "librelink_up": LibreLinkUpLens,
-    # Future: "iaps": IapsLens,
-    # "share2ns": Share2NsLens, "tconnectsync": TConnectSyncLens,
+    "share2ns": Share2NsLens,
+    # Future: "iaps": IapsLens, "tconnectsync": TConnectSyncLens,
     # "manual": ManualLens.
 }
 
