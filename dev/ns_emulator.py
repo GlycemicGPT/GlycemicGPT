@@ -3457,26 +3457,16 @@ class Xdrip4iOSLens(Lens):
         user."""
         return
 
-    def post_site_change(
-        self, state: PatientState, posted_at: datetime.datetime
-    ) -> None:
-        """xDrip4iOS supports manual `Site Change` treatments via
-        the UI. Real users record these when they change their pod /
-        cannula. Per `treatment-classification.md`:
-        `TreatmentType.SiteChange` → eventType `"Site Change"`."""
-        payload = [
-            {
-                "eventType": "Site Change",
-                "created_at": iso_z(posted_at),
-                "enteredBy": XDRIP4IOS_APP_NAME,
-            }
-        ]
-        http_post(
-            self.base_url,
-            "/api/v1/treatments.json",
-            self._auth_headers,
-            payload,
-        )
+    # `post_site_change` deliberately NOT overridden -- xDrip4iOS is
+    # a pure-CGM uploader with no pump connection, so a `Site Change`
+    # event triggered by the patient state's `maybe_refill_reservoir`
+    # path (which models a pump pod refill, not an xDrip4iOS-side
+    # event) cannot legitimately originate here. Real xDrip4iOS users
+    # CAN manually record a Site Change via the in-app treatment-entry
+    # UI, but that's a UI-driven event not derived from pump
+    # reservoir state -- we'd need a separate scheduled-entry hook to
+    # model it, not a pump-state callback. Inherit `Lens.post_site_change`
+    # (no-op base impl).
 
     # ---- private: BG Check (fingerstick calibration) -------------------
 
@@ -3632,6 +3622,17 @@ class XdripPlusLens(Lens):
         # Once-per-sim-day `BG Check` (fingerstick) -- real xDrip+
         # users calibrate ~daily. xdrip4ios pattern.
         self._last_bg_check_date: str | None = None
+        # The most-recent BG VALUE this lens itself has POSTED. Used
+        # solely to determine whether `delta` should be emitted on
+        # the next entry: real xDrip+ omits `delta` on the very
+        # first reading (slope unknown -- no prior reading in its
+        # own DB to compute the change against). The main loop's
+        # `prev_bg` is unreliable here because it's the patient
+        # state's pre-tick BG, which is always set (defaulting to
+        # the starting BG on the first call) -- it doesn't capture
+        # "have I, the lens, posted anything yet?". Tracking the
+        # lens's own posted history is the correct signal.
+        self._last_posted_bg: float | None = None
 
     @classmethod
     def default_device_label(cls) -> str:
@@ -3749,11 +3750,17 @@ class XdripPlusLens(Lens):
         bg = state.bg
         sgv = int(round(bg))
         direction = direction_for(prev_bg, bg)
-        # Delta only included when we have a real prior reading.
-        # Upstream xDrip+ omits the field if slope is unknown
-        # rather than emitting a fake zero.
+        # Delta only included when this lens has previously posted
+        # an entry -- upstream xDrip+ omits the field on the very
+        # first reading (slope unknown). The main loop's `prev_bg`
+        # is unreliable here because it always carries the patient
+        # state's pre-tick BG (defaulting to the starting BG on the
+        # first call). Use this lens's own `_last_posted_bg` --
+        # `None` until the first post, set after every post.
         delta_mgdl: float | None = (
-            round(bg - prev_bg, 1) if prev_bg else None
+            None
+            if self._last_posted_bg is None
+            else round(bg - self._last_posted_bg, 1)
         )
 
         entry: dict[str, object] = {
@@ -3782,6 +3789,9 @@ class XdripPlusLens(Lens):
             self._auth_headers,
             [entry],
         )
+        # Record the BG we just posted so the next call can compute
+        # delta against it.
+        self._last_posted_bg = bg
 
     # ---- devicestatus ---------------------------------------------------
 
@@ -3912,25 +3922,15 @@ class XdripPlusLens(Lens):
         band for an xDrip+ user, just like for xdrip4ios."""
         return
 
-    def post_site_change(
-        self, state: PatientState, posted_at: datetime.datetime
-    ) -> None:
-        """xDrip+ supports manual `Site Change` treatments via the
-        treatment-entry UI."""
-        payload = [
-            {
-                "eventType": "Site Change",
-                "created_at": iso_z(posted_at),
-                "enteredBy": XDRIP_PLUS_APP_NAME,
-                "uuid": str(uuid.uuid4()),
-            }
-        ]
-        http_post(
-            self.base_url,
-            "/api/v1/treatments.json",
-            self._auth_headers,
-            payload,
-        )
+    # `post_site_change` deliberately NOT overridden -- xDrip+ is a
+    # pure-CGM uploader with no pump connection, so a `Site Change`
+    # event triggered by the patient state's `maybe_refill_reservoir`
+    # path (which models a pump pod refill, not an xDrip+-side
+    # event) cannot legitimately originate here. Real xDrip+ users
+    # CAN manually record a Site Change via the treatment-entry UI,
+    # but that's a UI-driven event not derived from pump reservoir
+    # state -- we'd need a separate scheduled-entry hook to model
+    # it. Inherit `Lens.post_site_change` (no-op base impl).
 
     # ---- private: BG Check ---------------------------------------------
 
