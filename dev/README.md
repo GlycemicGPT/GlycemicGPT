@@ -116,13 +116,13 @@ The architecture splits into:
 | `xdrip_plus` | xDrip+ (Android, pure-CGM uploader) | Shipped | `mapping/xdrip-android/` + upstream `NightscoutFoundation/xDrip` |
 | `librelink_up` | LibreLinkUp (Abbott cloud → NS bridge) | Shipped | `mapping/nightscout-librelink-up/` + upstream `timoschlueter/nightscout-librelink-up` |
 | `share2ns` | share2nightscout-bridge (Dexcom Share cloud → NS) | Shipped | `mapping/share2nightscout-bridge/` + upstream `nightscout/share2nightscout-bridge` |
+| `tconnectsync` | tconnectsync (Tandem t:connect cloud → NS) | Shipped | `mapping/tconnectsync/` + upstream `jwoglom/tconnectsync` |
 
 ### Planned lenses (each its own PR)
 
 | Lens | Platform | Reference doc |
 |---|---|---|
 | `iaps` | iAPS (Trio's predecessor) | `mapping/trio/nightscout-sync.md` |
-| `tconnectsync` | tconnectsync (Tandem t:connect → NS) | `mapping/tconnectsync/` |
 | `manual` | Direct Nightscout web UI entry | `mapping/cgm-remote-monitor/` |
 
 The reference repo is reference, not authoritative — when its claims
@@ -550,6 +550,98 @@ Cross-checked against upstream `nightscout/share2nightscout-bridge`:
 - `index.js` (the entire bridge is a single JS file -- entry
   mapping at lines 226-230, devicestatus at lines 265-273,
   `matchTrend()` at lines 56-66)
+
+#### `tconnectsync`
+
+The tconnectsync lens emits the **Tandem t:connect cloud →
+Nightscout bridge** wire format. tconnectsync (`jwoglom/tconnectsync`,
+Python, MIT) is a server-side bridge that polls Tandem's t:connect
+cloud (the cloud that t:slim X2 / Mobi pumps batch-upload to) and
+forwards pump events to Nightscout. Architecturally distinct from
+every prior cloud-bridge lens: where LibreLinkUp / share2ns forward
+**CGM-only** data from a sensor cloud, tconnectsync forwards
+**pump-side therapy data** -- boluses, basals, site changes,
+battery state -- alongside CGM (Dexcom paired with the pump).
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `NS_TCONNECTSYNC_DEVICE` | `Pump (tconnectsync)` | The `device` / `enteredBy` string stamped on every record. Per upstream `tconnectsync/parser/nightscout.py`'s `ENTERED_BY` constant. The local RAG document claims `"tconnectsync"` (no parens) -- per the repo memory rule, upstream wins; the RAG is stale. |
+
+**Top divergences vs every prior lens:**
+
+- **Identity is `"Pump (tconnectsync)"`** -- literal string with
+  parentheses + space. Stamped on every treatment, entry, AND
+  devicestatus record (no other lens uses this exact form).
+- **`pump_event_id` field on every record**: monotonic pump
+  sequence number (e.g., `"100123"`). Used by tconnectsync for
+  client-side dedupe queries against NS. AAPS uses
+  `pumpId/pumpType/pumpSerial`; Trio uses `id` (UUID); oref0 has
+  no client dedupe; tconnectsync has its own.
+- **All boluses are `"Combo Bolus"`**: meal, correction, extended,
+  override, declined-correction -- ALL map to a single eventType
+  with the distinction stuffed into the `notes` field (`"Meal
+  Bolus"`, `"Correction Bolus"`, ...). Carbs are bundled into the
+  same record (no separate `Carb Correction`). Hard divergence
+  from every other lens.
+- **Temp Basal carries a `reason` field** describing Control-IQ's
+  rationale: `"Control-IQ"` (algorithm-controlled, no specific
+  intent), `"Helping with Trend"` (BG dropping), `"Correcting
+  High"`. Per upstream `process_basal.py`'s `changetype`-bitmask
+  reason extraction. AAPS / Trio temp basals have no comparable
+  field.
+- **Entries OMIT `direction`**: t:connect's CGM API doesn't expose
+  the trend arrow. Real divergence -- LibreLinkUp / share2ns /
+  xDrip-family all include direction; tconnectsync cannot.
+- **Devicestatus is MINIMAL `pump.battery` only**: voltage (volts,
+  not millivolts) + percent + a human-readable string like
+  `"85%"`. NO `openaps` / `loop` / `uploader` subtrees. NO
+  reservoir level (real upstream gap -- t:connect API doesn't
+  expose it).
+- **Profile uploads a Tandem-pump schedule**: full basal / ICR /
+  ISF / target schedule. Control-IQ default target is a NARROW
+  110/110 mg/dL band (single-value, not a wide range). AAPS / Trio
+  use a wider target_low/target_high split; this narrow band is a
+  Tandem-specific signal.
+- **Site Change for cartridge / cannula / tubing fills**: per
+  upstream `process_cartridge.py`, all three fill types map to
+  eventType `"Site Change"` with a `notes` field shaped
+  `"Cartridge Filled (<n>u filled)"` (volume in units in
+  parentheses) -- our reservoir-refill trigger emits the same
+  format with the actual reservoir volume so downstream
+  volume-extraction regex paths get exercised.
+
+**Real-world latency**: t:connect cloud is **60-90 minutes behind
+the pump** because Tandem batches uploads. Our emulator posts at
+5-min sim cadence (matching the rest of the emulator's tick rate)
+-- documented divergence; modeling true 60-90 min batched-upload
+latency would require buffering and is orthogonal to NS wire-format
+coverage.
+
+**Translator-side note**: `detect_uploader` doesn't recognize
+`"Pump (tconnectsync)"` as a known uploader (no substring match for
+`tandem` or `tconnect`). Real tconnectsync deployments hit this
+same gap. No functional impact -- no code paths branch on
+`uploader == "tconnectsync"`. Documented for the future translator
+improvement: `enteredBy == "Pump (tconnectsync)"` could be a
+recognition signal.
+
+Cross-checked against upstream `jwoglom/tconnectsync`:
+- `tconnectsync/parser/nightscout.py` (`ENTERED_BY` constant,
+  `NightscoutEntry` builders for bolus / basal / devicestatus /
+  entry / profile)
+- `tconnectsync/nightscout.py` (NS API v1 + SHA-1 auth)
+- `tconnectsync/sync/tandemsource/process_bolus.py` (Combo Bolus
+  + carbs bundling + notes)
+- `tconnectsync/sync/tandemsource/process_basal.py` (Temp Basal +
+  reason from `changetype` bitmask)
+- `tconnectsync/sync/tandemsource/process_cartridge.py` (Site
+  Change for cartridge / cannula / tubing fills)
+- `tconnectsync/sync/tandemsource/process_device_status.py`
+  (`pump.battery` shape: voltage + percent + status)
+- `tconnectsync/sync/tandemsource/process_cgm_reading.py` (entry
+  shape: no `direction`)
+- `tconnectsync/sync/tandemsource/update_profiles.py` (profile
+  schedule shape with narrow Control-IQ target band)
 
 ### How to verify it actually drove your code
 

@@ -924,6 +924,66 @@ class TestAdversarialRegressions:
         assert t.is_combo_bolus is True
         assert t.semantic_kind == "combo_bolus"
 
+    # H5b: tconnectsync emits ALL Tandem boluses (meal, correction,
+    # override) as eventType "Combo Bolus" with the meal/correction
+    # distinction stuffed into `notes` -- per upstream `jwoglom/
+    # tconnectsync/sync/tandemsource/process_bolus.py`. These have
+    # NO splitNow / splitExt / duration -- the eventType is just
+    # upstream's catch-all naming. Routing them to COMBO_BOLUS
+    # would orphan them from every downstream bolus read path
+    # (Insulin Summary, Recent Boluses, IoB, safety). Field-presence
+    # routing (meal_bolus_pair / bolus) yields BOLUS event_type so
+    # they actually surface in the dashboard.
+    def test_h5_tconnectsync_meal_combo_bolus_routes_to_meal_bolus_pair(self):
+        t = NightscoutTreatment.model_validate(
+            {
+                "eventType": "Combo Bolus",
+                "insulin": 4.16,
+                "carbs": 41.6,
+                "notes": "Meal Bolus",
+                "enteredBy": "Pump (tconnectsync)",
+                "created_at": "2026-05-09T07:40:38Z",
+            }
+        )
+        # Not a real combo (no split / extended / duration) --
+        # field-presence routing produces meal_bolus_pair (BOLUS
+        # + CARBS rows).
+        assert t.is_combo_bolus is False
+        assert t.semantic_kind == "meal_bolus_pair"
+
+    def test_h5_tconnectsync_correction_combo_bolus_routes_to_bolus(self):
+        t = NightscoutTreatment.model_validate(
+            {
+                "eventType": "Combo Bolus",
+                "insulin": 2.07,
+                "notes": "Correction Bolus",
+                "enteredBy": "Pump (tconnectsync)",
+                "created_at": "2026-05-09T07:45:19Z",
+            }
+        )
+        assert t.is_combo_bolus is False
+        # No carbs -> field-presence routing yields plain bolus
+        # (BOLUS event_type).
+        assert t.semantic_kind == "bolus"
+
+    def test_h5_careportal_combo_bolus_with_split_still_routes_combo(self):
+        # Pre-existing Care Portal / AAPS combo bolus with explicit
+        # split MUST still classify as combo_bolus -- the narrow
+        # "no split = not combo" rule preserves real combo semantics.
+        t = NightscoutTreatment.model_validate(
+            {
+                "eventType": "Combo Bolus",
+                "insulin": 6.0,
+                "carbs": 75,
+                "splitNow": 60,
+                "splitExt": 40,
+                "duration": 120,
+                "created_at": "2026-05-06T19:00:00Z",
+            }
+        )
+        assert t.is_combo_bolus is True
+        assert t.semantic_kind == "combo_bolus"
+
     # H6: device events were eaten by carb/bolus routing
     def test_h6_site_change_with_carbs_field_is_still_device_event(self):
         # A Care Portal Site Change with an incidental carbs field
