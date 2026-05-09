@@ -112,6 +112,7 @@ The architecture splits into:
 | `aaps_v3` | AndroidAPS NSClientV3 (NS API v3, JWT subject) | Shipped | `mapping/aaps/nightscout-sync.md` + `mapping/aaps/nsclient-schema.md` |
 | `trio` | Trio (iOS oref-derived, NS API v1, SHA-1) | Shipped | `mapping/trio/nightscout-sync.md` + `mapping/trio/data-models.md` |
 | `oref0` | OpenAPS oref0 (Raspberry Pi, NS API v1, SHA-1) | Shipped | `mapping/oref0/data-models.md` + upstream `openaps/oref0:bin/ns-status.js` |
+| `xdrip4ios` | xDrip4iOS (Apple, pure-CGM uploader) | Shipped | `mapping/xdrip4ios/` + upstream `JohanDegraeve/xdripswift` |
 
 ### Planned lenses (each its own PR)
 
@@ -119,7 +120,6 @@ The architecture splits into:
 |---|---|---|
 | `iaps` | iAPS (Trio's predecessor) | `mapping/trio/nightscout-sync.md` |
 | `xdrip_plus` | xDrip+ (Android, CGM-only) | `mapping/xdrip-android/` |
-| `xdrip4ios` | xDrip4iOS (Apple, CGM-only) | `mapping/xdrip4ios/` |
 | `librelink_up` | LibreLink Up bridge (Libre 2/3 → NS) | `mapping/nightscout-librelink-up/` |
 | `share2ns` | share2nightscout-bridge | `mapping/share2nightscout-bridge/` |
 | `tconnectsync` | tconnectsync (Tandem t:connect → NS) | `mapping/tconnectsync/` |
@@ -335,6 +335,70 @@ relying solely on the reference repo:
   Correction / SMB boluses)
 - `openaps/oref0:examples/suggested.json` (Determination shape)
 - `openaps/oref0:bin/oref0-ns-loop.sh` (carb upload flow)
+
+#### `xdrip4ios`
+
+The xDrip4iOS lens emits the **pure-CGM** wire format. xDrip4iOS is
+a Nightscout uploader for Apple devices that reads Dexcom G6/G7 (via
+direct Bluetooth) or Libre 2/3 (via a transmitter bridge like
+MiaoMiao/Bubble/Atom). It is NOT a closed-loop system -- no
+algorithm, no automated dosing, no `openaps` payload. The lens
+exists to exercise the GlycemicGPT translator's "entries-only +
+manual treatments" code paths that the closed-loop lenses don't
+hit.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `NS_XDRIP4IOS_TRANSMITTER` | `Dexcom G6` | Stamped into the entries `device` field. xDrip4iOS uses the actual transmitter name (per upstream `BgReading+Nightscout.swift` → `BgReading.deviceName`). Override to `"Dexcom G7"`, `"MiaoMiao"`, `"Bubble"`, `"Atom"`, etc. when stress-testing the translator's `detect_uploader` against varied transmitter strings. |
+
+`NS_RANDOM_SEED` doesn't apply here -- xDrip4iOS has no
+80/20 SMB-vs-manual split (no algorithm).
+
+Real xDrip4iOS behaviors this lens models:
+
+- **Identity**: `device` = transmitter name (NOT the app);
+  `enteredBy: "xDrip4iOS"` literal on every treatment, per
+  upstream `Source/Managers/Nightscout/NightscoutSyncManager.swift`
+  which hardcodes `ConstantsHomeView.applicationName`.
+- **Entries carry RAW SENSOR METADATA**: `filtered`, `unfiltered`,
+  and a hardcoded `noise: 1`. The closed-loop lenses don't emit
+  these -- they work from glucose values, not raw sensor signal.
+  Distinctive xDrip / xDrip+ wire-format fingerprint.
+- **Devicestatus is MINIMAL**: `device + uploader.{name:
+  "transmitter", battery, batteryVoltage}` only. NO `openaps`,
+  NO `loop`, NO `pump` subtree. The `uploader.battery` carries the
+  TRANSMITTER battery (Dexcom voltage 3-4.5V, Libre %), not the
+  phone battery.
+- **No profile upload**: xDrip4iOS reads the user's NS profile to
+  display targets / ISF / CR for follower-mode views, but does
+  NOT post one. This emulator lens posts a baseline profile only
+  if one doesn't already exist (so the test stack has a consistent
+  state) and stamps `enteredBy: "openaps"` (the Care Portal
+  sentinel) to honor the contract that xDrip4iOS doesn't author
+  profiles.
+- **Bolus eventType is just `"Bolus"`**: xDrip4iOS doesn't
+  distinguish Meal Bolus / Correction Bolus / SMB on the wire --
+  it has no algorithm, just a manual user-entry UI.
+- **Carbs eventType is `"Carbs"`** (NOT `"Carb Correction"`):
+  per upstream `treatment-classification.md`, xDrip4iOS's
+  `TreatmentType.Carbs` maps to the simpler `"Carbs"` eventType.
+- **Once-per-sim-day fingerstick BG Check**: real users
+  calibrate Dexcom G6 / Libre 1 sensors with daily fingersticks;
+  the lens fires a `"BG Check"` treatment in the morning window
+  to exercise that path.
+- **No SMBs / no algorithm-driven temp basals**: corrections come
+  through as plain `"Bolus"` treatments. Temp Basals are not
+  emitted at all (xDrip4iOS users get basal from their pump's own
+  program, not from the uploader app).
+
+Cross-checked against upstream `JohanDegraeve/xdripswift` source
+files:
+- `Source/Managers/Nightscout/NightscoutSyncManager.swift` (sync
+  orchestration, devicestatus payload)
+- `Source/Managers/Nightscout/BgReading+Nightscout.swift` (entry
+  shape including `filtered` / `unfiltered` / `noise: 1`)
+- `Source/Core Data/classes/TreatmentEntry+CoreDataClass.swift`
+  (treatment model and upload code paths)
 
 ### How to verify it actually drove your code
 

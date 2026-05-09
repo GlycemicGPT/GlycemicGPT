@@ -18,15 +18,15 @@ platform's actual Nightscout wire format -- Loop's payloads look
 like Loop, AAPS's look like AAPS, etc.
 
 Currently shipped lenses:
-  - loop    : Loop (Apple iPhone closed-loop, NS API v1, SHA-1 secret)
-  - aaps_v1 : AndroidAPS NSClient legacy (NS API v1, SHA-1 secret)
-  - aaps_v3 : AndroidAPS NSClientV3 (NS API v3, JWT subject)
-  - trio    : Trio (iOS oref-derived, NS API v1, SHA-1 secret)
-  - oref0   : OpenAPS oref0 (Raspberry Pi, the original oref impl)
+  - loop      : Loop (Apple iPhone closed-loop, NS API v1, SHA-1 secret)
+  - aaps_v1   : AndroidAPS NSClient legacy (NS API v1, SHA-1 secret)
+  - aaps_v3   : AndroidAPS NSClientV3 (NS API v3, JWT subject)
+  - trio      : Trio (iOS oref-derived, NS API v1, SHA-1 secret)
+  - oref0     : OpenAPS oref0 (Raspberry Pi, the original oref impl)
+  - xdrip4ios : xDrip4iOS (iOS pure-CGM uploader, no closed-loop)
 
 Planned (each its own PR -- see dev/README.md for status):
-  - iaps, xdrip_plus, xdrip4ios, librelink_up, share2ns,
-    tconnectsync, manual
+  - iaps, xdrip_plus, librelink_up, share2ns, tconnectsync, manual
 
 Each lens is anchored to its source-of-truth document in the
 external `bewest/rag-nightscout-ecosystem-alignment` repo, e.g.
@@ -3033,6 +3033,487 @@ class Oref0Lens(Lens):
 
 
 # ---------------------------------------------------------------------------
+# xDrip4iOS lens (pure CGM uploader, iOS, no closed-loop)
+# ---------------------------------------------------------------------------
+#
+# xDrip4iOS (`JohanDegraeve/xdripswift`) is a pure-CGM Nightscout
+# uploader for Apple devices. It reads Dexcom G6/G7 directly via
+# Bluetooth, or Libre 2/3 via a transmitter bridge (MiaoMiao, Bubble,
+# Atom, etc.) and uploads readings to Nightscout. It is NOT a closed-
+# loop system: no algorithm, no automated dosing, no `openaps` /
+# `loop.enacted` payload.
+#
+# Architecturally distinct from every lens shipped so far:
+#
+# - **No closed-loop output**: NO `openaps` subtree, NO algorithm
+#   determination, NO predBGs, NO `loop.enacted`. The lens emits
+#   `entries` and (optionally, by user action) `treatments`. The
+#   `devicestatus` payload is minimal -- just transmitter battery.
+#
+# - **`enteredBy: "xDrip4iOS"`** literal on every treatment, per
+#   upstream `Source/Managers/Nightscout/NightscoutSyncManager.swift`
+#   which hardcodes `ConstantsHomeView.applicationName`.
+#
+# - **`device` = transmitter name**, not the app: Dexcom direct →
+#   `"Dexcom G6"` / `"Dexcom G7"`, Libre via MiaoMiao →
+#   `"MiaoMiao"`, etc. Per upstream
+#   `Source/Managers/Nightscout/BgReading+Nightscout.swift` which
+#   reads `BgReading.deviceName` (the transmitter's identifier).
+#
+# - **Raw sensor metadata in entries**: every entry POST carries
+#   `filtered` and `unfiltered` (raw value × 1000 OR
+#   `calculatedValue * 1000` if no raw signal) plus a hardcoded
+#   `noise: 1`. Closed-loop lenses don't emit any of these -- they
+#   work from glucose values, not raw sensor signal.
+#
+# - **Transmitter battery in `devicestatus.uploader`**: the field
+#   carries the SENSOR/transmitter battery, not the phone's. Dexcom
+#   transmitters report a voltage; Libre readers report a percent.
+#   Closed-loop lenses' `devicestatus.uploader` carries the phone /
+#   rig battery.
+#
+# - **Treatments**: xDrip4iOS lets users manually enter Bolus,
+#   Carbs, Exercise, BG Check, Temp Basal, Site Change, Sensor
+#   Start, Pump Battery Change. These all go via the standard NS
+#   `treatments.json` POST. xDrip4iOS does NOT generate algorithm-
+#   driven treatments (no SMBs, no auto-corrections).
+#
+# - **No profile upload**: xDrip4iOS reads the user's NS profile to
+#   display targets / ISF / CR for follower-mode views, but does
+#   not post one. So `ensure_profile()` is a no-op.
+#
+# - **`noise: 1`**: hardcoded in upstream. Production CGM uploaders
+#   sometimes vary noise (CleanSensor / LightNoise / MediumNoise /
+#   HeavyNoise / Rejected) but xDrip4iOS always emits 1 (Clean).
+#
+# - **Translator devicestatus-classification limitation (known)**:
+#   the GlycemicGPT translator's `detect_uploader` matches the
+#   xDrip family via substring `"xdrip"` in `enteredBy` or `device`.
+#   xDrip4iOS treatments stamp `enteredBy: "xDrip4iOS"` (lowercased
+#   matches), so treatments classify as `xdrip4ios` correctly. But
+#   xDrip4iOS devicestatus records carry `device:
+#   "<transmitter-name>"` (e.g., `"Dexcom G6"`) instead of an
+#   app-name -- which the heuristic can't match. Real xDrip4iOS
+#   deployments hit this same misclassification (devicestatus →
+#   `unknown`). No functional impact since no code paths branch on
+#   `uploader == "xdrip4ios"`. Documented for the future translator
+#   improvement: classify by `uploader.name == "transmitter"` as a
+#   secondary signal.
+#
+# Source-of-truth files cross-checked:
+#   - `mapping/xdrip4ios/data-models.md` (entry + treatment shapes)
+#   - `mapping/xdrip4ios/nightscout-sync.md` (auth + endpoints)
+#   - `mapping/xdrip4ios/treatment-classification.md` (eventType map)
+#   - upstream `JohanDegraeve/xdripswift/Source/Managers/Nightscout/
+#     NightscoutSyncManager.swift` (sync orchestration)
+#   - upstream `JohanDegraeve/xdripswift/Source/Managers/Nightscout/
+#     BgReading+Nightscout.swift` (entry shape)
+
+
+XDRIP4IOS_APP_NAME = "xDrip4iOS"
+# Modeled patient runs Dexcom G6 (most-common direct-Bluetooth CGM
+# pairing for xDrip4iOS users). Real `device` field gets the actual
+# transmitter name; we use `"Dexcom G6"` as our deterministic
+# stand-in. Override via `NS_XDRIP4IOS_TRANSMITTER` if you want to
+# stress-test the translator's `detect_uploader` against varied
+# transmitter strings (e.g., `"MiaoMiao"`, `"Bubble"`,
+# `"Dexcom G7"`).
+XDRIP4IOS_TRANSMITTER = os.environ.get(
+    "NS_XDRIP4IOS_TRANSMITTER", "Dexcom G6"
+)
+# Dexcom transmitters report battery as a voltage (~3.0-4.5V); Libre
+# readers report as percentage. We model Dexcom voltage by default;
+# under a Libre transmitter override the value here is still
+# voltage-shaped, which is faithful for Dexcom and benign for the
+# translator.
+XDRIP4IOS_BATTERY_VOLTAGE_DEFAULT = 4.0
+
+
+class Xdrip4iOSLens(Lens):
+    """xDrip4iOS (iOS pure-CGM uploader) lens. See architecture
+    comment block above for the full vs-closed-loop diff."""
+
+    name = "xdrip4ios"
+
+    def __init__(
+        self, base_url: str, api_secret: str, device_label: str | None = None
+    ) -> None:
+        super().__init__(base_url, api_secret, device_label)
+        # Once-per-sim-day `BG Check` (fingerstick) -- real xDrip4iOS
+        # users calibrate ~daily. This is the only treatment-shape
+        # event we emit on a fixed schedule; the rest are tied to
+        # physiology hooks. Direction-arrow math uses the shared
+        # `direction_for(prev_bg, bg)` helper (prev_bg is passed in
+        # by the main loop, not held on this lens).
+        self._last_bg_check_date: str | None = None
+        # Battery drift: real Dexcom transmitter voltage decays from
+        # ~4.0V fresh to ~2.6V end-of-life over the sensor lifespan.
+        # We start near full and decay slowly per cycle.
+        self._transmitter_battery_voltage: float = (
+            XDRIP4IOS_BATTERY_VOLTAGE_DEFAULT
+        )
+
+    @classmethod
+    def default_device_label(cls) -> str:
+        # The `device` field carries the transmitter name (NOT the
+        # app name). Per upstream `BgReading+Nightscout.swift`.
+        return XDRIP4IOS_TRANSMITTER
+
+    # ---- profile --------------------------------------------------------
+
+    def ensure_profile(self) -> None:
+        """xDrip4iOS does NOT upload a profile -- it reads the user's
+        existing NS profile to render follower-mode targets / ISF /
+        CR. Real xDrip4iOS deployments expect the profile to already
+        exist (uploaded by the user's pump-side app, or set via the
+        Nightscout admin UI). For the emulator we still post a
+        minimal profile if none exists, so the test stack has a
+        consistent baseline -- but stamp `enteredBy: "openaps"`
+        (the default Care Portal sentinel) rather than `"xDrip4iOS"`
+        to match the contract that xDrip4iOS doesn't author profiles.
+        """
+        try:
+            existing = http_get(
+                self.base_url, "/api/v1/profile.json", self._auth_headers
+            )
+            if existing:
+                return
+        except urllib.error.HTTPError:
+            pass
+
+        now_iso = iso_z(datetime.datetime.now(datetime.UTC))
+        profile_name = "Default"
+        payload = {
+            "defaultProfile": profile_name,
+            "store": {
+                profile_name: {
+                    "dia": str(DIA_MINUTES // 60),
+                    "carbratio": [{"time": "00:00", "value": ICR_GRAMS_PER_UNIT}],
+                    "sens": [{"time": "00:00", "value": ISF_MGDL_PER_UNIT}],
+                    "basal": [{"time": "00:00", "value": SCHEDULED_BASAL_U_HR}],
+                    "target_low": [{"time": "00:00", "value": TARGET_BG_MGDL - 10}],
+                    "target_high": [{"time": "00:00", "value": TARGET_BG_MGDL + 10}],
+                    "carbs_hr": "20",
+                    "delay": "20",
+                    "timezone": "UTC",
+                    "units": "mg/dl",
+                }
+            },
+            "startDate": now_iso,
+            "mills": int(time.time() * 1000),
+            "units": "mg/dl",
+            # Sentinel `enteredBy: "openaps"` (the Care Portal default
+            # author string) signals this profile was NOT authored by
+            # xDrip4iOS itself -- per the contract in this lens's
+            # docstring, real xDrip4iOS reads profiles but never
+            # writes them. Without this field, downstream consumers
+            # can't tell whether a profile came from the user's
+            # closed-loop app or was a stand-in fixture.
+            "enteredBy": "openaps",
+        }
+        http_post(
+            self.base_url, "/api/v1/profile.json", self._auth_headers, [payload]
+        )
+
+    # ---- per-tick hook --------------------------------------------------
+
+    def on_tick_start(
+        self, state: PatientState, posted_at: datetime.datetime
+    ) -> None:
+        """xDrip4iOS has NO closed-loop algorithm and does NOT enact
+        temp basals. The patient runs on plain scheduled basal --
+        `current_basal_u_hr` returns `SCHEDULED_BASAL_U_HR` when no
+        temp is active, which IS the desired behavior. Notably, this
+        lens does NOT call `state.set_temp_basal()` -- doing so would
+        keep `temp_basal_remaining_min` pinned at the duration on
+        every tick, semantically suggesting "this user is on a temp
+        basal" when in reality xDrip4iOS users have no algorithm-
+        driven temps at all (their basal comes from the pump's own
+        scheduled program).
+
+        Real xDrip4iOS users also calibrate sensors with fingerstick
+        BG checks roughly once per day; we fire a `BG Check`
+        treatment in the morning window to exercise that path.
+        """
+
+        # Once-per-sim-day BG Check (fingerstick calibration).
+        date_iso = state.sim_time.date().isoformat()
+        hour = state.sim_time.hour
+        if 7 <= hour < 8 and self._last_bg_check_date != date_iso:
+            self._last_bg_check_date = date_iso
+            try:
+                self._post_bg_check(state, posted_at)
+            except Exception as exc:  # noqa: BLE001 - keep loop running
+                print(
+                    f"[emu] xdrip4ios bg_check post failed: {exc}", flush=True
+                )
+
+        # Slow transmitter battery drift (per-cycle): -0.0001 V per
+        # 5-min cycle. Floor at 2.6 V (Dexcom end-of-life voltage).
+        # From the 4.0 V default this drops the full 1.4 V over
+        # ~14000 cycles ≈ 48 sim-days. A real Dexcom G6 transmitter
+        # holds near 4.0 V for most of its ~90-day life and drops
+        # fast at end-of-life; this monotonic linear stand-in is a
+        # rough emulator approximation, faithful enough that the
+        # voltage is plausibly in-range for any sim window.
+        self._transmitter_battery_voltage = max(
+            2.6, self._transmitter_battery_voltage - 0.0001
+        )
+
+    # ---- entries --------------------------------------------------------
+
+    def post_entry(
+        self,
+        state: PatientState,
+        prev_bg: float,
+        posted_at: datetime.datetime,
+    ) -> None:
+        """xDrip4iOS entries carry RAW SENSOR METADATA in addition
+        to the standard sgv: `filtered`, `unfiltered`, `noise`.
+        Per upstream `BgReading+Nightscout.swift`:
+        - `filtered = ageAdjustedRawValue * 1000` (raw signal in
+          microvolts-or-equivalent, scaled).
+        - `unfiltered = rawData * 1000` (or
+          `calculatedValue * 1000` if no raw available).
+        - `noise = 1` (hardcoded; Clean Sensor signal-quality flag).
+
+        For our emulator we don't have raw sensor data, so we
+        synthesize plausible filtered/unfiltered values from the
+        physiology BG. This is faithful to what NS receives;
+        downstream consumers reading raw signal would see
+        `state.bg * 1000` instead of a true sensor microvolts read.
+        """
+        bg = state.bg
+        sgv = int(round(bg))
+        # `direction` is set by xDrip4iOS via Dexcom-style trend
+        # arrow naming. Use the shared helper (same rules as Loop).
+        direction = direction_for(prev_bg, bg)
+
+        payload = [
+            {
+                "type": "sgv",
+                "sgv": sgv,
+                "direction": direction,
+                "date": int(posted_at.timestamp() * 1000),
+                "dateString": iso_z(posted_at),
+                "device": self.device_label,
+                # Raw sensor metadata, distinctive to xDrip4iOS /
+                # xDrip+ entries vs closed-loop-uploader entries.
+                "filtered": int(round(bg * 1000)),
+                "unfiltered": int(round(bg * 1000)),
+                "noise": 1,
+            }
+        ]
+        http_post(
+            self.base_url, "/api/v1/entries.json", self._auth_headers, payload
+        )
+
+    # ---- devicestatus ---------------------------------------------------
+
+    def post_devicestatus(
+        self, state: PatientState, posted_at: datetime.datetime
+    ) -> None:
+        """xDrip4iOS devicestatus is MINIMAL -- just transmitter
+        battery. NO `openaps` subtree, NO `loop` subtree, NO `pump`
+        subtree. Per upstream `NightscoutSyncManager.swift`:
+
+        ```
+        {
+          "device": "<transmitter name>",
+          "uploader": {
+            "name": "transmitter",
+            "battery": <int> (or voltage as float for Dexcom),
+            "batteryVoltage": <voltage> (Dexcom only)
+          },
+          "created_at": "<ISO>"
+        }
+        ```
+
+        Distinctive vs closed-loop devicestatus:
+        - `uploader.name = "transmitter"` (closed-loop systems use
+          the phone-rig name or omit `name` entirely).
+        - For Dexcom we add `batteryVoltage` (a float voltage like
+          3.5); for Libre readers it's a battery percentage int.
+        """
+        ts = iso_z(posted_at)
+        # Dexcom transmitters report voltage; Libre readers report
+        # percent. We model Dexcom (voltage) by default. The integer
+        # `battery` field is computed from voltage via the Dexcom
+        # convention (4.0V = 100%, 2.6V = 0%, linear).
+        voltage = self._transmitter_battery_voltage
+        battery_pct = max(
+            0, min(100, int(round((voltage - 2.6) / (4.0 - 2.6) * 100)))
+        )
+        uploader_subtree = {
+            "name": "transmitter",
+            "battery": battery_pct,
+            "batteryVoltage": round(voltage, 3),
+        }
+
+        payload = [
+            {
+                "device": self.device_label,
+                "created_at": ts,
+                "uploader": uploader_subtree,
+            }
+        ]
+        http_post(
+            self.base_url,
+            "/api/v1/devicestatus.json",
+            self._auth_headers,
+            payload,
+        )
+
+    # ---- treatments -----------------------------------------------------
+
+    def post_meal_bolus(
+        self,
+        state: PatientState,
+        carbs_g: float,
+        bolus_u: float,
+        posted_at: datetime.datetime,
+    ) -> None:
+        """xDrip4iOS users manually enter meal carbs + the bolus
+        they took separately via two distinct UI flows -- carbs go
+        in `Carbs` treatments, insulin goes in `Bolus` treatments.
+        Per upstream `treatment-classification.md`:
+        - `TreatmentType.Carbs` → eventType `"Carbs"`
+        - `TreatmentType.Insulin` → eventType `"Bolus"`
+
+        Note the `"Carbs"` (not `"Carb Correction"`) -- xDrip4iOS
+        uses the simpler eventType. We post both at the same
+        `created_at` to model a wizard-driven meal entry."""
+        created_at = iso_z(posted_at)
+        # Carbs treatment.
+        http_post(
+            self.base_url,
+            "/api/v1/treatments.json",
+            self._auth_headers,
+            [
+                {
+                    "eventType": "Carbs",
+                    "created_at": created_at,
+                    "enteredBy": XDRIP4IOS_APP_NAME,
+                    "carbs": round(carbs_g, 1),
+                }
+            ],
+        )
+        # Bolus treatment.
+        http_post(
+            self.base_url,
+            "/api/v1/treatments.json",
+            self._auth_headers,
+            [
+                {
+                    "eventType": "Bolus",
+                    "created_at": created_at,
+                    "enteredBy": XDRIP4IOS_APP_NAME,
+                    "insulin": bolus_u,
+                }
+            ],
+        )
+
+    def post_correction_bolus(
+        self,
+        state: PatientState,
+        units: float,
+        posted_at: datetime.datetime,
+    ) -> None:
+        """xDrip4iOS does NOT emit SMB events -- it has no closed-
+        loop algorithm. Manual corrections come through as plain
+        `Bolus` treatments (same eventType as meal-time wizard
+        boluses; xDrip4iOS doesn't distinguish on the wire).
+        Per `treatment-classification.md`: `TreatmentType.Insulin`
+        → eventType `"Bolus"` regardless of motivation."""
+        payload = [
+            {
+                "eventType": "Bolus",
+                "created_at": iso_z(posted_at),
+                "enteredBy": XDRIP4IOS_APP_NAME,
+                "insulin": units,
+            }
+        ]
+        http_post(
+            self.base_url,
+            "/api/v1/treatments.json",
+            self._auth_headers,
+            payload,
+        )
+
+    def post_temp_basal(
+        self,
+        state: PatientState,
+        rate_u_hr: float,
+        duration_min: int,
+        posted_at: datetime.datetime,
+    ) -> None:
+        """xDrip4iOS does NOT post Temp Basal treatments
+        algorithmically -- there's no algorithm. A user CAN manually
+        record a temp basal via the UI (e.g., to log a temporary
+        rate they set on their pump), but real-world deployments
+        rarely do this. Skip in our emulator -- a Temp Basal posted
+        every 5 sim-min would be wildly out-of-band for an xDrip4iOS
+        user."""
+        return
+
+    def post_site_change(
+        self, state: PatientState, posted_at: datetime.datetime
+    ) -> None:
+        """xDrip4iOS supports manual `Site Change` treatments via
+        the UI. Real users record these when they change their pod /
+        cannula. Per `treatment-classification.md`:
+        `TreatmentType.SiteChange` → eventType `"Site Change"`."""
+        payload = [
+            {
+                "eventType": "Site Change",
+                "created_at": iso_z(posted_at),
+                "enteredBy": XDRIP4IOS_APP_NAME,
+            }
+        ]
+        http_post(
+            self.base_url,
+            "/api/v1/treatments.json",
+            self._auth_headers,
+            payload,
+        )
+
+    # ---- private: BG Check (fingerstick calibration) -------------------
+
+    def _post_bg_check(
+        self, state: PatientState, posted_at: datetime.datetime
+    ) -> None:
+        """Real xDrip4iOS users record fingerstick BG checks for
+        sensor calibration (especially Dexcom G6 / Libre 1). Per
+        upstream `treatment-classification.md`:
+        `TreatmentType.BgCheck` → eventType `"BG Check"` with
+        `glucose`, `glucoseType: "Finger"`, `units: "mg/dl"`.
+
+        Sim a fingerstick that's slightly off the CGM reading (real
+        meters disagree with sensors by ~5-15 mg/dL); use the current
+        BG +/- a small bias."""
+        # Fingerstick "true" BG = CGM reading +/- ~10 mg/dL noise.
+        # In an emulator we just pass the CGM value through unchanged
+        # -- our patient state has no separate "true plasma BG" field.
+        glucose_value = int(round(state.bg))
+        payload = [
+            {
+                "eventType": "BG Check",
+                "created_at": iso_z(posted_at),
+                "enteredBy": XDRIP4IOS_APP_NAME,
+                "glucose": glucose_value,
+                "glucoseType": "Finger",
+                "units": "mg/dl",
+            }
+        ]
+        http_post(
+            self.base_url,
+            "/api/v1/treatments.json",
+            self._auth_headers,
+            payload,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Lens registry
 # ---------------------------------------------------------------------------
 
@@ -3042,10 +3523,10 @@ LENSES: dict[str, type[Lens]] = {
     "aaps_v3": AapsV3Lens,
     "trio": TrioLens,
     "oref0": Oref0Lens,
+    "xdrip4ios": Xdrip4iOSLens,
     # Future: "iaps": IapsLens, "xdrip_plus": XdripPlusLens,
-    # "xdrip4ios": Xdrip4iOSLens, "librelink_up": LibreLinkUpLens,
-    # "share2ns": Share2NsLens, "tconnectsync": TConnectSyncLens,
-    # "manual": ManualLens.
+    # "librelink_up": LibreLinkUpLens, "share2ns": Share2NsLens,
+    # "tconnectsync": TConnectSyncLens, "manual": ManualLens.
 }
 
 
