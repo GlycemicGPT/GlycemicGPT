@@ -3202,6 +3202,14 @@ class Xdrip4iOSLens(Lens):
             "startDate": now_iso,
             "mills": int(time.time() * 1000),
             "units": "mg/dl",
+            # Sentinel `enteredBy: "openaps"` (the Care Portal default
+            # author string) signals this profile was NOT authored by
+            # xDrip4iOS itself -- per the contract in this lens's
+            # docstring, real xDrip4iOS reads profiles but never
+            # writes them. Without this field, downstream consumers
+            # can't tell whether a profile came from the user's
+            # closed-loop app or was a stand-in fixture.
+            "enteredBy": "openaps",
         }
         http_post(
             self.base_url, "/api/v1/profile.json", self._auth_headers, [payload]
