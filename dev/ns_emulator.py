@@ -18,16 +18,17 @@ platform's actual Nightscout wire format -- Loop's payloads look
 like Loop, AAPS's look like AAPS, etc.
 
 Currently shipped lenses:
-  - loop       : Loop (Apple iPhone closed-loop, NS API v1, SHA-1 secret)
-  - aaps_v1    : AndroidAPS NSClient legacy (NS API v1, SHA-1 secret)
-  - aaps_v3    : AndroidAPS NSClientV3 (NS API v3, JWT subject)
-  - trio       : Trio (iOS oref-derived, NS API v1, SHA-1 secret)
-  - oref0      : OpenAPS oref0 (Raspberry Pi, the original oref impl)
-  - xdrip4ios  : xDrip4iOS (iOS pure-CGM uploader, no closed-loop)
-  - xdrip_plus : xDrip+ (Android pure-CGM uploader, predates xdrip4ios)
+  - loop         : Loop (Apple iPhone closed-loop, NS API v1, SHA-1 secret)
+  - aaps_v1      : AndroidAPS NSClient legacy (NS API v1, SHA-1 secret)
+  - aaps_v3      : AndroidAPS NSClientV3 (NS API v3, JWT subject)
+  - trio         : Trio (iOS oref-derived, NS API v1, SHA-1 secret)
+  - oref0        : OpenAPS oref0 (Raspberry Pi, the original oref impl)
+  - xdrip4ios    : xDrip4iOS (iOS pure-CGM uploader, no closed-loop)
+  - xdrip_plus   : xDrip+ (Android pure-CGM uploader, predates xdrip4ios)
+  - librelink_up : LibreLinkUp (Abbott cloud → NS bridge, entries-only)
 
 Planned (each its own PR -- see dev/README.md for status):
-  - iaps, librelink_up, share2ns, tconnectsync, manual
+  - iaps, share2ns, tconnectsync, manual
 
 Each lens is anchored to its source-of-truth document in the
 external `bewest/rag-nightscout-ecosystem-alignment` repo, e.g.
@@ -3962,6 +3963,256 @@ class XdripPlusLens(Lens):
 
 
 # ---------------------------------------------------------------------------
+# LibreLink Up lens (Abbott cloud → Nightscout bridge, entries-only)
+# ---------------------------------------------------------------------------
+#
+# LibreLink Up (`timoschlueter/nightscout-librelink-up`, Node.js /
+# TypeScript) is a SERVER-SIDE BRIDGE -- not a phone app, not a
+# direct sensor reader. It runs as a long-lived process (typically
+# Docker container) that polls Abbott's LibreLinkUp web API on a
+# 5-minute schedule, fetches the most-recent Libre 2/3 readings the
+# Abbott cloud has received from a paired follower account, and
+# forwards them to Nightscout.
+#
+# This is structurally different from EVERY lens shipped so far:
+#
+# - **No closed-loop output**: like xdrip4ios / xdrip_plus, no
+#   `openaps` / `loop` algorithm subtree.
+#
+# - **No raw sensor metadata**: UNLIKE xdrip4ios / xdrip_plus, no
+#   `filtered` / `unfiltered` / `noise` / `rssi`. Abbott's cloud
+#   API only exposes the processed `ValueInMgPerDl` and a trend
+#   enum -- raw sensor signal stays on the user's phone where the
+#   Libre app reads it. The bridge has no Bluetooth, no transmitter
+#   pairing, no calibration access.
+#
+# - **NO devicestatus, NO treatments, NO profile**: per upstream
+#   `src/nightscout/apiv1.ts`, the bridge implements ONLY
+#   `uploadEntries()` and `lastEntry()`. No `postDeviceStatus`, no
+#   `uploadTreatments`, no profile authorship. It is a strict
+#   one-way ingestion bridge.
+#
+# - **Different identity convention**: `device:
+#   "nightscout-librelink-up"` literal (NOT a transmitter name,
+#   NOT an `xDrip-` prefix). NO `enteredBy` field at all on
+#   entries. Per upstream `src/config.ts` (`NIGHTSCOUT_DEVICE_NAME`
+#   default).
+#
+# - **Cloud-poll cadence**: real LibreLinkUp polls every 5 minutes
+#   via `node-cron`. When Abbott upstream is slow / has no new
+#   data the bridge logs and retries; it does NOT inject
+#   placeholder readings. Our emulator posts on the same 5-min
+#   cadence the rest of the lenses use, which approximates this
+#   behavior (no-data backfill emerges when sim_time advances
+#   without new BG values, but since the shared physiology engine
+#   always produces a BG, this lens always has something to post --
+#   real LibreLinkUp would skip on Abbott-side gaps, our emulator
+#   doesn't model those gaps).
+#
+# - **Trend enum is a SUBSET**: per upstream `src/helpers/helpers.ts`,
+#   `mapTrendArrow` produces only 5 values: `SingleDown`,
+#   `FortyFiveDown`, `Flat`, `FortyFiveUp`, `SingleUp`, plus a `NOT
+#   COMPUTABLE` fallback. NO `DoubleUp` / `DoubleDown` -- Abbott's
+#   cloud doesn't return those. Our shared `direction_for()` helper
+#   CAN produce `DoubleUp` / `DoubleDown` for fast BG swings; we
+#   clamp those down to single-arrow form for upstream fidelity.
+#
+# Translator-side note: `detect_uploader` won't recognize
+# `"nightscout-librelink-up"` as a known uploader (no substring
+# match). Devicestatus records have no `device` field at all here
+# (we don't post them). Real LibreLinkUp deployments hit this same
+# translator gap -- no functional impact since no code paths
+# branch on `uploader == "librelink_up"`.
+#
+# Source-of-truth files cross-checked:
+#   - `mapping/nightscout-librelink-up/`
+#   - upstream `timoschlueter/nightscout-librelink-up/src/index.ts`
+#     (cron scheduler, polling loop)
+#   - upstream `src/config.ts` (env-var defaults including
+#     `NIGHTSCOUT_DEVICE_NAME`)
+#   - upstream `src/nightscout/apiv1.ts` (`uploadEntries` payload)
+#   - upstream `src/nightscout/interface.ts` (Entry interface)
+#   - upstream `src/helpers/helpers.ts` (`mapTrendArrow` -- 5-value
+#     enum; no DoubleUp / DoubleDown)
+
+
+# Per upstream `src/config.ts` `NIGHTSCOUT_DEVICE_NAME` default.
+LIBRELINK_UP_DEFAULT_DEVICE = "nightscout-librelink-up"
+# LibreLinkUp's trend enum (per upstream `mapTrendArrow`) is a
+# subset of Dexcom's. We clamp the shared `direction_for()` helper's
+# output to this subset on the wire.
+_LIBRELINK_UP_TREND_CLAMP = {
+    "DoubleUp": "SingleUp",
+    "DoubleDown": "SingleDown",
+}
+
+
+class LibreLinkUpLens(Lens):
+    """LibreLink Up (Abbott cloud → Nightscout bridge) lens. See
+    architecture comment block above for the full divergence list.
+    Strictly entries-only; every other `post_*` / `ensure_profile`
+    method is a no-op."""
+
+    name = "librelink_up"
+
+    @classmethod
+    def default_device_label(cls) -> str:
+        return os.environ.get(
+            "NS_LIBRELINK_UP_DEVICE", LIBRELINK_UP_DEFAULT_DEVICE
+        )
+
+    # ---- profile --------------------------------------------------------
+
+    def ensure_profile(self) -> None:
+        """LibreLink Up does NOT upload a profile. Per upstream, the
+        bridge implements `uploadEntries` and `lastEntry` only --
+        no profile authorship. Real deployments expect the profile
+        to already exist (set by the user's own pump app or via the
+        Nightscout admin UI). For the emulator we still post a
+        minimal baseline profile if NS has none (so the test stack
+        has a consistent state) and stamp `enteredBy: "openaps"`
+        to honor the contract that LibreLinkUp doesn't author one
+        -- same pattern as the xDrip-family lenses post-#587 fix.
+        """
+        try:
+            existing = http_get(
+                self.base_url, "/api/v1/profile.json", self._auth_headers
+            )
+            if existing:
+                return
+        except urllib.error.HTTPError:
+            pass
+
+        now_iso = iso_z(datetime.datetime.now(datetime.UTC))
+        profile_name = "Default"
+        payload = {
+            "defaultProfile": profile_name,
+            "store": {
+                profile_name: {
+                    "dia": str(DIA_MINUTES // 60),
+                    "carbratio": [{"time": "00:00", "value": ICR_GRAMS_PER_UNIT}],
+                    "sens": [{"time": "00:00", "value": ISF_MGDL_PER_UNIT}],
+                    "basal": [{"time": "00:00", "value": SCHEDULED_BASAL_U_HR}],
+                    "target_low": [{"time": "00:00", "value": TARGET_BG_MGDL - 10}],
+                    "target_high": [{"time": "00:00", "value": TARGET_BG_MGDL + 10}],
+                    "carbs_hr": "20",
+                    "delay": "20",
+                    "timezone": "UTC",
+                    "units": "mg/dl",
+                }
+            },
+            "startDate": now_iso,
+            "mills": int(time.time() * 1000),
+            "units": "mg/dl",
+            "enteredBy": "openaps",
+        }
+        http_post(
+            self.base_url, "/api/v1/profile.json", self._auth_headers, [payload]
+        )
+
+    # ---- per-tick hook --------------------------------------------------
+
+    def on_tick_start(
+        self, state: PatientState, posted_at: datetime.datetime
+    ) -> None:
+        """LibreLink Up has no algorithm and no per-tick hook to fire
+        -- it just polls Abbott on a cron and uploads what it gets.
+        Patient runs on plain scheduled basal (no temp basal
+        manipulation, no algorithm-driven decisions)."""
+        return
+
+    # ---- entries --------------------------------------------------------
+
+    def post_entry(
+        self,
+        state: PatientState,
+        prev_bg: float,
+        posted_at: datetime.datetime,
+    ) -> None:
+        """LibreLinkUp entries are MINIMAL: just `type`, `sgv`,
+        `direction`, `device`, `date`, `dateString`. No `enteredBy`,
+        no raw sensor metadata (`filtered` / `unfiltered` / `noise`
+        / `rssi`), no `delta`, no `sysTime`. Per upstream
+        `src/nightscout/apiv1.ts`'s `uploadEntries` payload mapping.
+
+        Trend arrow is clamped to LibreLinkUp's 5-value subset
+        (no DoubleUp / DoubleDown) per upstream `mapTrendArrow`.
+        """
+        bg = state.bg
+        sgv = int(round(bg))
+        direction = direction_for(prev_bg, bg)
+        # Clamp to LibreLinkUp's trend subset.
+        direction = _LIBRELINK_UP_TREND_CLAMP.get(direction, direction)
+
+        payload = [
+            {
+                "type": "sgv",
+                "sgv": sgv,
+                "direction": direction,
+                "date": int(posted_at.timestamp() * 1000),
+                "dateString": iso_z(posted_at),
+                "device": self.device_label,
+            }
+        ]
+        http_post(
+            self.base_url, "/api/v1/entries.json", self._auth_headers, payload
+        )
+
+    # ---- everything else: NO-OP ---------------------------------------
+    #
+    # LibreLink Up is strictly entries-only. The bridge has no
+    # ability to originate treatments, devicestatus, or profile
+    # records. Every other Lens contract method below is a no-op
+    # to ensure the main loop's hook calls produce no wire output.
+
+    def post_devicestatus(
+        self, state: PatientState, posted_at: datetime.datetime
+    ) -> None:
+        """LibreLinkUp does NOT post devicestatus. Per upstream's
+        `src/nightscout/` directory which contains no devicestatus
+        module."""
+        return
+
+    def post_meal_bolus(
+        self,
+        state: PatientState,
+        carbs_g: float,
+        bolus_u: float,
+        posted_at: datetime.datetime,
+    ) -> None:
+        """LibreLinkUp does NOT post treatments (no insulin, no
+        carbs). It's a one-way Abbott→Nightscout ingestion bridge
+        with no UI for user entry. Real users would need a separate
+        app (Care Portal, xDrip+, AAPS) to log carbs/boluses."""
+        return
+
+    def post_correction_bolus(
+        self,
+        state: PatientState,
+        units: float,
+        posted_at: datetime.datetime,
+    ) -> None:
+        """No treatments from LibreLinkUp -- see `post_meal_bolus`."""
+        return
+
+    def post_temp_basal(
+        self,
+        state: PatientState,
+        rate_u_hr: float,
+        duration_min: int,
+        posted_at: datetime.datetime,
+    ) -> None:
+        """No algorithm, no temp basals from LibreLinkUp."""
+        return
+
+    # `post_site_change` deliberately NOT overridden -- LibreLinkUp
+    # cannot originate pump-side site change events (it has no pump
+    # connection at all -- it's a cloud bridge). Inherit
+    # `Lens.post_site_change`'s no-op base impl. Same pattern as the
+    # xDrip-family lenses post-#588 fix.
+
+
+# ---------------------------------------------------------------------------
 # Lens registry
 # ---------------------------------------------------------------------------
 
@@ -3973,7 +4224,8 @@ LENSES: dict[str, type[Lens]] = {
     "oref0": Oref0Lens,
     "xdrip4ios": Xdrip4iOSLens,
     "xdrip_plus": XdripPlusLens,
-    # Future: "iaps": IapsLens, "librelink_up": LibreLinkUpLens,
+    "librelink_up": LibreLinkUpLens,
+    # Future: "iaps": IapsLens,
     # "share2ns": Share2NsLens, "tconnectsync": TConnectSyncLens,
     # "manual": ManualLens.
 }
