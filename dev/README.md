@@ -113,13 +113,13 @@ The architecture splits into:
 | `trio` | Trio (iOS oref-derived, NS API v1, SHA-1) | Shipped | `mapping/trio/nightscout-sync.md` + `mapping/trio/data-models.md` |
 | `oref0` | OpenAPS oref0 (Raspberry Pi, NS API v1, SHA-1) | Shipped | `mapping/oref0/data-models.md` + upstream `openaps/oref0:bin/ns-status.js` |
 | `xdrip4ios` | xDrip4iOS (Apple, pure-CGM uploader) | Shipped | `mapping/xdrip4ios/` + upstream `JohanDegraeve/xdripswift` |
+| `xdrip_plus` | xDrip+ (Android, pure-CGM uploader) | Shipped | `mapping/xdrip-android/` + upstream `NightscoutFoundation/xDrip` |
 
 ### Planned lenses (each its own PR)
 
 | Lens | Platform | Reference doc |
 |---|---|---|
 | `iaps` | iAPS (Trio's predecessor) | `mapping/trio/nightscout-sync.md` |
-| `xdrip_plus` | xDrip+ (Android, CGM-only) | `mapping/xdrip-android/` |
 | `librelink_up` | LibreLink Up bridge (Libre 2/3 → NS) | `mapping/nightscout-librelink-up/` |
 | `share2ns` | share2nightscout-bridge | `mapping/share2nightscout-bridge/` |
 | `tconnectsync` | tconnectsync (Tandem t:connect → NS) | `mapping/tconnectsync/` |
@@ -399,6 +399,54 @@ files:
   shape including `filtered` / `unfiltered` / `noise: 1`)
 - `Source/Core Data/classes/TreatmentEntry+CoreDataClass.swift`
   (treatment model and upload code paths)
+
+#### `xdrip_plus`
+
+The xDrip+ lens emits the **Android pure-CGM** wire format. xDrip+
+(`NightscoutFoundation/xDrip`, Java/Kotlin) is the original Android
+xDrip uploader and predates xDrip4iOS by ~5 years. It supports a
+wider range of CGM data sources (Dexcom G4/G5/G6/G7, Libre 1/2/3,
+LimiTTer, Bluetooth Wixel, MiaoMiao, Bubble, NS Follower). Like
+xdrip4ios it is NOT a closed-loop system.
+
+This lens is the SIBLING of `xdrip4ios`, but the wire format
+diverges on every important field.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `NS_XDRIP_PLUS_COLLECTION` | `DexcomG6` | The `dex_collection_method` value xDrip+ stamps inside the entries `device` field as `"xDrip-<method>"`. Override to `"DexcomG5"`, `"LimiTTer"`, `"BluetoothWixel"`, `"MiaoMiao"`, `"LibreReceiver"`, `"NSFollower"`, etc. (full enum in upstream `DexCollectionType.java`). |
+| `NS_XDRIP_PLUS_PHONE_MODEL` | `Pixel7Pro` | The phone model xDrip+ stamps in the devicestatus `device` field as `"xDrip-<model>"` (real upstream uses `Build.MANUFACTURER + Build.MODEL`). Override to `"GooglePixel8"` / `"SamsungS23"` / `"OnePlus11"` / etc. |
+
+**Top divergences from `xdrip4ios`:**
+
+- **`enteredBy: "xdrip"`** (lowercase, no plus, no version), per
+  upstream `Treatments.java`'s `XDRIP_TAG = "xdrip"` constant.
+  xdrip4ios stamps `"xDrip4iOS"`.
+- **`device: "xDrip-DexcomG6"`** (entries) and `"xDrip-Pixel7Pro"`
+  (devicestatus) -- the `"xDrip-"` prefix is structural, NOT the
+  bare transmitter name xdrip4ios uses.
+- **Entries carry MORE metadata**: `delta` (BG-change rate),
+  `rssi: 100` (hardcoded), `sysTime` (ISO timestamp). Plus the
+  shared xDrip-family fields (`filtered`, `unfiltered`, `noise`).
+- **Treatment vocabulary is RICHER**: `"Carb Correction"` (NOT
+  `"Carbs"`), `"Meal Bolus"` / `"Correction Bolus"` (NOT flat
+  `"Bolus"`), `"Sensor Stop"` event (xDrip+ extension). Every
+  treatment carries a client-generated UUID.
+- **Devicestatus**: minimal like xdrip4ios but the `device` field
+  carries the phone model (`"xDrip-Pixel7Pro"`), not the
+  transmitter name.
+
+Cross-checked against upstream `NightscoutFoundation/xDrip` source
+files:
+- `app/src/main/java/com/eveningoutpost/dexdrip/utilitymodels/NightscoutUploader.java`
+  (REST upload logic, payload builders for entries / treatments /
+  devicestatus)
+- `app/src/main/java/com/eveningoutpost/dexdrip/models/Treatments.java`
+  (`XDRIP_TAG = "xdrip"` constant)
+- `app/src/main/java/com/eveningoutpost/dexdrip/utils/DexCollectionType.java`
+  (enum of CGM data sources used in the `device` field)
+- `app/src/main/java/com/eveningoutpost/dexdrip/models/BgReading.java`
+  (`noiseValue()` / `usedRaw()` / `ageAdjustedFiltered()` helpers)
 
 ### How to verify it actually drove your code
 
