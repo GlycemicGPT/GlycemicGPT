@@ -666,10 +666,25 @@ class NightscoutTreatment(BaseModel):
         """Combo Bolus / extended-emulated TBR detection.
 
         Two shapes:
-        1. eventType == "Combo Bolus" (Care Portal, AAPS Combo Bolus)
+        1. eventType == "Combo Bolus" WITH split data (split_now /
+           split_ext) OR a duration -- the legitimate AAPS / Care
+           Portal combo bolus (some-now, some-extended-over-time).
         2. eventType == "Temp Basal" with non-empty `extendedEmulated`
            subtree carrying bolus fields (AAPS extended-bolus emulating
            TBR).
+
+        Bare eventType == "Combo Bolus" with NO split / extended /
+        duration is NOT a true combo -- it is upstream's catch-all
+        naming convention for plain boluses (per
+        `jwoglom/tconnectsync` `process_bolus.py`, which collapses
+        every Tandem bolus -- meal, correction, override -- into the
+        single `"Combo Bolus"` eventType with the distinction in the
+        `notes` field). Falling through to the field-presence
+        routing (meal_bolus_pair / bolus) yields a `BOLUS`
+        event_type that the Insulin Summary / Recent Boluses /
+        IoB / safety / brief widgets actually consume; routing
+        these to `COMBO_BOLUS` would orphan them from every
+        downstream bolus read path.
 
         We require the eventType to be either of those forms; an
         incidental `extendedEmulated` field on a Note or Site Change
@@ -677,7 +692,14 @@ class NightscoutTreatment(BaseModel):
         """
         et = self.normalized_event_type
         if et == "combo bolus":
-            return True
+            # Real combo iff it carries split or duration data. A
+            # plain "Combo Bolus" without those is upstream-naming-
+            # only and should be classified by field presence.
+            return (
+                self.split_now is not None
+                or self.split_ext is not None
+                or self.duration is not None
+            )
         # AAPS extended bolus emulating TBR -- only fires under a Temp
         # Basal envelope with a non-empty payload that carries bolus
         # data (insulin/amount). Empty `{}` and unrelated eventTypes
