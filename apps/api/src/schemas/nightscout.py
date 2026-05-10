@@ -10,7 +10,7 @@ set" without exposing it.
 
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -383,3 +383,93 @@ class NightscoutProfileSnapshotResponse(BaseModel):
     sensitivity_segments: list[NightscoutProfileSegmentDTO] | None
     target_low_segments: list[NightscoutProfileSegmentDTO] | None
     target_high_segments: list[NightscoutProfileSegmentDTO] | None
+
+
+# ---------------------------------------------------------------------------
+# Story 43.7a -- evaluate / discovery report
+# ---------------------------------------------------------------------------
+
+
+class NightscoutDiscoveryProfileSummary(BaseModel):
+    """Profile facts surfaced on the discovery report.
+
+    Schedules carry the profile snapshot's `[{time, value, ...}, ...]`
+    shape verbatim so downstream code (43.7b derive, the wizard's
+    review table) sees the same structure the snapshot stores. Single-
+    band target_low / target_high values are min / max across the
+    target schedule (a single-segment 70-180 target reports identical
+    bounds; a time-varying target reports the safest summary the
+    review screen can render in one row).
+
+    `target_low` / `target_high` are kept as `float` so mmol/L profiles
+    (where targets are sub-ten decimals like 4.4 / 7.8) preserve their
+    clinical precision. Wizard / 43.7b derive code is responsible for
+    unit normalization at render / write time.
+    """
+
+    target_low: float | None = None
+    target_high: float | None = None
+    dia_hours: float | None = None
+    # NS profile units are one of "mg/dl" / "mmol" per upstream
+    # `lib/units.js`. Constrained because mg/dL <-> mmol/L is a
+    # ~18x scale factor -- a misread here corrupts every downstream
+    # target / ISF / DIA calculation. Strict Literal so a future
+    # NS version that introduces a third unit string fails loud
+    # at the schema layer rather than silently writing garbage.
+    units: Literal["mg/dl", "mmol"] | None = None
+    timezone: str | None = None
+    carb_ratio_schedule: list[NightscoutProfileSegmentDTO] | None = None
+    isf_schedule: list[NightscoutProfileSegmentDTO] | None = None
+    basal_schedule: list[NightscoutProfileSegmentDTO] | None = None
+    target_low_schedule: list[NightscoutProfileSegmentDTO] | None = None
+    target_high_schedule: list[NightscoutProfileSegmentDTO] | None = None
+    is_malformed: bool = False  # AC11: profile fetch returned but unparseable
+
+
+class NightscoutDiscoveryReport(BaseModel):
+    """Story 43.7a AC1: the evaluate endpoint's response shape.
+
+    Persisted on `nightscout_connections.detected_uploaders_json` and
+    cached for 5 minutes per AC9 -- the field name predates this report
+    (Story 43.1 forward-engineered it), but it now stores the full
+    report, not just the uploader list.
+    """
+
+    status_ok: bool
+    server_version: str | None = None
+    earliest_entry_at: datetime | None = None
+    # `entry_count_estimate` is an EXTRAPOLATION from the recent-7d
+    # rate * the span between the oldest sampled entry and now. For
+    # instances with steady CGM upload, this lands within ~10% of the
+    # true total. For sparse / intermittent uploaders, it's a rough
+    # order-of-magnitude. The wizard renders this as "~N entries" so
+    # the rough-estimate nature is OK. Constrained `>= 0` to reject
+    # anyone serializing in a corrupt state.
+    entry_count_estimate: int = Field(default=0, ge=0)
+    recent_entry_count_7d: int = Field(default=0, ge=0)
+    uploaders_detected: list[str] = []
+    has_treatments: bool = False
+    treatment_count_estimate: int = Field(default=0, ge=0)
+    has_devicestatus: bool = False
+    has_profile: bool = False
+    profile_summary: NightscoutDiscoveryProfileSummary | None = None
+    # First detected closed-loop platform from the uploader sample,
+    # if any -- one of "loop" | "aaps" | "trio" | "oref0" | None.
+    # Treated as a HINT, not source-of-truth: a multi-uploader
+    # sample (e.g. legacy Loop records still in retention plus
+    # current Trio uploads) reports the first match across the
+    # `_LOOP_UPLOADERS` preference order. The wizard surfaces this
+    # for UI flavor / freshness expectations only.
+    active_pump_loop: str | None = None
+    # Names of upstream resources that a per-resource probe
+    # FAILED to read, even though `test_connection` passed. Empty
+    # on a clean evaluate. Populated when an instance's token has
+    # entries-only scope (or any other partial-permission pattern):
+    # the wizard can surface "we couldn't read your treatments --
+    # your token might be entries-only" rather than silently
+    # claiming the data isn't there. Names match the orchestrator's
+    # internal labels: "treatments" | "devicestatus" | "profile" |
+    # "recent_entries" | "oldest_entries".
+    partial_resources: list[str] = []
+    evaluated_at: datetime
+    error: str | None = None  # populated when status_ok is False
