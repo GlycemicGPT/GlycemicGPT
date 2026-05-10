@@ -129,7 +129,47 @@ The reference repo is reference, not authoritative — when its claims
 and a platform's actual upstream source disagree, the upstream source
 wins. Each lens module documents which upstream files it cross-checked.
 
-### Quick start
+### Quick start (recommended for new contributors): the wizard
+
+If this is your first time, run the interactive wizard. It walks
+you through every option, pre-flights the Nightscout connection,
+and shows a summary before kicking off the run.
+
+```bash
+python3 dev/ns_emulator.py --wizard
+```
+
+The wizard asks for:
+
+1. **Nightscout URL** — defaults to `http://127.0.0.1:1337` (the
+   local GlycemicGPT test stack). Override if you're targeting a
+   different NS instance.
+2. **API secret** — the plaintext `API_SECRET` of your target
+   Nightscout. Input is hidden as you type. The wizard hits
+   `/api/v1/status.json` to confirm the URL is reachable AND the
+   secret authenticates BEFORE the sim starts — so a typo shows
+   up immediately, not after the loop has been spamming 401s for
+   five minutes.
+3. **Platform** — pick from a numbered list of the 11 shipped
+   lenses, with a one-line description of each (which platform
+   it emulates, what makes its wire format distinct).
+4. **Sim duration** — how many simulated hours of patient data
+   you want. 6h is enough to cover a few meals, corrections, and
+   sensor cycles; 0 runs unbounded until Ctrl-C.
+5. **Time compression** — sim minutes per wall-clock minute.
+   Default 60× means a full simulated day takes ~24 wall-minutes.
+   1× = realtime (one CGM reading every 5 wall-min), 60× = fast.
+6. **Starting BG** and **random seed** (the seed is optional; set
+   one for a fully reproducible run -- same meal times, same bolus
+   splits, same Notes text every time).
+
+The wizard prints a summary and asks for confirmation before
+starting. Wizard answers OVERRIDE any pre-set `NS_*` env vars or
+`--platform` flag.
+
+### Quick start (env vars, for power users / CI)
+
+If you already know what you want, skip the wizard:
 
 ```bash
 NS_API_SECRET="<your-test-stack-secret>" \

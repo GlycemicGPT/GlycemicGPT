@@ -64,6 +64,7 @@ from __future__ import annotations
 import abc
 import argparse
 import datetime
+import getpass
 import hashlib
 import json
 import math
@@ -5215,13 +5216,24 @@ class ManualLens(Lens):
         del prev_bg  # manual entries have no trend so prior BG unused
         sim_minute = state.sim_minute
 
+        # NOTE on throttle update ordering: each throttle timestamp
+        # (`_last_bg_check_min`, `_last_note_min`) is updated ONLY
+        # AFTER the corresponding HTTP POST returns successfully.
+        # The main loop's `_post_or_log` swallows transient post
+        # failures (logs and continues), and if we updated the
+        # throttle BEFORE the post, a single transient 5xx would
+        # silently suppress the next 30 sim-min of BG Checks (or
+        # 1 sim-day of Notes). That defeats the only signal a
+        # sparse lens has -- so the timestamp must reflect what
+        # actually landed on the wire, not what we tried to land.
         if (
             self._last_bg_check_min is None
             or sim_minute - self._last_bg_check_min
             >= MANUAL_BG_CHECK_INTERVAL_SIM_MIN
         ):
-            self._last_bg_check_min = sim_minute
             mbg = int(round(state.bg))
+            # mbg entry first; if this 5xx's, leave throttle anchor
+            # alone so the next tick re-tries.
             entry_payload = [
                 {
                     "type": "mbg",
@@ -5231,13 +5243,28 @@ class ManualLens(Lens):
                     "device": "",
                 }
             ]
-            http_post(
-                self.base_url,
-                "/api/v1/entries.json",
-                self._auth_headers,
-                entry_payload,
-            )
+            try:
+                http_post(
+                    self.base_url,
+                    "/api/v1/entries.json",
+                    self._auth_headers,
+                    entry_payload,
+                )
+                entry_ok = True
+            except (urllib.error.HTTPError, urllib.error.URLError) as exc:
+                print(
+                    f"[emu] manual mbg post failed: {exc} "
+                    "(throttle not advanced; next tick will retry)",
+                    flush=True,
+                )
+                entry_ok = False
 
+            # BG Check treatment -- separate try so an mbg-failed/
+            # treatment-succeeded run still advances the treatment
+            # half. If both succeed, advance the shared throttle.
+            # If only one succeeded we still advance (the user
+            # got SOME data this tick), but we log the asymmetry.
+            #
             # Emulator simplification: ALSO post a `BG Check`
             # treatment at the same timestamp. The matching mbg
             # entry above is what populates the glucose chart
@@ -5271,12 +5298,28 @@ class ManualLens(Lens):
                     "units": "mg/dl",
                 }
             ]
-            http_post(
-                self.base_url,
-                "/api/v1/treatments.json",
-                self._auth_headers,
-                bg_check_treatment,
-            )
+            try:
+                http_post(
+                    self.base_url,
+                    "/api/v1/treatments.json",
+                    self._auth_headers,
+                    bg_check_treatment,
+                )
+                treatment_ok = True
+            except (urllib.error.HTTPError, urllib.error.URLError) as exc:
+                print(
+                    f"[emu] manual BG Check post failed: {exc} "
+                    "(throttle not advanced if mbg also failed)",
+                    flush=True,
+                )
+                treatment_ok = False
+
+            # Advance the throttle iff at least one of the two
+            # writes landed -- so a fully-failed pair re-fires
+            # next tick, but a half-success doesn't burn the
+            # 30-sim-min cooldown for nothing.
+            if entry_ok or treatment_ok:
+                self._last_bg_check_min = sim_minute
 
         # Opportunistically fire a Note now and then at a much longer
         # cadence (~1 per sim day). Notes are user-authored freetext
@@ -5286,8 +5329,17 @@ class ManualLens(Lens):
             self._last_note_min is None
             or sim_minute - self._last_note_min >= MANUAL_NOTE_INTERVAL_SIM_MIN
         ):
-            self._last_note_min = sim_minute
-            self._post_note(posted_at)
+            try:
+                self._post_note(posted_at)
+            except (urllib.error.HTTPError, urllib.error.URLError) as exc:
+                print(
+                    f"[emu] manual Note post failed: {exc} "
+                    "(throttle not advanced; next eligible tick will retry)",
+                    flush=True,
+                )
+            else:
+                # Only commit the 1-per-sim-day throttle on success.
+                self._last_note_min = sim_minute
 
     # ---- treatments -----------------------------------------------------
 
@@ -5439,6 +5491,31 @@ LENSES: dict[str, type[Lens]] = {
     "manual": ManualLens,
 }
 
+# One-line descriptions shown by the interactive wizard. Order
+# matches LENSES insertion order. Each entry is "<short summary> --
+# <when to pick this>".
+LENS_DESCRIPTIONS: dict[str, str] = {
+    "loop": "Loop on iPhone (full closed-loop, pump+CGM+algorithm) -- pick to test rich devicestatus paths",
+    "aaps_v1": "AndroidAPS NSClient legacy -- the most common Android closed-loop wire format",
+    "aaps_v3": "AndroidAPS NSClientV3 (NS API v3, JWT) -- pick to test v3 envelope auth/identifier",
+    "trio": "Trio (iOS oref-derived closed-loop, FPU+APNS) -- pick for iOS-specific profile fields",
+    "oref0": "OpenAPS oref0 (Raspberry Pi command-line, the original) -- pick for the simplest oref shape",
+    "xdrip4ios": "xDrip4iOS pure-CGM uploader (iOS, no closed-loop) -- pick for raw sensor metadata",
+    "xdrip_plus": "xDrip+ pure-CGM uploader (Android) -- pick to test xDrip-prefixed device strings",
+    "librelink_up": "LibreLinkUp bridge (Abbott Freestyle Libre cloud -> NS) -- entries-only cloud bridge",
+    "share2ns": "share2nightscout (Dexcom Share cloud -> NS) -- entries-only with full 9-value Dexcom trend",
+    "tconnectsync": "tconnectsync (Tandem t:slim X2 / Mobi via t:connect cloud -> NS) -- pump-side data via cloud",
+    "manual": "Care Portal (Nightscout's built-in human-typed web UI) -- sparse human-paced entries",
+}
+# Keep parity. If a future lens lands in LENSES without a matching
+# description, the wizard would silently render a blank entry --
+# better to fail loudly at import time so the gap can't ship.
+assert set(LENS_DESCRIPTIONS) == set(LENSES), (
+    f"LENS_DESCRIPTIONS / LENSES key drift: "
+    f"missing-from-descriptions={set(LENSES) - set(LENS_DESCRIPTIONS)} "
+    f"extra-in-descriptions={set(LENS_DESCRIPTIONS) - set(LENSES)}"
+)
+
 
 # ---------------------------------------------------------------------------
 # Main loop
@@ -5496,6 +5573,491 @@ def _parse_float(name: str, default: str) -> float | None:
     return value
 
 
+def _prompt(question: str, default: str | None = None) -> str:
+    """Prompt the user with `question`, returning their input.
+
+    If `default` is provided, an empty response uses it; the prompt
+    shows the default in brackets so the user knows what they'll
+    get by hitting return. Strips surrounding whitespace.
+    """
+    suffix = f" [{default}]" if default is not None else ""
+    while True:
+        try:
+            response = input(f"{question}{suffix}: ").strip()
+        except EOFError:
+            # Non-interactive stdin -- fall back to default if any.
+            print()
+            if default is not None:
+                return default
+            raise
+        if response:
+            return response
+        if default is not None:
+            return default
+        print("  (this field is required)")
+
+
+def _prompt_secret(question: str) -> str:
+    """Like `_prompt` but doesn't echo input (for API secrets).
+
+    Falls back to plain `input` if stdin isn't a TTY (e.g. piped
+    input) -- getpass would raise GetPassWarning + still echo.
+    """
+    while True:
+        try:
+            if sys.stdin.isatty():
+                response = getpass.getpass(f"{question}: ").strip()
+            else:
+                response = input(f"{question}: ").strip()
+        except EOFError:
+            print()
+            raise
+        if response:
+            return response
+        print("  (this field is required)")
+
+
+def _prompt_choice(
+    question: str, options: list[tuple[str, str]], default: str
+) -> str:
+    """Numbered-list prompt. `options` is [(key, description), ...].
+
+    Accepts either the 1-based number or the literal key. Loops
+    until a valid response is given. The `default` key is the one
+    used when the user hits enter.
+    """
+    keys = [k for k, _ in options]
+    print(question)
+    for idx, (key, desc) in enumerate(options, 1):
+        marker = "  *" if key == default else "   "
+        print(f"{marker} {idx:2}. {key:14}  {desc}")
+    print(f"  (default: {default}; enter number or name)")
+    while True:
+        try:
+            response = input("> ").strip()
+        except EOFError:
+            print()
+            return default
+        if not response:
+            return default
+        if response.isdigit():
+            i = int(response)
+            if 1 <= i <= len(options):
+                return keys[i - 1]
+        elif response in keys:
+            return response
+        print(f"  '{response}' not recognized -- try a number 1-{len(options)} or one of {keys}")
+
+
+def _validate_positive_float(label: str, raw: str) -> float | None:
+    """Parse `raw` as a finite > 0 float or return None + print error."""
+    try:
+        value = float(raw)
+    except ValueError:
+        print(f"  '{raw}' is not a number -- try again")
+        return None
+    if not math.isfinite(value) or value <= 0:
+        print(f"  {label} must be a positive finite number -- try again")
+        return None
+    return value
+
+
+def _validate_nonneg_float(label: str, raw: str) -> float | None:
+    """Parse `raw` as a finite >= 0 float."""
+    try:
+        value = float(raw)
+    except ValueError:
+        print(f"  '{raw}' is not a number -- try again")
+        return None
+    if not math.isfinite(value) or value < 0:
+        print(f"  {label} must be a non-negative finite number -- try again")
+        return None
+    return value
+
+
+def _wizard_check_ns_reachable(base_url: str, secret: str) -> str:
+    """Pre-flight that the NS instance is up AND the api-secret
+    authenticates. Returns one of:
+
+    - `"ok"` -- URL reachable, secret authenticates, ready to run
+    - `"auth"` -- URL reachable but secret rejected (401/403);
+      caller should re-prompt the SECRET ONLY (not the URL)
+    - `"url"` -- URL unreachable / wrong-target / NS unhealthy;
+      caller should re-prompt URL + secret
+
+    The three-state return lets the wizard avoid making the user
+    retype a correct URL just because they fat-fingered the
+    secret. CR feedback on PR #593: the original boolean return
+    forced both fields to re-prompt on any failure.
+
+    `/api/v1/status.json` is gated by the `readable` role and on
+    a default-config NS that role is granted to anonymous (the
+    `AUTH_DEFAULT_ROLES=readable` env var). So a wrong secret
+    would still get 200 on `status.json` -- a false positive that
+    would defeat the whole point of the pre-flight.
+
+    The reliable check is to issue a WRITE: POST an empty array
+    to `/api/v1/treatments.json`. NS's server iterates the array,
+    so an empty payload is a true no-op (zero treatments inserted)
+    BUT the auth middleware still gates POSTs by the `careportal`
+    role -- which IS what NS_API_SECRET grants. Wrong secret -> 401;
+    right secret -> 200/201 with an empty result.
+
+    Order: hit `status.json` first to surface URL / network errors
+    cleanly (before trying a POST that might confuse with a
+    server-side error), THEN the authenticated POST probe.
+    """
+    headers = {"api-secret": hash_secret_sha1(secret)}
+    # Step 1: reachability (auth-agnostic).
+    try:
+        http_get(base_url, "/api/v1/status.json", headers)
+    except urllib.error.HTTPError as exc:
+        if exc.code in (401, 403):
+            # Some NS configs DO gate `status.json` (e.g.
+            # `AUTH_DEFAULT_ROLES=denied`); treat as auth fail.
+            # The URL clearly works (we got an HTTP response),
+            # only the secret is the problem -- re-prompt secret
+            # only.
+            print(
+                f"  ERROR: Nightscout rejected the api-secret (HTTP {exc.code}). "
+                "Check the secret and try again."
+            )
+            return "auth"
+        # Non-auth HTTP errors mean the URL responded with an
+        # error code -- which suggests the URL points to the wrong
+        # target (e.g. a different web app) or the NS instance is
+        # broken. Re-prompt URL.
+        print(f"  ERROR: Nightscout returned HTTP {exc.code} {exc.reason}.")
+        return "url"
+    except urllib.error.URLError as exc:
+        # Network/DNS failure -- URL is wrong or unreachable.
+        print(
+            f"  ERROR: cannot reach Nightscout at {base_url!r}: {exc.reason}.\n"
+            "  Confirm the URL, that the server is running, and that this "
+            "host can route to it."
+        )
+        return "url"
+
+    # Step 2: authenticated POST probe (empty array). This is the
+    # check that catches wrong-secret-with-anonymous-readable
+    # configs.
+    #
+    # Strict success contract: only return "ok" when we have
+    # actual evidence the secret authenticates. That means:
+    #   * 2xx on the empty-array POST -- NS accepted the write
+    #   * narrow 400/422 -- NS rejected the empty-payload SHAPE
+    #     after the auth middleware passed (so auth worked, the
+    #     content was the only problem)
+    # Anything else (404 / 405 / 500, URLError) is NOT proof of
+    # auth and the wizard would be lying if it told the user
+    # "secret authenticates" -- the next real write could 401.
+    try:
+        http_post(base_url, "/api/v1/treatments.json", headers, [])
+        return "ok"  # 2xx
+    except urllib.error.HTTPError as exc:
+        if exc.code in (401, 403):
+            print(
+                f"  ERROR: Nightscout rejected the api-secret on POST "
+                f"(HTTP {exc.code}). The URL is reachable, but writes "
+                "are not authorized. Check the secret and try again."
+            )
+            return "auth"
+        if exc.code in (400, 422):
+            # Auth middleware passed; the empty-array payload was
+            # the only thing NS objected to. Auth is proven.
+            return "ok"
+        # Anything else: NOT auth-proven. The URL responded but
+        # something is wrong with the target -- re-prompt URL.
+        print(
+            f"  ERROR: Nightscout returned HTTP {exc.code} {exc.reason} "
+            "on the auth probe. The URL responded but write auth was "
+            "not proven. Confirm the URL is correct and the NS instance "
+            "is healthy."
+        )
+        return "url"
+    except urllib.error.URLError as exc:
+        # Network blip between reachability and probe -- treat as
+        # URL-side failure for retry purposes (the user should
+        # confirm the URL even though it briefly responded).
+        print(
+            f"  ERROR: auth probe network error ({exc.reason}). "
+            "The reachability check passed but the write probe didn't "
+            "complete -- transient network blip or NS instance is "
+            "flapping."
+        )
+        return "url"
+
+
+def _run_wizard() -> dict[str, str]:
+    """Interactive wizard. Returns a dict of values to apply (env
+    vars + the platform key). Re-asks any question that fails
+    validation; pre-flights the NS connection so a wrong URL /
+    secret is caught before the sim starts.
+
+    Designed for first-time contributors who want to drive the
+    GlycemicGPT Nightscout integration without memorizing the env-
+    var matrix. Power users should keep using env vars (more
+    automation-friendly).
+    """
+    # The wizard requires an interactive stdin -- it loops on
+    # input() and getpass(), neither of which produce useful
+    # behavior against /dev/null or a closed pipe. Detect upfront
+    # and fail fast with a clearer message than a mid-prompt
+    # EOFError trace would give. Tests pipe input through stdin
+    # and DO satisfy isatty() == False; we accept that case so
+    # piped-input testing of the wizard still works -- the guard
+    # below only fires when stdin is BOTH non-TTY AND the test
+    # harness hasn't pre-piped responses (which would mean
+    # readline returns EOF immediately).
+    if not sys.stdin.isatty() and sys.stdin.closed:
+        print(
+            "ERROR: --wizard requires an interactive terminal. "
+            "Run without --wizard and set NS_API_SECRET / NS_BASE_URL "
+            "/ NS_PLATFORM env vars instead.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    print("=" * 64)
+    print("ns_emulator -- interactive setup wizard")
+    print("=" * 64)
+    print()
+    print("This wizard walks you through configuring a Nightscout emulation")
+    print("run. Hit enter to accept defaults shown in [brackets].")
+    print()
+
+    # ---- Nightscout target ---------------------------------------------
+    print("--- Step 1/6: Nightscout target -------------------------------")
+    print("Where is the Nightscout instance you want to populate?")
+    print("If you're running the GlycemicGPT test stack locally, the")
+    print("default is correct. Otherwise enter your own NS URL.")
+    # Two nested loops: outer re-prompts URL+secret on URL-side
+    # failures, inner re-prompts SECRET ONLY when the URL is
+    # reachable but auth was rejected. Avoids forcing a user who
+    # mistyped only the secret to also re-confirm the URL. CR
+    # feedback on PR #593.
+    while True:
+        base_url = _prompt(
+            "Nightscout URL", default="http://127.0.0.1:1337"
+        )
+        # Cheap shape check before the network call so a typoed
+        # URL (e.g. `localhost:1337`, no scheme) fails with a
+        # clear message instead of urllib's confusing "unknown
+        # url type" reason. http_get itself is permissive about
+        # trailing slashes (rstrip's them), so we only enforce
+        # the scheme.
+        if not base_url.startswith(("http://", "https://")):
+            print(
+                f"  ERROR: URL must start with http:// or https:// "
+                f"(got {base_url!r})."
+            )
+            continue
+        # Inner secret-retry loop. Exits via `break` to either
+        # the outer loop's `break` (success) or back to outer
+        # URL re-prompt (URL-side failure).
+        retry_outer = False
+        while True:
+            secret = _prompt_secret(
+                "Nightscout API secret (input hidden)"
+            )
+            result = _wizard_check_ns_reachable(base_url, secret)
+            if result == "ok":
+                print(
+                    f"  OK -- {base_url} is reachable and the "
+                    "secret authenticates."
+                )
+                print()
+                break
+            if result == "auth":
+                # Secret-only failure: re-prompt secret without
+                # forcing a URL re-confirm.
+                print()
+                continue
+            # result == "url": URL-side failure, kick back to the
+            # outer loop so the user can fix the URL.
+            print()
+            retry_outer = True
+            break
+        if not retry_outer:
+            break
+
+    # ---- Platform -------------------------------------------------------
+    print("--- Step 2/6: Platform ---------------------------------------")
+    print("Which real-world Nightscout uploader are you working on?")
+    print("Each lens emits the wire format that platform actually posts.")
+    print()
+    options = [(name, LENS_DESCRIPTIONS.get(name, "")) for name in LENSES]
+    platform = _prompt_choice(
+        "Pick a platform:",
+        options,
+        default="loop",
+    )
+    print(f"  -> {platform}")
+    print()
+
+    # ---- Sim duration ---------------------------------------------------
+    print("--- Step 3/6: Run duration -----------------------------------")
+    print("How many SIMULATED hours of patient data do you want?")
+    print("Set to 0 for unbounded (Ctrl-C to stop). 6h is enough to")
+    print("populate a few meals + corrections + a sensor cycle.")
+    while True:
+        raw = _prompt("Sim hours to run", default="6")
+        duration = _validate_nonneg_float("duration", raw)
+        if duration is not None:
+            break
+    print()
+
+    # ---- Compression ----------------------------------------------------
+    print("--- Step 4/6: Time compression -------------------------------")
+    print("Compression ratio = sim-minutes per wall-minute.")
+    print("  1   = realtime (one CGM reading every 5 wall-min)")
+    print("  10  = ~144 wall-min per sim-day (good for slow-cooking AI)")
+    print("  60  = ~24 wall-min per sim-day (good for fast iteration)")
+    while True:
+        raw = _prompt("Compression", default="60")
+        compression = _validate_positive_float("compression", raw)
+        if compression is not None:
+            break
+    print()
+
+    # ---- Starting BG ----------------------------------------------------
+    print("--- Step 5/6: Starting blood glucose -------------------------")
+    while True:
+        raw = _prompt("Starting BG (mg/dL)", default="120")
+        starting_bg = _validate_positive_float("starting BG", raw)
+        if starting_bg is not None:
+            break
+    print()
+
+    # ---- Random seed ----------------------------------------------------
+    print("--- Step 6/6: Random seed (optional) -------------------------")
+    print("Set an int to make this run reproducible (same seed = same")
+    print("meal times, bolus splits, note text, etc.). Leave blank for")
+    print("a fresh run each time.")
+    while True:
+        raw = _prompt("Random seed (blank for none)", default="")
+        if not raw:
+            seed: str | None = None
+            break
+        try:
+            int(raw)
+            seed = raw
+            break
+        except ValueError:
+            print(f"  '{raw}' is not an integer -- try again")
+    print()
+
+    # ---- Summary + confirm ---------------------------------------------
+    if duration > 0:
+        wall_minutes = (duration * 60) / compression
+        wall_str = f"~{wall_minutes:.1f} wall-minutes total"
+    else:
+        wall_str = "unbounded (Ctrl-C to stop)"
+    print("=" * 64)
+    print("Summary")
+    print("=" * 64)
+    # Display floats without trailing `.0` for integer-valued
+    # numbers (`6` not `6.0`, `60` not `60.0`). The `:g` format
+    # spec drops trailing zeros automatically. Same numbers go
+    # into env vars; downstream `_parse_float` handles either form,
+    # but the cleaner string makes the env equally readable to
+    # anyone debugging via `printenv`.
+    duration_str = f"{duration:g}"
+    compression_str = f"{compression:g}"
+    starting_bg_str = f"{starting_bg:g}"
+
+    print(f"  Platform:      {platform}")
+    print(f"                 {LENS_DESCRIPTIONS.get(platform, '')}")
+    print(f"  Nightscout:    {base_url}")
+    print("  API secret:    *** (hidden)")
+    if duration > 0:
+        print(
+            f"  Sim duration:  {duration_str} "
+            f"sim-hour{'s' if duration != 1 else ''}"
+        )
+    else:
+        print("  Sim duration:  unbounded")
+    print(f"  Compression:   {compression_str}x  ({wall_str})")
+    print(f"  Starting BG:   {starting_bg_str} mg/dL")
+    print(f"  Random seed:   {seed if seed else 'random (no reproducibility)'}")
+
+    # Surface any lens-specific NS_* env vars the wizard does NOT
+    # manage so the user can spot a stale shell export before the
+    # run starts. The managed keys are wiped+reset later in main();
+    # everything else passes through. Listing them here is the
+    # least-invasive way to honor the wizard's "you control the
+    # config" contract without aggressively clearing per-lens
+    # knobs the user may have intentionally exported.
+    managed = {
+        "NS_BASE_URL", "NS_API_SECRET", "NS_DURATION_HOURS",
+        "NS_TIME_COMPRESSION", "NS_STARTING_BG", "NS_RANDOM_SEED",
+        "NS_PLATFORM",
+    }
+    inherited = sorted(
+        k for k in os.environ
+        if k.startswith("NS_") and k not in managed
+    )
+    if inherited:
+        print()
+        print("  NOTE: the wizard does NOT prompt for these per-lens")
+        print("  NS_* vars; they will pass through from your shell:")
+        for k in inherited:
+            v = os.environ[k]
+            # Truncate long values; never print anything resembling
+            # a secret (NS_API_SECRET would be in `managed` but a
+            # future NS_*_TOKEN / NS_*_KEY shouldn't leak either).
+            if "SECRET" in k or "TOKEN" in k or "KEY" in k:
+                shown = "***"
+            elif len(v) > 60:
+                shown = v[:57] + "..."
+            else:
+                shown = v
+            print(f"    {k}={shown}")
+        print(
+            "  (unset them with `unset <name>` if you don't want "
+            "them applied to this run.)"
+        )
+    print()
+
+    # Default Y on enter (most users want to proceed; a typo
+    # answer like "yse" should also re-prompt rather than abort).
+    # CRITICAL: EOF here MUST NOT inherit `_prompt`'s default-on-
+    # EOF behavior -- a truncated pipe / closed stdin would
+    # silently auto-confirm and start writing to Nightscout
+    # without explicit consent. Read directly with input() and
+    # treat EOF as an explicit abort.
+    while True:
+        try:
+            raw = input("Start? (y/n) [y]: ").strip().lower()
+        except EOFError:
+            print("\nAborted (EOF on confirm).")
+            sys.exit(130)
+        if raw == "":
+            raw = "y"
+        if raw in ("y", "yes"):
+            break
+        if raw in ("n", "no"):
+            print("Aborted.")
+            sys.exit(0)
+        print("  please answer y or n")
+
+    out = {
+        "platform": platform,
+        "NS_BASE_URL": base_url,
+        "NS_API_SECRET": secret,
+        # Use `:g` formatting on the env-var values so integer-
+        # valued floats serialize as `6` not `6.0`. Downstream
+        # `_parse_float` accepts either, but a `printenv` /
+        # process-listing reader sees the cleaner form.
+        "NS_DURATION_HOURS": duration_str,
+        "NS_TIME_COMPRESSION": compression_str,
+        "NS_STARTING_BG": starting_bg_str,
+    }
+    if seed is not None:
+        out["NS_RANDOM_SEED"] = seed
+    return out
+
+
 def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Multi-lens Nightscout emulator for GlycemicGPT contributors.",
@@ -5508,11 +6070,64 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         choices=sorted(LENSES.keys()),
         help='Which platform to emulate. Default: "loop".',
     )
+    parser.add_argument(
+        "--wizard",
+        action="store_true",
+        help=(
+            "Run an interactive wizard that walks through every "
+            "configuration option (NS URL, api-secret, platform, "
+            "duration, compression, seed) and pre-flights the NS "
+            "connection. Recommended for first-time contributors. "
+            "Overrides --platform plus the keys the wizard manages "
+            "(NS_BASE_URL, NS_API_SECRET, NS_DURATION_HOURS, "
+            "NS_TIME_COMPRESSION, NS_STARTING_BG, NS_RANDOM_SEED). "
+            "Lens-specific knobs the wizard does NOT prompt for "
+            "(NS_AAPS_UPLOAD_TEMP_BASALS, NS_TCONNECTSYNC_DEVICE, "
+            "NS_MANUAL_ENTERED_BY, NS_OREF0_HOSTNAME, ...) "
+            "pass through unchanged from the shell environment."
+        ),
+    )
     return parser
 
 
 def main() -> int:
     args = _build_arg_parser().parse_args()
+
+    # Wizard mode: walk a contributor through every config knob,
+    # pre-flight the NS connection, and then drop into the normal
+    # main loop using the wizard's answers. We apply answers via
+    # the existing env-var pathway (rather than threading them
+    # through a parallel arg-passing channel) so the post-wizard
+    # code path is the SAME code path env-var users hit -- one
+    # place to validate, one place to break. Wizard answers
+    # OVERWRITE any pre-set NS_* env vars per the --help text.
+    if args.wizard:
+        try:
+            wizard_answers = _run_wizard()
+        except (KeyboardInterrupt, EOFError):
+            print("\nAborted.", file=sys.stderr)
+            return 130
+        args.platform = wizard_answers.pop("platform")
+        # Explicitly clear every NS_* var the wizard MAY set before
+        # applying answers. Without this, a blank wizard answer
+        # (e.g. user leaves random seed empty -> wizard omits
+        # NS_RANDOM_SEED from the answers dict) would silently
+        # inherit a pre-existing exported value -- the summary
+        # would say "random (no reproducibility)" but the run
+        # would in fact be seeded. Wipe-then-set keeps the wizard's
+        # answers authoritative.
+        for managed in (
+            "NS_BASE_URL",
+            "NS_API_SECRET",
+            "NS_DURATION_HOURS",
+            "NS_TIME_COMPRESSION",
+            "NS_STARTING_BG",
+            "NS_RANDOM_SEED",
+        ):
+            os.environ.pop(managed, None)
+        for key, value in wizard_answers.items():
+            os.environ[key] = value
+
     lens_cls = LENSES.get(args.platform)
     if lens_cls is None:
         print(
@@ -5528,7 +6143,8 @@ def main() -> int:
         print(
             "ERROR: NS_API_SECRET environment variable is required.\n"
             "Set it to the plaintext API_SECRET of your target "
-            "Nightscout instance.",
+            "Nightscout instance, or run with --wizard for an "
+            "interactive setup.",
             file=sys.stderr,
         )
         return 2
