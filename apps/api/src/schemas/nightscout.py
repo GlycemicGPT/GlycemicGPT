@@ -426,6 +426,105 @@ class NightscoutDiscoveryProfileSummary(BaseModel):
     is_malformed: bool = False  # AC11: profile fetch returned but unparseable
 
 
+class OnboardingScheduleSegment(BaseModel):
+    """Story 43.7b -- a single time-segmented entry in our canonical
+    schedule shape.
+
+    Difference from `NightscoutProfileSegmentDTO`: this carries
+    `start_minutes` (int, 0-1439) for direct insertion into our
+    `pump_profiles.segments` JSONB column and downstream math. The
+    NS source uses `time` as "HH:MM" + optional `timeAsSeconds`;
+    the derive module converts.
+    """
+
+    start_minutes: int = Field(ge=0, lt=24 * 60)
+    # Medical-safety guard: schedule values (basal U/hr, carb ratio
+    # g/U, ISF mg/dL/U) must always be strictly positive. A `0.0`
+    # basal would mean "infinitely no insulin" -- not a real profile
+    # segment shape (suspends are encoded separately, not as a 0
+    # basal segment). Negatives are physiologically impossible.
+    value: float = Field(gt=0)
+
+
+class OnboardingNumericFieldDerivation(BaseModel):
+    """Per-field proposal for a single-value setting (target_low,
+    target_high, dia_hours, ...).
+
+    The wizard renders one row per field in a diff table:
+    'Setting | Currently | From Nightscout | Use this? [checkbox]'.
+    `current_value` powers the "Currently" column, `proposed_value`
+    the "From Nightscout" column, `default_checked` the checkbox's
+    initial state per AC4 (checked iff the user's current value is
+    the platform default -- i.e. they haven't customized it).
+    `proposed_value=None` when NS has nothing to propose; the
+    wizard hides the row in that case.
+    """
+
+    field: str  # stable identifier: "target_low" | "target_high" | "dia_hours" | ...
+    # Medical-safety guard: glucose targets and DIA must be strictly
+    # positive. Optional (None when no current row / no NS proposal).
+    # Upper bounds are NOT enforced here -- the wizard's diff table
+    # surfaces unusual values for the user to confirm before write.
+    current_value: float | None = Field(default=None, gt=0)
+    proposed_value: float | None = Field(default=None, gt=0)
+    default_checked: bool = False
+
+
+class OnboardingScheduleFieldDerivation(BaseModel):
+    """Per-field proposal for a time-segmented schedule (basal,
+    carb_ratio, isf).
+
+    Same wizard contract as `OnboardingNumericFieldDerivation` but
+    the "current" / "proposed" values are lists of segments. The
+    wizard renders a "current vs proposed" preview; per the 43.7c
+    decision the user can opt the WHOLE schedule in/out (no
+    per-segment editing in v1). `proposed_segments=None` when the
+    NS profile doesn't carry this schedule.
+    """
+
+    field: str  # "basal_schedule" | "carb_ratio_schedule" | "isf_schedule"
+    current_segments: list[OnboardingScheduleSegment] | None = None
+    proposed_segments: list[OnboardingScheduleSegment] | None = None
+    default_checked: bool = False
+
+
+class OnboardingDerivation(BaseModel):
+    """Story 43.7b -- the wizard step 3 review-table source.
+
+    Returned by the `derive_onboarding_proposals()` pure function
+    given a Nightscout profile snapshot + the user's current
+    canonical settings. The wizard step 3 renders one row per
+    derivation field (numeric + schedule), using `default_checked`
+    for the initial checkbox state and `proposed_value` /
+    `proposed_segments` for the right-hand "From Nightscout"
+    column.
+
+    Shape stable: the derivation includes ALL derivable fields even
+    when NS has nothing to propose (with `proposed_value=None` /
+    `proposed_segments=None`), so the wizard's row layout is
+    deterministic across users + connections.
+    """
+
+    has_profile: bool
+    # True when the Nightscout profile is in mmol/L but our canonical
+    # settings are mg/dL (or vice versa). The wizard surfaces this
+    # so the user understands values were unit-converted before the
+    # diff table renders. Always False when units match.
+    units_converted: bool = False
+    # True when the snapshot's `source_units` did NOT match any
+    # known mg/dL or mmol/L variant. The wizard MUST surface this
+    # before applying any glucose-domain proposal -- silently
+    # defaulting an unknown unit string to mg/dL could write wrong
+    # targets / ISFs to canonical settings.
+    units_unknown: bool = False
+    target_low: OnboardingNumericFieldDerivation
+    target_high: OnboardingNumericFieldDerivation
+    dia_hours: OnboardingNumericFieldDerivation
+    carb_ratio_schedule: OnboardingScheduleFieldDerivation
+    isf_schedule: OnboardingScheduleFieldDerivation
+    basal_schedule: OnboardingScheduleFieldDerivation
+
+
 class NightscoutDiscoveryReport(BaseModel):
     """Story 43.7a AC1: the evaluate endpoint's response shape.
 
