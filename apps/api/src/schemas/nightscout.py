@@ -572,3 +572,118 @@ class NightscoutDiscoveryReport(BaseModel):
     partial_resources: list[str] = []
     evaluated_at: datetime
     error: str | None = None  # populated when status_ok is False
+
+
+# ---------------------------------------------------------------------------
+# Apply-onboarding endpoint -- writes confirmed proposals to canonical
+# settings tables and triggers the connection's first sync.
+# ---------------------------------------------------------------------------
+
+
+class NightscoutApplyOnboardingRequest(BaseModel):
+    """Request body for POST /{id}/apply-onboarding.
+
+    Per-field opt-in flags drive what gets written. Override values
+    let the user replace the Nightscout-derived proposal with their
+    own typed value at confirmation time -- limited to top-level
+    numerics in this iteration; per-segment schedule overrides are
+    deferred. `initial_sync_window_days` (when present) writes to
+    the connection row and drives the first sync's lookback window.
+
+    `confirm_units_unknown` is a hard gate: when the discovery
+    derivation flagged `units_unknown=True` AND any glucose-domain
+    import is requested (target_low / target_high / isf_schedule),
+    the request MUST include `confirm_units_unknown=True` to
+    proceed. Default false -- silence is rejection.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    # Per-field opt-in flags. Default false: omitting a flag means
+    # "do not import this field." Wizard step 3's "Use this?"
+    # checkboxes drive these.
+    import_target_low: bool = False
+    import_target_high: bool = False
+    import_dia_hours: bool = False
+    import_basal_schedule: bool = False
+    import_carb_ratio_schedule: bool = False
+    import_isf_schedule: bool = False
+
+    # Top-level overrides. Honored only when the matching import
+    # flag is true; ignored otherwise (validated below). Range
+    # validation falls through to the existing canonical writers
+    # (TargetGlucoseRangeUpdate / InsulinConfigUpdate validators).
+    override_target_low: float | None = Field(default=None, gt=0)
+    override_target_high: float | None = Field(default=None, gt=0)
+    override_dia_hours: float | None = Field(default=None, gt=0)
+
+    # First-sync window. None = leave the connection's existing
+    # value alone. Allowed: matches `INITIAL_SYNC_WINDOW_DAYS_OPTIONS`
+    # (1, 7, 30, 90, 0) where 0 means "all available".
+    initial_sync_window_days: int | None = None
+
+    # Hard gate for unknown-units profiles. Required true when
+    # the derivation reported `units_unknown=True` AND the request
+    # includes any glucose-domain import. Server-side enforced in
+    # the endpoint (the request schema can't see the derivation).
+    confirm_units_unknown: bool = False
+
+    @field_validator("initial_sync_window_days")
+    @classmethod
+    def _valid_sync_window(cls, value: int | None) -> int | None:
+        if value is None:
+            return None
+        if value not in INITIAL_SYNC_WINDOW_DAYS_OPTIONS:
+            raise ValueError(
+                f"initial_sync_window_days must be one of "
+                f"{list(INITIAL_SYNC_WINDOW_DAYS_OPTIONS)} (got {value})"
+            )
+        return value
+
+    @model_validator(mode="after")
+    def _overrides_only_with_import_flag(self) -> "NightscoutApplyOnboardingRequest":
+        """Reject overrides for fields whose import flag is false.
+
+        A user passing `override_target_low=80` without
+        `import_target_low=True` is signaling intent that the schema
+        can't honor (we'd silently ignore the override). 422 makes
+        the contract explicit.
+        """
+        violations: list[str] = []
+        if self.override_target_low is not None and not self.import_target_low:
+            violations.append("override_target_low requires import_target_low=true")
+        if self.override_target_high is not None and not self.import_target_high:
+            violations.append("override_target_high requires import_target_high=true")
+        if self.override_dia_hours is not None and not self.import_dia_hours:
+            violations.append("override_dia_hours requires import_dia_hours=true")
+        if violations:
+            raise ValueError("; ".join(violations))
+        return self
+
+
+FirstSyncStatus = Literal["ok", "timeout", "error", "skipped"]
+
+
+class NightscoutApplyOnboardingResponse(BaseModel):
+    """Response body for POST /{id}/apply-onboarding.
+
+    Mirrors the wizard step 4's progress UI requirements: the
+    `applied` map tells the wizard which rows in its diff table
+    actually got written (so it can render checkmarks), and
+    `first_sync_status` distinguishes "settings saved, sync ran
+    fine" from "settings saved, sync timed out" -- both are 200
+    on the wire (the settings success deserves the success code;
+    the wizard reads the field to decide whether to poll).
+    """
+
+    connection_id: uuid.UUID
+    # Per-field "did we actually persist this?" flags. True iff
+    # the import flag was set AND the derivation had a value to
+    # apply. False otherwise. Wizard renders ticks against this.
+    applied: dict[str, bool]
+    target_glucose_range: dict[str, Any] | None = None
+    insulin_config: dict[str, Any] | None = None
+    pump_profile_id: uuid.UUID | None = None
+    first_sync_status: FirstSyncStatus
+    first_sync_error: str | None = None
+    sync_result: NightscoutManualSyncResponse | None = None

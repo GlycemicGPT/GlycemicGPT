@@ -11,7 +11,7 @@ import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.auth import DiabeticOrAdminUser
@@ -19,14 +19,20 @@ from src.core.encryption import decrypt_credential, encrypt_credential
 from src.database import get_db
 from src.logging_config import get_logger
 from src.models.glucose import GlucoseReading
+from src.models.insulin_config import InsulinConfig
 from src.models.nightscout_connection import (
     NightscoutConnection,
     NightscoutSyncStatus,
 )
 from src.models.nightscout_profile_snapshot import NightscoutProfileSnapshot
 from src.models.pump_data import PumpEvent
+from src.models.pump_profile import PumpProfile
+from src.models.target_glucose_range import TargetGlucoseRange
 from src.schemas.auth import ErrorResponse
+from src.schemas.insulin_config import InsulinConfigUpdate
 from src.schemas.nightscout import (
+    NightscoutApplyOnboardingRequest,
+    NightscoutApplyOnboardingResponse,
     NightscoutConnectionCreate,
     NightscoutConnectionCreatedResponse,
     NightscoutConnectionDeletedResponse,
@@ -40,13 +46,21 @@ from src.schemas.nightscout import (
     NightscoutManualSyncResponse,
     NightscoutProfileSnapshotResponse,
     NightscoutPumpEventDTO,
+    OnboardingDerivation,
 )
+from src.schemas.target_glucose_range import TargetGlucoseRangeUpdate
+from src.services import insulin_config as insulin_config_service
+from src.services import pump_profile as pump_profile_service
+from src.services import target_glucose_range as target_range_service
 from src.services.integrations.nightscout.connection_test import (
     ConnectionTestOutcome,
     test_connection,
 )
 from src.services.integrations.nightscout.evaluate import (
     evaluate_nightscout_for_connection,
+)
+from src.services.integrations.nightscout.onboarding_derive import (
+    derive_onboarding_proposals,
 )
 from src.services.integrations.nightscout.sync import (
     sync_nightscout_for_connection,
@@ -612,6 +626,455 @@ async def run_evaluate(
         await db.commit()
 
     return report
+
+
+# ---------------------------------------------------------------------------
+# Onboarding wizard: derivation read + apply
+# ---------------------------------------------------------------------------
+
+
+async def _load_user_settings(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+) -> tuple[
+    TargetGlucoseRange | None,
+    InsulinConfig | None,
+    PumpProfile | None,
+]:
+    """Read-only fetch of the user's canonical settings.
+
+    Returns (target_range, insulin_config, pump_profile) where any
+    of the three may be None when the user hasn't been seeded with
+    that row yet. Importantly does NOT create defaults -- the
+    wizard's "Currently" column should display the absence of a
+    customization, not a freshly-materialized default. Active pump
+    profile only (mirrors `get_active_profile`).
+    """
+    range_q = await db.execute(
+        select(TargetGlucoseRange).where(TargetGlucoseRange.user_id == user_id)
+    )
+    config_q = await db.execute(
+        select(InsulinConfig).where(InsulinConfig.user_id == user_id)
+    )
+    pump_profile = await pump_profile_service.get_active_profile(user_id, db)
+    return (
+        range_q.scalar_one_or_none(),
+        config_q.scalar_one_or_none(),
+        pump_profile,
+    )
+
+
+async def _load_snapshot(
+    db: AsyncSession,
+    *,
+    connection_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> NightscoutProfileSnapshot | None:
+    """Latest profile snapshot for `(connection, user)`, or None."""
+    result = await db.execute(
+        select(NightscoutProfileSnapshot).where(
+            NightscoutProfileSnapshot.nightscout_connection_id == connection_id,
+            NightscoutProfileSnapshot.user_id == user_id,
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+@router.get(
+    "/{connection_id}/onboarding-derivation",
+    response_model=OnboardingDerivation,
+    responses={
+        200: {"description": "Derivation of pre-fill proposals + current values"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        404: {"model": ErrorResponse, "description": "Connection not found"},
+    },
+)
+async def read_onboarding_derivation(
+    connection_id: uuid.UUID,
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> OnboardingDerivation:
+    """Build the wizard step 3 diff-table source for this connection.
+
+    Reads the latest stored profile snapshot + the user's current
+    canonical settings, then runs `derive_onboarding_proposals` to
+    produce the field-by-field "Currently | From Nightscout" rows.
+
+    Pure read: no DB writes. Soft-deleted connections return 404
+    (parity with `/evaluate` and `/sync`).
+
+    The snapshot is populated by `/evaluate` and routine `/sync`
+    runs; if neither has happened yet the derivation surfaces
+    `has_profile=False` and the wizard shows a "no profile data --
+    we'll just sync data" banner. The wizard renders the same
+    UI shape on every call so step 3 is deterministic regardless
+    of NS state.
+    """
+    conn = await _load_owned(db, connection_id, current_user.id, require_active=True)
+    snapshot = await _load_snapshot(db, connection_id=conn.id, user_id=current_user.id)
+    target_range, insulin, pump = await _load_user_settings(db, current_user.id)
+    return derive_onboarding_proposals(
+        snapshot,
+        current_target_range=target_range,
+        current_insulin_config=insulin,
+        current_pump_profile=pump,
+    )
+
+
+def _glucose_domain_requested(req: NightscoutApplyOnboardingRequest) -> bool:
+    """Whether any glucose-domain import was requested.
+
+    Drives the `units_unknown` confirmation gate: if the source
+    profile's units couldn't be classified, applying mg/dL targets
+    or ISFs that came in unitless from NS would silently miscompute
+    -- so the apply endpoint refuses without an explicit
+    `confirm_units_unknown=True` ack from the caller.
+    """
+    return req.import_target_low or req.import_target_high or req.import_isf_schedule
+
+
+@router.post(
+    "/{connection_id}/apply-onboarding",
+    response_model=NightscoutApplyOnboardingResponse,
+    responses={
+        200: {"description": "Settings applied (check `first_sync_status`)"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        404: {"model": ErrorResponse, "description": "Connection not found"},
+        409: {
+            "model": ErrorResponse,
+            "description": "Profile units unknown -- caller must confirm",
+        },
+        422: {"model": ErrorResponse, "description": "Validation error"},
+    },
+)
+async def apply_onboarding(  # noqa: PLR0912, PLR0915  -- linear, readable orchestration
+    connection_id: uuid.UUID,
+    request: NightscoutApplyOnboardingRequest,
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> NightscoutApplyOnboardingResponse:
+    """Persist confirmed onboarding proposals + kick the first sync.
+
+    Sequence:
+        1. Load the connection + latest snapshot + current settings.
+        2. Run the derivation (same code as `/onboarding-derivation`).
+        3. Apply per-field imports honoring overrides.
+        4. Persist `initial_sync_window_days` on the connection if set.
+        5. Trigger `sync_nightscout_for_connection` bounded by
+           `_SYNC_TIMEOUT_SECONDS`.
+
+    The first sync runs INSIDE the request, so the wizard step 4
+    progress UI gets a real status back instead of polling. On
+    timeout the response is still 200 (settings landed
+    successfully) with `first_sync_status="timeout"` and
+    `first_sync_error` set; the wizard renders "we'll keep trying
+    in the background" copy and routes the user to the dashboard.
+
+    Idempotent: re-running with the same body re-asserts the same
+    settings rows. The pump profile is upserted on
+    `(user_id, "Nightscout")` so it doesn't accumulate duplicates;
+    target range / insulin config are one-row-per-user by design.
+    """
+    conn = await _load_owned(db, connection_id, current_user.id, require_active=True)
+
+    # Serialize the read-and-merge step for concurrent applies.
+    # The xact-scoped advisory lock is released by the first
+    # internal commit inside `update_range` / `update_config`, so
+    # this DOES NOT serialize the full apply path -- it only
+    # protects the snapshot+settings read and pre-flight ordering
+    # check from racing with another in-flight apply for the same
+    # user. The remaining window (two simultaneous syncs from a
+    # double-clicked wizard) is mitigated by the
+    # `uq_pump_profile_user_name` UPSERT (no row duplication) and
+    # by the wizard's UI gating the button after the first click.
+    # Acceptable for a same-user-only scope; full atomicity would
+    # require non-committing variants of the settings writers.
+    await db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
+        {"k": str(current_user.id)},
+    )
+
+    snapshot = await _load_snapshot(db, connection_id=conn.id, user_id=current_user.id)
+    target_range, insulin, pump = await _load_user_settings(db, current_user.id)
+    derivation = derive_onboarding_proposals(
+        snapshot,
+        current_target_range=target_range,
+        current_insulin_config=insulin,
+        current_pump_profile=pump,
+    )
+
+    # Hard gate: glucose-domain imports require an explicit ack
+    # when the source unit is unrecognized. Returning 409 (not 422)
+    # because the request body is well-formed -- the conflict is
+    # with the upstream profile's state, which the caller can
+    # resolve by re-confirming.
+    if (
+        derivation.units_unknown
+        and _glucose_domain_requested(request)
+        and not request.confirm_units_unknown
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Nightscout profile units could not be classified as "
+                "mg/dL or mmol/L; resend with confirm_units_unknown=true "
+                "to apply glucose-domain settings anyway."
+            ),
+        )
+
+    # Pre-validate target range ordering BEFORE any writer commits.
+    # The settings writers (`update_range`, `update_config`) commit
+    # internally, so a mid-sequence ValueError would leave us with
+    # a partially-applied state. By computing the merged thresholds
+    # against the user's current row and rejecting up front, the
+    # only failure modes left are infrastructure-level (DB drop) --
+    # in which case partial application is unavoidable but the
+    # subsequent writers would also have failed anyway.
+    if request.import_target_low or request.import_target_high:
+        new_low = (
+            (
+                request.override_target_low
+                if request.override_target_low is not None
+                else derivation.target_low.proposed_value
+            )
+            if request.import_target_low
+            else (target_range.low_target if target_range else None)
+        )
+        new_high = (
+            (
+                request.override_target_high
+                if request.override_target_high is not None
+                else derivation.target_high.proposed_value
+            )
+            if request.import_target_high
+            else (target_range.high_target if target_range else None)
+        )
+        # urgent_low/urgent_high are not modified by this endpoint,
+        # so they retain whatever the user has (or defaults if no
+        # row yet -- get_or_create_range will seed defaults that
+        # already satisfy the ordering invariant).
+        if new_low is not None and new_high is not None and new_low >= new_high:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"low_target ({new_low}) must be less than high_target ({new_high})"
+                ),
+            )
+
+    applied: dict[str, bool] = {
+        "target_low": False,
+        "target_high": False,
+        "dia_hours": False,
+        "basal_schedule": False,
+        "carb_ratio_schedule": False,
+        "isf_schedule": False,
+        "initial_sync_window_days": False,
+    }
+
+    # ---- target range ----------------------------------------------------
+    target_range_payload: dict[str, float] = {}
+    if request.import_target_low:
+        value = request.override_target_low
+        if value is None:
+            value = derivation.target_low.proposed_value
+        if value is not None:
+            target_range_payload["low_target"] = float(value)
+            applied["target_low"] = True
+    if request.import_target_high:
+        value = request.override_target_high
+        if value is None:
+            value = derivation.target_high.proposed_value
+        if value is not None:
+            target_range_payload["high_target"] = float(value)
+            applied["target_high"] = True
+
+    target_range_response: dict | None = None
+    if target_range_payload:
+        try:
+            updated_range = await target_range_service.update_range(
+                current_user.id,
+                TargetGlucoseRangeUpdate(**target_range_payload),
+                db,
+            )
+        except ValueError as e:
+            # Ordering invariant violated (e.g. low_target came in
+            # above existing high_target). Surface as 422 with the
+            # writer's message; nothing has been committed yet
+            # because update_range commits at the end.
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(e),
+            ) from e
+        target_range_response = {
+            "id": str(updated_range.id),
+            "urgent_low": updated_range.urgent_low,
+            "low_target": updated_range.low_target,
+            "high_target": updated_range.high_target,
+            "urgent_high": updated_range.urgent_high,
+        }
+
+    # ---- insulin config (DIA only) --------------------------------------
+    insulin_response: dict | None = None
+    if request.import_dia_hours:
+        dia_value = request.override_dia_hours
+        if dia_value is None:
+            dia_value = derivation.dia_hours.proposed_value
+        if dia_value is not None:
+            try:
+                updated_config = await insulin_config_service.update_config(
+                    current_user.id,
+                    InsulinConfigUpdate(dia_hours=float(dia_value)),
+                    db,
+                )
+            except ValueError as e:
+                # The schema enforces 2.0 <= dia_hours <= 8.0 at
+                # validation time; this branch fires on writer-level
+                # invariants. Same 422 surface as target range.
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=str(e),
+                ) from e
+            applied["dia_hours"] = True
+            insulin_response = {
+                "id": str(updated_config.id),
+                "insulin_type": updated_config.insulin_type,
+                "dia_hours": updated_config.dia_hours,
+                "onset_minutes": updated_config.onset_minutes,
+            }
+
+    # ---- pump profile (basal / ICR / ISF) -------------------------------
+    # Use truthy checks (not `is not None`) so an empty proposed
+    # list -- which `_segments_by_start` collapses to {} -- doesn't
+    # claim a schedule was applied when no segments existed to write.
+    has_basal = bool(derivation.basal_schedule.proposed_segments)
+    has_carb_ratio = bool(derivation.carb_ratio_schedule.proposed_segments)
+    has_isf = bool(derivation.isf_schedule.proposed_segments)
+
+    pump_profile_id: uuid.UUID | None = None
+    persisted_profile = await pump_profile_service.upsert_from_onboarding(
+        current_user.id,
+        derivation,
+        apply_basal=request.import_basal_schedule and has_basal,
+        apply_carb_ratio=request.import_carb_ratio_schedule and has_carb_ratio,
+        apply_isf=request.import_isf_schedule and has_isf,
+        # DIA is mirrored onto the pump_profile row only when the
+        # user opted in to importing it, so the active profile read
+        # by mobile is internally consistent with insulin_configs.
+        apply_dia=request.import_dia_hours
+        and derivation.dia_hours.proposed_value is not None,
+        db=db,
+    )
+    if persisted_profile is not None:
+        pump_profile_id = persisted_profile.id
+        applied["basal_schedule"] = request.import_basal_schedule and has_basal
+        applied["carb_ratio_schedule"] = (
+            request.import_carb_ratio_schedule and has_carb_ratio
+        )
+        applied["isf_schedule"] = request.import_isf_schedule and has_isf
+
+    # ---- connection-level: initial sync window --------------------------
+    if request.initial_sync_window_days is not None:
+        conn.initial_sync_window_days = request.initial_sync_window_days
+        applied["initial_sync_window_days"] = True
+
+    # Commit all settings changes BEFORE the first sync runs so
+    # that a sync timeout doesn't unwind the user's confirmed
+    # imports. The sync writes its own rows + connection status
+    # in a separate transaction managed by the orchestrator.
+    await db.commit()
+
+    # ---- first sync -----------------------------------------------------
+    first_sync_status: str = "skipped"
+    first_sync_error: str | None = None
+    sync_response: NightscoutManualSyncResponse | None = None
+
+    try:
+        result = await asyncio.wait_for(
+            sync_nightscout_for_connection(db, conn),
+            timeout=_SYNC_TIMEOUT_SECONDS,
+        )
+        sync_response = NightscoutManualSyncResponse(
+            connection_id=conn.id,
+            status=result.status,
+            entries_inserted=result.entries_inserted,
+            entries_skipped=result.entries_skipped,
+            entries_failed=result.entries_failed,
+            treatments_inserted_pump=result.treatments_inserted_pump,
+            treatments_inserted_glucose=result.treatments_inserted_glucose,
+            treatments_failed=result.treatments_failed,
+            devicestatuses_inserted=result.devicestatuses_inserted,
+            devicestatuses_failed=result.devicestatuses_failed,
+            profile_synced=result.profile_synced,
+            duration_ms=result.duration_ms,
+            error=result.error,
+        )
+        if result.status == NightscoutSyncStatus.OK:
+            first_sync_status = "ok"
+        else:
+            # Sync ran but the orchestrator recorded a non-OK
+            # status (auth fail, validation, partial). We surface
+            # this as `error` so the wizard distinguishes "we
+            # never got a response" (timeout) from "we got a
+            # response but the upstream rejected the call".
+            first_sync_status = "error"
+            first_sync_error = result.error or result.status.value
+    except TimeoutError:
+        # Mirror the `/sync` endpoint's recovery: roll back any
+        # partial sync rows, mark the connection NETWORK, commit
+        # the status update. Distinct from `/sync` in that we do
+        # NOT raise 504 -- settings already landed and the user
+        # deserves a 200 with a clear "timed out, retry pending"
+        # signal so the wizard's progress step can render the
+        # "we'll keep trying in the background" copy.
+        first_sync_status = "timeout"
+        first_sync_error = f"First sync exceeded {_SYNC_TIMEOUT_SECONDS}s timeout"
+        try:
+            await db.rollback()
+            # The rollback expires the loaded `conn` object; re-fetch
+            # before mutating to avoid touching a detached row.
+            refreshed = (
+                await db.execute(
+                    select(NightscoutConnection).where(
+                        NightscoutConnection.id == conn.id
+                    )
+                )
+            ).scalar_one()
+            refreshed.last_sync_status = NightscoutSyncStatus.NETWORK
+            refreshed.last_sync_error = first_sync_error
+            await db.commit()
+        except Exception:  # noqa: BLE001
+            # Status-update commit failure is non-fatal: settings
+            # already landed in the prior commit, and the wizard
+            # only needs `first_sync_status` to render correctly.
+            # The next scheduler tick will re-establish a real
+            # `last_sync_status` regardless.
+            logger.warning(
+                "nightscout_apply_onboarding_status_update_failed",
+                connection_id=str(conn.id),
+            )
+            try:
+                await db.rollback()
+            except Exception:  # noqa: BLE001
+                pass
+
+    logger.info(
+        "nightscout_apply_onboarding_completed",
+        user_id=str(current_user.id),
+        connection_id=str(conn.id),
+        first_sync_status=first_sync_status,
+        applied_fields=[k for k, v in applied.items() if v],
+    )
+
+    return NightscoutApplyOnboardingResponse(
+        connection_id=conn.id,
+        applied=applied,
+        target_glucose_range=target_range_response,
+        insulin_config=insulin_response,
+        pump_profile_id=pump_profile_id,
+        first_sync_status=first_sync_status,  # type: ignore[arg-type]
+        first_sync_error=first_sync_error,
+        sync_result=sync_response,
+    )
 
 
 # ---------------------------------------------------------------------------
