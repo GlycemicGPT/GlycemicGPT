@@ -5216,13 +5216,24 @@ class ManualLens(Lens):
         del prev_bg  # manual entries have no trend so prior BG unused
         sim_minute = state.sim_minute
 
+        # NOTE on throttle update ordering: each throttle timestamp
+        # (`_last_bg_check_min`, `_last_note_min`) is updated ONLY
+        # AFTER the corresponding HTTP POST returns successfully.
+        # The main loop's `_post_or_log` swallows transient post
+        # failures (logs and continues), and if we updated the
+        # throttle BEFORE the post, a single transient 5xx would
+        # silently suppress the next 30 sim-min of BG Checks (or
+        # 1 sim-day of Notes). That defeats the only signal a
+        # sparse lens has -- so the timestamp must reflect what
+        # actually landed on the wire, not what we tried to land.
         if (
             self._last_bg_check_min is None
             or sim_minute - self._last_bg_check_min
             >= MANUAL_BG_CHECK_INTERVAL_SIM_MIN
         ):
-            self._last_bg_check_min = sim_minute
             mbg = int(round(state.bg))
+            # mbg entry first; if this 5xx's, leave throttle anchor
+            # alone so the next tick re-tries.
             entry_payload = [
                 {
                     "type": "mbg",
@@ -5232,13 +5243,28 @@ class ManualLens(Lens):
                     "device": "",
                 }
             ]
-            http_post(
-                self.base_url,
-                "/api/v1/entries.json",
-                self._auth_headers,
-                entry_payload,
-            )
+            try:
+                http_post(
+                    self.base_url,
+                    "/api/v1/entries.json",
+                    self._auth_headers,
+                    entry_payload,
+                )
+                entry_ok = True
+            except (urllib.error.HTTPError, urllib.error.URLError) as exc:
+                print(
+                    f"[emu] manual mbg post failed: {exc} "
+                    "(throttle not advanced; next tick will retry)",
+                    flush=True,
+                )
+                entry_ok = False
 
+            # BG Check treatment -- separate try so an mbg-failed/
+            # treatment-succeeded run still advances the treatment
+            # half. If both succeed, advance the shared throttle.
+            # If only one succeeded we still advance (the user
+            # got SOME data this tick), but we log the asymmetry.
+            #
             # Emulator simplification: ALSO post a `BG Check`
             # treatment at the same timestamp. The matching mbg
             # entry above is what populates the glucose chart
@@ -5272,12 +5298,28 @@ class ManualLens(Lens):
                     "units": "mg/dl",
                 }
             ]
-            http_post(
-                self.base_url,
-                "/api/v1/treatments.json",
-                self._auth_headers,
-                bg_check_treatment,
-            )
+            try:
+                http_post(
+                    self.base_url,
+                    "/api/v1/treatments.json",
+                    self._auth_headers,
+                    bg_check_treatment,
+                )
+                treatment_ok = True
+            except (urllib.error.HTTPError, urllib.error.URLError) as exc:
+                print(
+                    f"[emu] manual BG Check post failed: {exc} "
+                    "(throttle not advanced if mbg also failed)",
+                    flush=True,
+                )
+                treatment_ok = False
+
+            # Advance the throttle iff at least one of the two
+            # writes landed -- so a fully-failed pair re-fires
+            # next tick, but a half-success doesn't burn the
+            # 30-sim-min cooldown for nothing.
+            if entry_ok or treatment_ok:
+                self._last_bg_check_min = sim_minute
 
         # Opportunistically fire a Note now and then at a much longer
         # cadence (~1 per sim day). Notes are user-authored freetext
@@ -5287,8 +5329,17 @@ class ManualLens(Lens):
             self._last_note_min is None
             or sim_minute - self._last_note_min >= MANUAL_NOTE_INTERVAL_SIM_MIN
         ):
-            self._last_note_min = sim_minute
-            self._post_note(posted_at)
+            try:
+                self._post_note(posted_at)
+            except (urllib.error.HTTPError, urllib.error.URLError) as exc:
+                print(
+                    f"[emu] manual Note post failed: {exc} "
+                    "(throttle not advanced; next eligible tick will retry)",
+                    flush=True,
+                )
+            else:
+                # Only commit the 1-per-sim-day throttle on success.
+                self._last_note_min = sim_minute
 
     # ---- treatments -----------------------------------------------------
 
@@ -5671,9 +5722,19 @@ def _wizard_check_ns_reachable(base_url: str, secret: str) -> bool:
     # Step 2: authenticated POST probe (empty array). This is the
     # check that catches wrong-secret-with-anonymous-readable
     # configs.
+    #
+    # Strict success contract: only return True when we have actual
+    # evidence the secret authenticates. That means:
+    #   * 2xx on the empty-array POST -- NS accepted the write
+    #   * narrow 400/422 -- NS rejected the empty-payload SHAPE
+    #     after the auth middleware passed (so auth worked, the
+    #     content was the only problem)
+    # Anything else (404 / 405 / 500, URLError) is NOT proof of
+    # auth and the wizard would be lying if it told the user
+    # "secret authenticates" -- the next real write could 401.
     try:
         http_post(base_url, "/api/v1/treatments.json", headers, [])
-        return True
+        return True  # 2xx
     except urllib.error.HTTPError as exc:
         if exc.code in (401, 403):
             print(
@@ -5682,24 +5743,31 @@ def _wizard_check_ns_reachable(base_url: str, secret: str) -> bool:
                 "are not authorized. Check the secret and try again."
             )
             return False
-        # Non-auth HTTP errors on the empty-array probe are surprising
-        # but not fatal -- a 400/422 "empty payload" rejection still
-        # proves auth worked. Surface the code so the user sees it.
+        if exc.code in (400, 422):
+            # Auth middleware passed; the empty-array payload was
+            # the only thing NS objected to. Auth is proven.
+            return True
+        # Anything else: NOT auth-proven. Surface the code clearly
+        # and refuse to bless the target.
         print(
-            f"  WARN: Nightscout returned HTTP {exc.code} {exc.reason} "
-            "on the auth probe. Continuing -- if the run 401s, "
-            "rerun the wizard with the correct secret."
+            f"  ERROR: Nightscout returned HTTP {exc.code} {exc.reason} "
+            "on the auth probe. The URL responded but write auth was "
+            "not proven. Confirm the URL is correct and the NS instance "
+            "is healthy, then rerun the wizard."
         )
-        return True
+        return False
     except urllib.error.URLError as exc:
-        # Network blip between reachability and probe; treat as
-        # transient and continue. Loud enough that a real outage
-        # gets noticed before the run starts spamming.
+        # Network blip between reachability and probe -- still a
+        # failure of the contract "wizard guarantees auth works
+        # before the run starts". Better to fail fast and re-prompt
+        # than start a 12-sim-hr run that 401s on every tick.
         print(
-            f"  WARN: auth probe network error ({exc.reason}). "
-            "Continuing; rerun the wizard if the main loop fails."
+            f"  ERROR: auth probe network error ({exc.reason}). "
+            "The reachability check passed but the write probe didn't "
+            "complete -- transient network blip or NS instance is "
+            "flapping. Rerun the wizard."
         )
-        return True
+        return False
 
 
 def _run_wizard() -> dict[str, str]:
@@ -5856,6 +5924,43 @@ def _run_wizard() -> dict[str, str]:
     print(f"  Compression:   {compression}x  ({wall_str})")
     print(f"  Starting BG:   {starting_bg} mg/dL")
     print(f"  Random seed:   {seed if seed else 'random (no reproducibility)'}")
+
+    # Surface any lens-specific NS_* env vars the wizard does NOT
+    # manage so the user can spot a stale shell export before the
+    # run starts. The managed keys are wiped+reset later in main();
+    # everything else passes through. Listing them here is the
+    # least-invasive way to honor the wizard's "you control the
+    # config" contract without aggressively clearing per-lens
+    # knobs the user may have intentionally exported.
+    managed = {
+        "NS_BASE_URL", "NS_API_SECRET", "NS_DURATION_HOURS",
+        "NS_TIME_COMPRESSION", "NS_STARTING_BG", "NS_RANDOM_SEED",
+        "NS_PLATFORM",
+    }
+    inherited = sorted(
+        k for k in os.environ
+        if k.startswith("NS_") and k not in managed
+    )
+    if inherited:
+        print()
+        print("  NOTE: the wizard does NOT prompt for these per-lens")
+        print("  NS_* vars; they will pass through from your shell:")
+        for k in inherited:
+            v = os.environ[k]
+            # Truncate long values; never print anything resembling
+            # a secret (NS_API_SECRET would be in `managed` but a
+            # future NS_*_TOKEN / NS_*_KEY shouldn't leak either).
+            if "SECRET" in k or "TOKEN" in k or "KEY" in k:
+                shown = "***"
+            elif len(v) > 60:
+                shown = v[:57] + "..."
+            else:
+                shown = v
+            print(f"    {k}={shown}")
+        print(
+            "  (unset them with `unset <name>` if you don't want "
+            "them applied to this run.)"
+        )
     print()
 
     # Default Y on enter (most users want to proceed; a typo
@@ -5913,7 +6018,13 @@ def _build_arg_parser() -> argparse.ArgumentParser:
             "configuration option (NS URL, api-secret, platform, "
             "duration, compression, seed) and pre-flights the NS "
             "connection. Recommended for first-time contributors. "
-            "Overrides any --platform / NS_* env vars provided."
+            "Overrides --platform plus the keys the wizard manages "
+            "(NS_BASE_URL, NS_API_SECRET, NS_DURATION_HOURS, "
+            "NS_TIME_COMPRESSION, NS_STARTING_BG, NS_RANDOM_SEED). "
+            "Lens-specific knobs the wizard does NOT prompt for "
+            "(NS_AAPS_UPLOAD_TEMP_BASALS, NS_TCONNECTSYNC_DEVICE, "
+            "NS_MANUAL_ENTERED_BY, NS_OREF0_HOSTNAME, ...) "
+            "pass through unchanged from the shell environment."
         ),
     )
     return parser
