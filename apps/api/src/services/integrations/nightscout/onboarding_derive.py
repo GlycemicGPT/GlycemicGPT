@@ -133,8 +133,16 @@ def derive_onboarding_proposals(
     )
 
     # ---- dia_hours (single value) --------------------------------------
-    proposed_dia = snapshot.source_dia_hours
-    current_dia = current_insulin_config.dia_hours if current_insulin_config else None
+    # Sanitize before model construction: the schema's `gt=0` guard on
+    # current_value/proposed_value would RAISE ValidationError on a
+    # zero / negative input rather than fail-safing -- which would 500
+    # the whole evaluate path on a single malformed NS profile. Coerce
+    # non-positive values to None so the wizard sees "no proposal" and
+    # the user retains their existing setting.
+    proposed_dia = _coerce_positive(snapshot.source_dia_hours)
+    current_dia = _coerce_positive(
+        current_insulin_config.dia_hours if current_insulin_config else None
+    )
     dia_hours = OnboardingNumericFieldDerivation(
         field="dia_hours",
         current_value=current_dia,
@@ -301,12 +309,19 @@ def _derive_target_field(
     proposed = _aggregate_segment_value(snapshot_segments, aggregator)
     if proposed is not None and is_mmol:
         proposed = round(proposed * MMOL_TO_MGDL, 1)
+    # Sanitize before model construction: the schema's gt=0 guard
+    # would RAISE ValidationError on non-positive values rather than
+    # fail-safing. Coerce to None so the wizard sees "no proposal"
+    # cleanly. Also defensively coerce current_value -- a corrupted
+    # canonical row with a stored 0 would otherwise crash here too.
+    proposed = _coerce_positive(proposed)
+    current_value = _coerce_positive(current_value)
     return OnboardingNumericFieldDerivation(
         field=field,
         current_value=current_value,
         proposed_value=proposed,
-        # AC4 + CR M1: pre-check iff user is at platform default
-        # OR the import would be a no-op (current matches proposal).
+        # Pre-check iff user is at platform default OR the import
+        # would be a no-op (current matches proposal).
         default_checked=proposed is not None
         and (
             _is_default(current_value, platform_default)
@@ -381,6 +396,14 @@ def _segments_to_canonical(
             continue
         if value_transform is not None:
             float_value = value_transform(float_value)
+        # Drop non-positive segments rather than crashing the whole
+        # derive call on the schema's gt=0 guard. NS profiles in the
+        # wild sometimes carry 0-valued basal segments (suspend
+        # patterns encoded as 0, malformed Loop overrides, AAPS edge
+        # cases). The wizard sees the surviving segments only --
+        # safer than 500ing the endpoint.
+        if float_value <= 0:
+            continue
         parsed.append(
             OnboardingScheduleSegment(
                 start_minutes=start_minutes,
@@ -463,6 +486,12 @@ def _extract_axis_from_pump_profile(
             float_value = float(value)
         except (TypeError, ValueError):
             continue
+        # Drop non-positive entries -- a corrupted JSONB row with a
+        # stored 0 basal_rate / carb_ratio / correction_factor would
+        # otherwise crash on the schema's gt=0 guard. Same treatment
+        # as `_segments_to_canonical` for symmetry.
+        if float_value <= 0:
+            continue
         out.append(
             OnboardingScheduleSegment(
                 start_minutes=start_minutes,
@@ -494,6 +523,29 @@ def _is_default(value: float | None, platform_default: float) -> bool:
     if value is None:
         return True
     return abs(value - platform_default) < 1e-3
+
+
+def _coerce_positive(value: float | None) -> float | None:
+    """Boundary sanitizer for the `Field(gt=0)` schema constraints.
+
+    Returns the input unchanged when it's already a positive float,
+    None when it's None, and None when it's <= 0 (instead of letting
+    the model construction raise ValidationError).
+
+    NS profiles in the wild occasionally carry 0 / negative values
+    (malformed uploads, suspend-encoded-as-zero, edge cases in older
+    Loop / AAPS versions). The medical-safety guard at the schema
+    layer is correct -- we don't WANT to write zeros to canonical
+    settings -- but we also don't want to 500 the whole evaluate
+    path on a single bad field. Coercing to None at the boundary
+    means the wizard sees "no proposal for this field" cleanly and
+    the user keeps their existing setting. CR feedback on PR #595.
+    """
+    if value is None:
+        return None
+    if value <= 0:
+        return None
+    return value
 
 
 def _values_match(a: float | None, b: float | None) -> bool:

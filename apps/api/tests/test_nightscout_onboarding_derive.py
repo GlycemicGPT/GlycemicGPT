@@ -769,6 +769,147 @@ class TestFreshSignup:
 # ---------------------------------------------------------------------------
 
 
+class TestNonPositiveInputCoercion:
+    """Regression tests for the four sites where a non-positive
+    input (NS-supplied 0/negative dia, target, basal/ICR/ISF
+    segment, or a corrupted canonical row) previously raised
+    Pydantic ValidationError on the schema's gt=0 guard. Each
+    site now coerces to None / drops the segment, so a single
+    bad field doesn't 500 the whole derive call.
+    """
+
+    def test_zero_dia_coerced_to_none_no_crash(self):
+        """NS profile with `source_dia_hours=0` (malformed upload)
+        must not 500 the call -- proposed_dia becomes None."""
+        snapshot = _mk_snapshot(dia_hours=0.0)
+        result = derive_onboarding_proposals(
+            snapshot,
+            current_target_range=_mk_target_range(),
+            current_insulin_config=_mk_insulin_config(),
+            current_pump_profile=None,
+        )
+        assert result.dia_hours.proposed_value is None
+        assert result.dia_hours.default_checked is False
+
+    def test_negative_dia_coerced_to_none_no_crash(self):
+        snapshot = _mk_snapshot(dia_hours=-1.5)
+        result = derive_onboarding_proposals(
+            snapshot,
+            current_target_range=_mk_target_range(),
+            current_insulin_config=_mk_insulin_config(),
+            current_pump_profile=None,
+        )
+        assert result.dia_hours.proposed_value is None
+
+    def test_zero_target_low_coerced_to_none_no_crash(self):
+        """An NS target_low of 0 (impossible but seen on malformed
+        uploads) must not crash -- target_low.proposed_value=None.
+        """
+        snapshot = _mk_snapshot(target_low_segments=[{"time": "00:00", "value": 0.0}])
+        result = derive_onboarding_proposals(
+            snapshot,
+            current_target_range=_mk_target_range(),
+            current_insulin_config=_mk_insulin_config(),
+            current_pump_profile=None,
+        )
+        assert result.target_low.proposed_value is None
+
+    def test_negative_target_high_coerced_to_none_no_crash(self):
+        snapshot = _mk_snapshot(target_high_segments=[{"time": "00:00", "value": -5.0}])
+        result = derive_onboarding_proposals(
+            snapshot,
+            current_target_range=_mk_target_range(),
+            current_insulin_config=_mk_insulin_config(),
+            current_pump_profile=None,
+        )
+        assert result.target_high.proposed_value is None
+
+    def test_zero_basal_segment_dropped_no_crash(self):
+        """NS profile with a 0-valued basal segment (suspend-encoded-
+        as-zero pattern, malformed upload). The 0 segment is
+        dropped; surviving segments still flow through.
+        """
+        snapshot = _mk_snapshot(
+            basal_segments=[
+                {"time": "00:00", "value": 0.5},
+                {"time": "06:00", "value": 0.0},  # bad -- dropped
+                {"time": "12:00", "value": 0.7},
+            ]
+        )
+        result = derive_onboarding_proposals(
+            snapshot,
+            current_target_range=_mk_target_range(),
+            current_insulin_config=_mk_insulin_config(),
+            current_pump_profile=None,
+        )
+        segs = result.basal_schedule.proposed_segments
+        assert segs is not None
+        # Only the two positive segments survived.
+        assert [s.start_minutes for s in segs] == [0, 720]
+        assert [s.value for s in segs] == [0.5, 0.7]
+
+    def test_all_basal_segments_zero_returns_none_schedule(self):
+        """If every segment is non-positive, the schedule disappears
+        entirely (proposed_segments=None) -- wizard skips the row."""
+        snapshot = _mk_snapshot(
+            basal_segments=[
+                {"time": "00:00", "value": 0.0},
+                {"time": "12:00", "value": -0.5},
+            ]
+        )
+        result = derive_onboarding_proposals(
+            snapshot,
+            current_target_range=_mk_target_range(),
+            current_insulin_config=_mk_insulin_config(),
+            current_pump_profile=None,
+        )
+        assert result.basal_schedule.proposed_segments is None
+
+    def test_pump_profile_zero_basal_rate_segment_dropped(self):
+        """A corrupted canonical pump_profile row with a 0
+        basal_rate must not crash on read -- the segment is
+        dropped from current_segments."""
+        snapshot = _mk_snapshot()
+        custom_pump = _mk_pump_profile(
+            segments=[
+                {"start_minutes": 0, "basal_rate": 1.0},
+                {"start_minutes": 360, "basal_rate": 0.0},  # bad
+                {"start_minutes": 720, "basal_rate": 1.5},
+            ]
+        )
+        result = derive_onboarding_proposals(
+            snapshot,
+            current_target_range=_mk_target_range(),
+            current_insulin_config=_mk_insulin_config(),
+            current_pump_profile=custom_pump,
+        )
+        segs = result.basal_schedule.current_segments
+        assert segs is not None
+        assert [s.start_minutes for s in segs] == [0, 720]
+
+    def test_corrupted_current_target_zero_coerced_to_none(self):
+        """Defensively: if a canonical TargetGlucoseRange row got
+        corrupted with a stored 0 (would never happen via normal
+        writes, but defense-in-depth), the derive must not crash.
+        """
+        snapshot = _mk_snapshot()
+        # Build a corrupted-state range row and bypass the
+        # SQLAlchemy default by setting low_target=0 directly. (In
+        # production this would never happen; this is paranoia.)
+        bad_range = _mk_target_range(low=0.0, high=0.0)
+        result = derive_onboarding_proposals(
+            snapshot,
+            current_target_range=bad_range,
+            current_insulin_config=_mk_insulin_config(),
+            current_pump_profile=None,
+        )
+        # current_value coerced to None; proposal still flows.
+        assert result.target_low.current_value is None
+        assert result.target_low.proposed_value == 90.0
+        assert result.target_high.current_value is None
+        assert result.target_high.proposed_value == 120.0
+
+
 def _scalar_default(column) -> float:
     """Pull the scalar value out of a SQLAlchemy column's default,
     failing loudly with a clear message if the default is a
