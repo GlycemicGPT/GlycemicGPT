@@ -35,6 +35,7 @@ from src.schemas.nightscout import (
     NightscoutConnectionTestResult,
     NightscoutConnectionUpdate,
     NightscoutDataResponse,
+    NightscoutDiscoveryReport,
     NightscoutGlucoseReadingDTO,
     NightscoutManualSyncResponse,
     NightscoutProfileSnapshotResponse,
@@ -43,6 +44,9 @@ from src.schemas.nightscout import (
 from src.services.integrations.nightscout.connection_test import (
     ConnectionTestOutcome,
     test_connection,
+)
+from src.services.integrations.nightscout.evaluate import (
+    evaluate_nightscout_for_connection,
 )
 from src.services.integrations.nightscout.sync import (
     sync_nightscout_for_connection,
@@ -59,6 +63,19 @@ router = APIRouter(
 # worker so a slow / unresponsive user-controlled NS URL can't pin a
 # request thread for the full upstream client timeout (often 30s+).
 _SYNC_TIMEOUT_SECONDS = 20.0
+
+# Story 43.7a (evaluate endpoint): bound the upstream probes the same
+# way `_SYNC_TIMEOUT_SECONDS` does -- evaluate fires up to 5 fetches
+# (entries x2, treatments, devicestatus, profile) sequentially, so a
+# user-controlled URL that hangs on any of them shouldn't tie up a
+# request worker indefinitely. 25s is generous-but-bounded.
+_EVALUATE_TIMEOUT_SECONDS = 25.0
+
+# Story 43.7a AC9: cache the discovery report on the connection row
+# for this many seconds. Wizard re-renders shouldn't re-evaluate; an
+# explicit "re-import settings" entry point (Story 43.7d) bypasses the
+# cache by setting `last_evaluated_at = None` before the call.
+_EVALUATE_CACHE_SECONDS = 5 * 60
 
 
 # ---------------------------------------------------------------------------
@@ -497,6 +514,104 @@ async def run_sync(
         duration_ms=result.duration_ms,
         error=result.error,
     )
+
+
+@router.post(
+    "/{connection_id}/evaluate",
+    response_model=NightscoutDiscoveryReport,
+    responses={
+        200: {"description": "Discovery report (check `status_ok`)"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        404: {"model": ErrorResponse, "description": "Connection not found"},
+        504: {"model": ErrorResponse, "description": "Evaluate timed out"},
+    },
+)
+async def run_evaluate(
+    connection_id: uuid.UUID,
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> NightscoutDiscoveryReport:
+    """Story 43.7a: evaluate the target Nightscout for the wizard.
+
+    Counts entries (full + 7d), detects uploaders, samples treatments
+    + devicestatus + profile, and returns a structured discovery
+    report (AC1). The wizard's step 2 renders this as the
+    "Found ~142K entries..." preview.
+
+    Cached for 5 min on the connection row (AC9). Wizard re-renders
+    return the cached body; "Re-import settings" (Story 43.7d)
+    bypasses the cache by clearing `last_evaluated_at` before the
+    call.
+
+    Soft-deleted connections are 404'd (parity with `/test` and
+    `/sync`) -- evaluate is a side-effecting probe, not a passive
+    read.
+    """
+    conn = await _load_owned(db, connection_id, current_user.id, require_active=True)
+
+    # AC9: 5-min cache. Return the previously persisted report when
+    # the cache window is still warm AND the cached report itself
+    # was a success. A cached `status_ok=False` (e.g. typo'd token
+    # on the prior call) MUST NOT be served from cache -- doing so
+    # would trap the user for 5 min while they fix the secret. The
+    # cache is for "we already evaluated this healthy instance"
+    # only.
+    # `isinstance(..., dict)` guards against legacy rows that may
+    # have stored a list / string in this JSONB column under an
+    # earlier schema -- without it, `.get()` would raise
+    # AttributeError and 500 the request instead of falling
+    # through to a fresh evaluate.
+    if (
+        conn.last_evaluated_at is not None
+        and isinstance(conn.detected_uploaders_json, dict)
+        and conn.detected_uploaders_json.get("status_ok") is True
+    ):
+        age = (datetime.now(UTC) - conn.last_evaluated_at).total_seconds()
+        if age < _EVALUATE_CACHE_SECONDS:
+            try:
+                return NightscoutDiscoveryReport.model_validate(
+                    conn.detected_uploaders_json
+                )
+            except Exception:  # noqa: BLE001 - shape changed mid-cache
+                # Schema drift between cached payload and current
+                # model: fall through to a fresh evaluate. The
+                # cached row will be overwritten below.
+                logger.info(
+                    "nightscout_evaluate_cache_invalid",
+                    connection_id=str(conn.id),
+                )
+
+    # Bound the user-controlled upstream the same way `/sync` does.
+    try:
+        report = await asyncio.wait_for(
+            evaluate_nightscout_for_connection(conn),
+            timeout=_EVALUATE_TIMEOUT_SECONDS,
+        )
+    except TimeoutError:
+        # Don't persist anything on timeout: `last_evaluated_at` stays
+        # whatever it was, so an immediate retry isn't blocked by a
+        # phantom cache entry. Last sync status is also untouched
+        # (we didn't write user data).
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail=f"Evaluate exceeded {_EVALUATE_TIMEOUT_SECONDS}s timeout",
+        ) from None
+
+    # Persistence policy: only successful reports go into the cache.
+    # A `status_ok=False` (auth fail, unreachable URL, etc.) returns
+    # to the caller fresh every time so the user can immediately
+    # retry after fixing their secret -- without waiting out a
+    # 5-min cache window. Diagnostic value of caching a failure is
+    # near zero; the wizard's "we couldn't reach your NS" UX wants
+    # a real attempt each time.
+    if report.status_ok:
+        # `mode="json"` so datetime fields serialize to strings -- the
+        # JSONB column rejects raw datetime objects.
+        conn.detected_uploaders_json = report.model_dump(mode="json")
+        conn.last_evaluated_at = datetime.now(UTC)
+        await db.commit()
+
+    return report
 
 
 # ---------------------------------------------------------------------------
