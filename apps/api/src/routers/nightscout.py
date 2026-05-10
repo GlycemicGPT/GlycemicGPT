@@ -777,11 +777,18 @@ async def apply_onboarding(  # noqa: PLR0912, PLR0915  -- linear, readable orche
     """
     conn = await _load_owned(db, connection_id, current_user.id, require_active=True)
 
-    # Serialize concurrent applies for the same user. Postgres
-    # advisory lock keyed on hashtext(user_id) -- xact-scoped, so
-    # released automatically by commit or rollback. A double-clicked
-    # wizard (two simultaneous applies) waits here instead of racing
-    # the pump_profiles UPSERT or kicking two parallel syncs.
+    # Serialize the read-and-merge step for concurrent applies.
+    # The xact-scoped advisory lock is released by the first
+    # internal commit inside `update_range` / `update_config`, so
+    # this DOES NOT serialize the full apply path -- it only
+    # protects the snapshot+settings read and pre-flight ordering
+    # check from racing with another in-flight apply for the same
+    # user. The remaining window (two simultaneous syncs from a
+    # double-clicked wizard) is mitigated by the
+    # `uq_pump_profile_user_name` UPSERT (no row duplication) and
+    # by the wizard's UI gating the button after the first click.
+    # Acceptable for a same-user-only scope; full atomicity would
+    # require non-committing variants of the settings writers.
     await db.execute(
         text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
         {"k": str(current_user.id)},
@@ -936,16 +943,20 @@ async def apply_onboarding(  # noqa: PLR0912, PLR0915  -- linear, readable orche
             }
 
     # ---- pump profile (basal / ICR / ISF) -------------------------------
+    # Use truthy checks (not `is not None`) so an empty proposed
+    # list -- which `_segments_by_start` collapses to {} -- doesn't
+    # claim a schedule was applied when no segments existed to write.
+    has_basal = bool(derivation.basal_schedule.proposed_segments)
+    has_carb_ratio = bool(derivation.carb_ratio_schedule.proposed_segments)
+    has_isf = bool(derivation.isf_schedule.proposed_segments)
+
     pump_profile_id: uuid.UUID | None = None
     persisted_profile = await pump_profile_service.upsert_from_onboarding(
         current_user.id,
         derivation,
-        apply_basal=request.import_basal_schedule
-        and derivation.basal_schedule.proposed_segments is not None,
-        apply_carb_ratio=request.import_carb_ratio_schedule
-        and derivation.carb_ratio_schedule.proposed_segments is not None,
-        apply_isf=request.import_isf_schedule
-        and derivation.isf_schedule.proposed_segments is not None,
+        apply_basal=request.import_basal_schedule and has_basal,
+        apply_carb_ratio=request.import_carb_ratio_schedule and has_carb_ratio,
+        apply_isf=request.import_isf_schedule and has_isf,
         # DIA is mirrored onto the pump_profile row only when the
         # user opted in to importing it, so the active profile read
         # by mobile is internally consistent with insulin_configs.
@@ -955,18 +966,11 @@ async def apply_onboarding(  # noqa: PLR0912, PLR0915  -- linear, readable orche
     )
     if persisted_profile is not None:
         pump_profile_id = persisted_profile.id
-        applied["basal_schedule"] = (
-            request.import_basal_schedule
-            and derivation.basal_schedule.proposed_segments is not None
-        )
+        applied["basal_schedule"] = request.import_basal_schedule and has_basal
         applied["carb_ratio_schedule"] = (
-            request.import_carb_ratio_schedule
-            and derivation.carb_ratio_schedule.proposed_segments is not None
+            request.import_carb_ratio_schedule and has_carb_ratio
         )
-        applied["isf_schedule"] = (
-            request.import_isf_schedule
-            and derivation.isf_schedule.proposed_segments is not None
-        )
+        applied["isf_schedule"] = request.import_isf_schedule and has_isf
 
     # ---- connection-level: initial sync window --------------------------
     if request.initial_sync_window_days is not None:

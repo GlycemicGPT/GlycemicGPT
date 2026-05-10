@@ -19,7 +19,6 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete
 
-from src.core.encryption import encrypt_credential
 from src.database import get_session_maker
 from src.main import app
 from src.models.insulin_config import InsulinConfig
@@ -33,7 +32,6 @@ from src.models.target_glucose_range import TargetGlucoseRange
 from src.models.user import User
 from src.services.integrations.nightscout.connection_test import ConnectionTestOutcome
 from src.services.integrations.nightscout.sync import SyncResult
-
 
 # ---------------------------------------------------------------------------
 # Auth / fixtures
@@ -78,13 +76,9 @@ async def _cleanup(emails: list[str]) -> None:
                     NightscoutConnection.user_id.in_(ids)
                 )
             )
+            await db.execute(delete(PumpProfile).where(PumpProfile.user_id.in_(ids)))
             await db.execute(
-                delete(PumpProfile).where(PumpProfile.user_id.in_(ids))
-            )
-            await db.execute(
-                delete(TargetGlucoseRange).where(
-                    TargetGlucoseRange.user_id.in_(ids)
-                )
+                delete(TargetGlucoseRange).where(TargetGlucoseRange.user_id.in_(ids))
             )
             await db.execute(
                 delete(InsulinConfig).where(InsulinConfig.user_id.in_(ids))
@@ -857,6 +851,49 @@ async def test_apply_rejects_target_low_above_target_high(http_client):
                 )
             ).fetchone()
             assert row is None
+    finally:
+        await _cleanup([email])
+
+
+@pytest.mark.asyncio
+async def test_apply_does_not_claim_empty_schedule_was_applied(http_client):
+    """An empty proposed_segments list (vs None) must NOT report
+    `applied[*_schedule] = True`. The other-domain breakpoints would
+    drive the merged row, so an empty schedule contributes nothing
+    and the response should reflect that."""
+    email = _unique_email("ns_apply_empty_seg")
+    cookies = await _register_and_login(http_client, email)
+    try:
+        connection_id = await _create_conn(http_client, cookies)
+        # ICR + ISF have segments; basal is explicitly empty.
+        await _seed_snapshot(
+            connection_id=connection_id,
+            user_email=email,
+            basal_segments=[],
+            carb_ratio_segments=[
+                {"time": "00:00", "timeAsSeconds": 0, "value": 12.0},
+            ],
+            sensitivity_segments=[
+                {"time": "00:00", "timeAsSeconds": 0, "value": 50.0},
+            ],
+        )
+        with _patch_sync_ok():
+            resp = await http_client.post(
+                f"/api/integrations/nightscout/{connection_id}/apply-onboarding",
+                cookies=cookies,
+                json={
+                    "import_basal_schedule": True,
+                    "import_carb_ratio_schedule": True,
+                    "import_isf_schedule": True,
+                },
+            )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        # Empty basal must not claim it landed.
+        assert body["applied"]["basal_schedule"] is False
+        # Non-empty schedules did land.
+        assert body["applied"]["carb_ratio_schedule"] is True
+        assert body["applied"]["isf_schedule"] is True
     finally:
         await _cleanup([email])
 
