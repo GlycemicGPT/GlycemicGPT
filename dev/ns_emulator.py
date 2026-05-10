@@ -5108,6 +5108,23 @@ class ManualLens(Lens):
     def entered_by(self) -> str:
         return os.environ.get("NS_MANUAL_ENTERED_BY", MANUAL_DEFAULT_ENTERED_BY)
 
+    def _entered_by_field(self) -> dict[str, str]:
+        """Return `{"enteredBy": <name>}` when set, else `{}`.
+
+        Spread into payload dicts via `**self._entered_by_field()`.
+        Care Portal POSTs without an `enteredBy` field are valid
+        wire format (per upstream `careportal.js:242` -- empty
+        falls back to nothing in the POST body, NOT `enteredBy:
+        ""`). Emitting `enteredBy: ""` would mean "the user typed
+        an empty string into the Entered By textbox", which is
+        a different (and rare) shape -- the GlycemicGPT translator
+        and downstream readers should see the OMITTED-field
+        variant when `NS_MANUAL_ENTERED_BY=""` is set, so testing
+        the empty-`enteredBy` codepath actually tests it.
+        """
+        value = self.entered_by
+        return {"enteredBy": value} if value else {}
+
     # ---- profile --------------------------------------------------------
 
     def ensure_profile(self) -> None:
@@ -5248,7 +5265,7 @@ class ManualLens(Lens):
                 {
                     "eventType": "BG Check",
                     "created_at": iso_z(posted_at),
-                    "enteredBy": self.entered_by,
+                    **self._entered_by_field(),
                     "glucose": mbg,
                     "glucoseType": "Finger",
                     "units": "mg/dl",
@@ -5293,7 +5310,7 @@ class ManualLens(Lens):
             {
                 "eventType": "Meal Bolus",
                 "created_at": iso_z(posted_at),
-                "enteredBy": self.entered_by,
+                **self._entered_by_field(),
                 "carbs": round(carbs_g, 1),
                 "insulin": bolus_u,
             }
@@ -5319,7 +5336,7 @@ class ManualLens(Lens):
             {
                 "eventType": "Correction Bolus",
                 "created_at": iso_z(posted_at),
-                "enteredBy": self.entered_by,
+                **self._entered_by_field(),
                 "insulin": units,
                 "glucose": int(round(state.bg)),
                 "glucoseType": "Finger",
@@ -5368,7 +5385,7 @@ class ManualLens(Lens):
             {
                 "eventType": "Site Change",
                 "created_at": iso_z(posted_at),
-                "enteredBy": self.entered_by,
+                **self._entered_by_field(),
                 "notes": "infusion set change",
             }
         ]
@@ -5392,7 +5409,7 @@ class ManualLens(Lens):
             {
                 "eventType": "Note",
                 "created_at": iso_z(posted_at),
-                "enteredBy": self.entered_by,
+                **self._entered_by_field(),
                 "notes": body,
             }
         ]
