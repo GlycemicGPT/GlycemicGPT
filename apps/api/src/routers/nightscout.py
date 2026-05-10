@@ -556,9 +556,14 @@ async def run_evaluate(
     # would trap the user for 5 min while they fix the secret. The
     # cache is for "we already evaluated this healthy instance"
     # only.
+    # `isinstance(..., dict)` guards against legacy rows that may
+    # have stored a list / string in this JSONB column under an
+    # earlier schema -- without it, `.get()` would raise
+    # AttributeError and 500 the request instead of falling
+    # through to a fresh evaluate.
     if (
         conn.last_evaluated_at is not None
-        and conn.detected_uploaders_json is not None
+        and isinstance(conn.detected_uploaders_json, dict)
         and conn.detected_uploaders_json.get("status_ok") is True
     ):
         age = (datetime.now(UTC) - conn.last_evaluated_at).total_seconds()

@@ -824,6 +824,54 @@ async def test_evaluate_endpoint_404s_inactive_via_db_flag(http_client):
 
 
 @pytest.mark.asyncio
+async def test_evaluate_endpoint_handles_non_dict_legacy_cache(http_client):
+    """CR finding: cache check must guard against legacy rows where
+    detected_uploaders_json was stored as a list / string under an
+    earlier schema. Without an isinstance(..., dict) check, the
+    `.get("status_ok")` call would raise AttributeError -> 500
+    instead of falling through to a fresh evaluate.
+    """
+    email = _unique_email("ns_eval_legacycache")
+    cookies = await _register_and_login(http_client, email)
+    try:
+        connection_id = await _create_conn(http_client, cookies)
+
+        # Plant a non-dict payload directly in JSONB and a fresh
+        # last_evaluated_at so the cache window is hot.
+        async with get_session_maker()() as db:
+            await db.execute(
+                NightscoutConnection.__table__.update()
+                .where(NightscoutConnection.id == uuid.UUID(connection_id))
+                .values(
+                    detected_uploaders_json=["loop", "xdrip+"],  # list, not dict
+                    last_evaluated_at=datetime.now(UTC) - timedelta(seconds=1),
+                )
+            )
+            await db.commit()
+
+        # Endpoint MUST NOT 500 -- it should fall through to a fresh
+        # evaluate. We mock the evaluate so it returns a clean
+        # report, proving the legacy-shape branch ignored the cache
+        # and re-ran the orchestrator.
+        client_mock = _mk_client_mock(
+            recent_entries=[_xdrip_entry()],
+            profile=[_loop_profile()],
+        )
+        with _patch_test(_ok_outcome()), _patch_client(client_mock):
+            resp = await http_client.post(
+                f"/api/integrations/nightscout/{connection_id}/evaluate",
+                cookies=cookies,
+            )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["status_ok"] is True
+        # Fresh report -- the list was overwritten with a proper dict.
+        assert isinstance(body, dict)
+    finally:
+        await _cleanup([email])
+
+
+@pytest.mark.asyncio
 async def test_evaluate_endpoint_cache_drift_falls_through_to_fresh(http_client):
     """If cached payload has stale schema, we re-evaluate cleanly."""
     email = _unique_email("ns_eval_drift")
