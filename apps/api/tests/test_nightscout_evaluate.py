@@ -303,6 +303,29 @@ async def test_orchestrator_status_ok_false_when_test_fails():
 
 
 @pytest.mark.asyncio
+async def test_orchestrator_handles_decrypt_failure_cleanly():
+    """Real-world e2e found this: tampered encrypted_credential
+    propagated ValueError -> 500 instead of a clean status_ok=False
+    report. Production triggers: key rotation, DB corruption, manual
+    DB edits.
+    """
+    conn = _mk_conn()
+    # Replace the encrypted_credential with garbage so Fernet's
+    # signature verification fails.
+    conn.encrypted_credential = "gAAAAABxxxinvalidxxx"
+
+    # No need to patch test_connection -- the orchestrator MUST
+    # bail out before reaching it.
+    report = await evaluate_nightscout_for_connection(conn)
+
+    assert report.status_ok is False
+    assert report.error is not None
+    assert "decrypt" in report.error.lower()
+    assert report.recent_entry_count_7d == 0
+    assert report.has_profile is False
+
+
+@pytest.mark.asyncio
 async def test_orchestrator_no_profile_records():
     """Empty profile collection -> has_profile=False, no malformed flag."""
     conn = _mk_conn()

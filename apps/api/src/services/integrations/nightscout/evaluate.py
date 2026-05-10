@@ -83,7 +83,27 @@ async def evaluate_nightscout_for_connection(
     inherits the protection.
     """
     evaluated_at = datetime.now(UTC)
-    credential = decrypt_credential(conn.encrypted_credential)
+    # Decrypt failures are a real production concern (key rotation,
+    # DB corruption, direct DB tampering) -- treat them as a clean
+    # status_ok=False report rather than letting the ValueError
+    # propagate as an opaque 500. The router's failure-not-cached
+    # policy still applies, so an operator who fixes the cipher
+    # state can retry immediately.
+    try:
+        credential = decrypt_credential(conn.encrypted_credential)
+    except Exception:  # noqa: BLE001 -- defense for any cipher fault
+        logger.warning(
+            "nightscout_evaluate_decrypt_failed",
+            connection_id=str(conn.id),
+        )
+        return NightscoutDiscoveryReport(
+            status_ok=False,
+            evaluated_at=evaluated_at,
+            error=(
+                "Stored credential could not be decrypted. The "
+                "connection's secret may need to be re-entered."
+            ),
+        )
 
     # Step 1: connection test reuses the proven path. Outcome carries
     # status_ok + server_version + the actual auth/version
