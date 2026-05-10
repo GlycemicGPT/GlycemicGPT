@@ -4957,6 +4957,471 @@ class TconnectsyncLens(Lens):
 
 
 # ---------------------------------------------------------------------------
+# manual lens (Care Portal -- Nightscout's built-in web UI for human-typed entries)
+# ---------------------------------------------------------------------------
+#
+# `manual` emulates Care Portal -- the built-in web UI in
+# `nightscout/cgm-remote-monitor` that lets users type entries / treatments
+# directly into NS. It is the FINAL lens of the planned 11-lens roadmap and
+# the most architecturally distinct: where every other lens models software
+# on a phone / iPhone / Pi / server / cloud bridge uploading on a schedule,
+# `manual` models a HUMAN AT A KEYBOARD typing one-off events.
+#
+# Three vectors of distinctness vs every other lens:
+#
+# - **Identity is a username, not a machine ID**: `enteredBy` is the user's
+#   typed name (e.g. `"jane"`) or the JWT subject if logged in -- NOT a
+#   fixed machine literal like `"loop"`, `"AndroidAPS"`, `"xDrip4iOS"`. Per
+#   upstream `lib/client/careportal.js:242` which presets `enteredBy` to
+#   `client.authorized.sub || localStorage.get('enteredBy')`.
+#
+# - **`device` is empty**: humans aren't devices. Every prior lens stamps
+#   a `device` field on entries / devicestatus (the emulator's lens-name);
+#   manual sets it to `""`. Per upstream Care Portal client.
+#
+# - **No periodic upload**: humans don't post on a 5-min cadence. Care
+#   Portal entries are sparse and unpredictable -- a fingerstick when they
+#   feel low, a meal log when they bolus, a Site Change when they swap the
+#   pod. Our emulator gates entries through a min-interval throttle to
+#   approximate that sparsity. Real users post far less frequently than
+#   this lens does (we cap at one event every ~30 sim-min for dashboard
+#   testing density); a real Care Portal user might post 3-10 events / day.
+#
+# - **No devicestatus, no profile authoring, no temp basals**: Care Portal
+#   doesn't post devicestatus (no algorithm running, no pump connected
+#   with state to report); doesn't author profiles (the profile editor is
+#   a separate NS UI with its own POST path); doesn't post temp basals
+#   (humans don't decide to reduce basal rate by 20% for the next 30 min --
+#   that's algorithm output, not user input). Every Lens-contract method
+#   for these is a no-op.
+#
+# - **Multi-eventType vocabulary on treatments**: the Care Portal UI
+#   exposes 20+ eventTypes (BG Check, Meal Bolus, Snack Bolus, Carb
+#   Correction, Correction Bolus, Combo Bolus, Note, Question,
+#   Announcement, Exercise, Site Change, Sensor Start, Sensor Change,
+#   Sensor Stop, Pump Battery Change, Insulin Cartridge Change, Profile
+#   Switch, Temporary Target, ...). We model the operationally meaningful
+#   subset that real T1D users post most often -- BG Check, Meal Bolus,
+#   Correction Bolus, Carb Correction, Note, Site Change. Per upstream
+#   `lib/plugins/careportal.js`'s `getEventTypes()`.
+#
+# - **Entries are `mbg` (manual blood glucose), not `sgv` (sensor glucose
+#   value)**: per upstream `cgm-remote-monitor`'s entry types, when a user
+#   types a fingerstick BG into Care Portal it goes in as `type: "mbg"`,
+#   NOT `"sgv"`. Manual BG has no trend and no `direction` field (the
+#   meter doesn't report rate-of-change). This distinguishes Care Portal
+#   entries from every other lens' `sgv` posts.
+#
+# Translator-side note: GlycemicGPT's `detect_uploader` doesn't currently
+# return `"care_portal"` -- empty `enteredBy` + empty `device` falls
+# through to `"unknown"`. Real Care Portal users hit this same gap. No
+# functional impact since no code paths branch on
+# `uploader == "care_portal"`. Documented for future translator
+# improvement: `enteredBy` matching a free-text human name (no machine
+# URI / namespace / known-app-name) could be a recognition signal.
+#
+# Source-of-truth files cross-checked:
+#   - `mapping/cgm-remote-monitor/`
+#   - upstream `nightscout/cgm-remote-monitor:lib/client/careportal.js`
+#     (form submission, enteredBy default, field-omission rules)
+#   - upstream `nightscout/cgm-remote-monitor:lib/plugins/careportal.js`
+#     (`getEventTypes()` -- 20-strong eventType vocabulary + per-type
+#     field flags)
+#   - upstream `nightscout/cgm-remote-monitor:lib/server/treatments.js`
+#     (server-side ingestion -- `replaceOne` upsert keyed on
+#     `created_at`; the composite `eventType + duration + created_at`
+#     index is for query speed, not dedupe)
+
+
+# Default human-typed username. Override via `NS_MANUAL_ENTERED_BY` so a
+# real Care Portal-mimicking deployment can pick its own name. Empty-
+# `enteredBy` POSTs are valid upstream wire format (NS accepts them) but
+# rare in practice -- per upstream `careportal.js:242` the field defaults
+# to the JWT subject or `localStorage.get('enteredBy')`, which are
+# usually populated. To exercise the empty-string variant of the
+# translator's `detect_uploader` heuristic, set `NS_MANUAL_ENTERED_BY=""`.
+MANUAL_DEFAULT_ENTERED_BY = "jane"
+# Min sim-minutes between manual fingerstick BG posts. Cap denser than a
+# real user (~3-10 fingersticks per day) so the dashboard has visible
+# data when running short verification windows; a longer min-interval
+# would leave the chart empty for hours of sim-time, which is realistic
+# but unhelpful for testing.
+MANUAL_BG_CHECK_INTERVAL_SIM_MIN = 30
+# Min sim-minutes between Notes. ~1 per sim-day at this rate.
+MANUAL_NOTE_INTERVAL_SIM_MIN = 24 * 60
+
+
+class ManualLens(Lens):
+    """Care Portal (Nightscout's built-in web UI) lens. Human-typed
+    one-off events: sparse `mbg` entries, Meal Bolus / Correction
+    Bolus / Carb Correction / Site Change / Note treatments. No
+    devicestatus, no profile authoring, no temp basals -- humans
+    don't post any of those. See architecture comment block above
+    for the full divergence list vs every prior lens."""
+
+    name = "manual"
+
+    def __init__(
+        self, base_url: str, api_secret: str, device_label: str | None = None
+    ) -> None:
+        super().__init__(base_url, api_secret, device_label)
+        # Track last sim-minute we posted each event type so we can
+        # throttle to a sparse human-paced cadence (vs every-tick
+        # algorithm uploads from the other lenses).
+        # `state.sim_minute` is a float (advance_5_min adds 5.0 each
+        # tick), so these throttle anchors must be float | None to
+        # match without coercion.
+        self._last_bg_check_min: float | None = None
+        self._last_note_min: float | None = None
+        # Seed-aware RNG so NS_RANDOM_SEED gives reproducible runs end
+        # to end -- same pattern as Trio's 80/20 SMB split.
+        seed_env = os.environ.get("NS_RANDOM_SEED")
+        try:
+            self._rng = (
+                random.Random(int(seed_env)) if seed_env else random.Random()
+            )
+        except ValueError:
+            self._rng = random.Random()
+        # Pre-canned Note bodies so a user reading the NS instance gets
+        # plausibly-human freetext, not a fixed string. Care Portal
+        # users typically log Notes for illness, exercise, food
+        # specifics, mood, etc.
+        self._note_bodies = [
+            "felt low after lunch",
+            "ran 3 miles, BG dropped fast",
+            "ate pizza -- expecting late spike",
+            "stress eating, didn't bolus",
+            "sick day, sensitivity feels high",
+            "missed dose, will correct later",
+            "weather hot, hydrating extra",
+        ]
+
+    @classmethod
+    def default_device_label(cls) -> str:
+        # `device` is empty for Care Portal entries (humans aren't
+        # devices). The Lens base class stores this as the
+        # `device_label` but we pass empty string downstream so the
+        # wire format omits / blanks the field per upstream.
+        return ""
+
+    @property
+    def entered_by(self) -> str:
+        return os.environ.get("NS_MANUAL_ENTERED_BY", MANUAL_DEFAULT_ENTERED_BY)
+
+    def _entered_by_field(self) -> dict[str, str]:
+        """Return `{"enteredBy": <name>}` when set, else `{}`.
+
+        Spread into payload dicts via `**self._entered_by_field()`.
+        Care Portal POSTs without an `enteredBy` field are valid
+        wire format (per upstream `careportal.js:242` -- empty
+        falls back to nothing in the POST body, NOT `enteredBy:
+        ""`). Emitting `enteredBy: ""` would mean "the user typed
+        an empty string into the Entered By textbox", which is
+        a different (and rare) shape -- the GlycemicGPT translator
+        and downstream readers should see the OMITTED-field
+        variant when `NS_MANUAL_ENTERED_BY=""` is set, so testing
+        the empty-`enteredBy` codepath actually tests it.
+        """
+        value = self.entered_by
+        return {"enteredBy": value} if value else {}
+
+    # ---- profile --------------------------------------------------------
+
+    def ensure_profile(self) -> None:
+        """Care Portal does NOT author profiles. The Nightscout profile
+        editor is a separate UI / endpoint (`/profile/`) with its own
+        POST path; Care Portal is the treatments + entries UI only.
+        Real Care Portal users expect the profile to already exist
+        (set elsewhere -- by an algorithm app like AAPS / Loop / Trio,
+        or by a direct API uploader, or by hand-editing in the NS
+        admin UI).
+
+        For the emulator we still post a minimal baseline profile if
+        NS has none (so the dashboard / translator have a consistent
+        state to work against) and stamp `enteredBy: "openaps"` to
+        honor the contract that Care Portal doesn't author one --
+        same pattern as the xDrip-family / LibreLinkUp / share2ns
+        lenses. Without this, running `--platform manual` against a
+        fresh NS instance would leave it profile-less and break
+        downstream widgets that expect a profile snapshot."""
+        try:
+            existing = http_get(
+                self.base_url, "/api/v1/profile.json", self._auth_headers
+            )
+            if existing:
+                return
+        except urllib.error.HTTPError:
+            pass
+
+        now_iso = iso_z(datetime.datetime.now(datetime.UTC))
+        profile_name = "Default"
+        payload = {
+            "defaultProfile": profile_name,
+            "store": {
+                profile_name: {
+                    "dia": str(DIA_MINUTES // 60),
+                    "carbratio": [{"time": "00:00", "value": ICR_GRAMS_PER_UNIT}],
+                    "sens": [{"time": "00:00", "value": ISF_MGDL_PER_UNIT}],
+                    "basal": [{"time": "00:00", "value": SCHEDULED_BASAL_U_HR}],
+                    "target_low": [{"time": "00:00", "value": TARGET_BG_MGDL - 10}],
+                    "target_high": [{"time": "00:00", "value": TARGET_BG_MGDL + 10}],
+                    "carbs_hr": "20",
+                    "delay": "20",
+                    "timezone": "UTC",
+                    "units": "mg/dl",
+                }
+            },
+            "startDate": now_iso,
+            "mills": int(time.time() * 1000),
+            "units": "mg/dl",
+            "enteredBy": "openaps",
+        }
+        http_post(
+            self.base_url, "/api/v1/profile.json", self._auth_headers, [payload]
+        )
+
+    # ---- per-tick hook --------------------------------------------------
+
+    def on_tick_start(
+        self, state: PatientState, posted_at: datetime.datetime
+    ) -> None:
+        """Care Portal has no algorithm. Humans don't run a determine-
+        basal cycle on a 5-min schedule. No-op."""
+        return
+
+    # ---- entries (mbg, sparse) ------------------------------------------
+
+    def post_entry(
+        self,
+        state: PatientState,
+        prev_bg: float,
+        posted_at: datetime.datetime,
+    ) -> None:
+        """Care Portal users post manual blood glucose entries as
+        `type: "mbg"` (manual blood glucose), NOT `type: "sgv"`. No
+        `direction` -- a meter doesn't report trend. No `device` --
+        humans aren't devices.
+
+        Sparse cadence: throttled to a min interval (default 30 sim-
+        min, 4-8x denser than a typical Care Portal user but useful
+        for short-window dashboard testing). Also `post_note` may
+        opportunistically fire here at a longer cadence so the lens
+        has at least some Note coverage.
+
+        Per upstream `cgm-remote-monitor`: mbg entries are accepted on
+        `/api/v1/entries.json` alongside sgv entries; the dashboard
+        renders them as a distinct marker.
+        """
+        del prev_bg  # manual entries have no trend so prior BG unused
+        sim_minute = state.sim_minute
+
+        if (
+            self._last_bg_check_min is None
+            or sim_minute - self._last_bg_check_min
+            >= MANUAL_BG_CHECK_INTERVAL_SIM_MIN
+        ):
+            self._last_bg_check_min = sim_minute
+            mbg = int(round(state.bg))
+            entry_payload = [
+                {
+                    "type": "mbg",
+                    "mbg": mbg,
+                    "date": int(posted_at.timestamp() * 1000),
+                    "dateString": iso_z(posted_at),
+                    "device": "",
+                }
+            ]
+            http_post(
+                self.base_url,
+                "/api/v1/entries.json",
+                self._auth_headers,
+                entry_payload,
+            )
+
+            # Emulator simplification: ALSO post a `BG Check`
+            # treatment at the same timestamp. The matching mbg
+            # entry above is what populates the glucose chart
+            # (treatments don't surface there); the BG Check
+            # treatment exposes the meter type (`glucoseType:
+            # "Finger"`) on the treatments timeline.
+            #
+            # Upstream caveat: Care Portal's web UI does NOT
+            # actually double-post. `lib/client/careportal.js`
+            # submits a single `/api/v1/treatments.json` POST per
+            # form submit -- it does NOT separately POST an mbg
+            # entry. Real `mbg` entries on production NS instances
+            # come from xDrip-style direct uploaders, watchface
+            # apps, or scripts hitting the entries endpoint
+            # directly -- NOT Care Portal. We emit both because:
+            # (a) the BG Check treatment's `semantic_kind` is
+            # `fingerstick_bg_check` which the translator
+            # intentionally drops -- so without an `mbg` entry
+            # the GlycemicGPT dashboard would render no BG data
+            # for this lens at all; (b) both shapes are valid NS
+            # wire formats that NS accepts and renders. This is a
+            # documented divergence from upstream Care Portal
+            # client behavior, kept for dashboard test density.
+            bg_check_treatment = [
+                {
+                    "eventType": "BG Check",
+                    "created_at": iso_z(posted_at),
+                    **self._entered_by_field(),
+                    "glucose": mbg,
+                    "glucoseType": "Finger",
+                    "units": "mg/dl",
+                }
+            ]
+            http_post(
+                self.base_url,
+                "/api/v1/treatments.json",
+                self._auth_headers,
+                bg_check_treatment,
+            )
+
+        # Opportunistically fire a Note now and then at a much longer
+        # cadence (~1 per sim day). Notes are user-authored freetext
+        # and don't fit any of the other Lens-contract methods, so we
+        # piggyback the sparse-entry hook to drive them.
+        if (
+            self._last_note_min is None
+            or sim_minute - self._last_note_min >= MANUAL_NOTE_INTERVAL_SIM_MIN
+        ):
+            self._last_note_min = sim_minute
+            self._post_note(posted_at)
+
+    # ---- treatments -----------------------------------------------------
+
+    def post_meal_bolus(
+        self,
+        state: PatientState,
+        carbs_g: float,
+        bolus_u: float,
+        posted_at: datetime.datetime,
+    ) -> None:
+        """Care Portal Meal Bolus: carbs + insulin in a single record
+        with `eventType: "Meal Bolus"`. Per upstream
+        `lib/plugins/careportal.js`. NOT a `Combo Bolus` (that's the
+        AAPS / Care Portal extended-bolus shape with `splitNow` /
+        `splitExt`); plain `"Meal Bolus"` is the canonical Care Portal
+        meal eventType, distinct from oref0's `"Meal Bolus"` /
+        Trio's `"Bolus"` / tconnectsync's `"Combo Bolus"`."""
+        del state
+        payload = [
+            {
+                "eventType": "Meal Bolus",
+                "created_at": iso_z(posted_at),
+                **self._entered_by_field(),
+                "carbs": round(carbs_g, 1),
+                "insulin": bolus_u,
+            }
+        ]
+        http_post(
+            self.base_url,
+            "/api/v1/treatments.json",
+            self._auth_headers,
+            payload,
+        )
+
+    def post_correction_bolus(
+        self,
+        state: PatientState,
+        units: float,
+        posted_at: datetime.datetime,
+    ) -> None:
+        """Care Portal `eventType: "Correction Bolus"` -- the user
+        logged a correction dose for a high BG. May include the BG
+        reading that motivated the correction (`glucose` field) per
+        upstream careportal.js's Correction Bolus shape."""
+        payload = [
+            {
+                "eventType": "Correction Bolus",
+                "created_at": iso_z(posted_at),
+                **self._entered_by_field(),
+                "insulin": units,
+                "glucose": int(round(state.bg)),
+                "glucoseType": "Finger",
+                "units": "mg/dl",
+            }
+        ]
+        http_post(
+            self.base_url,
+            "/api/v1/treatments.json",
+            self._auth_headers,
+            payload,
+        )
+
+    def post_temp_basal(
+        self,
+        state: PatientState,
+        rate_u_hr: float,
+        duration_min: int,
+        posted_at: datetime.datetime,
+    ) -> None:
+        """Humans don't post temp basals through Care Portal -- those
+        come from algorithms (Loop / AAPS / oref0). Care Portal does
+        expose a `Temp Basal Start` eventType but it's rare in practice
+        and would be more confusing than useful in the lens output.
+        No-op: a real Care Portal user just doesn't post these."""
+        return
+
+    def post_devicestatus(
+        self, state: PatientState, posted_at: datetime.datetime
+    ) -> None:
+        """Care Portal does NOT post devicestatus. No algorithm to
+        report state for; no pump connection to read battery /
+        reservoir from. The user's underlying CGM / pump app posts
+        devicestatus via its own integration -- if any. No-op."""
+        return
+
+    def post_site_change(
+        self, state: PatientState, posted_at: datetime.datetime
+    ) -> None:
+        """Real Care Portal users log Site Change manually via the
+        eventType picker after physically changing their infusion
+        set / pod. Triggered here from the shared physiology
+        engine's reservoir-refill hook."""
+        del state
+        payload = [
+            {
+                "eventType": "Site Change",
+                "created_at": iso_z(posted_at),
+                **self._entered_by_field(),
+                "notes": "infusion set change",
+            }
+        ]
+        http_post(
+            self.base_url,
+            "/api/v1/treatments.json",
+            self._auth_headers,
+            payload,
+        )
+
+    # ---- private: Notes -------------------------------------------------
+
+    def _post_note(self, posted_at: datetime.datetime) -> None:
+        """Care Portal's `eventType: "Note"` -- user-authored freetext
+        treatment, no insulin / carbs / glucose. Per upstream
+        careportal.js. Picked deterministically from a small pre-canned
+        list under NS_RANDOM_SEED so dashboard renders show a
+        plausible note rather than a fixed string."""
+        body = self._rng.choice(self._note_bodies)
+        payload = [
+            {
+                "eventType": "Note",
+                "created_at": iso_z(posted_at),
+                **self._entered_by_field(),
+                "notes": body,
+            }
+        ]
+        http_post(
+            self.base_url,
+            "/api/v1/treatments.json",
+            self._auth_headers,
+            payload,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Lens registry
 # ---------------------------------------------------------------------------
 
@@ -4971,7 +5436,7 @@ LENSES: dict[str, type[Lens]] = {
     "librelink_up": LibreLinkUpLens,
     "share2ns": Share2NsLens,
     "tconnectsync": TconnectsyncLens,
-    # Future: "iaps": IapsLens, "manual": ManualLens.
+    "manual": ManualLens,
 }
 
 
