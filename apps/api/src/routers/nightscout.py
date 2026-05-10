@@ -547,9 +547,7 @@ async def run_evaluate(
     `/sync`) -- evaluate is a side-effecting probe, not a passive
     read.
     """
-    conn = await _load_owned(
-        db, connection_id, current_user.id, require_active=True
-    )
+    conn = await _load_owned(db, connection_id, current_user.id, require_active=True)
 
     # AC9: 5-min cache. Return the previously persisted report when
     # the cache window is still warm AND the cached report itself

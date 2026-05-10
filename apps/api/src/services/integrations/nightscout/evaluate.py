@@ -206,9 +206,7 @@ async def evaluate_nightscout_for_connection(
         now=evaluated_at,
     )
 
-    uploaders_detected = _detect_uploaders(
-        recent_entries, treatments, devicestatuses
-    )
+    uploaders_detected = _detect_uploaders(recent_entries, treatments, devicestatuses)
     active_pump_loop = next(
         (u for u in _LOOP_UPLOADERS if u in uploaders_detected), None
     )
@@ -238,9 +236,7 @@ async def evaluate_nightscout_for_connection(
 # ---------------------------------------------------------------------------
 
 
-async def _safe_fetch(
-    coro: Any, *, label: str
-) -> tuple[list[dict[str, Any]], bool]:
+async def _safe_fetch(coro: Any, *, label: str) -> tuple[list[dict[str, Any]], bool]:
     """Run a fetch coroutine and swallow per-resource failures.
 
     The discovery report is degrade-gracefully by design: if
@@ -324,9 +320,7 @@ def _detect_uploaders(
     for record in entries + treatments + devicestatuses:
         if not isinstance(record, dict):
             continue
-        uploader = detect_uploader(
-            record.get("enteredBy"), record.get("device")
-        )
+        uploader = detect_uploader(record.get("enteredBy"), record.get("device"))
         if uploader != "unknown":
             found.add(uploader)
     return found
@@ -406,9 +400,7 @@ def _to_segment_dtos(
             float_value = float(value)  # type: ignore[arg-type]
         except (TypeError, ValueError):
             continue
-        out.append(
-            NightscoutProfileSegmentDTO(time=time_str, value=float_value)
-        )
+        out.append(NightscoutProfileSegmentDTO(time=time_str, value=float_value))
     return out or None
 
 
@@ -478,10 +470,7 @@ def _estimate_total_entries(
     directly observed; <= _ENTRY_COUNT_CEILING so a degenerate input
     doesn't blow up the wizard prose.
     """
-    if (
-        earliest_at is None
-        or recent_count_7d <= 0
-    ):
+    if earliest_at is None or recent_count_7d <= 0:
         return sample_size
 
     span_days = (now - earliest_at).total_seconds() / 86400

@@ -66,9 +66,7 @@ async def _register_and_login(client, email: str, password: str = "Test1234!"):
 
 async def _cleanup(emails: list[str]) -> None:
     async with get_session_maker()() as db:
-        result = await db.execute(
-            User.__table__.select().where(User.email.in_(emails))
-        )
+        result = await db.execute(User.__table__.select().where(User.email.in_(emails)))
         ids = [row.id for row in result.fetchall()]
         if ids:
             await db.execute(
@@ -247,9 +245,7 @@ async def test_orchestrator_happy_path_with_loop_profile():
     conn = _mk_conn()
     client_mock = _mk_client_mock(
         recent_entries=[_xdrip_entry() for _ in range(20)],
-        oldest_entries=[
-            _xdrip_entry("2024-08-12T00:00:00.000Z") for _ in range(100)
-        ],
+        oldest_entries=[_xdrip_entry("2024-08-12T00:00:00.000Z") for _ in range(100)],
         treatments=[_aaps_treatment() for _ in range(5)],
         devicestatus=[{"device": "loop://iPhone/Loop/3.4.5"}],
         profile=[_loop_profile()],
@@ -436,21 +432,27 @@ def test_estimate_total_entries_extrapolates_from_recent_rate():
 
     # No earliest_at -> fall back to sample size (no extrapolation
     # distance).
-    assert _estimate_total_entries(
-        recent_count_7d=2016,
-        earliest_at=None,
-        sample_size=1000,
-        now=now,
-    ) == 1000
+    assert (
+        _estimate_total_entries(
+            recent_count_7d=2016,
+            earliest_at=None,
+            sample_size=1000,
+            now=now,
+        )
+        == 1000
+    )
 
     # Zero recent activity -> use sample size (rate of 0 would
     # under-report what we actually saw).
-    assert _estimate_total_entries(
-        recent_count_7d=0,
-        earliest_at=now - timedelta(days=365),
-        sample_size=500,
-        now=now,
-    ) == 500
+    assert (
+        _estimate_total_entries(
+            recent_count_7d=0,
+            earliest_at=now - timedelta(days=365),
+            sample_size=500,
+            now=now,
+        )
+        == 500
+    )
 
     # Span < 7 days -> recent count IS effectively the total.
     estimate_short = _estimate_total_entries(
@@ -699,9 +701,7 @@ async def test_evaluate_endpoint_404s_soft_deleted_connection(http_client):
 @pytest.mark.asyncio
 async def test_evaluate_endpoint_unauthenticated_rejected(http_client):
     fake_id = uuid.uuid4()
-    resp = await http_client.post(
-        f"/api/integrations/nightscout/{fake_id}/evaluate"
-    )
+    resp = await http_client.post(f"/api/integrations/nightscout/{fake_id}/evaluate")
     assert resp.status_code == 401
 
 
@@ -724,9 +724,7 @@ async def test_evaluate_endpoint_504_on_timeout(http_client):
                 "src.routers.nightscout.evaluate_nightscout_for_connection",
                 new=_hang,
             ),
-            patch(
-                "src.routers.nightscout._EVALUATE_TIMEOUT_SECONDS", 0.05
-            ),
+            patch("src.routers.nightscout._EVALUATE_TIMEOUT_SECONDS", 0.05),
         ):
             resp = await http_client.post(
                 f"/api/integrations/nightscout/{connection_id}/evaluate",
