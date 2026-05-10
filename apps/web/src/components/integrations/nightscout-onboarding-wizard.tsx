@@ -337,10 +337,17 @@ export function NightscoutOnboardingWizard() {
     if (evaluateStartedFor.current === key) return;
     evaluateStartedFor.current = key;
 
+    // Cancellation flag: a Retry click (which bumps
+    // `evaluateAttempt`) or an unmount must stop the in-flight chain
+    // from dispatching to stale state. The async helpers don't take
+    // AbortSignal today, so we gate every dispatch on the flag.
+    let cancelled = false;
+
     const run = async () => {
       try {
         dispatch({ type: "evaluate/start", phase: "evaluating" });
         const discovery = await evaluateNightscoutConnection(state.connectionId!);
+        if (cancelled) return;
         if (!discovery.status_ok) {
           dispatch({
             type: "evaluate/error",
@@ -368,12 +375,15 @@ export function NightscoutOnboardingWizard() {
             syncErr
           );
         }
+        if (cancelled) return;
         dispatch({ type: "evaluate/start", phase: "deriving" });
         const derivation = await getNightscoutOnboardingDerivation(
           state.connectionId!
         );
+        if (cancelled) return;
         dispatch({ type: "evaluate/success", derivation, discovery });
       } catch (err) {
+        if (cancelled) return;
         dispatch({
           type: "evaluate/error",
           message:
@@ -382,6 +392,10 @@ export function NightscoutOnboardingWizard() {
       }
     };
     void run();
+
+    return () => {
+      cancelled = true;
+    };
   }, [state.step, state.connectionId, state.evaluateAttempt]);
 
   // Step 1 submit
@@ -1086,33 +1100,10 @@ function ReviewStep({
         <p className="text-xs text-slate-500 mt-0.5">
           How far back to pull your first sync.
         </p>
-        <div
-          role="radiogroup"
-          aria-label="Initial sync window"
-          className="mt-2 flex flex-wrap gap-2"
-        >
-          {SYNC_WINDOW_OPTIONS.map((opt) => {
-            const selected = opt.days === initialSyncWindowDays;
-            return (
-              <button
-                key={opt.days}
-                type="button"
-                role="radio"
-                aria-checked={selected}
-                onClick={() => onSyncWindowChange(opt.days)}
-                data-testid={`wizard-sync-window-${opt.days}`}
-                className={clsx(
-                  "px-3 py-1 rounded-full text-xs font-medium border transition-colors",
-                  selected
-                    ? "border-blue-500/50 bg-blue-500/10 text-blue-400"
-                    : "border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-                )}
-              >
-                {opt.label}
-              </button>
-            );
-          })}
-        </div>
+        <SyncWindowRadioGroup
+          value={initialSyncWindowDays}
+          onChange={onSyncWindowChange}
+        />
       </div>
 
       {needsUnitsConfirm && (
@@ -1185,6 +1176,93 @@ function ReviewStep({
           Apply &amp; import
         </button>
       </div>
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// Sync-window radio group (roving tabindex + arrow-key nav per ARIA APG)
+// ----------------------------------------------------------------------------
+
+interface SyncWindowRadioGroupProps {
+  value: number;
+  onChange: (days: number) => void;
+}
+
+function SyncWindowRadioGroup({ value, onChange }: SyncWindowRadioGroupProps) {
+  // Roving tabindex: only the selected (or first) option is tab-able;
+  // arrow keys move focus + selection per WAI-ARIA Authoring Practices
+  // for radio groups. Without this, keyboard users tab through every
+  // chip individually (and screen readers don't announce them as a
+  // grouped choice).
+  const refs = useRef<(HTMLButtonElement | null)[]>([]);
+  const currentIndex = Math.max(
+    0,
+    SYNC_WINDOW_OPTIONS.findIndex((o) => o.days === value)
+  );
+
+  const moveTo = (idx: number) => {
+    const len = SYNC_WINDOW_OPTIONS.length;
+    const next = ((idx % len) + len) % len;
+    onChange(SYNC_WINDOW_OPTIONS[next].days);
+    refs.current[next]?.focus();
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent, idx: number) => {
+    switch (e.key) {
+      case "ArrowRight":
+      case "ArrowDown":
+        e.preventDefault();
+        moveTo(idx + 1);
+        break;
+      case "ArrowLeft":
+      case "ArrowUp":
+        e.preventDefault();
+        moveTo(idx - 1);
+        break;
+      case "Home":
+        e.preventDefault();
+        moveTo(0);
+        break;
+      case "End":
+        e.preventDefault();
+        moveTo(SYNC_WINDOW_OPTIONS.length - 1);
+        break;
+    }
+  };
+
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Initial sync window"
+      className="mt-2 flex flex-wrap gap-2"
+    >
+      {SYNC_WINDOW_OPTIONS.map((opt, idx) => {
+        const selected = opt.days === value;
+        return (
+          <button
+            key={opt.days}
+            ref={(el) => {
+              refs.current[idx] = el;
+            }}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            tabIndex={idx === currentIndex ? 0 : -1}
+            onClick={() => onChange(opt.days)}
+            onKeyDown={(e) => onKeyDown(e, idx)}
+            data-testid={`wizard-sync-window-${opt.days}`}
+            className={clsx(
+              "px-3 py-1 rounded-full text-xs font-medium border transition-colors",
+              selected
+                ? "border-blue-500/50 bg-blue-500/10 text-blue-400"
+                : "border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+            )}
+          >
+            {opt.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
