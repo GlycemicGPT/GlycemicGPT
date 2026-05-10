@@ -5675,9 +5675,20 @@ def _validate_nonneg_float(label: str, raw: str) -> float | None:
     return value
 
 
-def _wizard_check_ns_reachable(base_url: str, secret: str) -> bool:
+def _wizard_check_ns_reachable(base_url: str, secret: str) -> str:
     """Pre-flight that the NS instance is up AND the api-secret
-    authenticates. Returns True on success.
+    authenticates. Returns one of:
+
+    - `"ok"` -- URL reachable, secret authenticates, ready to run
+    - `"auth"` -- URL reachable but secret rejected (401/403);
+      caller should re-prompt the SECRET ONLY (not the URL)
+    - `"url"` -- URL unreachable / wrong-target / NS unhealthy;
+      caller should re-prompt URL + secret
+
+    The three-state return lets the wizard avoid making the user
+    retype a correct URL just because they fat-fingered the
+    secret. CR feedback on PR #593: the original boolean return
+    forced both fields to re-prompt on any failure.
 
     `/api/v1/status.json` is gated by the `readable` role and on
     a default-config NS that role is granted to anonymous (the
@@ -5704,27 +5715,35 @@ def _wizard_check_ns_reachable(base_url: str, secret: str) -> bool:
         if exc.code in (401, 403):
             # Some NS configs DO gate `status.json` (e.g.
             # `AUTH_DEFAULT_ROLES=denied`); treat as auth fail.
+            # The URL clearly works (we got an HTTP response),
+            # only the secret is the problem -- re-prompt secret
+            # only.
             print(
                 f"  ERROR: Nightscout rejected the api-secret (HTTP {exc.code}). "
                 "Check the secret and try again."
             )
-            return False
+            return "auth"
+        # Non-auth HTTP errors mean the URL responded with an
+        # error code -- which suggests the URL points to the wrong
+        # target (e.g. a different web app) or the NS instance is
+        # broken. Re-prompt URL.
         print(f"  ERROR: Nightscout returned HTTP {exc.code} {exc.reason}.")
-        return False
+        return "url"
     except urllib.error.URLError as exc:
+        # Network/DNS failure -- URL is wrong or unreachable.
         print(
             f"  ERROR: cannot reach Nightscout at {base_url!r}: {exc.reason}.\n"
             "  Confirm the URL, that the server is running, and that this "
             "host can route to it."
         )
-        return False
+        return "url"
 
     # Step 2: authenticated POST probe (empty array). This is the
     # check that catches wrong-secret-with-anonymous-readable
     # configs.
     #
-    # Strict success contract: only return True when we have actual
-    # evidence the secret authenticates. That means:
+    # Strict success contract: only return "ok" when we have
+    # actual evidence the secret authenticates. That means:
     #   * 2xx on the empty-array POST -- NS accepted the write
     #   * narrow 400/422 -- NS rejected the empty-payload SHAPE
     #     after the auth middleware passed (so auth worked, the
@@ -5734,7 +5753,7 @@ def _wizard_check_ns_reachable(base_url: str, secret: str) -> bool:
     # "secret authenticates" -- the next real write could 401.
     try:
         http_post(base_url, "/api/v1/treatments.json", headers, [])
-        return True  # 2xx
+        return "ok"  # 2xx
     except urllib.error.HTTPError as exc:
         if exc.code in (401, 403):
             print(
@@ -5742,32 +5761,31 @@ def _wizard_check_ns_reachable(base_url: str, secret: str) -> bool:
                 f"(HTTP {exc.code}). The URL is reachable, but writes "
                 "are not authorized. Check the secret and try again."
             )
-            return False
+            return "auth"
         if exc.code in (400, 422):
             # Auth middleware passed; the empty-array payload was
             # the only thing NS objected to. Auth is proven.
-            return True
-        # Anything else: NOT auth-proven. Surface the code clearly
-        # and refuse to bless the target.
+            return "ok"
+        # Anything else: NOT auth-proven. The URL responded but
+        # something is wrong with the target -- re-prompt URL.
         print(
             f"  ERROR: Nightscout returned HTTP {exc.code} {exc.reason} "
             "on the auth probe. The URL responded but write auth was "
             "not proven. Confirm the URL is correct and the NS instance "
-            "is healthy, then rerun the wizard."
+            "is healthy."
         )
-        return False
+        return "url"
     except urllib.error.URLError as exc:
-        # Network blip between reachability and probe -- still a
-        # failure of the contract "wizard guarantees auth works
-        # before the run starts". Better to fail fast and re-prompt
-        # than start a 12-sim-hr run that 401s on every tick.
+        # Network blip between reachability and probe -- treat as
+        # URL-side failure for retry purposes (the user should
+        # confirm the URL even though it briefly responded).
         print(
             f"  ERROR: auth probe network error ({exc.reason}). "
             "The reachability check passed but the write probe didn't "
             "complete -- transient network blip or NS instance is "
-            "flapping. Rerun the wizard."
+            "flapping."
         )
-        return False
+        return "url"
 
 
 def _run_wizard() -> dict[str, str]:
@@ -5813,6 +5831,11 @@ def _run_wizard() -> dict[str, str]:
     print("Where is the Nightscout instance you want to populate?")
     print("If you're running the GlycemicGPT test stack locally, the")
     print("default is correct. Otherwise enter your own NS URL.")
+    # Two nested loops: outer re-prompts URL+secret on URL-side
+    # failures, inner re-prompts SECRET ONLY when the URL is
+    # reachable but auth was rejected. Avoids forcing a user who
+    # mistyped only the secret to also re-confirm the URL. CR
+    # feedback on PR #593.
     while True:
         base_url = _prompt(
             "Nightscout URL", default="http://127.0.0.1:1337"
@@ -5829,14 +5852,34 @@ def _run_wizard() -> dict[str, str]:
                 f"(got {base_url!r})."
             )
             continue
-        secret = _prompt_secret(
-            "Nightscout API secret (input hidden)"
-        )
-        if _wizard_check_ns_reachable(base_url, secret):
-            print(f"  OK -- {base_url} is reachable and the secret authenticates.")
+        # Inner secret-retry loop. Exits via `break` to either
+        # the outer loop's `break` (success) or back to outer
+        # URL re-prompt (URL-side failure).
+        retry_outer = False
+        while True:
+            secret = _prompt_secret(
+                "Nightscout API secret (input hidden)"
+            )
+            result = _wizard_check_ns_reachable(base_url, secret)
+            if result == "ok":
+                print(
+                    f"  OK -- {base_url} is reachable and the "
+                    "secret authenticates."
+                )
+                print()
+                break
+            if result == "auth":
+                # Secret-only failure: re-prompt secret without
+                # forcing a URL re-confirm.
+                print()
+                continue
+            # result == "url": URL-side failure, kick back to the
+            # outer loop so the user can fix the URL.
             print()
+            retry_outer = True
             break
-        print()  # extra blank line before re-prompt
+        if not retry_outer:
+            break
 
     # ---- Platform -------------------------------------------------------
     print("--- Step 2/6: Platform ---------------------------------------")
@@ -5913,16 +5956,29 @@ def _run_wizard() -> dict[str, str]:
     print("=" * 64)
     print("Summary")
     print("=" * 64)
+    # Display floats without trailing `.0` for integer-valued
+    # numbers (`6` not `6.0`, `60` not `60.0`). The `:g` format
+    # spec drops trailing zeros automatically. Same numbers go
+    # into env vars; downstream `_parse_float` handles either form,
+    # but the cleaner string makes the env equally readable to
+    # anyone debugging via `printenv`.
+    duration_str = f"{duration:g}"
+    compression_str = f"{compression:g}"
+    starting_bg_str = f"{starting_bg:g}"
+
     print(f"  Platform:      {platform}")
     print(f"                 {LENS_DESCRIPTIONS.get(platform, '')}")
     print(f"  Nightscout:    {base_url}")
     print("  API secret:    *** (hidden)")
     if duration > 0:
-        print(f"  Sim duration:  {duration} sim-hour{'s' if duration != 1 else ''}")
+        print(
+            f"  Sim duration:  {duration_str} "
+            f"sim-hour{'s' if duration != 1 else ''}"
+        )
     else:
         print("  Sim duration:  unbounded")
-    print(f"  Compression:   {compression}x  ({wall_str})")
-    print(f"  Starting BG:   {starting_bg} mg/dL")
+    print(f"  Compression:   {compression_str}x  ({wall_str})")
+    print(f"  Starting BG:   {starting_bg_str} mg/dL")
     print(f"  Random seed:   {seed if seed else 'random (no reproducibility)'}")
 
     # Surface any lens-specific NS_* env vars the wizard does NOT
@@ -5989,9 +6045,13 @@ def _run_wizard() -> dict[str, str]:
         "platform": platform,
         "NS_BASE_URL": base_url,
         "NS_API_SECRET": secret,
-        "NS_DURATION_HOURS": str(duration),
-        "NS_TIME_COMPRESSION": str(compression),
-        "NS_STARTING_BG": str(starting_bg),
+        # Use `:g` formatting on the env-var values so integer-
+        # valued floats serialize as `6` not `6.0`. Downstream
+        # `_parse_float` accepts either, but a `printenv` /
+        # process-listing reader sees the cleaner form.
+        "NS_DURATION_HOURS": duration_str,
+        "NS_TIME_COMPRESSION": compression_str,
+        "NS_STARTING_BG": starting_bg_str,
     }
     if seed is not None:
         out["NS_RANDOM_SEED"] = seed
