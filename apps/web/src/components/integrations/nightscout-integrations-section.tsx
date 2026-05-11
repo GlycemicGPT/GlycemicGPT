@@ -12,7 +12,9 @@ import {
   Eye,
   EyeOff,
   RefreshCw,
+  Sparkles,
 } from "lucide-react";
+import Link from "next/link";
 import clsx from "clsx";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import type {
@@ -615,9 +617,53 @@ export function NightscoutIntegrationsSection({
               </ul>
             )}
 
+            <div
+              className="bg-blue-500/5 dark:bg-blue-500/10 rounded-lg p-4 border border-blue-500/30 flex items-start gap-3"
+              data-testid="nightscout-smart-onboarding-cta"
+            >
+              <div className="p-2 rounded-lg bg-blue-500/10 shrink-0">
+                <Sparkles className="h-5 w-5 text-blue-400" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h4 className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                  Smart onboarding
+                </h4>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  Walk through a 5-step wizard that reads your existing
+                  Nightscout profile and pre-fills your target range, ISF,
+                  carb ratio, basal schedule, and DIA.
+                </p>
+                <Link
+                  href="/dashboard/settings/integrations/nightscout/connect"
+                  className={clsx(
+                    "mt-3 inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium",
+                    "bg-blue-600 text-white hover:bg-blue-500",
+                    "transition-colors"
+                  )}
+                  data-testid="nightscout-smart-onboarding-link"
+                  prefetch={false}
+                >
+                  <Sparkles className="h-4 w-4" />
+                  Start smart onboarding
+                </Link>
+              </div>
+            </div>
+
+            <details
+              className="bg-slate-50 dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800"
+              data-testid="nightscout-expert-mode"
+            >
+              <summary
+                className="px-4 py-3 cursor-pointer text-sm font-medium text-slate-700 dark:text-slate-200 list-none flex items-center justify-between"
+              >
+                Expert mode (manual setup)
+                <span className="text-xs font-normal text-slate-500">
+                  Skip the wizard
+                </span>
+              </summary>
+              <div className="border-t border-slate-200 dark:border-slate-800 p-4">
             <form
               onSubmit={handleCreate}
-              className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4 border border-slate-200 dark:border-slate-800"
               aria-label="Add a Nightscout connection"
             >
               <h4 className="text-sm font-medium text-slate-700 dark:text-slate-200 mb-3">
@@ -815,6 +861,8 @@ export function NightscoutIntegrationsSection({
                 </button>
               </div>
             </form>
+              </div>
+            </details>
           </div>
         </CollapsibleSection>
       </div>

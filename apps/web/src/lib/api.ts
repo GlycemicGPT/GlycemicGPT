@@ -2082,6 +2082,204 @@ export async function patchNightscoutConnection(
   return response.json();
 }
 
+// ----------------------------------------------------------------------------
+// Nightscout smart-onboarding wizard endpoints
+// ----------------------------------------------------------------------------
+
+export interface NightscoutProfileSegmentDTO {
+  time: string;
+  value: number;
+  // The backend model has `extra="allow"` — Loop/AAPS-style fields like
+  // `timeAsSeconds` may flow through. Keep TS open so we don't strip on
+  // round-trip.
+  [key: string]: unknown;
+}
+
+export interface NightscoutDiscoveryProfileSummary {
+  target_low: number | null;
+  target_high: number | null;
+  dia_hours: number | null;
+  units: "mg/dl" | "mmol" | null;
+  timezone: string | null;
+  carb_ratio_schedule: NightscoutProfileSegmentDTO[] | null;
+  isf_schedule: NightscoutProfileSegmentDTO[] | null;
+  basal_schedule: NightscoutProfileSegmentDTO[] | null;
+  target_low_schedule: NightscoutProfileSegmentDTO[] | null;
+  target_high_schedule: NightscoutProfileSegmentDTO[] | null;
+  is_malformed: boolean;
+}
+
+export interface NightscoutDiscoveryReport {
+  status_ok: boolean;
+  server_version: string | null;
+  earliest_entry_at: string | null;
+  entry_count_estimate: number;
+  recent_entry_count_7d: number;
+  uploaders_detected: string[];
+  has_treatments: boolean;
+  treatment_count_estimate: number;
+  has_devicestatus: boolean;
+  has_profile: boolean;
+  profile_summary: NightscoutDiscoveryProfileSummary | null;
+  active_pump_loop: string | null;
+  partial_resources: string[];
+  evaluated_at: string;
+  error: string | null;
+}
+
+export interface OnboardingScheduleSegment {
+  start_minutes: number;
+  value: number;
+}
+
+export interface OnboardingNumericFieldDerivation {
+  field: string;
+  current_value: number | null;
+  proposed_value: number | null;
+  default_checked: boolean;
+}
+
+export interface OnboardingScheduleFieldDerivation {
+  field: string;
+  current_segments: OnboardingScheduleSegment[] | null;
+  proposed_segments: OnboardingScheduleSegment[] | null;
+  default_checked: boolean;
+}
+
+export interface OnboardingDerivation {
+  has_profile: boolean;
+  units_converted: boolean;
+  units_unknown: boolean;
+  target_low: OnboardingNumericFieldDerivation;
+  target_high: OnboardingNumericFieldDerivation;
+  dia_hours: OnboardingNumericFieldDerivation;
+  carb_ratio_schedule: OnboardingScheduleFieldDerivation;
+  isf_schedule: OnboardingScheduleFieldDerivation;
+  basal_schedule: OnboardingScheduleFieldDerivation;
+}
+
+export type FirstSyncStatus = "ok" | "timeout" | "error" | "skipped";
+
+export interface NightscoutApplyOnboardingRequest {
+  import_target_low?: boolean;
+  import_target_high?: boolean;
+  import_dia_hours?: boolean;
+  import_basal_schedule?: boolean;
+  import_carb_ratio_schedule?: boolean;
+  import_isf_schedule?: boolean;
+  override_target_low?: number | null;
+  override_target_high?: number | null;
+  override_dia_hours?: number | null;
+  initial_sync_window_days?: number | null;
+  confirm_units_unknown?: boolean;
+}
+
+export interface NightscoutApplyOnboardingResponse {
+  connection_id: string;
+  applied: Record<string, boolean>;
+  target_glucose_range: Record<string, unknown> | null;
+  insulin_config: Record<string, unknown> | null;
+  pump_profile_id: string | null;
+  first_sync_status: FirstSyncStatus;
+  first_sync_error: string | null;
+  sync_result: NightscoutManualSyncResponse | null;
+}
+
+// Extract a usable error message from an upstream non-2xx response.
+// Falls back to text() when the body isn't JSON (e.g. an nginx 502
+// HTML page or a WAF block message) so the user sees something
+// actionable instead of a bare status code.
+async function _readErrorDetail(
+  response: Response,
+  fallback: string
+): Promise<string> {
+  try {
+    const text = await response.text();
+    if (!text) return `${fallback}: ${response.status}`;
+    try {
+      const json = JSON.parse(text);
+      if (json && typeof json.detail === "string") return json.detail;
+      // FastAPI 422 returns `detail` as a list of `{loc, msg, type}`
+      // entries; other endpoints may return a structured object.
+      // Stringify (trimmed) rather than drop on the floor.
+      if (json && json.detail !== undefined) {
+        try {
+          return `${fallback}: ${response.status} ${JSON.stringify(json.detail).slice(0, 300)}`;
+        } catch {
+          // serialisation failed (cycles); fall through.
+        }
+      }
+    } catch {
+      // Not JSON -- pass the raw text through, trimmed.
+      const trimmed = text.trim().slice(0, 300);
+      if (trimmed) return `${fallback}: ${response.status} ${trimmed}`;
+    }
+  } catch {
+    // body read failed (network / abort); fall through.
+  }
+  return `${fallback}: ${response.status}`;
+}
+
+// POST evaluate — discovery report. Cached server-side ~5min on the row,
+// so two wizard openings in a row don't re-fetch the upstream sample.
+export async function evaluateNightscoutConnection(
+  connectionId: string
+): Promise<NightscoutDiscoveryReport> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/nightscout/${encodeURIComponent(
+      connectionId
+    )}/evaluate`,
+    { method: "POST" }
+  );
+  if (!response.ok) {
+    throw new Error(
+      await _readErrorDetail(response, "Failed to evaluate Nightscout connection")
+    );
+  }
+  return response.json();
+}
+
+export async function getNightscoutOnboardingDerivation(
+  connectionId: string
+): Promise<OnboardingDerivation> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/nightscout/${encodeURIComponent(
+      connectionId
+    )}/onboarding-derivation`
+  );
+  if (!response.ok) {
+    throw new Error(
+      await _readErrorDetail(
+        response,
+        "Failed to read Nightscout onboarding derivation"
+      )
+    );
+  }
+  return response.json();
+}
+
+export async function applyNightscoutOnboarding(
+  connectionId: string,
+  body: NightscoutApplyOnboardingRequest
+): Promise<NightscoutApplyOnboardingResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/nightscout/${encodeURIComponent(
+      connectionId
+    )}/apply-onboarding`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }
+  );
+  if (!response.ok) {
+    throw new Error(
+      await _readErrorDetail(response, "Failed to apply Nightscout onboarding")
+    );
+  }
+  return response.json();
+}
+
 // ============================================================================
 // Story 18.3: Tandem Cloud Upload
 // ============================================================================
