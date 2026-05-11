@@ -2382,6 +2382,7 @@ export interface AIProviderConfigResponse {
   status: AIProviderStatus;
   model_name: string | null;
   base_url: string | null;
+  max_response_tokens: number | null;
   sidecar_provider: SidecarProviderName | null;
   masked_api_key: string;
   last_validated_at: string | null;
@@ -2395,6 +2396,11 @@ export interface AIProviderConfigRequest {
   api_key: string;
   model_name?: string | null;
   base_url?: string | null;
+  // NULL = use the per-context default (1200 web / 800 Telegram).
+  // Raise this when running a thinking model (Qwen3, DeepSeek-R1) --
+  // internal reasoning tokens count against the same budget as the
+  // visible response. Backend enforces 256-32768. See issue #554.
+  max_response_tokens?: number | null;
 }
 
 export interface AIProviderTestResponse {

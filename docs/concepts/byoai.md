@@ -117,6 +117,7 @@ This option points GlycemicGPT at any URL that speaks the OpenAI Chat Completion
 - **Base URL** -- the endpoint URL (e.g. `http://localhost:11434/v1` for Ollama, `https://openrouter.ai/api/v1` for OpenRouter)
 - **Model name** -- whichever model the endpoint exposes
 - **API key** -- if the endpoint requires one (router services do; local servers usually don't, but the field still requires any non-empty string)
+- **Max response tokens** -- leave blank for the default (1200). **Raise this to 4096 or higher if you're running a thinking model** like Qwen3 or DeepSeek-R1. Thinking models spend tokens on internal reasoning (`<think>...</think>` blocks) before the visible response, and the reasoning counts against the same per-response budget as the answer -- if the cap is too low, the model exhausts the budget thinking and the visible output is truncated to a single word or returns empty. Symptoms: responses like just "Based" with nothing after, or empty replies. Bump the cap and the response comes through. Reported behavior in [issue #554](https://github.com/GlycemicGPT/GlycemicGPT/issues/554).
 
 **Properties of this option:**
 

@@ -27,7 +27,11 @@ from src.logging_config import get_logger
 from src.models.chat_message import ChatRole
 from src.models.user import User
 from src.schemas.ai_response import AIMessage
-from src.services.ai_client import get_ai_client
+from src.services.ai_client import (
+    get_ai_client,
+    get_user_max_response_tokens,
+    resolve_max_response_tokens,
+)
 from src.services.chat_history import (
     get_or_create_conversation,
     get_recent_messages,
@@ -164,6 +168,10 @@ async def handle_chat(
             "\u26a0\ufe0f There is an issue with your AI provider configuration. "
             "Please check Settings or try again later."
         )
+    max_tokens = resolve_max_response_tokens(
+        await get_user_max_response_tokens(user, db),
+        TELEGRAM_MAX_RESPONSE_TOKENS,
+    )
 
     # Truncate overly long user messages to limit token usage
     truncated_text = text[:MAX_USER_MESSAGE_LENGTH]
@@ -196,7 +204,7 @@ async def handle_chat(
         ai_response = await ai_client.generate(
             messages=messages,
             system_prompt=system_prompt,
-            max_tokens=TELEGRAM_MAX_RESPONSE_TOKENS,
+            max_tokens=max_tokens,
         )
     except Exception:
         logger.error(
@@ -312,6 +320,10 @@ async def handle_chat_web(
                 detail="No AI provider configured",
             ) from exc
         raise
+    max_tokens = resolve_max_response_tokens(
+        await get_user_max_response_tokens(user, db),
+        WEB_MAX_RESPONSE_TOKENS,
+    )
 
     truncated_text = text[:MAX_USER_MESSAGE_LENGTH]
 
@@ -345,7 +357,7 @@ async def handle_chat_web(
         ai_response = await ai_client.generate(
             messages=messages,
             system_prompt=system_prompt,
-            max_tokens=WEB_MAX_RESPONSE_TOKENS,
+            max_tokens=max_tokens,
         )
     except Exception:
         logger.error(
@@ -507,6 +519,13 @@ async def handle_caregiver_chat(
             "\u26a0\ufe0f There is an issue with the AI provider configuration. "
             "Please try again later."
         )
+    # Honor the *patient's* token override -- caregiver chat runs on
+    # the patient's AI provider config, so a thinking-model setting
+    # on the patient's side must apply here too.
+    max_tokens = resolve_max_response_tokens(
+        await get_user_max_response_tokens(patient, db),
+        TELEGRAM_MAX_RESPONSE_TOKENS,
+    )
 
     # Truncate overly long user messages
     truncated_text = text[:MAX_USER_MESSAGE_LENGTH]
@@ -531,7 +550,7 @@ async def handle_caregiver_chat(
         ai_response = await ai_client.generate(
             messages=[AIMessage(role="user", content=truncated_text)],
             system_prompt=system_prompt,
-            max_tokens=TELEGRAM_MAX_RESPONSE_TOKENS,
+            max_tokens=max_tokens,
         )
     except Exception:
         logger.error(
@@ -608,6 +627,10 @@ async def handle_caregiver_chat_web(
                 detail="No AI provider configured for this patient",
             ) from exc
         raise
+    max_tokens = resolve_max_response_tokens(
+        await get_user_max_response_tokens(patient, db),
+        WEB_MAX_RESPONSE_TOKENS,
+    )
 
     truncated_text = text[:MAX_USER_MESSAGE_LENGTH]
 
@@ -630,7 +653,7 @@ async def handle_caregiver_chat_web(
         ai_response = await ai_client.generate(
             messages=[AIMessage(role="user", content=truncated_text)],
             system_prompt=system_prompt,
-            max_tokens=WEB_MAX_RESPONSE_TOKENS,
+            max_tokens=max_tokens,
         )
     except Exception:
         logger.error(
