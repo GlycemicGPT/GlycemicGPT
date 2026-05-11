@@ -171,6 +171,9 @@ export default function AIProviderPage() {
   const [showApiKey, setShowApiKey] = useState(false);
   const [modelName, setModelName] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
+  // Empty string = "use the default" -- carried as a string for input
+  // ergonomics and parsed at submit. Backend bounds 256-32768.
+  const [maxResponseTokens, setMaxResponseTokens] = useState("");
 
   // Action state
   const [isSaving, setIsSaving] = useState(false);
@@ -201,6 +204,7 @@ export default function AIProviderPage() {
     setApiKey("");
     setBaseUrl("");
     setModelName("");
+    setMaxResponseTokens("");
     setSubscriptionToken("");
     setAuthInstructions(null);
     // Clear stale messages from previous provider context
@@ -227,6 +231,9 @@ export default function AIProviderPage() {
       setProviderType(knownType);
       setModelName(data.model_name || "");
       setBaseUrl(data.base_url || "");
+      setMaxResponseTokens(
+        data.max_response_tokens != null ? String(data.max_response_tokens) : ""
+      );
       setIsOffline(false);
     } catch (err) {
       const is401 = err instanceof Error && err.message.includes("401");
@@ -391,6 +398,21 @@ export default function AIProviderPage() {
       setError("Please enter a model name for this provider type");
       return;
     }
+    // Pre-validate max_response_tokens locally so the user gets an
+    // immediate error rather than a 422 round-trip. Empty string =
+    // "use server default" -> send null.
+    let maxTokens: number | null = null;
+    const trimmedMax = maxResponseTokens.trim();
+    if (trimmedMax !== "") {
+      const parsed = Number(trimmedMax);
+      if (!Number.isInteger(parsed) || parsed < 256 || parsed > 32768) {
+        setError(
+          "Max response tokens must be a whole number between 256 and 32768 (or leave blank to use the default)"
+        );
+        return;
+      }
+      maxTokens = parsed;
+    }
 
     setIsSaving(true);
     setError(null);
@@ -402,6 +424,7 @@ export default function AIProviderPage() {
         api_key: apiKey.trim() || "not-needed",
         model_name: modelName.trim() || null,
         base_url: baseUrl.trim() || null,
+        max_response_tokens: maxTokens,
       });
       setConfig(result);
       setApiKey("");
@@ -450,6 +473,7 @@ export default function AIProviderPage() {
       setApiKey("");
       setModelName("");
       setBaseUrl("");
+      setMaxResponseTokens("");
       setSubscriptionToken("");
       setAuthInstructions(null);
       setProviderType("claude_api");
@@ -1094,6 +1118,46 @@ export default function AIProviderPage() {
                     {selectedProvider.requiresModelName
                       ? "Required: specify which model to use on your endpoint."
                       : "Leave blank to use the default model."}
+                  </p>
+                </div>
+
+                {/* Max response tokens — issue #554 fix for thinking
+                    models. The platform-level default is 1200 (web)
+                    / 800 (Telegram); raise this when running a model
+                    that emits internal reasoning tokens. */}
+                <div className="space-y-2">
+                  <label
+                    htmlFor="max-response-tokens"
+                    className="block text-sm font-medium text-slate-600 dark:text-slate-300"
+                  >
+                    Max response tokens{" "}
+                    <span className="text-slate-500 font-normal">(optional)</span>
+                  </label>
+                  <input
+                    id="max-response-tokens"
+                    type="number"
+                    inputMode="numeric"
+                    min={256}
+                    max={32768}
+                    step={64}
+                    value={maxResponseTokens}
+                    onChange={(e) => setMaxResponseTokens(e.target.value)}
+                    placeholder="1200 (default)"
+                    disabled={isOffline || isSaving}
+                    aria-describedby="max-response-tokens-hint"
+                    className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-4 py-3 text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent disabled:opacity-50 text-sm"
+                  />
+                  <p
+                    id="max-response-tokens-hint"
+                    className="text-xs text-slate-500"
+                  >
+                    Per-response cap the AI is allowed to spend. Leave
+                    blank to use the default. <strong>If you&apos;re
+                    using a thinking model</strong> (Qwen3, DeepSeek-R1,
+                    o1-style models), raise this to 4096 or higher --
+                    their internal reasoning tokens count against the
+                    same budget, so the default can be exhausted before
+                    any visible response is produced.
                   </p>
                 </div>
               </>

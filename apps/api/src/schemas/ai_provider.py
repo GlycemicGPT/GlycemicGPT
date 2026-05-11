@@ -167,6 +167,18 @@ class AIProviderConfigRequest(BaseModel):
         max_length=500,
         description="Base URL for subscription proxies or self-hosted endpoints",
     )
+    max_response_tokens: int | None = Field(
+        default=None,
+        ge=256,
+        le=32768,
+        description=(
+            "Per-response token budget for AI chat. NULL = use the "
+            "per-context default (1200 web / 800 Telegram). Raise this "
+            "when using a thinking model (Qwen3, DeepSeek-R1) -- "
+            "their internal reasoning tokens count against the same "
+            "budget. See issue #554."
+        ),
+    )
 
     @model_validator(mode="after")
     def validate_provider_requirements(self) -> "AIProviderConfigRequest":
@@ -208,6 +220,7 @@ class AIProviderConfigResponse(BaseModel):
     status: AIProviderStatus
     model_name: str | None = None
     base_url: str | None = None
+    max_response_tokens: int | None = None
     sidecar_provider: str | None = None
     masked_api_key: str = Field(
         ...,

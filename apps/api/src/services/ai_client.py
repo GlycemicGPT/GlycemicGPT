@@ -95,6 +95,44 @@ class BaseAIClient(abc.ABC):
         """
 
 
+async def get_user_max_response_tokens(
+    user: User,
+    db: AsyncSession,
+) -> int | None:
+    """Return the user's per-response token budget override, or None.
+
+    NULL = the caller should use its per-context default. This lookup
+    is intentionally cheap (single indexed query on a row the chat
+    paths already touch elsewhere); callers may also pre-load the
+    AIProviderConfig themselves and read `config.max_response_tokens`
+    directly to save a query.
+
+    See issue #554 for why this is configurable: thinking models like
+    Qwen3 / DeepSeek-R1 spend tokens on internal `<think>` reasoning
+    that counts against the same budget as the visible response.
+    """
+    result = await db.execute(
+        select(AIProviderConfig.max_response_tokens).where(
+            AIProviderConfig.user_id == user.id
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+def resolve_max_response_tokens(
+    override: int | None,
+    default: int,
+) -> int:
+    """Pick the effective per-response token budget for one call.
+
+    `override` is the user's `max_response_tokens` setting (loaded via
+    `get_user_max_response_tokens`); `default` is the context's
+    historical default (1200 for web, 800 for Telegram). NULL override
+    preserves prior behavior exactly.
+    """
+    return override if override is not None else default
+
+
 async def get_ai_client(
     user: User,
     db: AsyncSession,
