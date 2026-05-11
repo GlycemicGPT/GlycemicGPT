@@ -69,6 +69,7 @@ async def _resolve_max_tokens_for_user(
         )
         return default_max_tokens
 
+
 # Telegram message length limit
 TELEGRAM_MAX_LENGTH = 4096
 
@@ -347,9 +348,7 @@ async def handle_chat_web(
                 detail="No AI provider configured",
             ) from exc
         raise
-    max_tokens = await _resolve_max_tokens_for_user(
-        db, user, WEB_MAX_RESPONSE_TOKENS
-    )
+    max_tokens = await _resolve_max_tokens_for_user(db, user, WEB_MAX_RESPONSE_TOKENS)
 
     truncated_text = text[:MAX_USER_MESSAGE_LENGTH]
 
