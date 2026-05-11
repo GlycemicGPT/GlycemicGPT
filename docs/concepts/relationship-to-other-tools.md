@@ -13,7 +13,7 @@ The breakdown by tool is below.
 
 | Tool | What it does | Relationship to GlycemicGPT |
 |---|---|---|
-| [Nightscout](https://nightscout.github.io/) | Web dashboard, alerts, follower auth, broad CGM/pump bridging | Closest peer in the OSS world. Phase 2 will let GlycemicGPT pull from your Nightscout instead of polling Dexcom independently. |
+| [Nightscout](https://nightscout.github.io/) | Web dashboard, alerts, follower auth, broad CGM/pump bridging | Closest peer in the OSS world. GlycemicGPT can read CGM entries, treatments, devicestatus, and your profile straight from your Nightscout site. See [Integrations → Nightscout](../daily-use/integrations.md#nightscout). |
 | [Loop](https://loopkit.github.io/loopdocs/) | iOS closed-loop insulin delivery | Different category. GlycemicGPT is monitoring/analysis only; Loop closes the loop. We recommend you use both. |
 | [AndroidAPS / AAPS](https://androidaps.readthedocs.io/) | Android closed-loop with broad pump support | Same: different category. We recommend you use both. |
 | [Trio](https://triodocs.org/) / [iAPS](https://iaps-app.org/) | Loop forks for iOS | Same as Loop. We recommend you use both. |
@@ -52,8 +52,9 @@ Both deliver the standard diabetes-platform table stakes (real-time glucose, ale
 
 **If you already run Nightscout today:**
 
-- **Phase 1 (today):** GlycemicGPT and Nightscout work side-by-side without interference. They both pull from Dexcom's cloud independently using your Dexcom account credentials. There's no integration between them yet -- this means two tools polling Dexcom on your behalf, which is wasteful but not broken.
-- **Phase 2 (planned):** GlycemicGPT will be able to use your Nightscout instance as a data source. You'd configure GlycemicGPT to read CGM entries and pump data from your Nightscout's `/api/v1/entries.json` and `/api/v1/treatments.json` endpoints, eliminating the duplicate Dexcom polling. See [ROADMAP.md](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/ROADMAP.md).
+GlycemicGPT can use your Nightscout instance as a data source. You configure a Nightscout connection (URL + API_SECRET or bearer token) in **Settings → Integrations**, and GlycemicGPT reads CGM entries, treatments (boluses, carbs, basal changes), devicestatus (loop / pump status), and your profile from your Nightscout's `/api/v1/*.json` endpoints. A guided 5-step **smart onboarding wizard** also pre-fills your GlycemicGPT settings (target range, ISF, carb ratio, basal schedule, DIA) from your existing Nightscout profile -- so a Nightscout user lands on a populated dashboard instead of a blank one. Full setup is documented under [Integrations → Nightscout](../daily-use/integrations.md#nightscout).
+
+If you'd rather GlycemicGPT keep polling Dexcom directly and use Nightscout only as a backstop, you can wire up both -- they coexist without conflict. The platform de-duplicates on import, so running both adds redundancy without doubling stored data.
 
 If you're a Nightscout admin curious about what GlycemicGPT adds on top of what you already run, the answer is: AI chat, AI-written briefs, AGP visualization on the home dashboard, and finer-grained caregiver permissions. The data model overlaps; the analytical surface above the data is where they differ.
 
@@ -68,7 +69,7 @@ GlycemicGPT is a different category of tool. It does not, will not, and cannot d
 **If you're already a Looper / AAPS user:**
 
 - GlycemicGPT does not replace any of what your closed-loop system does. There is no overlap at the dosing layer.
-- GlycemicGPT can read the CGM data your loop is acting on (today via Dexcom directly; later via Nightscout if you have one). Then the analysis layer and the AI chat answer questions about *what your loop did* -- "what happened during this overnight series of microboluses?", "did the loop catch the post-meal rise on time?", "is there a weekly pattern in correction frequency?".
+- GlycemicGPT can read the CGM data your loop is acting on -- either via Dexcom directly, or via your loop's Nightscout uploader (see [Integrations → Nightscout](../daily-use/integrations.md#nightscout)). Once the data flows in, the analysis layer and the AI chat answer questions about *what your loop did* -- "what happened during this overnight series of microboluses?", "did the loop catch the post-meal rise on time?", "is there a weekly pattern in correction frequency?".
 - The benefit is retrospective analysis and pattern interrogation. It does not affect or interact with your loop's runtime decisions.
 
 We recommend Loopers run both: closed-loop for runtime delivery, GlycemicGPT for the analysis and AI layer over the data your loop generates.
@@ -92,7 +93,7 @@ If you currently rely on Tidepool for endo appointments, **keep using Tidepool**
 **Relationship to GlycemicGPT:**
 
 - xDrip+ is a far more mature CGM-side tool for non-Dexcom sensors than anything GlycemicGPT does today. If you use a Libre or an older Dexcom, **xDrip+ is your CGM companion, not the GlycemicGPT mobile app.**
-- xDrip+ uploads to Nightscout. Once GlycemicGPT can read from Nightscout (Phase 2), the data flow is: sensor → xDrip+ → Nightscout → GlycemicGPT. That's the canonical path for non-Dexcom CGMs once Phase 2 lands.
+- xDrip+ uploads to Nightscout. The canonical path for non-Dexcom CGMs (Libre 2 / 3 / 3+, Eversense, etc.) is: sensor → xDrip+ → Nightscout → GlycemicGPT. See [Integrations → Nightscout](../daily-use/integrations.md#nightscout) for the setup.
 - The two coexist without conflict today. They're solving different problems at different layers.
 
 ## Sugarmate
@@ -116,7 +117,7 @@ If Sugarmate works for you and self-hosting isn't appealing, Sugarmate is the lo
 
 ## "Should I switch?"
 
-- **You already have Nightscout?** Keep it. Run GlycemicGPT alongside it today; Phase 2 will give you a real integration. The AI chat, AI briefs, and AGP-on-the-home-dashboard are the additions on top of what Nightscout gives you.
+- **You already have Nightscout?** Keep it. Connect it to GlycemicGPT via [Integrations → Nightscout](../daily-use/integrations.md#nightscout) and a guided wizard reads your existing profile to pre-fill GlycemicGPT's settings. The AI chat, AI briefs, and AGP-on-the-home-dashboard are the additions on top of what Nightscout already gives you.
 - **You're a Looper?** Keep Looping. GlycemicGPT is the analysis and AI layer on top, not a replacement for any part of your closed-loop stack. We recommend running both.
 - **You use Tidepool for endo appointments?** Keep using Tidepool until GlycemicGPT supports a Tidepool-equivalent export. Tidepool will likely remain in your stack indefinitely as the clinician-facing report format.
 - **You have nothing today and are evaluating from scratch?** GlycemicGPT can be your full stack on its own (CGM → dashboard → AI). The existing tools have years of polish; you'd be choosing AI-first novelty over years of community shake-down. That's a fair trade for some users; not for others.
