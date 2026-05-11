@@ -2,6 +2,7 @@
   "title": "Daily Use",
   "pages": [
     "dashboard",
+    "integrations",
     "connecting-dexcom",
     "connecting-tandem-cloud",
     "ai-chat",

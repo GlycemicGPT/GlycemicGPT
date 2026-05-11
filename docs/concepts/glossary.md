@@ -90,7 +90,7 @@ Brief glossary of the projects you might encounter in T1 communities. See [Relat
 
 ### Nightscout
 
-The open-source web dashboard that has been the backbone of self-hosted CGM monitoring since around 2014. Runs on Heroku / Render / Atlas + Vercel; has follower-token authentication; broad CGM and pump bridging via plugins; rich JSON API. Phase 2 of GlycemicGPT will support pulling from Nightscout as a data source. [nightscout.github.io](https://nightscout.github.io/)
+The open-source web dashboard that has been the backbone of self-hosted CGM monitoring since around 2014. Runs on Heroku / Render / Atlas + Vercel; has follower-token authentication; broad CGM and pump bridging via plugins; rich JSON API. GlycemicGPT can read CGM entries, treatments, devicestatus, and your profile straight from your Nightscout site -- see [Integrations → Nightscout](../daily-use/integrations.md#nightscout). [nightscout.github.io](https://nightscout.github.io/)
 
 ### Loop
 
