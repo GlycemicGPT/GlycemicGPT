@@ -1,0 +1,13 @@
+{
+  "eventType": "Carb Correction",
+  "created_at": "2026-05-06T13:15:00Z",
+  "timestamp": "2026-05-06T13:15:00Z",
+  "enteredBy": "Loop",
+  "device": "loop://iPhone",
+  "identifier": "C3F7A0B1D8E9F1A2B3C4D5E6",
+  "carbs": 42,
+  "absorptionTime": 180,
+  "foodType": "Pizza",
+  "userEnteredAt": "2026-05-06T13:14:55Z",
+  "userLastModifiedAt": "2026-05-06T13:14:55Z"
+}

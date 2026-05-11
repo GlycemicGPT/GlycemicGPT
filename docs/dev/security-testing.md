@@ -200,6 +200,116 @@ reason = "Not exploitable -- only affects feature X which we don't use"
 
 Every suppression must include a reason. Review suppressions quarterly.
 
+## Dependency Auto-Merge Coverage
+
+This section is the contract that governs which Renovate dependency updates are eligible for automated merge. A dependency category is auto-merge eligible only when this table proves the relevant security tests fire when that category changes, and the relevant required status checks are wired to fail-block the merge if a regression slips in.
+
+If a category is missing from the table, or any of its rows is marked as a gap, that category stays manual until the gap is closed. **Default-deny**: any dependency category not explicitly classified here as auto-merge-eligible stays manual.
+
+This contract governs Renovate only. Dependabot is not enabled in this repository (no `.github/dependabot.yml`).
+
+### Threat model
+
+Coverage is scoped to what an end-user deploying GlycemicGPT exposes to the internet. The deploy examples (`deploy/examples/cloudflare-tunnel/`, `prod-caddy/`, `public-cloud/`, `external-redis/`) reverse-proxy only the web service. The API is reachable through Next.js rewrites on the docker network.
+
+**The AI sidecar is internal-only.** No `ports:` mapping in any deploy example, no Caddyfile / cloudflared upstream points at it. The sidecar row's "no DAST required" verdict depends on this; if a future deploy example exposes the sidecar, re-evaluate that row.
+
+The API-to-sidecar boundary is enforced by a shared bearer token (`SIDECAR_API_KEY`, see `sidecar/src/server.ts`). SSRF tests in `scripts/security/test-research-security.py` block outbound requests to RFC1918 addresses, which includes the docker-network address where the sidecar lives.
+
+GlycemicGPT also does not run AI models. The `apps/api` Python SDKs (`anthropic`, `openai`) and the sidecar's CLI subprocesses are HTTP/process bridges to models that the user hosts (subscription, BYOAI key, or local LLM). Prompt-injection or jailbreak testing of our code is out of scope -- there is no model in our containers to attack. Bridge-layer concerns (key handling, IDOR on AI endpoints, malformed-input crashes) are covered by the existing IDOR / secrets / fuzz suites.
+
+### Defense-in-depth controls outside the test surface
+
+Several controls complement the in-CI tests and are part of why patch+minor auto-merge is acceptable:
+
+- **`minimumReleaseAge: "3 days"`** in `.github/renovate.json5` -- newly published versions wait 3 days before Renovate creates a PR. This is the primary defense against compromised-publish events of the kind that hit `event-stream`, `colors.js`, and `chalk`/`debug`. Vulnerability-flagged updates skip the soak window automatically (Renovate also auto-bypasses `prHourlyLimit`, `prConcurrentLimit`, and `schedule` for security alerts by design).
+- **`internalChecksFilter: "strict"`** in `.github/renovate.json5` -- Renovate refuses to surface updates that fail its own pre-PR sanity checks (e.g., missing changelog metadata, parse failures).
+- **File-scope guard in `.github/workflows/auto-merge-renovate.yml`** -- before any auto-merge call, the workflow verifies the PR only touches files in a hardcoded allowlist (lockfiles, manifests, Dockerfiles, workflow `uses:` pins, Renovate's own config). A Renovate PR that touches anything outside that list -- source code, CODEOWNERS, README, etc. -- is rejected and falls through to human review.
+
+This contract assumes the Renovate App is uncompromised. The App's repository permissions are the upper bound on what Renovate can do; review them when permissions change.
+
+### Coverage table
+
+Read this as: "if a Renovate PR changes a dependency in the **Dep Category** column, the **Tests That Fire** column is what runs and must pass before merge."
+
+| Dep Category | Manager / Manifest | Trigger Path Filter | Tests That Fire | Auto-Merge Verdict |
+|---|---|---|---|---|
+| Python crypto / JWT (`python-jose[cryptography]`, `bcrypt`) | uv / `apps/api/uv.lock` | `apps/api/**` -> api=true | Semgrep `p/python` + `p/secrets`; auth pentests (`test-auth-flows.py`: wrong-key, alg-confusion, expired-token, timing enum); OSV-Scanner | SAFE (patch+minor) |
+| Python web framework (`fastapi`, `starlette`, `pydantic`, `uvicorn`, `python-multipart`, `slowapi`) | uv / `apps/api/uv.lock` | `apps/api/**` | Semgrep; full DAST (CSRF, CORS, cookie flags, rate-limit XFF bypass `test-auth-flows.py`); IDOR (`test-data-isolation.py`); fuzzer (SQLi/XSS/path-traversal/JSON-shaped oversized/type-confusion, both auth & unauth -- multipart-specific oversized payloads are not asserted); ZAP API + Unauth API; nuclei API; OSV | SAFE (patch+minor) |
+| Python ORM/DB (`sqlalchemy`, `alembic`, `asyncpg`, `redis`, `pgvector`) | uv / `apps/api/uv.lock` | `apps/api/**` | Semgrep `p/python` SQLi rules; fuzzer SQLi payloads; ZAP API SQLi active scan; IDOR cross-user reads; OSV | SAFE (patch+minor) |
+| Python HTTP clients (`httpx`, `beautifulsoup4`) | uv / `apps/api/uv.lock` | `apps/api/**` | `test-research-security.py` SSRF (localhost, RFC1918 -- which includes the docker network where the sidecar lives, IMDS 169.254.169.254, IPv6 loopback, GCP metadata hostname `metadata.google.internal`); OSV | SAFE (patch+minor) |
+| Python AI SDKs (`anthropic`, `openai`) | uv / `apps/api/uv.lock` | `apps/api/**` | Semgrep `p/secrets` (key leakage); fuzzer hits `/api/ai/*`; IDOR on AI endpoints; OSV. AI SDKs are HTTP clients to user-chosen LLMs -- prompt-injection testing is not applicable (see Threat model above). | SAFE (patch+minor) |
+| Python data-source SDKs (`pydexcom`, `tconnectsync`, `apscheduler`, `fastembed`) | uv / `apps/api/uv.lock` | `apps/api/**` | Semgrep; OSV; fuzzer if they expose endpoints | SAFE (patch+minor) |
+| Python parsing (`pillow`, `lxml`, `pyyaml`) | uv / `apps/api/uv.lock` | `apps/api/**` | `fuzz-api.py` type-confusion + oversized payloads; OSV | SAFE (patch+minor) |
+| Web framework (`next`, `react`, `react-dom`) | npm / `apps/web/package-lock.json` | `apps/web/**` -> web=true | Semgrep `p/typescript` + `p/owasp-top-ten`; ZAP Web baseline + Unauth Web (CSP, headers, redirect leakage); nuclei Web; OSV | SAFE (patch+minor) |
+| Web UI (`@tanstack/react-query`, `framer-motion`, `lucide-react`, `recharts`, `tailwind-merge`, `clsx`, `class-variance-authority`) | npm / `apps/web/package-lock.json` | `apps/web/**` | Semgrep TS; ZAP Web passive; OSV | SAFE (patch+minor) |
+| Web markdown renderers (`react-markdown`, `remark-gfm`) | npm / `apps/web/package-lock.json` | `apps/web/**` | Semgrep TS XSS rules; ZAP Web XSS active scan; OSV | SAFE (patch); manual on minor |
+| Web build/dev (`eslint*`, `jest`, `@testing-library/*`, `postcss`, `tailwindcss`, `autoprefixer`, `typescript`, `@types/*`) | npm / `apps/web/package-lock.json` | `apps/web/**` (devDep) | Same as web framework. devDeps don't ship to runtime. | SAFE (patch+minor) |
+| Sidecar runtime (`express`) | npm / `sidecar/package-lock.json` | `sidecar/**` -> sidecar=true | Semgrep TS; OSV. Sidecar is internal-only (see Threat model); no internet exposure means no DAST is required at the sidecar boundary. AI traffic transits via API endpoints which are DAST-covered. | SAFE (patch+minor) |
+| Sidecar build/test (`tsx`, `typescript`, `vitest`, `@types/*`) | npm / `sidecar/package-lock.json` | `sidecar/**` (devDep) | Semgrep TS; OSV | SAFE (patch+minor) |
+| Mobile crypto (`bouncycastle`, `sqlcipher-android`, `androidx.security:security-crypto`) | gradle / `libs.versions.toml` | `apps/mobile/**` or `plugins/**` -> mobile=true | Semgrep `p/kotlin` + `p/secrets`; Android Gate (lint, unit tests); OSV recursive. **Gap**: no behavioral assertion on SQLCipher round-trip or `EncryptedSharedPreferences` contract; unit tests cover the wrappers but not the cipher itself. A silent cipher regression in a sqlcipher-android patch (e.g., key-derivation-iteration or HMAC change) would not be caught. | Always manual until a SQLCipher round-trip + EncryptedSharedPreferences contract test lands |
+| Mobile HTTP (`okhttp`, `retrofit`, `moshi`) | gradle | `apps/mobile/**` or `plugins/**` | Semgrep Kotlin; Android Gate; OSV | SAFE (patch+minor) |
+| Mobile UI / Compose / Hilt / Room / Wear OS / work | gradle | `apps/mobile/**` or `plugins/**` | Semgrep Kotlin; Android Gate (build, lint, unit tests on `:app`, `:pump-driver-api`, `:tandem-pump-driver`, `:wear-device`, `:watchface`); OSV | SAFE (patch+minor) |
+| Docker base images (`python`, `node`, `alpine`) | docker / Dockerfiles | `**/Dockerfile*` -> infra=true -> `run_all=true` | Everything: full SAST + full DAST (auth, IDOR, fuzzer, ZAP, nuclei, both unauth scans); OSV | SAFE (digest + patch) |
+| Docker service images (`pgvector/pgvector`, `redis`) | docker / docker-compose / Dockerfiles | `**/Dockerfile*` or `docker-compose*.yml` -> infra=true -> `run_all=true` | Everything: full SAST + full DAST; OSV | SAFE (digest + patch) |
+| docker-compose / infra config | docker-compose / `docker-compose*.yml` | `docker-compose*.yml` -> infra=true | Same as above (run_all) | SAFE (digest + patch) |
+| GitHub Actions (`actions/checkout`, `dorny/paths-filter`, `docker/*`, etc.) | github-actions / `.github/workflows/*.yml` | See **GitHub Actions Supply-Chain Hygiene** below | SHA-pin freezes audited code; `zizmor` static analysis (advisory mode today); Renovate vulnerability alerts cover known-compromised actions | SAFE (patch+minor) once `Workflow Lint Gate` is tightened from advisory to required status check (tracked in #542). Until then: manual. |
+| Vendored Swagger / Redoc (SHA-pinned in `apps/api/Dockerfile`) | regex / Dockerfile | `**/Dockerfile*` -> infra=true -> run_all | Full DAST + ZAP Web (catches CSP/XSS regressions in served Swagger HTML) | SAFE (patch). Renovate already requires hash refresh in same PR. |
+| Kustomize / K8s manifests (`k8s/base/*.yaml`) | n/a -- not Renovate-managed | n/a | n/a | Always manual |
+| `scripts/security/requirements.txt` (security tooling itself) | manual -- not Renovate | `scripts/security/**` or `.github/workflows/security-scan*` -> security=true -> run_all | Full SAST + DAST + OSV | n/a (manual) |
+
+### GitHub Actions Supply-Chain Hygiene
+
+GitHub Actions are pinned by string (`uses: actions/checkout@v4`) and those strings reference mutable tags. A maintainer (or anyone who compromises a maintainer's account) can re-point a tag to a different commit; the next workflow run executes whatever code the tag now points to. The `tj-actions/changed-files` and `reviewdog` 2025 incidents are well-known examples of this attack class.
+
+Two controls protect against this. Both must be operational before GitHub Actions enter the auto-merge tier.
+
+1. **SHA-pin every action.** All actions in `.github/workflows/**` are pinned by commit SHA (e.g., `uses: dorny/paths-filter@d1c1ffe0248fe513906c8e24db8ea791d46f8590 # v3.0.3`). The `helpers:pinGitHubActionDigests` Renovate preset is enabled in `.github/renovate.json5` so SHAs stay current automatically while preserving the trailing `# vX.Y.Z` comment for human readability. **Status: landed.** Third-party SHAs in PR #541; first-party `actions/*` SHAs in PR #543 (Renovate's automated conversion).
+2. **`zizmor` workflow static analysis.** `.github/workflows/workflow-lint.yml` runs zizmor on PRs that touch `.github/workflows/**` and catches command-injection-via-input, excessive `permissions:` grants, dangerous `pull_request_target` patterns, cache poisoning, missing `persist-credentials: false`, and unpinned action references. **Status: landed in PR #541 in advisory mode** (does not fail builds; surfaces findings as run-log output and downloadable SARIF). Tightening to a required status check, with findings flowing through `create-finding-issues.py` like SAST/DAST findings do today, is tracked in #542.
+
+A third control was originally planned -- OSV-Scanner over workflow files -- but was withdrawn after verifying that OSV-Scanner v2.3.3 has no GitHub Actions extractor (the path filter would have triggered the scan but extracted nothing). CVE alerting on actions remains via Renovate / Dependabot vulnerability alerts, which is a separate pipeline from OSV-Scanner and operates correctly.
+
+GitHub Actions bumps stay manual until the `Workflow Lint Gate` is tightened from advisory to required (#542). At that point the row above moves to **SAFE (patch+minor)**.
+
+### Auto-merge eligibility tiers
+
+| Tier | Definition | Examples |
+|---|---|---|
+| **A -- always auto-merge** | Digest pins and lockfile maintenance. Behavior change is bounded by what already passed the full required-check suite. | Docker base image digest; `lockFileMaintenance` |
+| **B -- auto-merge patch+minor** | Categories marked SAFE in the coverage table above. | All Python, web framework + UI + build, sidecar runtime + dev, mobile, vendored docs. GitHub Actions are tier-D-pending until #542 tightens the Workflow Lint Gate. |
+| **C -- manual on minor** | Categories where minor bumps warrant human eyes. Patches still auto-merge. | Web markdown renderers (`react-markdown`, `remark-gfm`) |
+| **D -- always manual** | Major bumps, categories with documented coverage gaps, K8s manifests, and any category not represented in the coverage table above. | All `major` updates; mobile crypto (until SQLCipher round-trip test lands); K8s/Kustomize files; new ecosystems |
+
+### How this contract is enforced
+
+The enforcement chain has five steps. All steps must succeed for an auto-merge to fire; failure at any step means the PR sits for human review.
+
+1. **Renovate sets the label.** `.github/renovate.json5` package rules add (or do not add) the `automerge` label to each PR based on the dep category and update type. Tier C/D categories never receive the label; Tier A/B do.
+2. **The auto-merge workflow's `if:` filter.** `.github/workflows/auto-merge-renovate.yml` triggers on `pull_request: [opened, reopened, synchronize]` and runs the merge job ONLY when (a) the PR author is `glycemicgpt-renovate[bot]`, (b) the PR carries the `automerge` label, and (c) the PR targets `develop`. Bot-author check prevents impersonation; `labeled` event is intentionally NOT triggered so triage-permission users cannot bypass the gate by labeling a non-Renovate PR.
+3. **File-scope guard.** Before invoking the merge, the workflow checks that the PR only touches files in a hardcoded allowlist (lockfiles, manifests, Dockerfiles, workflow `uses:` pins, Renovate's own config). Any file outside the allowlist aborts the auto-merge.
+4. **The merge bot calls `gh pr merge --auto --squash`.** The workflow mints a token from a dedicated GitHub App and uses it for the merge call. The merge bot is configured to bypass the CODEOWNERS approval requirement on develop's ruleset.
+5. **Required status checks gate the merge.** `--auto` queues the merge; GitHub waits for all required checks to pass before processing. Bypass-actor status only skips the CODEOWNERS approval requirement, not the required checks. If any required gate fails, the merge does not fire and the PR sits with auto-merge "armed" until checks pass (or someone manually closes it).
+
+Default-deny: a PR without the `automerge` label sits until a human reviews it.
+
+**Status: operational on develop as of PR #547.**
+
+### When to update this section
+
+Update the coverage table whenever any of the following occur:
+
+- A new Renovate-managed ecosystem is added (e.g., new lockfile, new manager). Add a corresponding row to the coverage table BEFORE enabling auto-merge for that category.
+- A new auth pattern is added (OAuth provider, API key flow, webhook signing). Update the relevant row's **Tests That Fire** column to reference the new test in `scripts/security/test-auth-flows.py`.
+- A required status check is added or removed from develop's branch protection. Audit each row to confirm its **Tests That Fire** still resolves to a required check.
+- A deploy example begins exposing a previously-internal service (e.g., the sidecar). Re-evaluate that service's row under the threat model.
+- A `packageRule` or `groupName` is added or changed in `.github/renovate.json5`. New groups change which deps are bundled into a single PR, which changes which tests fire on which PRs -- audit affected rows.
+- A new entry is added to `osv-scanner.toml` `IgnoredVulns`. An active suppression on a package in any auto-merge-eligible row weakens that row's coverage; weigh whether the row should be downgraded to manual until the suppression is reviewed.
+- Quarterly review: re-walk the table to catch drift.
+
+`lockFileMaintenance` PRs (run weekly Monday mornings via Renovate) bump every transitive dep simultaneously across `apps/api/uv.lock`, `apps/web/package-lock.json`, and `sidecar/package-lock.json`. They are auto-merge eligible (Tier A) because they touch the path filters of the rows they affect, so the same tests fire as for any other change to those manifests. The OSV-Scanner cron (`dependency-scan.yml`, Monday 6am UTC) runs alongside; verify these stay aligned if either schedule moves.
+
+The table is the contract. If it does not match reality, fix the table or fix reality -- never let them diverge silently.
+
 ## Adding Security Tests for New Integrations
 
 ### New API endpoints
@@ -221,6 +331,7 @@ Every suppression must include a reason. Review suppressions quarterly.
 1. Add the lockfile path to the `scan` step in `.github/workflows/dependency-scan.yml`.
 2. Add the lockfile path to the `detect-changes` filter in the same workflow.
 3. Verify the scan runs on the next PR.
+4. Add a row to the **Dependency Auto-Merge Coverage** table above describing what tests fire when the new dep category changes. Until the row exists, Renovate updates for the new ecosystem stay manual (default-deny).
 
 ### New plugins
 

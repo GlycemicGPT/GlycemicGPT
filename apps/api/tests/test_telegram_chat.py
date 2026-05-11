@@ -24,7 +24,9 @@ from src.services.telegram_chat import (
     MAX_USER_MESSAGE_LENGTH,
     SAFETY_DISCLAIMER,
     TELEGRAM_MAX_LENGTH,
+    WEB_MAX_RESPONSE_TOKENS,
     _build_system_prompt,
+    _resolve_max_tokens_for_user,
     _truncate_response,
     handle_chat,
 )
@@ -1108,3 +1110,57 @@ class TestBuildSystemPromptSafety:
         """Empty context should not produce trailing newlines."""
         prompt = _build_system_prompt("")
         assert not prompt.endswith("\n")
+
+
+class TestResolveMaxTokensForUser:
+    """Issue #554 / PR #600 follow-up: the chat paths must not start
+    failing if the DB lookup for the per-user override hits a transient
+    error -- they should fall back to the historical context default.
+    """
+
+    @pytest.mark.asyncio
+    async def test_returns_user_override_when_set(self):
+        """Happy path: returns the user-configured override."""
+        db = MagicMock()
+        user = MagicMock()
+        user.id = uuid.uuid4()
+        with patch(
+            "src.services.telegram_chat.get_user_max_response_tokens",
+            new=AsyncMock(return_value=4096),
+        ):
+            result = await _resolve_max_tokens_for_user(
+                db, user, WEB_MAX_RESPONSE_TOKENS
+            )
+        assert result == 4096
+
+    @pytest.mark.asyncio
+    async def test_returns_default_when_override_is_null(self):
+        """NULL override -> historical context default."""
+        db = MagicMock()
+        user = MagicMock()
+        user.id = uuid.uuid4()
+        with patch(
+            "src.services.telegram_chat.get_user_max_response_tokens",
+            new=AsyncMock(return_value=None),
+        ):
+            result = await _resolve_max_tokens_for_user(
+                db, user, WEB_MAX_RESPONSE_TOKENS
+            )
+        assert result == WEB_MAX_RESPONSE_TOKENS
+
+    @pytest.mark.asyncio
+    async def test_falls_back_when_lookup_raises(self):
+        """Transient DB error must NOT propagate -- this is the whole
+        point of the helper. Pre-PR behavior used a constant and never
+        queried the DB, so chat must not regress on a flaky session."""
+        db = MagicMock()
+        user = MagicMock()
+        user.id = uuid.uuid4()
+        with patch(
+            "src.services.telegram_chat.get_user_max_response_tokens",
+            new=AsyncMock(side_effect=RuntimeError("connection reset")),
+        ):
+            result = await _resolve_max_tokens_for_user(
+                db, user, WEB_MAX_RESPONSE_TOKENS
+            )
+        assert result == WEB_MAX_RESPONSE_TOKENS

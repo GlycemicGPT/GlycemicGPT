@@ -619,6 +619,128 @@ class TestAIProviderConfiguration:
         assert data["base_url"] is None
 
 
+class TestMaxResponseTokens:
+    """Tests for the issue #554 per-user max_response_tokens override.
+
+    NULL preserves historical behavior (1200 web / 800 Telegram).
+    Set values must round-trip through POST and GET, and stay within
+    the 256-32768 bounds enforced by Pydantic and the CHECK constraint.
+    """
+
+    @patch("src.routers.ai.validate_ai_api_key")
+    async def test_default_is_null(self, mock_validate):
+        """A config saved without max_response_tokens reads back as NULL."""
+        mock_validate.return_value = (True, None)
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie = await register_and_login(client)
+            response = await client.post(
+                "/api/ai/provider",
+                json={"provider_type": "claude_api", "api_key": "sk-test123"},
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+            assert response.status_code == 201
+            assert response.json()["max_response_tokens"] is None
+
+            get_resp = await client.get(
+                "/api/ai/provider",
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+            assert get_resp.json()["max_response_tokens"] is None
+
+    @patch("src.routers.ai.validate_ai_api_key")
+    async def test_explicit_value_round_trips(self, mock_validate):
+        """A user-provided value persists and re-reads identically."""
+        mock_validate.return_value = (True, None)
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie = await register_and_login(client)
+            response = await client.post(
+                "/api/ai/provider",
+                json={
+                    "provider_type": "claude_api",
+                    "api_key": "sk-test123",
+                    "max_response_tokens": 8192,
+                },
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+            assert response.status_code == 201
+            assert response.json()["max_response_tokens"] == 8192
+
+            get_resp = await client.get(
+                "/api/ai/provider",
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+            assert get_resp.json()["max_response_tokens"] == 8192
+
+    @patch("src.routers.ai.validate_ai_api_key")
+    async def test_below_minimum_rejected(self, mock_validate):
+        """Values below 256 are rejected at the Pydantic layer (422)."""
+        mock_validate.return_value = (True, None)
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie = await register_and_login(client)
+            response = await client.post(
+                "/api/ai/provider",
+                json={
+                    "provider_type": "claude_api",
+                    "api_key": "sk-test123",
+                    "max_response_tokens": 100,
+                },
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+            assert response.status_code == 422
+
+    @patch("src.routers.ai.validate_ai_api_key")
+    async def test_above_maximum_rejected(self, mock_validate):
+        """Values above 32768 are rejected at the Pydantic layer (422)."""
+        mock_validate.return_value = (True, None)
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie = await register_and_login(client)
+            response = await client.post(
+                "/api/ai/provider",
+                json={
+                    "provider_type": "claude_api",
+                    "api_key": "sk-test123",
+                    "max_response_tokens": 100000,
+                },
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+            assert response.status_code == 422
+
+    @patch("src.routers.ai.validate_ai_api_key")
+    async def test_update_clears_to_null(self, mock_validate):
+        """Re-saving without the field clears the previous override to NULL."""
+        mock_validate.return_value = (True, None)
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie = await register_and_login(client)
+            await client.post(
+                "/api/ai/provider",
+                json={
+                    "provider_type": "claude_api",
+                    "api_key": "sk-test123",
+                    "max_response_tokens": 4096,
+                },
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+            # Re-save without the field -- omitted means "send NULL,
+            # i.e. revert to default" per the schema's `default=None`.
+            update = await client.post(
+                "/api/ai/provider",
+                json={"provider_type": "claude_api", "api_key": "sk-test123"},
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+            assert update.status_code == 201
+            assert update.json()["max_response_tokens"] is None
+
+
 class TestSidecarNullSafety:
     """Tests for null encrypted_api_key handling (sidecar-managed providers)."""
 

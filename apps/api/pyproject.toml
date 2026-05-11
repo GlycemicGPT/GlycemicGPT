@@ -73,6 +73,9 @@ ignore = [
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 testpaths = ["tests"]
+markers = [
+    "integration: tests that hit a real external service. Skipped by default; opt in by setting the relevant *_TEST_URL env var (e.g. NIGHTSCOUT_TEST_URL).",
+]
 
 [tool.mypy]
 python_version = "3.12"

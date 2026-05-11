@@ -134,7 +134,7 @@ class TestGetKnowledgeStats:
 
         # By tier
         tier_result = MagicMock()
-        tier_result.all.return_value = [("RESEARCHED", 10), ("CURATED", 5)]
+        tier_result.all.return_value = [("RESEARCHED", 10), ("AUTHORITATIVE", 5)]
 
         # Document count
         doc_result = MagicMock()
@@ -145,7 +145,7 @@ class TestGetKnowledgeStats:
         stats = await get_knowledge_stats(db, uuid.uuid4())
         assert stats.total_chunks == 15
         assert stats.total_documents == 3
-        assert stats.by_tier == {"RESEARCHED": 10, "CURATED": 5}
+        assert stats.by_tier == {"RESEARCHED": 10, "AUTHORITATIVE": 5}
 
     @pytest.mark.asyncio
     async def test_returns_empty_stats(self):

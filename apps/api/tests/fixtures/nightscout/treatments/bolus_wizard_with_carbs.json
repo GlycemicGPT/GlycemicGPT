@@ -1,0 +1,15 @@
+{
+  "_id": "65f4b1a2c8e3d2f1a0b1c40c",
+  "eventType": "Bolus Wizard",
+  "insulin": 4.5,
+  "carbs": 50,
+  "glucose": 145,
+  "glucoseType": "Sensor",
+  "units": "mg/dl",
+  "isValid": true,
+  "bolusCalculatorResult": "{\"carbs\":50,\"glucoseValue\":145,\"targetBGLow\":100,\"targetBGHigh\":120,\"isf\":50,\"ic\":12,\"iob\":0.8,\"insulinFromBG\":0.7,\"insulinFromCarbs\":4.17,\"insulinFromCorrection\":0.7,\"totalBeforeConstraints\":4.87,\"totalAfterConstraints\":4.5}",
+  "notes": "lunch via wizard",
+  "created_at": "2026-05-06T12:30:00.000Z",
+  "date": 1778070600000,
+  "enteredBy": "openaps://AndroidAPS"
+}

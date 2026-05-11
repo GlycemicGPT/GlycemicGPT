@@ -1,0 +1,26 @@
+{
+  "_id": "65f4b1a2c8e3d2f1a0b1c402",
+  "eventType": "Temp Basal",
+  "duration": 30,
+  "durationInMilliseconds": 1800000,
+  "rate": 1.5,
+  "absolute": 1.5,
+  "type": "FAKE_EXTENDED",
+  "extendedEmulated": {
+    "eventType": "Combo Bolus",
+    "enteredinsulin": 1.5,
+    "duration": 30,
+    "isEmulatingTempBasal": true,
+    "relative": 1.5,
+    "splitNow": 0,
+    "splitExt": 100
+  },
+  "isValid": true,
+  "created_at": "2026-05-06T13:00:00.000Z",
+  "date": 1778072400000,
+  "pumpId": 12345,
+  "endId": 12346,
+  "pumpType": "DANA_RS",
+  "pumpSerial": "ABC1234",
+  "enteredBy": "openaps://AndroidAPS"
+}

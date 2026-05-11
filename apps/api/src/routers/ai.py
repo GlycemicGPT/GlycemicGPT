@@ -70,6 +70,7 @@ def _build_response(
         status=config.status,
         model_name=config.model_name,
         base_url=config.base_url,
+        max_response_tokens=config.max_response_tokens,
         sidecar_provider=config.sidecar_provider,
         masked_api_key=masked_key,
         last_validated_at=config.last_validated_at,
@@ -174,6 +175,7 @@ async def configure_ai_provider(
         existing.encrypted_api_key = encrypt_credential(request.api_key)
         existing.model_name = request.model_name
         existing.base_url = request.base_url
+        existing.max_response_tokens = request.max_response_tokens
         existing.sidecar_provider = None  # Clear stale sidecar state on reconfigure
         existing.status = AIProviderStatus.CONNECTED
         existing.last_validated_at = now
@@ -188,6 +190,7 @@ async def configure_ai_provider(
             encrypted_api_key=encrypt_credential(request.api_key),
             model_name=request.model_name,
             base_url=request.base_url,
+            max_response_tokens=request.max_response_tokens,
             status=AIProviderStatus.CONNECTED,
             last_validated_at=now,
         )

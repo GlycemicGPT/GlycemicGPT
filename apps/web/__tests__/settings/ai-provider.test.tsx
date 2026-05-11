@@ -552,6 +552,9 @@ describe("Story 14.3: AI Provider Configuration Page", () => {
           api_key: "test-claude-key-456",
           model_name: null,
           base_url: null,
+          // Empty "Max response tokens" input sends null (= use the
+          // per-context default). See issue #554 / PR #600.
+          max_response_tokens: null,
         });
       });
     });
@@ -705,6 +708,7 @@ describe("Story 14.3: AI Provider Configuration Page", () => {
           api_key: "test-openai-key-789",
           model_name: "gpt-4o-mini",
           base_url: null,
+          max_response_tokens: null,
         });
       });
     });

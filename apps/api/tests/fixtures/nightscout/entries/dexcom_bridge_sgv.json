@@ -1,0 +1,11 @@
+{
+  "_id": "65f4a1b2c8e3d2f1a0b1c2d2",
+  "type": "sgv",
+  "date": 1778069100000,
+  "dateString": "2026-05-06T12:05:00.000Z",
+  "sysTime": "2026-05-06T12:05:00.000Z",
+  "device": "share2",
+  "direction": "FortyFiveUp",
+  "sgv": 125,
+  "utcOffset": 0
+}

@@ -1,0 +1,10 @@
+{
+  "_id": "65f4b1a2c8e3d2f1a0b1c306",
+  "eventType": "Meal Bolus",
+  "carbs": 30,
+  "notes": "snack",
+  "created_at": "2026-05-06T15:00:00.000Z",
+  "date": 1778079600000,
+  "isValid": true,
+  "enteredBy": "openaps://AndroidAPS"
+}

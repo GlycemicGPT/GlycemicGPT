@@ -1,0 +1,11 @@
+{
+  "_id": "65f4a1b2c8e3d2f1a0b1c2d4",
+  "type": "cal",
+  "date": 1778072400000,
+  "dateString": "2026-05-06T13:00:00.000Z",
+  "sysTime": "2026-05-06T13:00:00.000Z",
+  "device": "openaps://example-rig/medtronic-722",
+  "slope": 1000,
+  "intercept": 10000,
+  "scale": 1
+}

@@ -64,7 +64,7 @@ It does **not** contain anything stored anywhere else (your pump's full memory, 
 If you're coming from another tool and expecting an export here, the honest answer:
 
 - **Tidepool JSON** -- not supported today. Roadmap.
-- **Nightscout-format `entries.json` / `treatments.json`** -- not supported today. Roadmap (closely tied to the Phase 2 Nightscout-as-data-source work).
+- **Nightscout-format `entries.json` / `treatments.json` (export)** -- not supported today. Roadmap. Note: reading **from** Nightscout into GlycemicGPT is fully supported -- see [Integrations → Nightscout](./integrations.md#nightscout) -- the gap is on the export side, not the import side.
 - **AGP (Ambulatory Glucose Profile) PDF** -- not supported today. Roadmap.
 - **OpenAPS profile JSON** -- not currently planned. If this matters to you, file an issue.
 - **FHIR / HL7** -- not currently planned. Same.
@@ -73,7 +73,7 @@ Each of these is a real format with a real audience. They are not in today's rel
 
 ## Importing data into GlycemicGPT
 
-The reverse is also limited today. There is no in-dashboard "import from Nightscout" or "import from Tidepool" button. The Phase 2 Nightscout integration will be a *live* read connection (GlycemicGPT pulls continuously from your Nightscout) rather than a one-time import.
+The reverse story is asymmetric. **Live import from Nightscout works today** -- the platform pulls CGM entries, treatments, devicestatus, and your profile continuously from your Nightscout instance once connected. See [Integrations → Nightscout](./integrations.md#nightscout). There's no one-time "import a historical dump from Tidepool" button; live read connections are the supported pattern.
 
 If you have historical CGM data in another tool and want it in GlycemicGPT today, you can:
 

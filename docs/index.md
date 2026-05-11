@@ -72,9 +72,9 @@ The honest matrix. "Verified" means daily-tested on real hardware; "expected to 
 | Dexcom G7 | **Verified** | Cloud-API path, polled from Dexcom every 5-10 min. Project lead's daily-driver CGM. |
 | Dexcom G6 | **Expected to work** | Same cloud-API path as G7 (pydexcom supports both); not continuously tested by the project. |
 | Dexcom Stelo | **Not yet** | Planned once the underlying library adds Stelo support. |
-| Freestyle Libre 2 / 3 / 3+ | **Not supported today** | Roadmap. Recommended path until then: xDrip+ → Nightscout, then Phase 2 Nightscout integration. |
-| Eversense | **Not supported today** | Roadmap. |
-| Medtronic Guardian | **Not supported today** | Tied to Medtronic pump support; see roadmap. |
+| Freestyle Libre 2 / 3 / 3+ | **Via Nightscout** | Upload via LibreLinkUp-Uploader or xDrip+, then connect [Nightscout](./daily-use/integrations.md#nightscout). |
+| Eversense | **Via Nightscout** | Upload to Nightscout via the official Eversense bridge / xDrip+, then connect [Nightscout](./daily-use/integrations.md#nightscout). |
+| Medtronic Guardian | **Via Nightscout** | Upload via [MM Connect](https://github.com/cjo20/Medtronic-Carelink-Uploader-Heroku) or similar, then connect [Nightscout](./daily-use/integrations.md#nightscout). Direct Medtronic support is roadmap. |
 
 ### Insulin pumps
 
@@ -89,7 +89,7 @@ The honest matrix. "Verified" means daily-tested on real hardware; "expected to 
 
 For Tandem users: the Bluetooth and cloud paths complement each other -- Bluetooth gives live data, cloud fills in history. Most people end up using both. See [Connecting Your Tandem Pump](./daily-use/connecting-tandem-cloud.md).
 
-If your device isn't here today, the path forward is usually [Nightscout integration (Phase 2)](./concepts/relationship-to-other-tools.md#nightscout) -- once that lands, anything that flows into Nightscout flows into GlycemicGPT. See [ROADMAP.md](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/ROADMAP.md) for the full picture.
+If your device isn't here today, the path forward is usually the [Nightscout integration](./daily-use/integrations.md#nightscout) -- anything that flows into Nightscout (via xDrip+, LibreLinkUp, Medtronic-Carelink-Uploader, your loop, etc.) flows into GlycemicGPT once the connection is set up. See [ROADMAP.md](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/ROADMAP.md) for the full picture of direct integrations.
 
 ## What's distinctive
 

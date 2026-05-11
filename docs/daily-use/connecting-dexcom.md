@@ -5,7 +5,7 @@ description: Hook GlycemicGPT up to your Dexcom account so glucose flows into th
 
 GlycemicGPT pulls Dexcom data from Dexcom's cloud using your normal Dexcom account credentials. You don't need to do anything on your phone for this; the platform checks Dexcom for new data directly on a schedule.
 
-> **If you're already running Nightscout:** today, GlycemicGPT pulls from Dexcom Share independently of Nightscout. If you also have Nightscout pulling from Dexcom Share, both will hit Dexcom's servers with your credentials -- not broken, but wasteful. The Phase 2 roadmap item for [Nightscout-as-data-source](../concepts/relationship-to-other-tools.md#nightscout) will let GlycemicGPT read from your Nightscout's `/entries.json` instead, eliminating the duplicate. Watch [ROADMAP.md](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/ROADMAP.md) for timing.
+> **If you're already running Nightscout:** you can connect your Nightscout instance directly instead of (or alongside) Dexcom -- GlycemicGPT will read CGM entries, treatments, and your profile from your Nightscout site. See [Integrations → Nightscout](./integrations.md#nightscout) for the guided setup. If you connect both Dexcom and Nightscout, the platform will pull from both; pick one if you want to avoid the duplicate Dexcom-cloud poll.
 
 > **Before you start, you need:**
 >
@@ -77,7 +77,7 @@ If Dexcom's developer API becomes practical for hobbyist projects (rate limits r
 
 Any Dexcom CGM that uploads to Dexcom's cloud through the standard Dexcom mobile app should work -- this includes Dexcom G7 and Dexcom G6, since both stream to the same Dexcom cloud the platform reads from. The platform's daily testing is on G7, so G7 is the most validated model; G6 is expected to work but has had less direct testing.
 
-If you have a non-Dexcom CGM (Freestyle Libre, Medtronic Guardian, etc.) it won't work today. Support for additional CGMs and integrations with platforms like Nightscout (which can bridge other CGMs) is on the roadmap -- see [ROADMAP.md](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/ROADMAP.md) §Phase 2.
+If you have a non-Dexcom CGM (Freestyle Libre, Medtronic Guardian, Eversense, etc.) the direct Dexcom integration won't work, but the [Nightscout integration](./integrations.md#nightscout) does -- upload to a Nightscout site from your CGM's bridge (xDrip+ for Libre, LibreLinkUp-Uploader, etc.) and connect that Nightscout to GlycemicGPT. Anything that flows into Nightscout flows in here.
 
 ## Still stuck?
 

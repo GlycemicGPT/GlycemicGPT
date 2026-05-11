@@ -1,0 +1,16 @@
+{
+  "_id": "65f4a1b2c8e3d2f1a0b1c2d5",
+  "type": "sgv",
+  "date": 1778090400000,
+  "dateString": "2026-05-06T18:00:00.000Z",
+  "sysTime": "2026-05-06T18:00:00.000Z",
+  "device": "xDrip-DexcomG6",
+  "direction": "NOT COMPUTABLE",
+  "sgv": 200,
+  "delta": 0,
+  "filtered": 199500,
+  "unfiltered": 215000,
+  "rssi": 100,
+  "noise": 4,
+  "utcOffset": 0
+}

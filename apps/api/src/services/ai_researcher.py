@@ -501,7 +501,7 @@ async def ai_research_source(
         db.add(
             KnowledgeChunk(
                 user_id=source.user_id,
-                trust_tier="RESEARCHED",
+                trust_tier=KnowledgeChunk.TIER_RESEARCHED,
                 source_type="ai_research",
                 source_url=finding_url,
                 source_name=source.name,

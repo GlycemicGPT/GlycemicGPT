@@ -7,7 +7,16 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -52,7 +61,18 @@ class AIProviderConfig(Base, TimestampMixin):
     __tablename__ = "ai_provider_configs"
 
     # One active AI provider per user (user picks Claude or OpenAI, not both)
-    __table_args__ = (UniqueConstraint("user_id", name="uq_ai_provider_user"),)
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_ai_provider_user"),
+        # Mirror migration 053's CHECK constraint so ORM-level INSERTs
+        # never bypass it. NULL is allowed (use per-context default);
+        # otherwise the value must fit a realistic per-response budget
+        # bounded by the largest output window the supported providers
+        # ship today.
+        CheckConstraint(
+            "max_response_tokens IS NULL OR (max_response_tokens BETWEEN 256 AND 32768)",
+            name="ck_ai_provider_max_response_tokens_range",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -98,6 +118,19 @@ class AIProviderConfig(Base, TimestampMixin):
     # Base URL for subscription proxies and self-hosted endpoints
     base_url: Mapped[str | None] = mapped_column(
         String(500),
+        nullable=True,
+    )
+
+    # Per-response token budget override. NULL = use the per-context
+    # default (web vs Telegram pick different defaults). Set this
+    # higher than the default when using a "thinking" model (Qwen3,
+    # DeepSeek-R1, etc.) -- their `<think>` reasoning tokens count
+    # against the same budget, so a 1200 default gets exhausted
+    # before the visible response begins. See issue #554. Bounds are
+    # enforced both at the model layer (CHECK constraint) and at the
+    # schema layer (`Field(ge=256, le=32768)`).
+    max_response_tokens: Mapped[int | None] = mapped_column(
+        Integer,
         nullable=True,
     )
 

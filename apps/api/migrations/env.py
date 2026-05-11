@@ -19,6 +19,7 @@ if config.config_file_name is not None:
 
 # Import all models here so Alembic can detect them
 from src.models.disclaimer import DisclaimerAcknowledgment  # noqa: F401
+from src.models.nightscout_connection import NightscoutConnection  # noqa: F401
 # from src.models.user import User  # noqa: F401
 # from src.models.glucose_reading import GlucoseReading  # noqa: F401
 

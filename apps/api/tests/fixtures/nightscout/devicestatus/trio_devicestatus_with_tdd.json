@@ -1,0 +1,79 @@
+{
+  "_id": "65f4c1a2c8e3d2f1a0b1c406",
+  "device": "Trio",
+  "created_at": "2026-05-06T14:30:00.000Z",
+  "pump": {
+    "clock": "2026-05-06T14:30:00Z",
+    "battery": {"percent": 78},
+    "reservoir": 117.2,
+    "bolusIncrement": 0.05,
+    "status": {
+      "status": "normal",
+      "bolusing": false,
+      "suspended": false,
+      "timestamp": "2026-05-06T14:30:00Z"
+    }
+  },
+  "openaps": {
+    "iob": {
+      "iob": 1.234,
+      "basaliob": 0.456,
+      "activity": 0.0123,
+      "time": "2026-05-06T14:30:00Z"
+    },
+    "suggested": {
+      "temp": "absolute",
+      "bg": 145,
+      "tick": "+2",
+      "eventualBG": 130,
+      "rate": 0.6,
+      "duration": 30,
+      "deliverAt": "2026-05-06T14:30:00.000Z",
+      "timestamp": "2026-05-06T14:30:00.000Z",
+      "sensitivityRatio": 1,
+      "COB": 0,
+      "IOB": 1.234,
+      "TDD": 42.5,
+      "insulin": {
+        "TDD": 42.5,
+        "bolus": 18.7,
+        "temp_basal": 8.3,
+        "scheduled_basal": 15.5
+      },
+      "current_target": 110,
+      "insulinForManualBolus": 0.5,
+      "minDelta": -2,
+      "expectedDelta": -3,
+      "minGuardBG": 110,
+      "minPredBG": 125,
+      "threshold": 80,
+      "predictions": {
+        "IOB": [145, 144, 142, 138, 134, 130],
+        "ZT": [145, 144, 142, 140, 137, 135]
+      },
+      "reason": "TDD: 42.5U; COB: 0, Dev: 5, BGI: -1.2, ISF: 50, CR: 10, minPredBG 125, eventualBG 130 < 140"
+    },
+    "enacted": {
+      "received": true,
+      "rate": 0.6,
+      "duration": 30,
+      "deliverAt": "2026-05-06T14:30:00.000Z",
+      "timestamp": "2026-05-06T14:30:00.000Z",
+      "TDD": 42.5,
+      "insulin": {
+        "TDD": 42.5,
+        "bolus": 18.7,
+        "temp_basal": 8.3,
+        "scheduled_basal": 15.5
+      },
+      "reason": "TDD: 42.5U; enacted temp basal 0.6 U/hr for 30 min"
+    },
+    "version": "1.0.0",
+    "recommendedBolus": 0
+  },
+  "uploader": {
+    "battery": 92,
+    "batteryVoltage": 4.15,
+    "isCharging": false
+  }
+}

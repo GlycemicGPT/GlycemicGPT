@@ -20,6 +20,9 @@ from src.models.integration import (
     IntegrationType,
 )
 from src.services.dexcom_sync import DexcomSyncError, sync_dexcom_for_user
+from src.services.integrations.nightscout.scheduler import (
+    run_nightscout_sync_all_users,
+)
 from src.services.predictive_alerts import evaluate_alerts_for_user
 from src.services.tandem_sync import TandemSyncError, sync_tandem_for_user
 
@@ -444,6 +447,30 @@ def start_scheduler() -> AsyncIOScheduler:
         logger.info(
             "Scheduled Tandem sync job",
             interval_minutes=settings.tandem_sync_interval_minutes,
+        )
+
+    # Add Nightscout sync tick job if enabled (Story 43.4)
+    # Single global tick; the per-connection cadence is honored inside
+    # `run_nightscout_sync_all_users` by checking each row's
+    # `sync_interval_minutes` against `last_synced_at`.
+    if settings.nightscout_sync_enabled:
+        scheduler.add_job(
+            run_nightscout_sync_all_users,
+            trigger=IntervalTrigger(
+                minutes=settings.nightscout_sync_tick_interval_minutes
+            ),
+            id="nightscout_sync",
+            name="Nightscout Sync Tick",
+            replace_existing=True,
+            # max_instances=1 + coalesce: a long-running tick should
+            # not stack with the next one. Per-connection asyncio lock
+            # in sync.py protects against manual + scheduler races.
+            max_instances=1,
+            coalesce=True,
+        )
+        logger.info(
+            "Scheduled Nightscout sync tick job",
+            tick_interval_minutes=settings.nightscout_sync_tick_interval_minutes,
         )
 
     # Add predictive alert check job if enabled (Story 6.2)

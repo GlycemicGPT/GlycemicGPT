@@ -1,0 +1,18 @@
+{
+  "identifier": "a1b2c3d4-e5f6-4789-90ab-cdef01234567",
+  "eventType": "Correction Bolus",
+  "insulin": 0.3,
+  "created_at": "2026-05-06T14:40:00.000Z",
+  "date": 1778078400000,
+  "utcOffset": 0,
+  "type": "SMB",
+  "isValid": true,
+  "isBasalInsulin": false,
+  "pumpId": 4103,
+  "pumpType": "ACCU_CHEK_INSIGHT_BLUETOOTH",
+  "pumpSerial": "33013206",
+  "enteredBy": "openaps://AndroidAPS",
+  "app": "AAPS",
+  "srvCreated": 1778078401234,
+  "srvModified": 1778078401234
+}
