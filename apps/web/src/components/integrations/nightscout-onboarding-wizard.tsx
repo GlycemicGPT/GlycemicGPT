@@ -193,10 +193,22 @@ function seedImportsFromDerivation(d: OnboardingDerivation): ImportFlags {
   // `default_checked` -- which is true iff the user is at platform
   // default OR the proposal matches current (a no-op). Customized
   // users see the row off by default.
+  //
+  // When `units_unknown=true`, force glucose-domain rows (target_low,
+  // target_high, isf_schedule) OFF regardless of `default_checked`.
+  // The user must explicitly opt in AND tick the units-confirm
+  // checkbox -- the consequence of importing mmol/L values into a
+  // mg/dL canonical store is corrupt targets and ISFs.
+  const glucoseSafe = !d.units_unknown;
   return {
-    target_low: d.target_low.default_checked && d.target_low.proposed_value !== null,
+    target_low:
+      glucoseSafe &&
+      d.target_low.default_checked &&
+      d.target_low.proposed_value !== null,
     target_high:
-      d.target_high.default_checked && d.target_high.proposed_value !== null,
+      glucoseSafe &&
+      d.target_high.default_checked &&
+      d.target_high.proposed_value !== null,
     dia_hours: d.dia_hours.default_checked && d.dia_hours.proposed_value !== null,
     basal_schedule:
       d.basal_schedule.default_checked &&
@@ -205,6 +217,7 @@ function seedImportsFromDerivation(d: OnboardingDerivation): ImportFlags {
       d.carb_ratio_schedule.default_checked &&
       (d.carb_ratio_schedule.proposed_segments?.length ?? 0) > 0,
     isf_schedule:
+      glucoseSafe &&
       d.isf_schedule.default_checked &&
       (d.isf_schedule.proposed_segments?.length ?? 0) > 0,
   };
@@ -337,17 +350,20 @@ export function NightscoutOnboardingWizard() {
     if (evaluateStartedFor.current === key) return;
     evaluateStartedFor.current = key;
 
-    // Cancellation flag: a Retry click (which bumps
-    // `evaluateAttempt`) or an unmount must stop the in-flight chain
-    // from dispatching to stale state. The async helpers don't take
-    // AbortSignal today, so we gate every dispatch on the flag.
-    let cancelled = false;
+    // Staleness gate: instead of a closure flag flipped in cleanup
+    // (which strict-mode dev unmounts immediately, cancelling the
+    // only chain that runs), key the gate to the active attempt.
+    // A run is stale iff `evaluateStartedFor.current` has moved on
+    // to a different attempt -- which only happens on real Retry,
+    // not on a strict-mode double-mount where the same key re-wins.
+    const myKey = key;
+    const isStale = () => evaluateStartedFor.current !== myKey;
 
     const run = async () => {
       try {
         dispatch({ type: "evaluate/start", phase: "evaluating" });
         const discovery = await evaluateNightscoutConnection(state.connectionId!);
-        if (cancelled) return;
+        if (isStale()) return;
         if (!discovery.status_ok) {
           dispatch({
             type: "evaluate/error",
@@ -375,15 +391,15 @@ export function NightscoutOnboardingWizard() {
             syncErr
           );
         }
-        if (cancelled) return;
+        if (isStale()) return;
         dispatch({ type: "evaluate/start", phase: "deriving" });
         const derivation = await getNightscoutOnboardingDerivation(
           state.connectionId!
         );
-        if (cancelled) return;
+        if (isStale()) return;
         dispatch({ type: "evaluate/success", derivation, discovery });
       } catch (err) {
-        if (cancelled) return;
+        if (isStale()) return;
         dispatch({
           type: "evaluate/error",
           message:
@@ -392,10 +408,6 @@ export function NightscoutOnboardingWizard() {
       }
     };
     void run();
-
-    return () => {
-      cancelled = true;
-    };
   }, [state.step, state.connectionId, state.evaluateAttempt]);
 
   // Step 1 submit
@@ -1518,7 +1530,10 @@ function ScheduleRow({
 function formatNumber(v: number | null): string {
   if (v === null || v === undefined) return "—";
   if (Number.isInteger(v)) return String(v);
-  return v.toFixed(2).replace(/\.?0+$/, "");
+  // Trim trailing zeros only after the decimal point. The previous
+  // pattern `/\.?0+$/` is also safe (since `0+` can't cross `.`) but
+  // this form is unambiguous on inspection.
+  return v.toFixed(2).replace(/\.0+$|(\.\d*?)0+$/, "$1");
 }
 
 // ----------------------------------------------------------------------------

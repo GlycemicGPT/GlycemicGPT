@@ -2199,6 +2199,16 @@ async function _readErrorDetail(
     try {
       const json = JSON.parse(text);
       if (json && typeof json.detail === "string") return json.detail;
+      // FastAPI 422 returns `detail` as a list of `{loc, msg, type}`
+      // entries; other endpoints may return a structured object.
+      // Stringify (trimmed) rather than drop on the floor.
+      if (json && json.detail !== undefined) {
+        try {
+          return `${fallback}: ${response.status} ${JSON.stringify(json.detail).slice(0, 300)}`;
+        } catch {
+          // serialisation failed (cycles); fall through.
+        }
+      }
     } catch {
       // Not JSON -- pass the raw text through, trimmed.
       const trimmed = text.trim().slice(0, 300);
