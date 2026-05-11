@@ -1,23 +1,21 @@
 ---
 title: Integrations
-description: Connect GlycemicGPT to Dexcom, Tandem, Nightscout, and the other data sources / notification channels that make up your diabetes setup.
+description: Connect GlycemicGPT to Dexcom, Tandem, Nightscout, and other data sources that flow your diabetes data into the platform.
 ---
 
-GlycemicGPT is designed to sit alongside the tools you already use -- your CGM's app, your pump's cloud, and (if you have one) your Nightscout instance. Integrations are how the platform gets your data and how it talks back out to you.
+GlycemicGPT is designed to sit alongside the tools you already use -- your CGM's app, your pump's cloud, and (if you have one) your Nightscout instance. Integrations are how the platform gets your data in.
 
 This page is the index. Each integration with a longer setup flow has its own page; the short ones are documented in full here.
 
-> **One-line mental model.** Integrations either **pull data in** (CGM cloud, pump cloud, Nightscout) or **push notifications out** (Telegram, email, web push). Set them up once in **Settings → Integrations**; everything else is automatic.
+> **One-line mental model.** An integration is a connection that pulls your diabetes data into GlycemicGPT -- from your CGM cloud, your pump cloud, or your Nightscout site. Set it up once in **Settings → Integrations**; the platform polls on a schedule from there.
 
 ## What's available
 
-| Integration | Direction | Use it if you... | Setup |
+| Integration | What it brings in | Use it if you... | Setup |
 |---|---|---|---|
-| [Dexcom](./connecting-dexcom.md) | Pull (CGM) | Have a Dexcom G6 / G7 / ONE+ and want real-time glucose | Dexcom email + password |
-| [Tandem Cloud](./connecting-tandem-cloud.md) | Pull (pump, both ways) | Have a t:slim X2 or Mobi and want pump history + IoB | Tandem email + password |
-| [Nightscout](#nightscout) | Pull (CGM + pump + treatments) | Already run a Nightscout site -- often with a CGM we don't speak directly to (Libre, Eversense, etc.) | Nightscout URL + API_SECRET |
-| [Telegram bot](#telegram-bot) | Push (notifications + chat) | Want alerts and a portable AI chat in Telegram | Bot token from `@BotFather` |
-| [AI provider](#ai-providers-byoai) | Push (analysis) | Want AI briefs and AI chat over your own data | Subscription, your own API key, or a self-hosted model |
+| [Dexcom](./connecting-dexcom.md) | Real-time glucose | Have a Dexcom G6 / G7 / ONE+ | Dexcom email + password |
+| [Tandem Cloud](./connecting-tandem-cloud.md) | Pump history, boluses, basal, IoB | Have a t:slim X2 or Mobi | Tandem email + password |
+| [Nightscout](#nightscout) | CGM entries, treatments, devicestatus, profile | Already run a Nightscout site -- often with a CGM we don't speak directly to (Libre, Eversense, Medtronic, etc.) | Nightscout URL + API_SECRET |
 
 Everything lives at **Settings → Integrations** on the dashboard.
 
@@ -116,44 +114,6 @@ You can have **more than one** Nightscout connection -- common pattern for careg
 - **"401 / 403."** API_SECRET or token is wrong, or your Nightscout has scope-restricted authentication. Try regenerating a token from your Nightscout admin page.
 - **The chart still has gaps after a sync.** A known limitation -- if your Nightscout's uploader had a disconnect and backfilled into Nightscout after our sync cursor advanced, we may not pick those records up. Workaround: delete and re-create the connection with a wider initial sync window, or contact support. Tracked in [GitHub issue #598](https://github.com/GlycemicGPT/GlycemicGPT/issues/598).
 - **No profile detected.** Some Nightscout sites have profile auto-discovery turned off. You can still use the connection for data import; you'll need to set glucose / insulin settings manually under **Settings**.
-
----
-
-## Telegram bot
-
-The Telegram integration is GlycemicGPT's portable extension. Once it's set up you can:
-
-- Receive alerts on Telegram (warning / critical glucose, predictive low, escalation).
-- Get your daily brief pushed to a Telegram chat.
-- Ask the same AI chat questions you'd ask on the dashboard, from anywhere.
-- Caregivers can be granted read-only access via the same bot without giving them dashboard credentials.
-
-### Setup
-
-1. On Telegram, message [@BotFather](https://t.me/BotFather) and run `/newbot`. Pick a name and username for **your** bot.
-2. BotFather sends you a **bot token** that looks like `123456789:AAH...`. Copy it.
-3. In GlycemicGPT, go to **Settings → Integrations → Telegram** and paste the token. Save.
-4. Open Telegram and send `/start` to your new bot. The bot links your Telegram account to your GlycemicGPT user.
-
-That's it. You can now send commands like `/brief`, `/glucose`, `/iob`, or just ask the bot a question.
-
-> **Privacy.** Your bot token belongs to **your** Telegram account, not GlycemicGPT's. The platform stores it encrypted and uses it to send messages on your behalf. If you ever rotate the token in BotFather, paste the new one back in.
-
----
-
-## AI providers (BYOAI)
-
-GlycemicGPT's AI features -- daily / weekly briefs and AI chat -- need an AI provider. You bring your own. The platform supports:
-
-- **Anthropic** (Claude) -- API key from [console.anthropic.com](https://console.anthropic.com).
-- **OpenAI** (GPT-4, GPT-4o) -- API key from [platform.openai.com](https://platform.openai.com).
-- **Google** (Gemini) -- API key from [aistudio.google.com](https://aistudio.google.com).
-- **Subscription** -- a GlycemicGPT-hosted subscription tier (no API key, billed through the platform).
-- **Self-hosted / BYOAI** -- any OpenAI-compatible endpoint (Ollama, llama.cpp, vLLM, your own runtime) by URL. Useful if you want everything to stay on your network.
-
-Configure under **Settings → AI**. You can switch providers without losing your chat history -- AI chat responses are stored locally regardless of who generated them.
-
-> **Switching providers.** Different providers produce different writing styles in briefs and different answer quality in chat. Try a few; the platform doesn't lock you in.
 
 ---
 
