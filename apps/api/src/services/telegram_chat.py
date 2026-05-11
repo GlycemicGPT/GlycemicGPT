@@ -41,6 +41,34 @@ from src.services.diabetes_context import build_diabetes_context
 
 logger = get_logger(__name__)
 
+
+async def _resolve_max_tokens_for_user(
+    db: AsyncSession,
+    user: User,
+    default_max_tokens: int,
+) -> int:
+    """Resolve the effective per-response token budget for a chat call,
+    falling back to the historical context default if the DB lookup
+    fails.
+
+    Prior to issue #554 the chat paths never queried for a per-user
+    override -- they used a constant. We now read
+    `ai_provider_configs.max_response_tokens`; if that read raises
+    (transient DB error, session hiccup, etc.), we degrade gracefully
+    to the historical default rather than failing the chat request.
+    """
+    try:
+        override = await get_user_max_response_tokens(user, db)
+        return resolve_max_response_tokens(override, default_max_tokens)
+    except Exception:
+        logger.warning(
+            "Failed to resolve max_response_tokens override; using default",
+            user_id=str(user.id),
+            default_max_tokens=default_max_tokens,
+            exc_info=True,
+        )
+        return default_max_tokens
+
 # Telegram message length limit
 TELEGRAM_MAX_LENGTH = 4096
 
@@ -168,9 +196,8 @@ async def handle_chat(
             "\u26a0\ufe0f There is an issue with your AI provider configuration. "
             "Please check Settings or try again later."
         )
-    max_tokens = resolve_max_response_tokens(
-        await get_user_max_response_tokens(user, db),
-        TELEGRAM_MAX_RESPONSE_TOKENS,
+    max_tokens = await _resolve_max_tokens_for_user(
+        db, user, TELEGRAM_MAX_RESPONSE_TOKENS
     )
 
     # Truncate overly long user messages to limit token usage
@@ -320,9 +347,8 @@ async def handle_chat_web(
                 detail="No AI provider configured",
             ) from exc
         raise
-    max_tokens = resolve_max_response_tokens(
-        await get_user_max_response_tokens(user, db),
-        WEB_MAX_RESPONSE_TOKENS,
+    max_tokens = await _resolve_max_tokens_for_user(
+        db, user, WEB_MAX_RESPONSE_TOKENS
     )
 
     truncated_text = text[:MAX_USER_MESSAGE_LENGTH]
@@ -522,9 +548,8 @@ async def handle_caregiver_chat(
     # Honor the *patient's* token override -- caregiver chat runs on
     # the patient's AI provider config, so a thinking-model setting
     # on the patient's side must apply here too.
-    max_tokens = resolve_max_response_tokens(
-        await get_user_max_response_tokens(patient, db),
-        TELEGRAM_MAX_RESPONSE_TOKENS,
+    max_tokens = await _resolve_max_tokens_for_user(
+        db, patient, TELEGRAM_MAX_RESPONSE_TOKENS
     )
 
     # Truncate overly long user messages
@@ -627,9 +652,8 @@ async def handle_caregiver_chat_web(
                 detail="No AI provider configured for this patient",
             ) from exc
         raise
-    max_tokens = resolve_max_response_tokens(
-        await get_user_max_response_tokens(patient, db),
-        WEB_MAX_RESPONSE_TOKENS,
+    max_tokens = await _resolve_max_tokens_for_user(
+        db, patient, WEB_MAX_RESPONSE_TOKENS
     )
 
     truncated_text = text[:MAX_USER_MESSAGE_LENGTH]
