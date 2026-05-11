@@ -1,5 +1,95 @@
 # Changelog
 
+## 2026-05-11
+
+### 📱 Mobile
+
+#### 🐛 Bug Fixes
+
+- fix(mobile): serialize token refresh under a single mutex (closes #520) [@jlengelbrecht](https://github.com/jlengelbrecht) ([#555](https://github.com/GlycemicGPT/GlycemicGPT/pull/555))
+
+#### 📝 Other Changes
+
+- chore: sync release 0.5.0 from main to develop [@glycemicgpt-merge](https://github.com/glycemicgpt-merge) ([#532](https://github.com/GlycemicGPT/GlycemicGPT/pull/532))
+
+### 🌐 Web
+
+#### ✨ New Features
+
+- feat(web): Nightscout smart-onboarding wizard route + 5 steps [@jlengelbrecht](https://github.com/jlengelbrecht) ([#597](https://github.com/GlycemicGPT/GlycemicGPT/pull/597))
+- feat: sync interval picker + per-source freshness card [@jlengelbrecht](https://github.com/jlengelbrecht) ([#578](https://github.com/GlycemicGPT/GlycemicGPT/pull/578))
+- feat: Nightscout connection management UI + manual sync trigger [@jlengelbrecht](https://github.com/jlengelbrecht) ([#575](https://github.com/GlycemicGPT/GlycemicGPT/pull/575))
+
+#### 🐛 Bug Fixes
+
+- fix(#554): configurable max_response_tokens for thinking models [@jlengelbrecht](https://github.com/jlengelbrecht) ([#600](https://github.com/GlycemicGPT/GlycemicGPT/pull/600))
+- fix(api): repair bootstrap knowledge seed (closes #563) [@jlengelbrecht](https://github.com/jlengelbrecht) ([#567](https://github.com/GlycemicGPT/GlycemicGPT/pull/567))
+- fix(deps): clear OSV-flagged CVEs in lockfiles [@jlengelbrecht](https://github.com/jlengelbrecht) ([#535](https://github.com/GlycemicGPT/GlycemicGPT/pull/535))
+
+### 📡 API
+
+#### ✨ New Features
+
+- feat(api): Nightscout apply-onboarding endpoint + derivation read [@jlengelbrecht](https://github.com/jlengelbrecht) ([#596](https://github.com/GlycemicGPT/GlycemicGPT/pull/596))
+- feat(api): pure-function NS profile -> wizard proposals derive [@jlengelbrecht](https://github.com/jlengelbrecht) ([#595](https://github.com/GlycemicGPT/GlycemicGPT/pull/595))
+- feat(api): Nightscout evaluate endpoint for smart-onboarding wizard (Story 43.7a) [@jlengelbrecht](https://github.com/jlengelbrecht) ([#594](https://github.com/GlycemicGPT/GlycemicGPT/pull/594))
+- feat(dev): tconnectsync lens — Tandem t:connect cloud → NS bridge (pump-side) [@jlengelbrecht](https://github.com/jlengelbrecht) ([#591](https://github.com/GlycemicGPT/GlycemicGPT/pull/591))
+- feat(dev): AAPS v1 lens + extractor handles openaps.enacted.rate [@jlengelbrecht](https://github.com/jlengelbrecht) ([#583](https://github.com/GlycemicGPT/GlycemicGPT/pull/583))
+- feat: Nightscout background sync scheduler [@jlengelbrecht](https://github.com/jlengelbrecht) ([#576](https://github.com/GlycemicGPT/GlycemicGPT/pull/576))
+- feat(api): Nightscout translator orchestrator + ORM mapping layer [@jlengelbrecht](https://github.com/jlengelbrecht) ([#572](https://github.com/GlycemicGPT/GlycemicGPT/pull/572))
+- feat(api): typed Pydantic input models for Nightscout wire shapes [@jlengelbrecht](https://github.com/jlengelbrecht) ([#571](https://github.com/GlycemicGPT/GlycemicGPT/pull/571))
+- feat(api): Nightscout v1+v3 read client + SSRF guard [@jlengelbrecht](https://github.com/jlengelbrecht) ([#570](https://github.com/GlycemicGPT/GlycemicGPT/pull/570))
+- feat(api): Nightscout connection model + endpoints [@jlengelbrecht](https://github.com/jlengelbrecht) ([#568](https://github.com/GlycemicGPT/GlycemicGPT/pull/568))
+
+#### 🐛 Bug Fixes
+
+- fix(nightscout): promote pump telemetry to pump_events for dashboard [@jlengelbrecht](https://github.com/jlengelbrecht) ([#582](https://github.com/GlycemicGPT/GlycemicGPT/pull/582))
+- fix(nightscout): scheduler tick wall budget + test fixture hardening [@jlengelbrecht](https://github.com/jlengelbrecht) ([#580](https://github.com/GlycemicGPT/GlycemicGPT/pull/580))
+- fix: source-agnostic Insulin Summary + Recent Boluses widgets [@jlengelbrecht](https://github.com/jlengelbrecht) ([#577](https://github.com/GlycemicGPT/GlycemicGPT/pull/577))
+
+### 🔒 Security
+
+#### 📝 Other Changes
+
+- chore(deps): pin dependencies - abandoned [@glycemicgpt-renovate](https://github.com/glycemicgpt-renovate) ([#543](https://github.com/GlycemicGPT/GlycemicGPT/pull/543))
+- ci(security): GitHub Actions supply-chain hygiene [@jlengelbrecht](https://github.com/jlengelbrecht) ([#541](https://github.com/GlycemicGPT/GlycemicGPT/pull/541))
+- chore(deps): update actions/checkout action to v6 [@glycemicgpt-renovate](https://github.com/glycemicgpt-renovate) ([#539](https://github.com/GlycemicGPT/GlycemicGPT/pull/539))
+
+### 🏗️ Infrastructure
+
+#### 🐛 Bug Fixes
+
+- fix(ci): switch container cleanup to tag-aware action (re #550) [@jlengelbrecht](https://github.com/jlengelbrecht) ([#552](https://github.com/GlycemicGPT/GlycemicGPT/pull/552))
+
+#### 📝 Other Changes
+
+- ci: address CodeRabbit findings on promotion PR #548 [@jlengelbrecht](https://github.com/jlengelbrecht) ([#549](https://github.com/GlycemicGPT/GlycemicGPT/pull/549))
+- ci: phase 5 -- enable Renovate auto-merge via label-driven workflow [@jlengelbrecht](https://github.com/jlengelbrecht) ([#547](https://github.com/GlycemicGPT/GlycemicGPT/pull/547))
+- ci: phase 4 -- group Renovate PRs by family [@jlengelbrecht](https://github.com/jlengelbrecht) ([#546](https://github.com/GlycemicGPT/GlycemicGPT/pull/546))
+- ci: phase 2 -- fork PR lockdown (CODEOWNERS + Renovate caps) [@jlengelbrecht](https://github.com/jlengelbrecht) ([#545](https://github.com/GlycemicGPT/GlycemicGPT/pull/545))
+- ci: path-filter ci.yml component test/lint jobs [@jlengelbrecht](https://github.com/jlengelbrecht) ([#544](https://github.com/GlycemicGPT/GlycemicGPT/pull/544))
+- ci(renovate): add log_level workflow_dispatch input for diagnostic runs [@jlengelbrecht](https://github.com/jlengelbrecht) ([#538](https://github.com/GlycemicGPT/GlycemicGPT/pull/538))
+- chore: sync changelog update from main to develop [@glycemicgpt-merge](https://github.com/glycemicgpt-merge) ([#531](https://github.com/GlycemicGPT/GlycemicGPT/pull/531))
+
+### 📚 Documentation
+
+- docs: add Integrations page covering Nightscout + reflect live integration [@jlengelbrecht](https://github.com/jlengelbrecht) ([#599](https://github.com/GlycemicGPT/GlycemicGPT/pull/599))
+- feat(dev): ns_emulator interactive --wizard mode for new contributors [@jlengelbrecht](https://github.com/jlengelbrecht) ([#593](https://github.com/GlycemicGPT/GlycemicGPT/pull/593))
+- feat(dev): manual lens — Care Portal direct-entry web UI (final lens) [@jlengelbrecht](https://github.com/jlengelbrecht) ([#592](https://github.com/GlycemicGPT/GlycemicGPT/pull/592))
+- feat(dev): share2ns lens — Dexcom Share cloud → NS bridge [@jlengelbrecht](https://github.com/jlengelbrecht) ([#590](https://github.com/GlycemicGPT/GlycemicGPT/pull/590))
+- feat(dev): LibreLinkUp lens — Abbott cloud → NS bridge (entries-only) [@jlengelbrecht](https://github.com/jlengelbrecht) ([#589](https://github.com/GlycemicGPT/GlycemicGPT/pull/589))
+- feat(dev): xDrip+ lens — Android pure-CGM uploader [@jlengelbrecht](https://github.com/jlengelbrecht) ([#588](https://github.com/GlycemicGPT/GlycemicGPT/pull/588))
+- feat(dev): xDrip4iOS lens — pure-CGM iOS uploader (no closed-loop) [@jlengelbrecht](https://github.com/jlengelbrecht) ([#587](https://github.com/GlycemicGPT/GlycemicGPT/pull/587))
+- feat(dev): oref0 lens — original OpenAPS Raspberry Pi wire format [@jlengelbrecht](https://github.com/jlengelbrecht) ([#586](https://github.com/GlycemicGPT/GlycemicGPT/pull/586))
+- feat(dev): Trio lens — iOS oref-derived closed-loop wire format [@jlengelbrecht](https://github.com/jlengelbrecht) ([#585](https://github.com/GlycemicGPT/GlycemicGPT/pull/585))
+- feat(dev): AAPS v3 lens — NSClientV3 wire format (API v3 + JWT) [@jlengelbrecht](https://github.com/jlengelbrecht) ([#584](https://github.com/GlycemicGPT/GlycemicGPT/pull/584))
+- feat(dev): multi-lens Nightscout emulator with Loop lens [@jlengelbrecht](https://github.com/jlengelbrecht) ([#581](https://github.com/GlycemicGPT/GlycemicGPT/pull/581))
+- docs(readme): align positioning with docs — AI-first, ecosystem-aware [@jlengelbrecht](https://github.com/jlengelbrecht) ([#551](https://github.com/GlycemicGPT/GlycemicGPT/pull/551))
+- docs(security): add Dependency Auto-Merge Coverage contract [@jlengelbrecht](https://github.com/jlengelbrecht) ([#540](https://github.com/GlycemicGPT/GlycemicGPT/pull/540))
+
+<!-- changelog-cutoff:2026-05-11T06:11:31Z -->
+
+
 ## 2026-04-30
 
 ### 📱 Mobile
