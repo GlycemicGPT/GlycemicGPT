@@ -9,15 +9,23 @@ Drives the four translator entry points against a single
   which calls this once per due connection on each tick.
 
 `since` semantics:
-- First sync (no `last_synced_at`): default backfill window from
+- First sync (no cursor yet): default backfill window from
   `initial_sync_window_days` (0 = unbounded for entries/treatments;
   always capped at 30 days for devicestatus to bound blast radius).
-- Subsequent syncs: `last_synced_at` (timezone-aware UTC).
+- Subsequent syncs (entries): `last_entry_object_id` -- NS's Mongo
+  `_id` from the last response. Mongo ObjectId is monotonic by
+  insertion time, so this catches entries that uploaders backfilled
+  into NS with `dateString` values from before our last sync
+  (Dexcom Share -> NS bridge is the most common offender; issue #598).
+- Subsequent syncs (treatments / devicestatus): `last_synced_at` --
+  these endpoints already query by NS server-side `created_at`, which
+  is monotonic by insertion time, so they're immune to the late-upload
+  class of bug that hit entries.
 
-`last_synced_at` advancement: only on full success (all four
-translate calls returned without raising). On any partial failure the
-status / error are recorded but the cursor stays put so the next run
-re-fetches the same window. Documented + tested in `test_sync.py`.
+Cursor advancement: only on full success (all four translate calls
+returned without raising). On any partial failure the status / error
+are recorded but the cursor stays put so the next run re-fetches the
+same window. Documented + tested in `test_sync.py`.
 
 Exception mapping:
 - NightscoutAuthError              -> AUTH_FAILED
@@ -208,6 +216,15 @@ async def _do_sync(session: AsyncSession, conn: NightscoutConnection) -> SyncRes
     error_msg: str | None = None
     status = NightscoutSyncStatus.OK
 
+    # Entries use NS's Mongo `_id` cursor when available -- immune to
+    # uploaders backfilling entries with old `dateString` timestamps
+    # (issue #598; Dexcom Share -> NS bridge is the most common
+    # offender). First sync after the 054 migration has no ObjectId
+    # cursor yet, so we fall back to the legacy `last_synced_at`
+    # cursor for that one cycle and lock in the new cursor after.
+    last_entry_object_id = conn.last_entry_object_id
+    new_entry_object_id: str | None = None
+
     try:
         async with await NightscoutClient.create(
             base_url=conn.base_url,
@@ -216,8 +233,19 @@ async def _do_sync(session: AsyncSession, conn: NightscoutConnection) -> SyncRes
             api_version=conn.api_version,
         ) as client:
             entries = await client.fetch_entries(
-                since=_resolve_since(last_synced, window_days, now)
+                since=_resolve_since(last_synced, window_days, now),
+                since_object_id=last_entry_object_id,
             )
+            # Advance the cursor to the largest `_id` in the response.
+            # NS returns entries newest-first, so the head row is the
+            # max by insertion time. Missing `_id` (rare; some legacy
+            # NS plugins strip it) leaves the cursor at its prior
+            # value -- worst case is we re-fetch on next sync, dedupe
+            # handles it.
+            if entries:
+                head_id = entries[0].get("_id")
+                if isinstance(head_id, str) and len(head_id) == 24:
+                    new_entry_object_id = head_id
             treatments = await client.fetch_treatments(
                 since=_resolve_since(last_synced, window_days, now)
             )
@@ -282,11 +310,17 @@ async def _do_sync(session: AsyncSession, conn: NightscoutConnection) -> SyncRes
             user_id=user_id_str,
         )
 
-    # Persist status + (only on success) advance the cursor.
+    # Persist status + (only on success) advance the cursors.
     conn.last_sync_status = status
     conn.last_sync_error = error_msg
     if status == NightscoutSyncStatus.OK:
         conn.last_synced_at = now
+        # Only advance the ObjectId cursor when we actually saw a new
+        # row. NULL preserves "no cursor yet" semantics on the very
+        # first sync if the upstream had zero entries -- next cycle
+        # will retry from the time-window fallback.
+        if new_entry_object_id is not None:
+            conn.last_entry_object_id = new_entry_object_id
     await session.commit()
 
     duration_ms = int((time.monotonic() - started) * 1000)
