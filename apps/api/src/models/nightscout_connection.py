@@ -187,6 +187,19 @@ class NightscoutConnection(Base, TimestampMixin):
         DateTime(timezone=True),
         nullable=True,
     )
+    # Entries cursor by NS Mongo `_id` (insertion-time-monotonic).
+    # Set after each successful entries fetch to the max `_id` from
+    # the returned batch. NULL means "no ObjectId cursor yet" -- the
+    # sync code falls back to the legacy `last_synced_at` (dateString)
+    # cursor for that one sync, then locks in the ObjectId cursor
+    # afterward. The ObjectId cursor is immune to uploaders that
+    # backfill entries with old `dateString` values (issue #598).
+    # Treatments / devicestatus use `created_at` (already server-time)
+    # and don't need this fallback.
+    last_entry_object_id: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
     last_sync_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Discovery metadata (set by Story 43.7 evaluate endpoint).

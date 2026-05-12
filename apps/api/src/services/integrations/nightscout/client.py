@@ -555,20 +555,37 @@ class NightscoutClient:
         self,
         *,
         since: datetime | None = None,
+        since_object_id: str | None = None,
         count: int = DEFAULT_PAGE_SIZE,
     ) -> list[dict[str, Any]]:
         """Fetch CGM entries newest-first.
 
+        Prefers the `_id`-based cursor when `since_object_id` is set.
+        Mongo `_id` is monotonic by insertion time, so this catches
+        entries that uploaders backfilled into NS with old
+        `dateString` values (issue #598 -- Dexcom Share -> NS bridge
+        is the most common offender). Falls back to `since`
+        (dateString filter) when no ObjectId cursor is available
+        (first-ever sync, or for instances where `_id` isn't returned).
+
         Args:
-            since: only return entries with dateString >= this UTC
-                timestamp. **Must be timezone-aware** (raises ValueError
-                on naive datetimes -- silently treating naive as UTC
-                corrupted wall-clock data on dev machines outside UTC).
-                None = no lower bound (subject to Nightscout's
-                own retention).
+            since: dateString-based fallback cursor. **Must be
+                timezone-aware** (raises ValueError on naive
+                datetimes -- silently treating naive as UTC corrupted
+                wall-clock data on dev machines outside UTC).
+                Ignored when `since_object_id` is provided.
+            since_object_id: NS Mongo `_id` lower bound. Preferred
+                cursor (see issue #598). The 24-char hex ObjectId
+                from a prior fetch's max-id.
             count: page size. Server caps at ~50000 silently.
         """
         self._require_v1_for_fetch("entries")
+        if since_object_id is not None:
+            return await self._fetch_v1_collection_by_id(
+                "/api/v1/entries.json",
+                since_object_id=since_object_id,
+                count=count,
+            )
         return await self._fetch_v1_collection(
             "/api/v1/entries.json",
             since=since,
@@ -658,6 +675,47 @@ class NightscoutClient:
         body = _parse_json_or_none(resp)
         return body if isinstance(body, list) else []
 
+    async def _fetch_v1_collection_by_id(
+        self,
+        path: str,
+        *,
+        since_object_id: str,
+        count: int,
+    ) -> list[dict[str, Any]]:
+        """Fetch a v1 collection with an ObjectId-based lower bound.
+
+        Used for entries to avoid the dateString-cursor backfill miss
+        (issue #598). The 24-char hex ObjectId encodes insertion time
+        in its first 4 bytes; querying `find[_id][$gt]=<lastSeen>`
+        returns everything inserted *after* that ObjectId regardless
+        of `dateString`. Caller is responsible for advancing the
+        cursor to `max(_id)` from the returned batch.
+        """
+        if not _is_valid_object_id(since_object_id):
+            # Bad cursor value -- log + skip the filter rather than
+            # 400-ing or empty-returning. Caller will get a full
+            # window which is wrong but at least keeps sync moving;
+            # cursor recovery happens on the next successful fetch.
+            raise ValueError(
+                "since_object_id must be a 24-character hex ObjectId; "
+                f"got {since_object_id!r}"
+            )
+        params: dict[str, Any] = {
+            "count": count,
+            "find[_id][$gt]": since_object_id,
+        }
+        resp = await self._request(
+            "GET", path, params=params, headers=self._v1_headers()
+        )
+        self._raise_for_auth_or_404(resp, what=path)
+        if resp.status_code != 200:
+            raise NightscoutServerError(
+                f"{path} returned status {resp.status_code}",
+                status_code=resp.status_code,
+            )
+        body = _parse_json_or_none(resp)
+        return body if isinstance(body, list) else []
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -665,6 +723,19 @@ class NightscoutClient:
 
 
 _PARSE_FAILED = object()  # sentinel distinct from None / [] / {}
+
+
+def _is_valid_object_id(value: str) -> bool:
+    """24-character lowercase hex string -- the canonical Mongo
+    ObjectId shape NS persists in `_id`. Reject anything else loudly
+    rather than passing junk into the `find[_id][$gt]` filter."""
+    if not isinstance(value, str) or len(value) != 24:
+        return False
+    try:
+        int(value, 16)
+        return True
+    except ValueError:
+        return False
 
 
 def _parse_json_or_none(resp: httpx.Response) -> Any:

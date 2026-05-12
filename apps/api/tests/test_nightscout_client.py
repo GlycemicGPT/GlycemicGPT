@@ -424,6 +424,66 @@ class TestFetchEntries:
             await c.fetch_entries(since=naive)
 
 
+class TestFetchEntriesByObjectId:
+    """Issue #598: entries cursor swaps to NS Mongo `_id` to avoid
+    missing entries that uploaders backfilled into NS with old
+    `dateString` values (Dexcom Share -> NS bridge being the canonical
+    offender)."""
+
+    @pytest.mark.asyncio
+    async def test_uses_find_id_gt_when_object_id_provided(self):
+        c = _make_client()
+        mock_request = AsyncMock(return_value=_resp(200, []))
+        with patch.object(c._client, "request", new=mock_request):
+            await c.fetch_entries(since_object_id="6a001f288e31759edc8c0d25")
+        params = mock_request.call_args.kwargs["params"]
+        assert params["find[_id][$gt]"] == "6a001f288e31759edc8c0d25"
+        # dateString filter is NOT sent when ObjectId cursor is in play
+        # -- it would over-constrain and silently drop late-uploaded
+        # entries from a window that's now in the past.
+        assert "find[dateString][$gte]" not in params
+
+    @pytest.mark.asyncio
+    async def test_object_id_takes_precedence_over_since(self):
+        """When both cursors are passed, ObjectId wins. Sync wires
+        both during the first cycle after migration 054; we must NOT
+        AND them together (would re-introduce the backfill miss)."""
+        c = _make_client()
+        since = datetime(2026, 5, 1, 12, 0, 0, tzinfo=UTC)
+        mock_request = AsyncMock(return_value=_resp(200, []))
+        with patch.object(c._client, "request", new=mock_request):
+            await c.fetch_entries(
+                since=since,
+                since_object_id="6a001f288e31759edc8c0d25",
+            )
+        params = mock_request.call_args.kwargs["params"]
+        assert "find[_id][$gt]" in params
+        assert "find[dateString][$gte]" not in params
+
+    @pytest.mark.asyncio
+    async def test_invalid_object_id_raises_value_error(self):
+        """Bad cursor value should fail loud at the client boundary
+        rather than send junk to NS. Sync code catches and retries
+        the next cycle with the time-window fallback."""
+        c = _make_client()
+        with pytest.raises(ValueError, match="24-character hex ObjectId"):
+            await c.fetch_entries(since_object_id="not-an-object-id")
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_datestring_when_no_object_id(self):
+        """First sync after migration 054 has no ObjectId cursor yet.
+        Client falls back to the legacy dateString filter so we still
+        get a bounded window."""
+        c = _make_client()
+        since = datetime(2026, 5, 1, 12, 0, 0, tzinfo=UTC)
+        mock_request = AsyncMock(return_value=_resp(200, []))
+        with patch.object(c._client, "request", new=mock_request):
+            await c.fetch_entries(since=since)
+        params = mock_request.call_args.kwargs["params"]
+        assert params["find[dateString][$gte]"] == "2026-05-01T12:00:00Z"
+        assert "find[_id][$gt]" not in params
+
+
 # ---------------------------------------------------------------------------
 # fetch_profile
 # ---------------------------------------------------------------------------
