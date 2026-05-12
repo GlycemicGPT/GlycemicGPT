@@ -122,3 +122,113 @@ describe("NightscoutIntegrationsSection -- is_active filter", () => {
     ).not.toBeInTheDocument();
   });
 });
+
+describe("NightscoutIntegrationsSection -- re-import button (43.7d)", () => {
+  it("renders a re-import link on every active connection", () => {
+    render(
+      <NightscoutIntegrationsSection
+        connections={[
+          makeConn({ id: "c1", name: "Primary" }),
+          makeConn({ id: "c2", name: "Spouse" }),
+        ]}
+        isOffline={false}
+        {...noopHandlers}
+      />
+    );
+
+    const link1 = screen.getByTestId("nightscout-reimport-c1");
+    const link2 = screen.getByTestId("nightscout-reimport-c2");
+    expect(link1).toHaveAttribute(
+      "href",
+      "/dashboard/settings/integrations/nightscout/connect?connection=c1"
+    );
+    expect(link2).toHaveAttribute(
+      "href",
+      "/dashboard/settings/integrations/nightscout/connect?connection=c2"
+    );
+  });
+
+  it("URL-encodes the connection id in the re-import href", () => {
+    // Real ids are UUIDs (no special chars), but the encoder
+    // belt-and-suspenders against odd ids leaking in from future flows.
+    render(
+      <NightscoutIntegrationsSection
+        connections={[makeConn({ id: "id with spaces", name: "Weird" })]}
+        isOffline={false}
+        {...noopHandlers}
+      />
+    );
+    const link = screen.getByTestId("nightscout-reimport-id with spaces");
+    expect(link.getAttribute("href")).toContain(
+      "connection=id%20with%20spaces"
+    );
+  });
+
+  it("disables the re-import link when offline -- pulls out of tab order and blocks keyboard activation", () => {
+    render(
+      <NightscoutIntegrationsSection
+        connections={[makeConn({ id: "c1", name: "Primary" })]}
+        isOffline={true}
+        {...noopHandlers}
+      />
+    );
+
+    const link = screen.getByTestId("nightscout-reimport-c1");
+    expect(link).toHaveAttribute("aria-disabled", "true");
+    // `aria-disabled` alone is advisory -- Tab + Enter would still
+    // navigate. tabIndex=-1 removes the link from keyboard tab order.
+    expect(link).toHaveAttribute("tabindex", "-1");
+
+    // Pressing Enter must not trigger navigation. We assert by spying
+    // on the keydown event and confirming defaultPrevented flips
+    // to true via our onKeyDown handler.
+    const keyEvent = new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    });
+    link.dispatchEvent(keyEvent);
+    expect(keyEvent.defaultPrevented).toBe(true);
+
+    // Same for Space.
+    const spaceEvent = new KeyboardEvent("keydown", {
+      key: " ",
+      bubbles: true,
+      cancelable: true,
+    });
+    link.dispatchEvent(spaceEvent);
+    expect(spaceEvent.defaultPrevented).toBe(true);
+
+    // And a click is still blocked (the mouse path).
+    const clickEvent = new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+    });
+    link.dispatchEvent(clickEvent);
+    expect(clickEvent.defaultPrevented).toBe(true);
+  });
+
+  it("keeps the re-import link tab-able and interactive when online", () => {
+    render(
+      <NightscoutIntegrationsSection
+        connections={[makeConn({ id: "c1", name: "Primary" })]}
+        isOffline={false}
+        {...noopHandlers}
+      />
+    );
+
+    const link = screen.getByTestId("nightscout-reimport-c1");
+    expect(link).toHaveAttribute("aria-disabled", "false");
+    // No explicit tabIndex when enabled -- inherits anchor's default (0).
+    expect(link.getAttribute("tabindex")).toBeNull();
+
+    // Enter does NOT get preventDefault'd in the enabled state.
+    const keyEvent = new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    });
+    link.dispatchEvent(keyEvent);
+    expect(keyEvent.defaultPrevented).toBe(false);
+  });
+});
