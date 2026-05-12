@@ -692,10 +692,12 @@ class NightscoutClient:
         cursor to `max(_id)` from the returned batch.
         """
         if not _is_valid_object_id(since_object_id):
-            # Bad cursor value -- log + skip the filter rather than
-            # 400-ing or empty-returning. Caller will get a full
-            # window which is wrong but at least keeps sync moving;
-            # cursor recovery happens on the next successful fetch.
+            # Bad cursor value -- fail loud at the client boundary so a
+            # corrupted cursor in the DB can't silently send junk to
+            # NS (which would either 400 or return the full window).
+            # The sync layer catches and the next cycle re-attempts;
+            # a persistent bad value will need manual cursor clearing
+            # on the connection row.
             raise ValueError(
                 "since_object_id must be a 24-character hex ObjectId; "
                 f"got {since_object_id!r}"
@@ -726,9 +728,10 @@ _PARSE_FAILED = object()  # sentinel distinct from None / [] / {}
 
 
 def _is_valid_object_id(value: str) -> bool:
-    """24-character lowercase hex string -- the canonical Mongo
-    ObjectId shape NS persists in `_id`. Reject anything else loudly
-    rather than passing junk into the `find[_id][$gt]` filter."""
+    """24-character hex string (case-insensitive) matching the
+    canonical Mongo ObjectId shape NS persists in `_id`. Reject
+    anything else loudly rather than passing junk into the
+    `find[_id][$gt]` filter."""
     if not isinstance(value, str) or len(value) != 24:
         return False
     try:
