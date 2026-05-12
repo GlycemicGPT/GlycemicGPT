@@ -188,6 +188,14 @@ def upgrade() -> None:
         # Minutes past `start_at`. e.g. step_minutes=5 means rows
         # at offsets 0, 5, 10, 15, ... up to horizon_minutes.
         sa.Column("offset_minutes", sa.Integer(), nullable=False),
+        # A negative offset would mean a forecast point *before* the
+        # forecast was issued -- nonsense, and would corrupt MAE /
+        # coverage rollups. Pin at the DB boundary so a buggy scoring
+        # job can't quietly land bad data.
+        sa.CheckConstraint(
+            "offset_minutes >= 0",
+            name="ck_forecast_eval_offset_nonnegative",
+        ),
         sa.Column("predicted_mgdl", sa.Float(), nullable=False),
         # NULL when no CGM reading landed within the tolerance window
         # (e.g., user's CGM dropped out during the forecast horizon).

@@ -158,8 +158,14 @@ def _aaps_curves_iob_only() -> tuple[dict, str]:
 
 
 class TestForecastSnapshotInsert:
+    """Round-trip insertion tests for the wire-format families captured
+    by the design doc: Loop single-curve, AAPS / Trio / oref0 multi-curve,
+    and the future engine-emitted path (no NS connection FK)."""
+
     @pytest.mark.asyncio
     async def test_loop_single_curve_round_trip(self, fc_ctx):
+        """Loop's single-curve payload round-trips intact, including
+        the server-defaulted `received_at`."""
         session, user_id, conn = fc_ctx
         issued = datetime.now(UTC)
         curves, default_curve = _loop_curve()
@@ -194,6 +200,8 @@ class TestForecastSnapshotInsert:
 
     @pytest.mark.asyncio
     async def test_aaps_multi_curve_round_trip(self, fc_ctx):
+        """AAPS's multi-curve payload (IOB/COB/UAM/ZT) round-trips with
+        all four keys preserved and IOB as the source's default."""
         session, user_id, conn = fc_ctx
         issued = datetime.now(UTC)
         curves, default_curve = _aaps_curves()
@@ -298,6 +306,10 @@ class TestForecastSnapshotInsert:
 
 
 class TestForecastSnapshotUniqueness:
+    """Pins `(source_engine, dedupe_key)` UPSERT semantics:
+    same key + same engine rejects (idempotency); same key + different
+    engines allowed (cross-source non-collision)."""
+
     @pytest.mark.asyncio
     async def test_same_source_engine_and_dedupe_key_rejects(self, fc_ctx):
         """Same NS devicestatus _id arriving twice (different sync
@@ -386,6 +398,10 @@ class TestForecastSnapshotUniqueness:
 
 
 class TestForecastEvaluation:
+    """Pins the schema contract for the deferred scoring job: partial
+    rows (NULL actual), idempotent UPSERT by (snapshot_id, offset), and
+    snapshot-delete cascade."""
+
     @pytest.mark.asyncio
     async def test_evaluation_partial_row(self, fc_ctx):
         """The future scoring job writes one evaluation row per
@@ -539,6 +555,9 @@ class TestForecastEvaluation:
 
 
 class TestForecastQueryByLatest:
+    """Verifies the read path's index ordering for
+    `(user_id, source_engine, issued_at DESC)`."""
+
     @pytest.mark.asyncio
     async def test_latest_per_source_via_issued_at_index(self, fc_ctx):
         """Read endpoint will hit `ix_forecast_user_source_issued` to
@@ -622,6 +641,7 @@ class TestForecastDbInvariants:
 
     @pytest.mark.asyncio
     async def test_zero_step_minutes_rejected(self, fc_ctx):
+        """`step_minutes=0` would divide by zero on chart render."""
         session, user_id, _conn = fc_ctx
         kwargs = await self._base_snap_kwargs(user_id)
         kwargs["step_minutes"] = 0
@@ -632,6 +652,7 @@ class TestForecastDbInvariants:
 
     @pytest.mark.asyncio
     async def test_negative_horizon_minutes_rejected(self, fc_ctx):
+        """A negative horizon is physically meaningless."""
         session, user_id, _conn = fc_ctx
         kwargs = await self._base_snap_kwargs(user_id)
         kwargs["horizon_minutes"] = -5
@@ -655,6 +676,7 @@ class TestForecastDbInvariants:
 
     @pytest.mark.asyncio
     async def test_empty_dedupe_key_rejected(self, fc_ctx):
+        """Empty dedupe key would defeat UPSERT idempotency."""
         session, user_id, _conn = fc_ctx
         kwargs = await self._base_snap_kwargs(user_id)
         kwargs["dedupe_key"] = ""
@@ -665,6 +687,7 @@ class TestForecastDbInvariants:
 
     @pytest.mark.asyncio
     async def test_oversized_dedupe_key_rejected(self, fc_ctx):
+        """Bounds against a malformed translator writing huge strings."""
         session, user_id, _conn = fc_ctx
         kwargs = await self._base_snap_kwargs(user_id)
         kwargs["dedupe_key"] = "x" * 200  # over 128
@@ -682,6 +705,30 @@ class TestForecastDbInvariants:
             ForecastEvaluation(
                 forecast_snapshot_id=uuid.uuid4(),  # no such snapshot
                 offset_minutes=5,
+                predicted_mgdl=120.0,
+                actual_mgdl=120.0,
+            )
+        )
+        with pytest.raises(IntegrityError):
+            await session.commit()
+        await session.rollback()
+
+    @pytest.mark.asyncio
+    async def test_evaluation_negative_offset_rejected(self, fc_ctx):
+        """A negative `offset_minutes` would mean a forecast point
+        before the forecast was issued -- nonsense, and would corrupt
+        MAE / coverage rollups. The DB must reject it."""
+        session, user_id, conn = fc_ctx
+        kwargs = await self._base_snap_kwargs(user_id)
+        kwargs["nightscout_connection_id"] = conn.id
+        snap = ForecastSnapshot(**kwargs)
+        session.add(snap)
+        await session.flush()
+
+        session.add(
+            ForecastEvaluation(
+                forecast_snapshot_id=snap.id,
+                offset_minutes=-5,  # invalid
                 predicted_mgdl=120.0,
                 actual_mgdl=120.0,
             )

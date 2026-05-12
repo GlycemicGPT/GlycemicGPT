@@ -241,6 +241,13 @@ class ForecastEvaluation(Base):
             "offset_minutes",
             name="uq_forecast_eval_snapshot_offset",
         ),
+        # Mirror of migration CHECK. Negative offsets would mean a
+        # forecast point before issuance -- nonsense, and would corrupt
+        # MAE / coverage rollups.
+        CheckConstraint(
+            "offset_minutes >= 0",
+            name="ck_forecast_eval_offset_nonnegative",
+        ),
         Index("ix_forecast_eval_snapshot", "forecast_snapshot_id"),
     )
 
