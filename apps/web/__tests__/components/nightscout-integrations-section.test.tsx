@@ -122,3 +122,59 @@ describe("NightscoutIntegrationsSection -- is_active filter", () => {
     ).not.toBeInTheDocument();
   });
 });
+
+describe("NightscoutIntegrationsSection -- re-import button (43.7d)", () => {
+  it("renders a re-import link on every active connection", () => {
+    render(
+      <NightscoutIntegrationsSection
+        connections={[
+          makeConn({ id: "c1", name: "Primary" }),
+          makeConn({ id: "c2", name: "Spouse" }),
+        ]}
+        isOffline={false}
+        {...noopHandlers}
+      />
+    );
+
+    const link1 = screen.getByTestId("nightscout-reimport-c1");
+    const link2 = screen.getByTestId("nightscout-reimport-c2");
+    expect(link1).toHaveAttribute(
+      "href",
+      "/dashboard/settings/integrations/nightscout/connect?connection=c1"
+    );
+    expect(link2).toHaveAttribute(
+      "href",
+      "/dashboard/settings/integrations/nightscout/connect?connection=c2"
+    );
+  });
+
+  it("URL-encodes the connection id in the re-import href", () => {
+    // Real ids are UUIDs (no special chars), but the encoder
+    // belt-and-suspenders against odd ids leaking in from future flows.
+    render(
+      <NightscoutIntegrationsSection
+        connections={[makeConn({ id: "id with spaces", name: "Weird" })]}
+        isOffline={false}
+        {...noopHandlers}
+      />
+    );
+    const link = screen.getByTestId("nightscout-reimport-id with spaces");
+    expect(link.getAttribute("href")).toContain(
+      "connection=id%20with%20spaces"
+    );
+  });
+
+  it("disables the re-import link when offline", () => {
+    render(
+      <NightscoutIntegrationsSection
+        connections={[makeConn({ id: "c1", name: "Primary" })]}
+        isOffline={true}
+        {...noopHandlers}
+      />
+    );
+
+    const link = screen.getByTestId("nightscout-reimport-c1");
+    expect(link).toHaveAttribute("aria-disabled", "true");
+    expect(link.className).toContain("pointer-events-none");
+  });
+});

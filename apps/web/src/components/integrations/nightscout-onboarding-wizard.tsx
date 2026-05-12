@@ -23,7 +23,7 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import clsx from "clsx";
 import {
   applyNightscoutOnboarding,
@@ -109,6 +109,11 @@ interface WizardState {
   formError: string | null;
   isCreating: boolean;
   credentialVisible: boolean;
+  // True when the wizard was entered via the re-import deep link
+  // (`/connect?connection=<id>`). Skips Step 1; the credentials
+  // form is unused. Used by the header / cancel UX to hint at
+  // the different intent.
+  isReimport: boolean;
   // Step 2
   connectionId: string | null;
   derivation: OnboardingDerivation | null;
@@ -143,6 +148,7 @@ const INITIAL_STATE: WizardState = {
   formError: null,
   isCreating: false,
   credentialVisible: false,
+  isReimport: false,
   connectionId: null,
   derivation: null,
   discovery: null,
@@ -334,9 +340,42 @@ function anyGlucoseDomainImported(imports: ImportFlags): boolean {
 // Wizard
 // ----------------------------------------------------------------------------
 
+// 36 hex chars + 4 hyphens. Cheap shape-check before we trust an
+// untrusted query-param value enough to seed wizard state with it.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function deriveInitialState(connectionParam: string | null): WizardState {
+  if (connectionParam && UUID_RE.test(connectionParam)) {
+    // Re-import deep link: skip Step 1 (credentials already exist on
+    // the connection), seed the connection id, jump straight to the
+    // evaluating step. The effect that fires on `step === "evaluating"`
+    // picks it up from there.
+    return {
+      ...INITIAL_STATE,
+      isReimport: true,
+      connectionId: connectionParam,
+      step: "evaluating",
+    };
+  }
+  return INITIAL_STATE;
+}
+
 export function NightscoutOnboardingWizard() {
   const router = useRouter();
-  const [state, dispatch] = useReducer(reducer, INITIAL_STATE);
+  const searchParams = useSearchParams();
+  // Read once at mount. Changing the URL mid-wizard doesn't re-seed
+  // (intentional: avoids state thrash if the user copy-pastes a link
+  // into the same tab while the wizard is in flight).
+  const initialConnection = useMemo(
+    () => searchParams?.get("connection") ?? null,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
+  const [state, dispatch] = useReducer(
+    reducer,
+    initialConnection,
+    deriveInitialState
+  );
 
   // Kick the evaluate + derive chain when we enter step 2. Using
   // ref-as-cache-key so React-strict-mode double-mount in dev
@@ -524,7 +563,7 @@ export function NightscoutOnboardingWizard() {
       data-testid="nightscout-wizard"
     >
       <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8">
-        <WizardHeader currentStep={state.step} />
+        <WizardHeader currentStep={state.step} isReimport={state.isReimport} />
         <div className="mt-6">
           {state.step === "credentials" && (
             <CredentialsStep
@@ -576,6 +615,7 @@ export function NightscoutOnboardingWizard() {
           {state.step === "done" && state.applyResult && (
             <DoneStep
               result={state.applyResult}
+              isReimport={state.isReimport}
               onGoToIntegrations={() =>
                 router.push("/dashboard/settings/integrations")
               }
@@ -592,17 +632,26 @@ export function NightscoutOnboardingWizard() {
 // Header / stepper
 // ----------------------------------------------------------------------------
 
-function WizardHeader({ currentStep }: { currentStep: StepId }) {
+function WizardHeader({
+  currentStep,
+  isReimport,
+}: {
+  currentStep: StepId;
+  isReimport: boolean;
+}) {
   const currentIndex = STEPS.findIndex((s) => s.id === currentStep);
   return (
     <div>
       <div className="flex items-center gap-3 text-slate-700 dark:text-slate-200">
         <Wifi className="h-5 w-5 text-blue-500" />
-        <h1 className="text-xl font-semibold">Connect Nightscout</h1>
+        <h1 className="text-xl font-semibold">
+          {isReimport ? "Re-import from Nightscout" : "Connect Nightscout"}
+        </h1>
       </div>
       <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-        Read your existing Nightscout profile and pre-fill your GlycemicGPT
-        settings so you don&apos;t start from a blank dashboard.
+        {isReimport
+          ? "Re-read your Nightscout profile and pick which updated values to bring into GlycemicGPT. Your existing connection isn't recreated."
+          : "Read your existing Nightscout profile and pre-fill your GlycemicGPT settings so you don't start from a blank dashboard."}
       </p>
       <ol
         className="mt-5 flex items-center gap-2 text-xs"
@@ -1563,12 +1612,14 @@ function ApplyingStep() {
 
 interface DoneStepProps {
   result: NightscoutApplyOnboardingResponse;
+  isReimport: boolean;
   onGoToIntegrations: () => void;
   onGoToDashboard: () => void;
 }
 
 function DoneStep({
   result,
+  isReimport,
   onGoToIntegrations,
   onGoToDashboard,
 }: DoneStepProps) {
@@ -1595,14 +1646,14 @@ function DoneStep({
       <div className="flex items-center gap-2 text-green-500">
         <Check className="h-5 w-5" />
         <h2 className="text-base font-medium text-slate-700 dark:text-slate-200">
-          Connected
+          {isReimport ? "Settings updated" : "Connected"}
         </h2>
       </div>
 
       {appliedFields.length > 0 ? (
         <div className="mt-3">
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            We imported:
+            {isReimport ? "We refreshed:" : "We imported:"}
           </p>
           <ul
             className="mt-1 space-y-1"
@@ -1621,8 +1672,9 @@ function DoneStep({
         </div>
       ) : (
         <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">
-          No settings were imported. Your connection is saved -- you can sync
-          data without changing any settings.
+          {isReimport
+            ? "No setting changes were applied. Your existing settings are unchanged."
+            : "No settings were imported. Your connection is saved -- you can sync data without changing any settings."}
         </p>
       )}
 
