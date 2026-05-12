@@ -483,32 +483,50 @@ export function NightscoutIntegrationsSection({
                           )}
                         </div>
                         <div className="flex gap-2 shrink-0 flex-wrap">
-                          <Link
-                            href={`/dashboard/settings/integrations/nightscout/connect?connection=${encodeURIComponent(conn.id)}`}
-                            data-testid={`nightscout-reimport-${conn.id}`}
-                            aria-disabled={isOffline || isBusy(conn.id)}
-                            onClick={(e) => {
-                              // Block navigation when offline or another
-                              // action on this row is in flight. Link
-                              // has no native `disabled`; we guard the
-                              // click instead.
-                              if (isOffline || isBusy(conn.id)) {
-                                e.preventDefault();
-                              }
-                            }}
-                            className={clsx(
-                              "px-3 py-1.5 rounded-lg text-xs font-medium",
-                              "border border-purple-500/30 text-purple-400",
-                              "hover:bg-purple-500/10",
-                              "transition-colors flex items-center gap-1",
-                              (isOffline || isBusy(conn.id)) &&
-                                "opacity-50 cursor-not-allowed pointer-events-none"
-                            )}
-                            title="Re-read this Nightscout's profile and pick which updated settings to bring into GlycemicGPT"
-                          >
-                            <Sparkles className="h-3 w-3" />
-                            Re-import
-                          </Link>
+                          {(() => {
+                            const reimportDisabled =
+                              isOffline || isBusy(conn.id);
+                            return (
+                              <Link
+                                href={`/dashboard/settings/integrations/nightscout/connect?connection=${encodeURIComponent(conn.id)}`}
+                                data-testid={`nightscout-reimport-${conn.id}`}
+                                aria-disabled={reimportDisabled}
+                                // `aria-disabled` alone is advisory --
+                                // the Link stays in tab order and
+                                // Enter/Space still navigates. Pull
+                                // it out of tab order AND block
+                                // keyboard activation (Enter/Space)
+                                // when disabled, so keyboard users
+                                // get the same gate as mouse users.
+                                tabIndex={reimportDisabled ? -1 : undefined}
+                                onClick={(e) => {
+                                  if (reimportDisabled) {
+                                    e.preventDefault();
+                                  }
+                                }}
+                                onKeyDown={(e) => {
+                                  if (
+                                    reimportDisabled &&
+                                    (e.key === "Enter" || e.key === " ")
+                                  ) {
+                                    e.preventDefault();
+                                  }
+                                }}
+                                className={clsx(
+                                  "px-3 py-1.5 rounded-lg text-xs font-medium",
+                                  "border border-purple-500/30 text-purple-400",
+                                  "hover:bg-purple-500/10",
+                                  "transition-colors flex items-center gap-1",
+                                  reimportDisabled &&
+                                    "opacity-50 cursor-not-allowed pointer-events-none"
+                                )}
+                                title="Re-read this Nightscout's profile and pick which updated settings to bring into GlycemicGPT"
+                              >
+                                <Sparkles className="h-3 w-3" />
+                                Re-import
+                              </Link>
+                            );
+                          })()}
                           <button
                             type="button"
                             onClick={() => handleSync(conn.id)}

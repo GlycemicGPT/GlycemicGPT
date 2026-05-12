@@ -164,7 +164,7 @@ describe("NightscoutIntegrationsSection -- re-import button (43.7d)", () => {
     );
   });
 
-  it("disables the re-import link when offline", () => {
+  it("disables the re-import link when offline -- pulls out of tab order and blocks keyboard activation", () => {
     render(
       <NightscoutIntegrationsSection
         connections={[makeConn({ id: "c1", name: "Primary" })]}
@@ -175,6 +175,60 @@ describe("NightscoutIntegrationsSection -- re-import button (43.7d)", () => {
 
     const link = screen.getByTestId("nightscout-reimport-c1");
     expect(link).toHaveAttribute("aria-disabled", "true");
-    expect(link.className).toContain("pointer-events-none");
+    // `aria-disabled` alone is advisory -- Tab + Enter would still
+    // navigate. tabIndex=-1 removes the link from keyboard tab order.
+    expect(link).toHaveAttribute("tabindex", "-1");
+
+    // Pressing Enter must not trigger navigation. We assert by spying
+    // on the keydown event and confirming defaultPrevented flips
+    // to true via our onKeyDown handler.
+    const keyEvent = new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    });
+    link.dispatchEvent(keyEvent);
+    expect(keyEvent.defaultPrevented).toBe(true);
+
+    // Same for Space.
+    const spaceEvent = new KeyboardEvent("keydown", {
+      key: " ",
+      bubbles: true,
+      cancelable: true,
+    });
+    link.dispatchEvent(spaceEvent);
+    expect(spaceEvent.defaultPrevented).toBe(true);
+
+    // And a click is still blocked (the mouse path).
+    const clickEvent = new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+    });
+    link.dispatchEvent(clickEvent);
+    expect(clickEvent.defaultPrevented).toBe(true);
+  });
+
+  it("keeps the re-import link tab-able and interactive when online", () => {
+    render(
+      <NightscoutIntegrationsSection
+        connections={[makeConn({ id: "c1", name: "Primary" })]}
+        isOffline={false}
+        {...noopHandlers}
+      />
+    );
+
+    const link = screen.getByTestId("nightscout-reimport-c1");
+    expect(link).toHaveAttribute("aria-disabled", "false");
+    // No explicit tabIndex when enabled -- inherits anchor's default (0).
+    expect(link.getAttribute("tabindex")).toBeNull();
+
+    // Enter does NOT get preventDefault'd in the enabled state.
+    const keyEvent = new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    });
+    link.dispatchEvent(keyEvent);
+    expect(keyEvent.defaultPrevented).toBe(false);
   });
 });

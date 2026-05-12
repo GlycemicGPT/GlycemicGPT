@@ -17,8 +17,13 @@ export default function NightscoutConnectPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center">
-          <Loader2 className="h-6 w-6 text-blue-500 animate-spin" />
+        <div
+          role="status"
+          aria-live="polite"
+          className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center"
+        >
+          <Loader2 className="h-6 w-6 text-blue-500 animate-spin" aria-hidden="true" />
+          <span className="sr-only">Loading Nightscout connection wizard…</span>
         </div>
       }
     >
