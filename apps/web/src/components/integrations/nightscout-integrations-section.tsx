@@ -107,6 +107,14 @@ export function NightscoutIntegrationsSection({
   onSync,
   onUpdate,
 }: NightscoutIntegrationsSectionProps) {
+  // The backend DELETE is a soft-delete that flips `is_active = false`
+  // (preserves `source = "nightscout:<id>"` attribution on historical
+  // pump_events). The list endpoint intentionally returns inactive
+  // rows so the UI can group them. Until a dedicated "deactivated
+  // history" affordance ships, we hide them entirely -- otherwise
+  // clicking Delete appears to fail because the soft-deleted row
+  // immediately re-appears on refetch.
+  const activeConnections = connections.filter((c) => c.is_active);
   const [name, setName] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [credential, setCredential] = useState("");
@@ -352,8 +360,8 @@ export function NightscoutIntegrationsSection({
           variant="subsection"
           badge={
             <span className="ml-2 text-xs font-medium text-slate-500">
-              {connections.length} connection
-              {connections.length === 1 ? "" : "s"}
+              {activeConnections.length} connection
+              {activeConnections.length === 1 ? "" : "s"}
             </span>
           }
         >
@@ -367,14 +375,14 @@ export function NightscoutIntegrationsSection({
               uploader).
             </p>
 
-            {connections.length > 0 && (
+            {activeConnections.length > 0 && (
               <ul
                 role="list"
                 aria-label="Nightscout connections"
                 className="space-y-3"
                 data-testid="nightscout-connections-list"
               >
-                {connections.map((conn) => {
+                {activeConnections.map((conn) => {
                   const result = perConnectionResult[conn.id];
                   const showConfirm = confirmDeleteId === conn.id;
                   return (
