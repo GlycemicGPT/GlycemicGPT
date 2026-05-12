@@ -484,13 +484,36 @@ jobs:
           TAG: ${{ steps.version-info.outputs.tag_name }}
           VERSION: ${{ steps.version-info.outputs.version }}
         run: |
-          # Extract the latest dated section from CHANGELOG.md
-          # (populated by changelog-pr.yml with @username contributor credits)
-          BODY=$(sed -n '/^## [0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}/,/^\(## [0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}\|<!-- changelog-cutoff:\)/{
-            /^## [0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}/!{
-              /^\(## [0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}\|<!-- changelog-cutoff:\)/!p
+          # Extract ONLY the latest dated section from CHANGELOG.md.
+          #
+          # CHANGELOG layout per `changelog-pr.yml`:
+          #
+          #   ## YYYY-MM-DD          <- latest release heading
+          #   ...latest entries...
+          #   <!-- changelog-cutoff:YYYY-MM-DDTHH:MM:SSZ -->
+          #
+          #   ## YYYY-MM-DD          <- previous release heading
+          #   ...previous entries...
+          #   <!-- changelog-cutoff:... -->
+          #
+          # The previous implementation used a `sed -n /START/,/END/` address
+          # range. sed range matching is **recurring** -- once the closing
+          # address matches, sed keeps scanning and re-opens a new range on
+          # the next `## YYYY-MM-DD` heading. The net result was that every
+          # release's body included entries going back to the beginning of
+          # the changelog. Awk with an `exit` after the first range close
+          # gives single-shot extraction.
+          BODY=$(awk '
+            /^## [0-9]{4}-[0-9]{2}-[0-9]{2}/ {
+              if (in_section) exit
+              in_section = 1
+              next
             }
-          }' CHANGELOG.md)
+            /^<!-- changelog-cutoff:/ {
+              if (in_section) exit
+            }
+            in_section { print }
+          ' CHANGELOG.md)
 
           if [ -n "$BODY" ]; then
             {
