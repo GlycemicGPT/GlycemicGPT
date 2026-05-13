@@ -157,7 +157,7 @@ GlycemicGPT is free and open source. Funding is handled through [Open Collective
 <p align="center">
   <a href="https://opencollective.com/glycemicgpt"><img src="https://opencollective.com/glycemicgpt/contribute/button@2x.png?color=blue" alt="Contribute to GlycemicGPT on Open Collective" width="280"></a>
   &nbsp;&nbsp;
-  <a href="https://github.com/GlycemicGPT/GlycemicGPT"><img src="assets/buttons/star-on-github.svg" alt="Star GlycemicGPT on GitHub" width="280"></a>
+  <a href="https://github.com/GlycemicGPT/GlycemicGPT/stargazers"><img src="assets/buttons/star-on-github.svg" alt="Star GlycemicGPT on GitHub" width="280"></a>
 </p>
 
 ## License
