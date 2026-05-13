@@ -1,5 +1,6 @@
 {
-  "version": "v1.0.0",
+  "$schema": "https://fundingjson.org/schema/v1.1.0.json",
+  "version": "v1.1.0",
   "entity": {
     "type": "group",
     "role": "owner",
@@ -13,7 +14,7 @@
   },
   "projects": [
     {
-      "guid": "github.com/glycemicgpt/glycemicgpt",
+      "guid": "glycemicgpt",
       "name": "GlycemicGPT",
       "description": "Open source diabetes platform with AI-powered analysis. Real-time monitoring, daily AI briefs, pattern detection, and caregiver alerts -- built around the principle that no one should manage diabetes alone.",
       "webpageUrl": {
@@ -21,19 +22,16 @@
         "wellKnown": "https://glycemicgpt.org/.well-known/funding-manifest-urls"
       },
       "repositoryUrl": {
-        "url": "https://github.com/GlycemicGPT/GlycemicGPT",
-        "wellKnown": "https://glycemicgpt.org/.well-known/funding-manifest-urls"
+        "url": "https://github.com/GlycemicGPT/GlycemicGPT"
       },
       "licenses": ["spdx:GPL-3.0-only"],
       "tags": [
         "diabetes",
         "healthcare",
-        "health",
         "ai",
         "cgm",
         "insulin-pump",
         "medical",
-        "monitoring",
         "caregiver",
         "open-source",
         "self-hosted",
