@@ -34,7 +34,10 @@
         "insulin-pump",
         "medical",
         "monitoring",
-        "caregiver"
+        "caregiver",
+        "open-source",
+        "self-hosted",
+        "privacy-first"
       ]
     }
   ],
