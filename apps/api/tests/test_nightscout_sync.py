@@ -282,3 +282,123 @@ class TestSyncOutcome:
             .all()
         )
         assert len(rows) == 3
+
+
+# ---------------------------------------------------------------------------
+# Entries ObjectId cursor (issue #598)
+# ---------------------------------------------------------------------------
+
+
+class TestEntriesObjectIdCursor:
+    """Issue #598: entries cursor switched from `dateString` (recorded
+    time, vulnerable to backfill) to NS Mongo `_id` (insertion time,
+    monotonic). These tests pin the sync flow's wiring so a future
+    refactor can't silently regress us back to the old behavior."""
+
+    _VALID_OBJECT_ID = "6a001f288e31759edc8c0d25"
+    _NEW_OBJECT_ID = "6a001f338e31759edc8c0d74"  # larger than the first
+
+    @pytest.mark.asyncio
+    async def test_first_sync_passes_no_object_id(self, sync_ctx):
+        """No cursor yet -> sync passes since_object_id=None, client
+        falls back to the dateString-window filter."""
+        session, conn = sync_ctx
+        assert conn.last_entry_object_id is None
+
+        client_mock = _mk_client_mock(
+            entries=[
+                {
+                    "_id": self._VALID_OBJECT_ID,
+                    "type": "sgv",
+                    "sgv": 120,
+                    "dateString": "2026-05-10T12:00:00.000Z",
+                    "device": "xdrip",
+                }
+            ],
+        )
+        with patch(
+            "src.services.integrations.nightscout.sync.NightscoutClient.create",
+            new=AsyncMock(return_value=client_mock),
+        ):
+            await sync_nightscout_for_connection(session, conn)
+
+        # The first sync calls with since_object_id=None (the column
+        # was NULL going in).
+        kwargs = client_mock.fetch_entries.call_args.kwargs
+        assert kwargs.get("since_object_id") is None
+        # After the sync the cursor is locked in for future cycles.
+        await session.refresh(conn)
+        assert conn.last_entry_object_id == self._VALID_OBJECT_ID
+
+    @pytest.mark.asyncio
+    async def test_subsequent_sync_uses_object_id_cursor(self, sync_ctx):
+        """Second sync passes the stored ObjectId, bypassing the
+        backfill-vulnerable dateString filter."""
+        session, conn = sync_ctx
+        conn.last_entry_object_id = self._VALID_OBJECT_ID
+        await session.commit()
+
+        client_mock = _mk_client_mock(
+            entries=[
+                {
+                    "_id": self._NEW_OBJECT_ID,
+                    "type": "sgv",
+                    "sgv": 130,
+                    "dateString": "2026-05-10T12:05:00.000Z",
+                    "device": "xdrip",
+                }
+            ],
+        )
+        with patch(
+            "src.services.integrations.nightscout.sync.NightscoutClient.create",
+            new=AsyncMock(return_value=client_mock),
+        ):
+            await sync_nightscout_for_connection(session, conn)
+
+        kwargs = client_mock.fetch_entries.call_args.kwargs
+        assert kwargs.get("since_object_id") == self._VALID_OBJECT_ID
+        await session.refresh(conn)
+        assert conn.last_entry_object_id == self._NEW_OBJECT_ID
+
+    @pytest.mark.asyncio
+    async def test_cursor_stays_put_on_failure(self, sync_ctx):
+        """Same guarantee as `last_synced_at`: failed sync does NOT
+        advance the cursor. Next attempt re-fetches from the same
+        starting point so we don't lose entries to a transient blip."""
+        session, conn = sync_ctx
+        conn.last_entry_object_id = self._VALID_OBJECT_ID
+        await session.commit()
+
+        client_mock = _mk_client_mock(
+            fetch_exception=NightscoutNetworkError("connection reset")
+        )
+        with patch(
+            "src.services.integrations.nightscout.sync.NightscoutClient.create",
+            new=AsyncMock(return_value=client_mock),
+        ):
+            result = await sync_nightscout_for_connection(session, conn)
+
+        assert result.status == NightscoutSyncStatus.NETWORK
+        await session.refresh(conn)
+        assert conn.last_entry_object_id == self._VALID_OBJECT_ID
+
+    @pytest.mark.asyncio
+    async def test_empty_response_keeps_existing_cursor(self, sync_ctx):
+        """When NS returns zero entries (no new data this cycle), the
+        cursor must not get clobbered to NULL -- next cycle would
+        re-fetch a wide window and burn bandwidth. Existing cursor
+        stays in place."""
+        session, conn = sync_ctx
+        conn.last_entry_object_id = self._VALID_OBJECT_ID
+        await session.commit()
+
+        client_mock = _mk_client_mock(entries=[])
+        with patch(
+            "src.services.integrations.nightscout.sync.NightscoutClient.create",
+            new=AsyncMock(return_value=client_mock),
+        ):
+            result = await sync_nightscout_for_connection(session, conn)
+
+        assert result.status == NightscoutSyncStatus.OK
+        await session.refresh(conn)
+        assert conn.last_entry_object_id == self._VALID_OBJECT_ID

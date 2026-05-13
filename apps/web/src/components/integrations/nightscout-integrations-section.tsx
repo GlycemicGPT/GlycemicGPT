@@ -107,6 +107,14 @@ export function NightscoutIntegrationsSection({
   onSync,
   onUpdate,
 }: NightscoutIntegrationsSectionProps) {
+  // The backend DELETE is a soft-delete that flips `is_active = false`
+  // (preserves `source = "nightscout:<id>"` attribution on historical
+  // pump_events). The list endpoint intentionally returns inactive
+  // rows so the UI can group them. Until a dedicated "deactivated
+  // history" affordance ships, we hide them entirely -- otherwise
+  // clicking Delete appears to fail because the soft-deleted row
+  // immediately re-appears on refetch.
+  const activeConnections = connections.filter((c) => c.is_active);
   const [name, setName] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [credential, setCredential] = useState("");
@@ -352,8 +360,8 @@ export function NightscoutIntegrationsSection({
           variant="subsection"
           badge={
             <span className="ml-2 text-xs font-medium text-slate-500">
-              {connections.length} connection
-              {connections.length === 1 ? "" : "s"}
+              {activeConnections.length} connection
+              {activeConnections.length === 1 ? "" : "s"}
             </span>
           }
         >
@@ -367,14 +375,14 @@ export function NightscoutIntegrationsSection({
               uploader).
             </p>
 
-            {connections.length > 0 && (
+            {activeConnections.length > 0 && (
               <ul
                 role="list"
                 aria-label="Nightscout connections"
                 className="space-y-3"
                 data-testid="nightscout-connections-list"
               >
-                {connections.map((conn) => {
+                {activeConnections.map((conn) => {
                   const result = perConnectionResult[conn.id];
                   const showConfirm = confirmDeleteId === conn.id;
                   return (
@@ -474,7 +482,51 @@ export function NightscoutIntegrationsSection({
                             </p>
                           )}
                         </div>
-                        <div className="flex gap-2 shrink-0">
+                        <div className="flex gap-2 shrink-0 flex-wrap">
+                          {(() => {
+                            const reimportDisabled =
+                              isOffline || isBusy(conn.id);
+                            return (
+                              <Link
+                                href={`/dashboard/settings/integrations/nightscout/connect?connection=${encodeURIComponent(conn.id)}`}
+                                data-testid={`nightscout-reimport-${conn.id}`}
+                                aria-disabled={reimportDisabled}
+                                // `aria-disabled` alone is advisory --
+                                // the Link stays in tab order and
+                                // Enter/Space still navigates. Pull
+                                // it out of tab order AND block
+                                // keyboard activation (Enter/Space)
+                                // when disabled, so keyboard users
+                                // get the same gate as mouse users.
+                                tabIndex={reimportDisabled ? -1 : undefined}
+                                onClick={(e) => {
+                                  if (reimportDisabled) {
+                                    e.preventDefault();
+                                  }
+                                }}
+                                onKeyDown={(e) => {
+                                  if (
+                                    reimportDisabled &&
+                                    (e.key === "Enter" || e.key === " ")
+                                  ) {
+                                    e.preventDefault();
+                                  }
+                                }}
+                                className={clsx(
+                                  "px-3 py-1.5 rounded-lg text-xs font-medium",
+                                  "border border-purple-500/30 text-purple-400",
+                                  "hover:bg-purple-500/10",
+                                  "transition-colors flex items-center gap-1",
+                                  reimportDisabled &&
+                                    "opacity-50 cursor-not-allowed pointer-events-none"
+                                )}
+                                title="Re-read this Nightscout's profile and pick which updated settings to bring into GlycemicGPT"
+                              >
+                                <Sparkles className="h-3 w-3" />
+                                Re-import
+                              </Link>
+                            );
+                          })()}
                           <button
                             type="button"
                             onClick={() => handleSync(conn.id)}
