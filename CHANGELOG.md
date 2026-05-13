@@ -1,5 +1,40 @@
 # Changelog
 
+## 2026-05-13
+
+### 🌐 Web
+
+#### ✨ New Features
+
+- feat(web): Nightscout re-import entry point on existing connection cards (43.7d) [@jlengelbrecht](https://github.com/jlengelbrecht) ([#612](https://github.com/GlycemicGPT/GlycemicGPT/pull/612))
+
+#### 🐛 Bug Fixes
+
+- fix(web): hide soft-deleted Nightscout connections from the list [@jlengelbrecht](https://github.com/jlengelbrecht) ([#610](https://github.com/GlycemicGPT/GlycemicGPT/pull/610))
+
+### 📡 API
+
+#### ✨ New Features
+
+- feat(api): forecast_snapshots + forecast_evaluations schema (43.12 PR 1) [@jlengelbrecht](https://github.com/jlengelbrecht) ([#613](https://github.com/GlycemicGPT/GlycemicGPT/pull/613))
+
+#### 🐛 Bug Fixes
+
+- fix(nightscout): swap entries cursor to NS Mongo `_id` (closes #598) [@jlengelbrecht](https://github.com/jlengelbrecht) ([#611](https://github.com/GlycemicGPT/GlycemicGPT/pull/611))
+
+### 🏗️ Infrastructure
+
+#### 💥 Breaking Changes
+
+- fix(ci): single-shot release-body extraction (no historical bleed) [@jlengelbrecht](https://github.com/jlengelbrecht) ([#605](https://github.com/GlycemicGPT/GlycemicGPT/pull/605))
+
+### 📚 Documentation
+
+- docs: add funding.json manifest and align funding sections with Open Source Collective [@jlengelbrecht](https://github.com/jlengelbrecht) ([#614](https://github.com/GlycemicGPT/GlycemicGPT/pull/614))
+
+<!-- changelog-cutoff:2026-05-13T06:58:03Z -->
+
+
 ## 2026-05-11
 
 ### 📱 Mobile
