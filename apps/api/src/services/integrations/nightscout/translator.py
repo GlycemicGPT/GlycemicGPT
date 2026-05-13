@@ -68,11 +68,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.logging_config import get_logger
 from src.models.device_status_snapshot import DeviceStatusSnapshot
+from src.models.forecast_snapshot import ForecastSnapshot
 from src.models.glucose import GlucoseReading
 from src.models.nightscout_profile_snapshot import NightscoutProfileSnapshot
 from src.models.pump_data import PumpEvent
 from src.services.integrations.nightscout._devicestatus_mapper import (
     map_devicestatus_to_snapshot,
+)
+from src.services.integrations.nightscout._forecast_mapper import (
+    map_devicestatus_to_forecast,
 )
 from src.services.integrations.nightscout._glucose_mapper import (
     map_bg_check_treatment_to_glucose_reading,
@@ -305,6 +309,37 @@ async def translate_devicestatuses(
 
     inserted = await _upsert_devicestatus_snapshots(session, snapshot_rows)
     skipped += len(snapshot_rows) - inserted
+
+    # Extract closed-loop forecasts (Loop / AAPS / Trio / oref0 / iAPS)
+    # to `forecast_snapshots`. Best-effort, isolated in its own
+    # SAVEPOINT for the same reasons as the pump-events promotion
+    # below: a forecast-side error must NOT roll back the
+    # devicestatus_snapshots inserts that already landed, nor block
+    # the pump-events promotion that follows. Skip the work entirely
+    # when no devicestatus parsed -- avoids an empty SAVEPOINT.
+    if parsed:
+        forecast_rows: list[dict[str, Any]] = []
+        for ds in parsed:
+            row = map_devicestatus_to_forecast(
+                ds,
+                user_id=user_id,
+                nightscout_connection_id=connection_id,
+                received_at=received,
+            )
+            if row is not None:
+                forecast_rows.append(row)
+        if forecast_rows:
+            try:
+                async with session.begin_nested():
+                    await _upsert_forecast_snapshots(session, forecast_rows)
+            except Exception:
+                logger.exception(
+                    "nightscout_forecast_promotion_failed",
+                    extra={
+                        "user_id": user_id,
+                        "connection_id": connection_id,
+                    },
+                )
 
     # Promote pump telemetry to pump_events for dashboard widgets.
     # Best-effort: a failure here logs + swallows so the snapshots
@@ -564,6 +599,43 @@ async def _upsert_devicestatus_snapshots(
         .values(rows)
         .on_conflict_do_nothing()
         .returning(DeviceStatusSnapshot.id)
+    )
+    result = await session.execute(stmt)
+    return len(result.scalars().all())
+
+
+async def _upsert_forecast_snapshots(
+    session: AsyncSession, rows: list[dict[str, Any]]
+) -> int:
+    """Bulk-insert forecast snapshots with ON CONFLICT DO NOTHING.
+
+    Unique on `(source_engine, dedupe_key)` -- re-translating the same
+    devicestatus across sync cycles produces the same row and the
+    constraint dedupes it.
+
+    DO NOTHING (not DO UPDATE) is the current conservative choice: we
+    treat a forecast as immutable once issued. If an upstream uploader
+    (e.g., AAPS V3's edit-and-re-upload flow) rewrites a devicestatus
+    body in-place, our row keeps the original contents. This trade-off
+    favors stable provenance (deferred scoring job sees the original
+    forecast that was actually live at issue time) over freshness.
+    Revisit if production shows real same-key churn -- the deferred
+    `forecast_evaluations` scoring job would benefit from observability
+    on such cases.
+
+    `received_at` is set in the mapper at row-build time. On dedupe
+    skip, the new `received_at` value is lost (the original row's
+    value remains). Acceptable trade-off; would matter only if a
+    future "last seen at" telemetry view requires per-sync receipt
+    timestamps.
+    """
+    if not rows:
+        return 0
+    stmt = (
+        insert(ForecastSnapshot)
+        .values(rows)
+        .on_conflict_do_nothing()
+        .returning(ForecastSnapshot.id)
     )
     result = await session.execute(stmt)
     return len(result.scalars().all())
