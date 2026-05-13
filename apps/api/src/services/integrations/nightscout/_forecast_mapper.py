@@ -316,11 +316,16 @@ def _detect_openaps_engine(ds: NightscoutDeviceStatus) -> str | None:
     if uploader in _OPENAPS_ENGINES:
         return uploader
 
-    # iAPS fallback. By the time we get here, `detect_uploader()`
-    # has returned "unknown" -- so we're not at risk of overriding
-    # a canonical AAPS / Trio / oref0 classification.
+    # iAPS fallback. `detect_uploader()` has returned "unknown" by
+    # this point -- it doesn't classify hybrids that include both
+    # `androidaps` and `iaps` substrings as `aaps`, it routes them
+    # through `parse_openaps_uri()`. We add the `"aaps" not in
+    # device_lower` guard as a belt-and-braces local safety net so
+    # the iAPS attribution can't silently flip if a future tweak to
+    # `detect_uploader()` ever stops handling hybrids (regression
+    # protection -- the test docstrings reference this guard).
     device_lower = (ds.device or "").lower()
-    if "iaps" in device_lower:
+    if "iaps" in device_lower and "aaps" not in device_lower:
         return "iaps"
 
     # Trio fallback via determination block.
