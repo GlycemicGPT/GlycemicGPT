@@ -147,17 +147,12 @@ If contributors disagree on an approach:
 
 ### How funding works
 
-GlycemicGPT is funded through [GitHub Sponsors](https://github.com/sponsors/GlycemicGPT) and [Open Collective](https://opencollective.com/glycemicgpt).
+GlycemicGPT is funded through a single channel: [Open Collective](https://opencollective.com/glycemicgpt), fiscally hosted by Open Source Collective. All project income, expenses, and balances are public by default.
 
-- **GitHub Sponsors**: Direct sponsorship of the project lead and the project
-- **Open Collective**: Transparent project fund for shared expenses
-
-All Open Collective transactions are public by default.
+Routing every dollar -- including any compensation paid to the project lead, maintainers, or committers -- through one transparent ledger is a deliberate choice in support of full financial transparency. The project does not solicit funds through any other channel.
 
 <p align="center">
-  <a href="https://opencollective.com/glycemicgpt"><img src="https://img.shields.io/badge/Open%20Collective-Sponsor-7FADF2?style=for-the-badge&logo=opencollective&logoColor=white&labelColor=1e293b" alt="Sponsor on Open Collective" height="42"></a>
-  &nbsp;&nbsp;
-  <a href="https://github.com/sponsors/GlycemicGPT"><img src="https://img.shields.io/badge/GitHub%20Sponsors-Sponsor-EA4AAA?style=for-the-badge&logo=githubsponsors&logoColor=white&labelColor=1e293b" alt="Sponsor via GitHub Sponsors" height="42"></a>
+  <a href="https://opencollective.com/glycemicgpt"><img src="https://opencollective.com/glycemicgpt/contribute/button@2x.png?color=blue" alt="Contribute to GlycemicGPT on Open Collective" width="300"></a>
 </p>
 
 ### What the fund covers
@@ -171,12 +166,12 @@ All Open Collective transactions are public by default.
 
 | Role | Org seat | Stipend eligible | How |
 |------|:--------:|:----------------:|-----|
-| **Project lead** | N/A (owner) | Yes | GitHub Sponsors (personal) |
+| **Project lead** | N/A (owner) | Yes | Open Collective stipend |
 | **Maintainer** | Paid from fund | Yes | Open Collective stipend |
 | **Committer** | Paid from fund | No | Volunteer role |
 | **Contributor** | N/A | No | Bounties on specific issues (future) |
 
-The project lead receives personal sponsorship via GitHub Sponsors. This is standard practice for open source maintainers and is documented here transparently.
+The project lead is stipend-eligible from the Open Collective fund on the same basis as any other maintainer. Routing all compensation -- regardless of role -- through Open Collective keeps every payout on the public ledger.
 
 Maintainer stipend amounts are decided by the project lead based on fund balance and contribution level. Stipend decisions are documented in the maintainers Discussion thread.
 
