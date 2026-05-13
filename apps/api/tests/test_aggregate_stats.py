@@ -1376,8 +1376,11 @@ class TestSourceFilteringAndDedup:
             async for db in get_db():
                 now = datetime.now(UTC)
                 uid = uuid.UUID(user_id)
-                cutoff = _boundary_cutoff(days=1)
-                ts = cutoff + timedelta(hours=1)
+                # `cutoff + 1h` lands in the future when CI runs in the
+                # first hour after UTC midnight, and the query filters
+                # `event_timestamp <= :now`. Use `_stable_test_ts` which
+                # already clamps to `[cutoff+1s, now]`.
+                ts = _stable_test_ts(days=1)
                 db.add(
                     PumpEvent(
                         user_id=uid,
@@ -1491,12 +1494,20 @@ class TestSourceFilteringAndDedup:
             async for db in get_db():
                 now = datetime.now(UTC)
                 uid = uuid.UUID(user_id)
-                ts = _stable_test_ts(days=1)
+                # Both timestamps must land inside the boundary-aligned
+                # window. `_stable_test_ts` can return `cutoff + 1s`
+                # when CI runs near UTC midnight, so subtracting 5s
+                # from it lands *before* the cutoff and the row gets
+                # filtered out -- making the test deterministically
+                # fail in that hour. Bracket around a center inside
+                # the window instead.
+                ts_center = _stable_test_ts(days=1) + timedelta(seconds=30)
+                ts_center = min(ts_center, now - timedelta(seconds=1))
                 db.add(
                     PumpEvent(
                         user_id=uid,
                         event_type=PumpEventType.BOLUS,
-                        event_timestamp=ts,
+                        event_timestamp=ts_center,
                         units=4.0,
                         is_automated=False,
                         received_at=now,
@@ -1507,7 +1518,7 @@ class TestSourceFilteringAndDedup:
                     PumpEvent(
                         user_id=uid,
                         event_type=PumpEventType.BOLUS,
-                        event_timestamp=ts - timedelta(seconds=5),
+                        event_timestamp=ts_center - timedelta(seconds=5),
                         units=4.0,
                         is_automated=False,
                         received_at=now,
