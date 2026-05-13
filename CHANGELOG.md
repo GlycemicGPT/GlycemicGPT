@@ -6,6 +6,27 @@
 
 #### 📝 Other Changes
 
+- chore: sync release 0.7.1 from main to develop [@glycemicgpt-merge](https://github.com/glycemicgpt-merge) ([#626](https://github.com/GlycemicGPT/GlycemicGPT/pull/626))
+
+### 🏗️ Infrastructure
+
+#### 📝 Other Changes
+
+- chore: sync changelog update from main to develop [@glycemicgpt-merge](https://github.com/glycemicgpt-merge) ([#625](https://github.com/GlycemicGPT/GlycemicGPT/pull/625))
+
+### ❓ Uncategorized
+
+- fix(funding): trim managed-cloud-platform plan description to under 500 chars [@jlengelbrecht](https://github.com/jlengelbrecht) ([#627](https://github.com/GlycemicGPT/GlycemicGPT/pull/627))
+
+<!-- changelog-cutoff:2026-05-13T23:20:07Z -->
+
+
+## 2026-05-13
+
+### 📱 Mobile
+
+#### 📝 Other Changes
+
 - chore: sync release 0.7.0 from main to develop [@glycemicgpt-merge](https://github.com/glycemicgpt-merge) ([#620](https://github.com/GlycemicGPT/GlycemicGPT/pull/620))
 
 ### 🏗️ Infrastructure
