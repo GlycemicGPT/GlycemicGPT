@@ -180,6 +180,7 @@ Maintainer stipend amounts are decided by the project lead based on fund balance
 - All Open Collective income and expenses are public
 - Stipend decisions are documented in Discussions
 - Annual financial summary posted to Discussions
+- Open Source Collective deducts a 10% host fee from each donation; the remaining 90% goes to the project fund. This fee is documented on OSC's [hosted collectives page](https://opencollective.com/opensource) and applied automatically by the platform.
 
 ## Branch Protection
 
