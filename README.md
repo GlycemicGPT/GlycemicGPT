@@ -152,14 +152,13 @@ We welcome contributions! Please read our [Contributing Guide](CONTRIBUTING.md) 
 
 ## Support the Project
 
-GlycemicGPT is free, open source, and built by volunteers. If you find it useful, consider supporting the project:
+GlycemicGPT is free and open source. Funding flows through [Open Collective](https://opencollective.com/how-it-works), with full public transaction history. For a breakdown of how project funds are used, see the [What the fund covers](GOVERNANCE.md#what-the-fund-covers) section in `GOVERNANCE.md`. Stars on GitHub help other people discover the project.
 
 <p align="center">
-  <a href="https://github.com/sponsors/GlycemicGPT"><strong>GitHub Sponsors</strong></a> &middot;
-  <a href="https://opencollective.com/glycemicgpt"><strong>Open Collective</strong></a>
+  <a href="https://opencollective.com/glycemicgpt"><img src="https://opencollective.com/glycemicgpt/contribute/button@2x.png?color=blue" alt="Contribute to GlycemicGPT on Open Collective" width="280"></a>
+  &nbsp;&nbsp;
+  <a href="https://github.com/GlycemicGPT/GlycemicGPT/stargazers"><img src="assets/buttons/star-on-github.svg" alt="Star GlycemicGPT on GitHub" width="280"></a>
 </p>
-
-Your support helps cover infrastructure costs (hosting, domain, CI, signing certificates), org seats for committers and maintainers, and future maintainer stipends. All Open Collective transactions are public. See [GOVERNANCE.md](GOVERNANCE.md#compensation) for how funding is managed.
 
 ## License
 
