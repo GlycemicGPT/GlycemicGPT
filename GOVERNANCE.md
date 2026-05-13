@@ -156,7 +156,7 @@ GlycemicGPT is fiscally hosted by [Open Source Collective](https://opencollectiv
   <a href="https://opencollective.com/glycemicgpt"><img src="https://opencollective.com/glycemicgpt/tiers/backers.svg?avatarHeight=36&width=600" alt="Open Collective backers for GlycemicGPT"></a>
 </p>
 
-A machine-readable funding manifest is published at [`funding.json`](funding.json) at the repository root, conforming to the [FLOSS Fund v1.0.0 funding manifest specification](https://floss.fund/funding-manifest).
+A machine-readable funding manifest is published at [`funding.json`](funding.json) at the repository root for sponsor discovery and funding aggregators. The manifest conforms to the v1.0.0 [funding manifest standard](https://floss.fund/funding-manifest) and is suitable for any sponsor, grant program, or directory that consumes the format -- not tied to a single funder.
 
 ### What the fund covers
 

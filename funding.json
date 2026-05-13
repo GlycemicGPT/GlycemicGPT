@@ -62,7 +62,7 @@
         "guid": "managed-cloud-platform",
         "status": "active",
         "name": "Managed cloud platform",
-        "description": "Funds the buildout and ongoing operation of the project's planned Hosted Service for Non-Technical Users (see project roadmap). Covers managed PostgreSQL, application hosting for the API, AI sidecar, and web front end, observability and monitoring, transactional email, Telegram bot infrastructure, and backups and object storage. The hosted service follows the same BYOAI model as the self-hosted product -- users supply their own AI credential -- so this plan funds platform infrastructure rather than AI inference costs. The goal is to lower the entry barrier for users who cannot run their own infrastructure, without fragmenting the product into hosted-only features.",
+        "description": "Funds the buildout and ongoing operation of the project's planned Hosted Service for Non-Technical Users (see project roadmap). Covers managed PostgreSQL, application hosting for the API, AI sidecar, and web front end, observability and monitoring, transactional email, and backups and object storage. The hosted service follows the same BYOAI model as the self-hosted product -- users supply their own AI credential -- so this plan funds platform infrastructure rather than AI inference costs. The goal is to lower the entry barrier for users who cannot run their own infrastructure, without fragmenting the product into hosted-only features.",
         "amount": 30000,
         "currency": "USD",
         "frequency": "yearly",
