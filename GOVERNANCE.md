@@ -147,16 +147,18 @@ If contributors disagree on an approach:
 
 ### How funding works
 
-GlycemicGPT is fiscally hosted by [Open Source Collective](https://opencollective.com/opensource) -- a 501(c)(6) non-profit that holds project funds on our behalf, handles tax and compliance, and publishes every transaction. The project fund lives at [opencollective.com/glycemicgpt](https://opencollective.com/glycemicgpt) and is the recommended way to support the project. [GitHub Sponsors](https://github.com/sponsors/GlycemicGPT) is also available for sponsors who prefer that platform; GitHub Sponsors income is reported on the project's Open Collective page when it is moved into the fund.
+GlycemicGPT is funded through [GitHub Sponsors](https://github.com/sponsors/GlycemicGPT) and [Open Collective](https://opencollective.com/glycemicgpt).
 
-- **Open Collective (recommended)**: Transparent project fund. All income, expenses, and balances on this channel are public by default.
-- **GitHub Sponsors**: Org-level sponsorship of the project on GitHub. Separate platform; funds are moved to the Open Collective fund where they become part of the public ledger.
+- **GitHub Sponsors**: Direct sponsorship of the project lead and the project
+- **Open Collective**: Transparent project fund for shared expenses
+
+All Open Collective transactions are public by default.
 
 <p align="center">
-  <a href="https://opencollective.com/glycemicgpt"><img src="https://opencollective.com/glycemicgpt/tiers/backers.svg?avatarHeight=36&width=600" alt="Open Collective backers for GlycemicGPT"></a>
+  <a href="https://opencollective.com/glycemicgpt"><img src="https://img.shields.io/badge/Open%20Collective-Sponsor-7FADF2?style=for-the-badge&logo=opencollective&logoColor=white&labelColor=1e293b" alt="Sponsor on Open Collective" height="42"></a>
+  &nbsp;&nbsp;
+  <a href="https://github.com/sponsors/GlycemicGPT"><img src="https://img.shields.io/badge/GitHub%20Sponsors-Sponsor-EA4AAA?style=for-the-badge&logo=githubsponsors&logoColor=white&labelColor=1e293b" alt="Sponsor via GitHub Sponsors" height="42"></a>
 </p>
-
-A machine-readable funding manifest is published at [`funding.json`](funding.json) at the repository root for sponsor discovery and funding aggregators. The manifest conforms to the v1.0.0 [funding manifest standard](https://floss.fund/funding-manifest) and is suitable for any sponsor, grant program, or directory that consumes the format -- not tied to a single funder.
 
 ### What the fund covers
 
@@ -169,12 +171,12 @@ A machine-readable funding manifest is published at [`funding.json`](funding.jso
 
 | Role | Org seat | Stipend eligible | How |
 |------|:--------:|:----------------:|-----|
-| **Project lead** | N/A (owner) | Yes | Open Collective stipend (primary); personal GitHub Sponsors (separate, secondary) |
+| **Project lead** | N/A (owner) | Yes | GitHub Sponsors (personal) |
 | **Maintainer** | Paid from fund | Yes | Open Collective stipend |
 | **Committer** | Paid from fund | No | Volunteer role |
 | **Contributor** | N/A | No | Bounties on specific issues (future) |
 
-The project lead is stipend-eligible from the Open Collective fund on the same basis as any other maintainer; eligibility and amount depend on fund balance and contribution level. A separate personal [GitHub Sponsors](https://github.com/sponsors/jlengelbrecht) profile exists for sponsors who wish to support the project lead directly outside the project fund -- this is independent of the project fund and is disclosed here for transparency.
+The project lead receives personal sponsorship via GitHub Sponsors. This is standard practice for open source maintainers and is documented here transparently.
 
 Maintainer stipend amounts are decided by the project lead based on fund balance and contribution level. Stipend decisions are documented in the maintainers Discussion thread.
 
