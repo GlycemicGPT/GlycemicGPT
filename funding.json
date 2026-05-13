@@ -1,0 +1,74 @@
+{
+  "version": "v1.0.0",
+  "entity": {
+    "type": "group",
+    "role": "owner",
+    "name": "GlycemicGPT",
+    "email": "funding@glycemicgpt.org",
+    "description": "GlycemicGPT is an open source diabetes platform with AI-powered analysis at its core. It gives people living with diabetes -- and the family members and caregivers who support them -- real-time glucose monitoring, daily AI-generated briefs that explain what their numbers mean, pattern detection across days and weeks, a conversational AI assistant grounded in their own data, and tiered alerts that loop in trusted contacts when something needs attention. Because no one should manage diabetes alone.",
+    "webpageUrl": {
+      "url": "https://glycemicgpt.org",
+      "wellKnown": "https://glycemicgpt.org/.well-known/funding-manifest-urls"
+    }
+  },
+  "projects": [
+    {
+      "guid": "github.com/glycemicgpt/glycemicgpt",
+      "name": "GlycemicGPT",
+      "description": "Open source diabetes platform with AI-powered analysis. Real-time monitoring, daily AI briefs, pattern detection, and caregiver alerts -- built around the principle that no one should manage diabetes alone.",
+      "webpageUrl": {
+        "url": "https://glycemicgpt.org",
+        "wellKnown": "https://glycemicgpt.org/.well-known/funding-manifest-urls"
+      },
+      "repositoryUrl": {
+        "url": "https://github.com/GlycemicGPT/GlycemicGPT",
+        "wellKnown": "https://glycemicgpt.org/.well-known/funding-manifest-urls"
+      },
+      "licenses": ["spdx:GPL-3.0-only"],
+      "tags": [
+        "diabetes",
+        "healthcare",
+        "health",
+        "ai",
+        "cgm",
+        "insulin-pump",
+        "medical",
+        "monitoring",
+        "caregiver"
+      ]
+    }
+  ],
+  "funding": {
+    "channels": [
+      {
+        "guid": "glycemicgpt-opencollective",
+        "type": "payment-provider",
+        "address": "https://opencollective.com/glycemicgpt",
+        "description": "Transparent fund hosted by Open Source Collective. All income and expenses are public on Open Collective. Donations of any size, recurring or one-time, are accepted in USD."
+      }
+    ],
+    "plans": [
+      {
+        "guid": "project-operations",
+        "status": "active",
+        "name": "Project operations",
+        "description": "Sustains the day-to-day operating costs of GlycemicGPT: GitHub organization seats for maintainers and committers, the project domain (glycemicgpt.org), project email, Android signing infrastructure, CI runner overages as pull request volume grows, and the Open Source Collective fiscal host fee. Includes headroom for paid code review tooling if current open-source sponsorships end. Funds at this level keep the project running and let it absorb a small number of additional maintainers without strain.",
+        "amount": 5000,
+        "currency": "USD",
+        "frequency": "yearly",
+        "channels": ["glycemicgpt-opencollective"]
+      },
+      {
+        "guid": "managed-cloud-platform",
+        "status": "active",
+        "name": "Managed cloud platform",
+        "description": "Funds the buildout and ongoing operation of the project's planned Hosted Service for Non-Technical Users (see project roadmap). Covers managed PostgreSQL, application hosting for the API, AI sidecar, and web front end, observability and monitoring, transactional email, Telegram bot infrastructure, and backups and object storage. The hosted service follows the same BYOAI model as the self-hosted product -- users supply their own AI credential -- so this plan funds platform infrastructure rather than AI inference costs. The goal is to lower the entry barrier for users who cannot run their own infrastructure, without fragmenting the product into hosted-only features.",
+        "amount": 30000,
+        "currency": "USD",
+        "frequency": "yearly",
+        "channels": ["glycemicgpt-opencollective"]
+      }
+    ],
+    "history": []
+  }
+}
