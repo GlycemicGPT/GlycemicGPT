@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 668 96" width="668" height="96" role="img" aria-label="Star on GitHub">
   <title>Star on GitHub</title>
-  <rect x="0" y="0" width="668" height="96" rx="48" ry="48" fill="#0D1117"/>
+  <rect x="3" y="3" width="662" height="90" rx="45" ry="45" fill="#0D1117" stroke="#FBBF24" stroke-width="4"/>
   <!-- Gold star, left -->
   <path transform="translate(100 30) scale(1.5)" fill="#FBBF24" d="M12 .587l3.668 7.568L24 9.75l-6 5.852 1.42 8.275L12 19.771l-7.42 4.106L6 15.602 0 9.75l8.332-1.595z"/>
   <!-- Text, centered between gold star and octocat -->
