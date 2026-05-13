@@ -158,7 +158,7 @@ Routing every dollar -- including any compensation paid to the project lead, mai
 ### What the fund covers
 
 1. **Infrastructure**: hosting, domain (glycemicgpt.org), CI costs, signing certificates
-2. **Org seats**: $4/month per committer/maintainer seat on the GitHub Teams plan
+2. **Org seats**: per-seat cost for each committer/maintainer on the GitHub Teams plan
 3. **Maintainer stipends**: when the fund supports it, active maintainers may receive monthly stipends
 4. **Bounties**: specific issues may carry bounties funded from Open Collective (future)
 
