@@ -2,6 +2,27 @@
 
 ## 2026-05-13
 
+### 📱 Mobile
+
+#### 📝 Other Changes
+
+- chore: sync release 0.7.0 from main to develop [@glycemicgpt-merge](https://github.com/glycemicgpt-merge) ([#620](https://github.com/GlycemicGPT/GlycemicGPT/pull/620))
+
+### 🏗️ Infrastructure
+
+#### 📝 Other Changes
+
+- chore: sync changelog update from main to develop [@glycemicgpt-merge](https://github.com/glycemicgpt-merge) ([#619](https://github.com/GlycemicGPT/GlycemicGPT/pull/619))
+
+### ❓ Uncategorized
+
+- fix(funding): make funding.json compliant with fundingjson.org v1.1.0 schema [@jlengelbrecht](https://github.com/jlengelbrecht) ([#621](https://github.com/GlycemicGPT/GlycemicGPT/pull/621))
+
+<!-- changelog-cutoff:2026-05-13T20:35:46Z -->
+
+
+## 2026-05-13
+
 ### 🌐 Web
 
 #### ✨ New Features
