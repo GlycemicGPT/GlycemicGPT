@@ -106,9 +106,7 @@ async def fc_ctx() -> AsyncGenerator[
                 )
             )
             await session.execute(
-                delete(ForecastSnapshot).where(
-                    ForecastSnapshot.user_id == user_id
-                )
+                delete(ForecastSnapshot).where(ForecastSnapshot.user_id == user_id)
             )
             await session.execute(delete(User).where(User.id == user_id))
             await session.commit()
@@ -755,9 +753,7 @@ class TestForecastDbInvariants:
 
         row = (
             await session.execute(
-                select(ForecastSnapshot).where(
-                    ForecastSnapshot.user_id == user_id
-                )
+                select(ForecastSnapshot).where(ForecastSnapshot.user_id == user_id)
             )
         ).scalar_one()
         # Postgres TIMESTAMPTZ normalizes to UTC on storage.
