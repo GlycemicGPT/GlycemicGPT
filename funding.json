@@ -52,7 +52,7 @@
         "guid": "project-operations",
         "status": "active",
         "name": "Project operations",
-        "description": "Sustains the day-to-day operating costs of GlycemicGPT: GitHub organization seats for maintainers and committers, the project domain (glycemicgpt.org), project email, Android signing infrastructure, CI runner overages as pull request volume grows, and the Open Source Collective fiscal host fee. Includes headroom for paid code review tooling if current open-source sponsorships end. Funds at this level keep the project running and let it absorb a small number of additional maintainers without strain.",
+        "description": "Sustains the operating costs of GlycemicGPT: GitHub organization seats for maintainers and committers, the project domain (glycemicgpt.org), project email, and headroom for paid code review tooling if current open-source sponsorships end. As pull request and CI traffic grows, this plan also absorbs GitHub Actions runner overages beyond the free org-plan tier. Funds at this level keep the project running and let it absorb a small number of additional maintainers without strain.",
         "amount": 5000,
         "currency": "USD",
         "frequency": "yearly",
