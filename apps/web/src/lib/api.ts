@@ -2952,10 +2952,42 @@ export interface PumpStatusReservoir {
   timestamp: string;
 }
 
+// Story 43.12 PR 6 -- closed-loop runtime state added to the
+// pump-status response. All three are nullable; absence means the
+// underlying data isn't present or the snapshot is stale.
+//
+// `state` and `source` mirror the backend's Pydantic `Literal` types
+// (`apps/api/src/schemas/pump.py`). Keep these unions in sync if the
+// backend's allowed set ever expands -- a frontend that accepts a
+// broader string than the backend emits is a quiet contract bug.
+export type LoopApiState = "looping" | "not_looping" | "failed";
+export type LoopApiSource = "loop" | "aaps" | "trio" | "oref0" | "iaps";
+
+export interface LoopStatusResponse {
+  state: LoopApiState;
+  source: LoopApiSource;
+  issued_at: string;
+  failure_reason: string | null;
+}
+
+export interface OverrideStatusResponse {
+  name: string;
+  started_at: string;
+  ends_at: string | null;
+  multiplier: number | null;
+  target_low_mgdl: number | null;
+  target_high_mgdl: number | null;
+}
+
 export interface PumpStatusResponse {
   basal: PumpStatusBasal | null;
   battery: PumpStatusBattery | null;
   reservoir: PumpStatusReservoir | null;
+  // PR 6 additions. Optional in the type (default null) so older
+  // backend responses without these fields don't break the client.
+  loop_status?: LoopStatusResponse | null;
+  override?: OverrideStatusResponse | null;
+  cob_grams?: number | null;
 }
 
 export async function getPumpStatus(): Promise<PumpStatusResponse> {
