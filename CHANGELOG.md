@@ -1,5 +1,82 @@
 # Changelog
 
+## 2026-05-13
+
+### 📱 Mobile
+
+#### 📝 Other Changes
+
+- chore: sync release 0.7.1 from main to develop [@glycemicgpt-merge](https://github.com/glycemicgpt-merge) ([#626](https://github.com/GlycemicGPT/GlycemicGPT/pull/626))
+
+### 🏗️ Infrastructure
+
+#### 📝 Other Changes
+
+- chore: sync changelog update from main to develop [@glycemicgpt-merge](https://github.com/glycemicgpt-merge) ([#625](https://github.com/GlycemicGPT/GlycemicGPT/pull/625))
+
+### ❓ Uncategorized
+
+- fix(funding): trim managed-cloud-platform plan description to under 500 chars [@jlengelbrecht](https://github.com/jlengelbrecht) ([#627](https://github.com/GlycemicGPT/GlycemicGPT/pull/627))
+
+<!-- changelog-cutoff:2026-05-13T23:20:07Z -->
+
+
+## 2026-05-13
+
+### 📱 Mobile
+
+#### 📝 Other Changes
+
+- chore: sync release 0.7.0 from main to develop [@glycemicgpt-merge](https://github.com/glycemicgpt-merge) ([#620](https://github.com/GlycemicGPT/GlycemicGPT/pull/620))
+
+### 🏗️ Infrastructure
+
+#### 📝 Other Changes
+
+- chore: sync changelog update from main to develop [@glycemicgpt-merge](https://github.com/glycemicgpt-merge) ([#619](https://github.com/GlycemicGPT/GlycemicGPT/pull/619))
+
+### ❓ Uncategorized
+
+- fix(funding): make funding.json compliant with fundingjson.org v1.1.0 schema [@jlengelbrecht](https://github.com/jlengelbrecht) ([#621](https://github.com/GlycemicGPT/GlycemicGPT/pull/621))
+
+<!-- changelog-cutoff:2026-05-13T20:35:46Z -->
+
+
+## 2026-05-13
+
+### 🌐 Web
+
+#### ✨ New Features
+
+- feat(web): Nightscout re-import entry point on existing connection cards (43.7d) [@jlengelbrecht](https://github.com/jlengelbrecht) ([#612](https://github.com/GlycemicGPT/GlycemicGPT/pull/612))
+
+#### 🐛 Bug Fixes
+
+- fix(web): hide soft-deleted Nightscout connections from the list [@jlengelbrecht](https://github.com/jlengelbrecht) ([#610](https://github.com/GlycemicGPT/GlycemicGPT/pull/610))
+
+### 📡 API
+
+#### ✨ New Features
+
+- feat(api): forecast_snapshots + forecast_evaluations schema (43.12 PR 1) [@jlengelbrecht](https://github.com/jlengelbrecht) ([#613](https://github.com/GlycemicGPT/GlycemicGPT/pull/613))
+
+#### 🐛 Bug Fixes
+
+- fix(nightscout): swap entries cursor to NS Mongo `_id` (closes #598) [@jlengelbrecht](https://github.com/jlengelbrecht) ([#611](https://github.com/GlycemicGPT/GlycemicGPT/pull/611))
+
+### 🏗️ Infrastructure
+
+#### 💥 Breaking Changes
+
+- fix(ci): single-shot release-body extraction (no historical bleed) [@jlengelbrecht](https://github.com/jlengelbrecht) ([#605](https://github.com/GlycemicGPT/GlycemicGPT/pull/605))
+
+### 📚 Documentation
+
+- docs: add funding.json manifest and align funding sections with Open Source Collective [@jlengelbrecht](https://github.com/jlengelbrecht) ([#614](https://github.com/GlycemicGPT/GlycemicGPT/pull/614))
+
+<!-- changelog-cutoff:2026-05-13T06:58:03Z -->
+
+
 ## 2026-05-11
 
 ### 📱 Mobile

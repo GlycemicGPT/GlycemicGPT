@@ -1,5 +1,6 @@
 {
-  "version": "v1.0.0",
+  "$schema": "https://fundingjson.org/schema/v1.1.0.json",
+  "version": "v1.1.0",
   "entity": {
     "type": "group",
     "role": "owner",
@@ -13,7 +14,7 @@
   },
   "projects": [
     {
-      "guid": "github.com/glycemicgpt/glycemicgpt",
+      "guid": "glycemicgpt",
       "name": "GlycemicGPT",
       "description": "Open source diabetes platform with AI-powered analysis. Real-time monitoring, daily AI briefs, pattern detection, and caregiver alerts -- built around the principle that no one should manage diabetes alone.",
       "webpageUrl": {
@@ -21,19 +22,16 @@
         "wellKnown": "https://glycemicgpt.org/.well-known/funding-manifest-urls"
       },
       "repositoryUrl": {
-        "url": "https://github.com/GlycemicGPT/GlycemicGPT",
-        "wellKnown": "https://glycemicgpt.org/.well-known/funding-manifest-urls"
+        "url": "https://github.com/GlycemicGPT/GlycemicGPT"
       },
       "licenses": ["spdx:GPL-3.0-only"],
       "tags": [
         "diabetes",
         "healthcare",
-        "health",
         "ai",
         "cgm",
         "insulin-pump",
         "medical",
-        "monitoring",
         "caregiver",
         "open-source",
         "self-hosted",
@@ -65,7 +63,7 @@
         "guid": "managed-cloud-platform",
         "status": "active",
         "name": "Managed cloud platform",
-        "description": "Funds the buildout and ongoing operation of the project's planned Hosted Service for Non-Technical Users (see project roadmap). Covers managed PostgreSQL, application hosting for the API, AI sidecar, and web front end, observability and monitoring, transactional email, and backups and object storage. The hosted service follows the same BYOAI model as the self-hosted product -- users supply their own AI credential -- so this plan funds platform infrastructure rather than AI inference costs. The goal is to lower the entry barrier for users who cannot run their own infrastructure, without fragmenting the product into hosted-only features.",
+        "description": "Funds the buildout and operation of the project's planned Hosted Service for Non-Technical Users (see roadmap). Covers managed PostgreSQL, app hosting (API, AI sidecar, web), monitoring, transactional email, and backups. The hosted service is BYOAI -- users supply their own AI credential, so this plan funds platform infrastructure, not AI inference. Lowers the entry barrier for users who cannot self-host.",
         "amount": 30000,
         "currency": "USD",
         "frequency": "yearly",
