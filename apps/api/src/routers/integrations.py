@@ -61,6 +61,8 @@ from src.schemas.pump import (
     ControlIQActivityResponse,
     InsulinSummaryResponse,
     IoBProjectionResponse,
+    LoopStatusResponse,
+    OverrideStatusResponse,
     PumpEventHistoryResponse,
     PumpEventResponse,
     PumpPushRequest,
@@ -84,6 +86,7 @@ from src.services.dexcom_sync import (
     sync_dexcom_for_user,
 )
 from src.services.iob_projection import get_iob_projection, get_user_dia
+from src.services.loop_state_extractor import get_latest_loop_state
 from src.services.tandem_sync import (
     TandemAuthError,
     TandemConnectionError,
@@ -1353,6 +1356,31 @@ async def get_pump_status(
     battery_event = status.get("battery")
     reservoir_event = status.get("reservoir")
 
+    # PR 6: closed-loop surfaces from the latest NS devicestatus snapshot.
+    # Independent query path (DeviceStatusSnapshot, not PumpEvent) -- a
+    # user with only direct integrations (Tandem cloud, etc.) gets the
+    # pump fields populated and the loop fields all None, which is the
+    # correct read.
+    loop_state = await get_latest_loop_state(db, current_user.id)
+    loop_status_resp: LoopStatusResponse | None = None
+    if loop_state.loop_status is not None:
+        loop_status_resp = LoopStatusResponse(
+            state=loop_state.loop_status.state,
+            source=loop_state.loop_status.source,
+            issued_at=loop_state.loop_status.issued_at,
+            failure_reason=loop_state.loop_status.failure_reason,
+        )
+    override_resp: OverrideStatusResponse | None = None
+    if loop_state.override is not None:
+        override_resp = OverrideStatusResponse(
+            name=loop_state.override.name,
+            started_at=loop_state.override.started_at,
+            ends_at=loop_state.override.ends_at,
+            multiplier=loop_state.override.multiplier,
+            target_low_mgdl=loop_state.override.target_low_mgdl,
+            target_high_mgdl=loop_state.override.target_high_mgdl,
+        )
+
     return PumpStatusResponse(
         basal=PumpStatusBasal(
             rate=basal_event.units or 0.0,
@@ -1374,6 +1402,9 @@ async def get_pump_status(
         )
         if reservoir_event
         else None,
+        loop_status=loop_status_resp,
+        override=override_resp,
+        cob_grams=loop_state.cob_grams,
     )
 
 

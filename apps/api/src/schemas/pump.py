@@ -5,6 +5,7 @@ including pump activity mode data.
 """
 
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -61,12 +62,82 @@ class PumpStatusReservoir(BaseModel):
     timestamp: datetime
 
 
+class LoopStatusResponse(BaseModel):
+    """Closed-loop runtime state for the hero card badge.
+
+    Story 43.12 PR 6. Surfaces what the user's closed-loop algorithm
+    (Loop / AAPS / Trio / oref0 / iAPS) is doing right now -- whether
+    it's actively looping, paused, or has failed a cycle. Read-only
+    projection over the latest `device_status_snapshots` row;
+    suppressed when the snapshot is older than the staleness threshold
+    in `loop_state_extractor.py`.
+    """
+
+    state: Literal["looping", "not_looping", "failed"] = Field(
+        ...,
+        description="'looping' | 'not_looping' | 'failed'",
+    )
+    source: Literal["loop", "aaps", "trio", "oref0", "iaps"] = Field(
+        ...,
+        description="'loop' | 'aaps' | 'trio' | 'oref0' | 'iaps'",
+    )
+    issued_at: datetime = Field(
+        ...,
+        description="When the source loop emitted the cycle this state reflects.",
+    )
+    failure_reason: str | None = Field(
+        default=None,
+        description="Populated only when state == 'failed'.",
+    )
+
+
+class OverrideStatusResponse(BaseModel):
+    """Active workout / pre-meal / sleep override on the hero card.
+
+    Loop-only in PR 6 -- AAPS / Trio publish overrides via Temp Target
+    treatments, not devicestatus, and are deferred to a follow-up. The
+    schema is general enough to accept those once their extractor lands.
+    """
+
+    name: str = Field(..., description="User-facing override name (e.g. 'Pre-meal').")
+    started_at: datetime
+    ends_at: datetime | None = Field(
+        default=None,
+        description="None for indefinite overrides.",
+    )
+    multiplier: float | None = Field(
+        default=None,
+        description="Loop's `insulinNeedsScaleFactor`.",
+    )
+    target_low_mgdl: float | None = None
+    target_high_mgdl: float | None = None
+
+
 class PumpStatusResponse(BaseModel):
-    """Aggregated latest pump status (basal, battery, reservoir)."""
+    """Aggregated latest pump status (basal, battery, reservoir).
+
+    PR 6 added closed-loop surfaces (`loop_status`, `override`,
+    `cob_grams`) sourced from Nightscout devicestatus snapshots. They
+    are nullable and read-only -- absence means "no NS devicestatus
+    data" or "stale" or "this closed-loop isn't publishing the field".
+    Existing pump_event-derived fields (basal/battery/reservoir) are
+    unchanged.
+    """
 
     basal: PumpStatusBasal | None = None
     battery: PumpStatusBattery | None = None
     reservoir: PumpStatusReservoir | None = None
+
+    # PR 6 additions. Suppressed when no recent NS devicestatus exists.
+    loop_status: LoopStatusResponse | None = None
+    override: OverrideStatusResponse | None = None
+    # COB is bounded at the schema layer (not just the extractor)
+    # because the value flows verbatim from `device_status_snapshots.cob_grams`
+    # without intermediate sanitation. 500 g is far above any
+    # clinically plausible carb count; rejection here means a buggy
+    # mapper bug surfaces as a 500 rather than silently sending
+    # nonsense to the user.
+    cob_grams: float | None = Field(default=None, ge=0, le=500)
 
 
 class TandemSyncResponse(BaseModel):

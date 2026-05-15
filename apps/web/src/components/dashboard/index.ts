@@ -8,8 +8,14 @@ export {
   GlucoseHero,
   type GlucoseHeroProps,
   type GlucoseRange,
+  type LoopState,
+  type LoopStatusInfo,
+  type OverrideInfo,
   classifyGlucose,
   shouldPulse,
+  parseLoopState,
+  prettySourceName,
+  formatOverrideRemaining,
   GLUCOSE_THRESHOLDS,
 } from "./glucose-hero";
 

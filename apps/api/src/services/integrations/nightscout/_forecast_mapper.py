@@ -31,9 +31,9 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
-from src.services.integrations.nightscout.models import (
-    NightscoutDeviceStatus,
-    detect_uploader,
+from src.services.integrations.nightscout.models import NightscoutDeviceStatus
+from src.services.integrations.nightscout.source_detection import (
+    detect_openaps_engine,
 )
 
 logger = logging.getLogger(__name__)
@@ -45,14 +45,6 @@ logger = logging.getLogger(__name__)
 # heuristic so the chart's default line matches what the source's own
 # UI shows.
 _OPENAPS_DEFAULT_CURVE_PRIORITY = ("IOB", "COB", "UAM", "ZT")
-
-# OpenAPS-family engines this mapper can attribute. Loop is handled
-# by a separate code path (`_extract_loop_forecast`) and is
-# intentionally NOT in this set even though the migration CHECK
-# accepts it. The migration's `source_engine` allow-list is the
-# superset of "engines the schema permits"; this frozenset is the
-# subset "engines the OpenAPS classification path can produce."
-_OPENAPS_ENGINES = frozenset({"aaps", "trio", "oref0", "iaps"})
 
 # Physiologically plausible glucose range, mg/dL. Curves with any
 # value outside this band are rejected wholesale (same strict policy
@@ -212,7 +204,7 @@ def _extract_openaps_forecast(
     # is guaranteed; no fallback needed.
     default_curve = next(n for n in _OPENAPS_DEFAULT_CURVE_PRIORITY if n in curves)
 
-    source_engine = _detect_openaps_engine(ds)
+    source_engine = detect_openaps_engine(ds.device, ds.openaps)
     if source_engine is None:
         # Indeterminate -- log and skip rather than guess. The CHECK
         # constraint would reject an unknown value anyway, but logging
@@ -281,58 +273,6 @@ def _coerce_curve(value: Any) -> list[float] | None:
             return None
         out.append(coerced)
     return out
-
-
-def _detect_openaps_engine(ds: NightscoutDeviceStatus) -> str | None:
-    """Classify an OpenAPS-family devicestatus as AAPS / Trio / oref0 / iAPS.
-
-    Returns `None` for indeterminate payloads rather than guessing --
-    a mis-attributed forecast misleads both the chart legend and the
-    AI context. The migration CHECK constraint would reject an
-    unknown value anyway, but skipping at the mapper boundary
-    surfaces the unrecognized uploader cleanly via the warning log.
-
-    Detection order (most-specific first):
-
-    1. **`detect_uploader()` shared heuristic** for canonical AAPS /
-       Trio / oref0 device strings. Returns the lowercase tag.
-       Hybrids like `openaps://AndroidAPS-iAPS-bridge` correctly
-       classify as `aaps` here (the URI scheme + AAPS prefix win).
-    2. **iAPS substring fallback** when `detect_uploader()` returns
-       "unknown" but the device string contains `iaps`.
-       `detect_uploader()` has no iAPS branch yet; checking inline
-       avoids touching PR 1's shared helper. iAPS device strings
-       carry `iAPS` as a literal substring (`"iAPS-2.7.0"`).
-    3. **Trio determination-block fallback** when neither path
-       classifies but the payload carries `openaps.determination`
-       (a Trio-specific subtree). Older Trio builds occasionally
-       ship without a recognizable device string.
-
-    NOTE: `detect_uploader()` reads `device` only -- `enteredBy` is
-    discarded for devicestatus. Real-world devicestatus rarely carries
-    enteredBy; documented limitation, not a current correctness issue.
-    """
-    uploader = detect_uploader(None, ds.device)
-    if uploader in _OPENAPS_ENGINES:
-        return uploader
-
-    # iAPS fallback. `detect_uploader()` has returned "unknown" by
-    # this point -- it doesn't classify hybrids that include both
-    # `androidaps` and `iaps` substrings as `aaps`, it routes them
-    # through `parse_openaps_uri()`. We add the `"aaps" not in
-    # device_lower` guard as a belt-and-braces local safety net so
-    # the iAPS attribution can't silently flip if a future tweak to
-    # `detect_uploader()` ever stops handling hybrids (regression
-    # protection -- the test docstrings reference this guard).
-    device_lower = (ds.device or "").lower()
-    if "iaps" in device_lower and "aaps" not in device_lower:
-        return "iaps"
-
-    # Trio fallback via determination block.
-    if ds.openaps and isinstance(ds.openaps.get("determination"), dict):
-        return "trio"
-
-    return None
 
 
 def _parse_iso_timestamp(value: Any) -> datetime | None:
