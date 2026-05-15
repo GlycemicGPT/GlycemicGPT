@@ -167,10 +167,13 @@ describe("Story 14.3: AI Provider Configuration Page", () => {
         ).toBeInTheDocument();
       });
 
-      // Check for all 3 categories
+      // Check for all 3 categories (section header renamed in v1.1
+      // disclosure work: "Self-Hosted" -> "Custom Endpoint", since
+      // this section also accepts cloud-routing endpoints like
+      // OpenRouter, not just local self-hosted models).
       expect(screen.getByText("Subscription Plans")).toBeInTheDocument();
       expect(screen.getByText("Pay-Per-Token APIs")).toBeInTheDocument();
-      expect(screen.getByText("Self-Hosted")).toBeInTheDocument();
+      expect(screen.getByText("Custom Endpoint")).toBeInTheDocument();
     });
 
     it("shows all 5 provider options", async () => {

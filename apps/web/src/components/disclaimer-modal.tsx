@@ -17,6 +17,7 @@ import {
   Stethoscope,
   AlertTriangle,
   Check,
+  Cloud,
 } from "lucide-react";
 import {
   acknowledgeDisclaimer,
@@ -35,6 +36,7 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   brain: Brain,
   "shield-x": ShieldOff,
   stethoscope: Stethoscope,
+  cloud: Cloud,
 };
 
 export function DisclaimerModal({ onAcknowledge }: DisclaimerModalProps) {
@@ -107,7 +109,7 @@ export function DisclaimerModal({ onAcknowledge }: DisclaimerModalProps) {
 
   const handleAccept = async () => {
     if (!allChecked) {
-      setError("Please check both acknowledgment boxes to continue");
+      setError("Please check all acknowledgment boxes to continue");
       return;
     }
 
@@ -126,6 +128,7 @@ export function DisclaimerModal({ onAcknowledge }: DisclaimerModalProps) {
         checkbox_experimental: checkboxes.checkbox_experimental ?? false,
         checkbox_not_medical_advice:
           checkboxes.checkbox_not_medical_advice ?? false,
+        checkbox_ai_data_flow: checkboxes.checkbox_ai_data_flow ?? false,
       });
 
       setIsOpen(false);
@@ -148,7 +151,7 @@ export function DisclaimerModal({ onAcknowledge }: DisclaimerModalProps) {
 
   // Fallback content if API fails
   const displayContent: DisclaimerContent = content ?? {
-    version: "1.0",
+    version: "1.1",
     title: "Important Safety Information",
     warnings: [
       {
@@ -171,6 +174,12 @@ export function DisclaimerModal({ onAcknowledge }: DisclaimerModalProps) {
         title: "Consult Your Healthcare Provider",
         text: "Always consult your healthcare provider before making any changes to your diabetes management regimen.",
       },
+      {
+        icon: "cloud",
+        title: "AI Data Processing",
+        text:
+          "GlycemicGPT is BYOAI -- you choose the AI provider. If you configure a cloud-hosted AI provider, your glucose, insulin, pump, and therapy data will be transmitted to that provider's servers for analysis, subject to their data-handling policy. If you configure a local AI provider running on your own infrastructure, your data stays on your network. Review your chosen provider's policy before configuring it.",
+      },
     ],
     checkboxes: [
       {
@@ -182,6 +191,11 @@ export function DisclaimerModal({ onAcknowledge }: DisclaimerModalProps) {
         id: "checkbox_not_medical_advice",
         label:
           "I understand this is not medical advice and I will consult my healthcare provider before making any changes",
+      },
+      {
+        id: "checkbox_ai_data_flow",
+        label:
+          "I understand that configuring a cloud-hosted AI provider transmits my health data to that provider, and that only local AI providers keep my data on my own network",
       },
     ],
     button_text: "I Understand & Accept",

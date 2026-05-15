@@ -182,6 +182,7 @@ export interface DisclaimerAcknowledgeRequest {
   session_id: string;
   checkbox_experimental: boolean;
   checkbox_not_medical_advice: boolean;
+  checkbox_ai_data_flow: boolean;
 }
 
 export interface DisclaimerAcknowledgeResponse {

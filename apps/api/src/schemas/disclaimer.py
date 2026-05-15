@@ -38,6 +38,9 @@ class DisclaimerAcknowledgeRequest(BaseModel):
     checkbox_not_medical_advice: bool = Field(
         description="User checked the not medical advice acknowledgment",
     )
+    checkbox_ai_data_flow: bool = Field(
+        description="User checked the AI data-handling acknowledgment (cloud vs local provider data flow)",
+    )
 
 
 class DisclaimerAcknowledgeResponse(BaseModel):
