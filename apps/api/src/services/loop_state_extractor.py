@@ -91,6 +91,22 @@ _MULTIPLIER_MAX = 10.0
 _TARGET_GLUCOSE_MIN_MGDL = 30.0
 _TARGET_GLUCOSE_MAX_MGDL = 500.0
 
+# Override duration ceiling. The NS payload's `duration` field flows
+# straight into `timedelta(seconds=...)`, which raises OverflowError
+# for values exceeding `timedelta.max.days = 999_999_999`. The
+# subsequent `started_at + timedelta(...)` raises a separate
+# OverflowError once the result lands beyond `datetime.max`. A
+# malicious / buggy uploader posting `"duration": 1e20` would 500
+# every `/pump/status` call for that user until the snapshot ages
+# out (15-min staleness boundary).
+#
+# Loop's own UI caps override duration at 24h; AAPS / Trio overrides
+# don't flow through this path at all (they ride Temp Target
+# treatments, not devicestatus). 7 days is generous headroom for any
+# clinically plausible value while keeping pathological values from
+# reaching the timedelta/datetime arithmetic.
+_OVERRIDE_DURATION_MAX_SECONDS = 7 * 24 * 3600
+
 
 LoopStatusState = Literal["looping", "not_looping", "failed"]
 LoopSourceEngine = Literal["loop", "aaps", "trio", "oref0", "iaps"]
@@ -381,8 +397,12 @@ def _extract_override(
     if (
         isinstance(duration_seconds, int | float)
         and not isinstance(duration_seconds, bool)
-        and duration_seconds > 0
+        and 0 < float(duration_seconds) <= _OVERRIDE_DURATION_MAX_SECONDS
     ):
+        # The upper bound also prevents NaN / +inf from sneaking in:
+        # both fail the `<= max` comparison. Bool was already rejected
+        # by the isinstance guard above (Python's `True`/`False`
+        # subclass int).
         ends_at = started_at + timedelta(seconds=float(duration_seconds))
 
     # Past-end guard. A stale snapshot can carry `active: true` for

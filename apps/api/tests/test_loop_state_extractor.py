@@ -1061,3 +1061,102 @@ class TestMedicalFieldBounds:
         await session.commit()
         bundle = await get_latest_loop_state(session, user_id)
         assert bundle.cob_grams is None
+
+
+class TestOverrideDurationOverflowGuard:
+    """Pins the duration clamp added in response to CR's PR-6 review.
+
+    Without the clamp, a malicious or buggy NS uploader posting a
+    pathological `duration` (e.g., `1e20`) raises `OverflowError`
+    from `timedelta(seconds=...)`. That exception propagates out of
+    `_extract_override`, into `get_latest_loop_state`, into the
+    `/pump/status` handler, and 500s the hero card for that user
+    until the snapshot ages out (15 min later).
+    """
+
+    def test_overflow_duration_dropped_not_raises(self):
+        """`duration: 1e20` would overflow `timedelta` -> propagating
+        OverflowError -> 500 on every /pump/status call. The clamp
+        catches it before any timedelta arithmetic; the override is
+        rendered indefinite (`ends_at=None`) while `name` / `started_at`
+        stay intact. Same fail-soft policy as the multiplier / targets
+        clamps -- bad numeric detail dropped, surrounding row renders."""
+        now = datetime(2026, 5, 13, 14, 1, tzinfo=UTC)
+        ds = _make_snapshot(
+            uuid.uuid4(),
+            snapshot_timestamp=datetime.now(UTC),
+            loop_subtree={
+                "override": {
+                    "active": True,
+                    "name": "Pre-meal",
+                    "timestamp": "2026-05-13T14:00:00Z",
+                    "duration": 1e20,  # would overflow timedelta
+                }
+            },
+        )
+        # Critically: must not raise. The previous shape would have
+        # produced an uncaught OverflowError out of /pump/status.
+        override = _extract_override(ds, now=now)
+        assert override is not None
+        assert override.name == "Pre-meal"
+        assert override.ends_at is None
+
+    def test_seven_day_duration_accepted(self):
+        """The 7-day ceiling is inclusive. Loop's UI caps at 24h, so
+        7 days is generous; this test pins the boundary."""
+        ds = _make_snapshot(
+            uuid.uuid4(),
+            snapshot_timestamp=datetime.now(UTC),
+            loop_subtree={
+                "override": {
+                    "active": True,
+                    "name": "Extended workout",
+                    "timestamp": (datetime.now(UTC) - timedelta(hours=1)).isoformat(),
+                    "duration": 7 * 24 * 3600,  # exactly at the cap
+                }
+            },
+        )
+        override = _extract_override(ds, now=datetime.now(UTC))
+        assert override is not None
+        assert override.ends_at is not None
+
+    def test_eight_day_duration_rejected(self):
+        """Past the 7-day ceiling -> clamp drops the duration; the
+        override is rendered as indefinite (`ends_at = None`).
+        Documented behavior: better to lose end-time precision than
+        to risk overflow."""
+        ds = _make_snapshot(
+            uuid.uuid4(),
+            snapshot_timestamp=datetime.now(UTC),
+            loop_subtree={
+                "override": {
+                    "active": True,
+                    "name": "Marathon training",
+                    "timestamp": (datetime.now(UTC) - timedelta(hours=1)).isoformat(),
+                    "duration": 8 * 24 * 3600,  # just past the cap
+                }
+            },
+        )
+        override = _extract_override(ds, now=datetime.now(UTC))
+        assert override is not None
+        assert override.ends_at is None  # cap-rejection drops to None
+
+    def test_infinite_duration_dropped(self):
+        """`+inf` and `NaN` both fail `<= max` -> override rendered
+        indefinite. The previous shape would have produced
+        ValueError from timedelta."""
+        ds = _make_snapshot(
+            uuid.uuid4(),
+            snapshot_timestamp=datetime.now(UTC),
+            loop_subtree={
+                "override": {
+                    "active": True,
+                    "name": "Pre-meal",
+                    "timestamp": (datetime.now(UTC) - timedelta(hours=1)).isoformat(),
+                    "duration": float("inf"),
+                }
+            },
+        )
+        override = _extract_override(ds, now=datetime.now(UTC))
+        assert override is not None
+        assert override.ends_at is None
