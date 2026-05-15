@@ -37,6 +37,7 @@ import {
 import { OfflineBanner } from "@/components/ui/offline-banner";
 import { PumpIntegrationsSection } from "@/components/integrations/pump-integrations-section";
 import { CGMIntegrationsSection } from "@/components/integrations/cgm-integrations-section";
+import { ForecastSourcePicker } from "@/components/integrations/forecast-source-picker";
 import { NightscoutIntegrationsSection } from "@/components/integrations/nightscout-integrations-section";
 
 export default function IntegrationsPage() {
@@ -437,6 +438,15 @@ export default function IntegrationsPage() {
           onUpdate={handleUpdateNightscout}
         />
       )}
+
+      {/*
+        Forecast picker (Story 43.12 PR 4). Auto-hides when the user
+        has no forecast-publishing integration -- the component reads
+        its own state from `/api/integrations/forecast` and decides
+        whether to render. Lives after the Nightscout section because
+        every forecast-publishing source today flows through NS.
+      */}
+      {!isLoading && <ForecastSourcePicker />}
 
       {/* Info card */}
       <div className="bg-slate-50/50 dark:bg-slate-900/50 rounded-xl p-4 border border-slate-200 dark:border-slate-800">

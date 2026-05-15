@@ -48,6 +48,7 @@ import { useTimeInRangeDetailStats } from "@/hooks/use-time-in-range-stats";
 import { useGlucoseStats } from "@/hooks/use-glucose-stats";
 import { useGlucoseRange } from "@/hooks/use-glucose-range";
 import { usePumpStatus } from "@/hooks/use-pump-status";
+import { useForecast } from "@/hooks/use-forecast";
 import type { LoopStatusResponse } from "@/lib/api";
 
 /**
@@ -103,6 +104,11 @@ export default function DashboardPage() {
 
   // Fetch latest pump status (basal, battery, reservoir) for hero card
   const pumpStatus = usePumpStatus(chartRefreshKey);
+
+  // Story 43.12 PR 4: forecast overlay state for the trend chart.
+  // Shares the chart's SSE-driven `chartRefreshKey` so the dotted line
+  // refreshes on the same cadence as the underlying readings.
+  const { forecast } = useForecast(chartRefreshKey);
 
   // Per-source freshness for the "Data Sources" card. Fetched once on
   // mount + every 30s after that, with `freshnessNow` advancing every
@@ -248,7 +254,11 @@ export default function DashboardPage() {
 
       {/* Glucose trend chart */}
       <AnimatedCard delay={0.1}>
-        <GlucoseTrendChart refreshKey={chartRefreshKey} thresholds={glucoseThresholds} />
+        <GlucoseTrendChart
+          refreshKey={chartRefreshKey}
+          thresholds={glucoseThresholds}
+          forecast={forecast}
+        />
       </AnimatedCard>
 
       {/* CGM Summary Stats Panel - Story 30.3 */}
