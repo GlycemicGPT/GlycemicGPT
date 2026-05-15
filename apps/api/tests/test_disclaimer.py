@@ -59,15 +59,17 @@ class TestDisclaimerStatus:
             data = response.json()
             assert data["acknowledged"] is False
             assert data["acknowledged_at"] is None
-            assert data["disclaimer_version"] == "1.0"
+            assert data["disclaimer_version"] == "1.1"
 
     @pytest.mark.asyncio
     async def test_returns_acknowledged_for_existing_session(self, client):
         """
         Status returns acknowledged=True for a session that has
-        previously acknowledged the disclaimer.
+        previously acknowledged the current disclaimer version.
         """
         from datetime import datetime
+
+        from src.routers.disclaimer import DISCLAIMER_VERSION
 
         session_id = str(uuid.uuid4())
         acknowledged_at = datetime.now(UTC)
@@ -77,7 +79,7 @@ class TestDisclaimerStatus:
         ) as mock_get_session_maker:
             mock_acknowledgment = MagicMock()
             mock_acknowledgment.acknowledged_at = acknowledged_at
-            mock_acknowledgment.disclaimer_version = "1.0"
+            mock_acknowledgment.disclaimer_version = DISCLAIMER_VERSION
 
             mock_session = AsyncMock()
             mock_result = MagicMock()
@@ -95,33 +97,114 @@ class TestDisclaimerStatus:
             data = response.json()
             assert data["acknowledged"] is True
             assert data["acknowledged_at"] is not None
-            assert data["disclaimer_version"] == "1.0"
+            assert data["disclaimer_version"] == DISCLAIMER_VERSION
+
+    @pytest.mark.asyncio
+    async def test_returns_not_acknowledged_when_stored_version_is_outdated(
+        self, client
+    ):
+        """
+        Status returns acknowledged=False when the stored acknowledgment is
+        for a previous disclaimer version. This forces users who acknowledged
+        an older disclaimer to re-acknowledge when substantive new wording
+        (e.g., AI data-handling in 1.1) is added.
+        """
+        from datetime import datetime
+
+        session_id = str(uuid.uuid4())
+        acknowledged_at = datetime.now(UTC)
+
+        with patch(
+            "src.routers.disclaimer.get_session_maker"
+        ) as mock_get_session_maker:
+            mock_acknowledgment = MagicMock()
+            mock_acknowledgment.acknowledged_at = acknowledged_at
+            # Stored version is older than current DISCLAIMER_VERSION
+            mock_acknowledgment.disclaimer_version = "1.0"
+
+            mock_session = AsyncMock()
+            mock_result = MagicMock()
+            mock_result.scalar_one_or_none.return_value = mock_acknowledgment
+            mock_session.execute = AsyncMock(return_value=mock_result)
+            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_session.__aexit__ = AsyncMock(return_value=None)
+            mock_get_session_maker.return_value.return_value = mock_session
+
+            response = await client.get(
+                f"/api/disclaimer/status?session_id={session_id}"
+            )
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["acknowledged"] is False
+            assert data["acknowledged_at"] is None
+            assert data["disclaimer_version"] == "1.1"
 
 
 class TestDisclaimerAcknowledge:
     """Tests for POST /api/disclaimer/acknowledge endpoint."""
 
     @pytest.mark.asyncio
-    async def test_requires_both_checkboxes_checked(self, client):
+    async def test_requires_all_checkboxes_checked(self, client):
         """
-        AC2: User must check both acknowledgment checkboxes.
-        Returns 400 if not both checked.
+        User must check all acknowledgment checkboxes.
+        Returns 400 if not all checked.
         """
         session_id = str(uuid.uuid4())
 
-        # Only one checkbox checked
+        # All three required, one unchecked -> 400
         response = await client.post(
             "/api/disclaimer/acknowledge",
             json={
                 "session_id": session_id,
                 "checkbox_experimental": True,
                 "checkbox_not_medical_advice": False,
+                "checkbox_ai_data_flow": True,
             },
         )
 
         assert response.status_code == 400
         data = response.json()
-        assert "both" in data["detail"].lower()
+        assert "all" in data["detail"].lower()
+
+    @pytest.mark.asyncio
+    async def test_requires_ai_data_flow_checkbox_checked(self, client):
+        """
+        Specifically: the AI data-handling checkbox must be checked.
+        Returns 400 if it is unchecked even when the other two are.
+        """
+        session_id = str(uuid.uuid4())
+
+        response = await client.post(
+            "/api/disclaimer/acknowledge",
+            json={
+                "session_id": session_id,
+                "checkbox_experimental": True,
+                "checkbox_not_medical_advice": True,
+                "checkbox_ai_data_flow": False,
+            },
+        )
+
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_rejects_missing_ai_data_flow_field(self, client):
+        """
+        Request schema requires checkbox_ai_data_flow. Missing field -> 422.
+        Guards against clients silently downgrading to the v1.0 payload.
+        """
+        session_id = str(uuid.uuid4())
+
+        response = await client.post(
+            "/api/disclaimer/acknowledge",
+            json={
+                "session_id": session_id,
+                "checkbox_experimental": True,
+                "checkbox_not_medical_advice": True,
+            },
+        )
+
+        assert response.status_code == 422
 
     @pytest.mark.asyncio
     async def test_stores_acknowledgment_with_timestamp(self, client):
@@ -162,6 +245,7 @@ class TestDisclaimerAcknowledge:
                     "session_id": session_id,
                     "checkbox_experimental": True,
                     "checkbox_not_medical_advice": True,
+                    "checkbox_ai_data_flow": True,
                 },
             )
 
@@ -254,13 +338,14 @@ class TestDisclaimerContent:
     async def test_returns_disclaimer_content(self, client):
         """
         AC1: Disclaimer content includes all required warnings.
+        v1.1 adds an AI Data Processing warning.
         """
         response = await client.get("/api/disclaimer/content")
 
         assert response.status_code == 200
         data = response.json()
 
-        assert data["version"] == "1.0"
+        assert data["version"] == "1.1"
         assert data["title"] == "Important Safety Information"
 
         # Check all required warnings are present
@@ -269,6 +354,7 @@ class TestDisclaimerContent:
         assert "AI Limitations" in warning_titles
         assert "Not FDA Approved" in warning_titles
         assert "Consult Your Healthcare Provider" in warning_titles
+        assert "AI Data Processing" in warning_titles
 
         # Check warning text contains required phrases
         warning_texts = " ".join([w["text"] for w in data["warnings"]])
@@ -276,21 +362,26 @@ class TestDisclaimerContent:
         assert "ai" in warning_texts.lower()
         assert "fda" in warning_texts.lower()
         assert "healthcare provider" in warning_texts.lower()
+        # v1.1: AI data-flow disclosure uses vendor-agnostic cloud/local framing
+        assert "cloud" in warning_texts.lower()
+        assert "local" in warning_texts.lower()
+        assert "byoai" in warning_texts.lower()
 
     @pytest.mark.asyncio
-    async def test_returns_two_checkboxes(self, client):
+    async def test_returns_three_checkboxes(self, client):
         """
-        AC2: There are two acknowledgment checkboxes.
+        v1.1: Three acknowledgment checkboxes, including AI data-flow.
         """
         response = await client.get("/api/disclaimer/content")
 
         assert response.status_code == 200
         data = response.json()
 
-        assert len(data["checkboxes"]) == 2
+        assert len(data["checkboxes"]) == 3
         checkbox_ids = [c["id"] for c in data["checkboxes"]]
         assert "checkbox_experimental" in checkbox_ids
         assert "checkbox_not_medical_advice" in checkbox_ids
+        assert "checkbox_ai_data_flow" in checkbox_ids
 
     @pytest.mark.asyncio
     async def test_returns_accept_button(self, client):

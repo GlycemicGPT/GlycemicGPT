@@ -26,13 +26,19 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/disclaimer", tags=["Disclaimer"])
 
-# Current disclaimer version - increment when disclaimer text changes
-DISCLAIMER_VERSION = "1.0"
+# Current disclaimer version - increment when disclaimer text changes.
+# 1.1: added AI data-handling acknowledgment (cloud vs local provider data flow).
+DISCLAIMER_VERSION = "1.1"
 
 
 @router.get("/status", response_model=DisclaimerStatusResponse)
 async def get_disclaimer_status(session_id: str) -> DisclaimerStatusResponse:
     """Check if the disclaimer has been acknowledged for a session.
+
+    A stored acknowledgment only counts when its version matches the current
+    DISCLAIMER_VERSION. When the disclaimer text adds a substantive new
+    acknowledgment (e.g., AI data-handling in 1.1), prior consent no longer
+    covers the new wording and users must re-acknowledge.
 
     Args:
         session_id: Unique session identifier (UUID from localStorage)
@@ -48,7 +54,7 @@ async def get_disclaimer_status(session_id: str) -> DisclaimerStatusResponse:
         )
         acknowledgment = result.scalar_one_or_none()
 
-        if acknowledgment:
+        if acknowledgment and acknowledgment.disclaimer_version == DISCLAIMER_VERSION:
             return DisclaimerStatusResponse(
                 acknowledged=True,
                 acknowledged_at=acknowledgment.acknowledged_at,
@@ -81,11 +87,15 @@ async def acknowledge_disclaimer(
     Raises:
         HTTPException: If checkboxes are not both checked
     """
-    # Validate both checkboxes are checked
-    if not data.checkbox_experimental or not data.checkbox_not_medical_advice:
+    # Validate all checkboxes are checked
+    if (
+        not data.checkbox_experimental
+        or not data.checkbox_not_medical_advice
+        or not data.checkbox_ai_data_flow
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Both acknowledgment checkboxes must be checked",
+            detail="All acknowledgment checkboxes must be checked",
         )
 
     # Get client info for audit purposes
@@ -228,6 +238,19 @@ async def get_disclaimer_content() -> dict[str, Any]:
                 "title": "Consult Your Healthcare Provider",
                 "text": "Always consult your healthcare provider before making any changes to your diabetes management regimen.",
             },
+            {
+                "icon": "cloud",
+                "title": "AI Data Processing",
+                "text": (
+                    "GlycemicGPT is BYOAI -- you choose the AI provider. If you "
+                    "configure a cloud-hosted AI provider, your glucose, insulin, "
+                    "pump, and therapy data will be transmitted to that provider's "
+                    "servers for analysis, subject to their data-handling policy. "
+                    "If you configure a local AI provider running on your own "
+                    "infrastructure, your data stays on your network. Review your "
+                    "chosen provider's policy before configuring it."
+                ),
+            },
         ],
         "checkboxes": [
             {
@@ -237,6 +260,10 @@ async def get_disclaimer_content() -> dict[str, Any]:
             {
                 "id": "checkbox_not_medical_advice",
                 "label": "I understand this is not medical advice and I will consult my healthcare provider before making any changes",
+            },
+            {
+                "id": "checkbox_ai_data_flow",
+                "label": "I understand that configuring a cloud-hosted AI provider transmits my health data to that provider, and that only local AI providers keep my data on my own network",
             },
         ],
         "button_text": "I Understand & Accept",

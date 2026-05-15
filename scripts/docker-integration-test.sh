@@ -235,7 +235,7 @@ if [ "$STATUS" = "200" ]; then pass "Get current user (authenticated)"; else fai
 
 # 2d. Acknowledge disclaimer
 DISCLAIMER_SESSION=$(python3 -c "import uuid; print(uuid.uuid4())" 2>/dev/null || echo "00000000-0000-0000-0000-000000000000")
-STATUS=$(api_post "/api/disclaimer/acknowledge" "{\"session_id\":\"$DISCLAIMER_SESSION\",\"checkbox_experimental\":true,\"checkbox_not_medical_advice\":true}")
+STATUS=$(api_post "/api/disclaimer/acknowledge" "{\"session_id\":\"$DISCLAIMER_SESSION\",\"checkbox_experimental\":true,\"checkbox_not_medical_advice\":true,\"checkbox_ai_data_flow\":true}")
 if [ "$STATUS" = "200" ] || [ "$STATUS" = "201" ]; then pass "Acknowledge disclaimer"; else fail "Acknowledge disclaimer (got $STATUS)"; fi
 
 echo ""
