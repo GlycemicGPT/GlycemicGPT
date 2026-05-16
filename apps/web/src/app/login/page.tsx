@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 import { AnimatedCard } from "@/components/ui/animated-card";
-import { loginUser, getCurrentUser } from "@/lib/api";
+import { loginUser, getCurrentUser, verifySessionCookie } from "@/lib/api";
 
 function getRedirectTarget(searchParams: URLSearchParams): string {
   const redirect = searchParams.get("redirect");
@@ -89,6 +89,33 @@ function LoginForm() {
 
     try {
       await loginUser(email.trim(), password);
+      // Verify the session cookie actually saved. When the deploy is
+      // over plain HTTP from a non-localhost host, the browser drops the
+      // Secure cookie silently and /api/auth/me returns 401 even though
+      // login returned 200. We inspect the status code directly so a
+      // transient 5xx or network blip doesn't get misattributed to the
+      // cookie issue.
+      const verifyStatus = await verifySessionCookie();
+      if (verifyStatus === 401) {
+        setError(
+          "Login succeeded, but your browser did not store the session " +
+            "cookie. This usually means GlycemicGPT is being served over " +
+            "plain HTTP from a non-localhost address — browsers refuse to " +
+            "store secure cookies in that case. Fix: serve over HTTPS, or " +
+            "set COOKIE_SECURE=false in your docker-compose.yml. See " +
+            "https://github.com/glycemicgpt/glycemicgpt/blob/main/docs/install/docker.md#troubleshooting."
+        );
+        setIsSubmitting(false);
+        return;
+      }
+      if (verifyStatus >= 400) {
+        setError(
+          `Could not verify your session (status ${verifyStatus}). ` +
+            "Check the API logs and try again."
+        );
+        setIsSubmitting(false);
+        return;
+      }
       router.replace(getRedirectTarget(searchParams));
     } catch (err) {
       setError(
