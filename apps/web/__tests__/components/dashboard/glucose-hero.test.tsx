@@ -124,7 +124,7 @@ describe("GlucoseHero", () => {
 
       const glucoseValue = screen.getByTestId("glucose-value");
       expect(glucoseValue).toHaveTextContent("142");
-      expect(glucoseValue).toHaveClass("text-7xl", "font-bold");
+      expect(glucoseValue).toHaveClass("text-5xl", "sm:text-7xl", "font-bold");
     });
 
     it('displays "--" when value is null', () => {
