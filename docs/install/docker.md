@@ -217,40 +217,6 @@ Adjust the path. Make sure `backups/` exists. Test the restore at least once bef
 
 This is *backup* -- a SQL dump suitable for restoring to another GlycemicGPT instance. If you want exports in CSV or other portable formats for use outside GlycemicGPT, see [Exporting your data](../daily-use/data-export.md).
 
-## Troubleshooting
-
-### Sign In spinner never stops, or `/dashboard` keeps bouncing back to `/login`
-
-**Symptom:** You can register and the Sign In API call succeeds (you see `200 OK` in DevTools and a "User logged in successfully" line in `docker compose logs api`), but the button just spins, and if you manually visit `/dashboard` you are immediately redirected to `/login?redirect=%2Fdashboard`.
-
-**Cause:** GlycemicGPT issues the session cookie with the `Secure` attribute by default (`COOKIE_SECURE=true`). Browsers refuse to store a `Secure` cookie when the page is served over plain `http://` from anywhere other than `localhost` / `127.0.0.1`. The cookie is dropped silently, so every subsequent request looks unauthenticated.
-
-**Fix — do this:** Put GlycemicGPT behind HTTPS. The platform handles authentication, glucose data, AI chat, and caregiver alerts; running it on plain HTTP exposes sessions and personal health data to anyone on the same network. See [Deploying with Cloudflare Tunnel](#deploying-with-cloudflare-tunnel-home-server-or-vps) (free, no port-forwarding) or [Deploying with Caddy](#deploying-with-caddy-vps-with-your-own-domain) (your own domain + automatic Let's Encrypt). Keep `COOKIE_SECURE=true`. This is the only safe option for any deployment beyond a single-machine localhost test.
-
-**Last resort — LAN-only development.** If you're poking at the platform on a trusted home LAN and don't want to set up TLS yet, you can disable the `Secure` cookie flag. Add this to the `api` service in your `docker-compose.yml`:
-
-```yaml
-services:
-  api:
-    environment:
-      COOKIE_SECURE: "false"
-      CORS_ORIGINS: '["http://<your-host-or-ip>:3000"]'
-```
-
-Then `docker compose up -d --force-recreate api web`.
-
-> **WARNING:** Cookies set without `Secure` are transmitted in clear text on every request. Anyone with packet visibility on your network (other LAN devices, your ISP if you've port-forwarded, a malicious extension in another tab) can capture the session token and impersonate you. Glucose readings and AI chat are also sent in clear text. Do not use this for any deployment reachable from outside your home network, and do not share the URL with caregivers — set up HTTPS instead.
-
-**How to know if you're hitting this:** Starting in version 0.7.3, the API logs a loud `WARNING` at startup if `cookie_secure=true` and your `CORS_ORIGINS` includes a non-localhost plain-HTTP origin, and also on every login request that arrives over plain HTTP. The login page itself will display a clear error banner instead of the silent spinner.
-
-### Migration error on first start
-
-If the API container is restart-looping with a migration error in `docker compose logs api`, read the error message — usually it's a missing extension (e.g. `pgvector`) or a privilege issue. The included `db` image (`pgvector/pgvector:pg16`) has `pgvector` pre-installed; if you're pointing at an external Postgres, install the extension there first.
-
-### `pthread_setaffinity_np failed` in API logs
-
-Harmless. The embedding model preloader (onnxruntime) tries to pin thread affinity and fails on some container CPU layouts. The API still starts. Ignore.
-
 ## Deploying for public access
 
 Two paths, depending on what you want:
@@ -532,7 +498,41 @@ A one-click managed deploy (Railway, Fly.io) is on the roadmap -- see [ROADMAP.m
 
 ## Troubleshooting
 
-If something isn't working, see [Troubleshooting](../troubleshooting/index.md). The most common starting points:
+If something isn't working, the most common starting points are listed below. For anything not covered here, see the [full troubleshooting guide](../troubleshooting/index.md).
+
+### Sign In spinner never stops, or `/dashboard` keeps bouncing back to `/login`
+
+**Symptom:** You can register and the Sign In API call succeeds (you see `200 OK` in DevTools and a "User logged in successfully" line in `docker compose logs api`), but the button just spins, and if you manually visit `/dashboard` you are immediately redirected to `/login?redirect=%2Fdashboard`.
+
+**Cause:** GlycemicGPT issues the session cookie with the `Secure` attribute by default (`COOKIE_SECURE=true`). Browsers refuse to store a `Secure` cookie when the page is served over plain `http://` from anywhere other than `localhost` / `127.0.0.1`. The cookie is dropped silently, so every subsequent request looks unauthenticated.
+
+**Fix — do this:** Put GlycemicGPT behind HTTPS. The platform handles authentication, glucose data, AI chat, and caregiver alerts; running it on plain HTTP exposes sessions and personal health data to anyone on the same network. See [Deploying with Cloudflare Tunnel](#deploying-with-cloudflare-tunnel-home-server-or-vps) (free, no port-forwarding) or [Deploying to a VPS with HTTPS](#deploying-to-a-vps-with-https) (your own domain + automatic Let's Encrypt). Keep `COOKIE_SECURE=true`. This is the only safe option for any deployment beyond a single-machine localhost test.
+
+**Last resort — LAN-only development.** If you're poking at the platform on a trusted home LAN and don't want to set up TLS yet, you can disable the `Secure` cookie flag. Add this to the `api` service in your `docker-compose.yml`:
+
+```yaml
+services:
+  api:
+    environment:
+      COOKIE_SECURE: "false"
+      CORS_ORIGINS: '["http://<your-host-or-ip>:3000"]'
+```
+
+Then `docker compose up -d --force-recreate api web`.
+
+> **WARNING:** Cookies set without `Secure` are transmitted in clear text on every request. Anyone with packet visibility on your network (other LAN devices, your ISP if you've port-forwarded, a malicious extension in another tab) can capture the session token and impersonate you. Glucose readings and AI chat are also sent in clear text. Do not use this for any deployment reachable from outside your home network, and do not share the URL with caregivers — set up HTTPS instead.
+
+**How to know if you're hitting this:** Starting in version 0.7.3, the API logs a loud `WARNING` at startup if `cookie_secure=true` and your `CORS_ORIGINS` includes a non-localhost plain-HTTP origin, and also on every login request that arrives over plain HTTP. The login page itself displays a clear error banner instead of the silent spinner.
+
+### Migration error on first start
+
+If the API container is restart-looping with a migration error in `docker compose logs api`, read the error message — usually it's a missing extension (e.g. `pgvector`) or a privilege issue. The included `db` image (`pgvector/pgvector:pg16`) has `pgvector` pre-installed; if you're pointing at an external Postgres, install the extension there first.
+
+### `pthread_setaffinity_np failed` in API logs
+
+Harmless. The embedding model preloader (onnxruntime) tries to pin thread affinity and fails on some container CPU layouts. The API still starts. Ignore.
+
+### Other common starting points
 
 - Dashboard won't load → check `docker compose ps` for unhealthy services
 - Glucose isn't updating → check device connection in dashboard settings
