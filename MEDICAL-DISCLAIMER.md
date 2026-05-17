@@ -25,9 +25,14 @@ This software processes health data including:
 - Pump hardware status (battery, reservoir levels)
 - User-configured therapy parameters (target glucose ranges, insulin ratios)
 
-Users are responsible for understanding the privacy and security implications of their deployment. The self-hosted architecture means users control where their data resides.
+Users are responsible for understanding the privacy and security implications of their deployment. The self-hosted GlycemicGPT platform stores user data on infrastructure the user controls. **However, whether health data leaves that infrastructure depends on which AI provider the user configures**, and is not determined by the platform itself.
 
-When using the BYOAI (Bring Your Own AI) feature, glucose data context is sent to the configured AI provider (Anthropic, OpenAI, Ollama, or a self-hosted endpoint). Users should review their AI provider's data handling policies.
+When using the BYOAI (Bring Your Own AI) feature:
+
+- **Cloud-hosted AI providers** (any AI service that processes requests on third-party servers, including hosted APIs, subscription products, and AI router or gateway services that forward traffic to upstream cloud models) receive the user's glucose, insulin, pump, and therapy data context for inference. That data is then subject to the provider's data-handling policy and the policies of any upstream providers it routes to.
+- **Local AI providers** (models running on infrastructure the user controls -- e.g., Ollama, vLLM, or llama.cpp on the user's own hardware or network) keep that data on the user's network.
+
+It is the user's responsibility to verify where their configured AI endpoint routes traffic and to review the data-handling policy of any provider that will receive their health data before configuring it. The GlycemicGPT platform does not proxy or intercept AI requests on behalf of users.
 
 ## AI Limitations
 

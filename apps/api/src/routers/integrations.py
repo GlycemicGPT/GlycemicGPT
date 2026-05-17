@@ -33,6 +33,13 @@ from src.models.pump_hardware_info import PumpHardwareInfo
 from src.models.pump_raw_event import PumpRawEvent
 from src.models.tandem_upload_state import TandemUploadState
 from src.schemas.auth import ErrorResponse
+from src.schemas.forecast import (
+    ForecastPayload,
+    ForecastReadResponse,
+    ForecastSourcePreferenceResponse,
+    ForecastSourcePreferenceUpdate,
+    curves_from_jsonb,
+)
 from src.schemas.glucose import (
     AGPBucket,
     CurrentGlucoseResponse,
@@ -61,6 +68,8 @@ from src.schemas.pump import (
     ControlIQActivityResponse,
     InsulinSummaryResponse,
     IoBProjectionResponse,
+    LoopStatusResponse,
+    OverrideStatusResponse,
     PumpEventHistoryResponse,
     PumpEventResponse,
     PumpPushRequest,
@@ -83,7 +92,15 @@ from src.services.dexcom_sync import (
     get_latest_glucose_reading,
     sync_dexcom_for_user,
 )
+from src.services.forecast_reader import (
+    get_available_sources,
+    get_latest_forecast,
+    read_forecast_preference,
+    resolve_effective_source,
+    set_forecast_source,
+)
 from src.services.iob_projection import get_iob_projection, get_user_dia
+from src.services.loop_state_extractor import get_latest_loop_state
 from src.services.tandem_sync import (
     TandemAuthError,
     TandemConnectionError,
@@ -1353,6 +1370,31 @@ async def get_pump_status(
     battery_event = status.get("battery")
     reservoir_event = status.get("reservoir")
 
+    # PR 6: closed-loop surfaces from the latest NS devicestatus snapshot.
+    # Independent query path (DeviceStatusSnapshot, not PumpEvent) -- a
+    # user with only direct integrations (Tandem cloud, etc.) gets the
+    # pump fields populated and the loop fields all None, which is the
+    # correct read.
+    loop_state = await get_latest_loop_state(db, current_user.id)
+    loop_status_resp: LoopStatusResponse | None = None
+    if loop_state.loop_status is not None:
+        loop_status_resp = LoopStatusResponse(
+            state=loop_state.loop_status.state,
+            source=loop_state.loop_status.source,
+            issued_at=loop_state.loop_status.issued_at,
+            failure_reason=loop_state.loop_status.failure_reason,
+        )
+    override_resp: OverrideStatusResponse | None = None
+    if loop_state.override is not None:
+        override_resp = OverrideStatusResponse(
+            name=loop_state.override.name,
+            started_at=loop_state.override.started_at,
+            ends_at=loop_state.override.ends_at,
+            multiplier=loop_state.override.multiplier,
+            target_low_mgdl=loop_state.override.target_low_mgdl,
+            target_high_mgdl=loop_state.override.target_high_mgdl,
+        )
+
     return PumpStatusResponse(
         basal=PumpStatusBasal(
             rate=basal_event.units or 0.0,
@@ -1374,6 +1416,134 @@ async def get_pump_status(
         )
         if reservoir_event
         else None,
+        loop_status=loop_status_resp,
+        override=override_resp,
+        cob_grams=loop_state.cob_grams,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Story 43.12 PR 3 -- forecast picker read/write endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/forecast",
+    response_model=ForecastReadResponse,
+    responses={
+        200: {
+            "description": (
+                "User's forecast picker preference, the engines currently "
+                "publishing forecasts, and (when an effective source resolves) "
+                "the latest forecast payload from that source."
+            )
+        },
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        403: {"model": ErrorResponse, "description": "Permission denied"},
+    },
+)
+async def get_forecast(
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> ForecastReadResponse:
+    """Compose the forecast-overlay read for the dashboard chart and AI context.
+
+    Three independent state pieces fold into one response:
+
+    - **`source_preference`** -- whatever the user picked (or `'auto'`
+      default for new users).
+    - **`available_sources`** -- engines that emitted any forecast in
+      the last 24h. Drives PR 4's picker dropdown.
+    - **`forecast`** -- the latest snapshot from the effective source,
+      suppressed when older than the 30-min freshness threshold so
+      the chart never draws a misaligned dotted line.
+
+    The `effective_source` field is the resolved combination -- the
+    chart should ignore `source_preference` and `available_sources`
+    when deciding what (if anything) to render and just trust
+    `effective_source` + `forecast`.
+
+    Returns 200 with all-null forecast/effective_source for users
+    with no closed-loop integration -- the picker UI hides itself
+    in that state.
+    """
+    # Read-only path -- never INSERTs a settings row, returns
+    # 'auto' as the synthesized default for users with no stored
+    # preference. This keeps the GET side-effect-free per REST
+    # convention. PUT is where the row gets persisted.
+    preference = await read_forecast_preference(db, current_user.id)
+    available = await get_available_sources(db, current_user.id)
+    effective = resolve_effective_source(preference, available)
+
+    forecast_payload: ForecastPayload | None = None
+    if effective is not None:
+        latest = await get_latest_forecast(db, current_user.id, effective)
+        if latest is not None:
+            forecast_payload = ForecastPayload(
+                source_engine=latest.source_engine,  # type: ignore[arg-type]
+                source_uploader=latest.source_uploader,
+                issued_at=latest.issued_at,
+                start_at=latest.start_at,
+                step_minutes=latest.step_minutes,
+                horizon_minutes=latest.horizon_minutes,
+                curves_mgdl=curves_from_jsonb(latest.curves_mgdl_json),
+                default_curve_name=latest.default_curve_name,
+            )
+
+    # Compute the explicit "why no forecast" reason for the frontend.
+    # Mutually exclusive states; happy path returns None.
+    reason: str | None = None
+    if forecast_payload is None:
+        if preference == "none":
+            reason = "opted_out"
+        elif not available:
+            reason = "no_sources"
+        elif preference == "auto" and len(available) > 1:
+            reason = "needs_pick"
+        elif effective is None:
+            # preference is a specific engine but it's not in `available`.
+            reason = "source_silent"
+        else:
+            # effective resolved but the latest snapshot is too old.
+            reason = "stale"
+
+    return ForecastReadResponse(
+        source_preference=preference,
+        effective_source=effective,
+        available_sources=available,
+        forecast=forecast_payload,
+        forecast_unavailable_reason=reason,  # type: ignore[arg-type]
+    )
+
+
+@router.put(
+    "/forecast/source",
+    response_model=ForecastSourcePreferenceResponse,
+    responses={
+        200: {"description": "Forecast source preference updated."},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        403: {"model": ErrorResponse, "description": "Permission denied"},
+        422: {
+            "model": ErrorResponse,
+            "description": "Invalid `source` value (must be one of the allowed enum).",
+        },
+    },
+)
+async def update_forecast_source(
+    body: ForecastSourcePreferenceUpdate,
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> ForecastSourcePreferenceResponse:
+    """Persist the user's forecast picker choice.
+
+    Pydantic's `Literal` validation rejects unknown source values at
+    the API boundary (422 before the DB ever sees them). The DB's
+    CHECK constraint is the final guard if the schema ever drifts.
+    """
+    settings = await set_forecast_source(db, current_user.id, body.source)
+    await db.commit()
+    return ForecastSourcePreferenceResponse(
+        source_preference=settings.source,  # type: ignore[arg-type]
     )
 
 

@@ -25,12 +25,13 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.encryption import encrypt_credential
 from src.database import get_session_maker
 from src.models.device_status_snapshot import DeviceStatusSnapshot
+from src.models.forecast_snapshot import ForecastSnapshot
 from src.models.glucose import GlucoseReading
 from src.models.nightscout_connection import (
     NightscoutAuthType,
@@ -39,6 +40,10 @@ from src.models.nightscout_connection import (
 from src.models.nightscout_profile_snapshot import NightscoutProfileSnapshot
 from src.models.pump_data import PumpEvent, PumpEventType
 from src.models.user import User
+from src.services.integrations.nightscout._forecast_mapper import (
+    map_devicestatus_to_forecast,
+)
+from src.services.integrations.nightscout.models import NightscoutDeviceStatus
 from src.services.integrations.nightscout.translator import (
     translate_devicestatuses,
     translate_entries,
@@ -76,6 +81,23 @@ async def translator_ctx() -> AsyncGenerator[
     """
     session_maker = get_session_maker()
     session = session_maker()
+    # Forecast snapshots are uniquely keyed by
+    # `(source_engine, dedupe_key)` GLOBALLY -- not per-user. Stale rows
+    # from prior test runs (or from sibling test files that hardcode
+    # `_id` values) would collide with our deterministic test `_id`s and
+    # the ON CONFLICT DO NOTHING upsert would silently drop the insert.
+    # Truncate up front to ensure each test starts with a clean
+    # forecast table. Pump events / glucose / snapshots are per-user so
+    # don't have this hazard.
+    #
+    # NOTE: assumes single-worker pytest. A future move to pytest-xdist
+    # with a shared DB would race this TRUNCATE against other workers'
+    # in-flight rows; if that lands, partition the forecast tables per
+    # worker or scope the fixture differently.
+    await session.execute(
+        text("TRUNCATE forecast_evaluations, forecast_snapshots CASCADE")
+    )
+    await session.commit()
     email = f"translator_{uuid.uuid4().hex[:10]}@example.com"
     user = User(email=email, hashed_password="not-a-real-hash")
     session.add(user)
@@ -105,6 +127,9 @@ async def translator_ctx() -> AsyncGenerator[
                 delete(GlucoseReading).where(GlucoseReading.user_id == user_id)
             )
             await session.execute(delete(PumpEvent).where(PumpEvent.user_id == user_id))
+            await session.execute(
+                delete(ForecastSnapshot).where(ForecastSnapshot.user_id == user_id)
+            )
             await session.execute(
                 delete(DeviceStatusSnapshot).where(
                     DeviceStatusSnapshot.user_id == user_id
@@ -1505,4 +1530,802 @@ class TestLiveEndToEndPipeline:
         assert count_after_second == count_after_first, (
             f"row count drifted across re-fetch: "
             f"{count_after_first} -> {count_after_second}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Forecast path -> forecast_snapshots  (Story 43.12 PR 2)
+# ---------------------------------------------------------------------------
+
+
+def _ds(payload: dict[str, Any]) -> NightscoutDeviceStatus:
+    """Shorthand to build a parsed devicestatus from a raw payload."""
+    return NightscoutDeviceStatus.model_validate(payload)
+
+
+def _loop_ds(
+    *,
+    ns_id: str = "loop123abc456def789012345",
+    created_at: str = "2026-05-12T14:30:00.000Z",
+    values: list[float] | None = None,
+    start_date: str | None = "2026-05-12T14:30:00.000Z",
+    device: str = "loop://iPhone",
+) -> NightscoutDeviceStatus:
+    """Build a Loop devicestatus carrying `loop.predicted.values[]`."""
+    payload: dict[str, Any] = {
+        "_id": ns_id,
+        "created_at": created_at,
+        "device": device,
+        "loop": {
+            "predicted": {
+                "values": values
+                if values is not None
+                else [120, 122, 125, 128, 130, 131, 130, 128, 125],
+            },
+        },
+    }
+    if start_date is not None:
+        payload["loop"]["predicted"]["startDate"] = start_date
+    return _ds(payload)
+
+
+def _openaps_ds(
+    *,
+    ns_id: str = "aaps123abc456def789012345",
+    created_at: str = "2026-05-12T14:30:00.000Z",
+    pred_bgs: dict[str, list[float]] | None = None,
+    block: str = "suggested",
+    device: str = "openaps://AndroidAPS",
+) -> NightscoutDeviceStatus:
+    """Build an OpenAPS-family devicestatus carrying `predBGs`."""
+    if pred_bgs is None:
+        pred_bgs = {
+            "IOB": [120, 124, 130, 135, 138],
+            "COB": [120, 130, 145, 160, 170],
+            "UAM": [120, 125, 131, 138, 142],
+            "ZT": [120, 125, 130, 132, 132],
+        }
+    return _ds(
+        {
+            "_id": ns_id,
+            "created_at": created_at,
+            "device": device,
+            "openaps": {block: {"predBGs": pred_bgs}},
+        }
+    )
+
+
+class TestForecastMapperExtraction:
+    """Unit-level: per-source forecast extraction.
+
+    Pins the mapper's per-platform wire-shape contract without touching
+    the DB. Round-trip / dedupe / FK behavior lives in `TestForecastPath`
+    below.
+    """
+
+    def test_loop_single_curve_maps_to_main(self):
+        row = map_devicestatus_to_forecast(
+            _loop_ds(values=[120, 122, 125, 128, 130]),
+            user_id="u1",
+            nightscout_connection_id="c1",
+        )
+        assert row is not None
+        assert row["source_engine"] == "loop"
+        assert row["curves_mgdl_json"] == {"main": [120, 122, 125, 128, 130]}
+        assert row["default_curve_name"] == "main"
+        assert row["step_minutes"] == 5
+        assert row["horizon_minutes"] == 25  # 5 points x 5 min
+
+    def test_loop_start_date_anchors_t0(self):
+        row = map_devicestatus_to_forecast(
+            _loop_ds(
+                created_at="2026-05-12T14:30:00.000Z",
+                start_date="2026-05-12T14:25:00.000Z",
+            ),
+            user_id="u1",
+            nightscout_connection_id="c1",
+        )
+        assert row is not None
+        assert row["issued_at"] == datetime(2026, 5, 12, 14, 30, tzinfo=UTC)
+        # start_at falls back to startDate, NOT issued_at.
+        assert row["start_at"] == datetime(2026, 5, 12, 14, 25, tzinfo=UTC)
+
+    def test_loop_missing_start_date_falls_back_to_issued_at(self):
+        row = map_devicestatus_to_forecast(
+            _loop_ds(start_date=None),
+            user_id="u1",
+            nightscout_connection_id="c1",
+        )
+        assert row is not None
+        assert row["start_at"] == row["issued_at"]
+
+    def test_aaps_all_four_curves_extracted(self):
+        row = map_devicestatus_to_forecast(
+            _openaps_ds(),
+            user_id="u1",
+            nightscout_connection_id="c1",
+        )
+        assert row is not None
+        assert row["source_engine"] == "aaps"
+        assert set(row["curves_mgdl_json"].keys()) == {"IOB", "COB", "UAM", "ZT"}
+        assert row["default_curve_name"] == "IOB"
+
+    def test_aaps_only_iob_present(self):
+        row = map_devicestatus_to_forecast(
+            _openaps_ds(pred_bgs={"IOB": [120, 122, 125, 128]}),
+            user_id="u1",
+            nightscout_connection_id="c1",
+        )
+        assert row is not None
+        assert row["curves_mgdl_json"] == {"IOB": [120, 122, 125, 128]}
+        assert row["default_curve_name"] == "IOB"
+
+    def test_aaps_only_uam_falls_back_to_uam_default(self):
+        """When the canonical priorities (IOB, COB) are absent but UAM
+        is present, the mapper picks UAM as the default curve rather
+        than dropping the row entirely."""
+        row = map_devicestatus_to_forecast(
+            _openaps_ds(pred_bgs={"UAM": [120, 125, 131]}),
+            user_id="u1",
+            nightscout_connection_id="c1",
+        )
+        assert row is not None
+        assert row["default_curve_name"] == "UAM"
+        assert row["curves_mgdl_json"] == {"UAM": [120, 125, 131]}
+
+    def test_trio_determination_block_preferred_over_suggested(self):
+        """Trio writes both `determination.predBGs` AND
+        `suggested.predBGs`. The mapper must read `determination`
+        (the post-decision view that matches Trio's own UI) when
+        both are present."""
+        ds = _ds(
+            {
+                "_id": "trio123abc456def789012345",
+                "created_at": "2026-05-12T14:30:00.000Z",
+                "device": "Trio",
+                "openaps": {
+                    "suggested": {"predBGs": {"IOB": [100, 101, 102]}},
+                    "determination": {"predBGs": {"IOB": [200, 201, 202]}},
+                },
+            }
+        )
+        row = map_devicestatus_to_forecast(
+            ds, user_id="u1", nightscout_connection_id="c1"
+        )
+        assert row is not None
+        assert row["source_engine"] == "trio"
+        assert row["curves_mgdl_json"] == {"IOB": [200, 201, 202]}
+
+    def test_oref0_detected_from_device_uri(self):
+        """oref0 emits `device: openaps://<host>/<pump-ref>` (two-segment
+        URI). Distinguished from AAPS's degenerate one-segment form."""
+        row = map_devicestatus_to_forecast(
+            _openaps_ds(
+                pred_bgs={"IOB": [120, 122, 125, 127, 128, 128, 127]},
+                device="openaps://edison-rig/medtronic-722",
+            ),
+            user_id="u1",
+            nightscout_connection_id="c1",
+        )
+        assert row is not None
+        assert row["source_engine"] == "oref0"
+
+    def test_devicestatus_without_forecast_returns_none(self):
+        """xDrip+ / xDrip4iOS / share2ns regression guard: a payload
+        that carries only `uploader.battery` (no loop, no openaps) must
+        not create a forecast row."""
+        ds = _ds(
+            {
+                "_id": "xdrip123abc456def789012",
+                "created_at": "2026-05-12T14:30:00.000Z",
+                "device": "xdrip-android",
+                "uploader": {"battery": 87},
+            }
+        )
+        row = map_devicestatus_to_forecast(
+            ds, user_id="u1", nightscout_connection_id="c1"
+        )
+        assert row is None
+
+    def test_loop_without_predicted_returns_none(self):
+        """A Loop devicestatus with `loop.iob` but no `loop.predicted`
+        (e.g., loop running but not posting predictions this cycle) is
+        not a forecast and must skip."""
+        ds = _ds(
+            {
+                "_id": "loop123abc456def789012345",
+                "created_at": "2026-05-12T14:30:00.000Z",
+                "device": "loop://iPhone",
+                "loop": {"iob": {"iob": 2.5}},
+            }
+        )
+        assert (
+            map_devicestatus_to_forecast(
+                ds, user_id="u1", nightscout_connection_id="c1"
+            )
+            is None
+        )
+
+    def test_loop_empty_values_returns_none(self):
+        """An empty `predicted.values: []` array is not a usable
+        forecast -- skip rather than land a 0-horizon row."""
+        assert (
+            map_devicestatus_to_forecast(
+                _loop_ds(values=[]),
+                user_id="u1",
+                nightscout_connection_id="c1",
+            )
+            is None
+        )
+
+    def test_loop_malformed_values_returns_none(self):
+        """Non-numeric entry in `values` rejects the whole curve --
+        half-coerced curves are subtly worse than no curve."""
+        assert (
+            map_devicestatus_to_forecast(
+                _loop_ds(values=[120, "broken", 125]),
+                user_id="u1",
+                nightscout_connection_id="c1",
+            )
+            is None
+        )
+
+    def test_loop_bool_in_values_rejected(self):
+        """`isinstance(True, int)` is True in Python; a misbehaving
+        uploader sending `[120, True, 122]` must NOT slip in as 1.0."""
+        assert (
+            map_devicestatus_to_forecast(
+                _loop_ds(values=[120, True, 125]),
+                user_id="u1",
+                nightscout_connection_id="c1",
+            )
+            is None
+        )
+
+    def test_missing_ns_id_returns_none(self):
+        """No `_id` means no dedupe key. Skip rather than invent one --
+        consistent with the snapshot mapper's behavior."""
+        ds = _ds(
+            {
+                "created_at": "2026-05-12T14:30:00.000Z",
+                "device": "loop://iPhone",
+                "loop": {"predicted": {"values": [120, 122, 125]}},
+            }
+        )
+        assert (
+            map_devicestatus_to_forecast(
+                ds, user_id="u1", nightscout_connection_id="c1"
+            )
+            is None
+        )
+
+    def test_missing_created_at_returns_none(self):
+        """No `created_at` means no `issued_at` -- the AI / chart
+        legend would have nothing to anchor on."""
+        ds = _ds(
+            {
+                "_id": "loop123abc456def789012345",
+                "device": "loop://iPhone",
+                "loop": {"predicted": {"values": [120, 122, 125]}},
+            }
+        )
+        assert (
+            map_devicestatus_to_forecast(
+                ds, user_id="u1", nightscout_connection_id="c1"
+            )
+            is None
+        )
+
+    def test_unknown_openaps_engine_returns_none(self):
+        """An OpenAPS-family payload whose device string can't be
+        classified is skipped rather than mis-attributed. The CHECK
+        constraint on the DB would reject `source_engine = "unknown"`
+        anyway."""
+        ds = _ds(
+            {
+                "_id": "mystery123abc456def78901",
+                "created_at": "2026-05-12T14:30:00.000Z",
+                "device": "some-future-uploader",
+                "openaps": {"suggested": {"predBGs": {"IOB": [120, 122, 125]}}},
+            }
+        )
+        assert (
+            map_devicestatus_to_forecast(
+                ds, user_id="u1", nightscout_connection_id="c1"
+            )
+            is None
+        )
+
+    def test_horizon_derived_from_default_curve_length(self):
+        """Horizon = step * len(default curve). oref0's short ~7-point
+        IOB curve must yield ~30 min horizon (oref0's known short
+        forecast window)."""
+        row = map_devicestatus_to_forecast(
+            _openaps_ds(
+                pred_bgs={
+                    "IOB": [120, 121, 122, 123, 124, 125, 126],  # 7 pts
+                    "COB": [120, 122, 124, 126, 128, 130, 132, 134],  # 8 pts
+                },
+                device="openaps://edison/medtronic",
+            ),
+            user_id="u1",
+            nightscout_connection_id="c1",
+        )
+        assert row is not None
+        # Horizon driven by default (IOB), not the longer COB.
+        assert row["horizon_minutes"] == 35
+
+    def test_oversized_ns_id_returns_none(self):
+        """The DB CHECK bounds dedupe_key to 128 chars. Mapper-level
+        guard catches a verbose v3 envelope `_id` before the DB does."""
+        ds = _ds(
+            {
+                "_id": "x" * 200,
+                "created_at": "2026-05-12T14:30:00.000Z",
+                "device": "loop://iPhone",
+                "loop": {"predicted": {"values": [120, 122, 125]}},
+            }
+        )
+        assert (
+            map_devicestatus_to_forecast(
+                ds, user_id="u1", nightscout_connection_id="c1"
+            )
+            is None
+        )
+
+
+class TestForecastPath:
+    """Integration-level: translate_devicestatuses -> forecast_snapshots.
+
+    Exercises the SAVEPOINT-isolated forecast write path that
+    `translate_devicestatuses` runs alongside the snapshot + pump-event
+    promotions.
+    """
+
+    @pytest.mark.asyncio
+    async def test_loop_devicestatus_writes_forecast_row(self, translator_ctx):
+        session, user_id, conn_id = translator_ctx
+        raw = {
+            "_id": "loop123abc456def789012345",
+            "created_at": "2026-05-12T14:30:00.000Z",
+            "device": "loop://iPhone",
+            "loop": {
+                "iob": {"iob": 2.1},
+                "predicted": {
+                    "startDate": "2026-05-12T14:30:00.000Z",
+                    "values": [120, 122, 125, 128, 130, 131, 130, 128, 125],
+                },
+            },
+        }
+        outcome = await translate_devicestatuses(
+            [raw],
+            session=session,
+            user_id=str(user_id),
+            connection_id=str(conn_id),
+        )
+        await session.commit()
+        assert outcome.inserted == 1
+
+        rows = (
+            (
+                await session.execute(
+                    select(ForecastSnapshot).where(ForecastSnapshot.user_id == user_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(rows) == 1
+        assert rows[0].source_engine == "loop"
+        assert rows[0].default_curve_name == "main"
+        assert rows[0].curves_mgdl_json == {
+            "main": [120, 122, 125, 128, 130, 131, 130, 128, 125]
+        }
+        # Snapshot row landed too -- forecast path doesn't replace it.
+        assert (
+            await session.scalar(
+                select(func.count(DeviceStatusSnapshot.id)).where(
+                    DeviceStatusSnapshot.user_id == user_id
+                )
+            )
+            == 1
+        )
+
+    @pytest.mark.asyncio
+    async def test_aaps_devicestatus_writes_multi_curve_forecast(self, translator_ctx):
+        session, user_id, conn_id = translator_ctx
+        raw = {
+            "_id": "aaps123abc456def789012345",
+            "created_at": "2026-05-12T14:30:00.000Z",
+            "device": "openaps://AndroidAPS",
+            "openaps": {
+                "suggested": {
+                    "predBGs": {
+                        "IOB": [120, 124, 130, 135, 138],
+                        "COB": [120, 130, 145, 160, 170],
+                        "UAM": [120, 125, 131, 138, 142],
+                        "ZT": [120, 125, 130, 132, 132],
+                    },
+                },
+            },
+        }
+        await translate_devicestatuses(
+            [raw],
+            session=session,
+            user_id=str(user_id),
+            connection_id=str(conn_id),
+        )
+        await session.commit()
+
+        row = (
+            await session.execute(
+                select(ForecastSnapshot).where(ForecastSnapshot.user_id == user_id)
+            )
+        ).scalar_one()
+        assert row.source_engine == "aaps"
+        assert set(row.curves_mgdl_json.keys()) == {"IOB", "COB", "UAM", "ZT"}
+
+    @pytest.mark.asyncio
+    async def test_re_translation_does_not_duplicate_forecast(self, translator_ctx):
+        """Same NS `_id` arriving in two sync cycles produces one
+        `forecast_snapshots` row, deduped via
+        `(source_engine, dedupe_key)`."""
+        session, user_id, conn_id = translator_ctx
+        raw = {
+            "_id": "stable123abc456def78901234",
+            "created_at": "2026-05-12T14:30:00.000Z",
+            "device": "loop://iPhone",
+            "loop": {
+                "predicted": {
+                    "startDate": "2026-05-12T14:30:00.000Z",
+                    "values": [120, 122, 125, 128],
+                }
+            },
+        }
+        for _ in range(2):
+            await translate_devicestatuses(
+                [raw],
+                session=session,
+                user_id=str(user_id),
+                connection_id=str(conn_id),
+            )
+            await session.commit()
+
+        count = await session.scalar(
+            select(func.count(ForecastSnapshot.id)).where(
+                ForecastSnapshot.user_id == user_id
+            )
+        )
+        assert count == 1
+
+    @pytest.mark.asyncio
+    async def test_cgm_only_devicestatus_does_not_create_forecast(self, translator_ctx):
+        """xDrip+ regression guard. A CGM-relay devicestatus must produce
+        a `device_status_snapshots` row (battery / metadata) but NO
+        `forecast_snapshots` row -- design Section 1 confirms xDrip+
+        publishes no forecasts."""
+        session, user_id, conn_id = translator_ctx
+        raw = {
+            "_id": "xdrip123abc456def789012",
+            "created_at": "2026-05-12T14:30:00.000Z",
+            "device": "xdrip-android",
+            "uploader": {"battery": 87},
+        }
+        await translate_devicestatuses(
+            [raw],
+            session=session,
+            user_id=str(user_id),
+            connection_id=str(conn_id),
+        )
+        await session.commit()
+
+        ds_count = await session.scalar(
+            select(func.count(DeviceStatusSnapshot.id)).where(
+                DeviceStatusSnapshot.user_id == user_id
+            )
+        )
+        fc_count = await session.scalar(
+            select(func.count(ForecastSnapshot.id)).where(
+                ForecastSnapshot.user_id == user_id
+            )
+        )
+        assert ds_count == 1
+        assert fc_count == 0
+
+    @pytest.mark.asyncio
+    async def test_mixed_batch_with_and_without_forecasts(self, translator_ctx):
+        """A batch with one Loop forecast + one xDrip+ status + one
+        AAPS forecast must produce exactly 2 forecast rows, 3 snapshots."""
+        session, user_id, conn_id = translator_ctx
+        raws = [
+            {
+                "_id": "loop_mixed_1abc456def789012345",
+                "created_at": "2026-05-12T14:25:00.000Z",
+                "device": "loop://iPhone",
+                "loop": {"predicted": {"values": [120, 121, 122, 123]}},
+            },
+            {
+                "_id": "xdrip_mixed_abc456def7890123",
+                "created_at": "2026-05-12T14:27:00.000Z",
+                "device": "xdrip-android",
+                "uploader": {"battery": 84},
+            },
+            {
+                "_id": "aaps_mixed_1abc456def789012345",
+                "created_at": "2026-05-12T14:30:00.000Z",
+                "device": "openaps://AndroidAPS",
+                "openaps": {"suggested": {"predBGs": {"IOB": [110, 112, 114, 116]}}},
+            },
+        ]
+        await translate_devicestatuses(
+            raws,
+            session=session,
+            user_id=str(user_id),
+            connection_id=str(conn_id),
+        )
+        await session.commit()
+
+        ds_count = await session.scalar(
+            select(func.count(DeviceStatusSnapshot.id)).where(
+                DeviceStatusSnapshot.user_id == user_id
+            )
+        )
+        fc_count = await session.scalar(
+            select(func.count(ForecastSnapshot.id)).where(
+                ForecastSnapshot.user_id == user_id
+            )
+        )
+        assert ds_count == 3
+        assert fc_count == 2
+        engines = {
+            r.source_engine
+            for r in (
+                await session.execute(
+                    select(ForecastSnapshot).where(ForecastSnapshot.user_id == user_id)
+                )
+            ).scalars()
+        }
+        assert engines == {"loop", "aaps"}
+
+
+# ---------------------------------------------------------------------------
+# Adversarial-review follow-up tests
+# ---------------------------------------------------------------------------
+
+
+class TestForecastMapperEdgeCases:
+    """Pins behaviors that the adversarial review identified as
+    structurally important but not previously covered: iAPS detection,
+    Loop-vs-OpenAPS priority when both subtrees coexist, and the
+    physiological-range clamp on curve values.
+    """
+
+    def test_iaps_detected_from_device_substring(self):
+        """iAPS (iOS AAPS fork) carries `iAPS` as a literal substring
+        in its device string. The mapper classifies as `iaps` even
+        though `detect_uploader()` doesn't know about it yet -- we
+        check inline before falling through. This keeps PR 1's shared
+        helper untouched while wiring the migration-allowed
+        `source_engine='iaps'` value to actual data."""
+        ds = _ds(
+            {
+                "_id": "iaps123abc456def789012345",
+                "created_at": "2026-05-12T14:30:00.000Z",
+                "device": "iAPS-2.7.0",
+                "openaps": {"suggested": {"predBGs": {"IOB": [120, 122, 125, 128]}}},
+            }
+        )
+        row = map_devicestatus_to_forecast(
+            ds, user_id="u1", nightscout_connection_id="c1"
+        )
+        assert row is not None
+        assert row["source_engine"] == "iaps"
+
+    def test_aaps_device_does_not_misclassify_as_iaps(self):
+        """Regression guard: the canonical AAPS device strings
+        (`openaps://AndroidAPS` for V1, `openaps://AndroidAPS-NSClientV3`
+        for V3) do not contain the substring `iaps`. The iAPS branch's
+        `"aaps" not in device_lower` guard also catches any hybrid
+        like `iAPS-AAPS-bridge` and routes such payloads back to AAPS
+        classification rather than mis-attributing to iAPS."""
+        for device in (
+            "openaps://AndroidAPS",
+            "openaps://AndroidAPS-NSClientV3",
+        ):
+            row = map_devicestatus_to_forecast(
+                _ds(
+                    {
+                        "_id": f"aaps_{uuid.uuid4().hex[:18]}",
+                        "created_at": "2026-05-12T14:30:00.000Z",
+                        "device": device,
+                        "openaps": {"suggested": {"predBGs": {"IOB": [120, 122, 125]}}},
+                    }
+                ),
+                user_id="u1",
+                nightscout_connection_id="c1",
+            )
+            assert row is not None, f"AAPS variant {device!r} unexpectedly skipped"
+            assert row["source_engine"] == "aaps", (
+                f"AAPS device {device!r} mis-attributed as {row['source_engine']!r}"
+            )
+
+    def test_iaps_aaps_hybrid_routes_back_to_aaps(self):
+        """If a (hypothetical) device string contains both `iaps` and
+        `aaps` substrings, the iAPS branch's `"aaps" not in
+        device_lower` guard rejects it and the AAPS classification
+        wins via `detect_uploader()`. Belt-and-braces test against
+        regressing the guard to a bare `"iaps" in device_lower`
+        check."""
+        row = map_devicestatus_to_forecast(
+            _ds(
+                {
+                    "_id": "hybrid_iaps_aaps_abc456789",
+                    "created_at": "2026-05-12T14:30:00.000Z",
+                    "device": "openaps://AndroidAPS-iAPS-bridge",
+                    "openaps": {"suggested": {"predBGs": {"IOB": [120, 122, 125]}}},
+                }
+            ),
+            user_id="u1",
+            nightscout_connection_id="c1",
+        )
+        assert row is not None
+        assert row["source_engine"] == "aaps"
+
+    def test_loop_subtree_wins_when_both_loop_and_openaps_present(self):
+        """A payload carrying BOTH `loop.predicted` and
+        `openaps.suggested.predBGs` is rare (cross-bridge / dev
+        sandbox setups) but possible. The mapper's documented
+        priority is Loop -> OpenAPS; pin it so a future refactor
+        can't silently flip the order."""
+        ds = _ds(
+            {
+                "_id": "hybrid123abc456def78901234",
+                "created_at": "2026-05-12T14:30:00.000Z",
+                "device": "loop://iPhone",
+                "loop": {"predicted": {"values": [200, 205, 210]}},
+                "openaps": {"suggested": {"predBGs": {"IOB": [100, 101, 102]}}},
+            }
+        )
+        row = map_devicestatus_to_forecast(
+            ds, user_id="u1", nightscout_connection_id="c1"
+        )
+        assert row is not None
+        assert row["source_engine"] == "loop"
+        assert row["curves_mgdl_json"] == {"main": [200.0, 205.0, 210.0]}
+
+    def test_curve_value_below_physiological_floor_rejected(self):
+        """A glucose value of -50 mg/dL is sensor / data corruption.
+        Storing it would let PR 4's chart render nonsensical extremes
+        and PR 5's AI context repeat the absurd value to the user.
+        Reject the whole curve, consistent with the strict
+        non-numeric-entry policy."""
+        assert (
+            map_devicestatus_to_forecast(
+                _loop_ds(values=[120, -50, 125, 128]),
+                user_id="u1",
+                nightscout_connection_id="c1",
+            )
+            is None
+        )
+
+    def test_curve_value_above_physiological_ceiling_rejected(self):
+        """5000 mg/dL is impossible; reject same as below-floor."""
+        assert (
+            map_devicestatus_to_forecast(
+                _loop_ds(values=[120, 122, 5000, 128]),
+                user_id="u1",
+                nightscout_connection_id="c1",
+            )
+            is None
+        )
+
+    def test_curve_values_at_band_edges_accepted(self):
+        """Values exactly at 20 and 800 mg/dL are physiologically
+        plausible (severe hypo and severe hyper); the clamp is
+        inclusive of the bounds."""
+        row = map_devicestatus_to_forecast(
+            _loop_ds(values=[20, 100, 400, 800]),
+            user_id="u1",
+            nightscout_connection_id="c1",
+        )
+        assert row is not None
+        assert row["curves_mgdl_json"] == {"main": [20.0, 100.0, 400.0, 800.0]}
+
+    def test_oversized_curve_rejected(self):
+        """A malicious upstream Nightscout server posting a curve with
+        > 288 points (a full day at 5-min step) would let the
+        translator allocate unbounded memory and TOAST-bloat the JSONB
+        column. Real forecasts max out at ~73 points (Loop's 6h
+        horizon at 5-min step); 288 is generous future headroom.
+        Defense-in-depth against curve-length DoS."""
+        # 289 valid in-range points -- just past the cap.
+        oversized = [120] * 289
+        assert (
+            map_devicestatus_to_forecast(
+                _loop_ds(values=oversized),
+                user_id="u1",
+                nightscout_connection_id="c1",
+            )
+            is None
+        )
+
+    def test_curve_at_max_length_accepted(self):
+        """288 points (a full day at 5-min) is the boundary -- last
+        accepted size. Confirms the cap is inclusive."""
+        full_day = [120] * 288
+        row = map_devicestatus_to_forecast(
+            _loop_ds(values=full_day),
+            user_id="u1",
+            nightscout_connection_id="c1",
+        )
+        assert row is not None
+        assert len(row["curves_mgdl_json"]["main"]) == 288
+        # horizon = step (5 min) * 288 points = 1440 min = 24h
+        assert row["horizon_minutes"] == 1440
+
+
+class TestForecastSavepointIsolation:
+    """The central design claim of the translator's forecast hook is
+    that a forecast-side failure does NOT roll back the device-status
+    snapshots that already landed. This suite pins it directly --
+    inject a failing forecast upsert and assert the snapshot still
+    persists.
+    """
+
+    @pytest.mark.asyncio
+    async def test_forecast_upsert_failure_does_not_roll_back_snapshot(
+        self, translator_ctx, monkeypatch
+    ):
+        """Patch `_upsert_forecast_snapshots` to raise unconditionally.
+        The translator's `try/except` around the savepoint must catch
+        the error and let the device-status snapshot row stand.
+        Without the SAVEPOINT isolation the outer transaction would
+        be in a NEEDS_ROLLBACK state and the caller's `commit()`
+        would either silently drop the snapshot or raise
+        PendingRollbackError."""
+        from src.services.integrations.nightscout import translator as translator_mod
+
+        async def _boom(*args, **kwargs):
+            raise RuntimeError("simulated forecast write failure")
+
+        monkeypatch.setattr(translator_mod, "_upsert_forecast_snapshots", _boom)
+
+        session, user_id, conn_id = translator_ctx
+        raw = {
+            "_id": "isolation123abc456def78901",
+            "created_at": "2026-05-12T14:30:00.000Z",
+            "device": "loop://iPhone",
+            "loop": {
+                "predicted": {
+                    "startDate": "2026-05-12T14:30:00.000Z",
+                    "values": [120, 122, 125, 128, 130],
+                }
+            },
+        }
+        outcome = await translate_devicestatuses(
+            [raw],
+            session=session,
+            user_id=str(user_id),
+            connection_id=str(conn_id),
+        )
+        await session.commit()
+
+        # Snapshot landed.
+        assert outcome.inserted == 1
+        assert (
+            await session.scalar(
+                select(func.count(DeviceStatusSnapshot.id)).where(
+                    DeviceStatusSnapshot.user_id == user_id
+                )
+            )
+            == 1
+        )
+        # Forecast did NOT land (the SAVEPOINT rolled back its work).
+        assert (
+            await session.scalar(
+                select(func.count(ForecastSnapshot.id)).where(
+                    ForecastSnapshot.user_id == user_id
+                )
+            )
+            == 0
         )

@@ -17,6 +17,7 @@ import {
   Stethoscope,
   AlertTriangle,
   Check,
+  Cloud,
   Loader2,
 } from "lucide-react";
 import { useUserContext } from "@/providers/user-provider";
@@ -31,6 +32,7 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   brain: Brain,
   "shield-x": ShieldOff,
   stethoscope: Stethoscope,
+  cloud: Cloud,
 };
 
 export function AuthDisclaimerGate({
@@ -69,6 +71,7 @@ export function AuthDisclaimerGate({
         setCheckboxes({
           checkbox_experimental: false,
           checkbox_not_medical_advice: false,
+          checkbox_ai_data_flow: false,
         });
       } finally {
         setContentLoading(false);
@@ -115,7 +118,7 @@ export function AuthDisclaimerGate({
 
   const handleAccept = async () => {
     if (!allChecked) {
-      setError("Please check both acknowledgment boxes to continue");
+      setError("Please check all acknowledgment boxes to continue");
       return;
     }
 
@@ -138,7 +141,7 @@ export function AuthDisclaimerGate({
 
   // Fallback content if API failed
   const displayContent: DisclaimerContent = content ?? {
-    version: "1.0",
+    version: "1.1",
     title: "Important Safety Information",
     warnings: [
       {
@@ -161,6 +164,12 @@ export function AuthDisclaimerGate({
         title: "Consult Your Healthcare Provider",
         text: "Always consult your healthcare provider before making any changes to your diabetes management regimen.",
       },
+      {
+        icon: "cloud",
+        title: "AI Data Processing",
+        text:
+          "GlycemicGPT is BYOAI -- you choose the AI provider. If you configure a cloud-hosted AI provider, your glucose, insulin, pump, and therapy data will be transmitted to that provider's servers for analysis, subject to their data-handling policy. If you configure a local AI provider running on your own infrastructure, your data stays on your network. Review your chosen provider's policy before configuring it.",
+      },
     ],
     checkboxes: [
       {
@@ -172,6 +181,11 @@ export function AuthDisclaimerGate({
         id: "checkbox_not_medical_advice",
         label:
           "I understand this is not medical advice and I will consult my healthcare provider before making any changes",
+      },
+      {
+        id: "checkbox_ai_data_flow",
+        label:
+          "I understand that configuring a cloud-hosted AI provider transmits my health data to that provider, and that only local AI providers keep my data on my own network",
       },
     ],
     button_text: "I Understand & Accept",
