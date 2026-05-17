@@ -33,8 +33,8 @@ What this module does NOT do (intentionally):
      certificate.
 
   If a future deployment scenario warrants closing this window
-  (e.g., multi-tenant SaaS where users connect to arbitrary
-  Nightscout URLs), add a custom httpcore transport then.
+  (e.g., a multi-tenant hosted deployment where users connect to
+  arbitrary Nightscout URLs), add a custom httpcore transport then.
 """
 
 from __future__ import annotations

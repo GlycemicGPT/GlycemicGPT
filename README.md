@@ -171,6 +171,14 @@ GlycemicGPT is free and open source. Funding flows through [Open Collective](htt
   <a href="https://github.com/GlycemicGPT/GlycemicGPT/stargazers"><img src="assets/buttons/star-on-github.svg" alt="Star GlycemicGPT on GitHub" width="280"></a>
 </p>
 
+## Supported by
+
+<a href="https://github.com/1Password/for-open-source">
+  <img src="assets/sponsors/1password.svg" alt="1Password for Open Source" width="64" height="64">
+</a>
+
+<sub>See [SPONSORS.md](./SPONSORS.md) for the full record of our support relationships.</sub>
+
 ## License
 
 This project is licensed under the **GNU General Public License v3.0 (GPL-3.0)**. See the [LICENSE](LICENSE) file for details.

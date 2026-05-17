@@ -207,6 +207,8 @@ npm install    # Install dependencies
 npm test       # Run tests
 ```
 
+> **Need real project credentials?** Most contributors don't -- the local stack runs on bundled defaults. If your work genuinely requires the dev-stack test account or another project-managed credential, email <info@glycemicgpt.org>.
+
 ---
 
 ## 🌿 Branching & Workflow
