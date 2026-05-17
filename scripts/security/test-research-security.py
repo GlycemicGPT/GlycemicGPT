@@ -12,6 +12,8 @@ Usage:
 """
 
 import os
+import secrets
+import string
 import sys
 import time
 import uuid
@@ -19,10 +21,28 @@ import uuid
 import httpx
 
 API_URL = os.environ.get("API_URL", "http://localhost:8001")
-# Mirrors the pattern in test-auth-flows.py: a non-secret default keeps the
-# script usable without env-var setup. The CI workflow sets a fixed value;
-# this fallback exists so local invocations and fork-PR runs don't FATAL.
-TEST_PASSWORD = os.environ.get("TEST_PASSWORD", f"SecTest-{uuid.uuid4().hex[:8]}!")
+
+
+def _generate_test_password() -> str:
+    """Build a non-secret CI fixture that always satisfies the API validator.
+
+    See test-data-isolation.py for the full rationale. Short version: the
+    previous ``uuid.uuid4().hex[:8]`` fallback was hex only and could
+    occasionally omit a digit, intermittently FATAL-ing the script when
+    TEST_PASSWORD was unset locally.
+    """
+    alphabet = string.ascii_letters + string.digits
+    return (
+        secrets.choice(string.ascii_uppercase)
+        + secrets.choice(string.ascii_lowercase)
+        + secrets.choice(string.digits)
+        + "".join(secrets.choice(alphabet) for _ in range(13))
+    )
+
+
+# CI passes TEST_PASSWORD via env; local/fork-PR invocations fall back to
+# a freshly generated value rather than FATAL-ing.
+TEST_PASSWORD = os.environ.get("TEST_PASSWORD") or _generate_test_password()
 
 passed = 0
 failed = 0

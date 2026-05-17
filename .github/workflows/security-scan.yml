@@ -291,11 +291,18 @@ jobs:
           fi
 
       - name: Compute ephemeral CI test password
-        # Generated at runtime so no literal that pattern-matches "Generic
-        # Password" gets committed. Value protects nothing -- it just has
-        # to satisfy the API's UserRegistrationRequest validator (min 8,
-        # upper, lower, digit) for ephemeral users in this job's CI DB.
-        run: echo "TEST_PASSWORD=Fixture-Aa1-${RANDOM}${RANDOM}!" >> "$GITHUB_ENV"
+        # Fully random from /dev/urandom -- no fixed substring that could be
+        # pattern-matched as "Generic Password" by scanners. Value protects
+        # nothing (CI database lives + dies inside this job); only needs to
+        # satisfy the API's UserRegistrationRequest validator (min 8 chars,
+        # upper, lower, digit), which is guaranteed by drawing one char from
+        # each required class up-front and filling the rest with alphanumerics.
+        run: |
+          PW="$(LC_ALL=C tr -dc 'A-Z' </dev/urandom | head -c 1)"
+          PW="$PW$(LC_ALL=C tr -dc 'a-z' </dev/urandom | head -c 1)"
+          PW="$PW$(LC_ALL=C tr -dc '0-9' </dev/urandom | head -c 1)"
+          PW="$PW$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 13)"
+          echo "TEST_PASSWORD=$PW" >> "$GITHUB_ENV"
 
       # ---- Smoke test: verify the stack is functional, not just alive ----
       - name: Smoke test API and Web

@@ -107,18 +107,21 @@ jobs:
         # NOTE: this step excludes workflow-lint.yml itself from its
         # scans -- the linter mentions the forbidden patterns in error
         # messages, which would otherwise cause a self-flagging loop.
+        # Scans both `.yml` and `.yaml` -- GitHub Actions accepts both
+        # extensions and we don't want a `.yaml` workflow to slip past.
         run: |
           set -e
           FAILED=0
           SELF="workflow-lint.yml"
 
           # 1. SECURITY_TEST_PASSWORD must not return as a repo secret.
-          # The CI fixture lives as a workflow-level env literal; using
+          # The CI fixture is generated at runtime per job; using
           # ${{ secrets.SECURITY_TEST_PASSWORD }} again would re-break
           # fork PRs (the secret is empty on fork-triggered runs, which
           # then 422s when smoke tests try to register a user).
-          if grep -rn --exclude="$SELF" -E 'secrets\.SECURITY_TEST_PASSWORD' .github/workflows/; then
-            echo "::error::secrets.SECURITY_TEST_PASSWORD must not be used. Set TEST_PASSWORD as a workflow-level env literal instead; see security-scan.yml. Fork PRs cannot read repo secrets."
+          if grep -rn --exclude="$SELF" --include='*.yml' --include='*.yaml' \
+               -E 'secrets\.SECURITY_TEST_PASSWORD' .github/workflows/; then
+            echo "::error::secrets.SECURITY_TEST_PASSWORD must not be used. Generate TEST_PASSWORD at job runtime instead; see security-scan.yml. Fork PRs cannot read repo secrets."
             FAILED=1
           fi
 
@@ -132,12 +135,14 @@ jobs:
           # `^[[:space:]]*pull_request:` matches the literal trigger key
           # and won't false-match `pull_request_target:` because the
           # latter has `_target` between `pull_request` and the colon.
-          for f in $(grep -l --exclude="$SELF" -E 'secrets\.CI_APP_(ID|PRIVATE_KEY)' .github/workflows/*.yml || true); do
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
             if grep -nE '^[[:space:]]*pull_request:' "$f" >/dev/null; then
               echo "::error file=$f::secrets.CI_APP_* used in a workflow triggered by pull_request. Fork PRs do not receive secrets -- use pull_request_target (with a safe checkout pattern) or workflow_run instead."
               FAILED=1
             fi
-          done
+          done < <(grep -rl --exclude="$SELF" --include='*.yml' --include='*.yaml' \
+                       -E 'secrets\.CI_APP_(ID|PRIVATE_KEY)' .github/workflows/ || true)
 
           if [ "$FAILED" -ne 0 ]; then
             echo "::error::Drift guard failed -- see annotations above."
