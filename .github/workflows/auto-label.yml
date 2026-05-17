@@ -46,7 +46,10 @@ jobs:
         # pull_request_target with elevated trust, so we don't want
         # surprise minor/patch updates of minimatch landing automatically.
         # --no-save / --no-package-lock keep the install footprint clean.
-        run: npm install --no-save --no-package-lock --no-fund --no-audit minimatch@10.0.3
+        # --ignore-scripts blocks install-time scripts as defense in depth
+        # against future supply-chain compromise of pinned versions
+        # (minimatch itself has no install scripts today).
+        run: npm install --no-save --no-package-lock --no-fund --no-audit --ignore-scripts minimatch@10.0.3
 
       - name: Label PR based on file changes and conventions
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
