@@ -182,6 +182,10 @@ Maintainer stipend amounts are decided by the project lead based on fund balance
 - Annual financial summary posted to Discussions
 - Open Source Collective deducts a 10% host fee from each donation; the remaining 90% goes to the project fund. This fee is documented on OSC's [hosted collectives page](https://opencollective.com/opensource) and applied automatically by the platform.
 
+### In-kind support
+
+GlycemicGPT also receives in-kind support from open-source-friendly vendors (donated software, services, or infrastructure). These relationships are governed by [SPONSORS.md](SPONSORS.md), which is the canonical record of all sponsor and fiscal-host relationships and includes a disclosure of how sponsor influence is bounded.
+
 ## Branch Protection
 
 The repository enforces these protections via org-level rulesets that apply to all repositories:
