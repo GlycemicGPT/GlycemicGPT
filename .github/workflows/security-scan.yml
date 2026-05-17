@@ -10,7 +10,18 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
+
+# TEST_PASSWORD is a fixture for registering throwaway users in the
+# ephemeral CI database during DAST/auth smoke tests. The CI database
+# is created and destroyed in the same job; the value protects nothing
+# and is intentionally not a secret. Keeping it as a workflow-level env
+# (not a repository secret) lets fork PRs run the security scan suite,
+# which would otherwise see an empty secret and 422 on user registration.
+# The value just needs to satisfy the API's UserRegistrationRequest
+# validator (min 8 chars, upper, lower, digit). See CONTRIBUTING.md
+# "How CI handles fork PRs".
+env:
+  TEST_PASSWORD: CI-FIXTURE-NOT-A-SECRET-Aa1!
 
 concurrency:
   group: security-scan-${{ github.ref }}
@@ -285,7 +296,6 @@ jobs:
       - name: Smoke test API and Web
         env:
           COMPOSE_PROJECT_NAME: glycemicgpt-test
-          TEST_PASSWORD: ${{ secrets.SECURITY_TEST_PASSWORD }}
         run: |
           echo "Verifying API serves OpenAPI spec..."
           OPENAPI=$(curl -sS http://localhost:8001/openapi.json | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('paths',{})))" || echo "0")
@@ -356,7 +366,6 @@ jobs:
           github.event_name == 'workflow_dispatch'
         env:
           API_URL: http://localhost:8001
-          TEST_PASSWORD: ${{ secrets.SECURITY_TEST_PASSWORD }}
         run: python scripts/security/test-data-isolation.py
 
       - name: Reset rate limits
@@ -376,7 +385,6 @@ jobs:
           github.event_name == 'workflow_dispatch'
         env:
           API_URL: http://localhost:8001
-          TEST_PASSWORD: ${{ secrets.SECURITY_TEST_PASSWORD }}
         run: python scripts/security/test-research-security.py
 
       - name: Reset rate limits
@@ -396,7 +404,6 @@ jobs:
           github.event_name == 'workflow_dispatch'
         env:
           API_URL: http://localhost:8001
-          TEST_PASSWORD: ${{ secrets.SECURITY_TEST_PASSWORD }}
           COMPOSE_PROJECT_NAME: glycemicgpt-test
         run: python scripts/security/fuzz-api.py "$API_URL" --mode both
 
@@ -502,7 +509,6 @@ jobs:
           github.event_name == 'workflow_dispatch'
         env:
           API_URL: http://localhost:8001
-          TEST_PASSWORD: ${{ secrets.SECURITY_TEST_PASSWORD }}
         run: |
           ZAP_EMAIL="zap_$(date +%s)_${RANDOM}@example.com"
           AUTH_BODY=$(jq -nc --arg e "$ZAP_EMAIL" --arg p "$TEST_PASSWORD" '{email:$e,password:$p}')

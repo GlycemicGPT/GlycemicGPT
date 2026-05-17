@@ -96,3 +96,54 @@ jobs:
           path: zizmor.sarif
           if-no-files-found: ignore
           retention-days: 30
+
+      # ---------------------------------------------------------------
+      # Drift guard: prevent re-introduction of patterns we explicitly
+      # removed for fork-PR compatibility. These are concrete bug-class
+      # regressions, not advisory style issues -- this step FAILS the
+      # workflow (unlike zizmor which is advisory-only).
+      # ---------------------------------------------------------------
+      - name: Drift guard for fork-PR compatibility
+        # NOTE: this step excludes workflow-lint.yml itself from its
+        # scans -- the linter mentions the forbidden patterns in error
+        # messages, which would otherwise cause a self-flagging loop.
+        run: |
+          set -e
+          FAILED=0
+          SELF="workflow-lint.yml"
+
+          # 1. SECURITY_TEST_PASSWORD must not return as a repo secret.
+          # The CI fixture lives as a workflow-level env literal; using
+          # ${{ secrets.SECURITY_TEST_PASSWORD }} again would re-break
+          # fork PRs (the secret is empty on fork-triggered runs, which
+          # then 422s when smoke tests try to register a user).
+          if grep -rn --exclude="$SELF" -E 'secrets\.SECURITY_TEST_PASSWORD' .github/workflows/; then
+            echo "::error::secrets.SECURITY_TEST_PASSWORD must not be used. Set TEST_PASSWORD as a workflow-level env literal instead; see security-scan.yml. Fork PRs cannot read repo secrets."
+            FAILED=1
+          fi
+
+          # 2. CI_APP_ID / CI_APP_PRIVATE_KEY must only appear in workflows
+          # triggered by safe events (push, schedule, workflow_dispatch,
+          # workflow_run, or pull_request_target -- NEVER plain pull_request,
+          # which leaks an empty secret on fork PRs and crashes the token
+          # generation step).
+          for f in $(grep -l --exclude="$SELF" -E 'secrets\.CI_APP_(ID|PRIVATE_KEY)' .github/workflows/*.yml || true); do
+            # If the workflow has `on: pull_request:` (not _target), flag it.
+            # Use python for proper YAML inspection rather than a fragile grep.
+            python3 -c "
+          import sys, yaml
+          with open('$f') as fp:
+              doc = yaml.safe_load(fp)
+          # PyYAML parses bareword 'on' as boolean True
+          triggers = doc.get('on') or doc.get(True) or {}
+          if isinstance(triggers, dict) and 'pull_request' in triggers:
+              print(f'::error file=$f::secrets.CI_APP_* used in a workflow triggered by pull_request. Fork PRs do not receive secrets -- use pull_request_target (with a safe checkout pattern) or workflow_run instead.')
+              sys.exit(1)
+          " || FAILED=1
+          done
+
+          if [ "$FAILED" -ne 0 ]; then
+            echo "::error::Drift guard failed -- see annotations above."
+            exit 1
+          fi
+          echo "Drift guard passed."

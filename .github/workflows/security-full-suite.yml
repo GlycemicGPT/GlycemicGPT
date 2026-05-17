@@ -8,6 +8,14 @@ on:
 permissions:
   contents: read
 
+# TEST_PASSWORD is a fixture for registering throwaway users in the
+# ephemeral CI database during DAST/auth tests. The CI database is
+# created and destroyed in the same job; the value protects nothing
+# and is intentionally not a secret. See CONTRIBUTING.md "How CI
+# handles fork PRs" and the matching block in security-scan.yml.
+env:
+  TEST_PASSWORD: CI-FIXTURE-NOT-A-SECRET-Aa1!
+
 concurrency:
   # Queue runs instead of cancelling. At most 1 running + 1 queued at any time.
   # When multiple PRs merge rapidly:
@@ -148,7 +156,6 @@ jobs:
       - name: Smoke test API and Web
         env:
           COMPOSE_PROJECT_NAME: glycemicgpt-test
-          TEST_PASSWORD: ${{ secrets.SECURITY_TEST_PASSWORD }}
         run: |
           echo "Verifying API serves OpenAPI spec..."
           OPENAPI=$(curl -sS http://localhost:8001/openapi.json | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('paths',{})))" || echo "0")
@@ -205,7 +212,6 @@ jobs:
         id: idor-tests
         env:
           API_URL: http://localhost:8001
-          TEST_PASSWORD: ${{ secrets.SECURITY_TEST_PASSWORD }}
         run: python scripts/security/test-data-isolation.py
 
       - name: Reset rate limits
@@ -217,7 +223,6 @@ jobs:
         id: research-tests
         env:
           API_URL: http://localhost:8001
-          TEST_PASSWORD: ${{ secrets.SECURITY_TEST_PASSWORD }}
         run: python scripts/security/test-research-security.py
 
       - name: Reset rate limits
@@ -229,7 +234,6 @@ jobs:
         id: fuzzer
         env:
           API_URL: http://localhost:8001
-          TEST_PASSWORD: ${{ secrets.SECURITY_TEST_PASSWORD }}
           COMPOSE_PROJECT_NAME: glycemicgpt-test
         run: python scripts/security/fuzz-api.py "$API_URL" --mode both
 
@@ -263,7 +267,6 @@ jobs:
         id: zap-setup
         env:
           API_URL: http://localhost:8001
-          TEST_PASSWORD: ${{ secrets.SECURITY_TEST_PASSWORD }}
         run: |
           ZAP_EMAIL="zap_$(date +%s)_${RANDOM}@example.com"
           AUTH_BODY=$(jq -nc --arg e "$ZAP_EMAIL" --arg p "$TEST_PASSWORD" '{email:$e,password:$p}')

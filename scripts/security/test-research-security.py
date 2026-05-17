@@ -19,11 +19,10 @@ import uuid
 import httpx
 
 API_URL = os.environ.get("API_URL", "http://localhost:8001")
-TEST_PASSWORD = os.environ.get("TEST_PASSWORD")
-if not TEST_PASSWORD:
-    print("FATAL: TEST_PASSWORD environment variable is required")
-    print("Set it via GitHub Actions secret or export it locally")
-    sys.exit(1)
+# Mirrors the pattern in test-auth-flows.py: a non-secret default keeps the
+# script usable without env-var setup. The CI workflow sets a fixed value;
+# this fallback exists so local invocations and fork-PR runs don't FATAL.
+TEST_PASSWORD = os.environ.get("TEST_PASSWORD", f"SecTest-{uuid.uuid4().hex[:8]}!")
 
 passed = 0
 failed = 0
