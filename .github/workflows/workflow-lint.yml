@@ -127,22 +127,16 @@ jobs:
           # workflow_run, or pull_request_target -- NEVER plain pull_request,
           # which leaks an empty secret on fork PRs and crashes the token
           # generation step).
+          #
+          # Grep-based check (no YAML parser dependency). The pattern
+          # `^[[:space:]]*pull_request:` matches the literal trigger key
+          # and won't false-match `pull_request_target:` because the
+          # latter has `_target` between `pull_request` and the colon.
           for f in $(grep -l --exclude="$SELF" -E 'secrets\.CI_APP_(ID|PRIVATE_KEY)' .github/workflows/*.yml || true); do
-            # If the workflow has `on: pull_request:` (not _target), flag it.
-            # Use python for proper YAML inspection rather than a fragile grep.
-            # Pass the filename via env var (not shell interpolation) to keep
-            # the inline script safe against any future repo path quirks.
-            WF_FILE="$f" python3 -c '
-          import os, sys, yaml
-          path = os.environ["WF_FILE"]
-          with open(path) as fp:
-              doc = yaml.safe_load(fp)
-          # PyYAML parses bareword "on" as boolean True
-          triggers = doc.get("on") or doc.get(True) or {}
-          if isinstance(triggers, dict) and "pull_request" in triggers:
-              print(f"::error file={path}::secrets.CI_APP_* used in a workflow triggered by pull_request. Fork PRs do not receive secrets -- use pull_request_target (with a safe checkout pattern) or workflow_run instead.")
-              sys.exit(1)
-          ' || FAILED=1
+            if grep -nE '^[[:space:]]*pull_request:' "$f" >/dev/null; then
+              echo "::error file=$f::secrets.CI_APP_* used in a workflow triggered by pull_request. Fork PRs do not receive secrets -- use pull_request_target (with a safe checkout pattern) or workflow_run instead."
+              FAILED=1
+            fi
           done
 
           if [ "$FAILED" -ne 0 ]; then
