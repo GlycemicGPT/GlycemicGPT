@@ -189,7 +189,7 @@ GlycemicGPT also receives in-kind support from open-source-friendly vendors (don
 #### 1Password for Open Source (team password management)
 
 - **Scope:** the project's 1Password Teams account is used for shared project credentials only -- the operational accounts required to run the project, the dev-stack test account, and future CI/deploy secrets when applicable. Personal credentials, end-user accounts, and non-project items do not belong here.
-- **Out of scope:** medical patient data of any kind (the project does not handle real patient data), end-user passwords, personally identifying information about contributors beyond what's needed to grant access.
+- **Out of scope:** medical patient data of any kind, end-user passwords, personally identifying information about contributors beyond what's needed to grant access.
 - **Who gets access:**
   - **Project lead:** full access, vault admin.
   - **Maintainers** (per the [Roles](#roles) hierarchy): access to operational vaults relevant to their responsibilities. Scoped per need; no blanket access.
