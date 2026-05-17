@@ -21,6 +21,7 @@ permissions:
 # validator (min 8 chars, upper, lower, digit). See CONTRIBUTING.md
 # "How CI handles fork PRs".
 env:
+  # ggshield-ignore: deliberate non-secret CI fixture; see comment above
   TEST_PASSWORD: CI-FIXTURE-NOT-A-SECRET-Aa1!
 
 concurrency:

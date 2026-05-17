@@ -14,6 +14,7 @@ permissions:
 # and is intentionally not a secret. See CONTRIBUTING.md "How CI
 # handles fork PRs" and the matching block in security-scan.yml.
 env:
+  # ggshield-ignore: deliberate non-secret CI fixture; see comment above
   TEST_PASSWORD: CI-FIXTURE-NOT-A-SECRET-Aa1!
 
 concurrency:

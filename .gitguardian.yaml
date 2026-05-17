@@ -1,0 +1,20 @@
+# GitGuardian repo configuration.
+#
+# Only used to allowlist the CI-fixture password literal that lives at
+# .github/workflows/security-scan.yml and security-full-suite.yml. That
+# value (`CI-FIXTURE-NOT-A-SECRET-Aa1!`) is a deliberate non-secret
+# fixture for registering throwaway users in the ephemeral CI database
+# during DAST/auth smoke tests; the database is created and destroyed
+# in the same job and the value is not used to authenticate to anything
+# that outlives the run. See CONTRIBUTING.md > "How CI handles fork PRs"
+# for the full rationale.
+#
+# If you want to add real secret-scanning policy or path ignores, please
+# extend this file -- do not paper over real secret leaks with broader
+# allowlists.
+
+version: 2
+secret:
+  ignored-matches:
+    - name: "CI fixture password (ephemeral user registration in CI database)"
+      match: "CI-FIXTURE-NOT-A-SECRET-Aa1!"
