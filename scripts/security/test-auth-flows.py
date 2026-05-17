@@ -12,7 +12,9 @@ Usage:
 import base64
 import json
 import os
+import secrets
 import statistics
+import string
 import subprocess
 import sys
 import time
@@ -57,7 +59,26 @@ def unique_email() -> str:
     return f"sectest_{uuid.uuid4().hex[:12]}@example.com"
 
 
-TEST_PASSWORD = os.environ.get("TEST_PASSWORD", f"SecTest-{uuid.uuid4().hex[:8]}!")
+def _generate_test_password() -> str:
+    """Build a non-secret CI fixture that always satisfies the API validator.
+
+    See test-data-isolation.py for the full rationale. Short version: the
+    previous ``uuid.uuid4().hex[:8]`` fallback was hex only and could
+    occasionally omit a digit (~1 in 2500 runs), intermittently FATAL-ing
+    the script when TEST_PASSWORD was unset locally.
+    """
+    alphabet = string.ascii_letters + string.digits
+    return (
+        secrets.choice(string.ascii_uppercase)
+        + secrets.choice(string.ascii_lowercase)
+        + secrets.choice(string.digits)
+        + "".join(secrets.choice(alphabet) for _ in range(13))
+    )
+
+
+# CI passes TEST_PASSWORD via env; local/fork-PR invocations fall back to
+# a freshly generated value rather than FATAL-ing.
+TEST_PASSWORD = os.environ.get("TEST_PASSWORD") or _generate_test_password()
 
 
 def register_user(client: httpx.Client, email: str) -> int:
