@@ -409,7 +409,7 @@ If you opened this PR from your own fork (the normal contributor flow), every re
 A few details on how that works, in case you're auditing:
 
 - **Labels and the attribution sticky comment** are posted by workflows running under `pull_request_target`. They inspect your PR's metadata (title, body, file list) and the text of your commits and diff -- they never install dependencies from your branch or execute any of your code. The attribution workflow fetches your commits as a remote-only ref so the working tree stays as the base.
-- **The Security Scan Gate** uses a fixed, non-secret test password (visible in `.github/workflows/security-scan.yml`) to register throwaway users in the ephemeral CI database. There's no repository secret it depends on, so it behaves identically for forks and branch PRs.
+- **The Security Scan Gate** generates a throwaway password at job runtime to register ephemeral users in the CI database. The Docker stack lives and dies inside the same job, so the value protects nothing and isn't a repo secret -- the gate runs identically for forks and branch PRs.
 - **CodeRabbit** has its own review queue. If you push faster than it can catch up you may see stale state on the PR until it does -- not a CI failure. Comment `@coderabbitai review` to re-trigger if needed.
 
 If a check fails for what looks like an environmental reason rather than a problem in your code, ping a maintainer in the PR and we'll investigate.
