@@ -1242,6 +1242,10 @@ def _build_tir_buckets(
         401: {"model": ErrorResponse, "description": "Not authenticated"},
         403: {"model": ErrorResponse, "description": "Permission denied"},
         404: {"model": ErrorResponse, "description": "Tandem not configured"},
+        409: {
+            "model": ErrorResponse,
+            "description": "Country re-selection required (legacy region value)",
+        },
         503: {"model": ErrorResponse, "description": "Tandem service unavailable"},
     },
 )
@@ -1949,6 +1953,14 @@ async def get_tandem_upload_status(
     responses={
         200: {"description": "Settings updated"},
         401: {"model": ErrorResponse, "description": "Not authenticated"},
+        404: {
+            "model": ErrorResponse,
+            "description": "Tandem not configured (only raised when enabling)",
+        },
+        409: {
+            "model": ErrorResponse,
+            "description": "Legacy region requires country re-selection before enable",
+        },
     },
 )
 async def update_tandem_upload_settings(
@@ -2120,6 +2132,7 @@ async def trigger_tandem_upload(
         200: {"description": "Upload state reset"},
         401: {"model": ErrorResponse, "description": "Not authenticated"},
         404: {"model": ErrorResponse, "description": "Tandem not configured"},
+        409: {"model": ErrorResponse, "description": "Integration disconnected"},
         429: {"model": ErrorResponse, "description": "Rate limit exceeded"},
     },
 )

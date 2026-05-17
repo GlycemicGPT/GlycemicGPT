@@ -73,7 +73,7 @@ Tandem operates two cloud backends — a US cluster and an EU cluster — and ro
 
 If your country isn't in the picker, Tandem hasn't published a config for it — t:slim X2 isn't sold there commercially today (Japan, Korea, India, Brazil, etc. all fall into this bucket). The Mobi is currently US-only.
 
-Picking the wrong country will make uploads silently fail because GlycemicGPT will fetch the wrong cluster's config file. The picker is required for the upload direction to work at all.
+Picking the wrong country will make uploads fail or appear stuck because GlycemicGPT will fetch the wrong cluster's config file. The status card will surface a clear error and the "Re-select your country" banner; if you need to recover after switching, use [Recovering stuck uploads](#recovering-stuck-uploads) below.
 
 > **Existing users:** If you connected Tandem before the country picker existed (when only "US" / "EU" were stored), you'll see a "Re-select your country" banner on the Cloud Upload card. Re-connect with your country selected to clear it. Uploads won't run until you do.
 

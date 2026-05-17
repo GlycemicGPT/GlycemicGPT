@@ -15,7 +15,7 @@ GlycemicGPT pulls Dexcom data from Dexcom's cloud using your normal Dexcom accou
 
 ## How this works behind the scenes
 
-Your CGM transmits to your phone over Bluetooth, the Dexcom mobile app uploads to Dexcom's cloud, and GlycemicGPT reads from Dexcom's cloud using your account credentials. You don't need to enable any special "Share" or "Follow" setting -- as long as your CGM is uploading to Dexcom (which it does automatically when you have the Dexcom mobile app installed and signed in), GlycemicGPT can pull the data.
+Your CGM transmits to your phone over Bluetooth, the Dexcom mobile app uploads to Dexcom's cloud, and GlycemicGPT reads from Dexcom's cloud using your account credentials. For most accounts no extra setup is needed -- as long as your CGM is uploading to Dexcom (which it does automatically when you have the Dexcom mobile app installed and signed in), GlycemicGPT can pull the data. A small number of accounts require Share to be explicitly toggled on with at least one follower invited; see the troubleshooting section below if login fails.
 
 ## Steps
 
@@ -50,9 +50,9 @@ A region mismatch and a wrong password look identical from Dexcom's side — bot
 
 > Dexcom locks the account after a small number of failed login attempts per region. Don't burn through retries — confirm your region first.
 
-### If login fails: enable Dexcom Share
+### Troubleshooting: if login still fails after picking the right region
 
-GlycemicGPT reads from Dexcom's Share endpoint (the same API the Dexcom Follow feature uses). On most accounts Share is already active because the Dexcom mobile app turns it on automatically the first time data flows. If login fails despite the right region:
+GlycemicGPT reads from Dexcom's Share endpoint (the same API the Dexcom Follow feature uses). On most accounts Share is already active because the Dexcom mobile app turns it on automatically the first time data flows, and you should not need to touch it. As an **exception path** -- only relevant if your credentials are correct on the Dexcom website but GlycemicGPT still rejects them -- a small number of accounts require Share to be turned on explicitly:
 
 1. Open the Dexcom G6/G7 mobile app
 2. Go to **Share** in the menu

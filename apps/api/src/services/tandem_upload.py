@@ -17,6 +17,7 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 from sqlalchemy import select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
@@ -62,6 +63,37 @@ _UPLOAD_TIMEOUT_SECONDS = 60
 # Endpoint config cache (TTL 24h)
 _config_cache: dict[str, tuple[dict, datetime]] = {}
 _CONFIG_TTL = timedelta(hours=24)
+
+
+async def _lock_or_create_upload_state(
+    db: AsyncSession, user_id: uuid.UUID
+) -> TandemUploadState:
+    """Return the TandemUploadState row for ``user_id`` with a row-level lock.
+
+    Uses Postgres ``INSERT ... ON CONFLICT DO NOTHING`` to atomically
+    materialize the row if it doesn't exist, then ``SELECT ... FOR UPDATE``
+    to serialize against concurrent upload/reset calls. Without the upsert
+    step, two concurrent first-time callers both observe "no row", both
+    insert, and one fails the unique constraint on ``user_id``.
+
+    The upsert commits its own transaction so subsequent FOR UPDATE has a
+    row to lock; callers should not assume anything else is committed.
+    """
+    upsert = (
+        pg_insert(TandemUploadState)
+        .values(user_id=user_id, enabled=False)
+        .on_conflict_do_nothing(index_elements=["user_id"])
+    )
+    await db.execute(upsert)
+    await db.commit()
+
+    result = await db.execute(
+        select(TandemUploadState)
+        .where(TandemUploadState.user_id == user_id)
+        .with_for_update()
+    )
+    state = result.scalar_one()
+    return state
 
 
 def sign_tdc_token(json_body_bytes: bytes, hmac_key: bytes | None = None) -> str:
@@ -448,20 +480,11 @@ async def upload_to_tandem(
     """
     now = datetime.now(UTC)
 
-    # Get or create upload state. Row-lock for the duration of this upload so
-    # a concurrent ``reset_tandem_upload_state`` (or another upload run for
-    # the same user) cannot race us into clobbering the high-water mark or
-    # losing in-flight re-queues.
-    state_result = await db.execute(
-        select(TandemUploadState)
-        .where(TandemUploadState.user_id == user_id)
-        .with_for_update()
-    )
-    state = state_result.scalar_one_or_none()
-    if not state:
-        state = TandemUploadState(user_id=user_id, enabled=False)
-        db.add(state)
-        await db.flush()
+    # Get-or-create the upload state, then row-lock it for the duration of
+    # this upload. The helper does an INSERT ... ON CONFLICT DO NOTHING
+    # first so a concurrent first-run upload + reset don't both observe
+    # "no row" and race each other into a uniqueness collision.
+    state = await _lock_or_create_upload_state(db, user_id)
 
     # Get pump hardware info
     hw_result = await db.execute(
@@ -640,21 +663,15 @@ async def reset_tandem_upload_state(
     after a sequence-counter reset, or when migrating off the legacy
     incremental-sync logic that silently filtered out queued events.
 
-    Takes a row-lock on the upload state to serialize against in-flight
-    uploads -- otherwise a concurrent ``upload_to_tandem`` could re-flag
-    the same rows as ``uploaded_to_tandem=True`` immediately after we
-    clear them. Idempotent: safe to call when there's no state row yet.
+    Materializes the upload state row if missing, then takes a row-lock so
+    a concurrent ``upload_to_tandem`` cannot re-flag the same rows as
+    ``uploaded_to_tandem=True`` immediately after we clear them.
+    Idempotent: safe to call repeatedly.
     """
-    state_result = await db.execute(
-        select(TandemUploadState)
-        .where(TandemUploadState.user_id == user_id)
-        .with_for_update()
-    )
-    state = state_result.scalar_one_or_none()
-    if state is not None:
-        state.max_event_index_uploaded = 0
-        state.last_error = None
-        state.last_upload_status = None
+    state = await _lock_or_create_upload_state(db, user_id)
+    state.max_event_index_uploaded = 0
+    state.last_error = None
+    state.last_upload_status = None
 
     update_result = await db.execute(
         update(PumpRawEvent)
