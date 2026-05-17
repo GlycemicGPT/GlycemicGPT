@@ -251,11 +251,15 @@ jobs:
             const marker = '<!-- attribution-check-comment -->';
             const repo = context.repo;
 
-            // Find existing comment
-            const comments = await github.rest.issues.listComments({
-              ...repo, issue_number: prNumber, per_page: 100,
-            });
-            const existing = comments.data.find(c =>
+            // Find existing comment -- paginate so we don't miss the
+            // sticky marker on PRs with >100 comments (single-page lookup
+            // would otherwise create duplicate sticky comments instead of
+            // updating the existing one).
+            const comments = await github.paginate(
+              github.rest.issues.listComments,
+              { ...repo, issue_number: prNumber, per_page: 100 },
+            );
+            const existing = comments.find(c =>
               c.body?.includes(marker)
             );
 
