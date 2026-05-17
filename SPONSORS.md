@@ -14,12 +14,10 @@ The project has no financial sponsors at this time.
 - **Type:** In-kind (donated software/services)
 - **Started:** 2026-05-17
 - **Will be used for:** team password management for project maintainers, with
-  scoped access for contributors as the team grows. Specifically planned: a
-  shared vault for SaaS/infrastructure credentials, secure handoff of the dev
+  scoped access for contributors planned as the team grows. Specifically planned: a
+  shared vault for third-party service and infrastructure credentials, secure handoff of the dev
   test account, and (later) CI integration via `1password/load-secrets-action`
-  for secrets that benefit from centralized rotation. See the adoption sequence
-  notes maintained by the project lead for the staged rollout.
-- **Application:** <https://github.com/1Password/for-open-source/issues/1538>
+  for secrets that benefit from centralized rotation.
 - **Program:** <https://github.com/1Password/for-open-source>
 
 ## Fiscal Host

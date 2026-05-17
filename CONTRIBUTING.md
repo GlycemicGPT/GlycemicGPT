@@ -207,22 +207,7 @@ npm install    # Install dependencies
 npm test       # Run tests
 ```
 
-### 🔐 Project Credentials & 1Password Access
-
-Most contributors never need any project-managed credentials -- the local dev stack works with bundled defaults. If your work requires real credentials (the dev-stack test account, SaaS dashboards, etc.), the project uses a [1Password Teams account](SPONSORS.md#1password-for-open-source) provided by the 1Password for Open Source program.
-
-| You are... | What you get | How to request |
-|---|---|---|
-| First-time contributor on a small PR | Usually no credentials needed -- the bundled local-dev defaults are enough | Try the [Quick Start](#-quick-start-webapi----recommended-for-most-contributors) first |
-| Contributor who needs the dev test account or a SaaS dashboard | Time-bounded, scoped access to a "Contributor Dev Stack" vault | Open an issue describing the work, or email <funding@glycemicgpt.org> for items that shouldn't be public |
-| Committer | Per-item access on request, scoped to the work you're doing | Ask the project lead in your committer onboarding thread |
-| Maintainer | Operational vaults relevant to your responsibilities (still scoped per need; not blanket access) | Granted during maintainer onboarding |
-
-**What's stored there:** shared project credentials only -- GitHub org admin, Cloudflare, GHCR, the dev-stack test account, and (later) CI/deploy secrets where centralized rotation helps.
-
-**What's NOT stored there:** medical patient data (the project does not handle any), end-user passwords, or personally identifying information beyond what's needed to grant you access.
-
-When your work concludes (PR merges, role changes, etc.), access is revoked. The point of using 1Password is **shared, audit-able, revocable** credential handling -- not "share the admin password in Discord DMs" as it was before. The full access policy is in [`GOVERNANCE.md` § In-kind support](GOVERNANCE.md#in-kind-support).
+> **Need real project credentials?** Most contributors don't -- the local stack runs on bundled defaults. If your work genuinely requires the dev-stack test account or another project-managed credential, email <info@glycemicgpt.org>.
 
 ---
 

@@ -84,3 +84,7 @@ scripts/security/*.resolved.yaml
 
 # Stray files from package managers
 =*
+
+# Ad-hoc debug snapshots at repo root (may contain PII captured from a live session)
+/*-snapshot.md
+/*-state.md
