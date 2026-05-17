@@ -2049,28 +2049,40 @@ async def update_tandem_upload_settings(
         200: {"description": "Upload triggered"},
         401: {"model": ErrorResponse, "description": "Not authenticated"},
         404: {"model": ErrorResponse, "description": "Tandem not configured"},
+        409: {"model": ErrorResponse, "description": "Integration disconnected"},
+        429: {"model": ErrorResponse, "description": "Rate limit exceeded"},
         500: {"model": ErrorResponse, "description": "Upload failed"},
     },
 )
+@limiter.limit("5/minute")
 async def trigger_tandem_upload(
+    request: Request,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> TandemUploadTriggerResponse:
     """Manually trigger a Tandem cloud upload.
 
-    Uploads pending raw events to the Tandem cloud immediately.
+    Uploads pending raw events to the Tandem cloud immediately. Rate-limited
+    to 5/minute per IP -- the scheduler handles steady-state uploads on its
+    own interval; this endpoint is a manual override.
     """
-    # Verify Tandem credentials exist
+    # Verify Tandem credentials exist and are not disconnected.
     cred_result = await db.execute(
         select(IntegrationCredential).where(
             IntegrationCredential.user_id == current_user.id,
             IntegrationCredential.integration_type == IntegrationType.TANDEM,
         )
     )
-    if not cred_result.scalar_one_or_none():
+    credential = cred_result.scalar_one_or_none()
+    if not credential:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Tandem integration not configured. Please connect your Tandem account first.",
+        )
+    if credential.status == IntegrationStatus.DISCONNECTED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Tandem integration is disconnected. Reconnect Tandem first.",
         )
 
     # Import here to avoid circular imports
@@ -2108,9 +2120,12 @@ async def trigger_tandem_upload(
         200: {"description": "Upload state reset"},
         401: {"model": ErrorResponse, "description": "Not authenticated"},
         404: {"model": ErrorResponse, "description": "Tandem not configured"},
+        429: {"model": ErrorResponse, "description": "Rate limit exceeded"},
     },
 )
+@limiter.limit("5/minute")
 async def reset_tandem_upload(
+    request: Request,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> TandemUploadResetResponse:
@@ -2121,7 +2136,11 @@ async def reset_tandem_upload(
     when migrating off the legacy incremental-sync logic that silently
     filtered queued events.
 
-    Idempotent: safe to call repeatedly.
+    Rate-limited to 5/minute per IP: the reset is a heavy ``UPDATE`` over
+    every ``pump_raw_events`` row for the user and takes a row-lock on the
+    upload state -- a tight loop could saturate the connection pool for
+    legitimate uploads. Idempotent: safe to call repeatedly within the
+    limit.
     """
     cred_result = await db.execute(
         select(IntegrationCredential).where(
@@ -2129,10 +2148,21 @@ async def reset_tandem_upload(
             IntegrationCredential.integration_type == IntegrationType.TANDEM,
         )
     )
-    if not cred_result.scalar_one_or_none():
+    credential = cred_result.scalar_one_or_none()
+    if not credential:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Tandem integration not configured.",
+        )
+    # Respect the user's "off" decision: a disconnected integration should
+    # not be re-armed by the reset path. The user must reconnect first.
+    if credential.status == IntegrationStatus.DISCONNECTED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Tandem integration is disconnected. Reconnect Tandem "
+                "before resetting the upload state."
+            ),
         )
 
     from src.services.tandem_upload import reset_tandem_upload_state
