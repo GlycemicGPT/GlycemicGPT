@@ -41,31 +41,31 @@ export function Header({ className }: HeaderProps) {
   return (
     <header
       className={clsx(
-        "flex items-center justify-between h-16 px-4 lg:px-6 flex-shrink-0 z-40",
+        "flex items-center justify-between h-14 sm:h-16 px-3 sm:px-4 lg:px-6 flex-shrink-0 z-40 min-w-0",
         "bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800",
         className
       )}
     >
       {/* Left side - Mobile nav toggle and logo */}
-      <div className="flex items-center gap-4">
+      <div className="flex min-w-0 items-center gap-2 sm:gap-4">
         <MobileNav />
 
         {/* Mobile logo */}
-        <Link href="/dashboard" className="flex items-center gap-2 lg:hidden">
-          <Activity className="h-6 w-6 text-blue-500" />
-          <span className="text-lg font-bold">GlycemicGPT</span>
+        <Link href="/dashboard" className="flex min-w-0 items-center gap-2 lg:hidden">
+          <Activity className="h-5 w-5 sm:h-6 sm:w-6 flex-shrink-0 text-blue-500" />
+          <span className="truncate text-base sm:text-lg font-bold">GlycemicGPT</span>
         </Link>
       </div>
 
       {/* Right side - Theme toggle + User menu */}
-      <div className="flex items-center gap-3">
+      <div className="flex flex-shrink-0 items-center gap-2 sm:gap-3">
         <ThemeToggle />
         <div className="relative" ref={menuRef}>
         <button
           type="button"
           onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
           className={clsx(
-            "flex items-center gap-2 px-3 py-2 rounded-lg transition-colors",
+            "flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-2 rounded-lg transition-colors",
             "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800",
             isUserMenuOpen && "bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white"
           )}
@@ -80,7 +80,7 @@ export function Header({ className }: HeaderProps) {
           </span>
           <ChevronDown
             className={clsx(
-              "h-4 w-4 transition-transform",
+              "hidden h-4 w-4 transition-transform sm:block",
               isUserMenuOpen && "rotate-180"
             )}
           />
