@@ -81,7 +81,14 @@ jobs:
           FINDINGS=""
 
           # --- Bot whitelist (these never trigger findings) ---
-          ALLOWED_BOTS="github-actions\[bot\]|coderabbitai\[bot\]|glycemicgpt-security\[bot\]|glycemicgpt-ci\[bot\]|glycemicgpt-release\[bot\]|glycemicgpt-merge\[bot\]|glycemicgpt-renovate\[bot\]|dependabot\[bot\]|homebot-0\[bot\]|gitguardian\[bot\]"
+          # IMPORTANT: each entry is anchored on a leading space so a
+          # malicious co-author like "evildependabot[bot]" cannot
+          # substring-match the legitimate "dependabot[bot]" entry. Trailer
+          # format is `Co-Authored-By: <name> <<email>>`; the name is
+          # always preceded by a space (after the colon), so the leading
+          # space requirement matches legitimate names but not crafted
+          # substrings of them.
+          ALLOWED_BOTS=" (github-actions|coderabbitai|glycemicgpt-security|glycemicgpt-ci|glycemicgpt-release|glycemicgpt-merge|glycemicgpt-renovate|dependabot|homebot-0|gitguardian)\[bot\]"
 
           # --- AI tool names ---
           AI_TOOLS="claude|anthropic|copilot|chatgpt|openai|cursor|windsurf|codeium|codewhisperer|amazon\\.q|gemini|gemini\\.code\\.assist|jetbrains\\.ai|tabnine|sourcegraph|cody|devin|aider|codex"
@@ -221,7 +228,13 @@ jobs:
           echo "PASSED: No AI attribution found."
 
       - name: Post attribution findings to PR
-        if: always()
+        # Only post when detect actually produced a verdict. Without the
+        # `severity != ''` gate, an early crash (fetch failure, shell error
+        # inside detect) would leave SEVERITY empty and the script would
+        # treat that as `!hasFindings` and publish a misleading
+        # "Attribution Check: Passed" sticky comment. The workflow status
+        # itself still surfaces the failure to maintainers.
+        if: always() && steps.detect.outputs.severity != ''
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           SEVERITY: ${{ steps.detect.outputs.severity }}
@@ -337,6 +350,9 @@ jobs:
         # (same repo AND head ref is literally `develop`). Without the
         # same-repo guard, a fork contributor could bypass auto-close by
         # naming their fork branch `develop`.
+        # Also implicitly requires detect.outputs.severity to be populated
+        # (`== 'CRITICAL'` is false when the output is empty), so an early
+        # crash in detect cannot accidentally trigger an auto-close either.
         if: >-
           always() && steps.detect.outputs.severity == 'CRITICAL' &&
           !(
