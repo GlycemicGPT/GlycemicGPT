@@ -31,11 +31,33 @@ In your GlycemicGPT dashboard:
 2. Find **Dexcom** and click **Connect**
 3. Paste the **email address** for your Dexcom account
 4. Paste the **password** for your Dexcom account
-5. Click **Save**
+5. Pick the **region** that matches your Dexcom account (see below)
+6. Click **Save**
 
 GlycemicGPT stores your credentials encrypted on the platform and uses them to check Dexcom for new data on your behalf. The platform never sends your password anywhere except to Dexcom itself, and you can delete the credentials at any time by disconnecting the integration.
 
-> **Outside the US?** Dexcom routes account traffic differently in different regions. Today the GlycemicGPT integration assumes the US Share endpoint; explicit US / OUS region configuration in the UI is on the roadmap. If you're outside the US and the integration won't authenticate, [open an issue](https://github.com/GlycemicGPT/GlycemicGPT/issues/new/choose) -- we'd want to track that.
+### Picking the right region
+
+Dexcom Share is regional. There are three Share endpoints; pick the one that matches where your Dexcom account is registered:
+
+| Region | Use this when your account is from |
+|---|---|
+| **United States** | The United States |
+| **Outside US** | EU/EEA, UK, Canada, Australia, New Zealand, South Africa, LATAM, Middle East, or anywhere not US/Japan |
+| **Japan & Asia-Pacific** | Japan or other Asia-Pacific countries that use Dexcom's APAC service |
+
+A region mismatch and a wrong password look identical from Dexcom's side — both come back as "invalid credentials." If your password is correct on the Dexcom website but GlycemicGPT rejects it, the region picker is the first thing to check.
+
+> Dexcom locks the account after a small number of failed login attempts per region. Don't burn through retries — confirm your region first.
+
+### If login fails: enable Dexcom Share
+
+GlycemicGPT reads from Dexcom's Share endpoint (the same API the Dexcom Follow feature uses). On most accounts Share is already active because the Dexcom mobile app turns it on automatically the first time data flows. If login fails despite the right region:
+
+1. Open the Dexcom G6/G7 mobile app
+2. Go to **Share** in the menu
+3. Make sure Share is **on**
+4. Invite at least one follower (your own second email works) — Dexcom only fully activates the Share API after the first follower invite exists
 
 ### 3. Wait for the first sync
 

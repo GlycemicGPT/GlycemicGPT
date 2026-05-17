@@ -640,7 +640,7 @@ wheels = [
 
 [[package]]
 name = "glycemicgpt-api"
-version = "0.5.0"
+version = "0.7.2"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },
