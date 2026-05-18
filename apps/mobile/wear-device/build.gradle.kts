@@ -17,7 +17,7 @@ android {
         minSdk = 35
         targetSdk = 35
 
-        val appVersionName = "0.7.2" // x-release-please-version
+        val appVersionName = "0.8.0" // x-release-please-version
         val parts = appVersionName.split(".")
         val major = parts.getOrElse(0) { "0" }.toInt()
         val minor = parts.getOrElse(1) { "0" }.toInt()
