@@ -587,9 +587,7 @@ class TestValidateDateRange:
 
 
 async def _login(client: AsyncClient, email: str, password: str) -> str:
-    await client.post(
-        "/api/auth/register", json={"email": email, "password": password}
-    )
+    await client.post("/api/auth/register", json={"email": email, "password": password})
     resp = await client.post(
         "/api/auth/login", json={"email": email, "password": password}
     )
@@ -703,9 +701,7 @@ class TestTandemCountryField:
         "country", ["GB", "DE", "CA", "AU", "NZ", "IL", "ZA", "MX"]
     )
     @patch("src.routers.integrations.validate_tandem_credentials")
-    async def test_accepts_supported_country_codes(
-        self, mock_validate, country: str
-    ):
+    async def test_accepts_supported_country_codes(self, mock_validate, country: str):
         mock_validate.return_value = (True, None)
         email = unique_email(f"tan_country_{country.lower()}")
         async with AsyncClient(
@@ -763,9 +759,7 @@ class TestTandemUploadResetEndpoint:
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"
         ) as client:
-            resp = await client.post(
-                "/api/integrations/tandem/cloud-upload/reset"
-            )
+            resp = await client.post("/api/integrations/tandem/cloud-upload/reset")
         assert resp.status_code == 401
 
 

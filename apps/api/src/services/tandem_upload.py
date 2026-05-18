@@ -603,7 +603,9 @@ async def upload_to_tandem(
     try:
         await _post_upload(access_token, config, payload)
     except httpx.HTTPStatusError as e:
-        public_msg = f"Tandem cloud rejected the upload (HTTP {e.response.status_code})."
+        public_msg = (
+            f"Tandem cloud rejected the upload (HTTP {e.response.status_code})."
+        )
         state.last_upload_status = "error"
         state.last_error = public_msg
         await db.commit()

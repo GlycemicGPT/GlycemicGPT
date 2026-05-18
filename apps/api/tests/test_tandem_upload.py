@@ -605,10 +605,14 @@ class TestUploadEmptySetRegression:
 
         async with await _own_session() as session:
             rows = (
-                await session.execute(
-                    select(PumpRawEvent).where(PumpRawEvent.user_id == user_id)
+                (
+                    await session.execute(
+                        select(PumpRawEvent).where(PumpRawEvent.user_id == user_id)
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             assert len(rows) == 4
             assert all(r.uploaded_to_tandem for r in rows)
 
@@ -616,9 +620,7 @@ class TestUploadEmptySetRegression:
     async def test_upload_returns_success_when_truly_nothing_pending(self):
         """No raw events at all -> success with events_uploaded=0."""
         async with await _own_session() as session:
-            user_id = await _seed_upload_fixtures(
-                session, region="US", seq_numbers=()
-            )
+            user_id = await _seed_upload_fixtures(session, region="US", seq_numbers=())
             await session.commit()
 
         mock_api = MagicMock()
@@ -686,10 +688,14 @@ class TestUploadEmptySetRegression:
             )
             # Mark them all as uploaded
             rows = (
-                await session.execute(
-                    select(PumpRawEvent).where(PumpRawEvent.user_id == user_id)
+                (
+                    await session.execute(
+                        select(PumpRawEvent).where(PumpRawEvent.user_id == user_id)
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             for r in rows:
                 r.uploaded_to_tandem = True
             await session.commit()
@@ -700,8 +706,12 @@ class TestUploadEmptySetRegression:
 
         async with await _own_session() as session:
             rows = (
-                await session.execute(
-                    select(PumpRawEvent).where(PumpRawEvent.user_id == user_id)
+                (
+                    await session.execute(
+                        select(PumpRawEvent).where(PumpRawEvent.user_id == user_id)
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             assert all(not r.uploaded_to_tandem for r in rows)
