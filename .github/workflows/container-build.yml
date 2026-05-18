@@ -236,10 +236,117 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  verify-release-tags:
+    # Catches the v0.8.0 incident class: a release-event run "succeeded"
+    # at the job level but one of the build-* jobs didn't push the
+    # version-tagged image (most commonly because a build-time external
+    # dependency timed out mid-build before tag push). When that happened
+    # to the web image on v0.8.0, the release pipeline reported success
+    # but `:0.8.0` resolved to 404. This step queries the registry after
+    # the build jobs and fails loudly if any expected tag is missing OR
+    # if version-related tags resolve to inconsistent digests for the
+    # same image (e.g., 0.8.0 pointing at a different build than latest).
+    name: Verify Release Tags Published
+    runs-on: ubuntu-latest
+    needs: [build-api, build-web, build-sidecar]
+    if: github.event_name == 'release'
+    timeout-minutes: 5
+    concurrency:
+      group: verify-release-tags-${{ github.event.release.tag_name }}
+      cancel-in-progress: false
+    permissions:
+      packages: read
+    steps:
+      - name: Log in to ghcr.io (defense in depth for ever-private images)
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Inspect each image for expected tags + digest consistency
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/glycemicgpt
+        run: |
+          set -uo pipefail
+          VERSION="${RELEASE_TAG#v}"                  # strip leading "v" -> 0.8.0
+
+          # Tag responsibility split between the two trigger events that
+          # fire for every release commit. This run (release event) is
+          # responsible ONLY for the version + major.minor tags. The
+          # parallel push-event run on the same SHA is responsible for
+          # the `latest` tag (its metadata-action gates `latest` on
+          # github.ref equalling refs/heads/main, which is only true for
+          # the push event). Including `latest` in EXPECTED_TAGS here
+          # would race that push-event run and falsely fail when the
+          # release-event verify finishes first. If you want to verify
+          # `latest` separately, add a push-event-gated verification job
+          # in a follow-up.
+          #
+          # Major.minor (e.g. 0.8) is omitted for pre-release semver
+          # (e.g. 0.8.0-rc.1), mirroring metadata-action's behaviour.
+          #
+          # NOTE: we deliberately avoid the literal ${ followed by {
+          # syntax in this block. GitHub Actions interpolates expressions
+          # in run: blocks BEFORE the shell sees them, even inside what
+          # look like shell comments, so a multi-line broken expression
+          # would crash the workflow at parse time.
+          if [[ "$VERSION" == *-* ]]; then
+            EXPECTED_TAGS=("$VERSION")
+            echo "Pre-release version detected; not requiring major.minor tag."
+          else
+            EXPECTED_TAGS=("$VERSION" "${VERSION%.*}")
+          fi
+
+          FAILED=0
+          for image in api web sidecar; do
+            echo ""
+            echo "=== ${IMAGE_PREFIX}-${image} ==="
+            declare -A digests=()
+            for tag in "${EXPECTED_TAGS[@]}"; do
+              FULL="${IMAGE_PREFIX}-${image}:${tag}"
+              # Retry to absorb GHCR propagation lag immediately after a fresh push.
+              # 5 attempts with increasing backoff = ~30s total worst case.
+              DIGEST=""
+              for attempt in 1 2 3 4 5; do
+                DIGEST=$(docker buildx imagetools inspect "$FULL" \
+                         --format '{{.Manifest.Digest}}' 2>/dev/null || true)
+                if [ -n "$DIGEST" ]; then break; fi
+                echo "  attempt ${attempt}: ${tag} not yet resolvable (propagation lag?); sleeping..."
+                sleep $((attempt * 2))
+              done
+              if [ -z "$DIGEST" ]; then
+                echo "::error::Container tag missing after 5 retries: ${FULL}"
+                echo "::error::The build-${image} job did not publish the '${tag}' tag for release ${RELEASE_TAG}. The GitHub Release object is already published; the container images for it are incomplete. Retag using crane or 'docker buildx imagetools create' (server-side, no layer transfer) once the underlying cause is understood."
+                FAILED=1
+                continue
+              fi
+              digests["$tag"]="$DIGEST"
+              echo "  OK   ${tag} -> ${DIGEST}"
+            done
+
+            # All expected tags for a single image should resolve to the same digest.
+            unique=$(printf '%s\n' "${digests[@]}" | sort -u | wc -l)
+            if [ "$unique" -gt 1 ]; then
+              echo "::error::Tags for ${IMAGE_PREFIX}-${image} resolve to DIFFERENT digests -- the release's version and major.minor tags are pointing at different builds:"
+              for t in "${!digests[@]}"; do
+                echo "::error::  ${t} -> ${digests[$t]}"
+              done
+              FAILED=1
+            fi
+          done
+
+          echo ""
+          if [ "$FAILED" -ne 0 ]; then
+            echo "::error::Release tag verification failed for ${RELEASE_TAG}. Container images for this release are incomplete or inconsistent across tags. Investigate the build-* job logs and retag if needed before promoting the release downstream."
+            exit 1
+          fi
+          echo "All expected release tags verified for ${RELEASE_TAG} -- every image has the same digest across version and major.minor (if applicable). Latest tag is the responsibility of the parallel push-event run; see the comment above EXPECTED_TAGS."
+
   update-release:
     name: Update Release Notes
     runs-on: ubuntu-latest
-    needs: [build-api, build-web, build-sidecar]
+    needs: [build-api, build-web, build-sidecar, verify-release-tags]
     if: |
       always() &&
       github.event_name == 'release' &&
