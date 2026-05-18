@@ -484,6 +484,22 @@ reason = "Not exploitable -- only affects feature X which we don't use"
 - Maintainers review all exceptions quarterly. Stale ones get removed.
 - If you're not sure whether something is a real finding or a false positive, ask in the PR -- that's what code review is for.
 
+### 🛰️ Platform-level security scanning (GitHub-native)
+
+Alongside the PR-time CI scans above, the repo enables GitHub's platform-level scanners as a second layer. Contributors generally don't interact with these directly -- they run in the background and surface findings in the repo's **Security** tab, which is gated to maintainers. The project lead reviews open alerts on a weekly cadence.
+
+| Tool | What it catches | What it adds vs existing tools |
+|---|---|---|
+| **Dependabot alerts** (alerts only -- not auto-PRs) | New CVEs published against dependencies you already have. Runs continuously, even when nothing changes in the repo. | OSV-Scanner only catches CVEs on the next CI run; Dependabot catches them the moment GitHub Advisory Database publishes. Renovate continues to handle the actual upgrade PRs -- Dependabot's auto-PR feature is intentionally OFF to avoid duplicate upgrade PRs. |
+| **Secret Scanning + Push Protection** | Accidentally committed API keys, tokens, or other credentials in public providers' formats. Push Protection blocks the push before the credential lands in the repo. | GitGuardian gives the same coverage at PR/commit time; this is a second-line GitHub-native safety net. |
+
+**If you push and Push Protection blocks you:** GitHub's error message tells you exactly which secret was detected and where. The block fires BEFORE the secret reaches GitHub, so the commit you tried to push has not been published. Three legitimate responses:
+1. **It was a real secret you accidentally committed:** remove it from the commit history (`git commit --amend` for the most recent commit, or `git rebase -i` for an earlier one), then re-push. Because Push Protection blocked the push, the secret never reached GitHub -- rotation is a best-practice second step but not strictly required since the credential was never exposed. (Different rule applies if Secret Scanning detects the secret AFTER it was already pushed: in that case, rotate immediately AND remove from history, since the commit is reachable via reflog/forks/PR API for ~90 days even after a force-push.)
+2. **It's a test fixture or example value (not a real credential):** rephrase it so it doesn't match the detector pattern (e.g., use a clearly-fake suffix like `EXAMPLE-NOT-A-SECRET`), or follow the GitHub UI's "bypass with reason" flow if available.
+3. **You're not sure:** ask in the PR comments. A maintainer can help triage.
+
+If a Security-tab alert appears, the project lead (or designated maintainer) triages it within a week. Real findings get a tracked issue and follow the same "every exception needs a reason" rule as the CI scans above.
+
 > **Note:** There is a separate [Promotion PR Template](.github/PROMOTION_PR_TEMPLATE.md) used only for develop-to-main releases. Regular contributors don't need to worry about this.
 
 ---
