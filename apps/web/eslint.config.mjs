@@ -33,6 +33,16 @@ const eslintConfig = [
                 "Do not use next/font/google -- it makes a build-time HTTP call to fonts.googleapis.com that can break releases. Use next/font/local with a self-hosted woff2 instead. See apps/web/src/app/layout.tsx.",
             },
           ],
+          // Also block any deeper paths under next/font/google (e.g.
+          // `next/font/google/something`) so the rule can't be trivially
+          // sidestepped by importing from a sub-module.
+          patterns: [
+            {
+              group: ["next/font/google/**"],
+              message:
+                "Do not import from any next/font/google sub-path -- same Google Fonts build-time HTTP dependency. Use next/font/local instead.",
+            },
+          ],
         },
       ],
     },
