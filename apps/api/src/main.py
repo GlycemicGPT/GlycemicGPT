@@ -12,6 +12,7 @@ from slowapi.errors import RateLimitExceeded
 
 from src.config import settings, validate_secret_key
 from src.database import close_database
+from src.deployment_check import find_insecure_origins
 from src.logging_config import get_logger, setup_logging
 from src.middleware import CorrelationIdMiddleware
 from src.middleware.csrf import CSRFMiddleware
@@ -65,6 +66,20 @@ async def lifespan(app: FastAPI):
     validate_secret_key()
     # Note: Migrations are run by scripts/start.sh before uvicorn starts
     logger.info("GlycemicGPT API started")
+
+    if settings.cookie_secure and not settings.testing:
+        insecure_origins = find_insecure_origins(settings.cors_origins)
+        if insecure_origins:
+            logger.warning(
+                "Insecure deployment detected: COOKIE_SECURE=true but "
+                "CORS_ORIGINS contains plain-HTTP non-localhost origins. "
+                "Browsers will silently drop the session cookie, so login "
+                "will appear to succeed but the user will be bounced back "
+                "to /login. Either serve GlycemicGPT over HTTPS, or set "
+                "COOKIE_SECURE=false (development only). "
+                "See docs/install/docker.md.",
+                insecure_origins=insecure_origins,
+            )
 
     # Start background scheduler (Story 3.2)
     start_scheduler()

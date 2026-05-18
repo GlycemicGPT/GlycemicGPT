@@ -27,6 +27,7 @@ from src.core.token_blacklist import (
     consume_token_once,
 )
 from src.database import get_db
+from src.deployment_check import request_is_insecure_http
 from src.logging_config import get_logger
 from src.middleware.rate_limit import limiter
 from src.models.user import User, UserRole
@@ -259,6 +260,22 @@ async def login(
     # Update last login timestamp
     user.last_login_at = datetime.now(UTC)
     await db.commit()
+
+    # Loud signal when the browser will silently drop the Secure cookie.
+    if (
+        settings.cookie_secure
+        and not settings.testing
+        and request_is_insecure_http(request)
+    ):
+        logger.warning(
+            "Login over plain HTTP with COOKIE_SECURE=true — the browser "
+            "will drop the session cookie. Symptom: spinner on Sign In, "
+            "/dashboard bounces back to /login. Either serve GlycemicGPT "
+            "over HTTPS, or set COOKIE_SECURE=false (development only). "
+            "See docs/install/docker.md.",
+            request_host=request.url.hostname,
+            request_scheme=request.url.scheme,
+        )
 
     logger.info(
         "User logged in successfully",

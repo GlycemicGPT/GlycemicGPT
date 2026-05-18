@@ -1229,6 +1229,19 @@ export async function getCurrentUser(): Promise<CurrentUserResponse> {
 }
 
 /**
+ * Return the HTTP status of `/api/auth/me` without throwing on 4xx/5xx.
+ * Used by the login page to detect deployment misconfigs (session cookie
+ * dropped by the browser, network failure, etc.) and surface a specific
+ * error instead of silently redirecting.
+ */
+export async function verifySessionCookie(): Promise<number> {
+  const response = await fetch(`${API_BASE_URL}/api/auth/me`, {
+    credentials: "include",
+  });
+  return response.status;
+}
+
+/**
  * Update user profile (Story 10.2)
  */
 export async function updateProfile(data: {
