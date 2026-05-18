@@ -347,6 +347,18 @@ class TandemUploadStatusResponse(BaseModel):
     last_error: str | None = None
     max_event_index_uploaded: int = 0
     pending_raw_events: int = 0
+    country: str | None = Field(
+        default=None,
+        description="ISO-3166-1 alpha-2 country code currently configured for Tandem uploads.",
+    )
+    needs_country_reselect: bool = Field(
+        default=False,
+        description=(
+            "True when the stored Tandem region is a legacy value (e.g. 'EU') "
+            "that can no longer be resolved to a country. The user must "
+            "re-select their country before uploads can resume."
+        ),
+    )
 
 
 class TandemUploadSettingsRequest(BaseModel):
@@ -371,6 +383,13 @@ class TandemUploadTriggerResponse(BaseModel):
     message: str
     events_uploaded: int = 0
     status: str = "pending"
+
+
+class TandemUploadResetResponse(BaseModel):
+    """Response after resetting the Tandem upload high-water mark."""
+
+    message: str
+    events_requeued: int = 0
 
 
 # --- Story 30.1: Aggregate stats schemas ---
