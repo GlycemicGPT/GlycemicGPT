@@ -249,7 +249,15 @@ jobs:
     name: Verify Release Tags Published
     runs-on: ubuntu-latest
     needs: [build-api, build-web, build-sidecar]
-    if: github.event_name == 'release'
+    # Only fire on the production release-please releases (semver-tagged,
+    # not pre-release). The Dev Pre-Release workflow publishes a
+    # `dev-latest` release whose container-build run also matches
+    # github.event_name == 'release', but its images only carry sha-XXXX
+    # tags (not semver), so verifying expected version tags on it would
+    # always falsely fail.
+    if: |
+      github.event_name == 'release' &&
+      github.event.release.prerelease == false
     timeout-minutes: 5
     concurrency:
       group: verify-release-tags-${{ github.event.release.tag_name }}
@@ -266,10 +274,29 @@ jobs:
       - name: Inspect each image for expected tags + digest consistency
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
-          IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/glycemicgpt
+          # Case-preserved (e.g. "GlycemicGPT"). We MUST lowercase it
+          # before constructing image references -- OCI registry refs are
+          # case-sensitive and ghcr stores everything lowercase. See the
+          # comment around IMAGE_PREFIX construction below.
+          REPO_OWNER_RAW: ${{ github.repository_owner }}
         run: |
           set -uo pipefail
-          VERSION="${RELEASE_TAG#v}"                  # strip leading "v" -> 0.8.0
+
+          REPO_OWNER_LC="${REPO_OWNER_RAW,,}"          # bash 4+ Unicode-aware lowercase
+          IMAGE_PREFIX="ghcr.io/${REPO_OWNER_LC}/glycemicgpt"
+          VERSION="${RELEASE_TAG#v}"                   # strip leading "v" -> 0.8.0
+
+          # Gate: only verify semver-tagged production releases. Manual
+          # releases (e.g., "feature-release-2026Q3") and any other
+          # non-semver tags don't get the type=semver tags from
+          # metadata-action, so verifying them here would always falsely
+          # fail. The prerelease gate at the job level already excludes
+          # the dev-pre-release workflow's pre-release; this additional
+          # regex check catches future non-semver production releases.
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]]; then
+            echo "::notice::Release tag '${RELEASE_TAG}' is not semver-conformant; skipping version-tag verification. metadata-action only emits version tags for semver releases."
+            exit 0
+          fi
 
           # Tag responsibility split between the two trigger events that
           # fire for every release commit. This run (release event) is
@@ -357,7 +384,12 @@ jobs:
         with:
           script: |
             const version = '${{ github.event.release.tag_name }}'.replace('v', '');
-            const imagePrefix = 'ghcr.io/${{ github.repository_owner }}/glycemicgpt';
+            // github.repository_owner is case-preserved (e.g. "GlycemicGPT"),
+            // but OCI registry references MUST be lowercase. Without
+            // .toLowerCase(), the release notes ship pull commands like
+            // `docker pull ghcr.io/GlycemicGPT/...` that fail with
+            // "invalid reference format". This is what shipped on v0.7.2.
+            const imagePrefix = 'ghcr.io/${{ github.repository_owner }}/glycemicgpt'.toLowerCase();
 
             const containerSection = `
 
