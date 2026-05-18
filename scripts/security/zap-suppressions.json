@@ -47,13 +47,13 @@
     },
     {
       "pluginId": "10111",
-      "scan": "zap-api",
+      "scan": "api",
       "reason": "ZAP plugin 10111 ('Authentication Request Identified') is informational -- it lets ZAP's auto-detect set the authentication method to match the identified request. CWE is -1 (N/A). The plugin correctly identifies the project's auth endpoints; no actual vulnerability. Originally flagged on a 2026-04 scan (issues #512/#513, both info-level); those issues auto-close on the next full-suite scan after this suppression lands. Remove this entry if ZAP ever changes plugin 10111 from informational to a real severity."
     },
     {
       "pluginId": "10111",
-      "scan": "zap-unauth-api",
-      "reason": "Same as the zap-api entry above -- ZAP plugin 10111 is informational. The unauthenticated scan also identifies auth endpoints; same rationale applies."
+      "scan": "unauth-api",
+      "reason": "Same as the 'api' entry above -- ZAP plugin 10111 is informational. The unauthenticated scan also identifies auth endpoints; same rationale applies."
     }
   ]
 }
