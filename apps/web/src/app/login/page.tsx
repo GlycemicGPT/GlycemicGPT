@@ -101,8 +101,11 @@ function LoginForm() {
           "Login succeeded, but your browser did not store the session " +
             "cookie. This usually means GlycemicGPT is being served over " +
             "plain HTTP from a non-localhost address — browsers refuse to " +
-            "store secure cookies in that case. Fix: serve over HTTPS, or " +
-            "set COOKIE_SECURE=false in your docker-compose.yml. See " +
+            "store secure cookies in that case. Fix: serve GlycemicGPT " +
+            "over HTTPS. As a LAN-only / local-dev workaround (not safe " +
+            "for any internet-exposed deployment, since session tokens " +
+            "and personal health data would travel in clear text) you " +
+            "can set COOKIE_SECURE=false in your docker-compose.yml. See " +
             "https://github.com/glycemicgpt/glycemicgpt/blob/main/docs/install/docker.md#troubleshooting."
         );
         setIsSubmitting(false);

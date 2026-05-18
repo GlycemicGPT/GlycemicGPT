@@ -90,9 +90,7 @@ class TestFindInsecureOrigins:
 
     def test_all_safe(self):
         assert (
-            find_insecure_origins(
-                ["http://localhost:3000", "https://app.example.com"]
-            )
+            find_insecure_origins(["http://localhost:3000", "https://app.example.com"])
             == []
         )
 
@@ -141,9 +139,7 @@ class TestRequestIsInsecureHttp:
         # by itself — without uvicorn --proxy-headers wiring it through to
         # request.url.scheme, the header is just user input. A properly
         # configured proxy deployment sets request.url.scheme=https for us.
-        req = _make_request(
-            "http", "192.168.1.10", forwarded_proto="https"
-        )
+        req = _make_request("http", "192.168.1.10", forwarded_proto="https")
         assert request_is_insecure_http(req) is True
 
     def test_ipv6_loopback_is_safe(self):
