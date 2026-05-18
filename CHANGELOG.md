@@ -1,5 +1,52 @@
 # Changelog
 
+## 2026-05-18
+
+### 📱 Mobile
+
+#### 📝 Other Changes
+
+- chore: sync release 0.7.2 from main to develop [@glycemicgpt-merge](https://github.com/glycemicgpt-merge) ([#632](https://github.com/GlycemicGPT/GlycemicGPT/pull/632))
+
+### 🌐 Web
+
+#### ✨ New Features
+
+- feat(api, web): vendor-agnostic data-flow disclosures for BYOAI [@jlengelbrecht](https://github.com/jlengelbrecht) ([#634](https://github.com/GlycemicGPT/GlycemicGPT/pull/634))
+- feat(api, web): hero card closed-loop surfaces (43.12 PR 6) [@jlengelbrecht](https://github.com/jlengelbrecht) ([#633](https://github.com/GlycemicGPT/GlycemicGPT/pull/633))
+
+#### 🐛 Bug Fixes
+
+- fix: loud signals for COOKIE_SECURE plain-HTTP deploy misconfig [@jlengelbrecht](https://github.com/jlengelbrecht) ([#637](https://github.com/GlycemicGPT/GlycemicGPT/pull/637))
+
+#### 📝 Other Changes
+
+- fix(web): improve dashboard mobile responsiveness [@SleightOS](https://github.com/SleightOS) ([#638](https://github.com/GlycemicGPT/GlycemicGPT/pull/638))
+
+### 📡 API
+
+#### ✨ New Features
+
+- feat(api): forecast read endpoint + picker preference (43.12 PR 3) [@jlengelbrecht](https://github.com/jlengelbrecht) ([#635](https://github.com/GlycemicGPT/GlycemicGPT/pull/635))
+- feat(api): forecast translator extension (43.12 PR 2) [@jlengelbrecht](https://github.com/jlengelbrecht) ([#615](https://github.com/GlycemicGPT/GlycemicGPT/pull/615))
+
+### 🏗️ Infrastructure
+
+#### 📝 Other Changes
+
+- chore: sync changelog update from main to develop [@glycemicgpt-merge](https://github.com/glycemicgpt-merge) ([#631](https://github.com/GlycemicGPT/GlycemicGPT/pull/631))
+
+### ❓ Uncategorized
+
+- chore(security): suppress ZAP 10111 + document GitHub-native scanners [@jlengelbrecht](https://github.com/jlengelbrecht) ([#646](https://github.com/GlycemicGPT/GlycemicGPT/pull/646))
+- Pin requests-oidc floor to >=0.6.0 to block silent downgrade [@jlengelbrecht](https://github.com/jlengelbrecht) ([#643](https://github.com/GlycemicGPT/GlycemicGPT/pull/643))
+- Expand Dexcom + Tandem region support and fix Tandem cloud upload [@jlengelbrecht](https://github.com/jlengelbrecht) ([#642](https://github.com/GlycemicGPT/GlycemicGPT/pull/642))
+- docs: add Supported by section and scope-down sponsor/credential docs [@jlengelbrecht](https://github.com/jlengelbrecht) ([#641](https://github.com/GlycemicGPT/GlycemicGPT/pull/641))
+- ci: support fork PRs in labeler, attribution check, and security scan [@jlengelbrecht](https://github.com/jlengelbrecht) ([#639](https://github.com/GlycemicGPT/GlycemicGPT/pull/639))
+
+<!-- changelog-cutoff:2026-05-18T13:14:01Z -->
+
+
 ## 2026-05-13
 
 ### 📱 Mobile
