@@ -271,16 +271,29 @@ jobs:
           set -uo pipefail
           VERSION="${RELEASE_TAG#v}"                  # strip leading "v" -> 0.8.0
 
-          # Major.minor tag (e.g. 0.8) only applies to non-prerelease semver.
-          # metadata-action's `type=semver,pattern={{major}}.{{minor}}` rule
-          # excludes pre-releases (e.g. 0.8.0-rc.1) from the major.minor tag,
-          # so we mirror that exclusion here. Pre-releases get version + latest
-          # only.
+          # Tag responsibility split between the two trigger events that
+          # fire for every release commit:
+          #   - This run (event=release, ref=refs/tags/vX.Y.Z) is
+          #     responsible ONLY for the version + major.minor tags
+          #     (metadata-action: type=semver,pattern={{version}} +
+          #     {{major}}.{{minor}}, both gated on github.event_name ==
+          #     'release').
+          #   - The parallel push-event run on the same SHA (ref=refs/heads/main)
+          #     is responsible for the `latest` tag (metadata-action:
+          #     type=raw,value=latest,enable=${{ github.ref ==
+          #     'refs/heads/main' }}).
+          # Including `latest` in EXPECTED_TAGS here would race the push-event
+          # run and falsely fail when the release-event run finishes first.
+          # If you want to verify `latest` separately, add a push-event-gated
+          # verification job in a follow-up.
+          #
+          # Major.minor tag (e.g. 0.8) is omitted for pre-release semver
+          # (e.g. 0.8.0-rc.1), mirroring metadata-action's behaviour.
           if [[ "$VERSION" == *-* ]]; then
-            EXPECTED_TAGS=("$VERSION" "latest")
+            EXPECTED_TAGS=("$VERSION")
             echo "Pre-release version detected; not requiring major.minor tag."
           else
-            EXPECTED_TAGS=("$VERSION" "${VERSION%.*}" "latest")
+            EXPECTED_TAGS=("$VERSION" "${VERSION%.*}")
           fi
 
           FAILED=0
