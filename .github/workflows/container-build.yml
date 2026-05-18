@@ -272,23 +272,25 @@ jobs:
           VERSION="${RELEASE_TAG#v}"                  # strip leading "v" -> 0.8.0
 
           # Tag responsibility split between the two trigger events that
-          # fire for every release commit:
-          #   - This run (event=release, ref=refs/tags/vX.Y.Z) is
-          #     responsible ONLY for the version + major.minor tags
-          #     (metadata-action: type=semver,pattern={{version}} +
-          #     {{major}}.{{minor}}, both gated on github.event_name ==
-          #     'release').
-          #   - The parallel push-event run on the same SHA (ref=refs/heads/main)
-          #     is responsible for the `latest` tag (metadata-action:
-          #     type=raw,value=latest,enable=${{ github.ref ==
-          #     'refs/heads/main' }}).
-          # Including `latest` in EXPECTED_TAGS here would race the push-event
-          # run and falsely fail when the release-event run finishes first.
-          # If you want to verify `latest` separately, add a push-event-gated
-          # verification job in a follow-up.
+          # fire for every release commit. This run (release event) is
+          # responsible ONLY for the version + major.minor tags. The
+          # parallel push-event run on the same SHA is responsible for
+          # the `latest` tag (its metadata-action gates `latest` on
+          # github.ref equalling refs/heads/main, which is only true for
+          # the push event). Including `latest` in EXPECTED_TAGS here
+          # would race that push-event run and falsely fail when the
+          # release-event verify finishes first. If you want to verify
+          # `latest` separately, add a push-event-gated verification job
+          # in a follow-up.
           #
-          # Major.minor tag (e.g. 0.8) is omitted for pre-release semver
+          # Major.minor (e.g. 0.8) is omitted for pre-release semver
           # (e.g. 0.8.0-rc.1), mirroring metadata-action's behaviour.
+          #
+          # NOTE: we deliberately avoid the literal ${ followed by {
+          # syntax in this block. GitHub Actions interpolates expressions
+          # in run: blocks BEFORE the shell sees them, even inside what
+          # look like shell comments, so a multi-line broken expression
+          # would crash the workflow at parse time.
           if [[ "$VERSION" == *-* ]]; then
             EXPECTED_TAGS=("$VERSION")
             echo "Pre-release version detected; not requiring major.minor tag."
@@ -326,7 +328,7 @@ jobs:
             # All expected tags for a single image should resolve to the same digest.
             unique=$(printf '%s\n' "${digests[@]}" | sort -u | wc -l)
             if [ "$unique" -gt 1 ]; then
-              echo "::error::Tags for ${IMAGE_PREFIX}-${image} resolve to DIFFERENT digests -- the release's version/major.minor/latest tags are pointing at different builds:"
+              echo "::error::Tags for ${IMAGE_PREFIX}-${image} resolve to DIFFERENT digests -- the release's version and major.minor tags are pointing at different builds:"
               for t in "${!digests[@]}"; do
                 echo "::error::  ${t} -> ${digests[$t]}"
               done
@@ -339,7 +341,7 @@ jobs:
             echo "::error::Release tag verification failed for ${RELEASE_TAG}. Container images for this release are incomplete or inconsistent across tags. Investigate the build-* job logs and retag if needed before promoting the release downstream."
             exit 1
           fi
-          echo "All expected release tags verified for ${RELEASE_TAG} -- every image has the same digest across version, major.minor (if applicable), and latest."
+          echo "All expected release tags verified for ${RELEASE_TAG} -- every image has the same digest across version and major.minor (if applicable). Latest tag is the responsibility of the parallel push-event run; see the comment above EXPECTED_TAGS."
 
   update-release:
     name: Update Release Notes
