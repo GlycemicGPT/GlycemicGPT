@@ -6,6 +6,29 @@
 
 #### 📝 Other Changes
 
+- chore: sync release 0.8.0 from main to develop [@glycemicgpt-merge](https://github.com/glycemicgpt-merge) ([#651](https://github.com/GlycemicGPT/GlycemicGPT/pull/651))
+
+### 🌐 Web
+
+#### 🐛 Bug Fixes
+
+- fix(web): self-host Inter font + verify release container tags [@jlengelbrecht](https://github.com/jlengelbrecht) ([#654](https://github.com/GlycemicGPT/GlycemicGPT/pull/654))
+
+### 🏗️ Infrastructure
+
+#### 📝 Other Changes
+
+- chore: sync changelog update from main to develop [@glycemicgpt-merge](https://github.com/glycemicgpt-merge) ([#650](https://github.com/GlycemicGPT/GlycemicGPT/pull/650))
+
+<!-- changelog-cutoff:2026-05-18T19:38:04Z -->
+
+
+## 2026-05-18
+
+### 📱 Mobile
+
+#### 📝 Other Changes
+
 - chore: sync release 0.7.2 from main to develop [@glycemicgpt-merge](https://github.com/glycemicgpt-merge) ([#632](https://github.com/GlycemicGPT/GlycemicGPT/pull/632))
 
 ### 🌐 Web
