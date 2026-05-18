@@ -6,6 +6,33 @@
 
 #### 📝 Other Changes
 
+- chore: sync release 0.8.1 from main to develop [@glycemicgpt-merge](https://github.com/glycemicgpt-merge) ([#659](https://github.com/GlycemicGPT/GlycemicGPT/pull/659))
+
+### 🌐 Web
+
+#### 📝 Other Changes
+
+- chore(web): bump ws to 8.20.1 to patch GHSA-58qx-3vcg-4xpx [@jlengelbrecht](https://github.com/jlengelbrecht) ([#662](https://github.com/GlycemicGPT/GlycemicGPT/pull/662))
+
+### 🏗️ Infrastructure
+
+#### 🐛 Bug Fixes
+
+- fix(ci): verify-release-tags case-sensitivity + dev-prerelease + JS pull URLs [@jlengelbrecht](https://github.com/jlengelbrecht) ([#660](https://github.com/GlycemicGPT/GlycemicGPT/pull/660))
+
+#### 📝 Other Changes
+
+- chore: sync changelog update from main to develop [@glycemicgpt-merge](https://github.com/glycemicgpt-merge) ([#658](https://github.com/GlycemicGPT/GlycemicGPT/pull/658))
+
+<!-- changelog-cutoff:2026-05-18T23:40:47Z -->
+
+
+## 2026-05-18
+
+### 📱 Mobile
+
+#### 📝 Other Changes
+
 - chore: sync release 0.8.0 from main to develop [@glycemicgpt-merge](https://github.com/glycemicgpt-merge) ([#651](https://github.com/GlycemicGPT/GlycemicGPT/pull/651))
 
 ### 🌐 Web
