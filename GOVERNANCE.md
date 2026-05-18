@@ -270,7 +270,7 @@ Security findings are handled automatically by CI (see [docs/dev/security-testin
 - **Suppression decisions** (accepting a known risk) require project lead approval
 - **Security infrastructure changes** (scan workflows, evaluator scripts) require project lead review (enforced via CODEOWNERS)
 - **Vulnerability reports** from external researchers should follow the [Security Policy](https://github.com/GlycemicGPT/.github/blob/main/SECURITY.md)
-- **Platform-level (GitHub-native) alerts** -- Dependabot alerts and Secret Scanning surface findings in the repo's Security tab. The project lead reviews open alerts weekly; real findings convert to tracked issues and follow the same triage flow as CI findings. See [CONTRIBUTING.md § Platform-level security scanning](CONTRIBUTING.md#-platform-level-security-scanning-github-native) for the contributor-facing view.
+- **Platform-level (GitHub-native) alerts** -- Dependabot alerts and Secret Scanning surface findings in the repo's Security tab. The project lead reviews open alerts weekly; real findings convert to tracked issues and follow the same triage flow as CI findings. See [CONTRIBUTING.md § Platform-level security scanning](CONTRIBUTING.md#platform-level-security-scanning-github-native) for the contributor-facing view.
 
 ## Changes to This Document
 
