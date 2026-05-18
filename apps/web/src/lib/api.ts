@@ -1786,6 +1786,13 @@ export interface IntegrationResponse {
   last_error: string | null;
   created_at: string;
   updated_at: string;
+  /**
+   * Per-integration region/locale stored on the credential.
+   *  - Tandem: ISO-3166-1 alpha-2 country code (or legacy "EU" -- in which
+   *    case `TandemUploadStatusResponse.needs_country_reselect` will be true).
+   *  - Dexcom: pydexcom region ("US" | "OUS" | "JP").
+   */
+  region: string | null;
 }
 
 export interface IntegrationListResponse {
@@ -1815,10 +1822,16 @@ export async function listIntegrations(): Promise<IntegrationListResponse> {
 
 /**
  * Connect Dexcom integration (validates credentials before storing).
+ *
+ * `region` selects which Dexcom Share server pydexcom hits:
+ *   - "US"  -> share2.dexcom.com           (United States)
+ *   - "OUS" -> shareous1.dexcom.com        (Outside US: EU, UK, Canada, AU, ...)
+ *   - "JP"  -> share.dexcom.jp             (Japan & Asia-Pacific)
  */
 export async function connectDexcom(credentials: {
   username: string;
   password: string;
+  region: string;
 }): Promise<IntegrationConnectResponse> {
   const response = await apiFetch(`${API_BASE_URL}/api/integrations/dexcom`, {
     method: "POST",
@@ -1854,11 +1867,15 @@ export async function disconnectDexcom(): Promise<void> {
 
 /**
  * Connect Tandem integration (validates credentials before storing).
+ *
+ * `country` is an ISO-3166-1 alpha-2 code that is used to route uploads
+ * to the correct Tandem cloud backend (US or EU cluster + per-country
+ * config). See `apps/web/src/lib/tandem-countries.ts` for the supported list.
  */
 export async function connectTandem(credentials: {
   username: string;
   password: string;
-  region: string;
+  country: string;
 }): Promise<IntegrationConnectResponse> {
   const response = await apiFetch(`${API_BASE_URL}/api/integrations/tandem`, {
     method: "POST",
@@ -2306,12 +2323,25 @@ export interface TandemUploadStatusResponse {
   last_error: string | null;
   max_event_index_uploaded: number;
   pending_raw_events: number;
+  /** ISO-3166-1 alpha-2 country code currently configured (or null when legacy). */
+  country: string | null;
+  /**
+   * True when the stored Tandem region is a legacy bucket label (e.g. "EU")
+   * that can no longer be resolved to a country -- the user must re-connect
+   * with their country selected before uploads can be enabled.
+   */
+  needs_country_reselect: boolean;
 }
 
 export interface TandemUploadTriggerResponse {
   message: string;
   events_uploaded: number;
   status: string;
+}
+
+export interface TandemUploadResetResponse {
+  message: string;
+  events_requeued: number;
 }
 
 /**
@@ -2371,6 +2401,29 @@ export async function triggerTandemUpload(): Promise<TandemUploadTriggerResponse
     const error = await response.json().catch(() => ({}));
     throw new Error(
       error.detail || `Failed to trigger upload: ${response.status}`
+    );
+  }
+
+  return response.json();
+}
+
+/**
+ * Reset the Tandem upload high-water mark and re-queue every stored raw event.
+ *
+ * Use this when uploads appear stuck despite pending events being reported --
+ * e.g. after a pump re-pair, sequence-counter reset, or to recover from the
+ * legacy incremental-sync bug that silently filtered queued events.
+ */
+export async function resetTandemUpload(): Promise<TandemUploadResetResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/tandem/cloud-upload/reset`,
+    { method: "POST" }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to reset upload state: ${response.status}`
     );
   }
 

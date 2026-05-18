@@ -15,6 +15,8 @@ Usage:
 
 import os
 import re
+import secrets
+import string
 import sys
 import time
 import uuid
@@ -22,10 +24,32 @@ import uuid
 import httpx
 
 API_URL = os.environ.get("API_URL", "http://localhost:8001")
-TEST_PASSWORD = os.environ.get("TEST_PASSWORD")
-if not TEST_PASSWORD:
-    print("FATAL: TEST_PASSWORD environment variable is required")
-    sys.exit(1)
+
+
+def _generate_test_password() -> str:
+    """Build a non-secret CI fixture that always satisfies the API validator.
+
+    The API's UserRegistrationRequest requires min 8 chars with at least one
+    upper, lower, and digit. The previous fallback used
+    ``f"SecTest-{uuid.uuid4().hex[:8]}!"`` which is hex only and could
+    occasionally omit a digit (~1 in 2500 runs) and FATAL on registration.
+    Picking one char from each required class up front -- using
+    ``secrets`` so the value is cryptographically random rather than a
+    template -- removes that intermittent flake while keeping no fixed
+    password-shaped literal in source.
+    """
+    alphabet = string.ascii_letters + string.digits
+    return (
+        secrets.choice(string.ascii_uppercase)
+        + secrets.choice(string.ascii_lowercase)
+        + secrets.choice(string.digits)
+        + "".join(secrets.choice(alphabet) for _ in range(13))
+    )
+
+
+# CI passes TEST_PASSWORD via env; local/fork-PR invocations fall back to
+# a freshly generated value rather than FATAL-ing.
+TEST_PASSWORD = os.environ.get("TEST_PASSWORD") or _generate_test_password()
 
 # Endpoints to skip entirely (docs, health, SSE streams)
 SKIP_PREFIXES = ("/docs", "/openapi.json", "/redoc", "/health")

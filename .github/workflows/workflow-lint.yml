@@ -96,3 +96,62 @@ jobs:
           path: zizmor.sarif
           if-no-files-found: ignore
           retention-days: 30
+
+      # ---------------------------------------------------------------
+      # Drift guard: prevent re-introduction of patterns we explicitly
+      # removed for fork-PR compatibility. These are concrete bug-class
+      # regressions, not advisory style issues -- this step FAILS the
+      # workflow (unlike zizmor which is advisory-only).
+      # ---------------------------------------------------------------
+      - name: Drift guard for fork-PR compatibility
+        # NOTE: this step's error messages quote the forbidden patterns
+        # verbatim, which would otherwise cause a self-flagging loop.
+        # We filter self-matches via a `grep -v "/$SELF:"` pipe rather
+        # than relying on `--exclude` -- GNU grep's --exclude semantics
+        # with --include vary by version, and the pipe is unambiguous.
+        # Scans both `.yml` and `.yaml`; GitHub Actions accepts both.
+        run: |
+          set -e
+          FAILED=0
+          SELF="workflow-lint.yml"
+
+          # 1. SECURITY_TEST_PASSWORD must not return as a repo secret.
+          # The CI fixture is generated at runtime per job; reintroducing
+          # the secret reference would re-break fork PRs (the secret is
+          # empty on fork-triggered runs, which then 422s when smoke
+          # tests try to register a user).
+          HITS=$(grep -rn --include='*.yml' --include='*.yaml' \
+                      -E 'secrets\.SECURITY_TEST_PASSWORD' .github/workflows/ 2>/dev/null \
+                 | grep -v "/$SELF:" || true)
+          if [ -n "$HITS" ]; then
+            echo "$HITS"
+            echo "::error::Forbidden repo-secret reference detected (see above). Generate TEST_PASSWORD at job runtime instead; see security-scan.yml. Fork PRs cannot read repo secrets."
+            FAILED=1
+          fi
+
+          # 2. CI_APP_ID / CI_APP_PRIVATE_KEY must only appear in workflows
+          # triggered by safe events (push, schedule, workflow_dispatch,
+          # workflow_run, or pull_request_target -- NEVER plain pull_request,
+          # which leaks an empty secret on fork PRs and crashes the token
+          # generation step).
+          #
+          # Grep-based check (no YAML parser dependency). The pattern
+          # `^[[:space:]]*pull_request:` matches the literal trigger key
+          # and won't false-match `pull_request_target:` because the
+          # latter has `_target` between `pull_request` and the colon.
+          CANDIDATES=$(grep -rl --include='*.yml' --include='*.yaml' \
+                            -E 'secrets\.CI_APP_(ID|PRIVATE_KEY)' .github/workflows/ 2>/dev/null \
+                       | grep -v "/$SELF$" || true)
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            if grep -nE '^[[:space:]]*pull_request:' "$f" >/dev/null; then
+              echo "::error file=$f::CI App secret reference used in a workflow triggered by pull_request. Fork PRs do not receive secrets -- use pull_request_target (with a safe checkout pattern) or workflow_run instead."
+              FAILED=1
+            fi
+          done <<< "$CANDIDATES"
+
+          if [ "$FAILED" -ne 0 ]; then
+            echo "::error::Drift guard failed -- see annotations above."
+            exit 1
+          fi
+          echo "Drift guard passed."
