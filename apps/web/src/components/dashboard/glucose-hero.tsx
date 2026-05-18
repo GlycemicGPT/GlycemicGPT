@@ -39,6 +39,53 @@ export const GLUCOSE_THRESHOLDS = {
   URGENT_HIGH: 250,
 } as const;
 
+/**
+ * Story 43.12 PR 6 -- closed-loop runtime state surfaces.
+ *
+ * These come from the backend's `/api/integrations/pump/status` and are
+ * sourced from the latest Nightscout devicestatus snapshot. All three
+ * are independently nullable -- absence means the underlying data
+ * isn't present (no NS integration, no active override, no carbs
+ * absorbing, snapshot stale, etc.) and we render nothing.
+ */
+export type LoopState = "looping" | "not_looping" | "failed";
+
+/**
+ * Narrow a free-form string from the backend into a LoopState. Returns
+ * null for unrecognized values so the caller can render nothing
+ * rather than crashing on `LOOP_STATE_STYLE[undefined]`.
+ *
+ * If a future translator surfaces a new state ("warming_up",
+ * "unknown", etc.), this guard fails closed -- the badge stays hidden
+ * until the frontend adds an explicit style for the new state.
+ */
+export function parseLoopState(value: string): LoopState | null {
+  return value === "looping" || value === "not_looping" || value === "failed"
+    ? value
+    : null;
+}
+
+export interface LoopStatusInfo {
+  state: LoopState;
+  /** 'loop' | 'aaps' | 'trio' | 'oref0' | 'iaps' */
+  source: string;
+  /** ISO 8601 string from the backend. */
+  issuedAt: string;
+  /** Populated only when state === 'failed'. */
+  failureReason?: string | null;
+}
+
+export interface OverrideInfo {
+  name: string;
+  /** ISO 8601 string. */
+  startedAt: string;
+  /** Null for indefinite overrides. */
+  endsAt?: string | null;
+  multiplier?: number | null;
+  targetLowMgdl?: number | null;
+  targetHighMgdl?: number | null;
+}
+
 export interface GlucoseHeroProps {
   /** Current glucose value in mg/dL */
   value: number | null;
@@ -52,6 +99,19 @@ export interface GlucoseHeroProps {
   batteryPct: number | null;
   /** Reservoir insulin remaining in units */
   reservoirUnits: number | null;
+  /** Carbs on Board in grams. PR 6 addition. */
+  cobGrams?: number | null;
+  /**
+   * Closed-loop runtime state badge. PR 6 addition.
+   * Null = no NS-sourced closed-loop data, or snapshot is stale.
+   */
+  loopStatus?: LoopStatusInfo | null;
+  /**
+   * Active override (workout / pre-meal / sleep mode). PR 6 addition,
+   * Loop-only. AAPS/Trio overrides ride on Temp Target treatments and
+   * are deferred to a follow-up. Null = no active override.
+   */
+  override?: OverrideInfo | null;
   /** Unit label (default: mg/dL) */
   unit?: string;
   /** Minutes since last reading */
@@ -177,6 +237,150 @@ function sanitizeValue(value: number | null, allowNegative = false): number | nu
   return value;
 }
 
+// ---------------------------------------------------------------------------
+// Story 43.12 PR 6 helpers
+// ---------------------------------------------------------------------------
+
+const LOOP_STATE_STYLE: Record<
+  LoopState,
+  { label: string; pill: string; ariaLabel: (source: string) => string }
+> = {
+  looping: {
+    label: "Looping",
+    pill: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
+    ariaLabel: (source) => `${prettySourceName(source)} is actively looping`,
+  },
+  not_looping: {
+    label: "Not looping",
+    pill: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+    ariaLabel: (source) =>
+      `${prettySourceName(source)} is not currently looping`,
+  },
+  failed: {
+    label: "Loop failed",
+    pill: "bg-red-500/15 text-red-400 border-red-500/30",
+    ariaLabel: (source) =>
+      `${prettySourceName(source)} reported a loop cycle failure`,
+  },
+};
+
+/**
+ * Display name for the source engine in user-visible strings.
+ *
+ * Case-sensitive lookup -- the backend's Pydantic `Literal` always
+ * emits lowercase canonical values, and this contract is mirrored on
+ * the API type (`LoopApiSource` in `lib/api.ts`). Consistent with
+ * `parseLoopState`'s case-sensitive gate: both rely on the same
+ * backend contract and don't paper over upstream casing drift.
+ *
+ * Falls through to a generic "Closed loop" label for unknown values
+ * rather than echoing whatever string the backend sent.
+ */
+export function prettySourceName(source: string): string {
+  const map: Record<string, string> = {
+    loop: "Loop",
+    aaps: "AAPS",
+    trio: "Trio",
+    oref0: "oref0",
+    iaps: "iAPS",
+  };
+  return map[source] ?? "Closed loop";
+}
+
+/**
+ * Compute a human-friendly "ends in N min" string from an ISO ends_at
+ * relative to now. Returns null when ends_at is null (indefinite
+ * override) or already in the past (clock-skew safety net).
+ */
+export function formatOverrideRemaining(
+  endsAt: string | null | undefined,
+  now: Date = new Date()
+): string | null {
+  if (!endsAt) return null;
+  const end = new Date(endsAt);
+  if (Number.isNaN(end.getTime())) return null;
+  const minutes = Math.round((end.getTime() - now.getTime()) / 60000);
+  if (minutes <= 0) return null;
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  if (remainder === 0) return `${hours}h`;
+  return `${hours}h ${remainder}m`;
+}
+
+interface LoopStatusBadgeProps {
+  status: LoopStatusInfo;
+}
+
+function LoopStatusBadge({ status }: LoopStatusBadgeProps) {
+  const style = LOOP_STATE_STYLE[status.state];
+  const sourceName = prettySourceName(status.source);
+  // Tooltip carries the failure reason when present; absent for the
+  // happy path. Source is always shown so users with multiple closed
+  // loops (rare) can tell which one the badge belongs to.
+  const tooltip =
+    status.state === "failed" && status.failureReason
+      ? `${sourceName}: ${status.failureReason}`
+      : sourceName;
+  return (
+    <div
+      className={clsx(
+        "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full",
+        "text-xs font-medium border",
+        style.pill
+      )}
+      role="status"
+      aria-label={style.ariaLabel(status.source)}
+      title={tooltip}
+      data-testid="loop-status-badge"
+      data-state={status.state}
+    >
+      <span
+        className="inline-block w-1.5 h-1.5 rounded-full bg-current"
+        aria-hidden="true"
+      />
+      <span>{style.label}</span>
+      <span
+        className="text-slate-400 font-normal border-l border-slate-700 pl-1.5 ml-0.5"
+        aria-hidden="true"
+      >
+        {sourceName}
+      </span>
+    </div>
+  );
+}
+
+interface OverrideRowProps {
+  override: OverrideInfo;
+}
+
+function OverrideRow({ override }: OverrideRowProps) {
+  const remaining = formatOverrideRemaining(override.endsAt);
+  // Indefinite overrides show "ongoing" instead of computing a
+  // phantom end time. Past-end overrides are filtered out by the
+  // backend's `active: true` guard, but the formatter is the second
+  // line of defense (returns null for past timestamps).
+  const detail = remaining ? `ends in ${remaining}` : "ongoing";
+  return (
+    <div
+      className="mt-3 flex items-center justify-center gap-2 text-xs text-slate-300"
+      role="status"
+      aria-label={`Override active: ${override.name}, ${detail}`}
+      data-testid="override-row"
+    >
+      <span
+        className="inline-block w-2 h-2 rounded-full bg-purple-400"
+        aria-hidden="true"
+      />
+      <span className="font-medium">Override: {override.name}</span>
+      <span className="text-slate-500" aria-hidden="true">
+        &middot;
+      </span>
+      <span className="text-slate-400">{detail}</span>
+    </div>
+  );
+}
+
 export function GlucoseHero({
   value,
   trend,
@@ -184,6 +388,9 @@ export function GlucoseHero({
   basalRate,
   batteryPct,
   reservoirUnits,
+  cobGrams,
+  loopStatus,
+  override,
   unit = "mg/dL",
   minutesAgo,
   isStale = false,
@@ -196,7 +403,7 @@ export function GlucoseHero({
   if (isLoading) {
     return (
       <div
-        className="rounded-xl p-8 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 animate-pulse"
+        className="rounded-xl p-4 sm:p-6 md:p-8 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 animate-pulse"
         role="region"
         aria-label="Loading glucose reading"
         aria-busy="true"
@@ -219,6 +426,10 @@ export function GlucoseHero({
   const safeBasal = sanitizeValue(basalRate);
   const safeBattery = sanitizeValue(batteryPct);
   const safeReservoir = sanitizeValue(reservoirUnits);
+  // PR 6: COB is a one-way pass-through (already validated server-side
+  // by the staleness + numeric checks). Negative is impossible
+  // (carbs grams aren't negative); reuse the default sanitizer.
+  const safeCob = sanitizeValue(cobGrams ?? null);
 
   const range = classifyGlucose(safeValue, thresholds);
   const colors = rangeColors[range];
@@ -238,7 +449,7 @@ export function GlucoseHero({
   return (
     <div
       className={clsx(
-        "rounded-xl p-8 border border-slate-200 dark:border-slate-800",
+        "rounded-xl p-4 sm:p-6 md:p-8 border border-slate-200 dark:border-slate-800 overflow-hidden",
         "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900",
         colors.bg
       )}
@@ -246,11 +457,19 @@ export function GlucoseHero({
       aria-label="Current glucose reading"
       tabIndex={0}
     >
+      {/* PR 6: closed-loop badge in the top-right. Absent when the user
+          has no NS-sourced closed loop or the snapshot is stale. */}
+      {loopStatus && (
+        <div className="flex justify-end -mt-2 mb-2">
+          <LoopStatusBadge status={loopStatus} />
+        </div>
+      )}
+
       <div className="flex flex-col items-center justify-center text-center">
         {/* Main glucose display with dynamic aria-live priority */}
         <div
           className={clsx(
-            "flex items-center gap-4 mb-4",
+            "flex max-w-full items-center justify-center gap-2 sm:gap-4 mb-3 sm:mb-4",
             pulseType && !prefersReducedMotion && PULSE_CLASS[pulseType]
           )}
           aria-live={ariaLivePriority}
@@ -258,7 +477,7 @@ export function GlucoseHero({
         >
           <span
             className={clsx(
-              "text-7xl font-bold tabular-nums",
+              "text-5xl min-[360px]:text-6xl sm:text-7xl font-bold tabular-nums leading-none",
               colors.text
             )}
             data-testid="glucose-value"
@@ -268,7 +487,7 @@ export function GlucoseHero({
           </span>
           <span
             className={clsx(
-              "text-5xl",
+              "text-4xl sm:text-5xl leading-none",
               // Trend arrow inherits glucose range color for visual consistency
               safeValue !== null ? colors.text : "text-slate-400"
             )}
@@ -281,7 +500,7 @@ export function GlucoseHero({
 
         {/* Unit label */}
         <p
-          className="text-slate-400 text-lg"
+          className="text-slate-400 text-base sm:text-lg"
           data-testid="glucose-unit"
         >
           {unit}
@@ -299,9 +518,12 @@ export function GlucoseHero({
           </p>
         )}
 
-        {/* Secondary metrics: IoB, Basal, Battery, Reservoir */}
+        {/* PR 6: active override pill row. Absent when no override. */}
+        {override && <OverrideRow override={override} />}
+
+        {/* Secondary metrics: IoB, Basal, Battery, Reservoir, COB (PR 6) */}
         <div
-          className="flex items-center gap-4 mt-4 text-sm"
+          className="grid w-full grid-cols-2 gap-3 mt-4 text-xs sm:flex sm:w-auto sm:items-center sm:gap-4 sm:text-sm"
           role="group"
           aria-label="Pump status metrics"
           data-testid="secondary-metrics"
@@ -322,7 +544,7 @@ export function GlucoseHero({
               {safeIob !== null ? `${safeIob.toFixed(2)}u` : "--"}
             </span>
           </div>
-          <div className="w-px h-6 bg-slate-700" aria-hidden="true" />
+          <div className="hidden sm:block w-px h-6 bg-slate-700" aria-hidden="true" />
           <div
             className="flex flex-col items-center"
             aria-label={safeBasal !== null ? `Basal rate: ${safeBasal.toFixed(2)} units per hour` : "Basal rate: unavailable"}
@@ -339,7 +561,7 @@ export function GlucoseHero({
               {safeBasal !== null ? `${safeBasal.toFixed(2)} u/hr` : "--"}
             </span>
           </div>
-          <div className="w-px h-6 bg-slate-700" aria-hidden="true" />
+          <div className="hidden sm:block w-px h-6 bg-slate-700" aria-hidden="true" />
           <div
             className="flex flex-col items-center"
             aria-label={safeBattery !== null ? `Battery: ${Math.round(safeBattery)} percent` : "Battery: unavailable"}
@@ -356,7 +578,7 @@ export function GlucoseHero({
               {safeBattery !== null ? `${Math.round(safeBattery)}%` : "--"}
             </span>
           </div>
-          <div className="w-px h-6 bg-slate-700" aria-hidden="true" />
+          <div className="hidden sm:block w-px h-6 bg-slate-700" aria-hidden="true" />
           <div
             className="flex flex-col items-center"
             aria-label={safeReservoir !== null ? `Reservoir: ${safeReservoir.toFixed(0)} units remaining` : "Reservoir: unavailable"}
@@ -373,6 +595,32 @@ export function GlucoseHero({
               {safeReservoir !== null ? `${Math.round(safeReservoir)}u` : "--"}
             </span>
           </div>
+          {/* PR 6: COB column. Only renders when present so the row
+              stays the same width for users without active carbs. */}
+          {safeCob !== null && (
+            <>
+              <div className="w-px h-6 bg-slate-700" aria-hidden="true" />
+              <div
+                className="flex flex-col items-center"
+                aria-label={`Carbs on board: ${Math.round(safeCob)} grams`}
+              >
+                <span
+                  className="text-slate-500 text-xs uppercase tracking-wide"
+                  aria-hidden="true"
+                >
+                  COB
+                </span>
+                <span className="sr-only">Carbs on board</span>
+                <span
+                  className="text-slate-300 font-medium"
+                  data-testid="cob-value"
+                  aria-hidden="true"
+                >
+                  {Math.round(safeCob)}g
+                </span>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>

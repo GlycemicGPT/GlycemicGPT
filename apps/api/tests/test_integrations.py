@@ -579,3 +579,291 @@ class TestValidateDateRange:
         end = datetime(2026, 4, 1, tzinfo=UTC)
         result = _validate_date_range(start, end)
         assert result == (start, end)
+
+
+# ============================================================================
+# Dexcom + Tandem region/country expansion
+# ============================================================================
+
+
+async def _login(client: AsyncClient, email: str, password: str) -> str:
+    await client.post("/api/auth/register", json={"email": email, "password": password})
+    resp = await client.post(
+        "/api/auth/login", json={"email": email, "password": password}
+    )
+    cookie = resp.cookies.get(settings.jwt_cookie_name)
+    assert cookie
+    return cookie
+
+
+class TestDexcomRegionField:
+    """Dexcom credentials accept ``region`` and reject unsupported values."""
+
+    @patch("src.routers.integrations.validate_dexcom_credentials")
+    async def test_default_region_is_us(self, mock_validate):
+        """Omitting region falls back to US (matches existing pydexcom default)."""
+        mock_validate.return_value = (True, None)
+        email = unique_email("dex_region_default")
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie = await _login(client, email, "SecurePass123")
+            resp = await client.post(
+                "/api/integrations/dexcom",
+                json={"username": "dex@x.com", "password": "p"},
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 201
+        # validate_dexcom_credentials should have been called with region="US"
+        args = mock_validate.call_args
+        assert args.args[2] == "US" or args.kwargs.get("region") == "US"
+
+    @patch("src.routers.integrations.validate_dexcom_credentials")
+    async def test_accepts_ous_region(self, mock_validate):
+        """OUS (Outside US) region is accepted and forwarded to validator."""
+        mock_validate.return_value = (True, None)
+        email = unique_email("dex_region_ous")
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie = await _login(client, email, "SecurePass123")
+            resp = await client.post(
+                "/api/integrations/dexcom",
+                json={
+                    "username": "dex_ous@x.com",
+                    "password": "p",
+                    "region": "OUS",
+                },
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 201, resp.text
+        args = mock_validate.call_args
+        assert args.args[2] == "OUS" or args.kwargs.get("region") == "OUS"
+
+    @patch("src.routers.integrations.validate_dexcom_credentials")
+    async def test_accepts_jp_region(self, mock_validate):
+        """Japan/APAC region is accepted."""
+        mock_validate.return_value = (True, None)
+        email = unique_email("dex_region_jp")
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie = await _login(client, email, "SecurePass123")
+            resp = await client.post(
+                "/api/integrations/dexcom",
+                json={
+                    "username": "dex_jp@x.com",
+                    "password": "p",
+                    "region": "JP",
+                },
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 201
+
+    async def test_rejects_unknown_region(self):
+        """Garbage region values are rejected at the schema layer (422)."""
+        email = unique_email("dex_region_bad")
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie = await _login(client, email, "SecurePass123")
+            resp = await client.post(
+                "/api/integrations/dexcom",
+                json={
+                    "username": "dex@x.com",
+                    "password": "p",
+                    "region": "MARS",
+                },
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 422
+
+
+class TestTandemCountryField:
+    """Tandem credentials accept ISO-3166 country codes."""
+
+    @patch("src.routers.integrations.validate_tandem_credentials")
+    async def test_default_country_is_us(self, mock_validate):
+        mock_validate.return_value = (True, None)
+        email = unique_email("tan_country_default")
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie = await _login(client, email, "SecurePass123")
+            resp = await client.post(
+                "/api/integrations/tandem",
+                json={"username": "t@x.com", "password": "p"},
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 201
+
+    @pytest.mark.parametrize(
+        "country", ["GB", "DE", "CA", "AU", "NZ", "IL", "ZA", "MX"]
+    )
+    @patch("src.routers.integrations.validate_tandem_credentials")
+    async def test_accepts_supported_country_codes(self, mock_validate, country: str):
+        mock_validate.return_value = (True, None)
+        email = unique_email(f"tan_country_{country.lower()}")
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie = await _login(client, email, "SecurePass123")
+            resp = await client.post(
+                "/api/integrations/tandem",
+                json={
+                    "username": f"t_{country}@x.com",
+                    "password": "p",
+                    "country": country,
+                },
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 201, resp.text
+
+    @pytest.mark.parametrize("country", ["JP", "BR", "KR", "EU", "us", "USA", ""])
+    async def test_rejects_unsupported_country_codes(self, country: str):
+        """Tandem-unsupported countries, legacy 'EU', lowercase, and
+        non-alpha-2 codes are all rejected at the schema layer."""
+        email = unique_email(f"tan_country_bad_{uuid.uuid4().hex[:4]}")
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie = await _login(client, email, "SecurePass123")
+            resp = await client.post(
+                "/api/integrations/tandem",
+                json={
+                    "username": "t@x.com",
+                    "password": "p",
+                    "country": country,
+                },
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 422
+
+
+class TestTandemUploadResetEndpoint:
+    """The new reset endpoint must require a configured Tandem integration."""
+
+    async def test_reset_without_credential_returns_404(self):
+        email = unique_email("tan_reset_404")
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie = await _login(client, email, "SecurePass123")
+            resp = await client.post(
+                "/api/integrations/tandem/cloud-upload/reset",
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 404
+
+    async def test_reset_requires_auth(self):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.post("/api/integrations/tandem/cloud-upload/reset")
+        assert resp.status_code == 401
+
+
+class TestTandemUploadSettingsGuards:
+    """``PUT /tandem/cloud-upload/settings`` must guard against unsafe enables.
+
+    Disable is always allowed (users must be able to opt out), enable requires
+    a healthy non-legacy credential.
+    """
+
+    async def test_enable_without_credential_returns_404(self):
+        email = unique_email("tan_settings_404")
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie = await _login(client, email, "SecurePass123")
+            resp = await client.put(
+                "/api/integrations/tandem/cloud-upload/settings",
+                json={"enabled": True, "interval_minutes": 15},
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 404, resp.text
+        assert "not configured" in resp.json()["detail"].lower()
+
+    async def test_disable_without_credential_succeeds(self):
+        """Even with no Tandem credential, users must be able to send
+        ``enabled=False`` so toggle-off never gets stuck."""
+        email = unique_email("tan_settings_disable")
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie = await _login(client, email, "SecurePass123")
+            resp = await client.put(
+                "/api/integrations/tandem/cloud-upload/settings",
+                json={"enabled": False, "interval_minutes": 15},
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["enabled"] is False
+
+
+class TestIntegrationListSurfacesRegion:
+    """``GET /api/integrations`` exposes the stored region so the frontend can
+    pre-populate the pickers and avoid accidental overwrites on save."""
+
+    @patch("src.routers.integrations.validate_dexcom_credentials")
+    async def test_dexcom_region_round_trips(self, mock_validate):
+        mock_validate.return_value = (True, None)
+        email = unique_email("dex_region_roundtrip")
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie = await _login(client, email, "SecurePass123")
+            connect = await client.post(
+                "/api/integrations/dexcom",
+                json={
+                    "username": "dex@x.com",
+                    "password": "p",
+                    "region": "OUS",
+                },
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+            assert connect.status_code == 201
+            assert connect.json()["integration"]["region"] == "OUS"
+
+            listing = await client.get(
+                "/api/integrations",
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+            assert listing.status_code == 200
+            dexcom_row = next(
+                i
+                for i in listing.json()["integrations"]
+                if i["integration_type"] == "dexcom"
+            )
+            assert dexcom_row["region"] == "OUS"
+
+    @patch("src.routers.integrations.validate_tandem_credentials")
+    async def test_tandem_country_round_trips(self, mock_validate):
+        mock_validate.return_value = (True, None)
+        email = unique_email("tan_country_roundtrip")
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie = await _login(client, email, "SecurePass123")
+            connect = await client.post(
+                "/api/integrations/tandem",
+                json={
+                    "username": "t@x.com",
+                    "password": "p",
+                    "country": "GB",
+                },
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+            assert connect.status_code == 201
+            assert connect.json()["integration"]["region"] == "GB"
+
+            listing = await client.get(
+                "/api/integrations",
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+            tandem_row = next(
+                i
+                for i in listing.json()["integrations"]
+                if i["integration_type"] == "tandem"
+            )
+            assert tandem_row["region"] == "GB"

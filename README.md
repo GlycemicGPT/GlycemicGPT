@@ -53,6 +53,17 @@
 
 ---
 
+> **DATA HANDLING -- READ BEFORE CONFIGURING AN AI PROVIDER**
+>
+> GlycemicGPT is BYOAI. You choose the AI provider, and that choice determines where your health data is processed:
+>
+> - **Local AI providers** (running on your own infrastructure -- Ollama, vLLM, llama.cpp, or any other model on hardware you control) -- your glucose, insulin, and pump data never leave your network.
+> - **Cloud AI providers** (any AI service that processes requests on third-party servers, including hosted APIs, subscription products, and AI router/gateway services that forward traffic to upstream cloud models) -- your glucose, insulin, pump, and therapy data are transmitted to that provider for inference, subject to their data-handling policy.
+>
+> The GlycemicGPT platform itself does not route AI traffic through GlycemicGPT-operated servers; requests go directly from your deployment to your configured provider. The decision about whether health data leaves your network is entirely the user's, made when configuring a provider. See [`docs/concepts/privacy.md`](docs/concepts/privacy.md) for the full breakdown.
+
+---
+
 ## Overview
 
 GlycemicGPT is an open source diabetes platform built around AI-powered analysis. It connects directly to your CGM and insulin pump for a full standalone experience — real-time monitoring, daily AI briefs, pattern detection, conversational AI chat, and caregiver alerting. Already running Nightscout? GlycemicGPT can also pull data from your existing instance and add AI analysis on top, no changes required to your current setup. See the [Relationship to other tools](https://glycemicgpt.org/docs/platform/concepts/relationship-to-other-tools) page for the honest comparison.
@@ -85,8 +96,8 @@ Support for reading data from additional pumps and CGMs is planned. The mobile a
 **Key Principles:**
 
 - **Suggestions only** -- does not control medical devices
-- **BYOAI architecture** -- bring your own AI provider (Claude, OpenAI, Ollama, or any OpenAI-compatible endpoint)
-- **Self-hosted** -- your data stays on your infrastructure (Docker or Kubernetes)
+- **BYOAI architecture** -- bring your own AI provider; cloud-hosted providers receive your health data, local providers keep it on your network (see [`docs/concepts/privacy.md`](docs/concepts/privacy.md))
+- **Self-hosted platform** -- the GlycemicGPT services run on your infrastructure (Docker or Kubernetes); whether your data leaves your network for AI inference depends on the AI provider you configure
 - **Safety-first** -- pre-validation layer, emergency escalation, medical disclaimers
 
 ## Quick Start
@@ -159,6 +170,14 @@ GlycemicGPT is free and open source. Funding flows through [Open Collective](htt
   &nbsp;&nbsp;
   <a href="https://github.com/GlycemicGPT/GlycemicGPT/stargazers"><img src="assets/buttons/star-on-github.svg" alt="Star GlycemicGPT on GitHub" width="280"></a>
 </p>
+
+## Supported by
+
+<a href="https://github.com/1Password/for-open-source">
+  <img src="assets/sponsors/1password.svg" alt="1Password for Open Source" width="64" height="64">
+</a>
+
+<sub>See [SPONSORS.md](./SPONSORS.md) for the full record of our support relationships.</sub>
 
 ## License
 

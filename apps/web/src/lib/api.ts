@@ -182,6 +182,7 @@ export interface DisclaimerAcknowledgeRequest {
   session_id: string;
   checkbox_experimental: boolean;
   checkbox_not_medical_advice: boolean;
+  checkbox_ai_data_flow: boolean;
 }
 
 export interface DisclaimerAcknowledgeResponse {
@@ -1228,6 +1229,19 @@ export async function getCurrentUser(): Promise<CurrentUserResponse> {
 }
 
 /**
+ * Return the HTTP status of `/api/auth/me` without throwing on 4xx/5xx.
+ * Used by the login page to detect deployment misconfigs (session cookie
+ * dropped by the browser, network failure, etc.) and surface a specific
+ * error instead of silently redirecting.
+ */
+export async function verifySessionCookie(): Promise<number> {
+  const response = await fetch(`${API_BASE_URL}/api/auth/me`, {
+    credentials: "include",
+  });
+  return response.status;
+}
+
+/**
  * Update user profile (Story 10.2)
  */
 export async function updateProfile(data: {
@@ -1772,6 +1786,13 @@ export interface IntegrationResponse {
   last_error: string | null;
   created_at: string;
   updated_at: string;
+  /**
+   * Per-integration region/locale stored on the credential.
+   *  - Tandem: ISO-3166-1 alpha-2 country code (or legacy "EU" -- in which
+   *    case `TandemUploadStatusResponse.needs_country_reselect` will be true).
+   *  - Dexcom: pydexcom region ("US" | "OUS" | "JP").
+   */
+  region: string | null;
 }
 
 export interface IntegrationListResponse {
@@ -1801,10 +1822,16 @@ export async function listIntegrations(): Promise<IntegrationListResponse> {
 
 /**
  * Connect Dexcom integration (validates credentials before storing).
+ *
+ * `region` selects which Dexcom Share server pydexcom hits:
+ *   - "US"  -> share2.dexcom.com           (United States)
+ *   - "OUS" -> shareous1.dexcom.com        (Outside US: EU, UK, Canada, AU, ...)
+ *   - "JP"  -> share.dexcom.jp             (Japan & Asia-Pacific)
  */
 export async function connectDexcom(credentials: {
   username: string;
   password: string;
+  region: string;
 }): Promise<IntegrationConnectResponse> {
   const response = await apiFetch(`${API_BASE_URL}/api/integrations/dexcom`, {
     method: "POST",
@@ -1840,11 +1867,15 @@ export async function disconnectDexcom(): Promise<void> {
 
 /**
  * Connect Tandem integration (validates credentials before storing).
+ *
+ * `country` is an ISO-3166-1 alpha-2 code that is used to route uploads
+ * to the correct Tandem cloud backend (US or EU cluster + per-country
+ * config). See `apps/web/src/lib/tandem-countries.ts` for the supported list.
  */
 export async function connectTandem(credentials: {
   username: string;
   password: string;
-  region: string;
+  country: string;
 }): Promise<IntegrationConnectResponse> {
   const response = await apiFetch(`${API_BASE_URL}/api/integrations/tandem`, {
     method: "POST",
@@ -2292,12 +2323,25 @@ export interface TandemUploadStatusResponse {
   last_error: string | null;
   max_event_index_uploaded: number;
   pending_raw_events: number;
+  /** ISO-3166-1 alpha-2 country code currently configured (or null when legacy). */
+  country: string | null;
+  /**
+   * True when the stored Tandem region is a legacy bucket label (e.g. "EU")
+   * that can no longer be resolved to a country -- the user must re-connect
+   * with their country selected before uploads can be enabled.
+   */
+  needs_country_reselect: boolean;
 }
 
 export interface TandemUploadTriggerResponse {
   message: string;
   events_uploaded: number;
   status: string;
+}
+
+export interface TandemUploadResetResponse {
+  message: string;
+  events_requeued: number;
 }
 
 /**
@@ -2357,6 +2401,29 @@ export async function triggerTandemUpload(): Promise<TandemUploadTriggerResponse
     const error = await response.json().catch(() => ({}));
     throw new Error(
       error.detail || `Failed to trigger upload: ${response.status}`
+    );
+  }
+
+  return response.json();
+}
+
+/**
+ * Reset the Tandem upload high-water mark and re-queue every stored raw event.
+ *
+ * Use this when uploads appear stuck despite pending events being reported --
+ * e.g. after a pump re-pair, sequence-counter reset, or to recover from the
+ * legacy incremental-sync bug that silently filtered queued events.
+ */
+export async function resetTandemUpload(): Promise<TandemUploadResetResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/tandem/cloud-upload/reset`,
+    { method: "POST" }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to reset upload state: ${response.status}`
     );
   }
 
@@ -2952,10 +3019,42 @@ export interface PumpStatusReservoir {
   timestamp: string;
 }
 
+// Story 43.12 PR 6 -- closed-loop runtime state added to the
+// pump-status response. All three are nullable; absence means the
+// underlying data isn't present or the snapshot is stale.
+//
+// `state` and `source` mirror the backend's Pydantic `Literal` types
+// (`apps/api/src/schemas/pump.py`). Keep these unions in sync if the
+// backend's allowed set ever expands -- a frontend that accepts a
+// broader string than the backend emits is a quiet contract bug.
+export type LoopApiState = "looping" | "not_looping" | "failed";
+export type LoopApiSource = "loop" | "aaps" | "trio" | "oref0" | "iaps";
+
+export interface LoopStatusResponse {
+  state: LoopApiState;
+  source: LoopApiSource;
+  issued_at: string;
+  failure_reason: string | null;
+}
+
+export interface OverrideStatusResponse {
+  name: string;
+  started_at: string;
+  ends_at: string | null;
+  multiplier: number | null;
+  target_low_mgdl: number | null;
+  target_high_mgdl: number | null;
+}
+
 export interface PumpStatusResponse {
   basal: PumpStatusBasal | null;
   battery: PumpStatusBattery | null;
   reservoir: PumpStatusReservoir | null;
+  // PR 6 additions. Optional in the type (default null) so older
+  // backend responses without these fields don't break the client.
+  loop_status?: LoopStatusResponse | null;
+  override?: OverrideStatusResponse | null;
+  cob_grams?: number | null;
 }
 
 export async function getPumpStatus(): Promise<PumpStatusResponse> {

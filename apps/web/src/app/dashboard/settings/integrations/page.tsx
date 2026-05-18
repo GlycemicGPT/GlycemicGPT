@@ -55,12 +55,13 @@ export default function IntegrationsPage() {
   // Dexcom form
   const [dexcomEmail, setDexcomEmail] = useState("");
   const [dexcomPassword, setDexcomPassword] = useState("");
+  const [dexcomRegion, setDexcomRegion] = useState("US");
   const [isDexcomConnecting, setIsDexcomConnecting] = useState(false);
 
   // Tandem form
   const [tandemEmail, setTandemEmail] = useState("");
   const [tandemPassword, setTandemPassword] = useState("");
-  const [tandemRegion, setTandemRegion] = useState("US");
+  const [tandemCountry, setTandemCountry] = useState("US");
   const [isTandemConnecting, setIsTandemConnecting] = useState(false);
 
   // Auto-clear success message
@@ -83,12 +84,28 @@ export default function IntegrationsPage() {
 
     if (integrationsResult.status === "fulfilled") {
       const data = integrationsResult.value;
-      setDexcom(
-        data.integrations.find((i) => i.integration_type === "dexcom") || null
-      );
-      setTandem(
-        data.integrations.find((i) => i.integration_type === "tandem") || null
-      );
+      const dexcomRow =
+        data.integrations.find((i) => i.integration_type === "dexcom") || null;
+      const tandemRow =
+        data.integrations.find((i) => i.integration_type === "tandem") || null;
+      setDexcom(dexcomRow);
+      setTandem(tandemRow);
+      // Hydrate the picker selections from the stored credential so a user
+      // re-opening the page doesn't accidentally overwrite their region/
+      // country by hitting Save with the default "US" still selected.
+      if (
+        dexcomRow?.region &&
+        (dexcomRow.region === "US" ||
+          dexcomRow.region === "OUS" ||
+          dexcomRow.region === "JP")
+      ) {
+        setDexcomRegion(dexcomRow.region);
+      }
+      // Legacy "EU" rows leave the picker on its default so the upload card's
+      // "Re-select your country" banner is the only signal the user sees.
+      if (tandemRow?.region && tandemRow.region !== "EU") {
+        setTandemCountry(tandemRow.region);
+      }
     }
     if (nightscoutResult.status === "fulfilled") {
       setNightscoutConnections(nightscoutResult.value.connections);
@@ -132,6 +149,7 @@ export default function IntegrationsPage() {
       const result = await connectDexcom({
         username: dexcomEmail,
         password: dexcomPassword,
+        region: dexcomRegion,
       });
       setDexcom(result.integration);
       setDexcomPassword("");
@@ -176,7 +194,7 @@ export default function IntegrationsPage() {
       const result = await connectTandem({
         username: tandemEmail,
         password: tandemPassword,
-        region: tandemRegion,
+        country: tandemCountry,
       });
       setTandem(result.integration);
       setTandemPassword("");
@@ -399,12 +417,12 @@ export default function IntegrationsPage() {
           tandem={tandem}
           tandemEmail={tandemEmail}
           tandemPassword={tandemPassword}
-          tandemRegion={tandemRegion}
+          tandemCountry={tandemCountry}
           isTandemConnecting={isTandemConnecting}
           isOffline={isOffline}
           onTandemEmailChange={setTandemEmail}
           onTandemPasswordChange={setTandemPassword}
-          onTandemRegionChange={setTandemRegion}
+          onTandemCountryChange={setTandemCountry}
           onConnectTandem={handleConnectTandem}
           onDisconnectTandem={handleDisconnectTandem}
         />
@@ -416,10 +434,12 @@ export default function IntegrationsPage() {
           dexcom={dexcom}
           dexcomEmail={dexcomEmail}
           dexcomPassword={dexcomPassword}
+          dexcomRegion={dexcomRegion}
           isDexcomConnecting={isDexcomConnecting}
           isOffline={isOffline}
           onDexcomEmailChange={setDexcomEmail}
           onDexcomPasswordChange={setDexcomPassword}
+          onDexcomRegionChange={setDexcomRegion}
           onConnectDexcom={handleConnectDexcom}
           onDisconnectDexcom={handleDisconnectDexcom}
         />

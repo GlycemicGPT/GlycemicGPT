@@ -182,6 +182,25 @@ Maintainer stipend amounts are decided by the project lead based on fund balance
 - Annual financial summary posted to Discussions
 - Open Source Collective deducts a 10% host fee from each donation; the remaining 90% goes to the project fund. This fee is documented on OSC's [hosted collectives page](https://opencollective.com/opensource) and applied automatically by the platform.
 
+### In-kind support
+
+GlycemicGPT also receives in-kind support from open-source-friendly vendors (donated software, services, or infrastructure). These relationships are governed by [SPONSORS.md](SPONSORS.md), which is the canonical record of all sponsor and fiscal-host relationships and includes a disclosure of how sponsor influence is bounded.
+
+#### 1Password for Open Source (team password management)
+
+- **Scope:** the project's 1Password Teams account is used for shared project credentials only -- the operational accounts required to run the project, the dev-stack test account, and future CI/deploy secrets when applicable. Personal credentials, end-user accounts, and non-project items do not belong here.
+- **Out of scope:** medical patient data of any kind, end-user passwords, personally identifying information about contributors beyond what's needed to grant access.
+- **Who gets access:**
+  - **Project lead:** full access, vault admin.
+  - **Maintainers** (per the [Roles](#roles) hierarchy): access to operational vaults relevant to their responsibilities. Scoped per need; no blanket access.
+  - **Committers:** access only on request, scoped to specific items needed for the work they're doing. Default is no access.
+  - **External contributors:** time-bounded access to a specifically scoped vault (e.g., a "Contributor Dev Stack" vault) for credentials needed to spin up the local environment, when the alternative would be DM'ing plaintext credentials. Revoked when their PR merges or work concludes.
+- **Granting access:** requests go to the project lead. Access decisions are logged in a Discussions thread (audit trail) and respect the per-need scoping above.
+- **Loss of access:** triggered by role change (committer → emeritus, maintainer stepping down) or completion of bounded work (external contributor). The project lead is responsible for the off-boarding sweep.
+- **Why this matters:** before the 1Password account, project credentials were shared over Discord DMs and inline in dev docs. The 1Password account exists to fix that. The point is **shared, audit-able, revocable** credential handling -- not a single "team admin password" that everyone gets a copy of.
+
+A separate operational adoption sequence (vault setup, dev-stack credential migration, CI integration) is tracked by the project lead outside this governance doc; this section only sets the policy.
+
 ## Branch Protection
 
 The repository enforces these protections via org-level rulesets that apply to all repositories:
@@ -251,6 +270,7 @@ Security findings are handled automatically by CI (see [docs/dev/security-testin
 - **Suppression decisions** (accepting a known risk) require project lead approval
 - **Security infrastructure changes** (scan workflows, evaluator scripts) require project lead review (enforced via CODEOWNERS)
 - **Vulnerability reports** from external researchers should follow the [Security Policy](https://github.com/GlycemicGPT/.github/blob/main/SECURITY.md)
+- **Platform-level (GitHub-native) alerts** -- Dependabot alerts and Secret Scanning surface findings in the repo's Security tab. The project lead reviews open alerts weekly; real findings convert to tracked issues and follow the same triage flow as CI findings. See [CONTRIBUTING.md § Platform-level security scanning](CONTRIBUTING.md#platform-level-security-scanning-github-native) for the contributor-facing view.
 
 ## Changes to This Document
 

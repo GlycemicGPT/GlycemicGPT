@@ -31,6 +31,8 @@ import { PageTransition } from "@/components/ui/page-transition";
 
 import {
   GlucoseHero,
+  parseLoopState,
+  type LoopStatusInfo,
   TimeInRangeBar,
   ConnectionStatusBanner,
   GlucoseTrendChart,
@@ -46,6 +48,27 @@ import { useTimeInRangeDetailStats } from "@/hooks/use-time-in-range-stats";
 import { useGlucoseStats } from "@/hooks/use-glucose-stats";
 import { useGlucoseRange } from "@/hooks/use-glucose-range";
 import { usePumpStatus } from "@/hooks/use-pump-status";
+import type { LoopStatusResponse } from "@/lib/api";
+
+/**
+ * Map the backend's loop_status payload to the component's
+ * LoopStatusInfo shape. `parseLoopState` fails closed on unknown
+ * states so a future backend addition (e.g. "warming_up") doesn't
+ * crash the badge renderer.
+ */
+function mapLoopStatus(
+  raw: LoopStatusResponse | null | undefined
+): LoopStatusInfo | null {
+  if (!raw) return null;
+  const state = parseLoopState(raw.state);
+  if (state === null) return null;
+  return {
+    state,
+    source: raw.source,
+    issuedAt: raw.issued_at,
+    failureReason: raw.failure_reason,
+  };
+}
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -176,7 +199,7 @@ export default function DashboardPage() {
 
   return (
     <PageTransition>
-    <div className="space-y-6">
+    <div className="max-w-full min-w-0 space-y-4 sm:space-y-6">
       {/* Connection status banner - Story 4.5 */}
       <ConnectionStatusBanner
         isReconnecting={isReconnecting}
@@ -193,7 +216,7 @@ export default function DashboardPage() {
         </div>
       </AnimatedCard>
 
-      {/* Glucose hero - Story 4.2, 4.6 */}
+      {/* Glucose hero - Story 4.2, 4.6, 43.12 PR 6 */}
       <AnimatedCard delay={0.05}>
         <GlucoseHero
           value={glucoseValue}
@@ -202,6 +225,22 @@ export default function DashboardPage() {
           basalRate={pumpStatus.basal?.rate ?? null}
           batteryPct={pumpStatus.battery?.percentage ?? null}
           reservoirUnits={pumpStatus.reservoir?.units_remaining ?? null}
+          // PR 6: closed-loop runtime surfaces. snake_case from the
+          // backend, camelCase on the component. All optional.
+          cobGrams={pumpStatus.cobGrams}
+          loopStatus={mapLoopStatus(pumpStatus.loopStatus)}
+          override={
+            pumpStatus.override
+              ? {
+                  name: pumpStatus.override.name,
+                  startedAt: pumpStatus.override.started_at,
+                  endsAt: pumpStatus.override.ends_at,
+                  multiplier: pumpStatus.override.multiplier,
+                  targetLowMgdl: pumpStatus.override.target_low_mgdl,
+                  targetHighMgdl: pumpStatus.override.target_high_mgdl,
+                }
+              : null
+          }
           isLoading={!isLive && !glucose}
           thresholds={glucoseThresholds}
         />

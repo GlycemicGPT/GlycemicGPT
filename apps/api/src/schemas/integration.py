@@ -1,4 +1,4 @@
-"""Story 3.1: Integration schemas.
+"""Integration schemas.
 
 Pydantic schemas for third-party integration credentials.
 """
@@ -7,7 +7,10 @@ from datetime import datetime
 
 from pydantic import BaseModel, EmailStr, Field
 
+from src.core.tandem_regions import SUPPORTED_TANDEM_COUNTRIES
 from src.models.integration import IntegrationStatus, IntegrationType
+
+_TANDEM_COUNTRY_PATTERN = "^(" + "|".join(sorted(SUPPORTED_TANDEM_COUNTRIES)) + ")$"
 
 
 class DexcomCredentialsRequest(BaseModel):
@@ -18,6 +21,15 @@ class DexcomCredentialsRequest(BaseModel):
         ...,
         min_length=1,
         description="Dexcom Share password",
+    )
+    region: str = Field(
+        default="US",
+        pattern="^(US|OUS|JP)$",
+        description=(
+            "Dexcom Share region: 'US' (United States), "
+            "'OUS' (Outside US - EU, UK, Canada, Australia, etc.), "
+            "or 'JP' (Japan & Asia-Pacific)."
+        ),
     )
 
 
@@ -30,10 +42,13 @@ class TandemCredentialsRequest(BaseModel):
         min_length=1,
         description="Tandem t:connect password",
     )
-    region: str = Field(
+    country: str = Field(
         default="US",
-        pattern="^(US|EU)$",
-        description="Account region: 'US' or 'EU'",
+        pattern=_TANDEM_COUNTRY_PATTERN,
+        description=(
+            "ISO-3166-1 alpha-2 country code (e.g. 'US', 'GB', 'DE', 'CA'). "
+            "Used to route uploads to the correct Tandem cloud backend."
+        ),
     )
 
 
@@ -48,6 +63,14 @@ class IntegrationResponse(BaseModel):
     last_error: str | None = None
     created_at: datetime
     updated_at: datetime
+    region: str | None = Field(
+        default=None,
+        description=(
+            "Per-integration region/locale value stored on the credential. "
+            "For Tandem: ISO-3166 alpha-2 country code (or legacy 'EU'). "
+            "For Dexcom: pydexcom region ('US' | 'OUS' | 'JP')."
+        ),
+    )
 
 
 class IntegrationConnectResponse(BaseModel):

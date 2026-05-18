@@ -59,6 +59,9 @@ jest.mock("lucide-react", () => ({
   Check: ({ className }: { className?: string }) => (
     <span data-testid="check-icon" className={className} />
   ),
+  Cloud: ({ className }: { className?: string }) => (
+    <span data-testid="cloud-icon" className={className} />
+  ),
   Loader2: ({ className }: { className?: string }) => (
     <span data-testid="loader-icon" className={className} />
   ),
@@ -83,13 +86,18 @@ jest.mock("@/lib/api", () => ({
 import { AuthDisclaimerGate } from "@/components/auth-disclaimer-gate";
 
 const mockDisclaimerContent = {
-  version: "1.0",
+  version: "1.1",
   title: "Important Safety Information",
   warnings: [
     {
       icon: "flask",
       title: "Experimental Software",
       text: "This is experimental software.",
+    },
+    {
+      icon: "cloud",
+      title: "AI Data Processing",
+      text: "BYOAI: cloud providers receive your data; local providers do not.",
     },
   ],
   checkboxes: [
@@ -100,6 +108,10 @@ const mockDisclaimerContent = {
     {
       id: "checkbox_not_medical_advice",
       label: "I understand this is not medical advice",
+    },
+    {
+      id: "checkbox_ai_data_flow",
+      label: "I understand the AI data-flow implications",
     },
   ],
   button_text: "I Understand & Accept",
@@ -219,7 +231,7 @@ describe("AuthDisclaimerGate - Unacknowledged User", () => {
     expect(screen.queryByTestId("dashboard-content")).not.toBeInTheDocument();
   });
 
-  it("renders both required checkboxes", async () => {
+  it("renders all required checkboxes", async () => {
     render(
       <AuthDisclaimerGate>
         <div>Dashboard</div>
@@ -235,9 +247,12 @@ describe("AuthDisclaimerGate - Unacknowledged User", () => {
     expect(
       screen.getByText("I understand this is not medical advice")
     ).toBeInTheDocument();
+    expect(
+      screen.getByText("I understand the AI data-flow implications")
+    ).toBeInTheDocument();
   });
 
-  it("disables the accept button until both checkboxes are checked", async () => {
+  it("disables the accept button until all checkboxes are checked", async () => {
     render(
       <AuthDisclaimerGate>
         <div>Dashboard</div>
@@ -255,13 +270,17 @@ describe("AuthDisclaimerGate - Unacknowledged User", () => {
     });
     expect(button).toBeDisabled();
 
-    // Check first checkbox
     const checkboxes = screen.getAllByRole("checkbox");
+    // Check first
     await userEvent.click(checkboxes[0]);
     expect(button).toBeDisabled();
 
-    // Check second checkbox
+    // Check second -- still disabled (3rd is required)
     await userEvent.click(checkboxes[1]);
+    expect(button).toBeDisabled();
+
+    // Check third -- now enabled
+    await userEvent.click(checkboxes[2]);
     expect(button).not.toBeDisabled();
   });
 
@@ -302,9 +321,10 @@ describe("AuthDisclaimerGate - Unacknowledged User", () => {
       name: "I Understand & Accept",
     });
 
-    // Check both
+    // Check all three
     await userEvent.click(checkboxes[0]);
     await userEvent.click(checkboxes[1]);
+    await userEvent.click(checkboxes[2]);
     expect(button).not.toBeDisabled();
 
     // Uncheck one
@@ -344,10 +364,11 @@ describe("AuthDisclaimerGate - Acknowledgment Flow", () => {
       ).toBeInTheDocument();
     });
 
-    // Check both checkboxes
+    // Check all required checkboxes
     const checkboxes = screen.getAllByRole("checkbox");
     await userEvent.click(checkboxes[0]);
     await userEvent.click(checkboxes[1]);
+    await userEvent.click(checkboxes[2]);
 
     // Click accept
     const button = screen.getByRole("button", {
@@ -395,10 +416,11 @@ describe("AuthDisclaimerGate - Acknowledgment Flow", () => {
       ).toBeInTheDocument();
     });
 
-    // Check both checkboxes
+    // Check all required checkboxes
     const checkboxes = screen.getAllByRole("checkbox");
     await userEvent.click(checkboxes[0]);
     await userEvent.click(checkboxes[1]);
+    await userEvent.click(checkboxes[2]);
 
     // Click accept
     await userEvent.click(
@@ -441,10 +463,11 @@ describe("AuthDisclaimerGate - Acknowledgment Flow", () => {
       ).toBeInTheDocument();
     });
 
-    // Check both checkboxes
+    // Check all required checkboxes
     const checkboxes = screen.getAllByRole("checkbox");
     await userEvent.click(checkboxes[0]);
     await userEvent.click(checkboxes[1]);
+    await userEvent.click(checkboxes[2]);
 
     // Click accept
     await userEvent.click(
@@ -484,8 +507,8 @@ describe("AuthDisclaimerGate - Fallback Content", () => {
       ).toBeInTheDocument();
     });
 
-    // Fallback should still have both checkboxes
-    expect(screen.getAllByRole("checkbox")).toHaveLength(2);
+    // Fallback should have all required checkboxes (v1.1 -> 3)
+    expect(screen.getAllByRole("checkbox")).toHaveLength(3);
   });
 });
 

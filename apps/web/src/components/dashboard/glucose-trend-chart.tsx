@@ -321,7 +321,7 @@ interface PeriodSelectorProps {
 function PeriodSelector({ selected, onSelect }: PeriodSelectorProps) {
   return (
     <div
-      className="flex gap-1 bg-slate-100 dark:bg-slate-800 rounded-lg p-1"
+      className="flex w-full max-w-full gap-1 overflow-x-auto rounded-lg bg-slate-100 p-1 dark:bg-slate-800 sm:w-auto"
       role="radiogroup"
       aria-label="Time period"
     >
@@ -333,7 +333,7 @@ function PeriodSelector({ selected, onSelect }: PeriodSelectorProps) {
           aria-checked={selected === value}
           onClick={() => onSelect(value)}
           className={clsx(
-            "px-3 py-1 text-sm font-medium rounded-md transition-colors",
+            "shrink-0 px-2.5 sm:px-3 py-1 text-sm font-medium rounded-md transition-colors",
             selected === value
               ? "bg-slate-200 text-slate-900 dark:bg-slate-700 dark:text-white"
               : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
@@ -840,7 +840,7 @@ export function GlucoseTrendChart({
     return (
       <div
         className={clsx(
-          "bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800",
+          "bg-white dark:bg-slate-900 rounded-xl p-4 sm:p-6 border border-slate-200 dark:border-slate-800 overflow-hidden",
           className
         )}
         role="region"
@@ -848,7 +848,7 @@ export function GlucoseTrendChart({
         aria-busy="true"
         data-testid="glucose-trend-chart"
       >
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
           <div className="h-6 w-40 bg-slate-700 rounded animate-pulse" />
           <div className="h-8 w-48 bg-slate-700 rounded animate-pulse" />
         </div>
@@ -862,14 +862,14 @@ export function GlucoseTrendChart({
     return (
       <div
         className={clsx(
-          "bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800",
+          "bg-white dark:bg-slate-900 rounded-xl p-4 sm:p-6 border border-slate-200 dark:border-slate-800 overflow-hidden",
           className
         )}
         role="region"
         aria-label="Glucose trend chart"
         data-testid="glucose-trend-chart"
       >
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
           <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-200">
             Glucose Trend
           </h2>
@@ -894,14 +894,14 @@ export function GlucoseTrendChart({
     return (
       <div
         className={clsx(
-          "bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800",
+          "bg-white dark:bg-slate-900 rounded-xl p-4 sm:p-6 border border-slate-200 dark:border-slate-800 overflow-hidden",
           className
         )}
         role="region"
         aria-label="Glucose trend chart"
         data-testid="glucose-trend-chart"
       >
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
           <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-200">
             Glucose Trend
           </h2>
@@ -921,7 +921,7 @@ export function GlucoseTrendChart({
   return (
     <div
       className={clsx(
-        "bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800",
+        "bg-white dark:bg-slate-900 rounded-xl p-4 sm:p-6 border border-slate-200 dark:border-slate-800 overflow-hidden",
         className
       )}
       role="region"
@@ -929,8 +929,8 @@ export function GlucoseTrendChart({
       data-testid="glucose-trend-chart"
     >
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-4">
+        <div className="flex flex-wrap items-center gap-2">
           <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-200">Glucose Trend</h2>
           {zoomDomain ? (
             <button
@@ -942,7 +942,7 @@ export function GlucoseTrendChart({
               <ZoomOut size={14} /> Reset Zoom
             </button>
           ) : (
-            <span className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
+            <span className="hidden items-center gap-1 text-xs text-slate-500 dark:text-slate-400 sm:flex">
               <ZoomIn size={12} /> Drag chart to zoom
             </span>
           )}
@@ -951,7 +951,7 @@ export function GlucoseTrendChart({
       </div>
 
       {/* Chart -- crosshair cursor signals drag-to-zoom */}
-      <div ref={chartAreaRef} className={clsx("h-64 md:h-72 lg:h-80", isDragging ? "cursor-col-resize" : "cursor-crosshair")}>
+      <div ref={chartAreaRef} className={clsx("h-56 min-w-0 sm:h-64 md:h-72 lg:h-80", isDragging ? "cursor-col-resize" : "cursor-crosshair")}>
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart
             margin={{ top: 10, right: 10, bottom: 0, left: -10 }}

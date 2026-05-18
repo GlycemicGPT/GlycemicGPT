@@ -118,9 +118,14 @@ async def sync_dexcom_for_user(
         await db.commit()
         raise DexcomSyncError("Failed to decrypt credentials") from e
 
+    # Resolve region. Stored as "US" | "OUS" | "JP" (uppercase, matching the
+    # pydexcom Region enum's value field). pydexcom accepts the lowercase
+    # string or the Region enum -- we pass the lowercase string.
+    region = (credential.region or "US").lower()
+
     # Connect to Dexcom
     try:
-        dexcom = Dexcom(username=username, password=password)
+        dexcom = Dexcom(username=username, password=password, region=region)
     except dexcom_errors.AccountError as e:
         logger.warning(
             "Dexcom authentication failed",

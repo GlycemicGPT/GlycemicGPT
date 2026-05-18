@@ -10,7 +10,16 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
+
+# TEST_PASSWORD is generated at runtime (see "Compute ephemeral CI
+# test password" step in each job that needs it) rather than committed
+# as a literal. The value protects nothing -- the CI database is
+# created and destroyed in the same job -- but committing a literal
+# that pattern-matches "Generic Password" trips secret scanners. The
+# runtime template `Fixture-Aa1-${RANDOM}!` satisfies the API's
+# UserRegistrationRequest validator (min 8 chars, upper, lower, digit)
+# without ever appearing as a finished string on disk. See
+# CONTRIBUTING.md "How CI handles fork PRs".
 
 concurrency:
   group: security-scan-${{ github.ref }}
@@ -281,11 +290,24 @@ jobs:
             exit 1
           fi
 
+      - name: Compute ephemeral CI test password
+        # Fully random from /dev/urandom -- no fixed substring that could be
+        # pattern-matched as "Generic Password" by scanners. Value protects
+        # nothing (CI database lives + dies inside this job); only needs to
+        # satisfy the API's UserRegistrationRequest validator (min 8 chars,
+        # upper, lower, digit), which is guaranteed by drawing one char from
+        # each required class up-front and filling the rest with alphanumerics.
+        run: |
+          PW="$(LC_ALL=C tr -dc 'A-Z' </dev/urandom | head -c 1)"
+          PW="$PW$(LC_ALL=C tr -dc 'a-z' </dev/urandom | head -c 1)"
+          PW="$PW$(LC_ALL=C tr -dc '0-9' </dev/urandom | head -c 1)"
+          PW="$PW$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 13)"
+          echo "TEST_PASSWORD=$PW" >> "$GITHUB_ENV"
+
       # ---- Smoke test: verify the stack is functional, not just alive ----
       - name: Smoke test API and Web
         env:
           COMPOSE_PROJECT_NAME: glycemicgpt-test
-          TEST_PASSWORD: ${{ secrets.SECURITY_TEST_PASSWORD }}
         run: |
           echo "Verifying API serves OpenAPI spec..."
           OPENAPI=$(curl -sS http://localhost:8001/openapi.json | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('paths',{})))" || echo "0")
@@ -356,7 +378,6 @@ jobs:
           github.event_name == 'workflow_dispatch'
         env:
           API_URL: http://localhost:8001
-          TEST_PASSWORD: ${{ secrets.SECURITY_TEST_PASSWORD }}
         run: python scripts/security/test-data-isolation.py
 
       - name: Reset rate limits
@@ -376,7 +397,6 @@ jobs:
           github.event_name == 'workflow_dispatch'
         env:
           API_URL: http://localhost:8001
-          TEST_PASSWORD: ${{ secrets.SECURITY_TEST_PASSWORD }}
         run: python scripts/security/test-research-security.py
 
       - name: Reset rate limits
@@ -396,7 +416,6 @@ jobs:
           github.event_name == 'workflow_dispatch'
         env:
           API_URL: http://localhost:8001
-          TEST_PASSWORD: ${{ secrets.SECURITY_TEST_PASSWORD }}
           COMPOSE_PROJECT_NAME: glycemicgpt-test
         run: python scripts/security/fuzz-api.py "$API_URL" --mode both
 
@@ -502,7 +521,6 @@ jobs:
           github.event_name == 'workflow_dispatch'
         env:
           API_URL: http://localhost:8001
-          TEST_PASSWORD: ${{ secrets.SECURITY_TEST_PASSWORD }}
         run: |
           ZAP_EMAIL="zap_$(date +%s)_${RANDOM}@example.com"
           AUTH_BODY=$(jq -nc --arg e "$ZAP_EMAIL" --arg p "$TEST_PASSWORD" '{email:$e,password:$p}')

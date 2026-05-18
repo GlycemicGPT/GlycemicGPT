@@ -17,6 +17,7 @@ import {
   ArrowLeft,
   Brain,
   CheckCircle2,
+  Cloud,
   Eye,
   EyeOff,
   Globe,
@@ -526,6 +527,29 @@ export default function AIProviderPage() {
         </div>
       </div>
 
+      {/* Data-handling banner -- vendor-agnostic disclosure. Rendered
+          regardless of configured state so returning users with a
+          cloud provider already configured also see this. */}
+      <div
+        role="note"
+        aria-label="Data handling notice"
+        className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4 flex gap-3"
+      >
+        <Cloud className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" aria-hidden="true" />
+        <div className="space-y-1">
+          <p className="text-sm font-medium text-amber-300">
+            Your choice below determines where your data is processed.
+          </p>
+          <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+            Cloud-hosted AI providers receive your glucose, insulin, pump,
+            and therapy data for analysis, subject to that provider&apos;s
+            data-handling policy. Locally-hosted AI providers keep that
+            data on your own network. Review the notes on each section
+            below before choosing.
+          </p>
+        </div>
+      </div>
+
       {/* Offline banner */}
       {isOffline && (
         <OfflineBanner
@@ -729,7 +753,7 @@ export default function AIProviderPage() {
           <div className="space-y-4">
             {/* Subscription Plans */}
             <div>
-              <div className="flex items-center gap-2 mb-2">
+              <div className="flex items-center gap-2 mb-2 flex-wrap">
                 <Globe className="h-4 w-4 text-blue-400" />
                 <label className="text-sm font-medium text-slate-600 dark:text-slate-300">
                   Subscription Plans
@@ -737,7 +761,15 @@ export default function AIProviderPage() {
                 <span className="text-xs text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-full">
                   Unlimited usage
                 </span>
+                <span className="text-xs text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full">
+                  Cloud
+                </span>
               </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mb-2 leading-relaxed">
+                Your glucose, insulin, pump, and therapy data are transmitted
+                to the AI provider&apos;s servers for analysis. Review the
+                provider&apos;s data-handling policy before configuring.
+              </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {SUBSCRIPTION_PROVIDERS.map((option) => (
                   <button
@@ -762,7 +794,7 @@ export default function AIProviderPage() {
 
             {/* Pay-Per-Token APIs */}
             <div>
-              <div className="flex items-center gap-2 mb-2">
+              <div className="flex items-center gap-2 mb-2 flex-wrap">
                 <Key className="h-4 w-4 text-amber-400" />
                 <label className="text-sm font-medium text-slate-600 dark:text-slate-300">
                   Pay-Per-Token APIs
@@ -770,7 +802,15 @@ export default function AIProviderPage() {
                 <span className="text-xs text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full">
                   Usage-based pricing
                 </span>
+                <span className="text-xs text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full">
+                  Cloud
+                </span>
               </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mb-2 leading-relaxed">
+                Your glucose, insulin, pump, and therapy data are transmitted
+                to the AI provider&apos;s servers for analysis. Review the
+                provider&apos;s data-handling policy before configuring.
+              </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {API_PROVIDERS.map((option) => (
                   <button
@@ -793,17 +833,32 @@ export default function AIProviderPage() {
               </div>
             </div>
 
-            {/* Self-Hosted */}
+            {/* Custom Endpoint (self-hosted local OR cloud router) */}
             <div>
-              <div className="flex items-center gap-2 mb-2">
-                <Server className="h-4 w-4 text-green-400" />
+              <div className="flex items-center gap-2 mb-2 flex-wrap">
+                <Server className="h-4 w-4 text-amber-400" />
                 <label className="text-sm font-medium text-slate-600 dark:text-slate-300">
-                  Self-Hosted
+                  Custom Endpoint
                 </label>
-                <span className="text-xs text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full">
-                  Free (self-hosted)
+                <span className="text-xs text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full">
+                  Local or cloud (depends on endpoint)
                 </span>
               </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mb-2 leading-relaxed">
+                Your data is sent to whatever endpoint you configure here.
+                If you run a model locally on your own hardware (e.g., Ollama,
+                vLLM, llama.cpp on your own machine or network), your data
+                stays on your network.{" "}
+                <strong className="text-amber-400">
+                  If you point this at a cloud AI router or hosted gateway
+                  (any third-party service that forwards requests to upstream
+                  cloud models), your data will leave your network and be
+                  processed by that service and its upstream providers
+                </strong>{" "}
+                -- even though this section is labelled for self-hosting.
+                You are responsible for understanding where your configured
+                endpoint routes traffic.
+              </p>
               <div className="grid grid-cols-1 gap-2">
                 {SELF_HOSTED_PROVIDERS.map((option) => (
                   <button

@@ -8,6 +8,8 @@ import { render, screen } from "@testing-library/react";
 import {
   GlucoseHero,
   classifyGlucose,
+  parseLoopState,
+  prettySourceName,
   shouldPulse,
   GLUCOSE_THRESHOLDS,
   type TrendDirection,
@@ -124,7 +126,7 @@ describe("GlucoseHero", () => {
 
       const glucoseValue = screen.getByTestId("glucose-value");
       expect(glucoseValue).toHaveTextContent("142");
-      expect(glucoseValue).toHaveClass("text-7xl", "font-bold");
+      expect(glucoseValue).toHaveClass("text-5xl", "sm:text-7xl", "font-bold");
     });
 
     it('displays "--" when value is null', () => {
@@ -471,5 +473,271 @@ describe("GlucoseHero", () => {
 
       expect(screen.getByTestId("glucose-value")).toBeInTheDocument();
     });
+  });
+
+  // -------------------------------------------------------------------------
+  // Story 43.12 PR 6 -- closed-loop runtime surfaces
+  // -------------------------------------------------------------------------
+
+  describe("loop status badge (PR 6)", () => {
+    it("renders nothing when loopStatus is null", () => {
+      render(<GlucoseHero {...defaultProps} loopStatus={null} />);
+      expect(screen.queryByTestId("loop-status-badge")).not.toBeInTheDocument();
+    });
+
+    it("renders 'Looping' for state='looping'", () => {
+      render(
+        <GlucoseHero
+          {...defaultProps}
+          loopStatus={{
+            state: "looping",
+            source: "loop",
+            issuedAt: "2026-05-13T14:00:00Z",
+          }}
+        />
+      );
+      const badge = screen.getByTestId("loop-status-badge");
+      expect(badge).toHaveAttribute("data-state", "looping");
+      expect(badge).toHaveTextContent("Looping");
+      expect(badge).toHaveTextContent("Loop");
+    });
+
+    it("renders 'Not looping' for state='not_looping'", () => {
+      render(
+        <GlucoseHero
+          {...defaultProps}
+          loopStatus={{
+            state: "not_looping",
+            source: "aaps",
+            issuedAt: "2026-05-13T14:00:00Z",
+          }}
+        />
+      );
+      const badge = screen.getByTestId("loop-status-badge");
+      expect(badge).toHaveAttribute("data-state", "not_looping");
+      expect(badge).toHaveTextContent("Not looping");
+      expect(badge).toHaveTextContent("AAPS");
+    });
+
+    it("renders 'Loop failed' with failure reason in tooltip", () => {
+      render(
+        <GlucoseHero
+          {...defaultProps}
+          loopStatus={{
+            state: "failed",
+            source: "loop",
+            issuedAt: "2026-05-13T14:00:00Z",
+            failureReason: "Glucose data is unavailable",
+          }}
+        />
+      );
+      const badge = screen.getByTestId("loop-status-badge");
+      expect(badge).toHaveAttribute("data-state", "failed");
+      expect(badge).toHaveTextContent("Loop failed");
+      // Failure reason flows into the title tooltip (visible on hover);
+      // ariaLabel describes the state separately for screen readers.
+      expect(badge).toHaveAttribute(
+        "title",
+        "Loop: Glucose data is unavailable"
+      );
+    });
+
+    it("displays known source names with proper casing", () => {
+      const sources: Array<[string, string]> = [
+        ["loop", "Loop"],
+        ["aaps", "AAPS"],
+        ["trio", "Trio"],
+        ["oref0", "oref0"],
+        ["iaps", "iAPS"],
+      ];
+      for (const [source, display] of sources) {
+        const { unmount } = render(
+          <GlucoseHero
+            {...defaultProps}
+            loopStatus={{
+              state: "looping",
+              source,
+              issuedAt: "2026-05-13T14:00:00Z",
+            }}
+          />
+        );
+        expect(screen.getByTestId("loop-status-badge")).toHaveTextContent(
+          display
+        );
+        unmount();
+      }
+    });
+  });
+
+  describe("override row (PR 6)", () => {
+    it("renders nothing when override is null", () => {
+      render(<GlucoseHero {...defaultProps} override={null} />);
+      expect(screen.queryByTestId("override-row")).not.toBeInTheDocument();
+    });
+
+    it("renders override name and time remaining", () => {
+      // Pin "now" to one minute past the override start so the
+      // duration math is stable across CI clocks.
+      const now = new Date("2026-05-13T14:01:00Z");
+      jest.useFakeTimers();
+      jest.setSystemTime(now);
+      try {
+        render(
+          <GlucoseHero
+            {...defaultProps}
+            override={{
+              name: "Pre-meal",
+              startedAt: "2026-05-13T14:00:00Z",
+              endsAt: "2026-05-13T14:30:00Z",
+              multiplier: 0.7,
+            }}
+          />
+        );
+        const row = screen.getByTestId("override-row");
+        expect(row).toHaveTextContent("Override: Pre-meal");
+        // 29 minutes remaining (rounded)
+        expect(row).toHaveTextContent("ends in 29 min");
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it("renders 'ongoing' for indefinite overrides (endsAt=null)", () => {
+      render(
+        <GlucoseHero
+          {...defaultProps}
+          override={{
+            name: "Workout",
+            startedAt: "2026-05-13T14:00:00Z",
+            endsAt: null,
+          }}
+        />
+      );
+      expect(screen.getByTestId("override-row")).toHaveTextContent("ongoing");
+    });
+
+    it("renders 'ongoing' for past-end overrides (clock skew safety)", () => {
+      // If a stale snapshot still has `active: true` but the end time
+      // is already in the past (clock skew across the user's devices),
+      // the formatter returns null and we fall back to "ongoing"
+      // rather than rendering "ends in -5 min".
+      const now = new Date("2026-05-13T15:00:00Z");
+      jest.useFakeTimers();
+      jest.setSystemTime(now);
+      try {
+        render(
+          <GlucoseHero
+            {...defaultProps}
+            override={{
+              name: "Workout",
+              startedAt: "2026-05-13T13:00:00Z",
+              endsAt: "2026-05-13T14:00:00Z",
+            }}
+          />
+        );
+        expect(screen.getByTestId("override-row")).toHaveTextContent("ongoing");
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it("renders hours+minutes for long overrides", () => {
+      const now = new Date("2026-05-13T14:00:00Z");
+      jest.useFakeTimers();
+      jest.setSystemTime(now);
+      try {
+        render(
+          <GlucoseHero
+            {...defaultProps}
+            override={{
+              name: "Sleep",
+              startedAt: "2026-05-13T14:00:00Z",
+              endsAt: "2026-05-13T16:30:00Z",
+            }}
+          />
+        );
+        expect(screen.getByTestId("override-row")).toHaveTextContent(
+          "ends in 2h 30m"
+        );
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+  });
+
+  describe("COB metric (PR 6)", () => {
+    it("renders nothing when cobGrams is null", () => {
+      render(<GlucoseHero {...defaultProps} cobGrams={null} />);
+      expect(screen.queryByTestId("cob-value")).not.toBeInTheDocument();
+    });
+
+    it("renders nothing when cobGrams is undefined (back-compat)", () => {
+      render(<GlucoseHero {...defaultProps} />);
+      expect(screen.queryByTestId("cob-value")).not.toBeInTheDocument();
+    });
+
+    it("renders rounded grams when cobGrams is present", () => {
+      render(<GlucoseHero {...defaultProps} cobGrams={24.4} />);
+      expect(screen.getByTestId("cob-value")).toHaveTextContent("24g");
+    });
+
+    it("renders zero cleanly", () => {
+      // Zero is a valid COB reading ("no carbs absorbing right now");
+      // distinct from "no data" which is null/undefined.
+      render(<GlucoseHero {...defaultProps} cobGrams={0} />);
+      expect(screen.getByTestId("cob-value")).toHaveTextContent("0g");
+    });
+
+    it("rejects negative cob via sanitizer", () => {
+      // Carbs grams can't be negative; defensive sanitization should
+      // hide the column rather than render -5g.
+      render(<GlucoseHero {...defaultProps} cobGrams={-5} />);
+      expect(screen.queryByTestId("cob-value")).not.toBeInTheDocument();
+    });
+  });
+});
+
+
+describe("parseLoopState (PR 6 adversarial fix)", () => {
+  it("accepts canonical loop states", () => {
+    expect(parseLoopState("looping")).toBe("looping");
+    expect(parseLoopState("not_looping")).toBe("not_looping");
+    expect(parseLoopState("failed")).toBe("failed");
+  });
+
+  it("returns null for unknown states", () => {
+    // Future-proofing -- if the backend ever returns "warming_up"
+    // or "unknown", the page-level mapper will short-circuit to
+    // null rather than letting `LOOP_STATE_STYLE[unknown]` crash.
+    expect(parseLoopState("warming_up")).toBeNull();
+    expect(parseLoopState("LOOPING")).toBeNull(); // case-sensitive
+    expect(parseLoopState("")).toBeNull();
+  });
+});
+
+describe("prettySourceName (PR 6 adversarial fix)", () => {
+  it("maps known sources to friendly display names", () => {
+    expect(prettySourceName("loop")).toBe("Loop");
+    expect(prettySourceName("aaps")).toBe("AAPS");
+    expect(prettySourceName("trio")).toBe("Trio");
+    expect(prettySourceName("oref0")).toBe("oref0");
+    expect(prettySourceName("iaps")).toBe("iAPS");
+  });
+
+  it("falls back to a generic label for unknown sources", () => {
+    // Defensive: an unrecognized string from the backend renders
+    // as "Closed loop" rather than echoing whatever value the
+    // server sent. Backend contract is bounded today; this is
+    // forward-protection.
+    expect(prettySourceName("future-engine")).toBe("Closed loop");
+    expect(prettySourceName("")).toBe("Closed loop");
+  });
+
+  it("treats casing strictly (parity with parseLoopState)", () => {
+    // Backend's Pydantic `Literal` emits lowercase canonical values
+    // and this is mirrored on the API type. Mixed-case input is a
+    // contract drift, not something to paper over.
+    expect(prettySourceName("LOOP")).toBe("Closed loop");
+    expect(prettySourceName("Loop")).toBe("Closed loop");
   });
 });

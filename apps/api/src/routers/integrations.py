@@ -19,6 +19,11 @@ from tconnectsync.api.tandemsource import TandemSourceApi
 
 from src.core.auth import CurrentUser, DiabeticOrAdminUser
 from src.core.encryption import encrypt_credential
+from src.core.tandem_regions import (
+    TandemLegacyRegionError,
+    country_to_cloud,
+    is_legacy_tandem_region,
+)
 from src.database import get_db
 from src.logging_config import get_logger
 from src.middleware.rate_limit import limiter
@@ -33,6 +38,13 @@ from src.models.pump_hardware_info import PumpHardwareInfo
 from src.models.pump_raw_event import PumpRawEvent
 from src.models.tandem_upload_state import TandemUploadState
 from src.schemas.auth import ErrorResponse
+from src.schemas.forecast import (
+    ForecastPayload,
+    ForecastReadResponse,
+    ForecastSourcePreferenceResponse,
+    ForecastSourcePreferenceUpdate,
+    curves_from_jsonb,
+)
 from src.schemas.glucose import (
     AGPBucket,
     CurrentGlucoseResponse,
@@ -61,6 +73,8 @@ from src.schemas.pump import (
     ControlIQActivityResponse,
     InsulinSummaryResponse,
     IoBProjectionResponse,
+    LoopStatusResponse,
+    OverrideStatusResponse,
     PumpEventHistoryResponse,
     PumpEventResponse,
     PumpPushRequest,
@@ -71,6 +85,7 @@ from src.schemas.pump import (
     PumpStatusResponse,
     TandemSyncResponse,
     TandemSyncStatusResponse,
+    TandemUploadResetResponse,
     TandemUploadSettingsRequest,
     TandemUploadStatusResponse,
     TandemUploadTriggerResponse,
@@ -83,10 +98,19 @@ from src.services.dexcom_sync import (
     get_latest_glucose_reading,
     sync_dexcom_for_user,
 )
+from src.services.forecast_reader import (
+    get_available_sources,
+    get_latest_forecast,
+    read_forecast_preference,
+    resolve_effective_source,
+    set_forecast_source,
+)
 from src.services.iob_projection import get_iob_projection, get_user_dia
+from src.services.loop_state_extractor import get_latest_loop_state
 from src.services.tandem_sync import (
     TandemAuthError,
     TandemConnectionError,
+    TandemNeedsCountryError,
     TandemNotConfiguredError,
     TandemSyncError,
     get_control_iq_activity,
@@ -146,31 +170,45 @@ router = APIRouter(prefix="/api/integrations", tags=["integrations"])
 
 
 def validate_dexcom_credentials(
-    username: str, password: str
+    username: str, password: str, region: str = "US"
 ) -> tuple[bool, str | None]:
     """Validate Dexcom Share credentials by attempting to connect.
 
     Args:
         username: Dexcom Share email
         password: Dexcom Share password
+        region: Dexcom Share region ("US", "OUS" or "JP"). pydexcom uses the
+            lowercase form internally; passed here as the stored value.
 
     Returns:
         Tuple of (success, error_message)
     """
     try:
-        # Try to connect to Dexcom - this validates credentials
-        dexcom = Dexcom(username=username, password=password)
+        # Try to connect to Dexcom - this validates credentials.
+        # pydexcom accepts the region as a lowercase string or Region enum.
+        dexcom = Dexcom(
+            username=username,
+            password=password,
+            region=region.lower(),
+        )
         # Try to get glucose readings to confirm connection works
         _ = dexcom.get_current_glucose_reading()
         return True, None
     except dexcom_errors.AccountError as e:
         logger.warning(
             "Dexcom credential validation failed - account error",
+            region=region,
             error=str(e),
         )
+        # Region mismatch and wrong password return the same AccountError, so
+        # we surface a region hint alongside the credential hint.
         return (
             False,
-            "Invalid Dexcom credentials. Please check your email and password.",
+            (
+                "Could not log in to Dexcom. Double-check your email, password, "
+                "and region selection (US / Outside US / Japan), and confirm "
+                "Dexcom Share is enabled with at least one follower invited."
+            ),
         )
     except dexcom_errors.SessionError as e:
         logger.warning(
@@ -190,30 +228,44 @@ def validate_dexcom_credentials(
 
 
 def validate_tandem_credentials(
-    username: str, password: str, region: str = "US"
+    username: str, password: str, country: str = "US"
 ) -> tuple[bool, str | None]:
     """Validate Tandem t:connect credentials by attempting to connect.
 
     Args:
         username: Tandem t:connect email
         password: Tandem t:connect password
-        region: Account region ('US' or 'EU')
+        country: ISO-3166-1 alpha-2 country code (used to route to the
+            correct Tandem cloud bucket via ``country_to_cloud``).
 
     Returns:
         Tuple of (success, error_message)
     """
     try:
-        # Try to connect to Tandem - this validates credentials via login()
-        # TandemSourceApi calls login() in __init__, so instantiation validates
-        _api = TandemSourceApi(email=username, password=password, region=region)
-        return True, None
+        cloud = country_to_cloud(country)
     except ValueError as e:
-        # Invalid region
         logger.warning(
-            "Tandem credential validation failed - invalid region",
+            "Tandem credential validation failed - unsupported country",
+            country=country,
             error=str(e),
         )
-        return False, f"Invalid region: {region}. Must be 'US' or 'EU'."
+        return False, f"Country '{country}' is not supported by Tandem cloud."
+
+    try:
+        # tconnectsync's TandemSourceApi.__init__ calls login(), so simply
+        # constructing it validates the credentials.
+        _api = TandemSourceApi(email=username, password=password, region=cloud)
+        return True, None
+    except ValueError as e:
+        # Shouldn't happen for a vetted country, but tconnectsync may add new
+        # checks in future versions.
+        logger.warning(
+            "Tandem credential validation failed - invalid cloud bucket",
+            country=country,
+            cloud=cloud,
+            error=str(e),
+        )
+        return False, f"Invalid region configuration for country '{country}'."
     except ApiException as e:
         logger.warning(
             "Tandem credential validation failed - API error",
@@ -288,10 +340,11 @@ async def connect_dexcom(
     Validates the provided credentials and stores them encrypted
     in the database. If credentials already exist, they are updated.
     """
-    # Validate credentials first
+    # Validate credentials first (with region so we hit the right Share server)
     is_valid, error_message = validate_dexcom_credentials(
         request.username,
         request.password,
+        request.region,
     )
 
     if not is_valid:
@@ -318,6 +371,7 @@ async def connect_dexcom(
         # Update existing credentials
         existing.encrypted_username = encrypt_credential(request.username)
         existing.encrypted_password = encrypt_credential(request.password)
+        existing.region = request.region
         existing.status = IntegrationStatus.CONNECTED
         existing.last_error = None
         existing.updated_at = datetime.now(UTC)
@@ -329,6 +383,7 @@ async def connect_dexcom(
             integration_type=IntegrationType.DEXCOM,
             encrypted_username=encrypt_credential(request.username),
             encrypted_password=encrypt_credential(request.password),
+            region=request.region,
             status=IntegrationStatus.CONNECTED,
         )
         db.add(credential)
@@ -450,11 +505,11 @@ async def connect_tandem(
     Validates the provided credentials and stores them encrypted
     in the database. If credentials already exist, they are updated.
     """
-    # Validate credentials first (with region)
+    # Validate credentials first (with country)
     is_valid, error_message = validate_tandem_credentials(
         request.username,
         request.password,
-        request.region,
+        request.country,
     )
 
     if not is_valid:
@@ -478,22 +533,47 @@ async def connect_tandem(
     existing = result.scalar_one_or_none()
 
     if existing:
-        # Update existing credentials
+        # Update existing credentials. region column stores the country code
+        # for Tandem (see model comment in src/models/integration.py).
+        previous_country = existing.region or ""
+        country_changed = previous_country != request.country
         existing.encrypted_username = encrypt_credential(request.username)
         existing.encrypted_password = encrypt_credential(request.password)
-        existing.region = request.region
+        existing.region = request.country
         existing.status = IntegrationStatus.CONNECTED
         existing.last_error = None
         existing.updated_at = datetime.now(UTC)
         credential = existing
+
+        # If the country (and therefore the Tandem cloud bucket) changed, the
+        # cached OAuth token is bound to the old cloud and will fail with an
+        # opaque 401 against the new endpoints. Clear it so the next upload
+        # re-authenticates fresh.
+        if country_changed:
+            state_result = await db.execute(
+                select(TandemUploadState).where(
+                    TandemUploadState.user_id == current_user.id
+                )
+            )
+            state = state_result.scalar_one_or_none()
+            if state is not None:
+                state.tandem_access_token = None
+                state.tandem_refresh_token = None
+                state.tandem_token_expires_at = None
+                state.tandem_pumper_id = None
+                logger.info(
+                    "Cleared cached Tandem auth on country change",
+                    user_id=str(current_user.id),
+                    old_country=previous_country,
+                    new_country=request.country,
+                )
     else:
-        # Create new credential
         credential = IntegrationCredential(
             user_id=current_user.id,
             integration_type=IntegrationType.TANDEM,
             encrypted_username=encrypt_credential(request.username),
             encrypted_password=encrypt_credential(request.password),
-            region=request.region,
+            region=request.country,
             status=IntegrationStatus.CONNECTED,
         )
         db.add(credential)
@@ -1162,6 +1242,10 @@ def _build_tir_buckets(
         401: {"model": ErrorResponse, "description": "Not authenticated"},
         403: {"model": ErrorResponse, "description": "Permission denied"},
         404: {"model": ErrorResponse, "description": "Tandem not configured"},
+        409: {
+            "model": ErrorResponse,
+            "description": "Country re-selection required (legacy region value)",
+        },
         503: {"model": ErrorResponse, "description": "Tandem service unavailable"},
     },
 )
@@ -1228,6 +1312,19 @@ async def sync_tandem_data(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Tandem integration not configured",
+        ) from e
+
+    except TandemNeedsCountryError as e:
+        # Caught before the generic TandemSyncError handler below since
+        # TandemNeedsCountryError is a TandemSyncError subclass.
+        logger.warning(
+            "Tandem sync blocked - legacy region requires re-select",
+            user_id=str(current_user.id),
+            error=str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
         ) from e
 
     except TandemSyncError as e:
@@ -1353,6 +1450,31 @@ async def get_pump_status(
     battery_event = status.get("battery")
     reservoir_event = status.get("reservoir")
 
+    # PR 6: closed-loop surfaces from the latest NS devicestatus snapshot.
+    # Independent query path (DeviceStatusSnapshot, not PumpEvent) -- a
+    # user with only direct integrations (Tandem cloud, etc.) gets the
+    # pump fields populated and the loop fields all None, which is the
+    # correct read.
+    loop_state = await get_latest_loop_state(db, current_user.id)
+    loop_status_resp: LoopStatusResponse | None = None
+    if loop_state.loop_status is not None:
+        loop_status_resp = LoopStatusResponse(
+            state=loop_state.loop_status.state,
+            source=loop_state.loop_status.source,
+            issued_at=loop_state.loop_status.issued_at,
+            failure_reason=loop_state.loop_status.failure_reason,
+        )
+    override_resp: OverrideStatusResponse | None = None
+    if loop_state.override is not None:
+        override_resp = OverrideStatusResponse(
+            name=loop_state.override.name,
+            started_at=loop_state.override.started_at,
+            ends_at=loop_state.override.ends_at,
+            multiplier=loop_state.override.multiplier,
+            target_low_mgdl=loop_state.override.target_low_mgdl,
+            target_high_mgdl=loop_state.override.target_high_mgdl,
+        )
+
     return PumpStatusResponse(
         basal=PumpStatusBasal(
             rate=basal_event.units or 0.0,
@@ -1374,6 +1496,134 @@ async def get_pump_status(
         )
         if reservoir_event
         else None,
+        loop_status=loop_status_resp,
+        override=override_resp,
+        cob_grams=loop_state.cob_grams,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Story 43.12 PR 3 -- forecast picker read/write endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/forecast",
+    response_model=ForecastReadResponse,
+    responses={
+        200: {
+            "description": (
+                "User's forecast picker preference, the engines currently "
+                "publishing forecasts, and (when an effective source resolves) "
+                "the latest forecast payload from that source."
+            )
+        },
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        403: {"model": ErrorResponse, "description": "Permission denied"},
+    },
+)
+async def get_forecast(
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> ForecastReadResponse:
+    """Compose the forecast-overlay read for the dashboard chart and AI context.
+
+    Three independent state pieces fold into one response:
+
+    - **`source_preference`** -- whatever the user picked (or `'auto'`
+      default for new users).
+    - **`available_sources`** -- engines that emitted any forecast in
+      the last 24h. Drives PR 4's picker dropdown.
+    - **`forecast`** -- the latest snapshot from the effective source,
+      suppressed when older than the 30-min freshness threshold so
+      the chart never draws a misaligned dotted line.
+
+    The `effective_source` field is the resolved combination -- the
+    chart should ignore `source_preference` and `available_sources`
+    when deciding what (if anything) to render and just trust
+    `effective_source` + `forecast`.
+
+    Returns 200 with all-null forecast/effective_source for users
+    with no closed-loop integration -- the picker UI hides itself
+    in that state.
+    """
+    # Read-only path -- never INSERTs a settings row, returns
+    # 'auto' as the synthesized default for users with no stored
+    # preference. This keeps the GET side-effect-free per REST
+    # convention. PUT is where the row gets persisted.
+    preference = await read_forecast_preference(db, current_user.id)
+    available = await get_available_sources(db, current_user.id)
+    effective = resolve_effective_source(preference, available)
+
+    forecast_payload: ForecastPayload | None = None
+    if effective is not None:
+        latest = await get_latest_forecast(db, current_user.id, effective)
+        if latest is not None:
+            forecast_payload = ForecastPayload(
+                source_engine=latest.source_engine,  # type: ignore[arg-type]
+                source_uploader=latest.source_uploader,
+                issued_at=latest.issued_at,
+                start_at=latest.start_at,
+                step_minutes=latest.step_minutes,
+                horizon_minutes=latest.horizon_minutes,
+                curves_mgdl=curves_from_jsonb(latest.curves_mgdl_json),
+                default_curve_name=latest.default_curve_name,
+            )
+
+    # Compute the explicit "why no forecast" reason for the frontend.
+    # Mutually exclusive states; happy path returns None.
+    reason: str | None = None
+    if forecast_payload is None:
+        if preference == "none":
+            reason = "opted_out"
+        elif not available:
+            reason = "no_sources"
+        elif preference == "auto" and len(available) > 1:
+            reason = "needs_pick"
+        elif effective is None:
+            # preference is a specific engine but it's not in `available`.
+            reason = "source_silent"
+        else:
+            # effective resolved but the latest snapshot is too old.
+            reason = "stale"
+
+    return ForecastReadResponse(
+        source_preference=preference,
+        effective_source=effective,
+        available_sources=available,
+        forecast=forecast_payload,
+        forecast_unavailable_reason=reason,  # type: ignore[arg-type]
+    )
+
+
+@router.put(
+    "/forecast/source",
+    response_model=ForecastSourcePreferenceResponse,
+    responses={
+        200: {"description": "Forecast source preference updated."},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        403: {"model": ErrorResponse, "description": "Permission denied"},
+        422: {
+            "model": ErrorResponse,
+            "description": "Invalid `source` value (must be one of the allowed enum).",
+        },
+    },
+)
+async def update_forecast_source(
+    body: ForecastSourcePreferenceUpdate,
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> ForecastSourcePreferenceResponse:
+    """Persist the user's forecast picker choice.
+
+    Pydantic's `Literal` validation rejects unknown source values at
+    the API boundary (422 before the DB ever sees them). The DB's
+    CHECK constraint is the final guard if the schema ever drifts.
+    """
+    settings = await set_forecast_source(db, current_user.id, body.source)
+    await db.commit()
+    return ForecastSourcePreferenceResponse(
+        source_preference=settings.source,  # type: ignore[arg-type]
     )
 
 
@@ -1664,11 +1914,24 @@ async def get_tandem_upload_status(
     )
     pending_count = pending_result.scalar() or 0
 
+    # Resolve stored country and legacy flag from the Tandem credential.
+    cred_result = await db.execute(
+        select(IntegrationCredential).where(
+            IntegrationCredential.user_id == current_user.id,
+            IntegrationCredential.integration_type == IntegrationType.TANDEM,
+        )
+    )
+    credential = cred_result.scalar_one_or_none()
+    stored = credential.region if credential else None
+    needs_country = bool(stored) and is_legacy_tandem_region(stored)
+
     if not state:
         return TandemUploadStatusResponse(
             enabled=False,
             upload_interval_minutes=15,
             pending_raw_events=pending_count,
+            country=stored if not needs_country else None,
+            needs_country_reselect=needs_country,
         )
 
     return TandemUploadStatusResponse(
@@ -1679,6 +1942,8 @@ async def get_tandem_upload_status(
         last_error=state.last_error,
         max_event_index_uploaded=state.max_event_index_uploaded,
         pending_raw_events=pending_count,
+        country=stored if not needs_country else None,
+        needs_country_reselect=needs_country,
     )
 
 
@@ -1688,6 +1953,14 @@ async def get_tandem_upload_status(
     responses={
         200: {"description": "Settings updated"},
         401: {"model": ErrorResponse, "description": "Not authenticated"},
+        404: {
+            "model": ErrorResponse,
+            "description": "Tandem not configured (only raised when enabling)",
+        },
+        409: {
+            "model": ErrorResponse,
+            "description": "Legacy region requires country re-selection before enable",
+        },
     },
 )
 async def update_tandem_upload_settings(
@@ -1695,7 +1968,44 @@ async def update_tandem_upload_settings(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> TandemUploadStatusResponse:
-    """Enable/disable Tandem cloud upload and set interval."""
+    """Enable/disable Tandem cloud upload and set interval.
+
+    Refuses to enable when the user's stored Tandem region is legacy
+    (e.g. ``"EU"``) — they must re-select their country first via the
+    ``POST /api/integrations/tandem`` connect endpoint.
+    """
+    cred_result = await db.execute(
+        select(IntegrationCredential).where(
+            IntegrationCredential.user_id == current_user.id,
+            IntegrationCredential.integration_type == IntegrationType.TANDEM,
+        )
+    )
+    credential = cred_result.scalar_one_or_none()
+    stored = credential.region if credential else None
+    needs_country = bool(stored) and is_legacy_tandem_region(stored)
+
+    # Allow disable always (users should be able to turn the feature off even
+    # if they're stuck on a legacy region or have no credential at all). Only
+    # enable requires a healthy credential + non-legacy region.
+    if request.enabled:
+        if credential is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=(
+                    "Tandem integration not configured. Please connect your "
+                    "Tandem account before enabling cloud upload."
+                ),
+            )
+        if needs_country:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Your Tandem integration uses a legacy region value and "
+                    "must be re-connected with your country selected before "
+                    "uploads can be enabled."
+                ),
+            )
+
     result = await db.execute(
         select(TandemUploadState).where(TandemUploadState.user_id == current_user.id)
     )
@@ -1739,6 +2049,8 @@ async def update_tandem_upload_settings(
         last_error=state.last_error,
         max_event_index_uploaded=state.max_event_index_uploaded,
         pending_raw_events=pending_count,
+        country=stored if not needs_country else None,
+        needs_country_reselect=needs_country,
     )
 
 
@@ -1749,28 +2061,40 @@ async def update_tandem_upload_settings(
         200: {"description": "Upload triggered"},
         401: {"model": ErrorResponse, "description": "Not authenticated"},
         404: {"model": ErrorResponse, "description": "Tandem not configured"},
+        409: {"model": ErrorResponse, "description": "Integration disconnected"},
+        429: {"model": ErrorResponse, "description": "Rate limit exceeded"},
         500: {"model": ErrorResponse, "description": "Upload failed"},
     },
 )
+@limiter.limit("5/minute")
 async def trigger_tandem_upload(
+    request: Request,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> TandemUploadTriggerResponse:
     """Manually trigger a Tandem cloud upload.
 
-    Uploads pending raw events to the Tandem cloud immediately.
+    Uploads pending raw events to the Tandem cloud immediately. Rate-limited
+    to 5/minute per IP -- the scheduler handles steady-state uploads on its
+    own interval; this endpoint is a manual override.
     """
-    # Verify Tandem credentials exist
+    # Verify Tandem credentials exist and are not disconnected.
     cred_result = await db.execute(
         select(IntegrationCredential).where(
             IntegrationCredential.user_id == current_user.id,
             IntegrationCredential.integration_type == IntegrationType.TANDEM,
         )
     )
-    if not cred_result.scalar_one_or_none():
+    credential = cred_result.scalar_one_or_none()
+    if not credential:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Tandem integration not configured. Please connect your Tandem account first.",
+        )
+    if credential.status == IntegrationStatus.DISCONNECTED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Tandem integration is disconnected. Reconnect Tandem first.",
         )
 
     # Import here to avoid circular imports
@@ -1778,11 +2102,11 @@ async def trigger_tandem_upload(
 
     try:
         result = await upload_to_tandem(db, current_user.id)
-        return TandemUploadTriggerResponse(
-            message=result.get("message", "Upload complete"),
-            events_uploaded=result.get("events_uploaded", 0),
-            status=result.get("status", "success"),
-        )
+    except TandemLegacyRegionError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        ) from e
     except Exception as e:
         logger.error(
             "Tandem upload trigger failed",
@@ -1793,6 +2117,74 @@ async def trigger_tandem_upload(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Upload failed. Please try again later.",
         ) from e
+
+    return TandemUploadTriggerResponse(
+        message=result.get("message", "Upload complete"),
+        events_uploaded=result.get("events_uploaded", 0),
+        status=result.get("status", "success"),
+    )
+
+
+@router.post(
+    "/tandem/cloud-upload/reset",
+    response_model=TandemUploadResetResponse,
+    responses={
+        200: {"description": "Upload state reset"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        404: {"model": ErrorResponse, "description": "Tandem not configured"},
+        409: {"model": ErrorResponse, "description": "Integration disconnected"},
+        429: {"model": ErrorResponse, "description": "Rate limit exceeded"},
+    },
+)
+@limiter.limit("5/minute")
+async def reset_tandem_upload(
+    request: Request,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> TandemUploadResetResponse:
+    """Reset the Tandem upload high-water mark and re-queue all stored events.
+
+    Recovery action for cases where the local state has drifted out of sync
+    with reality -- e.g. after a pump re-pair, sequence-counter reset, or
+    when migrating off the legacy incremental-sync logic that silently
+    filtered queued events.
+
+    Rate-limited to 5/minute per IP: the reset is a heavy ``UPDATE`` over
+    every ``pump_raw_events`` row for the user and takes a row-lock on the
+    upload state -- a tight loop could saturate the connection pool for
+    legitimate uploads. Idempotent: safe to call repeatedly within the
+    limit.
+    """
+    cred_result = await db.execute(
+        select(IntegrationCredential).where(
+            IntegrationCredential.user_id == current_user.id,
+            IntegrationCredential.integration_type == IntegrationType.TANDEM,
+        )
+    )
+    credential = cred_result.scalar_one_or_none()
+    if not credential:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tandem integration not configured.",
+        )
+    # Respect the user's "off" decision: a disconnected integration should
+    # not be re-armed by the reset path. The user must reconnect first.
+    if credential.status == IntegrationStatus.DISCONNECTED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Tandem integration is disconnected. Reconnect Tandem "
+                "before resetting the upload state."
+            ),
+        )
+
+    from src.services.tandem_upload import reset_tandem_upload_state
+
+    result = await reset_tandem_upload_state(db, current_user.id)
+    return TandemUploadResetResponse(
+        message=result.get("message", "Reset complete"),
+        events_requeued=result.get("events_requeued", 0),
+    )
 
 
 # --- Story 30.1: Aggregate statistics endpoints ---

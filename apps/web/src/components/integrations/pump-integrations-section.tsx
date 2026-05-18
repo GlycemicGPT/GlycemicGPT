@@ -4,6 +4,7 @@ import { Cpu } from "lucide-react";
 import clsx from "clsx";
 import type { IntegrationResponse } from "@/lib/api";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
+import { TANDEM_COUNTRY_GROUPS } from "@/lib/tandem-countries";
 import {
   IntegrationCard,
   PasswordInput,
@@ -15,12 +16,12 @@ interface PumpIntegrationsSectionProps {
   tandem: IntegrationResponse | null;
   tandemEmail: string;
   tandemPassword: string;
-  tandemRegion: string;
+  tandemCountry: string;
   isTandemConnecting: boolean;
   isOffline: boolean;
   onTandemEmailChange: (value: string) => void;
   onTandemPasswordChange: (value: string) => void;
-  onTandemRegionChange: (value: string) => void;
+  onTandemCountryChange: (value: string) => void;
   onConnectTandem: () => Promise<void>;
   onDisconnectTandem: () => Promise<void>;
 }
@@ -29,12 +30,12 @@ export function PumpIntegrationsSection({
   tandem,
   tandemEmail,
   tandemPassword,
-  tandemRegion,
+  tandemCountry,
   isTandemConnecting,
   isOffline,
   onTandemEmailChange,
   onTandemPasswordChange,
-  onTandemRegionChange,
+  onTandemCountryChange,
   onConnectTandem,
   onDisconnectTandem,
 }: PumpIntegrationsSectionProps) {
@@ -92,17 +93,17 @@ export function PumpIntegrationsSection({
                       label="Tandem t:connect Password"
                     />
                   </div>
-                  <div className="max-w-xs">
+                  <div className="max-w-sm">
                     <label
-                      htmlFor="tandem-region"
+                      htmlFor="tandem-country"
                       className="block text-sm font-medium text-slate-300 mb-1"
                     >
-                      Region
+                      Country
                     </label>
                     <select
-                      id="tandem-region"
-                      value={tandemRegion}
-                      onChange={(e) => onTandemRegionChange(e.target.value)}
+                      id="tandem-country"
+                      value={tandemCountry}
+                      onChange={(e) => onTandemCountryChange(e.target.value)}
                       disabled={isTandemConnecting}
                       className={clsx(
                         "w-full rounded-lg border px-3 py-2 text-sm",
@@ -111,11 +112,20 @@ export function PumpIntegrationsSection({
                         "disabled:opacity-50 disabled:cursor-not-allowed"
                       )}
                     >
-                      <option value="US">United States</option>
-                      <option value="EU">Europe</option>
+                      {TANDEM_COUNTRY_GROUPS.map((group) => (
+                        <optgroup key={group.label} label={group.label}>
+                          {group.options.map((opt) => (
+                            <option key={opt.code} value={opt.code}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ))}
                     </select>
                     <p className="text-xs text-slate-500 mt-1">
-                      Select your Tandem account region
+                      Tandem routes data through one of two cloud backends.
+                      Pick the country your t:connect account is registered
+                      in — uploads to the wrong cluster will silently fail.
                     </p>
                   </div>
                 </div>

@@ -57,9 +57,25 @@ In your GlycemicGPT dashboard:
 2. Find **Tandem (t:connect)** and click **Connect**
 3. Paste your **t:connect email**
 4. Paste your **t:connect password**
-5. Click **Save**
+5. Pick the **country** your t:connect account is registered in (see below)
+6. Click **Save**
 
 The platform stores credentials encrypted (using your `SECRET_KEY` from `.env`).
+
+### Picking the right country
+
+Tandem operates two cloud backends — a US cluster and an EU cluster — and routes each country to one of them via a per-country config endpoint. The picker shows every country Tandem currently provisions, grouped by cluster for readability.
+
+| Cluster | Countries Tandem provisions |
+|---|---|
+| **US cloud** | United States, Canada, Mexico |
+| **EU cloud** | United Kingdom, Ireland, EEA (DE, FR, IT, ES, NL, BE, SE, NO, FI, DK, PT, LU, CH, AT, GR, PL, CZ, SK, HU, SI, HR, RO, BG, IS, EE, LV, LT, MT), Australia, New Zealand, Israel, South Africa, plus RU, UA, RS, BA, AL, ME, MK |
+
+If your country isn't in the picker, Tandem hasn't published a config for it — t:slim X2 isn't sold there commercially today (Japan, Korea, India, Brazil, etc. all fall into this bucket). The Mobi is currently US-only.
+
+Picking the wrong country will make uploads fail or appear stuck because GlycemicGPT will fetch the wrong cluster's config file. The status card will surface a clear error and the "Re-select your country" banner; if you need to recover after switching, use [Recovering stuck uploads](#recovering-stuck-uploads) below.
+
+> **Existing users:** If you connected Tandem before the country picker existed (when only "US" / "EU" were stored), you'll see a "Re-select your country" banner on the Cloud Upload card. Re-connect with your country selected to clear it. Uploads won't run until you do.
 
 ### 2. Wait for the first sync
 
@@ -101,6 +117,12 @@ This is the same path the [tconnectsync](https://github.com/jwoglom/tconnectsync
 4. Save
 
 The pull direction must be configured first (the upload reuses the same credentials). The upload runs in the background; there's nothing else to do.
+
+### Recovering stuck uploads
+
+If the **Cloud Upload** card shows pending events but each manual **Upload Now** completes with "no pending events," your local upload-state has drifted out of sync with what's actually uploadable. This can happen after a pump re-pair, a sequence-counter reset, or (historically) the legacy incremental-sync bug that silently filtered queued events.
+
+Use **Reset upload state & re-queue events** at the bottom of the card to clear the local high-water mark and re-flag every stored event as pending. Tandem dedupes by sequence number on its side, so re-uploading events it already has is a safe no-op — the next upload run will simply be larger than usual.
 
 ### Why it's off by default
 
