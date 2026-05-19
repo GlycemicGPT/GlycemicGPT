@@ -740,65 +740,112 @@ class TestTandemCountryField:
         assert resp.status_code == 422
 
 
-class TestTandemUploadResetEndpoint:
-    """The new reset endpoint must require a configured Tandem integration."""
+class TestTandemCloudUploadRoutesGone:
+    """The Tandem cloud-upload endpoints were removed in PR1c. Verify they
+    no longer exist as a regression guard -- a future inadvertent re-add
+    would silently re-enable a feature we deliberately deprecated."""
 
-    async def test_reset_without_credential_returns_404(self):
-        email = unique_email("tan_reset_404")
+    async def test_status_endpoint_404(self):
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"
         ) as client:
-            cookie = await _login(client, email, "SecurePass123")
-            resp = await client.post(
-                "/api/integrations/tandem/cloud-upload/reset",
-                cookies={settings.jwt_cookie_name: cookie},
-            )
-        assert resp.status_code == 404
+            resp = await client.get("/api/integrations/tandem/cloud-upload/status")
+        assert resp.status_code == 404, resp.text
 
-    async def test_reset_requires_auth(self):
+    async def test_settings_endpoint_404(self):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.put(
+                "/api/integrations/tandem/cloud-upload/settings",
+                json={"enabled": False, "interval_minutes": 15},
+            )
+        assert resp.status_code == 404, resp.text
+
+    async def test_trigger_endpoint_404(self):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.post("/api/integrations/tandem/cloud-upload/trigger")
+        assert resp.status_code == 404, resp.text
+
+    async def test_reset_endpoint_404(self):
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"
         ) as client:
             resp = await client.post("/api/integrations/tandem/cloud-upload/reset")
-        assert resp.status_code == 401
-
-
-class TestTandemUploadSettingsGuards:
-    """``PUT /tandem/cloud-upload/settings`` must guard against unsafe enables.
-
-    Disable is always allowed (users must be able to opt out), enable requires
-    a healthy non-legacy credential.
-    """
-
-    async def test_enable_without_credential_returns_404(self):
-        email = unique_email("tan_settings_404")
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
-            cookie = await _login(client, email, "SecurePass123")
-            resp = await client.put(
-                "/api/integrations/tandem/cloud-upload/settings",
-                json={"enabled": True, "interval_minutes": 15},
-                cookies={settings.jwt_cookie_name: cookie},
-            )
         assert resp.status_code == 404, resp.text
-        assert "not configured" in resp.json()["detail"].lower()
 
-    async def test_disable_without_credential_succeeds(self):
-        """Even with no Tandem credential, users must be able to send
-        ``enabled=False`` so toggle-off never gets stuck."""
-        email = unique_email("tan_settings_disable")
+
+class TestPumpPushAcceptsButIgnoresRawEvents:
+    """``/api/integrations/pump/push`` keeps accepting ``raw_events`` and
+    ``pump_info`` from older mobile clients (back-compat), but no longer
+    persists them. Response reports zero raw_accepted/raw_duplicates."""
+
+    async def test_push_accepts_legacy_raw_events_field(self):
+        # Use bearer-token mobile auth like the rest of pump/push tests
+        # (cookie auth would trip CSRF on this state-changing endpoint).
+        from datetime import UTC, datetime, timedelta
+
+        email = unique_email("pump_push_raw")
+        # 1 hour ago so the event_timestamp validator (rejects >5 min future)
+        # accepts it regardless of when the test runs.
+        event_ts = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"
         ) as client:
-            cookie = await _login(client, email, "SecurePass123")
-            resp = await client.put(
-                "/api/integrations/tandem/cloud-upload/settings",
-                json={"enabled": False, "interval_minutes": 15},
-                cookies={settings.jwt_cookie_name: cookie},
+            await client.post(
+                "/api/auth/register",
+                json={"email": email, "password": "TestPass1"},
+            )
+            login = await client.post(
+                "/api/auth/mobile/login",
+                json={"email": email, "password": "TestPass1"},
+            )
+            token = login.json()["access_token"]
+            resp = await client.post(
+                "/api/integrations/pump/push",
+                headers={"Authorization": f"Bearer {token}"},
+                json={
+                    "events": [
+                        {
+                            "event_type": "bolus",
+                            "event_timestamp": event_ts,
+                            "units": 2.0,
+                            "is_automated": False,
+                        }
+                    ],
+                    "raw_events": [
+                        {
+                            "sequence_number": 1,
+                            "raw_bytes_b64": "AQID",
+                            "event_type_id": 280,
+                            "pump_time_seconds": 1000,
+                        }
+                    ],
+                    "pump_info": {
+                        "serial_number": 12345678,
+                        "model_number": 99,
+                        "part_number": 11111,
+                        "pump_rev": "3.0",
+                        "arm_sw_ver": 50000,
+                        "msp_sw_ver": 50000,
+                        "config_a_bits": 0,
+                        "config_b_bits": 0,
+                        "pcba_sn": 99999,
+                        "pcba_rev": "A",
+                        "pump_features": {},
+                    },
+                    "source": "mobile",
+                },
             )
         assert resp.status_code == 200, resp.text
-        assert resp.json()["enabled"] is False
+        body = resp.json()
+        # The structured event was stored...
+        assert body["accepted"] == 1
+        # ...but the deprecated raw_events / pump_info were silently ignored.
+        assert body["raw_accepted"] == 0
+        assert body["raw_duplicates"] == 0
 
 
 class TestIntegrationListSurfacesRegion:

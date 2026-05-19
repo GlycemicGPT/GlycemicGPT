@@ -20,9 +20,7 @@ from tconnectsync.api.tandemsource import TandemSourceApi
 from src.core.auth import CurrentUser, DiabeticOrAdminUser
 from src.core.encryption import encrypt_credential
 from src.core.tandem_regions import (
-    TandemLegacyRegionError,
     country_to_cloud,
-    is_legacy_tandem_region,
 )
 from src.database import get_db
 from src.logging_config import get_logger
@@ -34,9 +32,6 @@ from src.models.integration import (
     IntegrationType,
 )
 from src.models.pump_data import PumpEvent, PumpEventType
-from src.models.pump_hardware_info import PumpHardwareInfo
-from src.models.pump_raw_event import PumpRawEvent
-from src.models.tandem_upload_state import TandemUploadState
 from src.schemas.auth import ErrorResponse
 from src.schemas.forecast import (
     ForecastPayload,
@@ -85,10 +80,6 @@ from src.schemas.pump import (
     PumpStatusResponse,
     TandemSyncResponse,
     TandemSyncStatusResponse,
-    TandemUploadResetResponse,
-    TandemUploadSettingsRequest,
-    TandemUploadStatusResponse,
-    TandemUploadTriggerResponse,
 )
 from src.services.dexcom_sync import (
     DexcomAuthError,
@@ -532,9 +523,6 @@ async def connect_tandem(
     )
     existing = result.scalar_one_or_none()
 
-    previous_country = existing.region if existing else ""
-    country_changed = bool(existing) and previous_country != request.country
-
     if existing:
         # Update existing credentials. region column stores the country code
         # for Tandem (see model comment in src/models/integration.py).
@@ -556,45 +544,9 @@ async def connect_tandem(
         )
         db.add(credential)
 
-    # Clear cached OAuth state on every reconnect, including the
-    # disconnect → reconnect flow where ``existing`` is None. Reasons:
-    #  1. Country change -- the cached token was minted against the old
-    #     cloud bucket and will 401 against the new endpoints.
-    #  2. Same-country reconnect -- the user's stated remediation for
-    #     "missing pumper_id" errors is to reconnect; if we don't clear
-    #     the cache, they get the same stale token back and the error
-    #     keeps surfacing until the natural token expiry.
-    #  3. disconnect_tandem() deletes the IntegrationCredential but
-    #     leaves TandemUploadState in place, so a re-connect after a
-    #     disconnect would otherwise reuse the prior tandem_access_token
-    #     and tandem_pumper_id values.
-    # ``with_for_update()`` serializes against a concurrent upload
-    # holding the same row's lock so the clear isn't immediately
-    # repopulated by a mid-flight auth-cache write.
-    state_result = await db.execute(
-        select(TandemUploadState)
-        .where(TandemUploadState.user_id == current_user.id)
-        .with_for_update()
-    )
-    state = state_result.scalar_one_or_none()
-    if state is not None and (
-        state.tandem_access_token is not None
-        or state.tandem_refresh_token is not None
-        or state.tandem_token_expires_at is not None
-        or state.tandem_pumper_id is not None
-    ):
-        state.tandem_access_token = None
-        state.tandem_refresh_token = None
-        state.tandem_token_expires_at = None
-        state.tandem_pumper_id = None
-        logger.info(
-            "Cleared cached Tandem auth on reconnect",
-            user_id=str(current_user.id),
-            old_country=previous_country,
-            new_country=request.country,
-            country_changed=country_changed,
-            had_existing_credential=bool(existing),
-        )
+    # (TandemUploadState cache-clear on reconnect was removed alongside the
+    # Tandem cloud-upload feature in PR1c. The download direction uses
+    # tconnectsync's own session, which authenticates fresh each sync.)
 
     await db.commit()
     await db.refresh(credential)
@@ -1817,68 +1769,11 @@ async def push_pump_events(
     accepted = max(result.rowcount, 0)
     duplicates = len(rows) - accepted
 
-    # Store raw events for Tandem cloud upload (Story 16.6)
-    raw_accepted = 0
-    raw_duplicates = 0
-    if body.raw_events:
-        raw_rows = [
-            {
-                "user_id": current_user.id,
-                "sequence_number": item.sequence_number,
-                "raw_bytes_b64": item.raw_bytes_b64,
-                "event_type_id": item.event_type_id,
-                "pump_time_seconds": item.pump_time_seconds,
-            }
-            for item in body.raw_events
-        ]
-        raw_stmt = (
-            pg_insert(PumpRawEvent)
-            .values(raw_rows)
-            .on_conflict_do_nothing(
-                constraint="uq_pump_raw_event_user_seq",
-            )
-        )
-        raw_result = await db.execute(raw_stmt)
-        raw_accepted = max(raw_result.rowcount, 0)
-        raw_duplicates = len(raw_rows) - raw_accepted
-
-    # Upsert pump hardware info (Story 16.6)
-    if body.pump_info:
-        hw_stmt = (
-            pg_insert(PumpHardwareInfo)
-            .values(
-                user_id=current_user.id,
-                serial_number=body.pump_info.serial_number,
-                model_number=body.pump_info.model_number,
-                part_number=body.pump_info.part_number,
-                pump_rev=body.pump_info.pump_rev,
-                arm_sw_ver=body.pump_info.arm_sw_ver,
-                msp_sw_ver=body.pump_info.msp_sw_ver,
-                config_a_bits=body.pump_info.config_a_bits,
-                config_b_bits=body.pump_info.config_b_bits,
-                pcba_sn=body.pump_info.pcba_sn,
-                pcba_rev=body.pump_info.pcba_rev,
-                pump_features=body.pump_info.pump_features,
-            )
-            .on_conflict_do_update(
-                index_elements=["user_id"],
-                set_={
-                    "serial_number": body.pump_info.serial_number,
-                    "model_number": body.pump_info.model_number,
-                    "part_number": body.pump_info.part_number,
-                    "pump_rev": body.pump_info.pump_rev,
-                    "arm_sw_ver": body.pump_info.arm_sw_ver,
-                    "msp_sw_ver": body.pump_info.msp_sw_ver,
-                    "config_a_bits": body.pump_info.config_a_bits,
-                    "config_b_bits": body.pump_info.config_b_bits,
-                    "pcba_sn": body.pump_info.pcba_sn,
-                    "pcba_rev": body.pump_info.pcba_rev,
-                    "pump_features": body.pump_info.pump_features,
-                    "updated_at": now,
-                },
-            )
-        )
-        await db.execute(hw_stmt)
+    # ``body.raw_events`` and ``body.pump_info`` are accepted for backward
+    # compatibility with mobile clients that still send them, but no longer
+    # persisted -- the cloud upload feature that consumed them was removed
+    # (see PR1c). The response reports zero raw_accepted/raw_duplicates so
+    # the mobile client's success path still works without changes.
 
     await db.commit()
 
@@ -1888,320 +1783,13 @@ async def push_pump_events(
         total=len(rows),
         accepted=accepted,
         duplicates=duplicates,
-        raw_accepted=raw_accepted,
-        raw_duplicates=raw_duplicates,
     )
 
     return PumpPushResponse(
         accepted=accepted,
         duplicates=duplicates,
-        raw_accepted=raw_accepted,
-        raw_duplicates=raw_duplicates,
-    )
-
-
-# ============================================================================
-# Story 16.6: Tandem Cloud Upload Endpoints
-# ============================================================================
-
-
-@router.get(
-    "/tandem/cloud-upload/status",
-    response_model=TandemUploadStatusResponse,
-    responses={
-        200: {"description": "Tandem upload status"},
-        401: {"model": ErrorResponse, "description": "Not authenticated"},
-    },
-)
-async def get_tandem_upload_status(
-    current_user: CurrentUser,
-    db: AsyncSession = Depends(get_db),
-) -> TandemUploadStatusResponse:
-    """Get the Tandem cloud upload status for the current user."""
-    result = await db.execute(
-        select(TandemUploadState).where(TandemUploadState.user_id == current_user.id)
-    )
-    state = result.scalar_one_or_none()
-
-    # Count pending raw events
-    pending_result = await db.execute(
-        select(func.count(PumpRawEvent.id)).where(
-            PumpRawEvent.user_id == current_user.id,
-            PumpRawEvent.uploaded_to_tandem.is_(False),
-        )
-    )
-    pending_count = pending_result.scalar() or 0
-
-    # Resolve stored country and legacy flag from the Tandem credential.
-    cred_result = await db.execute(
-        select(IntegrationCredential).where(
-            IntegrationCredential.user_id == current_user.id,
-            IntegrationCredential.integration_type == IntegrationType.TANDEM,
-        )
-    )
-    credential = cred_result.scalar_one_or_none()
-    stored = credential.region if credential else None
-    needs_country = bool(stored) and is_legacy_tandem_region(stored)
-
-    if not state:
-        return TandemUploadStatusResponse(
-            enabled=False,
-            upload_interval_minutes=15,
-            pending_raw_events=pending_count,
-            country=stored if not needs_country else None,
-            needs_country_reselect=needs_country,
-        )
-
-    return TandemUploadStatusResponse(
-        enabled=state.enabled,
-        upload_interval_minutes=state.upload_interval_minutes,
-        last_upload_at=state.last_upload_at,
-        last_upload_status=state.last_upload_status,
-        last_error=state.last_error,
-        max_event_index_uploaded=state.max_event_index_uploaded,
-        pending_raw_events=pending_count,
-        country=stored if not needs_country else None,
-        needs_country_reselect=needs_country,
-    )
-
-
-@router.put(
-    "/tandem/cloud-upload/settings",
-    response_model=TandemUploadStatusResponse,
-    responses={
-        200: {"description": "Settings updated"},
-        401: {"model": ErrorResponse, "description": "Not authenticated"},
-        404: {
-            "model": ErrorResponse,
-            "description": "Tandem not configured (only raised when enabling)",
-        },
-        409: {
-            "model": ErrorResponse,
-            "description": "Legacy region requires country re-selection before enable",
-        },
-    },
-)
-async def update_tandem_upload_settings(
-    request: TandemUploadSettingsRequest,
-    current_user: CurrentUser,
-    db: AsyncSession = Depends(get_db),
-) -> TandemUploadStatusResponse:
-    """Enable/disable Tandem cloud upload and set interval.
-
-    Refuses to enable when the user's stored Tandem region is legacy
-    (e.g. ``"EU"``) — they must re-select their country first via the
-    ``POST /api/integrations/tandem`` connect endpoint.
-    """
-    cred_result = await db.execute(
-        select(IntegrationCredential).where(
-            IntegrationCredential.user_id == current_user.id,
-            IntegrationCredential.integration_type == IntegrationType.TANDEM,
-        )
-    )
-    credential = cred_result.scalar_one_or_none()
-    stored = credential.region if credential else None
-    needs_country = bool(stored) and is_legacy_tandem_region(stored)
-
-    # Allow disable always (users should be able to turn the feature off even
-    # if they're stuck on a legacy region or have no credential at all). Only
-    # enable requires a healthy credential + non-legacy region.
-    if request.enabled:
-        if credential is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=(
-                    "Tandem integration not configured. Please connect your "
-                    "Tandem account before enabling cloud upload."
-                ),
-            )
-        if needs_country:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=(
-                    "Your Tandem integration uses a legacy region value and "
-                    "must be re-connected with your country selected before "
-                    "uploads can be enabled."
-                ),
-            )
-
-    result = await db.execute(
-        select(TandemUploadState).where(TandemUploadState.user_id == current_user.id)
-    )
-    state = result.scalar_one_or_none()
-
-    if state:
-        state.enabled = request.enabled
-        state.upload_interval_minutes = request.interval_minutes
-    else:
-        state = TandemUploadState(
-            user_id=current_user.id,
-            enabled=request.enabled,
-            upload_interval_minutes=request.interval_minutes,
-        )
-        db.add(state)
-
-    await db.commit()
-    await db.refresh(state)
-
-    # Count pending raw events
-    pending_result = await db.execute(
-        select(func.count(PumpRawEvent.id)).where(
-            PumpRawEvent.user_id == current_user.id,
-            PumpRawEvent.uploaded_to_tandem.is_(False),
-        )
-    )
-    pending_count = pending_result.scalar() or 0
-
-    logger.info(
-        "Tandem upload settings updated",
-        user_id=str(current_user.id),
-        enabled=request.enabled,
-        interval=request.interval_minutes,
-    )
-
-    return TandemUploadStatusResponse(
-        enabled=state.enabled,
-        upload_interval_minutes=state.upload_interval_minutes,
-        last_upload_at=state.last_upload_at,
-        last_upload_status=state.last_upload_status,
-        last_error=state.last_error,
-        max_event_index_uploaded=state.max_event_index_uploaded,
-        pending_raw_events=pending_count,
-        country=stored if not needs_country else None,
-        needs_country_reselect=needs_country,
-    )
-
-
-@router.post(
-    "/tandem/cloud-upload/trigger",
-    response_model=TandemUploadTriggerResponse,
-    responses={
-        200: {"description": "Upload triggered"},
-        401: {"model": ErrorResponse, "description": "Not authenticated"},
-        404: {"model": ErrorResponse, "description": "Tandem not configured"},
-        409: {"model": ErrorResponse, "description": "Integration disconnected"},
-        429: {"model": ErrorResponse, "description": "Rate limit exceeded"},
-        500: {"model": ErrorResponse, "description": "Upload failed"},
-    },
-)
-@limiter.limit("5/minute")
-async def trigger_tandem_upload(
-    request: Request,
-    current_user: CurrentUser,
-    db: AsyncSession = Depends(get_db),
-) -> TandemUploadTriggerResponse:
-    """Manually trigger a Tandem cloud upload.
-
-    Uploads pending raw events to the Tandem cloud immediately. Rate-limited
-    to 5/minute per IP -- the scheduler handles steady-state uploads on its
-    own interval; this endpoint is a manual override.
-    """
-    # Verify Tandem credentials exist and are not disconnected.
-    cred_result = await db.execute(
-        select(IntegrationCredential).where(
-            IntegrationCredential.user_id == current_user.id,
-            IntegrationCredential.integration_type == IntegrationType.TANDEM,
-        )
-    )
-    credential = cred_result.scalar_one_or_none()
-    if not credential:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tandem integration not configured. Please connect your Tandem account first.",
-        )
-    if credential.status == IntegrationStatus.DISCONNECTED:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Tandem integration is disconnected. Reconnect Tandem first.",
-        )
-
-    # Import here to avoid circular imports
-    from src.services.tandem_upload import upload_to_tandem
-
-    try:
-        result = await upload_to_tandem(db, current_user.id)
-    except TandemLegacyRegionError as e:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=str(e),
-        ) from e
-    except Exception as e:
-        logger.error(
-            "Tandem upload trigger failed",
-            user_id=str(current_user.id),
-            error=str(e),
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Upload failed. Please try again later.",
-        ) from e
-
-    return TandemUploadTriggerResponse(
-        message=result.get("message", "Upload complete"),
-        events_uploaded=result.get("events_uploaded", 0),
-        status=result.get("status", "success"),
-    )
-
-
-@router.post(
-    "/tandem/cloud-upload/reset",
-    response_model=TandemUploadResetResponse,
-    responses={
-        200: {"description": "Upload state reset"},
-        401: {"model": ErrorResponse, "description": "Not authenticated"},
-        404: {"model": ErrorResponse, "description": "Tandem not configured"},
-        409: {"model": ErrorResponse, "description": "Integration disconnected"},
-        429: {"model": ErrorResponse, "description": "Rate limit exceeded"},
-    },
-)
-@limiter.limit("5/minute")
-async def reset_tandem_upload(
-    request: Request,
-    current_user: CurrentUser,
-    db: AsyncSession = Depends(get_db),
-) -> TandemUploadResetResponse:
-    """Reset the Tandem upload high-water mark and re-queue all stored events.
-
-    Recovery action for cases where the local state has drifted out of sync
-    with reality -- e.g. after a pump re-pair, sequence-counter reset, or
-    when migrating off the legacy incremental-sync logic that silently
-    filtered queued events.
-
-    Rate-limited to 5/minute per IP: the reset is a heavy ``UPDATE`` over
-    every ``pump_raw_events`` row for the user and takes a row-lock on the
-    upload state -- a tight loop could saturate the connection pool for
-    legitimate uploads. Idempotent: safe to call repeatedly within the
-    limit.
-    """
-    cred_result = await db.execute(
-        select(IntegrationCredential).where(
-            IntegrationCredential.user_id == current_user.id,
-            IntegrationCredential.integration_type == IntegrationType.TANDEM,
-        )
-    )
-    credential = cred_result.scalar_one_or_none()
-    if not credential:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tandem integration not configured.",
-        )
-    # Respect the user's "off" decision: a disconnected integration should
-    # not be re-armed by the reset path. The user must reconnect first.
-    if credential.status == IntegrationStatus.DISCONNECTED:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "Tandem integration is disconnected. Reconnect Tandem "
-                "before resetting the upload state."
-            ),
-        )
-
-    from src.services.tandem_upload import reset_tandem_upload_state
-
-    result = await reset_tandem_upload_state(db, current_user.id)
-    return TandemUploadResetResponse(
-        message=result.get("message", "Reset complete"),
-        events_requeued=result.get("events_requeued", 0),
+        raw_accepted=0,
+        raw_duplicates=0,
     )
 
 

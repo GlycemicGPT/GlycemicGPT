@@ -305,16 +305,31 @@ class PumpHardwareInfoSchema(BaseModel):
 
 
 class PumpPushRequest(BaseModel):
-    """Batch of pump events pushed from a mobile client."""
+    """Batch of pump events pushed from a mobile client.
+
+    ``raw_events`` and ``pump_info`` are kept for backward compatibility
+    with mobile clients built before the Tandem cloud-upload feature was
+    removed (PR1c). Newer servers accept the fields but no longer persist
+    them; older mobile builds that send them are not broken.
+    """
 
     events: list[PumpEventPushItem] = Field(
         ..., min_length=1, max_length=100, description="Pump events to push (1-100)"
     )
     raw_events: list[PumpRawEventItem] | None = Field(
-        default=None, max_length=500, description="Raw BLE bytes for Tandem upload"
+        default=None,
+        max_length=500,
+        description=(
+            "Deprecated and ignored. Previously: raw BLE bytes used by the "
+            "Tandem cloud-upload feature, which was removed."
+        ),
     )
     pump_info: PumpHardwareInfoSchema | None = Field(
-        default=None, description="Pump hardware identification"
+        default=None,
+        description=(
+            "Deprecated and ignored. Previously: pump hardware identification "
+            "used by the Tandem cloud-upload feature, which was removed."
+        ),
     )
     source: str = Field(default="mobile", max_length=50)
 
@@ -325,71 +340,17 @@ class PumpPushResponse(BaseModel):
     accepted: int = Field(..., description="Number of new events stored")
     duplicates: int = Field(..., description="Number of duplicate events skipped")
     raw_accepted: int = Field(
-        default=0, description="Number of raw events stored for Tandem upload"
-    )
-    raw_duplicates: int = Field(
-        default=0, description="Number of duplicate raw events skipped"
-    )
-
-
-# ============================================================================
-# Story 16.6: Tandem Cloud Upload Schemas
-# ============================================================================
-
-
-class TandemUploadStatusResponse(BaseModel):
-    """Status of Tandem cloud upload for the current user."""
-
-    enabled: bool
-    upload_interval_minutes: int
-    last_upload_at: datetime | None = None
-    last_upload_status: str | None = None
-    last_error: str | None = None
-    max_event_index_uploaded: int = 0
-    pending_raw_events: int = 0
-    country: str | None = Field(
-        default=None,
-        description="ISO-3166-1 alpha-2 country code currently configured for Tandem uploads.",
-    )
-    needs_country_reselect: bool = Field(
-        default=False,
+        default=0,
         description=(
-            "True when the stored Tandem region is a legacy value (e.g. 'EU') "
-            "that can no longer be resolved to a country. The user must "
-            "re-select their country before uploads can resume."
+            "Always 0. Kept for backward compatibility; raw events are no "
+            "longer persisted (the consuming Tandem cloud-upload feature "
+            "was removed)."
         ),
     )
-
-
-class TandemUploadSettingsRequest(BaseModel):
-    """Request to update Tandem cloud upload settings."""
-
-    enabled: bool
-    interval_minutes: int = Field(
-        default=15, description="Upload interval in minutes (5, 10, or 15)"
+    raw_duplicates: int = Field(
+        default=0,
+        description="Always 0. Kept for backward compatibility (see raw_accepted).",
     )
-
-    @field_validator("interval_minutes")
-    @classmethod
-    def validate_interval(cls, v: int) -> int:
-        if v not in (5, 10, 15):
-            raise ValueError("interval_minutes must be 5, 10, or 15")
-        return v
-
-
-class TandemUploadTriggerResponse(BaseModel):
-    """Response after triggering a manual Tandem upload."""
-
-    message: str
-    events_uploaded: int = 0
-    status: str = "pending"
-
-
-class TandemUploadResetResponse(BaseModel):
-    """Response after resetting the Tandem upload high-water mark."""
-
-    message: str
-    events_requeued: int = 0
 
 
 # --- Story 30.1: Aggregate stats schemas ---

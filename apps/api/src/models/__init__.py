@@ -32,15 +32,12 @@ from src.models.knowledge_chunk import KnowledgeChunk
 from src.models.meal_analysis import MealAnalysis
 from src.models.plugin_declaration import PluginDeclaration
 from src.models.pump_data import PumpEvent, PumpEventType
-from src.models.pump_hardware_info import PumpHardwareInfo
 from src.models.pump_profile import PumpProfile
-from src.models.pump_raw_event import PumpRawEvent
 from src.models.research_source import ResearchSource
 from src.models.safety_limits import SafetyLimits
 from src.models.safety_log import SafetyLog
 from src.models.security_audit_log import SecurityAuditLog
 from src.models.suggestion_response import SuggestionResponse
-from src.models.tandem_upload_state import TandemUploadState
 from src.models.target_glucose_range import TargetGlucoseRange
 from src.models.telegram_link import TelegramLink
 from src.models.telegram_verification import TelegramVerificationCode
@@ -84,15 +81,12 @@ __all__ = [
     "PluginDeclaration",
     "PumpEvent",
     "PumpEventType",
-    "PumpHardwareInfo",
     "PumpProfile",
-    "PumpRawEvent",
     "ResearchSource",
     "SafetyLimits",
     "SafetyLog",
     "SecurityAuditLog",
     "SuggestionResponse",
-    "TandemUploadState",
     "TargetGlucoseRange",
     "TelegramLink",
     "TelegramVerificationCode",

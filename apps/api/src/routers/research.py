@@ -231,7 +231,6 @@ async def get_suggestions(
     # Build the "based_on" context
     from src.models.insulin_config import InsulinConfig
     from src.models.integration import IntegrationCredential, IntegrationType
-    from src.models.pump_hardware_info import PumpHardwareInfo
 
     based_on: dict[str, str] = {}
 
@@ -242,8 +241,14 @@ async def get_suggestions(
     if insulin and insulin.insulin_type:
         based_on["insulin"] = insulin.insulin_type
 
+    # A connected Tandem integration is the signal that the user is on a
+    # Tandem pump (previously inferred from PumpHardwareInfo, which was
+    # removed alongside the Tandem cloud-upload feature).
     pump_result = await db.execute(
-        select(PumpHardwareInfo).where(PumpHardwareInfo.user_id == current_user.id)
+        select(IntegrationCredential).where(
+            IntegrationCredential.user_id == current_user.id,
+            IntegrationCredential.integration_type == IntegrationType.TANDEM,
+        )
     )
     if pump_result.scalar_one_or_none():
         based_on["pump"] = "tandem"
