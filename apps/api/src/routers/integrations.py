@@ -545,28 +545,32 @@ async def connect_tandem(
         existing.updated_at = datetime.now(UTC)
         credential = existing
 
-        # If the country (and therefore the Tandem cloud bucket) changed, the
-        # cached OAuth token is bound to the old cloud and will fail with an
-        # opaque 401 against the new endpoints. Clear it so the next upload
-        # re-authenticates fresh.
-        if country_changed:
-            state_result = await db.execute(
-                select(TandemUploadState).where(
-                    TandemUploadState.user_id == current_user.id
-                )
+        # Clear cached OAuth state on every reconnect, not just when the
+        # country changes. Reasons:
+        #  1. Country change -- the cached token was minted against the old
+        #     cloud bucket and will 401 against the new endpoints.
+        #  2. Same-country reconnect -- the user's stated remediation for
+        #     "missing pumper_id" errors is to reconnect; if we don't clear
+        #     the cache, they get the same stale token back and the error
+        #     keeps surfacing until the natural token expiry.
+        state_result = await db.execute(
+            select(TandemUploadState).where(
+                TandemUploadState.user_id == current_user.id
             )
-            state = state_result.scalar_one_or_none()
-            if state is not None:
-                state.tandem_access_token = None
-                state.tandem_refresh_token = None
-                state.tandem_token_expires_at = None
-                state.tandem_pumper_id = None
-                logger.info(
-                    "Cleared cached Tandem auth on country change",
-                    user_id=str(current_user.id),
-                    old_country=previous_country,
-                    new_country=request.country,
-                )
+        )
+        state = state_result.scalar_one_or_none()
+        if state is not None:
+            state.tandem_access_token = None
+            state.tandem_refresh_token = None
+            state.tandem_token_expires_at = None
+            state.tandem_pumper_id = None
+            logger.info(
+                "Cleared cached Tandem auth on reconnect",
+                user_id=str(current_user.id),
+                old_country=previous_country,
+                new_country=request.country,
+                country_changed=country_changed,
+            )
     else:
         credential = IntegrationCredential(
             user_id=current_user.id,

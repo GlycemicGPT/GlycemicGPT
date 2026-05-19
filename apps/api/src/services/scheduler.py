@@ -448,6 +448,12 @@ def start_scheduler() -> AsyncIOScheduler:
             "Scheduled Tandem sync job",
             interval_minutes=settings.tandem_sync_interval_minutes,
         )
+    else:
+        logger.warning(
+            "Tandem sync scheduler DISABLED via TANDEM_SYNC_ENABLED env var. "
+            "Manual sync via POST /api/integrations/tandem/sync still works; "
+            "scheduled pulls will not run."
+        )
 
     # Add Nightscout sync tick job if enabled (Story 43.4)
     # Single global tick; the per-connection cadence is honored inside
@@ -534,6 +540,12 @@ def start_scheduler() -> AsyncIOScheduler:
         logger.info(
             "Scheduled Tandem cloud upload job",
             interval_minutes=settings.tandem_upload_check_interval_minutes,
+        )
+    else:
+        logger.warning(
+            "Tandem cloud upload scheduler DISABLED via TANDEM_UPLOAD_ENABLED env var. "
+            "Manual uploads via POST /api/integrations/tandem/cloud-upload/trigger "
+            "still work; scheduled pushes will not run."
         )
 
     # Add stale device cleanup job (Story 16.11)
