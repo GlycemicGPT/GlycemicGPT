@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from src.core.encryption import encrypt_credential
 from src.core.tandem_regions import TandemLegacyRegionError
@@ -805,10 +805,27 @@ class TestUploadSilentSuccessRegression:
     async def test_upload_refuses_when_pumper_id_missing(self):
         """Empty pumper_id means deviceAssignmentId would be ``""`` in the
         upload payload, which Tandem accepts (200 OK) but silently drops.
-        Refuse to upload and surface a re-connect prompt instead."""
+        Refuse to upload, surface a re-connect prompt, invalidate the
+        cached auth so the next run re-authenticates fresh, and stamp
+        last_upload_at so the scheduler doesn't hammer Tandem OAuth on
+        every tick."""
         async with await _own_session() as session:
             user_id = await _seed_upload_fixtures(
                 session, region="US", seq_numbers=(1, 2)
+            )
+            # Seed STALE cached auth state -- this is the scenario the
+            # self-heal path is for. Without these the test wouldn't
+            # exercise the cache-clearing side-effect at all.
+            stale_expiry = datetime.now(UTC) + timedelta(minutes=30)
+            await session.execute(
+                update(TandemUploadState)
+                .where(TandemUploadState.user_id == user_id)
+                .values(
+                    tandem_access_token=encrypt_credential("stale-token"),
+                    tandem_refresh_token=encrypt_credential("stale-refresh"),
+                    tandem_token_expires_at=stale_expiry,
+                    tandem_pumper_id="stale-pumper",
+                )
             )
             await session.commit()
 
@@ -848,9 +865,28 @@ class TestUploadSilentSuccessRegression:
         assert result["status"] == "error", result
         assert result["events_uploaded"] == 0
         assert "pumper id" in result["message"].lower()
-        # And critically: _post_upload must NOT have been called -- we should
-        # refuse to send the payload at all rather than risk a silent drop.
+        # _post_upload must NOT have been called -- we refuse to send the
+        # payload at all rather than risk a silent drop.
         assert post_mock.await_count == 0
+
+        # Side effects: the stale cache must be cleared on the way out so
+        # the next call re-authenticates fresh instead of being stuck on
+        # the same broken cached pumper_id for the cached-token TTL.
+        async with await _own_session() as session:
+            state = (
+                await session.execute(
+                    select(TandemUploadState).where(
+                        TandemUploadState.user_id == user_id
+                    )
+                )
+            ).scalar_one()
+            assert state.tandem_access_token is None
+            assert state.tandem_refresh_token is None
+            assert state.tandem_token_expires_at is None
+            assert state.tandem_pumper_id is None
+            # And the scheduler-throttling stamp must be set so a stuck
+            # user can't amplify failed auth into 60 requests/hour.
+            assert state.last_upload_at is not None
 
     @pytest.mark.asyncio
     async def test_post_upload_logs_non_zero_processing_status(self, caplog):
