@@ -197,6 +197,10 @@ function PickerStatusHint({ reason, preference }: PickerStatusHintProps) {
         } hasn't published a forecast recently.`;
       case "stale":
         return "Your forecast data is older than 30 minutes -- no overlay until fresher data arrives.";
+      default:
+        // Fail closed if the backend adds a new reason -- better to show
+        // nothing than render an empty <p>.
+        return null;
     }
   })();
   if (message === null) return null;

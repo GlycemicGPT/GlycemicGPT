@@ -681,15 +681,20 @@ export function GlucoseTrendChart({
     const points: ForecastPoint[] = [];
     // Anchor to the latest actual reading so the dotted line continues
     // from the last scatter point with no visible gap.
-    if (data.length > 0) {
-      const last = data[data.length - 1];
-      points.push({ timestamp: last.timestamp, forecast_value: last.value });
+    const anchorTs = data.length > 0 ? data[data.length - 1].timestamp : null;
+    if (anchorTs !== null) {
+      points.push({ timestamp: anchorTs, forecast_value: data[data.length - 1].value });
     }
     const limit = Math.min(curve.length, MAX_FORECAST_POINTS);
     for (let i = 0; i < limit; i++) {
       const v = curve[i];
       if (v === null || v === undefined || !Number.isFinite(v)) continue;
-      points.push({ timestamp: startMs + i * stepMs, forecast_value: v });
+      const ts = startMs + i * stepMs;
+      // Skip points at/before the anchor -- a `start_at` that lags the
+      // latest reading would otherwise draw a backward (right-to-left)
+      // segment on the chart.
+      if (anchorTs !== null && ts <= anchorTs) continue;
+      points.push({ timestamp: ts, forecast_value: v });
     }
     return points.length >= 2 ? points : null;
   }, [period, forecast, data]);
@@ -887,17 +892,28 @@ export function GlucoseTrendChart({
   // FIX #7: Disable tooltip during drag selection to avoid interference
   const isDragging = selectionStart != null;
 
-  // Y-axis domain: show reasonable range, expand to fit data
+  // Y-axis domain: show reasonable range, expand to fit data + forecast.
+  // Including forecast values prevents a high/low prediction from being
+  // clipped at the top/bottom of the chart -- the predicted excursion
+  // is precisely the signal the overlay is meant to surface.
   const yDomain = useMemo(() => {
-    if (data.length === 0) return [40, 300];
-    let min = data[0].value;
-    let max = data[0].value;
-    for (const d of data) {
-      if (d.value < min) min = d.value;
-      if (d.value > max) max = d.value;
+    if (data.length === 0 && (forecastPoints === null || forecastPoints.length === 0)) {
+      return [40, 300];
     }
-    return [Math.min(40, min - 10), Math.max(300, max + 10)];
-  }, [data]);
+    let min: number | null = null;
+    let max: number | null = null;
+    for (const d of data) {
+      if (min === null || d.value < min) min = d.value;
+      if (max === null || d.value > max) max = d.value;
+    }
+    if (forecastPoints !== null) {
+      for (const p of forecastPoints) {
+        if (min === null || p.forecast_value < min) min = p.forecast_value;
+        if (max === null || p.forecast_value > max) max = p.forecast_value;
+      }
+    }
+    return [Math.min(40, (min ?? 40) - 10), Math.max(300, (max ?? 300) + 10)];
+  }, [data, forecastPoints]);
 
   // Bolus scatter data with y-position for chart rendering
   // Memoized to avoid recreating array on every render (adversarial fix #1)
@@ -1333,8 +1349,13 @@ function ForecastLegendChip({ forecast, hasOverlay }: ForecastLegendChipProps) {
         return "Forecast - source paused (no recent data)";
       case "stale":
         return "Forecast - data older than 30 minutes";
+      default:
+        // Fail closed if the backend adds a new reason -- show nothing
+        // instead of rendering an empty chip.
+        return null;
     }
   })();
+  if (message === null) return null;
   return (
     <span
       className="text-slate-500 dark:text-slate-400 italic"
