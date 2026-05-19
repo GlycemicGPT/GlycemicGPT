@@ -273,14 +273,25 @@ class PumpEventPushItem(BaseModel):
 
 
 class PumpRawEventItem(BaseModel):
-    """A single raw BLE history log record from the pump."""
+    """Deprecated: a single raw BLE history log record from the pump.
+
+    Kept in the schema only so legacy mobile builds that include
+    ``raw_events`` on ``/pump/push`` requests still validate. The
+    payload is discarded server-side (see PR1c). Field bounds are
+    intentionally permissive -- since the data is thrown away, there
+    is no reason to fail-422 a slightly-out-of-spec older client.
+    """
 
     sequence_number: int = Field(..., ge=0, description="Pump event sequence index")
     raw_bytes_b64: str = Field(
         ...,
         min_length=1,
-        max_length=100,
-        description="Base64-encoded raw BLE bytes (18-byte record)",
+        max_length=512,
+        description=(
+            "Base64-encoded raw BLE bytes (historically an 18-byte record "
+            "→ ~24 chars). Bound is intentionally loose -- payload is "
+            "discarded server-side."
+        ),
     )
     event_type_id: int = Field(..., ge=0, description="Pump event type ID")
     pump_time_seconds: int = Field(..., ge=0, description="Pump internal timestamp")

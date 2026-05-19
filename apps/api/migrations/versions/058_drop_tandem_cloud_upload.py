@@ -46,17 +46,25 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    # Drop in dependency order: each had a FK to ``users`` only, so any
-    # order works, but we go alphabetical for predictability.
+    # All three tables only ever held data for the upload feature, so we
+    # drop them outright. Postgres drops dependent indexes automatically
+    # when the parent table is dropped; no explicit ``drop_index`` is
+    # needed.  Order: alphabetical (no inter-table FKs today, but if any
+    # are added later a strict dependency-order drop will be required).
     op.drop_table("pump_hardware_info")
     op.drop_table("pump_raw_events")
     op.drop_table("tandem_upload_state")
 
 
 def downgrade() -> None:
-    # Re-create the tables with their original schemas. NOTE: this restores
-    # only the table shape, not the data. Cached OAuth tokens, pending raw
-    # events, and pump-hardware info are lost permanently.
+    # Re-create the tables with the schema produced by the original
+    # ``032_add_tandem_cloud_upload`` plus the ``034_add_tandem_pumper_id``
+    # column-append. NOTE: this restores only the table shape, not the
+    # data. Cached OAuth tokens, pending raw events, and pump-hardware info
+    # are lost permanently. Indexes/uniqueness constraints are recreated to
+    # match the original schema so an emergency rollback to revision 057
+    # leaves the database in a state byte-identical to the historical 032+034
+    # state, modulo row contents.
     op.create_table(
         "tandem_upload_state",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -86,7 +94,6 @@ def downgrade() -> None:
         sa.Column("tandem_access_token", sa.Text(), nullable=True),
         sa.Column("tandem_refresh_token", sa.Text(), nullable=True),
         sa.Column("tandem_token_expires_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("tandem_pumper_id", sa.String(100), nullable=True),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
@@ -99,11 +106,16 @@ def downgrade() -> None:
             nullable=False,
             server_default=sa.text("now()"),
         ),
+        # ``tandem_pumper_id`` was appended last by revision 034. Keep that
+        # ordinal position so ``pg_dump`` after a rollback matches what an
+        # untouched 057-state database would look like.
+        sa.Column("tandem_pumper_id", sa.String(100), nullable=True),
     )
     op.create_index(
         "ix_tandem_upload_state_user_id",
         "tandem_upload_state",
         ["user_id"],
+        unique=True,
     )
 
     op.create_table(
@@ -143,6 +155,13 @@ def downgrade() -> None:
         ),
     )
     op.create_index("ix_pump_raw_events_user_id", "pump_raw_events", ["user_id"])
+    # Composite index from 032 that backed the "pending uploads for user"
+    # query. Restoring it on downgrade preserves the original query plan.
+    op.create_index(
+        "ix_pump_raw_events_user_uploaded",
+        "pump_raw_events",
+        ["user_id", "uploaded_to_tandem"],
+    )
 
     op.create_table(
         "pump_hardware_info",
@@ -182,4 +201,14 @@ def downgrade() -> None:
             nullable=False,
             server_default=sa.text("now()"),
         ),
+    )
+    # Unique index from 032. The column-level ``unique=True`` above already
+    # creates an implicit unique index, but 032 also created an explicit
+    # named one (``ix_pump_hardware_info_user_id``) -- recreate it so the
+    # post-rollback schema matches the historical 032+034 state.
+    op.create_index(
+        "ix_pump_hardware_info_user_id",
+        "pump_hardware_info",
+        ["user_id"],
+        unique=True,
     )

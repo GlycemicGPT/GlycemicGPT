@@ -419,9 +419,16 @@ async def get_suggested_sources(
             if source["url"] not in existing_urls:
                 suggestions.append(source)
 
-    # Pump-based suggestions. A connected Tandem integration is the signal
-    # that the user is on a Tandem pump (previously inferred from
-    # PumpHardwareInfo, which was removed alongside the cloud-upload feature).
+    # Pump-based suggestions. A connected Tandem integration is the proxy
+    # signal that the user is on a Tandem pump. Previously this was
+    # inferred from PumpHardwareInfo (only populated when paired-pump BLE
+    # bytes had actually been pushed), which was a stricter "owns a pump"
+    # signal. After PumpHardwareInfo was removed in PR1c we use the
+    # credential's existence instead -- broader (false-positives for
+    # caregivers shadowing patients, or users who connected t:connect
+    # speculatively without owning a pump), but it's the highest-signal
+    # data point still available and the cost of an extra suggestion is
+    # one optional research-source link the user can ignore.
     tandem_result = await db.execute(
         select(IntegrationCredential).where(
             IntegrationCredential.user_id == user_id,

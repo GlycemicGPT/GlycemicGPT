@@ -15,7 +15,7 @@ Three of jwoglom's open-source projects directly inform our Tandem support:
 
 - **[pumpX2](https://github.com/jwoglom/pumpx2)** -- *architectural reference, not a runtime dependency.* Java library implementing a reverse-engineered Bluetooth protocol for Tandem t:slim X2 / Mobi pumps. GlycemicGPT's Tandem mobile-app driver is an independent Kotlin port informed by pumpX2's protocol documentation, opcodes, message formats, and EC-JPAKE authentication flow. We do not import pumpX2; we use its test vectors to validate parser correctness in our own code. Crediting this work is required by the MIT license and matters: without pumpX2's published reverse-engineering, this project's pump driver would not exist.
 - **[controlX2](https://github.com/jwoglom/controlx2)** -- *architectural reference, not a runtime dependency.* Android / Wear OS reference app built on pumpX2. We studied its BLE service lifecycle, reconnection state machines, and pairing flow patterns. No code is imported.
-- **[tconnectsync](https://github.com/jwoglom/tconnectsync)** -- ***runtime dependency.*** Python library for talking to Tandem's t:connect cloud (`TandemSourceApi`). Consumed via `apps/api/pyproject.toml` as `tconnectsync>=2.3.0`. Used by `tandem_sync.py` (cloud download) and for OAuth token acquisition in `tandem_upload.py` (cloud upload).
+- **[tconnectsync](https://github.com/jwoglom/tconnectsync)** -- ***runtime dependency.*** Python library for talking to Tandem's t:connect cloud (`TandemSourceApi`). Consumed via `apps/api/pyproject.toml` as `tconnectsync>=2.3.0`. Used by `tandem_sync.py` to pull pump history from the t:connect cloud (download direction).
 
 All three are MIT-licensed by James Woglom. Per-library attribution lives in:
 

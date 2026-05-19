@@ -743,49 +743,107 @@ class TestTandemCountryField:
 class TestTandemCloudUploadRoutesGone:
     """The Tandem cloud-upload endpoints were removed in PR1c. Verify they
     no longer exist as a regression guard -- a future inadvertent re-add
-    would silently re-enable a feature we deliberately deprecated."""
+    would silently re-enable a feature we deliberately deprecated.
+
+    Each test authenticates first so a 401 from an auth gate around the
+    re-added route surfaces as a clear test failure (distinct from "route
+    is gone"), rather than masquerading as a 404 from a missing route.
+    """
 
     async def test_status_endpoint_404(self):
+        email = unique_email("upload_gone_status")
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"
         ) as client:
-            resp = await client.get("/api/integrations/tandem/cloud-upload/status")
+            cookie = await _login(client, email, "SecurePass123")
+            resp = await client.get(
+                "/api/integrations/tandem/cloud-upload/status",
+                cookies={settings.jwt_cookie_name: cookie},
+            )
         assert resp.status_code == 404, resp.text
 
     async def test_settings_endpoint_404(self):
+        email = unique_email("upload_gone_settings")
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"
         ) as client:
+            cookie = await _login(client, email, "SecurePass123")
             resp = await client.put(
                 "/api/integrations/tandem/cloud-upload/settings",
                 json={"enabled": False, "interval_minutes": 15},
+                cookies={settings.jwt_cookie_name: cookie},
             )
         assert resp.status_code == 404, resp.text
 
     async def test_trigger_endpoint_404(self):
+        email = unique_email("upload_gone_trigger")
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"
         ) as client:
-            resp = await client.post("/api/integrations/tandem/cloud-upload/trigger")
+            cookie = await _login(client, email, "SecurePass123")
+            resp = await client.post(
+                "/api/integrations/tandem/cloud-upload/trigger",
+                cookies={settings.jwt_cookie_name: cookie},
+            )
         assert resp.status_code == 404, resp.text
 
     async def test_reset_endpoint_404(self):
+        email = unique_email("upload_gone_reset")
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"
         ) as client:
-            resp = await client.post("/api/integrations/tandem/cloud-upload/reset")
+            cookie = await _login(client, email, "SecurePass123")
+            resp = await client.post(
+                "/api/integrations/tandem/cloud-upload/reset",
+                cookies={settings.jwt_cookie_name: cookie},
+            )
         assert resp.status_code == 404, resp.text
 
 
 class TestPumpPushAcceptsButIgnoresRawEvents:
     """``/api/integrations/pump/push`` keeps accepting ``raw_events`` and
     ``pump_info`` from older mobile clients (back-compat), but no longer
-    persists them. Response reports zero raw_accepted/raw_duplicates."""
+    persists them. Response reports zero raw_accepted/raw_duplicates and
+    sets an IETF ``Deprecation`` header (RFC 8594) so newer clients can
+    detect the back-compat path at the protocol level."""
 
     async def test_push_accepts_legacy_raw_events_field(self):
         # Use bearer-token mobile auth like the rest of pump/push tests
         # (cookie auth would trip CSRF on this state-changing endpoint).
         from datetime import UTC, datetime, timedelta
+
+        from sqlalchemy import inspect, text
+
+        from src.database import get_engine
+
+        # Take a "before" snapshot of the legacy tables. After the call we
+        # re-check: if migration 058 has run (prod-shape DB), the tables
+        # are absent; if the test DB was built from model metadata only
+        # (it doesn't run migrations), the tables exist but the row counts
+        # must be unchanged. This double-pronged assertion catches a future
+        # silent re-add of either the persistence code OR the model classes.
+        async with get_engine().connect() as conn:
+            tables_before = await conn.run_sync(
+                lambda sync_conn: inspect(sync_conn).get_table_names()
+            )
+        legacy_tables_present = "pump_raw_events" in tables_before or (
+            "pump_hardware_info" in tables_before
+        )
+
+        async def _row_counts() -> dict[str, int | None]:
+            counts: dict[str, int | None] = {}
+            async with get_engine().connect() as conn:
+                for tbl in ("pump_raw_events", "pump_hardware_info"):
+                    if tbl in tables_before:
+                        res = await conn.execute(
+                            text(f"SELECT COUNT(*) FROM {tbl}")  # noqa: S608
+                        )
+                        counts[tbl] = res.scalar()
+                    else:
+                        counts[tbl] = None
+            return counts
+
+        counts_before = await _row_counts()
 
         email = unique_email("pump_push_raw")
         # 1 hour ago so the event_timestamp validator (rejects >5 min future)
@@ -846,6 +904,71 @@ class TestPumpPushAcceptsButIgnoresRawEvents:
         # ...but the deprecated raw_events / pump_info were silently ignored.
         assert body["raw_accepted"] == 0
         assert body["raw_duplicates"] == 0
+        # Deprecation header is set when legacy fields are present.
+        assert resp.headers.get("Deprecation") == "true"
+        assert "Sunset" in resp.headers
+        # Sanity: the structured pump_events row WAS written (so we know the
+        # 200 isn't coming from some silent short-circuit).
+        async with get_engine().connect() as conn:
+            count_result = await conn.execute(
+                text(
+                    "SELECT COUNT(*) FROM pump_events "
+                    "WHERE event_type = 'bolus' AND units = 2.0"
+                )
+            )
+            count = count_result.scalar()
+        assert count is not None and count >= 1
+        # Crucially: the deprecated raw_events / pump_info were NOT
+        # written. If migration 058 has run (prod-shape DB), the tables
+        # are gone and we have nothing to count. If the legacy tables
+        # still exist (e.g. metadata-built test DB), row counts must
+        # match the snapshot taken before the request.
+        if legacy_tables_present:
+            counts_after = await _row_counts()
+            assert counts_after == counts_before, (
+                "pump_raw_events / pump_hardware_info row counts changed -- "
+                "the legacy upload persistence appears to have been "
+                "re-introduced"
+            )
+
+    async def test_push_without_legacy_fields_no_deprecation_header(self):
+        """Newer mobile builds that omit ``raw_events`` / ``pump_info``
+        should NOT get the deprecation header -- the header is the signal
+        that *this* particular request was using the legacy fields."""
+        from datetime import UTC, datetime, timedelta
+
+        email = unique_email("pump_push_clean")
+        event_ts = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            await client.post(
+                "/api/auth/register",
+                json={"email": email, "password": "TestPass1"},
+            )
+            login = await client.post(
+                "/api/auth/mobile/login",
+                json={"email": email, "password": "TestPass1"},
+            )
+            token = login.json()["access_token"]
+            resp = await client.post(
+                "/api/integrations/pump/push",
+                headers={"Authorization": f"Bearer {token}"},
+                json={
+                    "events": [
+                        {
+                            "event_type": "bolus",
+                            "event_timestamp": event_ts,
+                            "units": 1.0,
+                            "is_automated": False,
+                        }
+                    ],
+                    "source": "mobile",
+                },
+            )
+        assert resp.status_code == 200, resp.text
+        assert "Deprecation" not in resp.headers
+        assert "Sunset" not in resp.headers
 
 
 class TestIntegrationListSurfacesRegion:

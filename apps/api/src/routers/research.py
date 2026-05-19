@@ -241,9 +241,13 @@ async def get_suggestions(
     if insulin and insulin.insulin_type:
         based_on["insulin"] = insulin.insulin_type
 
-    # A connected Tandem integration is the signal that the user is on a
-    # Tandem pump (previously inferred from PumpHardwareInfo, which was
-    # removed alongside the Tandem cloud-upload feature).
+    # A connected Tandem integration is the proxy signal that the user
+    # is on a Tandem pump. Same trade-off as in research_pipeline.py:
+    # broader than the old PumpHardwareInfo signal (which required real
+    # BLE bytes from a paired pump), but it's the strongest signal still
+    # available after PR1c removed the upload feature + hardware-info
+    # table. A false positive only surfaces an extra suggestion the user
+    # can dismiss; a false negative would hide useful documentation.
     pump_result = await db.execute(
         select(IntegrationCredential).where(
             IntegrationCredential.user_id == current_user.id,

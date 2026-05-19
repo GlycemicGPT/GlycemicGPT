@@ -17,9 +17,7 @@ listed below.
 Python library for syncing Tandem t:slim X2 / Mobi pump data with Tandem's
 t:connect cloud (`TandemSourceApi`). Used by `apps/api/src/services/tandem_sync.py`
 to fetch pump history (boluses, basal, Control-IQ corrections, settings) on a
-schedule, and by `apps/api/src/services/tandem_upload.py` for OAuth token
-acquisition during the cloud-upload path. Consumed via `pyproject.toml` as
-`tconnectsync>=2.3.0`.
+schedule. Consumed via `pyproject.toml` as `tconnectsync>=2.3.0`.
 
 ### pydexcom
 

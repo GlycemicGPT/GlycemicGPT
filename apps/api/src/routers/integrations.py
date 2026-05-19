@@ -8,7 +8,7 @@ import uuid
 import zoneinfo
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydexcom import Dexcom
 from pydexcom import errors as dexcom_errors
 from sqlalchemy import and_, case, func, select, text
@@ -1720,6 +1720,7 @@ async def get_iob_projection_endpoint(
 async def push_pump_events(
     body: PumpPushRequest,
     request: Request,
+    response: Response,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> PumpPushResponse:
@@ -1727,6 +1728,12 @@ async def push_pump_events(
 
     Uses PostgreSQL ON CONFLICT DO NOTHING on the existing unique index
     (user_id, event_timestamp, event_type) for idempotent inserts.
+
+    The ``raw_events`` / ``pump_info`` fields are kept for back-compat with
+    older mobile builds but are discarded server-side. When either field
+    is present on the request, an IETF ``Deprecation`` response header is
+    set so clients have a protocol-level signal to detect and remove the
+    capture logic.
     """
     now = datetime.now(UTC)
     rows = []
@@ -1774,6 +1781,18 @@ async def push_pump_events(
     # persisted -- the cloud upload feature that consumed them was removed
     # (see PR1c). The response reports zero raw_accepted/raw_duplicates so
     # the mobile client's success path still works without changes.
+    #
+    # IETF ``Deprecation`` header (RFC 8594) lets clients detect deprecation
+    # at the protocol layer instead of inferring from raw_accepted == 0.
+    # Set unconditionally when the deprecated fields appear in the payload
+    # so a newer client can branch on it and stop populating the fields.
+    if body.raw_events is not None or body.pump_info is not None:
+        response.headers["Deprecation"] = "true"
+        response.headers["Sunset"] = "Mon, 31 Dec 2029 23:59:59 GMT"
+        response.headers["Link"] = (
+            "<https://glycemicgpt.org/docs/daily-use/connecting-tandem-cloud>; "
+            'rel="deprecation"; type="text/html"'
+        )
 
     await db.commit()
 
