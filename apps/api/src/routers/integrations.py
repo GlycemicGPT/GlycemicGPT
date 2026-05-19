@@ -532,11 +532,12 @@ async def connect_tandem(
     )
     existing = result.scalar_one_or_none()
 
+    previous_country = existing.region if existing else ""
+    country_changed = bool(existing) and previous_country != request.country
+
     if existing:
         # Update existing credentials. region column stores the country code
         # for Tandem (see model comment in src/models/integration.py).
-        previous_country = existing.region or ""
-        country_changed = previous_country != request.country
         existing.encrypted_username = encrypt_credential(request.username)
         existing.encrypted_password = encrypt_credential(request.password)
         existing.region = request.country
@@ -544,29 +545,6 @@ async def connect_tandem(
         existing.last_error = None
         existing.updated_at = datetime.now(UTC)
         credential = existing
-
-        # If the country (and therefore the Tandem cloud bucket) changed, the
-        # cached OAuth token is bound to the old cloud and will fail with an
-        # opaque 401 against the new endpoints. Clear it so the next upload
-        # re-authenticates fresh.
-        if country_changed:
-            state_result = await db.execute(
-                select(TandemUploadState).where(
-                    TandemUploadState.user_id == current_user.id
-                )
-            )
-            state = state_result.scalar_one_or_none()
-            if state is not None:
-                state.tandem_access_token = None
-                state.tandem_refresh_token = None
-                state.tandem_token_expires_at = None
-                state.tandem_pumper_id = None
-                logger.info(
-                    "Cleared cached Tandem auth on country change",
-                    user_id=str(current_user.id),
-                    old_country=previous_country,
-                    new_country=request.country,
-                )
     else:
         credential = IntegrationCredential(
             user_id=current_user.id,
@@ -577,6 +555,46 @@ async def connect_tandem(
             status=IntegrationStatus.CONNECTED,
         )
         db.add(credential)
+
+    # Clear cached OAuth state on every reconnect, including the
+    # disconnect → reconnect flow where ``existing`` is None. Reasons:
+    #  1. Country change -- the cached token was minted against the old
+    #     cloud bucket and will 401 against the new endpoints.
+    #  2. Same-country reconnect -- the user's stated remediation for
+    #     "missing pumper_id" errors is to reconnect; if we don't clear
+    #     the cache, they get the same stale token back and the error
+    #     keeps surfacing until the natural token expiry.
+    #  3. disconnect_tandem() deletes the IntegrationCredential but
+    #     leaves TandemUploadState in place, so a re-connect after a
+    #     disconnect would otherwise reuse the prior tandem_access_token
+    #     and tandem_pumper_id values.
+    # ``with_for_update()`` serializes against a concurrent upload
+    # holding the same row's lock so the clear isn't immediately
+    # repopulated by a mid-flight auth-cache write.
+    state_result = await db.execute(
+        select(TandemUploadState)
+        .where(TandemUploadState.user_id == current_user.id)
+        .with_for_update()
+    )
+    state = state_result.scalar_one_or_none()
+    if state is not None and (
+        state.tandem_access_token is not None
+        or state.tandem_refresh_token is not None
+        or state.tandem_token_expires_at is not None
+        or state.tandem_pumper_id is not None
+    ):
+        state.tandem_access_token = None
+        state.tandem_refresh_token = None
+        state.tandem_token_expires_at = None
+        state.tandem_pumper_id = None
+        logger.info(
+            "Cleared cached Tandem auth on reconnect",
+            user_id=str(current_user.id),
+            old_country=previous_country,
+            new_country=request.country,
+            country_changed=country_changed,
+            had_existing_credential=bool(existing),
+        )
 
     await db.commit()
     await db.refresh(credential)

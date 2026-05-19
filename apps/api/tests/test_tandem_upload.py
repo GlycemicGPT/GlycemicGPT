@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from src.core.encryption import encrypt_credential
 from src.core.tandem_regions import TandemLegacyRegionError
@@ -147,6 +147,80 @@ class TestBuildUploadPayload:
         assert misc["uploaderClient"] == "mobile_tconnect"
         assert misc["appVersion"] == "2.9.1 (3368rb)"
         assert "pumpFeatures" in misc
+
+    def test_payload_uses_pump_time_when_events_present(self):
+        """``pumpDateTime`` must reflect the latest event's pump time, not
+        the backend's wall-clock at upload time. The stored
+        ``pump_time_seconds`` value is in *Tandem epoch* (seconds since
+        2008-01-01); converting it correctly requires adding
+        ``TANDEM_EPOCH_OFFSET_SECONDS``. Sending the raw value as if it
+        were UNIX time would render every event in the late 1980s, which
+        Tandem silently rejects the same way it rejects ``now()``.
+        """
+        pump_info = self._make_mock_pump_info()
+        # Realistic Tandem-epoch values. 564_941_700 + 1_199_145_600
+        # = 1_764_087_300 UNIX = 2025-11-25T16:15:00 UTC.
+        events = [self._make_mock_raw_event(seq=10) for _ in range(3)]
+        for ev, ts in zip(
+            events,
+            [564_940_800, 564_941_100, 564_941_700],
+            strict=True,
+        ):
+            ev.pump_time_seconds = ts
+        payload = build_upload_payload(pump_info, events)
+        misc = payload["package"]["device"]["data"]["misc"]
+        # Latest event wins; if the epoch offset is missing we'd render
+        # this as 1987-11-22 instead (which is exactly the failure mode
+        # the original "fix" shipped before the adversarial-review catch).
+        assert misc["pumpDateTime"] == "2025-11-25T16:15:00"
+
+    def test_payload_falls_back_to_now_when_no_events(self):
+        """With no events to anchor pump time, fall back to wall-clock so
+        we still send a valid (if approximate) timestamp."""
+        pump_info = self._make_mock_pump_info()
+        before = datetime.now(UTC).replace(microsecond=0)
+        payload = build_upload_payload(pump_info, [])
+        after = datetime.now(UTC).replace(microsecond=0)
+        misc = payload["package"]["device"]["data"]["misc"]
+        rendered = datetime.strptime(misc["pumpDateTime"], "%Y-%m-%dT%H:%M:%S").replace(
+            tzinfo=UTC
+        )
+        assert before <= rendered <= after
+
+    def test_payload_skips_bogus_pump_times(self):
+        """Events with timestamps outside [2008, now+5y] are filtered before
+        computing the max so a single bad event can't poison the batch."""
+        pump_info = self._make_mock_pump_info()
+        events = [self._make_mock_raw_event(seq=i) for i in range(3)]
+        # Valid event from late 2025
+        events[0].pump_time_seconds = 564_940_800
+        # Bogus future event (~ year 2999 if treated naively)
+        events[1].pump_time_seconds = 31_000_000_000
+        # Another valid event from late 2025 (slightly later than events[0])
+        events[2].pump_time_seconds = 564_941_100
+        payload = build_upload_payload(pump_info, events)
+        misc = payload["package"]["device"]["data"]["misc"]
+        # The bogus one is discarded; max of remaining = 564_941_100
+        # 564_941_100 + 1_199_145_600 = 1_764_086_700 = 2025-11-25T16:05:00 UTC
+        assert misc["pumpDateTime"] == "2025-11-25T16:05:00"
+
+    def test_payload_falls_back_when_every_event_is_bogus(self):
+        """If every event is out of range, fall back to now() instead of
+        crashing or sending garbage."""
+        pump_info = self._make_mock_pump_info()
+        events = [self._make_mock_raw_event(seq=i) for i in range(2)]
+        # Negative pump time renders before the Tandem epoch (filtered).
+        events[0].pump_time_seconds = -100_000_000
+        # Far-future pump time, well past now()+5y (filtered).
+        events[1].pump_time_seconds = 999_999_999_999
+        before = datetime.now(UTC).replace(microsecond=0)
+        payload = build_upload_payload(pump_info, events)
+        after = datetime.now(UTC).replace(microsecond=0)
+        misc = payload["package"]["device"]["data"]["misc"]
+        rendered = datetime.strptime(misc["pumpDateTime"], "%Y-%m-%dT%H:%M:%S").replace(
+            tzinfo=UTC
+        )
+        assert before <= rendered <= after
 
     def test_events_included(self):
         pump_info = self._make_mock_pump_info()
@@ -715,3 +789,237 @@ class TestUploadEmptySetRegression:
                 .all()
             )
             assert all(not r.uploaded_to_tandem for r in rows)
+
+
+class TestUploadSilentSuccessRegression:
+    """Regression tests for the v0.8.2 silent-success bug.
+
+    Production user pressed "Upload Now" three times, each returned
+    "500 events sent to tandem" success, the local counter went down,
+    but no events ever appeared in the official t:connect web portal.
+    Two value-level payload bugs and one missing response-body check
+    were responsible.
+    """
+
+    @pytest.mark.asyncio
+    async def test_upload_refuses_when_pumper_id_missing(self):
+        """Empty pumper_id means deviceAssignmentId would be ``""`` in the
+        upload payload, which Tandem accepts (200 OK) but silently drops.
+        Refuse to upload, surface a re-connect prompt, invalidate the
+        cached auth so the next run re-authenticates fresh, and stamp
+        last_upload_at so the scheduler doesn't hammer Tandem OAuth on
+        every tick."""
+        async with await _own_session() as session:
+            user_id = await _seed_upload_fixtures(
+                session, region="US", seq_numbers=(1, 2)
+            )
+            # Seed STALE cached auth state -- this is the scenario the
+            # self-heal path is for. Without these the test wouldn't
+            # exercise the cache-clearing side-effect at all.
+            stale_expiry = datetime.now(UTC) + timedelta(minutes=30)
+            await session.execute(
+                update(TandemUploadState)
+                .where(TandemUploadState.user_id == user_id)
+                .values(
+                    tandem_access_token=encrypt_credential("stale-token"),
+                    tandem_refresh_token=encrypt_credential("stale-refresh"),
+                    tandem_token_expires_at=stale_expiry,
+                    tandem_pumper_id="stale-pumper",
+                )
+            )
+            await session.commit()
+
+        mock_api = MagicMock()
+        mock_api.accessToken = "tok"
+        mock_api.accessTokenExpiresAt = None
+        mock_api.pumperId = None  # <-- the bug condition
+
+        post_mock = AsyncMock(return_value={})
+
+        async with await _own_session() as session:
+            with (
+                patch(
+                    "tconnectsync.api.tandemsource.TandemSourceApi",
+                    return_value=mock_api,
+                ),
+                patch(
+                    "src.services.tandem_upload.fetch_tandem_config",
+                    AsyncMock(
+                        return_value={
+                            "postUploadUrl": "https://example.test/upload",
+                            "getLastEventUploadedUrl": "https://example.test/last",
+                        }
+                    ),
+                ),
+                patch(
+                    "src.services.tandem_upload.get_last_event_uploaded",
+                    AsyncMock(return_value=0),
+                ),
+                patch(
+                    "src.services.tandem_upload._post_upload",
+                    post_mock,
+                ),
+            ):
+                result = await upload_to_tandem(session, user_id)
+
+        assert result["status"] == "error", result
+        assert result["events_uploaded"] == 0
+        assert "pumper id" in result["message"].lower()
+        # _post_upload must NOT have been called -- we refuse to send the
+        # payload at all rather than risk a silent drop.
+        assert post_mock.await_count == 0
+
+        # Side effects: the stale cache must be cleared on the way out so
+        # the next call re-authenticates fresh instead of being stuck on
+        # the same broken cached pumper_id for the cached-token TTL.
+        async with await _own_session() as session:
+            state = (
+                await session.execute(
+                    select(TandemUploadState).where(
+                        TandemUploadState.user_id == user_id
+                    )
+                )
+            ).scalar_one()
+            assert state.tandem_access_token is None
+            assert state.tandem_refresh_token is None
+            assert state.tandem_token_expires_at is None
+            assert state.tandem_pumper_id is None
+            # And the scheduler-throttling stamp must be set so a stuck
+            # user can't amplify failed auth into 60 requests/hour.
+            assert state.last_upload_at is not None
+
+    @pytest.mark.asyncio
+    async def test_post_upload_logs_non_zero_processing_status(self, caplog):
+        """``processingStatus`` is documented for the getLastEventUploaded
+        endpoint but not for upload responses; we log non-zero values
+        when they appear so production traces can confirm whether Tandem
+        actually returns the field for uploads, but do NOT fail-close on
+        it (avoids hard-rejecting valid uploads against a schema variance
+        we haven't observed in the wild).
+        """
+        import logging
+
+        from src.services.tandem_upload import _post_upload
+
+        class _MockResp:
+            status_code = 200
+            content = b'{"processingStatus": 1}'
+            text = '{"processingStatus": 1}'
+            headers = {"Content-Type": "application/json"}
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"processingStatus": 1}
+
+        class _MockClient:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return None
+
+            async def post(self, url, content, headers):
+                return _MockResp()
+
+        with (
+            patch("httpx.AsyncClient", lambda **kwargs: _MockClient()),
+            caplog.at_level(logging.WARNING),
+        ):
+            result = await _post_upload(
+                access_token="t",
+                config={"postUploadUrl": "https://x.test/u"},
+                payload={"client": "mHealth", "package": {}},
+            )
+        # Returns the body (no exception), but emits a WARNING for audit
+        assert result == {"processingStatus": 1}
+        assert "non-zero processingStatus" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_post_upload_raises_on_per_event_errors(self):
+        """A 200 with a populated ``errors`` array IS a hard failure --
+        Tandem accepted the request but rejected individual events. We
+        refuse to mark them as uploaded so they stay queued for retry.
+        """
+        from src.services.tandem_upload import _post_upload
+
+        class _MockResp:
+            status_code = 200
+            content = b'{"errors": [{"code": "bad"}]}'
+            text = '{"errors": [{"code": "bad"}]}'
+            headers = {"Content-Type": "application/json"}
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"errors": [{"code": "bad"}]}
+
+        class _MockClient:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return None
+
+            async def post(self, url, content, headers):
+                return _MockResp()
+
+        with (
+            patch("httpx.AsyncClient", lambda **kwargs: _MockClient()),
+            pytest.raises(RuntimeError, match="per-event error"),
+        ):
+            await _post_upload(
+                access_token="t",
+                config={"postUploadUrl": "https://x.test/u"},
+                payload={"client": "mHealth", "package": {}},
+            )
+
+
+class TestSchedulerStartupLogs:
+    """The scheduler must announce its enable/disable state at startup so
+    production "scheduler not firing" reports can be diagnosed by a single
+    log grep without code spelunking."""
+
+    def test_logs_disabled_state_for_tandem_upload_and_sync(self, caplog, monkeypatch):
+        import logging
+
+        import src.services.scheduler as scheduler_module
+        from src.config import settings as global_settings
+
+        # ``monkeypatch.setattr`` auto-restores even if the test crashes,
+        # which is safer than try/finally under pytest-xdist parallel
+        # workers that share the same global settings singleton.
+        monkeypatch.setattr(global_settings, "tandem_upload_enabled", False)
+        monkeypatch.setattr(global_settings, "tandem_sync_enabled", False)
+        # Reset the module-level singleton so start_scheduler() runs the
+        # registration block again instead of short-circuiting.
+        original_scheduler = scheduler_module.scheduler
+        monkeypatch.setattr(scheduler_module, "scheduler", None)
+        try:
+            # Capture across all loggers; our structlog-wrapped logger routes
+            # via stdlib logging but the named filter on caplog.at_level
+            # doesn't always catch the wrapped path.
+            with caplog.at_level(logging.WARNING):
+                # start_scheduler() ends with scheduler.start() which needs a
+                # running event loop. We only care about the registration
+                # log lines emitted before that, so swallow the RuntimeError.
+                try:
+                    scheduler_module.start_scheduler()
+                except RuntimeError:
+                    pass
+            # `caplog.text` is the joined human-readable rendering of all
+            # captured records and is the most reliable way to assert
+            # against structlog output.
+            assert "Tandem cloud upload scheduler DISABLED" in caplog.text
+            assert "Tandem sync scheduler DISABLED" in caplog.text
+        finally:
+            if (
+                scheduler_module.scheduler is not None
+                and scheduler_module.scheduler is not original_scheduler
+            ):
+                try:
+                    scheduler_module.scheduler.shutdown(wait=False)
+                except Exception:
+                    pass

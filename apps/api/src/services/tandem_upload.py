@@ -24,6 +24,7 @@ from src.config import settings
 from src.core.encryption import decrypt_credential, encrypt_credential
 from src.core.tandem_regions import (
     SUPPORTED_TANDEM_COUNTRIES,
+    TANDEM_EPOCH_OFFSET_SECONDS,
     TandemLegacyRegionError,
     resolve_country_or_raise,
 )
@@ -372,6 +373,53 @@ async def get_last_event_uploaded(
         return data.get("maxPumpEventIndex", 0)
 
 
+def _resolve_pump_datetime(raw_events: list[PumpRawEvent]) -> datetime:
+    """Pick the wall-clock pumpDateTime value to send with this upload batch.
+
+    ``PumpRawEvent.pump_time_seconds`` is in *Tandem epoch* (seconds since
+    2008-01-01T00:00:00 UTC), captured raw from the pump's BLE history log
+    and stored unchanged by the mobile push pipeline (see the mirror
+    constant in ``StatusResponseParser.kt``). Convert to UNIX time by
+    adding ``TANDEM_EPOCH_OFFSET_SECONDS`` before handing to
+    ``datetime.fromtimestamp``; treating the raw value as UNIX time would
+    place pumpDateTime around 1988 and Tandem silently rejects it the same
+    way it rejects ``datetime.now(UTC)``.
+
+    Defensively drop events whose timestamp falls outside a sane window
+    (between the Tandem epoch itself and ~5 years in the future). A bogus
+    event with a clock-skew of years past the window can otherwise
+    dominate ``max(...)`` and poison the entire upload.
+    """
+    now_utc = datetime.now(UTC)
+    earliest = datetime(2008, 1, 1, tzinfo=UTC)
+    latest_allowed = now_utc + timedelta(days=365 * 5)
+
+    def _candidate(ev: PumpRawEvent) -> datetime | None:
+        unix_seconds = ev.pump_time_seconds + TANDEM_EPOCH_OFFSET_SECONDS
+        try:
+            dt = datetime.fromtimestamp(unix_seconds, tz=UTC)
+        except (OverflowError, OSError, ValueError):
+            return None
+        if dt < earliest or dt > latest_allowed:
+            return None
+        return dt
+
+    candidates = [c for ev in raw_events if (c := _candidate(ev)) is not None]
+    if candidates:
+        return max(candidates)
+    if raw_events:
+        # Every event had a bogus timestamp -- log so prod operators can
+        # spot upstream BLE / clock-sync issues, then fall back to now()
+        # so the upload still ships rather than crashing the worker.
+        logger.warning(
+            "All raw events had out-of-range pump_time_seconds; "
+            "falling back to now() for pumpDateTime",
+            event_count=len(raw_events),
+            sample_pump_time_seconds=raw_events[0].pump_time_seconds,
+        )
+    return now_utc
+
+
 def build_upload_payload(
     pump_info: PumpHardwareInfo,
     raw_events: list[PumpRawEvent],
@@ -381,7 +429,16 @@ def build_upload_payload(
     """Build the Tandem upload payload JSON matching the official app schema.
 
     Schema: UploadPayload > Package > Device > Data (misc, settings, events)
+
+    ``device_assignment_id`` is the user's Tandem pumperId (from the OAuth
+    token's claims). Tandem accepts uploads with a blank value but silently
+    drops them, so callers must populate it. Empty values are accepted here
+    only for back-compat with the test fixtures; production callers go
+    through ``upload_to_tandem`` which refuses to invoke this with a blank
+    ID.
     """
+    pump_dt = _resolve_pump_datetime(raw_events)
+
     # Build misc object
     misc = {
         "platform": "GlycemicGPT Mobile [Android]",
@@ -389,7 +446,7 @@ def build_upload_payload(
         "pumpAPIVersion": "",
         "appVersion": "2.9.1 (3368rb)",
         "uploaderClient": "mobile_tconnect",
-        "pumpDateTime": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S"),
+        "pumpDateTime": pump_dt.strftime("%Y-%m-%dT%H:%M:%S"),
         "clientDateTimeWithOffset": datetime.now(UTC).strftime(
             "%Y-%m-%dT%H:%M:%S+00:00"
         ),
@@ -448,18 +505,50 @@ async def _post_upload(
 
     async with httpx.AsyncClient(timeout=_UPLOAD_TIMEOUT_SECONDS) as client:
         resp = await client.post(url, content=json_bytes, headers=headers)
-        resp.raise_for_status()
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPStatusError:
+            # Capture Tandem's response body before re-raising so callers can
+            # diagnose why the upload failed. Body should not contain user
+            # PHI -- it's an upload ack -- but truncate defensively in case
+            # Tandem ever echoes payload fragments back to us.
+            logger.error(
+                "Tandem upload HTTP failure",
+                http_status=resp.status_code,
+                response_body=(resp.text or "")[:2048],
+            )
+            raise
         body = resp.json() if resp.content else {}
         # A 200 from Tandem can still report per-event errors in the body.
         # Treat any populated `errors` array as a failure so we don't mark
-        # those events as uploaded -- otherwise we'd silently drop them on
-        # the floor, exactly the kind of silent-success bug the bundled fix
-        # is meant to eliminate.
-        if isinstance(body, dict) and body.get("errors"):
-            raise RuntimeError(
-                f"Tandem cloud accepted the request but reported "
-                f"{len(body['errors'])} per-event error(s)."
-            )
+        # those events as uploaded.
+        #
+        # ``processingStatus`` is documented in the reverse-engineering
+        # notes only for the ``getLastEventUploaded`` endpoint, not for the
+        # upload response. We log it when present so production traces can
+        # confirm whether Tandem actually returns it for uploads (and what
+        # values it uses), but do NOT fail-close on it -- doing so risks
+        # hard-rejecting valid uploads against a Tandem schema variance we
+        # haven't confirmed.
+        if isinstance(body, dict):
+            processing_status = body.get("processingStatus")
+            if processing_status is not None and processing_status != 0:
+                logger.warning(
+                    "Tandem upload returned non-zero processingStatus; "
+                    "treating as success but capturing for future audit",
+                    processing_status=processing_status,
+                    response_body=json.dumps(body, separators=(",", ":"))[:2048],
+                )
+            if body.get("errors"):
+                logger.error(
+                    "Tandem upload returned per-event errors",
+                    error_count=len(body["errors"]),
+                    response_body=json.dumps(body, separators=(",", ":"))[:2048],
+                )
+                raise RuntimeError(
+                    f"Tandem cloud accepted the request but reported "
+                    f"{len(body['errors'])} per-event error(s)."
+                )
         return body
 
 
@@ -527,6 +616,42 @@ async def upload_to_tandem(
     access_token = auth_result["access_token"]
     pumper_id = auth_result.get("pumper_id", "")
     country = auth_result["country"]
+
+    # Refuse to upload with an empty deviceAssignmentId. tconnectsync silently
+    # defaults pumperId to "" when the JWT lacks the claim, and Tandem's cloud
+    # appears to accept such uploads with HTTP 200 but never persist them --
+    # the user sees "events sent" but t:connect's portal stays empty.
+    # Mark the run as failed and surface a re-connect prompt instead.
+    #
+    # Self-healing: invalidate the cached auth state before returning so the
+    # next run re-authenticates fresh. Without this, an empty `pumper_id`
+    # cached from a prior fresh-auth attempt would keep blocking every
+    # subsequent upload for the cached-token lifetime (~1 hour).
+    if not pumper_id:
+        state.tandem_access_token = None
+        state.tandem_refresh_token = None
+        state.tandem_token_expires_at = None
+        state.tandem_pumper_id = None
+        # Defer the next scheduler tick by stamping last_upload_at so a
+        # stuck empty-pumper_id user doesn't hammer Tandem OAuth on every
+        # 1-minute scheduler tick. The user's configured upload_interval
+        # already throttles steady-state runs; this just makes failure
+        # cases match that cadence instead of amplifying.
+        state.last_upload_at = now
+        public_msg = (
+            "Tandem authentication did not return a pumper ID. "
+            "The next upload attempt will re-authenticate; if it keeps "
+            "failing, disconnect and reconnect Tandem in Settings."
+        )
+        state.last_upload_status = "error"
+        state.last_error = public_msg
+        await db.commit()
+        logger.error(
+            "Tandem upload blocked: empty pumper_id from auth",
+            user_id=str(user_id),
+            country=country,
+        )
+        return {"message": public_msg, "events_uploaded": 0, "status": "error"}
 
     # Fetch per-country endpoint config
     try:
@@ -645,6 +770,8 @@ async def upload_to_tandem(
         user_id=str(user_id),
         events_uploaded=len(raw_events),
         max_sequence=max_seq,
+        pumper_id_present=bool(pumper_id),
+        pump_datetime=payload["package"]["device"]["data"]["misc"]["pumpDateTime"],
     )
 
     return {
