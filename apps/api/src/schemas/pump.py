@@ -5,7 +5,7 @@ including pump activity mode data.
 """
 
 from datetime import UTC, datetime, timedelta
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -272,49 +272,6 @@ class PumpEventPushItem(BaseModel):
         return v
 
 
-class PumpRawEventItem(BaseModel):
-    """Deprecated: a single raw BLE history log record from the pump.
-
-    Kept in the schema only so legacy mobile builds that include
-    ``raw_events`` on ``/pump/push`` requests still validate. The
-    payload is discarded server-side (see PR1c). Field bounds are
-    intentionally permissive -- since the data is thrown away, there
-    is no reason to fail-422 a slightly-out-of-spec older client.
-    """
-
-    sequence_number: int = Field(..., ge=0, description="Pump event sequence index")
-    raw_bytes_b64: str = Field(
-        ...,
-        min_length=1,
-        max_length=512,
-        description=(
-            "Base64-encoded raw BLE bytes (historically an 18-byte record "
-            "→ ~24 chars). Bound is intentionally loose -- payload is "
-            "discarded server-side."
-        ),
-    )
-    event_type_id: int = Field(..., ge=0, description="Pump event type ID")
-    pump_time_seconds: int = Field(..., ge=0, description="Pump internal timestamp")
-
-
-class PumpHardwareInfoSchema(BaseModel):
-    """Hardware identification from the Tandem pump."""
-
-    serial_number: int = Field(..., gt=0)
-    model_number: int = Field(..., gt=0)
-    part_number: int = Field(..., gt=0)
-    pump_rev: str = Field(..., max_length=50)
-    arm_sw_ver: int = Field(..., ge=0)
-    msp_sw_ver: int = Field(..., ge=0)
-    config_a_bits: int = Field(..., ge=0)
-    config_b_bits: int = Field(..., ge=0)
-    pcba_sn: int = Field(..., ge=0)
-    pcba_rev: str = Field(..., max_length=50)
-    pump_features: dict = Field(
-        default_factory=dict, description="Feature flags (dexcomG5, controlIQ, etc.)"
-    )
-
-
 class PumpPushRequest(BaseModel):
     """Batch of pump events pushed from a mobile client.
 
@@ -322,24 +279,33 @@ class PumpPushRequest(BaseModel):
     with mobile clients built before the Tandem cloud-upload feature was
     removed (PR1c). Newer servers accept the fields but no longer persist
     them; older mobile builds that send them are not broken.
+
+    The legacy fields are typed loosely on purpose: an older mobile build
+    whose ``raw_events`` shape has drifted slightly (e.g. an extra field,
+    a renamed key) should *not* take down its real ``events`` batch with
+    a 422. Since the server discards these payloads, validating them adds
+    risk without any safety benefit.
     """
 
     events: list[PumpEventPushItem] = Field(
         ..., min_length=1, max_length=100, description="Pump events to push (1-100)"
     )
-    raw_events: list[PumpRawEventItem] | None = Field(
+    raw_events: Any = Field(
         default=None,
-        max_length=500,
         description=(
             "Deprecated and ignored. Previously: raw BLE bytes used by the "
-            "Tandem cloud-upload feature, which was removed."
+            "Tandem cloud-upload feature, which was removed (PR1c). Loose-typed "
+            "(any JSON shape accepted) so an older client with a drifted shape "
+            "does not lose its real ``events`` batch to a 422."
         ),
     )
-    pump_info: PumpHardwareInfoSchema | None = Field(
+    pump_info: Any = Field(
         default=None,
         description=(
             "Deprecated and ignored. Previously: pump hardware identification "
-            "used by the Tandem cloud-upload feature, which was removed."
+            "used by the Tandem cloud-upload feature, which was removed (PR1c). "
+            "Loose-typed (any JSON shape accepted) so an older client with a "
+            "drifted shape does not lose its real ``events`` batch to a 422."
         ),
     )
     source: str = Field(default="mobile", max_length=50)

@@ -804,8 +804,9 @@ class TestPumpPushAcceptsButIgnoresRawEvents:
     """``/api/integrations/pump/push`` keeps accepting ``raw_events`` and
     ``pump_info`` from older mobile clients (back-compat), but no longer
     persists them. Response reports zero raw_accepted/raw_duplicates and
-    sets an IETF ``Deprecation`` header (RFC 8594) so newer clients can
-    detect the back-compat path at the protocol level."""
+    sets an IETF ``Deprecation`` header (RFC 9745, Structured Field date
+    item: ``@<unix-timestamp>``) plus a ``Sunset`` header (RFC 8594) so
+    newer clients can detect the back-compat path at the protocol level."""
 
     async def test_push_accepts_legacy_raw_events_field(self):
         # Use bearer-token mobile auth like the rest of pump/push tests
@@ -905,7 +906,16 @@ class TestPumpPushAcceptsButIgnoresRawEvents:
         assert body["raw_accepted"] == 0
         assert body["raw_duplicates"] == 0
         # Deprecation header is set when legacy fields are present.
-        assert resp.headers.get("Deprecation") == "true"
+        # RFC 9745 syntax: ``@<unix-timestamp>``. Value tracks the date
+        # PR1c removed the consuming feature.
+        deprecation = resp.headers.get("Deprecation")
+        assert deprecation is not None and deprecation.startswith("@"), (
+            f"expected RFC 9745 Deprecation header (@<ts>), got: {deprecation!r}"
+        )
+        # Numeric body must parse as int (sanity check on the timestamp).
+        assert deprecation[1:].isdigit(), (
+            f"Deprecation timestamp not numeric: {deprecation!r}"
+        )
         assert "Sunset" in resp.headers
         # Sanity: the structured pump_events row WAS written (so we know the
         # 200 isn't coming from some silent short-circuit).
@@ -930,6 +940,63 @@ class TestPumpPushAcceptsButIgnoresRawEvents:
                 "the legacy upload persistence appears to have been "
                 "re-introduced"
             )
+
+    async def test_push_with_drifted_legacy_shape_does_not_422(self):
+        """The legacy ``raw_events`` / ``pump_info`` fields are typed loosely
+        so a future mobile drift (extra fields, type tweaks) does NOT take
+        down the real ``events`` batch with a 422. This is the regression
+        guard for CodeRabbit's PR review finding."""
+        from datetime import UTC, datetime, timedelta
+
+        email = unique_email("pump_push_drift")
+        event_ts = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            await client.post(
+                "/api/auth/register",
+                json={"email": email, "password": "TestPass1"},
+            )
+            login = await client.post(
+                "/api/auth/mobile/login",
+                json={"email": email, "password": "TestPass1"},
+            )
+            token = login.json()["access_token"]
+            resp = await client.post(
+                "/api/integrations/pump/push",
+                headers={"Authorization": f"Bearer {token}"},
+                json={
+                    "events": [
+                        {
+                            "event_type": "bolus",
+                            "event_timestamp": event_ts,
+                            "units": 3.0,
+                            "is_automated": False,
+                        }
+                    ],
+                    # raw_events with a *drifted* shape: missing fields,
+                    # extra fields, wrong types. None of this should matter.
+                    "raw_events": [
+                        {"future_field": "abc", "another_new_field": 42},
+                        {"raw_bytes_b64": True},  # wrong type
+                        "even a bare string",  # not even a dict
+                    ],
+                    # pump_info as a totally different shape than the
+                    # historical one. Also fine.
+                    "pump_info": {
+                        "manufacturer": "Tandem",
+                        "version": [3, 5, 0],
+                        "extra": {"deep": {"nested": "value"}},
+                    },
+                    "source": "mobile",
+                },
+            )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["accepted"] == 1
+        # Deprecation header is still set because the legacy fields are
+        # populated (regardless of their shape).
+        assert resp.headers.get("Deprecation", "").startswith("@")
 
     async def test_push_without_legacy_fields_no_deprecation_header(self):
         """Newer mobile builds that omit ``raw_events`` / ``pump_info``

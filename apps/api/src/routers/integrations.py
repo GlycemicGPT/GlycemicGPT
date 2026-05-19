@@ -1707,6 +1707,12 @@ async def get_iob_projection_endpoint(
 # Story 16.5: Mobile Pump Push Endpoint
 # ============================================================================
 
+# RFC 9745 Deprecation header value for the legacy ``raw_events`` /
+# ``pump_info`` fields on ``/pump/push``. Format is ``@<unix-timestamp>``
+# (Structured Field Date item). 1779148800 == 2026-05-19 00:00:00 UTC,
+# the date PR1c removed the consuming cloud-upload feature.
+_PUMP_PUSH_RAW_FIELDS_DEPRECATED_AT = "@1779148800"
+
 
 @router.post(
     "/pump/push",
@@ -1782,12 +1788,15 @@ async def push_pump_events(
     # (see PR1c). The response reports zero raw_accepted/raw_duplicates so
     # the mobile client's success path still works without changes.
     #
-    # IETF ``Deprecation`` header (RFC 8594) lets clients detect deprecation
-    # at the protocol layer instead of inferring from raw_accepted == 0.
-    # Set unconditionally when the deprecated fields appear in the payload
-    # so a newer client can branch on it and stop populating the fields.
+    # RFC 9745 specifies the ``Deprecation`` header as a Structured Field
+    # Date item: ``@<unix-timestamp>``. The timestamp marks the moment
+    # the resource (in this case, *these specific request fields*) was
+    # deprecated. We use 2026-05-19 00:00:00 UTC, the date PR1c landed.
+    # Paired with ``Sunset`` (RFC 8594) -- a far-future date because we
+    # still need to accept the fields from older mobile builds in the
+    # field for a long tail -- and a ``Link`` to the deprecation docs.
     if body.raw_events is not None or body.pump_info is not None:
-        response.headers["Deprecation"] = "true"
+        response.headers["Deprecation"] = _PUMP_PUSH_RAW_FIELDS_DEPRECATED_AT
         response.headers["Sunset"] = "Mon, 31 Dec 2029 23:59:59 GMT"
         response.headers["Link"] = (
             "<https://glycemicgpt.org/docs/daily-use/connecting-tandem-cloud>; "
