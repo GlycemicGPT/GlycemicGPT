@@ -553,10 +553,13 @@ async def connect_tandem(
         #     "missing pumper_id" errors is to reconnect; if we don't clear
         #     the cache, they get the same stale token back and the error
         #     keeps surfacing until the natural token expiry.
+        # ``with_for_update()`` serializes against a concurrent upload
+        # holding the same row's lock so the clear isn't immediately
+        # repopulated by a mid-flight auth-cache write.
         state_result = await db.execute(
-            select(TandemUploadState).where(
-                TandemUploadState.user_id == current_user.id
-            )
+            select(TandemUploadState)
+            .where(TandemUploadState.user_id == current_user.id)
+            .with_for_update()
         )
         state = state_result.scalar_one_or_none()
         if state is not None:

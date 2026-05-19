@@ -946,21 +946,22 @@ class TestSchedulerStartupLogs:
     production "scheduler not firing" reports can be diagnosed by a single
     log grep without code spelunking."""
 
-    def test_logs_disabled_state_for_tandem_upload_and_sync(self, caplog):
+    def test_logs_disabled_state_for_tandem_upload_and_sync(self, caplog, monkeypatch):
         import logging
 
         import src.services.scheduler as scheduler_module
         from src.config import settings as global_settings
 
-        original_upload = global_settings.tandem_upload_enabled
-        original_sync = global_settings.tandem_sync_enabled
+        # ``monkeypatch.setattr`` auto-restores even if the test crashes,
+        # which is safer than try/finally under pytest-xdist parallel
+        # workers that share the same global settings singleton.
+        monkeypatch.setattr(global_settings, "tandem_upload_enabled", False)
+        monkeypatch.setattr(global_settings, "tandem_sync_enabled", False)
+        # Reset the module-level singleton so start_scheduler() runs the
+        # registration block again instead of short-circuiting.
         original_scheduler = scheduler_module.scheduler
+        monkeypatch.setattr(scheduler_module, "scheduler", None)
         try:
-            global_settings.tandem_upload_enabled = False
-            global_settings.tandem_sync_enabled = False
-            # Reset the module-level singleton so start_scheduler() runs the
-            # registration block again instead of short-circuiting.
-            scheduler_module.scheduler = None
             # Capture across all loggers; our structlog-wrapped logger routes
             # via stdlib logging but the named filter on caplog.at_level
             # doesn't always catch the wrapped path.
@@ -978,11 +979,11 @@ class TestSchedulerStartupLogs:
             assert "Tandem cloud upload scheduler DISABLED" in caplog.text
             assert "Tandem sync scheduler DISABLED" in caplog.text
         finally:
-            global_settings.tandem_upload_enabled = original_upload
-            global_settings.tandem_sync_enabled = original_sync
-            if scheduler_module.scheduler is not None:
+            if (
+                scheduler_module.scheduler is not None
+                and scheduler_module.scheduler is not original_scheduler
+            ):
                 try:
                     scheduler_module.scheduler.shutdown(wait=False)
                 except Exception:
                     pass
-            scheduler_module.scheduler = original_scheduler

@@ -632,6 +632,12 @@ async def upload_to_tandem(
         state.tandem_refresh_token = None
         state.tandem_token_expires_at = None
         state.tandem_pumper_id = None
+        # Defer the next scheduler tick by stamping last_upload_at so a
+        # stuck empty-pumper_id user doesn't hammer Tandem OAuth on every
+        # 1-minute scheduler tick. The user's configured upload_interval
+        # already throttles steady-state runs; this just makes failure
+        # cases match that cadence instead of amplifying.
+        state.last_upload_at = now
         public_msg = (
             "Tandem authentication did not return a pumper ID. "
             "The next upload attempt will re-authenticate; if it keeps "
