@@ -1,6 +1,6 @@
 [project]
 name = "glycemicgpt-api"
-version = "0.7.2" # x-release-please-version
+version = "0.8.2" # x-release-please-version
 description = "GlycemicGPT FastAPI Backend"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -20,6 +20,12 @@ dependencies = [
     "pydexcom>=0.2.0",
     "apscheduler>=3.10.0",
     "tconnectsync>=2.3.0",
+    # tconnectsync.api.tandemsource imports requests_oidc.make_auth_code_session,
+    # which only exists in requests-oidc>=0.5.0. Renovate's lock-file maintenance
+    # has been silently downgrading to 0.4.x and breaking the build; this floor
+    # blocks the regression. (Bumped to >=0.6.0 to match what we already have
+    # installed and tested against.)
+    "requests-oidc>=0.6.0",
     "anthropic>=0.40.0",
     "openai>=1.50.0",
     "setuptools>=69.0.0,<82",  # tconnectsync needs pkg_resources, removed in setuptools 82

@@ -102,7 +102,12 @@ class IntegrationCredential(Base, TimestampMixin):
         nullable=True,
     )
 
-    # Region for Tandem integration (US or EU)
+    # Per-integration region/country selector.
+    # - Tandem: ISO-3166-1 alpha-2 country code (US, GB, DE, CA, ...) used to
+    #   resolve the per-country upload config and cloud bucket. Legacy rows may
+    #   still hold "EU" -- src.core.tandem_regions.is_legacy_tandem_region()
+    #   detects these and the upload service forces the user to re-select.
+    # - Dexcom: pydexcom region ("US", "OUS", or "JP") for Share API routing.
     region: Mapped[str] = mapped_column(
         String(10),
         default="US",

@@ -404,7 +404,7 @@ export function GlucoseHero({
   if (isLoading) {
     return (
       <div
-        className="rounded-xl p-8 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 animate-pulse"
+        className="rounded-xl p-4 sm:p-6 md:p-8 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 animate-pulse"
         role="region"
         aria-label="Loading glucose reading"
         aria-busy="true"
@@ -450,7 +450,7 @@ export function GlucoseHero({
   return (
     <div
       className={clsx(
-        "rounded-xl p-8 border border-slate-200 dark:border-slate-800",
+        "rounded-xl p-4 sm:p-6 md:p-8 border border-slate-200 dark:border-slate-800 overflow-hidden",
         "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900",
         colors.bg
       )}
@@ -470,7 +470,7 @@ export function GlucoseHero({
         {/* Main glucose display with dynamic aria-live priority */}
         <div
           className={clsx(
-            "flex items-center gap-4 mb-4",
+            "flex max-w-full items-center justify-center gap-2 sm:gap-4 mb-3 sm:mb-4",
             pulseType && !prefersReducedMotion && PULSE_CLASS[pulseType]
           )}
           aria-live={ariaLivePriority}
@@ -478,7 +478,7 @@ export function GlucoseHero({
         >
           <span
             className={clsx(
-              "text-7xl font-bold tabular-nums",
+              "text-5xl min-[360px]:text-6xl sm:text-7xl font-bold tabular-nums leading-none",
               colors.text
             )}
             data-testid="glucose-value"
@@ -488,7 +488,7 @@ export function GlucoseHero({
           </span>
           <span
             className={clsx(
-              "text-5xl",
+              "text-4xl sm:text-5xl leading-none",
               // Trend arrow inherits glucose range color for visual consistency
               safeValue !== null ? colors.text : "text-slate-400"
             )}
@@ -501,7 +501,7 @@ export function GlucoseHero({
 
         {/* Unit label */}
         <p
-          className="text-slate-400 text-lg"
+          className="text-slate-400 text-base sm:text-lg"
           data-testid="glucose-unit"
         >
           {unit}
@@ -524,7 +524,7 @@ export function GlucoseHero({
 
         {/* Secondary metrics: IoB, Basal, Battery, Reservoir, COB (PR 6) */}
         <div
-          className="flex items-center gap-4 mt-4 text-sm"
+          className="grid w-full grid-cols-2 gap-3 mt-4 text-xs sm:flex sm:w-auto sm:items-center sm:gap-4 sm:text-sm"
           role="group"
           aria-label="Pump status metrics"
           data-testid="secondary-metrics"
@@ -545,7 +545,7 @@ export function GlucoseHero({
               {safeIob !== null ? `${safeIob.toFixed(2)}u` : "--"}
             </span>
           </div>
-          <div className="w-px h-6 bg-slate-700" aria-hidden="true" />
+          <div className="hidden sm:block w-px h-6 bg-slate-700" aria-hidden="true" />
           <div
             className="flex flex-col items-center"
             aria-label={safeBasal !== null ? `Basal rate: ${safeBasal.toFixed(2)} units per hour` : "Basal rate: unavailable"}
@@ -562,7 +562,7 @@ export function GlucoseHero({
               {safeBasal !== null ? `${safeBasal.toFixed(2)} u/hr` : "--"}
             </span>
           </div>
-          <div className="w-px h-6 bg-slate-700" aria-hidden="true" />
+          <div className="hidden sm:block w-px h-6 bg-slate-700" aria-hidden="true" />
           <div
             className="flex flex-col items-center"
             aria-label={safeBattery !== null ? `Battery: ${Math.round(safeBattery)} percent` : "Battery: unavailable"}
@@ -579,7 +579,7 @@ export function GlucoseHero({
               {safeBattery !== null ? `${Math.round(safeBattery)}%` : "--"}
             </span>
           </div>
-          <div className="w-px h-6 bg-slate-700" aria-hidden="true" />
+          <div className="hidden sm:block w-px h-6 bg-slate-700" aria-hidden="true" />
           <div
             className="flex flex-col items-center"
             aria-label={safeReservoir !== null ? `Reservoir: ${safeReservoir.toFixed(0)} units remaining` : "Reservoir: unavailable"}

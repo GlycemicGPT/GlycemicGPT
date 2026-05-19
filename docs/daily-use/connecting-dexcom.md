@@ -15,7 +15,7 @@ GlycemicGPT pulls Dexcom data from Dexcom's cloud using your normal Dexcom accou
 
 ## How this works behind the scenes
 
-Your CGM transmits to your phone over Bluetooth, the Dexcom mobile app uploads to Dexcom's cloud, and GlycemicGPT reads from Dexcom's cloud using your account credentials. You don't need to enable any special "Share" or "Follow" setting -- as long as your CGM is uploading to Dexcom (which it does automatically when you have the Dexcom mobile app installed and signed in), GlycemicGPT can pull the data.
+Your CGM transmits to your phone over Bluetooth, the Dexcom mobile app uploads to Dexcom's cloud, and GlycemicGPT reads from Dexcom's cloud using your account credentials. For most accounts no extra setup is needed -- as long as your CGM is uploading to Dexcom (which it does automatically when you have the Dexcom mobile app installed and signed in), GlycemicGPT can pull the data. A small number of accounts require Share to be explicitly toggled on with at least one follower invited; see the troubleshooting section below if login fails.
 
 ## Steps
 
@@ -31,11 +31,33 @@ In your GlycemicGPT dashboard:
 2. Find **Dexcom** and click **Connect**
 3. Paste the **email address** for your Dexcom account
 4. Paste the **password** for your Dexcom account
-5. Click **Save**
+5. Pick the **region** that matches your Dexcom account (see below)
+6. Click **Save**
 
 GlycemicGPT stores your credentials encrypted on the platform and uses them to check Dexcom for new data on your behalf. The platform never sends your password anywhere except to Dexcom itself, and you can delete the credentials at any time by disconnecting the integration.
 
-> **Outside the US?** Dexcom routes account traffic differently in different regions. Today the GlycemicGPT integration assumes the US Share endpoint; explicit US / OUS region configuration in the UI is on the roadmap. If you're outside the US and the integration won't authenticate, [open an issue](https://github.com/GlycemicGPT/GlycemicGPT/issues/new/choose) -- we'd want to track that.
+### Picking the right region
+
+Dexcom Share is regional. There are three Share endpoints; pick the one that matches where your Dexcom account is registered:
+
+| Region | Use this when your account is from |
+|---|---|
+| **United States** | The United States |
+| **Outside US** | EU/EEA, UK, Canada, Australia, New Zealand, South Africa, LATAM, Middle East, or anywhere not US/Japan |
+| **Japan & Asia-Pacific** | Japan or other Asia-Pacific countries that use Dexcom's APAC service |
+
+A region mismatch and a wrong password look identical from Dexcom's side — both come back as "invalid credentials." If your password is correct on the Dexcom website but GlycemicGPT rejects it, the region picker is the first thing to check.
+
+> Dexcom locks the account after a small number of failed login attempts per region. Don't burn through retries — confirm your region first.
+
+### Troubleshooting: if login still fails after picking the right region
+
+GlycemicGPT reads from Dexcom's Share endpoint (the same API the Dexcom Follow feature uses). On most accounts Share is already active because the Dexcom mobile app turns it on automatically the first time data flows, and you should not need to touch it. As an **exception path** -- only relevant if your credentials are correct on the Dexcom website but GlycemicGPT still rejects them -- a small number of accounts require Share to be turned on explicitly:
+
+1. Open the Dexcom G6/G7 mobile app
+2. Go to **Share** in the menu
+3. Make sure Share is **on**
+4. Invite at least one follower (your own second email works) — Dexcom only fully activates the Share API after the first follower invite exists
 
 ### 3. Wait for the first sync
 

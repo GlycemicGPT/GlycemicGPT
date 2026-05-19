@@ -536,18 +536,19 @@ class TestTandemSyncEndpoints:
         # Should only store 1 event (the valid one)
         assert data["events_stored"] == 1
 
-    # Issue #1: Test region configuration
+    # Issue #1: Test country routing (replaces the old EU-region test now
+    # that we route by ISO-3166 country and derive the cloud bucket).
     @patch("src.services.tandem_sync.TandemSourceApi")
     @patch("src.routers.integrations.validate_tandem_credentials")
-    async def test_tandem_connect_with_eu_region(
+    async def test_tandem_connect_with_eu_cloud_country(
         self, mock_validate, mock_tandem_class
     ):
-        """Test connecting Tandem with EU region."""
+        """Test connecting Tandem with an EU-cloud country (GB)."""
         mock_validate.return_value = (True, None)
         mock_api = MagicMock()
         mock_tandem_class.return_value = mock_api
 
-        email = unique_email("tandem_eu_region")
+        email = unique_email("tandem_gb_country")
         password = "SecurePass123"
 
         async with AsyncClient(
@@ -566,23 +567,24 @@ class TestTandemSyncEndpoints:
 
             session_cookie = login_response.cookies.get(settings.jwt_cookie_name)
 
-            # Connect with EU region
+            # Connect with GB (United Kingdom) -> routes to EU cloud
             response = await client.post(
                 "/api/integrations/tandem",
                 json={
                     "username": "tandem@example.com",
                     "password": "tandem_password",
-                    "region": "EU",
+                    "country": "GB",
                 },
                 cookies={settings.jwt_cookie_name: session_cookie},
             )
 
         assert response.status_code == 201
-        # Verify validate was called with EU region
+        # Verify validate was called with the country (the validator derives
+        # the cloud bucket internally via country_to_cloud).
         mock_validate.assert_called_with(
             "tandem@example.com",
             "tandem_password",
-            "EU",
+            "GB",
         )
 
 

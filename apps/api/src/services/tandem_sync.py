@@ -17,6 +17,10 @@ from tconnectsync.api.tandemsource import TandemSourceApi
 
 from src.config import settings
 from src.core.encryption import decrypt_credential
+from src.core.tandem_regions import (
+    TandemLegacyRegionError,
+    resolve_country_or_raise,
+)
 from src.logging_config import get_logger
 from src.models.integration import (
     IntegrationCredential,
@@ -53,6 +57,12 @@ class TandemAuthError(TandemSyncError):
 
 class TandemConnectionError(TandemSyncError):
     """Connection to Tandem failed."""
+
+    pass
+
+
+class TandemNeedsCountryError(TandemSyncError):
+    """User's stored Tandem region is legacy/unknown; needs re-selection."""
 
     pass
 
@@ -738,17 +748,42 @@ async def sync_tandem_for_user(
         await db.commit()
         raise TandemSyncError("Failed to decrypt credentials") from e
 
-    # Get region from credential (default to US for backwards compatibility)
-    region = getattr(credential, "region", "US") or "US"
-
-    # Connect to Tandem
+    # Resolve stored region into a Tandem cloud bucket (US or EU). Legacy
+    # "EU" rows raise TandemLegacyRegionError -> bubble up as
+    # TandemNeedsCountryError so the router can return a 409 prompting
+    # the user to re-select their country.
     try:
-        api = TandemSourceApi(email=username, password=password, region=region)
+        country, cloud = resolve_country_or_raise(credential.region or "US")
+    except TandemLegacyRegionError as e:
+        # Avoid rewriting the credential row on every scheduler tick when the
+        # state is already exactly what we'd set it to -- otherwise legacy
+        # users churn ``updated_at`` and produce a steady warning every minute
+        # until they re-select.
+        message = str(e)
+        already_marked = (
+            credential.status == IntegrationStatus.ERROR
+            and credential.last_error == message
+        )
+        if not already_marked:
+            logger.warning(
+                "Tandem sync blocked: legacy region requires re-select",
+                user_id=str(user_id),
+                stored_region=credential.region,
+            )
+            credential.status = IntegrationStatus.ERROR
+            credential.last_error = message
+            await db.commit()
+        raise TandemNeedsCountryError(message) from e
+
+    # Connect to Tandem (cloud is "US" or "EU", which is what tconnectsync expects)
+    try:
+        api = TandemSourceApi(email=username, password=password, region=cloud)
     except ValueError as e:
         logger.warning(
             "Tandem invalid region",
             user_id=str(user_id),
-            region=region,
+            country=country,
+            cloud=cloud,
             error=str(e),
         )
         credential.status = IntegrationStatus.ERROR

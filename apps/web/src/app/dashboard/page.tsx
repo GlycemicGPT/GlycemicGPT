@@ -205,7 +205,7 @@ export default function DashboardPage() {
 
   return (
     <PageTransition>
-    <div className="space-y-6">
+    <div className="max-w-full min-w-0 space-y-4 sm:space-y-6">
       {/* Connection status banner - Story 4.5 */}
       <ConnectionStatusBanner
         isReconnecting={isReconnecting}

@@ -24,9 +24,11 @@ jest.mock("next/image", () => ({
 // Mock API functions
 const mockLoginUser = jest.fn();
 const mockGetCurrentUser = jest.fn();
+const mockVerifySessionCookie = jest.fn();
 jest.mock("@/lib/api", () => ({
   loginUser: (...args: unknown[]) => mockLoginUser(...args),
   getCurrentUser: (...args: unknown[]) => mockGetCurrentUser(...args),
+  verifySessionCookie: (...args: unknown[]) => mockVerifySessionCookie(...args),
 }));
 
 import LoginPage from "@/app/login/page";
@@ -35,8 +37,10 @@ describe("Login Page", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockGet.mockReturnValue(null);
-    // Default: not authenticated
+    // Default: not authenticated on mount → form is shown
     mockGetCurrentUser.mockRejectedValue(new Error("Not authenticated"));
+    // Default: post-login verification succeeds (cookie saved)
+    mockVerifySessionCookie.mockResolvedValue(200);
   });
 
   it("renders email and password fields", async () => {
@@ -354,6 +358,71 @@ describe("Login Page", () => {
         "An unexpected error occurred"
       );
     });
+  });
+
+  it("shows deployment-misconfig banner and does not navigate when session cookie is dropped (401)", async () => {
+    // Symptom seen by self-hosters on plain-HTTP deploys: login API returns
+    // 200, but the browser drops the Secure cookie, so /api/auth/me 401s.
+    mockLoginUser.mockResolvedValue({
+      message: "Login successful",
+      user: { id: "1", email: "test@test.com" },
+      disclaimer_required: false,
+    });
+    mockVerifySessionCookie.mockResolvedValue(401);
+
+    render(<LoginPage />);
+    await waitFor(() => {
+      expect(screen.getByLabelText(/email address/i)).toBeInTheDocument();
+    });
+
+    await userEvent.type(
+      screen.getByLabelText(/email address/i),
+      "test@test.com"
+    );
+    await userEvent.type(screen.getByLabelText(/^password$/i), "TestPass123");
+
+    fireEvent.click(screen.getByRole("button", { name: /sign in/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        /did not store the session cookie/i
+      );
+    });
+    expect(screen.getByRole("alert")).toHaveTextContent(/COOKIE_SECURE/);
+    expect(mockReplace).not.toHaveBeenCalled();
+  });
+
+  it("shows generic verification error on non-401 failure (does not misattribute to cookie issue)", async () => {
+    // A transient 5xx or proxy error must NOT show the cookie-misconfig
+    // banner — that would create false-positive support reports.
+    mockLoginUser.mockResolvedValue({
+      message: "Login successful",
+      user: { id: "1", email: "test@test.com" },
+      disclaimer_required: false,
+    });
+    mockVerifySessionCookie.mockResolvedValue(502);
+
+    render(<LoginPage />);
+    await waitFor(() => {
+      expect(screen.getByLabelText(/email address/i)).toBeInTheDocument();
+    });
+
+    await userEvent.type(
+      screen.getByLabelText(/email address/i),
+      "test@test.com"
+    );
+    await userEvent.type(screen.getByLabelText(/^password$/i), "TestPass123");
+
+    fireEvent.click(screen.getByRole("button", { name: /sign in/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        /could not verify your session/i
+      );
+    });
+    expect(screen.getByRole("alert")).toHaveTextContent("502");
+    expect(screen.getByRole("alert")).not.toHaveTextContent(/COOKIE_SECURE/);
+    expect(mockReplace).not.toHaveBeenCalled();
   });
 
   it("trims whitespace from email before submission", async () => {
