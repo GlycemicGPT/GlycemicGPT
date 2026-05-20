@@ -147,7 +147,9 @@ def _tandem_lookback_hours(
     tick drift pushes the elapsed time past 24h. Sizing the window to the
     actual elapsed time closes that gap.
     """
-    default_h = settings.tandem_sync_hours_back
+    # Clamp the default too, so a misconfigured tandem_sync_hours_back can't
+    # trigger an oversized pull for never-synced users.
+    default_h = min(settings.tandem_sync_hours_back, _TANDEM_MAX_LOOKBACK_HOURS)
     if last_sync_at is None:
         return default_h
     if last_sync_at.tzinfo is None:

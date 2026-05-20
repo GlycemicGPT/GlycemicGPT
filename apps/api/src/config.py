@@ -72,10 +72,13 @@ class Settings(BaseSettings):
     # elapsed since the credential's last_sync_at. `tandem_sync_enabled`
     # gates the whole job; `tandem_sync_interval_minutes` is the default
     # per-user cadence applied when a user has no TandemSyncState row.
-    tandem_sync_tick_interval_minutes: int = 15  # Global scheduler tick
-    tandem_sync_interval_minutes: int = 60  # Default per-user cadence
+    # Bounded at parse time: these feed APScheduler's IntervalTrigger, which
+    # misbehaves on 0/negative/huge values. Default per-user cadence matches
+    # the TandemSyncState column bounds (15-1440).
+    tandem_sync_tick_interval_minutes: int = Field(default=15, ge=1, le=60)
+    tandem_sync_interval_minutes: int = Field(default=60, ge=15, le=1440)
     tandem_sync_enabled: bool = True  # Enable/disable the whole job
-    tandem_sync_hours_back: int = 24  # Hours of history to fetch per sync
+    tandem_sync_hours_back: int = Field(default=24, ge=1, le=168)
 
     # Nightscout Sync Configuration (Story 43.4)
     # The scheduler ticks on a fixed interval; on each tick it scans
