@@ -1000,10 +1000,15 @@ async def sync_tandem_for_user(
             "last_event": None,
         }
 
-    # Store events (using upsert to handle duplicates)
+    # Build rows, then bulk-upsert in chunks. A manual import can span tens
+    # of thousands of events; inserting one row per round-trip made a 30-day
+    # import take ~90s (and time out the HTTP layer), so we batch instead.
     now = datetime.now(UTC)
-    stored_count = 0
     last_event = None
+    # De-duplicate on the conflict key (event_timestamp, event_type) keeping
+    # the first occurrence, so a single multi-row INSERT can't hit an
+    # intra-statement conflict on the unique index.
+    rows_by_key: dict[tuple, dict] = {}
 
     for event_data in events:
         # Extract timestamp
@@ -1077,41 +1082,27 @@ async def sync_tandem_for_user(
                 except (ValueError, TypeError):
                     pass
 
-        # Use PostgreSQL upsert (INSERT ON CONFLICT DO NOTHING)
-        stmt = (
-            insert(PumpEvent)
-            .values(
-                id=uuid.uuid4(),
-                user_id=user_id,
-                event_type=parsed.event_type,
-                event_timestamp=event_time,
-                units=units,
-                duration_minutes=duration_minutes,
-                is_automated=parsed.is_automated,
-                control_iq_reason=parsed.control_iq_reason,
-                pump_activity_mode=parsed.pump_activity_mode.value
+        key = (event_time, parsed.event_type)
+        if key not in rows_by_key:
+            rows_by_key[key] = {
+                "id": uuid.uuid4(),
+                "user_id": user_id,
+                "event_type": parsed.event_type,
+                "event_timestamp": event_time,
+                "units": units,
+                "duration_minutes": duration_minutes,
+                "is_automated": parsed.is_automated,
+                "control_iq_reason": parsed.control_iq_reason,
+                "pump_activity_mode": parsed.pump_activity_mode.value
                 if parsed.pump_activity_mode
                 else None,
-                basal_adjustment_pct=parsed.basal_adjustment_pct,
-                iob_at_event=iob,
-                cob_at_event=cob,
-                bg_at_event=bg,
-                received_at=now,
-                source="tandem",
-            )
-            .on_conflict_do_nothing(
-                index_elements=["user_id", "event_timestamp", "event_type"],
-                # The (user_id, event_timestamp, event_type) unique
-                # index is partial: applies only to direct-integration
-                # rows (`ns_id IS NULL`). Tandem direct sync writes
-                # ns_id=NULL so the partial index applies.
-                index_where=text("ns_id IS NULL"),
-            )
-        )
-
-        result = await db.execute(stmt)
-        if result.rowcount > 0:
-            stored_count += 1
+                "basal_adjustment_pct": parsed.basal_adjustment_pct,
+                "iob_at_event": iob,
+                "cob_at_event": cob,
+                "bg_at_event": bg,
+                "received_at": now,
+                "source": "tandem",
+            }
 
         # Track the most recent event
         if last_event is None or event_time > last_event["timestamp"]:
@@ -1124,6 +1115,26 @@ async def sync_tandem_for_user(
                 if parsed.pump_activity_mode
                 else None,
             }
+
+    # Chunked bulk upsert (INSERT ... ON CONFLICT DO NOTHING). rowcount per
+    # chunk counts only rows actually inserted (existing rows are skipped).
+    rows = list(rows_by_key.values())
+    stored_count = 0
+    chunk_size = 500
+    for start in range(0, len(rows), chunk_size):
+        stmt = (
+            insert(PumpEvent)
+            .values(rows[start : start + chunk_size])
+            .on_conflict_do_nothing(
+                index_elements=["user_id", "event_timestamp", "event_type"],
+                # The (user_id, event_timestamp, event_type) unique index is
+                # partial: applies only to direct-integration rows
+                # (`ns_id IS NULL`). Tandem direct sync writes ns_id=NULL.
+                index_where=text("ns_id IS NULL"),
+            )
+        )
+        result = await db.execute(stmt)
+        stored_count += max(result.rowcount, 0)
 
     # Update integration status. As above, don't advance the recency cursor
     # for an explicit-range (manual) import -- it isn't a "current" sync.
