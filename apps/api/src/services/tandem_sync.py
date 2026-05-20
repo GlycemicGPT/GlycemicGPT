@@ -508,11 +508,19 @@ def fetch_with_retry(
         last_error = None
         for attempt in range(max_retries):
             try:
+                # fetch_all_event_types=False asks Tandem to return only the
+                # report-relevant event IDs (the library's DEFAULT_EVENT_IDS),
+                # instead of the full ~256-type history log. Every event type
+                # we actually store (_EVENT_ID_TYPE_MAP: 3/16/279/280) is in
+                # that set, so this is lossless for our data -- but it cuts the
+                # fetch/parse volume dramatically (a 30-day window dropped from
+                # ~120k raw events to a fraction), which is what made a manual
+                # import slow enough to time out the HTTP proxy.
                 events_gen = api.pump_events(
                     device_id,
                     min_date=min_date_str,
                     max_date=max_date_str,
-                    fetch_all_event_types=True,
+                    fetch_all_event_types=False,
                 )
                 # Consume generator and normalize events
                 raw_count = 0

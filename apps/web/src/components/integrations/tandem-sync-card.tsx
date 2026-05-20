@@ -24,6 +24,9 @@ import {
 
 const MIN_INTERVAL = 15;
 const MAX_INTERVAL = 1440;
+// Mirrors MAX_IMPORT_RANGE_DAYS on the backend: a single synchronous import
+// must finish before the reverse proxy's ~30s timeout.
+const MAX_IMPORT_DAYS = 31;
 
 /** ISO datetime/date string -> YYYY-MM-DD (for <input type="date"> + display). */
 function toDay(iso: string | null): string {
@@ -112,6 +115,20 @@ export function TandemSyncCard({ isOffline }: { isOffline: boolean }) {
   const handleImport = async () => {
     if (!importStart || !importEnd) {
       setError("Pick a start and end date to import");
+      return;
+    }
+    if (importEnd < importStart) {
+      setError("End date must be on or after the start date");
+      return;
+    }
+    // Enforce the per-import span client-side so the user gets an instant,
+    // clear message instead of a slow round-trip + 422.
+    const spanDays =
+      (Date.parse(importEnd) - Date.parse(importStart)) / 86400000;
+    if (spanDays > MAX_IMPORT_DAYS) {
+      setError(
+        `Import up to ${MAX_IMPORT_DAYS} days at a time. For older history, import in ${MAX_IMPORT_DAYS}-day chunks.`
+      );
       return;
     }
     setIsImporting(true);
@@ -438,10 +455,10 @@ export function TandemSyncCard({ isOffline }: { isOffline: boolean }) {
               {availLoading
                 ? "Checking what's available in your t:connect cloud…"
                 : availability?.earliest && availability?.latest
-                  ? `Data available: ${toDay(availability.earliest)} → ${toDay(availability.latest)}. Pull any window in that range.`
+                  ? `Data available: ${toDay(availability.earliest)} → ${toDay(availability.latest)}. Import up to ${MAX_IMPORT_DAYS} days at a time.`
                   : availError
                     ? "Couldn't check the available range — you can still try an import."
-                    : "Pull a specific window of pump history on demand."}
+                    : `Pull a specific window of pump history on demand (up to ${MAX_IMPORT_DAYS} days per import).`}
             </p>
             <div className="flex flex-wrap items-end gap-3">
               <div>

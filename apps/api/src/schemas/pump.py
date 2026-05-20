@@ -195,11 +195,21 @@ class TandemAvailabilityResponse(BaseModel):
     pump_count: int = Field(default=0, description="Pumps found on the account")
 
 
+# Max span for a single manual import. Tandem's event log is dense
+# (~30 days of Control-IQ data ≈ 9k stored events and ~24s to fetch+store);
+# the web's reverse proxy times the request out around 30s, so we cap the
+# window to one that reliably completes well under that. Larger/older
+# history is imported in successive month chunks (full-history backfill via
+# a background job is a planned follow-up).
+MAX_IMPORT_RANGE_DAYS = 31
+
+
 class TandemImportRequest(BaseModel):
     """Manual one-time custom-range import (Tandem cloud download).
 
     Bounds: ``end`` after ``start``; ``end`` not in the future; span capped
-    at 366 days so a single import can't request an unbounded pull.
+    at ``MAX_IMPORT_RANGE_DAYS`` so a single synchronous import completes
+    before the HTTP proxy times out.
     """
 
     start_date: datetime = Field(..., description="Start of the range to import")
@@ -217,8 +227,8 @@ class TandemImportRequest(BaseModel):
             raise ValueError("end_date must be after start_date")
         if end > datetime.now(UTC) + timedelta(minutes=5):
             raise ValueError("end_date cannot be in the future")
-        if (end - start) > timedelta(days=366):
-            raise ValueError("import range cannot exceed 366 days")
+        if (end - start) > timedelta(days=MAX_IMPORT_RANGE_DAYS):
+            raise ValueError(f"import range cannot exceed {MAX_IMPORT_RANGE_DAYS} days")
         return self
 
 
