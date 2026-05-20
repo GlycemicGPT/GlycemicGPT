@@ -690,14 +690,34 @@ async def _authenticate_tandem_api(
     db: AsyncSession,
     user_id: uuid.UUID,
     credential: IntegrationCredential,
+    *,
+    persist_status: bool = True,
 ) -> TandemSourceApi:
     """Decrypt credentials, resolve the stored region to a cloud bucket, and
     return an authenticated ``TandemSourceApi``.
 
-    Shared by ``sync_tandem_for_user`` and ``get_tandem_availability``. On any
-    failure it marks the credential ERROR (committing) and raises the matching
-    Tandem*Error so the router can map it to the correct HTTP status.
+    Shared by ``sync_tandem_for_user`` and ``get_tandem_availability``. Raises
+    the matching Tandem*Error on failure so the router can map it to the right
+    HTTP status.
+
+    ``persist_status`` controls the side effect: sync passes True so a real
+    failure marks the credential ERROR; the read-only availability check passes
+    False so a transient blip doesn't flip the user's integration to ERROR.
     """
+
+    async def _mark_error(error_msg: str) -> None:
+        if not persist_status:
+            return
+        # Avoid churning updated_at when the row already says exactly this.
+        if (
+            credential.status == IntegrationStatus.ERROR
+            and credential.last_error == error_msg
+        ):
+            return
+        credential.status = IntegrationStatus.ERROR
+        credential.last_error = error_msg
+        await db.commit()
+
     # Decrypt credentials
     try:
         username = decrypt_credential(credential.encrypted_username)
@@ -708,9 +728,7 @@ async def _authenticate_tandem_api(
             user_id=str(user_id),
             error=str(e),
         )
-        credential.status = IntegrationStatus.ERROR
-        credential.last_error = "Credential decryption failed"
-        await db.commit()
+        await _mark_error("Credential decryption failed")
         raise TandemSyncError("Failed to decrypt credentials") from e
 
     # Resolve stored region into a Tandem cloud bucket (US or EU). Legacy
@@ -720,22 +738,13 @@ async def _authenticate_tandem_api(
     try:
         country, cloud = resolve_country_or_raise(credential.region or "US")
     except TandemLegacyRegionError as e:
-        # Avoid rewriting the credential row when it's already in exactly this
-        # state -- otherwise legacy users churn ``updated_at`` every tick.
         message = str(e)
-        already_marked = (
-            credential.status == IntegrationStatus.ERROR
-            and credential.last_error == message
+        logger.warning(
+            "Tandem auth blocked: legacy region requires re-select",
+            user_id=str(user_id),
+            stored_region=credential.region,
         )
-        if not already_marked:
-            logger.warning(
-                "Tandem auth blocked: legacy region requires re-select",
-                user_id=str(user_id),
-                stored_region=credential.region,
-            )
-            credential.status = IntegrationStatus.ERROR
-            credential.last_error = message
-            await db.commit()
+        await _mark_error(message)
         raise TandemNeedsCountryError(message) from e
 
     # Connect to Tandem (cloud is "US" or "EU", which is what tconnectsync expects)
@@ -749,9 +758,7 @@ async def _authenticate_tandem_api(
             cloud=cloud,
             error=str(e),
         )
-        credential.status = IntegrationStatus.ERROR
-        credential.last_error = "Invalid region configuration"
-        await db.commit()
+        await _mark_error("Invalid region configuration")
         raise TandemAuthError("Invalid region") from e
     except ApiException as e:
         error_str = str(e).lower()
@@ -761,18 +768,14 @@ async def _authenticate_tandem_api(
                 user_id=str(user_id),
                 error=str(e),
             )
-            credential.status = IntegrationStatus.ERROR
-            credential.last_error = "Authentication failed - check credentials"
-            await db.commit()
+            await _mark_error("Authentication failed - check credentials")
             raise TandemAuthError("Invalid Tandem credentials") from e
         logger.error(
             "Failed to connect to Tandem",
             user_id=str(user_id),
             error=str(e),
         )
-        credential.status = IntegrationStatus.ERROR
-        credential.last_error = f"Connection failed: {str(e)}"
-        await db.commit()
+        await _mark_error(f"Connection failed: {str(e)}")
         raise TandemConnectionError(f"Failed to connect: {str(e)}") from e
     except Exception as e:
         logger.error(
@@ -780,9 +783,7 @@ async def _authenticate_tandem_api(
             user_id=str(user_id),
             error=str(e),
         )
-        credential.status = IntegrationStatus.ERROR
-        credential.last_error = f"Connection failed: {str(e)}"
-        await db.commit()
+        await _mark_error(f"Connection failed: {str(e)}")
         raise TandemConnectionError(f"Failed to connect: {str(e)}") from e
 
 
@@ -826,7 +827,9 @@ async def get_tandem_availability(
     if credential.status == IntegrationStatus.DISCONNECTED:
         raise TandemNotConfiguredError("Tandem integration is disconnected")
 
-    api = await _authenticate_tandem_api(db, user_id, credential)
+    # Read-only check: don't flip the integration to ERROR on a transient
+    # availability failure (this auto-fires from the UI).
+    api = await _authenticate_tandem_api(db, user_id, credential, persist_status=False)
 
     try:
         metadata = await asyncio.to_thread(api.pump_event_metadata)
@@ -896,6 +899,10 @@ async def sync_tandem_for_user(
         TandemConnectionError: If connection fails
         TandemSyncError: For other sync errors
     """
+    # Explicit range is both-or-neither: a lone bound is a programming error
+    # (it would otherwise be silently dropped in favor of hours_back).
+    if (start_date is None) != (end_date is None):
+        raise TandemSyncError("start_date and end_date must be provided together")
     explicit_range = start_date is not None and end_date is not None
     if hours_back is None:
         hours_back = getattr(settings, "tandem_sync_hours_back", 24)
@@ -978,7 +985,12 @@ async def sync_tandem_for_user(
     if not events:
         logger.info("No new events from Tandem", user_id=str(user_id))
         credential.status = IntegrationStatus.CONNECTED
-        credential.last_sync_at = datetime.now(UTC)
+        # Only advance the recency cursor for "catch up to now" syncs. A manual
+        # explicit-range import (often historical) must not make the user look
+        # freshly-synced -- that would mislead "Last sync" and suppress the next
+        # scheduled pull of recent data.
+        if not explicit_range:
+            credential.last_sync_at = datetime.now(UTC)
         credential.last_error = None
         await db.commit()
         return {
@@ -1113,9 +1125,11 @@ async def sync_tandem_for_user(
                 else None,
             }
 
-    # Update integration status
+    # Update integration status. As above, don't advance the recency cursor
+    # for an explicit-range (manual) import -- it isn't a "current" sync.
     credential.status = IntegrationStatus.CONNECTED
-    credential.last_sync_at = now
+    if not explicit_range:
+        credential.last_sync_at = now
     credential.last_error = None
     await db.commit()
 

@@ -83,9 +83,10 @@ export function TandemSyncCard({ isOffline }: { isOffline: boolean }) {
       if (a.latest) {
         const latestDay = toDay(a.latest);
         setImportEnd((prev) => prev || latestDay);
-        const d = new Date(a.latest);
-        d.setDate(d.getDate() - 30);
-        let startDay = d.toISOString().slice(0, 10);
+        // Default start = 30 days before latest, computed in UTC (avoids
+        // local/DST off-by-one), clamped to the earliest available date.
+        const startMs = Date.parse(a.latest) - 30 * 24 * 60 * 60 * 1000;
+        let startDay = new Date(startMs).toISOString().slice(0, 10);
         const earliestDay = toDay(a.earliest);
         if (earliestDay && startDay < earliestDay) startDay = earliestDay;
         setImportStart((prev) => prev || startDay);
@@ -101,10 +102,12 @@ export function TandemSyncCard({ isOffline }: { isOffline: boolean }) {
     }
   }, []);
 
+  // Only the status loads on mount. Availability is a live Tandem call, so it
+  // fires lazily -- when the user enables sync or clicks "Check available
+  // data" -- not on every page view.
   useEffect(() => {
     fetchStatus();
-    fetchAvailability();
-  }, [fetchStatus, fetchAvailability]);
+  }, [fetchStatus]);
 
   const handleImport = async () => {
     if (!importStart || !importEnd) {
@@ -119,7 +122,9 @@ export function TandemSyncCard({ isOffline }: { isOffline: boolean }) {
         `${importEnd}T23:59:59Z`
       );
       setSuccess(
-        `Imported ${res.events_stored} event(s) from ${importStart} to ${importEnd}`
+        res.events_stored > 0
+          ? `Imported ${res.events_stored} new event(s) from ${importStart} to ${importEnd}`
+          : `No new events in ${importStart} to ${importEnd} (already imported, or no data there)`
       );
       await fetchStatus();
     } catch (err) {
@@ -142,6 +147,11 @@ export function TandemSyncCard({ isOffline }: { isOffline: boolean }) {
       setSuccess(
         enabled ? "Automatic sync enabled" : "Automatic sync disabled"
       );
+      // Surface the available data range once the user opts in (the user's
+      // intent: poll when sync is turned on). Only on the first load.
+      if (enabled && !availability) {
+        void fetchAvailability();
+      }
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to update settings"
@@ -417,7 +427,11 @@ export function TandemSyncCard({ isOffline }: { isOffline: boolean }) {
                 disabled={availLoading || isOffline}
                 className="text-xs text-blue-400 hover:text-blue-300 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {availLoading ? "Checking…" : "Refresh"}
+                {availLoading
+                  ? "Checking…"
+                  : availability
+                    ? "Refresh"
+                    : "Check available data"}
               </button>
             </div>
             <p className="text-[11px] text-slate-500 leading-snug">

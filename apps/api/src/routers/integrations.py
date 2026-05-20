@@ -1619,6 +1619,27 @@ async def import_tandem_range(
             detail=f"Import failed: {str(e)}",
         ) from e
 
+    # Count imported events toward the cumulative counter, matching the
+    # scheduler. Atomic upsert-increment; does NOT touch last_attempt_at
+    # (that's the scheduler's pacing cursor -- a manual import shouldn't
+    # reset it).
+    if result["events_stored"]:
+        await db.execute(
+            pg_insert(TandemSyncState)
+            .values(
+                user_id=current_user.id,
+                events_pulled_total=result["events_stored"],
+            )
+            .on_conflict_do_update(
+                index_elements=["user_id"],
+                set_={
+                    "events_pulled_total": TandemSyncState.events_pulled_total
+                    + result["events_stored"]
+                },
+            )
+        )
+        await db.commit()
+
     last_event = None
     if result["last_event"]:
         last_event = PumpEventResponse(

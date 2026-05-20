@@ -1988,3 +1988,88 @@ class TestTandemImport:
                 cookies={settings.jwt_cookie_name: cookie},
             )
         assert resp.status_code == 404, resp.text
+
+
+class TestTandemImportSideEffects:
+    """Side-effect correctness of manual import (adversarial fixes)."""
+
+    async def test_sync_rejects_half_set_range(self):
+        """A lone start_date/end_date is a programming error -- reject it
+        rather than silently fall back to hours_back."""
+        from datetime import UTC, datetime
+
+        from src.database import get_session_maker
+        from src.services.tandem_sync import TandemSyncError, sync_tandem_for_user
+
+        async with get_session_maker()() as db:
+            with pytest.raises(TandemSyncError, match="together"):
+                await sync_tandem_for_user(
+                    db, uuid.uuid4(), start_date=datetime.now(UTC)
+                )
+
+    @patch("src.services.tandem_sync.fetch_with_retry")
+    @patch("src.services.tandem_sync.TandemSourceApi")
+    @patch("src.routers.integrations.validate_tandem_credentials")
+    async def test_import_does_not_advance_last_sync_and_counts(
+        self, mock_validate, mock_api_class, mock_fetch
+    ):
+        """A manual (often historical) import must NOT advance the credential's
+        last_sync_at (that would mislead "Last sync" + suppress the next
+        scheduled recent pull), but SHOULD count toward events_pulled_total."""
+        from sqlalchemy import select as _select
+
+        from src.database import get_session_maker
+        from src.models.integration import IntegrationCredential, IntegrationType
+        from src.models.tandem_sync_state import TandemSyncState
+        from src.models.user import User
+
+        mock_validate.return_value = (True, None)
+        mock_api_class.return_value = MagicMock()
+        mock_fetch.return_value = (
+            [
+                {
+                    "type": "bolus",
+                    "timestamp": "2026-04-10T12:00:00+00:00",
+                    "units": 2.0,
+                }
+            ],
+            None,
+        )
+        email = unique_email("tsync_import_fx")
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie = await _register_login_connect_tandem(client, email)
+            resp = await client.post(
+                "/api/integrations/tandem/sync/import",
+                json={
+                    "start_date": "2026-04-01T00:00:00+00:00",
+                    "end_date": "2026-04-16T00:00:00+00:00",
+                },
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["events_stored"] == 1
+
+        async with get_session_maker()() as db:
+            user_id = (
+                await db.execute(_select(User.id).where(User.email == email))
+            ).scalar_one()
+            cred = (
+                await db.execute(
+                    _select(IntegrationCredential).where(
+                        IntegrationCredential.user_id == user_id,
+                        IntegrationCredential.integration_type
+                        == IntegrationType.TANDEM,
+                    )
+                )
+            ).scalar_one()
+            # HIGH fix: historical import did not advance the recency cursor.
+            assert cred.last_sync_at is None
+            # #4 fix: imported events counted toward the cumulative total.
+            state = (
+                await db.execute(
+                    _select(TandemSyncState).where(TandemSyncState.user_id == user_id)
+                )
+            ).scalar_one_or_none()
+            assert state is not None and state.events_pulled_total == 1
