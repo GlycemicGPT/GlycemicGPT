@@ -97,6 +97,12 @@ class User(Base, TimestampMixin):
         back_populates="user",
         cascade="all, delete-orphan",
     )
+    tandem_sync_state = relationship(
+        "TandemSyncState",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
     glucose_readings = relationship(
         "GlucoseReading",
         back_populates="user",

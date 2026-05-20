@@ -66,8 +66,15 @@ class Settings(BaseSettings):
     dexcom_max_readings_per_sync: int = 12  # Max readings to fetch per sync (1 hour)
 
     # Tandem Sync Configuration (Story 3.4)
-    tandem_sync_interval_minutes: int = 60  # Sync every hour
-    tandem_sync_enabled: bool = True  # Enable/disable automatic sync
+    # The scheduler now ticks on `tandem_sync_tick_interval_minutes`; on each
+    # tick it scans connected Tandem users and runs the sync for any whose
+    # per-user `sync_interval_minutes` (TandemSyncState, default below) has
+    # elapsed since the credential's last_sync_at. `tandem_sync_enabled`
+    # gates the whole job; `tandem_sync_interval_minutes` is the default
+    # per-user cadence applied when a user has no TandemSyncState row.
+    tandem_sync_tick_interval_minutes: int = 15  # Global scheduler tick
+    tandem_sync_interval_minutes: int = 60  # Default per-user cadence
+    tandem_sync_enabled: bool = True  # Enable/disable the whole job
     tandem_sync_hours_back: int = 24  # Hours of history to fetch per sync
 
     # Nightscout Sync Configuration (Story 43.4)

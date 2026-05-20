@@ -4,8 +4,10 @@ APScheduler-based background task scheduler for data sync jobs.
 """
 
 import asyncio
+import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
@@ -19,6 +21,7 @@ from src.models.integration import (
     IntegrationStatus,
     IntegrationType,
 )
+from src.models.tandem_sync_state import TandemSyncState
 from src.services.dexcom_sync import DexcomSyncError, sync_dexcom_for_user
 from src.services.integrations.nightscout.scheduler import (
     run_nightscout_sync_all_users,
@@ -107,18 +110,120 @@ async def sync_all_dexcom_users() -> None:
     )
 
 
-async def sync_all_tandem_users() -> None:
-    """Sync Tandem data for all users with configured credentials.
+# Hard ceiling on adaptive lookback so a long-dormant or never-synced user
+# doesn't trigger a multi-year fetch on their first scheduled sync.
+_TANDEM_MAX_LOOKBACK_HOURS = 168  # 7 days
 
-    This job runs on a schedule and syncs pump data for all users
-    who have connected their Tandem t:connect accounts.
+
+def _tandem_is_due(
+    pacing_at: datetime | None,
+    interval_minutes: int,
+    *,
+    now: datetime,
+) -> bool:
+    """Return True when a user is due for another Tandem sync attempt.
+
+    ``pacing_at`` is the last *attempt* time (success or failure). ``None``
+    means never attempted -> always due. Pacing by attempt (not by the
+    credential's success-only ``last_sync_at``) ensures a persistently
+    failing user is retried once per interval, not on every short tick.
     """
-    logger.info("Starting scheduled Tandem sync for all users")
+    if pacing_at is None:
+        return True
+    if pacing_at.tzinfo is None:
+        pacing_at = pacing_at.replace(tzinfo=UTC)
+    return now - pacing_at >= timedelta(minutes=interval_minutes)
+
+
+def _tandem_lookback_hours(
+    last_sync_at: datetime | None,
+    *,
+    now: datetime,
+) -> int:
+    """Hours of history to fetch so the window always covers the gap since
+    the last successful sync (plus a buffer), bounded by a hard ceiling.
+
+    A fixed 24h window would miss events for users on long intervals once
+    tick drift pushes the elapsed time past 24h. Sizing the window to the
+    actual elapsed time closes that gap.
+    """
+    default_h = settings.tandem_sync_hours_back
+    if last_sync_at is None:
+        return default_h
+    if last_sync_at.tzinfo is None:
+        last_sync_at = last_sync_at.replace(tzinfo=UTC)
+    elapsed_h = (now - last_sync_at).total_seconds() / 3600.0
+    # +2h buffer absorbs tick drift and clock skew.
+    return max(default_h, min(int(elapsed_h) + 2, _TANDEM_MAX_LOOKBACK_HOURS))
+
+
+async def _record_tandem_attempt(
+    user_id: uuid.UUID, *, now: datetime, events_stored: int | None
+) -> None:
+    """Record a scheduled sync attempt on the user's TandemSyncState.
+
+    Upserts the row (auto-create with defaults == backward-compatible
+    "enabled@default") and stamps ``last_attempt_at`` so the next tick paces
+    by attempt. On success, also bumps the cumulative ``events_pulled_total``.
+    Runs in its own session, isolated from the sync's session state, and is
+    best-effort: a bookkeeping failure must not abort the tick.
+    """
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    try:
+        async with get_session_maker()() as book_db:
+            await book_db.execute(
+                pg_insert(TandemSyncState)
+                .values(user_id=user_id, last_attempt_at=now)
+                .on_conflict_do_nothing(index_elements=["user_id"])
+            )
+            row = (
+                await book_db.execute(
+                    select(TandemSyncState)
+                    .where(TandemSyncState.user_id == user_id)
+                    .with_for_update()
+                )
+            ).scalar_one()
+            row.last_attempt_at = now
+            if events_stored:
+                row.events_pulled_total += events_stored
+            await book_db.commit()
+    except Exception as e:  # noqa: BLE001 - bookkeeping must not kill the tick
+        logger.warning(
+            "Failed to record Tandem sync attempt",
+            user_id=str(user_id),
+            error=str(e),
+        )
+
+
+async def sync_all_tandem_users() -> None:
+    """One scheduler tick: sync each due, enabled Tandem user.
+
+    Runs on ``tandem_sync_tick_interval_minutes``. For every connected
+    Tandem credential it reads the per-user ``TandemSyncState`` and:
+      - skips users who explicitly disabled sync (state row, enabled=False);
+      - a user with NO state row is treated as enabled at the default
+        interval -- backward-compatible with the prior global sync;
+      - paces by ``last_attempt_at`` (falling back to the credential's
+        ``last_sync_at`` until the first attempt is recorded) so failing
+        users retry once per interval, not every tick.
+    Every attempt (success or failure) is recorded via
+    ``_record_tandem_attempt`` (which also bumps the cumulative counter on
+    success); the lookback window is sized to the elapsed gap.
+    """
+    now = datetime.now(UTC)
+    logger.info("Starting scheduled Tandem sync tick")
 
     async with get_session_maker()() as db:
-        # Find all users with active Tandem integration
+        # Left-join state so one query yields credential + control. A user
+        # with no row gets state=None (-> effective enabled@default).
         result = await db.execute(
-            select(IntegrationCredential).where(
+            select(IntegrationCredential, TandemSyncState)
+            .outerjoin(
+                TandemSyncState,
+                TandemSyncState.user_id == IntegrationCredential.user_id,
+            )
+            .where(
                 IntegrationCredential.integration_type == IntegrationType.TANDEM,
                 IntegrationCredential.status.in_(
                     [
@@ -128,55 +233,84 @@ async def sync_all_tandem_users() -> None:
                 ),
             )
         )
-        credentials = result.scalars().all()
+        rows = result.all()
 
-        if not credentials:
-            logger.info("No users with Tandem integration to sync")
+        # Decide who is due (before opening per-user sessions). Capture the
+        # per-user lookback now while we hold the credential's last_sync_at.
+        due: list[tuple[uuid.UUID, int]] = []
+        for credential, state in rows:
+            if state is not None and not state.enabled:
+                continue
+            interval = (
+                state.sync_interval_minutes
+                if state is not None
+                else settings.tandem_sync_interval_minutes
+            )
+            # Pace by last *attempt*; fall back to last success until the
+            # first attempt is stamped.
+            pacing_at = (
+                state.last_attempt_at
+                if state is not None and state.last_attempt_at is not None
+                else credential.last_sync_at
+            )
+            if _tandem_is_due(pacing_at, interval, now=now):
+                lookback = _tandem_lookback_hours(credential.last_sync_at, now=now)
+                due.append((credential.user_id, lookback))
+
+        if not due:
+            logger.info("No Tandem users due for sync this tick")
             return
 
-        logger.info(
-            "Found users for Tandem sync",
-            user_count=len(credentials),
+        logger.info("Found Tandem users due for sync", user_count=len(due))
+
+    success_count = 0
+    error_count = 0
+
+    for user_id, lookback in due:
+        events_stored: int | None = None
+        try:
+            # New session per user to isolate errors.
+            async with get_session_maker()() as user_db:
+                sync_result = await sync_tandem_for_user(
+                    user_db, user_id, hours_back=lookback
+                )
+                events_stored = sync_result["events_stored"]
+                logger.info(
+                    "Tandem sync completed for user",
+                    user_id=str(user_id),
+                    events_fetched=sync_result["events_fetched"],
+                    events_stored=events_stored,
+                )
+                success_count += 1
+
+        except TandemSyncError as e:
+            logger.warning(
+                "Scheduled Tandem sync failed for user",
+                user_id=str(user_id),
+                error=str(e),
+            )
+            error_count += 1
+
+        except Exception as e:
+            logger.error(
+                "Unexpected error in scheduled Tandem sync",
+                user_id=str(user_id),
+                error=str(e),
+            )
+            error_count += 1
+
+        # Record the attempt (success or failure) so the next tick paces by
+        # it -- this is what prevents failing users from being hammered every
+        # tick. Best-effort, isolated session.
+        await _record_tandem_attempt(
+            user_id, now=datetime.now(UTC), events_stored=events_stored
         )
 
-        # Sync each user
-        success_count = 0
-        error_count = 0
-
-        for credential in credentials:
-            try:
-                # Create a new session for each user to isolate errors
-                async with get_session_maker()() as user_db:
-                    result = await sync_tandem_for_user(user_db, credential.user_id)
-                    logger.info(
-                        "Tandem sync completed for user",
-                        user_id=str(credential.user_id),
-                        events_fetched=result["events_fetched"],
-                        events_stored=result["events_stored"],
-                    )
-                    success_count += 1
-
-            except TandemSyncError as e:
-                logger.warning(
-                    "Scheduled Tandem sync failed for user",
-                    user_id=str(credential.user_id),
-                    error=str(e),
-                )
-                error_count += 1
-
-            except Exception as e:
-                logger.error(
-                    "Unexpected error in scheduled Tandem sync",
-                    user_id=str(credential.user_id),
-                    error=str(e),
-                )
-                error_count += 1
-
-            # Small delay between users to avoid rate limiting
-            await asyncio.sleep(1)
+        # Small delay between users to avoid rate limiting
+        await asyncio.sleep(1)
 
     logger.info(
-        "Scheduled Tandem sync completed",
+        "Scheduled Tandem sync tick completed",
         success_count=success_count,
         error_count=error_count,
     )
@@ -435,18 +569,25 @@ def start_scheduler() -> AsyncIOScheduler:
             interval_minutes=settings.dexcom_sync_interval_minutes,
         )
 
-    # Add Tandem sync job if enabled (Story 3.4)
+    # Add Tandem sync tick job if enabled (Story 3.4 + per-user sync).
+    # Single global tick; per-user cadence (TandemSyncState.sync_interval_
+    # minutes, default tandem_sync_interval_minutes) is honored inside
+    # sync_all_tandem_users by checking each credential's last_sync_at.
     if settings.tandem_sync_enabled:
         scheduler.add_job(
             sync_all_tandem_users,
-            trigger=IntervalTrigger(minutes=settings.tandem_sync_interval_minutes),
+            trigger=IntervalTrigger(minutes=settings.tandem_sync_tick_interval_minutes),
             id="tandem_sync",
-            name="Tandem Pump Data Sync",
+            name="Tandem Pump Data Sync Tick",
             replace_existing=True,
+            # A slow tick (many due users) should not stack with the next.
+            max_instances=1,
+            coalesce=True,
         )
         logger.info(
-            "Scheduled Tandem sync job",
-            interval_minutes=settings.tandem_sync_interval_minutes,
+            "Scheduled Tandem sync tick job",
+            tick_interval_minutes=settings.tandem_sync_tick_interval_minutes,
+            default_user_interval_minutes=settings.tandem_sync_interval_minutes,
         )
     else:
         logger.warning(

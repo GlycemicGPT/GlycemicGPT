@@ -3476,3 +3476,85 @@ export async function getBolusReviewByDateRange(
   }
   return response.json();
 }
+
+// ============================================================================
+// Per-user Tandem cloud sync (download direction)
+// ============================================================================
+
+export interface TandemSyncStatusResponse {
+  integration_status: string;
+  last_sync_at: string | null;
+  last_error: string | null;
+  events_available: number;
+  /** Whether scheduled sync runs for this user. */
+  enabled: boolean;
+  /** Minutes between scheduled syncs (15-1440). */
+  sync_interval_minutes: number;
+  /** Cumulative count of events stored across all syncs (display only). */
+  events_pulled_total: number;
+  /**
+   * True when the stored Tandem region is a legacy bucket label (e.g. "EU")
+   * that can no longer be resolved to a country -- the user must reconnect
+   * with their country selected before sync can run.
+   */
+  needs_country_reselect: boolean;
+}
+
+export interface TandemSyncSettingsRequest {
+  enabled: boolean;
+  sync_interval_minutes: number;
+}
+
+export interface TandemSyncResponse {
+  message: string;
+  events_fetched: number;
+  events_stored: number;
+  profiles_stored: number;
+}
+
+/** Get the per-user Tandem cloud-sync status + control. */
+export async function getTandemSyncStatus(): Promise<TandemSyncStatusResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/tandem/sync/status`
+  );
+  if (!response.ok) {
+    throw new Error(
+      await _readErrorDetail(response, "Failed to load Tandem sync status")
+    );
+  }
+  return response.json();
+}
+
+/** Update the per-user Tandem sync toggle + interval. */
+export async function updateTandemSyncSettings(
+  body: TandemSyncSettingsRequest
+): Promise<TandemSyncStatusResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/tandem/sync/settings`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }
+  );
+  if (!response.ok) {
+    throw new Error(
+      await _readErrorDetail(response, "Failed to update Tandem sync settings")
+    );
+  }
+  return response.json();
+}
+
+/** Manually trigger a Tandem sync ("Sync now"). */
+export async function triggerTandemSync(): Promise<TandemSyncResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/tandem/sync`,
+    { method: "POST" }
+  );
+  if (!response.ok) {
+    throw new Error(
+      await _readErrorDetail(response, "Failed to trigger Tandem sync")
+    );
+  }
+  return response.json();
+}

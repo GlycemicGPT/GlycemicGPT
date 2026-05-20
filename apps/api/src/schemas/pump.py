@@ -151,13 +151,47 @@ class TandemSyncResponse(BaseModel):
 
 
 class TandemSyncStatusResponse(BaseModel):
-    """Response schema for Tandem sync status."""
+    """Response schema for Tandem sync status.
+
+    Combines the per-user sync *control* (``enabled`` / interval / cumulative
+    pull count, from ``TandemSyncState``) with sync *freshness*
+    (``last_sync_at`` / ``last_error``, from ``IntegrationCredential``).
+    ``enabled`` / ``sync_interval_minutes`` reflect the effective state:
+    when no state row exists, a connected user defaults to enabled at the
+    default interval (backward-compatible with the prior global sync).
+    """
 
     integration_status: str
     last_sync_at: datetime | None = None
     last_error: str | None = None
     events_available: int
     latest_event: PumpEventResponse | None = None
+
+    # Per-user control surface (Story: per-user Tandem sync).
+    enabled: bool = True
+    sync_interval_minutes: int = 60
+    events_pulled_total: int = 0
+    # True when the stored Tandem region is a legacy bucket label (e.g. "EU")
+    # that can no longer be resolved to a country -- the user must reconnect
+    # with their country selected before sync can run.
+    needs_country_reselect: bool = False
+
+
+class TandemSyncSettingsRequest(BaseModel):
+    """Request schema for updating per-user Tandem sync settings.
+
+    ``sync_interval_minutes`` floor of 15 matches the model/DB bound:
+    t:connect refreshes its cloud roughly hourly, so sub-15-min polling
+    cannot surface fresher data.
+    """
+
+    enabled: bool = Field(..., description="Whether scheduled sync runs for this user")
+    sync_interval_minutes: int = Field(
+        default=60,
+        ge=15,
+        le=1440,
+        description="Minutes between scheduled syncs (15-1440)",
+    )
 
 
 class ControlIQActivityResponse(BaseModel):

@@ -38,6 +38,7 @@ from src.models.safety_limits import SafetyLimits
 from src.models.safety_log import SafetyLog
 from src.models.security_audit_log import SecurityAuditLog
 from src.models.suggestion_response import SuggestionResponse
+from src.models.tandem_sync_state import TandemSyncState
 from src.models.target_glucose_range import TargetGlucoseRange
 from src.models.telegram_link import TelegramLink
 from src.models.telegram_verification import TelegramVerificationCode
@@ -87,6 +88,7 @@ __all__ = [
     "SafetyLog",
     "SecurityAuditLog",
     "SuggestionResponse",
+    "TandemSyncState",
     "TargetGlucoseRange",
     "TelegramLink",
     "TelegramVerificationCode",
