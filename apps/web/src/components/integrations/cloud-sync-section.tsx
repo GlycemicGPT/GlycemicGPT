@@ -1,18 +1,14 @@
 "use client";
 
-import { Cpu } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import clsx from "clsx";
 import type { IntegrationResponse } from "@/lib/api";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { TANDEM_COUNTRY_GROUPS } from "@/lib/tandem-countries";
-import {
-  IntegrationCard,
-  PasswordInput,
-  StatusBadge,
-} from "./integration-card";
+import { IntegrationCard, PasswordInput, StatusBadge } from "./integration-card";
 import { TandemSyncCard } from "./tandem-sync-card";
 
-interface PumpIntegrationsSectionProps {
+interface CloudSyncSectionProps {
   tandem: IntegrationResponse | null;
   tandemEmail: string;
   tandemPassword: string;
@@ -26,7 +22,13 @@ interface PumpIntegrationsSectionProps {
   onDisconnectTandem: () => Promise<void>;
 }
 
-export function PumpIntegrationsSection({
+/**
+ * Cloud Sync: pull pump data from a vendor's cloud (no Bluetooth pairing
+ * required). One subsection per vendor -- Tandem t:connect today; Medtronic
+ * CareLink / Insulet Omnipod planned. Each subsection owns the full cloud
+ * integration for that vendor: connecting the account AND the sync controls.
+ */
+export function CloudSyncSection({
   tandem,
   tandemEmail,
   tandemPassword,
@@ -38,10 +40,14 @@ export function PumpIntegrationsSection({
   onTandemCountryChange,
   onConnectTandem,
   onDisconnectTandem,
-}: PumpIntegrationsSectionProps) {
+}: CloudSyncSectionProps) {
   return (
-    <CollapsibleSection title="Pump Integrations" icon={Cpu}>
+    <CollapsibleSection title="Cloud Sync" icon={RefreshCw}>
       <div className="space-y-4">
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          Pull pump history from your vendor&apos;s cloud on a schedule or on
+          demand — no Bluetooth pairing required. More vendors coming.
+        </p>
         <CollapsibleSection
           title="Tandem"
           variant="subsection"
@@ -123,9 +129,9 @@ export function PumpIntegrationsSection({
                       ))}
                     </select>
                     <p className="text-xs text-slate-500 mt-1">
-                      Tandem routes data through one of two cloud backends.
-                      Pick the country your t:connect account is registered
-                      in — uploads to the wrong cluster will silently fail.
+                      Tandem routes data through one of two cloud backends. Pick
+                      the country your t:connect account is registered in — the
+                      wrong cluster will fail to sync.
                     </p>
                   </div>
                 </div>
