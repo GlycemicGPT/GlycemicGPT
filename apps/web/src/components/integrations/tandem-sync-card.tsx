@@ -8,17 +8,27 @@ import {
   Clock,
   RefreshCw,
   AlertTriangle,
+  CalendarRange,
+  Download,
 } from "lucide-react";
 import clsx from "clsx";
 import {
   getTandemSyncStatus,
+  getTandemSyncAvailability,
+  importTandemRange,
   triggerTandemSync,
   updateTandemSyncSettings,
   type TandemSyncStatusResponse,
+  type TandemAvailabilityResponse,
 } from "@/lib/api";
 
 const MIN_INTERVAL = 15;
 const MAX_INTERVAL = 1440;
+
+/** ISO datetime/date string -> YYYY-MM-DD (for <input type="date"> + display). */
+function toDay(iso: string | null): string {
+  return iso ? iso.slice(0, 10) : "";
+}
 
 export function TandemSyncCard({ isOffline }: { isOffline: boolean }) {
   const [isLoading, setIsLoading] = useState(true);
@@ -30,6 +40,15 @@ export function TandemSyncCard({ isOffline }: { isOffline: boolean }) {
   const [isSyncing, setIsSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  // Manual import + availability state.
+  const [availability, setAvailability] =
+    useState<TandemAvailabilityResponse | null>(null);
+  const [availLoading, setAvailLoading] = useState(false);
+  const [availError, setAvailError] = useState<string | null>(null);
+  const [importStart, setImportStart] = useState("");
+  const [importEnd, setImportEnd] = useState("");
+  const [isImporting, setIsImporting] = useState(false);
 
   useEffect(() => {
     if (!success) return;
@@ -52,9 +71,63 @@ export function TandemSyncCard({ isOffline }: { isOffline: boolean }) {
     }
   }, []);
 
+  // Poll the cloud for the available data range (live Tandem call). Defaults
+  // the import pickers to the last 30 days of available data. Best-effort:
+  // a failure (e.g. auth) leaves manual import usable, just unbounded.
+  const fetchAvailability = useCallback(async () => {
+    setAvailLoading(true);
+    setAvailError(null);
+    try {
+      const a = await getTandemSyncAvailability();
+      setAvailability(a);
+      if (a.latest) {
+        const latestDay = toDay(a.latest);
+        setImportEnd((prev) => prev || latestDay);
+        const d = new Date(a.latest);
+        d.setDate(d.getDate() - 30);
+        let startDay = d.toISOString().slice(0, 10);
+        const earliestDay = toDay(a.earliest);
+        if (earliestDay && startDay < earliestDay) startDay = earliestDay;
+        setImportStart((prev) => prev || startDay);
+      }
+    } catch (err) {
+      setAvailError(
+        err instanceof Error
+          ? err.message
+          : "Couldn't check the available data range"
+      );
+    } finally {
+      setAvailLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchStatus();
-  }, [fetchStatus]);
+    fetchAvailability();
+  }, [fetchStatus, fetchAvailability]);
+
+  const handleImport = async () => {
+    if (!importStart || !importEnd) {
+      setError("Pick a start and end date to import");
+      return;
+    }
+    setIsImporting(true);
+    setError(null);
+    try {
+      const res = await importTandemRange(
+        `${importStart}T00:00:00Z`,
+        `${importEnd}T23:59:59Z`
+      );
+      setSuccess(
+        `Imported ${res.events_stored} event(s) from ${importStart} to ${importEnd}`
+      );
+      await fetchStatus();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Import failed");
+    } finally {
+      setIsImporting(false);
+    }
+  };
 
   const saveSettings = async (enabled: boolean, interval: number) => {
     setIsSaving(true);
@@ -326,6 +399,113 @@ export function TandemSyncCard({ isOffline }: { isOffline: boolean }) {
             )}
             {isSyncing ? "Syncing..." : "Sync Now"}
           </button>
+
+          {/* Manual one-time import of a custom date range. Available
+              regardless of the auto-sync toggle -- this is how you backfill
+              history or fill a gap after sync was off. */}
+          <div className="border-t border-slate-200 dark:border-slate-800 pt-4 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <CalendarRange className="h-4 w-4 text-slate-500" />
+                <h3 className="text-sm font-medium text-slate-600 dark:text-slate-300">
+                  Import a date range
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={fetchAvailability}
+                disabled={availLoading || isOffline}
+                className="text-xs text-blue-400 hover:text-blue-300 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {availLoading ? "Checking…" : "Refresh"}
+              </button>
+            </div>
+            <p className="text-[11px] text-slate-500 leading-snug">
+              {availLoading
+                ? "Checking what's available in your t:connect cloud…"
+                : availability?.earliest && availability?.latest
+                  ? `Data available: ${toDay(availability.earliest)} → ${toDay(availability.latest)}. Pull any window in that range.`
+                  : availError
+                    ? "Couldn't check the available range — you can still try an import."
+                    : "Pull a specific window of pump history on demand."}
+            </p>
+            <div className="flex flex-wrap items-end gap-3">
+              <div>
+                <label
+                  htmlFor="tandem-import-start"
+                  className="block text-xs text-slate-500 mb-1"
+                >
+                  From
+                </label>
+                <input
+                  id="tandem-import-start"
+                  type="date"
+                  value={importStart}
+                  min={toDay(availability?.earliest ?? null) || undefined}
+                  max={importEnd || toDay(availability?.latest ?? null) || undefined}
+                  onChange={(e) => setImportStart(e.target.value)}
+                  disabled={isImporting || isOffline}
+                  className={clsx(
+                    "px-3 py-1.5 rounded-lg text-sm",
+                    "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200",
+                    "border border-slate-300 dark:border-slate-700",
+                    "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+                    "disabled:opacity-50 disabled:cursor-not-allowed"
+                  )}
+                />
+              </div>
+              <div>
+                <label
+                  htmlFor="tandem-import-end"
+                  className="block text-xs text-slate-500 mb-1"
+                >
+                  To
+                </label>
+                <input
+                  id="tandem-import-end"
+                  type="date"
+                  value={importEnd}
+                  min={importStart || toDay(availability?.earliest ?? null) || undefined}
+                  max={toDay(availability?.latest ?? null) || undefined}
+                  onChange={(e) => setImportEnd(e.target.value)}
+                  disabled={isImporting || isOffline}
+                  className={clsx(
+                    "px-3 py-1.5 rounded-lg text-sm",
+                    "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200",
+                    "border border-slate-300 dark:border-slate-700",
+                    "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+                    "disabled:opacity-50 disabled:cursor-not-allowed"
+                  )}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={handleImport}
+                disabled={
+                  isImporting ||
+                  isOffline ||
+                  !importStart ||
+                  !importEnd ||
+                  needsCountryReselect
+                }
+                className={clsx(
+                  "flex items-center justify-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium",
+                  "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200",
+                  "border border-slate-300 dark:border-slate-700",
+                  "hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors",
+                  "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+                  "disabled:opacity-50 disabled:cursor-not-allowed"
+                )}
+              >
+                {isImporting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Download className="h-4 w-4" aria-hidden="true" />
+                )}
+                {isImporting ? "Importing…" : "Import"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

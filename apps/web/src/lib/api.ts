@@ -3558,3 +3558,45 @@ export async function triggerTandemSync(): Promise<TandemSyncResponse> {
   }
   return response.json();
 }
+
+export interface TandemAvailabilityResponse {
+  /** Oldest date with data available to pull (ISO), or null. */
+  earliest: string | null;
+  /** Most recent date with data — the last upload to t:connect (ISO), or null. */
+  latest: string | null;
+  pump_count: number;
+}
+
+/** Query the date range of pump data available in the t:connect cloud. */
+export async function getTandemSyncAvailability(): Promise<TandemAvailabilityResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/tandem/sync/availability`
+  );
+  if (!response.ok) {
+    throw new Error(
+      await _readErrorDetail(response, "Failed to read available data range")
+    );
+  }
+  return response.json();
+}
+
+/** One-time manual import of a chosen date range from t:connect. */
+export async function importTandemRange(
+  startDate: string,
+  endDate: string
+): Promise<TandemSyncResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/tandem/sync/import`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ start_date: startDate, end_date: endDate }),
+    }
+  );
+  if (!response.ok) {
+    throw new Error(
+      await _readErrorDetail(response, "Failed to import data range")
+    );
+  }
+  return response.json();
+}
