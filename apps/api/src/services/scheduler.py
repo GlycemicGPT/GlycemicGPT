@@ -523,30 +523,7 @@ def start_scheduler() -> AsyncIOScheduler:
             interval_hours=settings.data_retention_check_interval_hours,
         )
 
-    # Add Tandem cloud upload job if enabled (Story 16.6)
-    if settings.tandem_upload_enabled:
-        from src.services.tandem_upload_scheduler import run_tandem_cloud_uploads
-
-        scheduler.add_job(
-            run_tandem_cloud_uploads,
-            trigger=IntervalTrigger(
-                minutes=settings.tandem_upload_check_interval_minutes
-            ),
-            id="tandem_cloud_upload",
-            name="Tandem Cloud Upload",
-            replace_existing=True,
-            max_instances=1,
-        )
-        logger.info(
-            "Scheduled Tandem cloud upload job",
-            interval_minutes=settings.tandem_upload_check_interval_minutes,
-        )
-    else:
-        logger.warning(
-            "Tandem cloud upload scheduler DISABLED via TANDEM_UPLOAD_ENABLED env var. "
-            "Manual uploads via POST /api/integrations/tandem/cloud-upload/trigger "
-            "still work; scheduled pushes will not run."
-        )
+    # Tandem cloud upload feature was removed in PR1c -- no scheduler job here.
 
     # Add stale device cleanup job (Story 16.11)
     scheduler.add_job(

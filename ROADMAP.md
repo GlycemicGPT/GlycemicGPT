@@ -156,7 +156,7 @@ This adoption path lets GlycemicGPT meet those users where they already are.
 
 **Why this matters:**
 
-- **Lowers the barrier of entry substantially.** Users do not need to pair their pump to GlycemicGPT's mobile app over Bluetooth, configure cloud-upload impersonation, or modify their existing day-to-day pump workflow at all. They configure the integration once and the platform pulls and analyzes their reports automatically on the schedule they pick.
+- **Lowers the barrier of entry substantially.** Users do not need to pair their pump to GlycemicGPT's mobile app over Bluetooth or modify their existing day-to-day pump workflow at all. They configure the integration once and the platform pulls and analyzes their reports automatically on the schedule they pick.
 - **Reaches users outside the closed-loop community.** Many pump users follow their endocrinologist's recommended workflow (use the official app, share reports at appointments) and have no interest in DIY device integration. This path serves them without asking them to change anything.
 - **Operates as a pure analysis layer.** GlycemicGPT becomes a data-analysis surface on top of the pump vendor's authoritative reports -- spotting trends and surfacing considerations to discuss with the medical team, without changing how data is collected or transmitted.
 - **Adoption-driven growth.** Direct device integration has a high friction floor (BLE pairing, mobile app installation, ongoing maintenance). Pump-report ingestion has a much lower one (configure credentials, done). This is the path most likely to bring new users into the project.

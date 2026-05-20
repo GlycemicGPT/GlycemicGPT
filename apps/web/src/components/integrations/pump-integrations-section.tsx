@@ -10,7 +10,6 @@ import {
   PasswordInput,
   StatusBadge,
 } from "./integration-card";
-import { TandemCloudUploadCard } from "./tandem-cloud-upload-card";
 
 interface PumpIntegrationsSectionProps {
   tandem: IntegrationResponse | null;
@@ -132,9 +131,6 @@ export function PumpIntegrationsSection({
               }
             />
 
-            {tandem?.status === "connected" && (
-              <TandemCloudUploadCard isOffline={isOffline} />
-            )}
           </div>
         </CollapsibleSection>
       </div>

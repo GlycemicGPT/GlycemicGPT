@@ -457,7 +457,10 @@ internal object StatusResponseParser {
                 continue
             }
 
-            // Store full 26-byte record to preserve all event data for cloud upload
+            // Store the full 26-byte record so all event fields remain
+            // available locally for future history-replay / debugging
+            // features. (Previously also pushed to the backend's cloud-upload
+            // queue, which was removed; backend now discards `raw_events`.)
             val rawRecord = cargo.copyOfRange(pos, pos + STREAM_RECORD_SIZE)
             val rawB64 = Base64.encodeToString(rawRecord, Base64.NO_WRAP)
             records.add(
@@ -503,11 +506,14 @@ internal object StatusResponseParser {
             val pumpTimeSec = buf.int.toLong() and 0xFFFFFFFFL
 
             if (seqNum > sinceSequence) {
-                // Encode the entire raw record as base64 for cloud upload.
-                // NOTE: pumpTimeSeconds is intentionally stored as raw pump-local
-                // time (seconds since Tandem epoch, Jan 1, 2008 local). This value
-                // is sent to the backend for Tandem cloud upload where the raw binary
-                // format is required. Do NOT convert with pumpTimeToInstant().
+                // Encode the entire raw record as base64 so the binary
+                // format is preserved for local history replay / future
+                // diagnostic use. NOTE: pumpTimeSeconds is intentionally
+                // stored as raw pump-local time (seconds since Tandem epoch,
+                // Jan 1, 2008 local) and matches what the pump itself emits.
+                // Do NOT convert with pumpTimeToInstant() at this layer.
+                // (The cloud-upload consumer of these bytes was removed in
+                // PR1c; the backend now discards `raw_events` payloads.)
                 val rawBytes = cargo.copyOfRange(offset, offset + recordSize)
                 val rawB64 = Base64.encodeToString(rawBytes, Base64.NO_WRAP)
                 records.add(

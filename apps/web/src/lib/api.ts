@@ -1788,8 +1788,8 @@ export interface IntegrationResponse {
   updated_at: string;
   /**
    * Per-integration region/locale stored on the credential.
-   *  - Tandem: ISO-3166-1 alpha-2 country code (or legacy "EU" -- in which
-   *    case `TandemUploadStatusResponse.needs_country_reselect` will be true).
+   *  - Tandem: ISO-3166-1 alpha-2 country code (or legacy "EU" from an
+   *    older schema version, which is no longer supported).
    *  - Dexcom: pydexcom region ("US" | "OUS" | "JP").
    */
   region: string | null;
@@ -2308,125 +2308,6 @@ export async function applyNightscoutOnboarding(
       await _readErrorDetail(response, "Failed to apply Nightscout onboarding")
     );
   }
-  return response.json();
-}
-
-// ============================================================================
-// Story 18.3: Tandem Cloud Upload
-// ============================================================================
-
-export interface TandemUploadStatusResponse {
-  enabled: boolean;
-  upload_interval_minutes: number;
-  last_upload_at: string | null;
-  last_upload_status: string | null;
-  last_error: string | null;
-  max_event_index_uploaded: number;
-  pending_raw_events: number;
-  /** ISO-3166-1 alpha-2 country code currently configured (or null when legacy). */
-  country: string | null;
-  /**
-   * True when the stored Tandem region is a legacy bucket label (e.g. "EU")
-   * that can no longer be resolved to a country -- the user must re-connect
-   * with their country selected before uploads can be enabled.
-   */
-  needs_country_reselect: boolean;
-}
-
-export interface TandemUploadTriggerResponse {
-  message: string;
-  events_uploaded: number;
-  status: string;
-}
-
-export interface TandemUploadResetResponse {
-  message: string;
-  events_requeued: number;
-}
-
-/**
- * Get the Tandem cloud upload status for the current user.
- */
-export async function getTandemUploadStatus(): Promise<TandemUploadStatusResponse> {
-  const response = await apiFetch(
-    `${API_BASE_URL}/api/integrations/tandem/cloud-upload/status`
-  );
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(
-      error.detail || `Failed to fetch upload status: ${response.status}`
-    );
-  }
-
-  return response.json();
-}
-
-/**
- * Update Tandem cloud upload settings (enable/disable, interval).
- */
-export async function updateTandemUploadSettings(data: {
-  enabled: boolean;
-  interval_minutes: number;
-}): Promise<TandemUploadStatusResponse> {
-  const response = await apiFetch(
-    `${API_BASE_URL}/api/integrations/tandem/cloud-upload/settings`,
-    {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    }
-  );
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(
-      error.detail || `Failed to update upload settings: ${response.status}`
-    );
-  }
-
-  return response.json();
-}
-
-/**
- * Trigger an immediate Tandem cloud upload.
- */
-export async function triggerTandemUpload(): Promise<TandemUploadTriggerResponse> {
-  const response = await apiFetch(
-    `${API_BASE_URL}/api/integrations/tandem/cloud-upload/trigger`,
-    { method: "POST" }
-  );
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(
-      error.detail || `Failed to trigger upload: ${response.status}`
-    );
-  }
-
-  return response.json();
-}
-
-/**
- * Reset the Tandem upload high-water mark and re-queue every stored raw event.
- *
- * Use this when uploads appear stuck despite pending events being reported --
- * e.g. after a pump re-pair, sequence-counter reset, or to recover from the
- * legacy incremental-sync bug that silently filtered queued events.
- */
-export async function resetTandemUpload(): Promise<TandemUploadResetResponse> {
-  const response = await apiFetch(
-    `${API_BASE_URL}/api/integrations/tandem/cloud-upload/reset`,
-    { method: "POST" }
-  );
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(
-      error.detail || `Failed to reset upload state: ${response.status}`
-    );
-  }
-
   return response.json();
 }
 

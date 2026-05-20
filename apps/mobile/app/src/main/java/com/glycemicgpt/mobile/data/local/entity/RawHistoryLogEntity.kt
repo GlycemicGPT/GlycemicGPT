@@ -7,9 +7,12 @@ import androidx.room.PrimaryKey
 /**
  * Stores raw BLE history log bytes received from the Tandem pump.
  *
- * These raw bytes are sent to the backend for Tandem cloud upload,
- * preserving the exact binary format required by Tandem's upload API.
- * The [sequenceNumber] is unique per pump and used to deduplicate.
+ * Preserves the exact binary record format for local diagnostics and
+ * potential future history-replay features. Older builds also forwarded
+ * these bytes to the backend's Tandem cloud-upload pipeline, which was
+ * removed in PR1c; the backend continues to accept the field for
+ * back-compat but discards it. The [sequenceNumber] is unique per pump
+ * and used to deduplicate.
  */
 @Entity(
     tableName = "raw_history_logs",
