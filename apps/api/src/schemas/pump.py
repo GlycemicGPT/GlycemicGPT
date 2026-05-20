@@ -177,6 +177,51 @@ class TandemSyncStatusResponse(BaseModel):
     needs_country_reselect: bool = False
 
 
+class TandemAvailabilityResponse(BaseModel):
+    """Date range of pump data available in the user's t:connect cloud.
+
+    Used to bound the manual-import date picker. ``latest`` is the last-upload
+    timestamp (the reliable "newest data" marker); Tandem's maxDateWithEvents
+    is ignored because it returns a bogus far-future date.
+    """
+
+    earliest: datetime | None = Field(
+        default=None, description="Oldest date with pump data available to pull"
+    )
+    latest: datetime | None = Field(
+        default=None,
+        description="Most recent date with data (the last upload to t:connect)",
+    )
+    pump_count: int = Field(default=0, description="Pumps found on the account")
+
+
+class TandemImportRequest(BaseModel):
+    """Manual one-time custom-range import (Tandem cloud download).
+
+    Bounds: ``end`` after ``start``; ``end`` not in the future; span capped
+    at 366 days so a single import can't request an unbounded pull.
+    """
+
+    start_date: datetime = Field(..., description="Start of the range to import")
+    end_date: datetime = Field(..., description="End of the range to import")
+
+    @model_validator(mode="after")
+    def _validate_range(self) -> "TandemImportRequest":
+        start = self.start_date
+        end = self.end_date
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=UTC)
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=UTC)
+        if end <= start:
+            raise ValueError("end_date must be after start_date")
+        if end > datetime.now(UTC) + timedelta(minutes=5):
+            raise ValueError("end_date cannot be in the future")
+        if (end - start) > timedelta(days=366):
+            raise ValueError("import range cannot exceed 366 days")
+        return self
+
+
 class TandemSyncSettingsRequest(BaseModel):
     """Request schema for updating per-user Tandem sync settings.
 

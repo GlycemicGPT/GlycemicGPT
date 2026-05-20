@@ -1826,3 +1826,165 @@ class TestTandemSyncSchedulerDueLogic:
             ).scalar_one()
             assert row.last_attempt_at is not None
             assert row.events_pulled_total == 5
+
+
+class TestTandemSyncAvailability:
+    """GET /tandem/sync/availability reports the cloud's data date range."""
+
+    @patch("src.services.tandem_sync.TandemSourceApi")
+    @patch("src.routers.integrations.validate_tandem_credentials")
+    async def test_availability_returns_range_ignoring_bogus_max(
+        self, mock_validate, mock_api_class
+    ):
+        """earliest = minDateWithEvents, latest = lastUpload.lastUploadedAt.
+        The bogus far-future maxDateWithEvents (2066) must be ignored."""
+        mock_validate.return_value = (True, None)
+        mock_api = MagicMock()
+        mock_api.pump_event_metadata.return_value = [
+            {
+                "tconnectDeviceId": 945039,
+                "minDateWithEvents": "2018-07-18T22:35:14",
+                "maxDateWithEvents": "2066-05-24T04:59:14",  # bogus -> ignore
+                "lastUpload": {"lastUploadedAt": "2026-04-15T01:35:01.687"},
+            }
+        ]
+        mock_api_class.return_value = mock_api
+
+        email = unique_email("tsync_avail")
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie = await _register_login_connect_tandem(client, email)
+            resp = await client.get(
+                "/api/integrations/tandem/sync/availability",
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 200, resp.text
+        d = resp.json()
+        assert d["pump_count"] == 1
+        assert d["earliest"].startswith("2018-07-18")
+        # latest is the last-upload date, NOT the bogus 2066 maxDateWithEvents.
+        assert d["latest"].startswith("2026-04-15")
+        assert "2066" not in (d["latest"] or "")
+
+    async def test_availability_404_when_not_configured(self):
+        email = unique_email("tsync_avail_nocfg")
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            await client.post(
+                "/api/auth/register",
+                json={"email": email, "password": "SecurePass123"},
+            )
+            login = await client.post(
+                "/api/auth/login",
+                json={"email": email, "password": "SecurePass123"},
+            )
+            cookie = login.cookies.get(settings.jwt_cookie_name)
+            resp = await client.get(
+                "/api/integrations/tandem/sync/availability",
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 404, resp.text
+
+
+class TestTandemImport:
+    """POST /tandem/sync/import: one-time manual custom-range pull."""
+
+    @patch("src.services.tandem_sync.fetch_with_retry")
+    @patch("src.services.tandem_sync.TandemSourceApi")
+    @patch("src.routers.integrations.validate_tandem_credentials")
+    async def test_import_uses_explicit_range(
+        self, mock_validate, mock_api_class, mock_fetch
+    ):
+        """The import passes the user's explicit start/end through to the
+        fetch (NOT a now-anchored window), and stores what comes back."""
+        mock_validate.return_value = (True, None)
+        mock_api_class.return_value = MagicMock()
+        mock_fetch.return_value = (
+            [
+                {
+                    "type": "bolus",
+                    "timestamp": "2026-04-10T12:00:00+00:00",
+                    "units": 2.0,
+                }
+            ],
+            None,
+        )
+        email = unique_email("tsync_import")
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie = await _register_login_connect_tandem(client, email)
+            resp = await client.post(
+                "/api/integrations/tandem/sync/import",
+                json={
+                    "start_date": "2026-04-01T00:00:00+00:00",
+                    "end_date": "2026-04-16T00:00:00+00:00",
+                },
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["events_stored"] == 1
+        # fetch_with_retry(api, start_date, end_date) -- verify the explicit
+        # range reached it (run via asyncio.to_thread, so use call_args).
+        assert mock_fetch.call_args is not None
+        _api, start_arg, end_arg = mock_fetch.call_args.args[:3]
+        assert start_arg.date().isoformat() == "2026-04-01"
+        assert end_arg.date().isoformat() == "2026-04-16"
+
+    @pytest.mark.parametrize(
+        "start,end",
+        [
+            # end before start
+            ("2026-04-16T00:00:00+00:00", "2026-04-01T00:00:00+00:00"),
+            # end in the far future
+            ("2026-04-01T00:00:00+00:00", "2099-01-01T00:00:00+00:00"),
+            # span > 366 days
+            ("2024-01-01T00:00:00+00:00", "2025-06-01T00:00:00+00:00"),
+        ],
+    )
+    async def test_import_rejects_bad_range_422(self, start, end):
+        email = unique_email("tsync_import_bad")
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            await client.post(
+                "/api/auth/register",
+                json={"email": email, "password": "SecurePass123"},
+            )
+            login = await client.post(
+                "/api/auth/login",
+                json={"email": email, "password": "SecurePass123"},
+            )
+            cookie = login.cookies.get(settings.jwt_cookie_name)
+            resp = await client.post(
+                "/api/integrations/tandem/sync/import",
+                json={"start_date": start, "end_date": end},
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 422, resp.text
+
+    async def test_import_404_when_not_configured(self):
+        email = unique_email("tsync_import_nocfg")
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            await client.post(
+                "/api/auth/register",
+                json={"email": email, "password": "SecurePass123"},
+            )
+            login = await client.post(
+                "/api/auth/login",
+                json={"email": email, "password": "SecurePass123"},
+            )
+            cookie = login.cookies.get(settings.jwt_cookie_name)
+            resp = await client.post(
+                "/api/integrations/tandem/sync/import",
+                json={
+                    "start_date": "2026-04-01T00:00:00+00:00",
+                    "end_date": "2026-04-16T00:00:00+00:00",
+                },
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 404, resp.text

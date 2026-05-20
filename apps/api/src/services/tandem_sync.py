@@ -686,53 +686,18 @@ async def _store_pump_settings(
     return profiles_stored
 
 
-async def sync_tandem_for_user(
+async def _authenticate_tandem_api(
     db: AsyncSession,
     user_id: uuid.UUID,
-    hours_back: int | None = None,
-) -> dict:
-    """Sync Tandem pump data for a specific user.
+    credential: IntegrationCredential,
+) -> TandemSourceApi:
+    """Decrypt credentials, resolve the stored region to a cloud bucket, and
+    return an authenticated ``TandemSourceApi``.
 
-    Args:
-        db: Database session
-        user_id: User ID to sync for
-        hours_back: Hours of history to fetch (default from settings)
-
-    Returns:
-        Dict with sync results (events_fetched, events_stored, last_event)
-
-    Raises:
-        TandemNotConfiguredError: If integration is not configured
-        TandemAuthError: If credentials are invalid
-        TandemConnectionError: If connection fails
-        TandemSyncError: For other sync errors
+    Shared by ``sync_tandem_for_user`` and ``get_tandem_availability``. On any
+    failure it marks the credential ERROR (committing) and raises the matching
+    Tandem*Error so the router can map it to the correct HTTP status.
     """
-    if hours_back is None:
-        hours_back = getattr(settings, "tandem_sync_hours_back", 24)
-
-    logger.info(
-        "Starting Tandem sync for user",
-        user_id=str(user_id),
-        hours_back=hours_back,
-    )
-
-    # Get user's Tandem credentials
-    result = await db.execute(
-        select(IntegrationCredential).where(
-            IntegrationCredential.user_id == user_id,
-            IntegrationCredential.integration_type == IntegrationType.TANDEM,
-        )
-    )
-    credential = result.scalar_one_or_none()
-
-    if not credential:
-        logger.warning("No Tandem credentials found for user", user_id=str(user_id))
-        raise TandemNotConfiguredError("Tandem integration not configured")
-
-    if credential.status == IntegrationStatus.DISCONNECTED:
-        logger.warning("Tandem integration is disconnected", user_id=str(user_id))
-        raise TandemNotConfiguredError("Tandem integration is disconnected")
-
     # Decrypt credentials
     try:
         username = decrypt_credential(credential.encrypted_username)
@@ -755,10 +720,8 @@ async def sync_tandem_for_user(
     try:
         country, cloud = resolve_country_or_raise(credential.region or "US")
     except TandemLegacyRegionError as e:
-        # Avoid rewriting the credential row on every scheduler tick when the
-        # state is already exactly what we'd set it to -- otherwise legacy
-        # users churn ``updated_at`` and produce a steady warning every minute
-        # until they re-select.
+        # Avoid rewriting the credential row when it's already in exactly this
+        # state -- otherwise legacy users churn ``updated_at`` every tick.
         message = str(e)
         already_marked = (
             credential.status == IntegrationStatus.ERROR
@@ -766,7 +729,7 @@ async def sync_tandem_for_user(
         )
         if not already_marked:
             logger.warning(
-                "Tandem sync blocked: legacy region requires re-select",
+                "Tandem auth blocked: legacy region requires re-select",
                 user_id=str(user_id),
                 stored_region=credential.region,
             )
@@ -777,7 +740,7 @@ async def sync_tandem_for_user(
 
     # Connect to Tandem (cloud is "US" or "EU", which is what tconnectsync expects)
     try:
-        api = TandemSourceApi(email=username, password=password, region=cloud)
+        return TandemSourceApi(email=username, password=password, region=cloud)
     except ValueError as e:
         logger.warning(
             "Tandem invalid region",
@@ -822,9 +785,153 @@ async def sync_tandem_for_user(
         await db.commit()
         raise TandemConnectionError(f"Failed to connect: {str(e)}") from e
 
-    # Calculate date range
-    end_date = datetime.now(UTC)
-    start_date = end_date - timedelta(hours=hours_back)
+
+def _parse_tandem_datetime(value: object) -> datetime | None:
+    """Parse a Tandem ISO date string (e.g. ``2026-04-15T01:35:01.687``) to an
+    aware UTC datetime. Returns None for missing/unparseable values."""
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
+
+
+async def get_tandem_availability(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+) -> dict:
+    """Query the date range of pump data available in the user's t:connect
+    cloud, so the UI can bound a manual-import date picker.
+
+    Returns ``{"earliest": dt|None, "latest": dt|None, "pump_count": int}``:
+    - ``earliest`` = the oldest ``minDateWithEvents`` across the user's pumps.
+    - ``latest`` = the newest ``lastUpload.lastUploadedAt`` (the real "last
+      data" marker; Tandem's ``maxDateWithEvents`` is unreliable -- it returns
+      a bogus far-future date -- so we deliberately ignore it).
+
+    Raises the same Tandem*Error types as ``sync_tandem_for_user`` (mapped to
+    HTTP statuses by the router). Read-only: never writes events.
+    """
+    result = await db.execute(
+        select(IntegrationCredential).where(
+            IntegrationCredential.user_id == user_id,
+            IntegrationCredential.integration_type == IntegrationType.TANDEM,
+        )
+    )
+    credential = result.scalar_one_or_none()
+    if not credential:
+        raise TandemNotConfiguredError("Tandem integration not configured")
+    if credential.status == IntegrationStatus.DISCONNECTED:
+        raise TandemNotConfiguredError("Tandem integration is disconnected")
+
+    api = await _authenticate_tandem_api(db, user_id, credential)
+
+    try:
+        metadata = await asyncio.to_thread(api.pump_event_metadata)
+    except ApiException as e:
+        logger.warning(
+            "Tandem availability fetch failed", user_id=str(user_id), error=str(e)
+        )
+        raise TandemConnectionError("Failed to read pump metadata") from e
+
+    # Normalize metadata to a list of pump dicts (mirrors fetch_with_retry).
+    if isinstance(metadata, dict):
+        if "tconnectDeviceId" in metadata:
+            metadata = [metadata]
+        else:
+            for key in ("pumps", "devices", "data"):
+                if isinstance(metadata.get(key), list):
+                    metadata = metadata[key]
+                    break
+            else:
+                metadata = []
+    if not metadata:
+        return {"earliest": None, "latest": None, "pump_count": 0}
+
+    earliest: datetime | None = None
+    latest: datetime | None = None
+    for pump in metadata:
+        if not isinstance(pump, dict):
+            continue
+        min_dt = _parse_tandem_datetime(pump.get("minDateWithEvents"))
+        if min_dt and (earliest is None or min_dt < earliest):
+            earliest = min_dt
+        last_upload = pump.get("lastUpload") or {}
+        up_dt = _parse_tandem_datetime(last_upload.get("lastUploadedAt"))
+        if up_dt and (latest is None or up_dt > latest):
+            latest = up_dt
+
+    return {"earliest": earliest, "latest": latest, "pump_count": len(metadata)}
+
+
+async def sync_tandem_for_user(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    hours_back: int | None = None,
+    *,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+) -> dict:
+    """Sync Tandem pump data for a specific user.
+
+    Args:
+        db: Database session
+        user_id: User ID to sync for
+        hours_back: Hours of history to fetch ending now (default from
+            settings). Ignored when an explicit ``start_date``/``end_date``
+            range is given.
+        start_date / end_date: Explicit window for a manual custom-range
+            import. Both must be provided together; they override
+            ``hours_back``. The idempotent upsert means re-importing an
+            overlapping range is safe.
+
+    Returns:
+        Dict with sync results (events_fetched, events_stored, last_event)
+
+    Raises:
+        TandemNotConfiguredError: If integration is not configured
+        TandemAuthError: If credentials are invalid
+        TandemConnectionError: If connection fails
+        TandemSyncError: For other sync errors
+    """
+    explicit_range = start_date is not None and end_date is not None
+    if hours_back is None:
+        hours_back = getattr(settings, "tandem_sync_hours_back", 24)
+
+    logger.info(
+        "Starting Tandem sync for user",
+        user_id=str(user_id),
+        hours_back=None if explicit_range else hours_back,
+        explicit_range=explicit_range,
+    )
+
+    # Get user's Tandem credentials
+    result = await db.execute(
+        select(IntegrationCredential).where(
+            IntegrationCredential.user_id == user_id,
+            IntegrationCredential.integration_type == IntegrationType.TANDEM,
+        )
+    )
+    credential = result.scalar_one_or_none()
+
+    if not credential:
+        logger.warning("No Tandem credentials found for user", user_id=str(user_id))
+        raise TandemNotConfiguredError("Tandem integration not configured")
+
+    if credential.status == IntegrationStatus.DISCONNECTED:
+        logger.warning("Tandem integration is disconnected", user_id=str(user_id))
+        raise TandemNotConfiguredError("Tandem integration is disconnected")
+
+    # Decrypt + resolve region + authenticate (shared with availability).
+    api = await _authenticate_tandem_api(db, user_id, credential)
+
+    # Date range: explicit (manual custom-range import) overrides the
+    # now-anchored hours_back window.
+    if not explicit_range:
+        end_date = datetime.now(UTC)
+        start_date = end_date - timedelta(hours=hours_back)
 
     # Fetch events from Tandem with retry logic
     try:

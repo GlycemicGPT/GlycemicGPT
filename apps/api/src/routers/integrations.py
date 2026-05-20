@@ -83,6 +83,8 @@ from src.schemas.pump import (
     PumpStatusBattery,
     PumpStatusReservoir,
     PumpStatusResponse,
+    TandemAvailabilityResponse,
+    TandemImportRequest,
     TandemSyncResponse,
     TandemSyncSettingsRequest,
     TandemSyncStatusResponse,
@@ -114,6 +116,7 @@ from src.services.tandem_sync import (
     get_latest_pump_event,
     get_latest_pump_status,
     get_pump_events,
+    get_tandem_availability,
     sync_tandem_for_user,
 )
 from src.services.target_glucose_range import get_or_create_range
@@ -1500,6 +1503,139 @@ async def update_tandem_sync_settings(
         sync_interval_minutes=state.sync_interval_minutes,
         events_pulled_total=state.events_pulled_total,
         needs_country_reselect=needs_country,
+    )
+
+
+@router.get(
+    "/tandem/sync/availability",
+    response_model=TandemAvailabilityResponse,
+    responses={
+        200: {"description": "Available data date range"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        403: {"model": ErrorResponse, "description": "Permission denied"},
+        404: {"model": ErrorResponse, "description": "Tandem not configured"},
+        409: {"model": ErrorResponse, "description": "Country re-selection required"},
+        503: {"model": ErrorResponse, "description": "Tandem service unavailable"},
+    },
+)
+@limiter.limit("10/minute")
+async def get_tandem_sync_availability(
+    request: Request,
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> TandemAvailabilityResponse:
+    """Report the date range of pump data available in the user's t:connect
+    cloud, to bound the manual-import date picker.
+
+    Authenticates to Tandem (live call), so it's rate-limited and maps the
+    same Tandem*Error types to HTTP statuses as the sync endpoint.
+    """
+    try:
+        result = await get_tandem_availability(db, current_user.id)
+    except TandemNotConfiguredError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tandem integration not configured",
+        ) from e
+    except TandemNeedsCountryError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+    except TandemAuthError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid Tandem credentials. Please reconnect your account.",
+        ) from e
+    except TandemConnectionError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to reach Tandem. Please try again later.",
+        ) from e
+    except TandemSyncError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Could not read availability: {str(e)}",
+        ) from e
+
+    return TandemAvailabilityResponse(
+        earliest=result["earliest"],
+        latest=result["latest"],
+        pump_count=result["pump_count"],
+    )
+
+
+@router.post(
+    "/tandem/sync/import",
+    response_model=TandemSyncResponse,
+    responses={
+        200: {"description": "Import completed"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        403: {"model": ErrorResponse, "description": "Permission denied"},
+        404: {"model": ErrorResponse, "description": "Tandem not configured"},
+        409: {"model": ErrorResponse, "description": "Country re-selection required"},
+        422: {"model": ErrorResponse, "description": "Invalid date range"},
+        503: {"model": ErrorResponse, "description": "Tandem service unavailable"},
+    },
+)
+@limiter.limit("5/minute")
+async def import_tandem_range(
+    body: TandemImportRequest,
+    request: Request,
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> TandemSyncResponse:
+    """One-time manual import of a user-chosen date range from t:connect.
+
+    Unlike the scheduled sync (which pulls a recent window ending now), this
+    fetches exactly the requested range -- the way to backfill history or fill
+    a gap after sync was off. Idempotent (ON CONFLICT DO NOTHING), so an
+    overlapping re-import is safe. Rate-limited; authenticates live.
+    """
+    try:
+        result = await sync_tandem_for_user(
+            db,
+            current_user.id,
+            start_date=body.start_date,
+            end_date=body.end_date,
+        )
+    except TandemNotConfiguredError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tandem integration not configured",
+        ) from e
+    except TandemNeedsCountryError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+    except TandemAuthError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid Tandem credentials. Please reconnect your account.",
+        ) from e
+    except TandemConnectionError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to reach Tandem. Please try again later.",
+        ) from e
+    except TandemSyncError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Import failed: {str(e)}",
+        ) from e
+
+    last_event = None
+    if result["last_event"]:
+        last_event = PumpEventResponse(
+            event_type=result["last_event"]["event_type"],
+            event_timestamp=result["last_event"]["timestamp"],
+            units=result["last_event"]["units"],
+            is_automated=result["last_event"]["is_automated"],
+            received_at=datetime.now(UTC),
+            source="tandem",
+        )
+
+    return TandemSyncResponse(
+        message="Import completed successfully",
+        events_fetched=result["events_fetched"],
+        events_stored=result["events_stored"],
+        profiles_stored=result.get("profiles_stored", 0),
+        last_event=last_event,
     )
 
 
