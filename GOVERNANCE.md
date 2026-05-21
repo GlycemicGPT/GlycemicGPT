@@ -186,7 +186,7 @@ Maintainer stipend amounts are decided by the project lead based on fund balance
 
 GlycemicGPT also receives in-kind support from open-source-friendly vendors (donated software, services, or infrastructure). These relationships are governed by [SPONSORS.md](SPONSORS.md), which is the canonical record of all sponsor and fiscal-host relationships and includes a disclosure of how sponsor influence is bounded.
 
-#### 1Password for Open Source (team password management)
+#### <picture><source media="(prefers-color-scheme: dark)" srcset="assets/sponsors/1password-dark.svg"><img src="assets/sponsors/1password.svg" alt="" width="20" height="20" align="absmiddle"></picture> 1Password for Open Source (team password management)
 
 - **Scope:** the project's 1Password Teams account is used for shared project credentials only -- the operational accounts required to run the project, the dev-stack test account, and future CI/deploy secrets when applicable. Personal credentials, end-user accounts, and non-project items do not belong here.
 - **Out of scope:** medical patient data of any kind, end-user passwords, personally identifying information about contributors beyond what's needed to grant access.
@@ -200,6 +200,15 @@ GlycemicGPT also receives in-kind support from open-source-friendly vendors (don
 - **Why this matters:** before the 1Password account, project credentials were shared over Discord DMs and inline in dev docs. The 1Password account exists to fix that. The point is **shared, audit-able, revocable** credential handling -- not a single "team admin password" that everyone gets a copy of.
 
 A separate operational adoption sequence (vault setup, dev-stack credential migration, CI integration) is tracked by the project lead outside this governance doc; this section only sets the policy.
+
+#### <picture><source media="(prefers-color-scheme: dark)" srcset="assets/sponsors/sentry-dark.svg"><img src="assets/sponsors/sentry.svg" alt="" width="20" height="20" align="absmiddle"></picture> Sentry for Good (error monitoring)
+
+- **Scope:** Sentry (donated through the [Sentry for Good](https://sentry.io/for/good/) open-source program) is used for error monitoring in the project's own development, CI, and staging environments -- to catch and triage crashes before they reach a release.
+- **Out of scope:** any telemetry from builds the project distributes. The Sentry DSN is never baked into any artifact the project distributes or that is publicly downloadable -- production or `develop` Docker images, web bundles, APKs, or CI artifacts -- so anything users can pull phones home to nothing; maintainer-controlled environments (CI, staging, demos) receive the DSN only as a runtime-provisioned secret, never baked into an image. Health data, user identifiers, credentials, and request bodies will be excluded from error reports by SDK configuration, never collected. Session Replay, log ingestion, and event attachments are never enabled on any project-operated instance, and Sentry's on-demand paid budget is left disabled.
+- **Who operates it:** the project lead and maintainers, against the project's own infrastructure. Self-hosters may optionally point their own Sentry account at their own deployment; that is the operator's data, outside the project's account.
+- **Why this matters:** the privacy-first stance is load-bearing. Accepting donated error monitoring must not become a backdoor for collecting user data. Scoping Sentry to the project's own environments -- and never shipping a DSN in a distributed build -- keeps every "no telemetry / no phone home" commitment in [PRIVACY.md](PRIVACY.md) and the [Privacy-First principle](ROADMAP.md) literally true.
+
+The Sentry SDK integration is not yet implemented; this section sets the policy the integration will follow when it lands.
 
 ## Branch Protection
 
