@@ -21,6 +21,7 @@ from src.core.auth import CurrentUser, DiabeticOrAdminUser
 from src.core.encryption import encrypt_credential
 from src.core.tandem_regions import (
     country_to_cloud,
+    is_legacy_tandem_region,
 )
 from src.database import get_db
 from src.logging_config import get_logger
@@ -32,6 +33,10 @@ from src.models.integration import (
     IntegrationType,
 )
 from src.models.pump_data import PumpEvent, PumpEventType
+from src.models.tandem_sync_state import (
+    SYNC_INTERVAL_DEFAULT_MINUTES,
+    TandemSyncState,
+)
 from src.schemas.auth import ErrorResponse
 from src.schemas.forecast import (
     ForecastPayload,
@@ -78,7 +83,10 @@ from src.schemas.pump import (
     PumpStatusBattery,
     PumpStatusReservoir,
     PumpStatusResponse,
+    TandemAvailabilityResponse,
+    TandemImportRequest,
     TandemSyncResponse,
+    TandemSyncSettingsRequest,
     TandemSyncStatusResponse,
 )
 from src.services.dexcom_sync import (
@@ -108,6 +116,7 @@ from src.services.tandem_sync import (
     get_latest_pump_event,
     get_latest_pump_status,
     get_pump_events,
+    get_tandem_availability,
     sync_tandem_for_user,
 )
 from src.services.target_glucose_range import get_or_create_range
@@ -1324,7 +1333,11 @@ async def get_tandem_sync_status(
 ) -> TandemSyncStatusResponse:
     """Get the current Tandem sync status.
 
-    Returns the integration status, last sync time, and latest event.
+    Returns integration status + freshness (from the credential) and the
+    per-user sync control (enabled / interval / cumulative pulls, from
+    ``TandemSyncState``). When no state row exists, a connected user
+    defaults to enabled at the default interval -- backward-compatible with
+    the prior global sync that synced every connected user.
     """
     # Get integration status
     result = await db.execute(
@@ -1347,12 +1360,314 @@ async def get_tandem_sync_status(
     if latest:
         latest_response = PumpEventResponse.model_validate(latest)
 
+    # Per-user sync control. Absent row => effective enabled@default.
+    state_result = await db.execute(
+        select(TandemSyncState).where(TandemSyncState.user_id == current_user.id)
+    )
+    state = state_result.scalar_one_or_none()
+
+    # Legacy-region detection: a stored "EU"-style bucket can't be resolved
+    # to a country, so sync would 409. Surface it so the UI can prompt a
+    # reconnect instead of silently showing "enabled" that never runs.
+    needs_country = bool(
+        credential and credential.region and is_legacy_tandem_region(credential.region)
+    )
+
+    # A user with no Tandem credential has nothing to sync -- report
+    # enabled=False so the response isn't misleading (the "no row =>
+    # enabled@default" rule only applies to *connected* users).
+    if credential is None:
+        effective_enabled = False
+    elif state is not None:
+        effective_enabled = state.enabled
+    else:
+        effective_enabled = True
+
     return TandemSyncStatusResponse(
         integration_status=credential.status.value if credential else "not_configured",
         last_sync_at=credential.last_sync_at if credential else None,
         last_error=credential.last_error if credential else None,
         events_available=events_count,
         latest_event=latest_response,
+        enabled=effective_enabled,
+        sync_interval_minutes=(
+            state.sync_interval_minutes if state else SYNC_INTERVAL_DEFAULT_MINUTES
+        ),
+        events_pulled_total=state.events_pulled_total if state else 0,
+        needs_country_reselect=needs_country,
+    )
+
+
+@router.put(
+    "/tandem/sync/settings",
+    response_model=TandemSyncStatusResponse,
+    responses={
+        200: {"description": "Settings updated"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        403: {"model": ErrorResponse, "description": "Permission denied"},
+        404: {"model": ErrorResponse, "description": "Tandem not configured"},
+        409: {
+            "model": ErrorResponse,
+            "description": "Country re-selection required (legacy region value)",
+        },
+    },
+)
+async def update_tandem_sync_settings(
+    body: TandemSyncSettingsRequest,
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> TandemSyncStatusResponse:
+    """Update the per-user Tandem sync toggle + interval.
+
+    Upserts the user's ``TandemSyncState`` row. Guards:
+    - 404 if Tandem isn't connected (nothing to sync).
+    - 409 only when *enabling* sync on a legacy-region credential (it would
+      just 409 on every tick). Disabling is always allowed -- a legacy-region
+      user must be able to turn sync off without first reconnecting.
+    """
+    cred_result = await db.execute(
+        select(IntegrationCredential).where(
+            IntegrationCredential.user_id == current_user.id,
+            IntegrationCredential.integration_type == IntegrationType.TANDEM,
+        )
+    )
+    credential = cred_result.scalar_one_or_none()
+    if not credential:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tandem integration not configured",
+        )
+    if (
+        body.enabled
+        and credential.region
+        and is_legacy_tandem_region(credential.region)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Your Tandem integration uses a legacy region setting. "
+                "Reconnect with your country selected before enabling sync."
+            ),
+        )
+
+    # Upsert-then-lock: insert the row if missing (ON CONFLICT DO NOTHING),
+    # then SELECT ... FOR UPDATE so a concurrent settings change or the
+    # scheduler's events_pulled_total bump can't race the field writes.
+    await db.execute(
+        pg_insert(TandemSyncState)
+        .values(
+            user_id=current_user.id,
+            enabled=body.enabled,
+            sync_interval_minutes=body.sync_interval_minutes,
+        )
+        .on_conflict_do_nothing(index_elements=["user_id"])
+    )
+    state_result = await db.execute(
+        select(TandemSyncState)
+        .where(TandemSyncState.user_id == current_user.id)
+        .with_for_update()
+    )
+    state = state_result.scalar_one()
+    state.enabled = body.enabled
+    state.sync_interval_minutes = body.sync_interval_minutes
+    await db.commit()
+
+    logger.info(
+        "Tandem sync settings updated",
+        user_id=str(current_user.id),
+        enabled=body.enabled,
+        interval_minutes=body.sync_interval_minutes,
+    )
+
+    # Re-read freshness for the response.
+    count_result = await db.execute(
+        select(func.count(PumpEvent.id)).where(PumpEvent.user_id == current_user.id)
+    )
+    events_count = count_result.scalar() or 0
+    latest = await get_latest_pump_event(db, current_user.id)
+    latest_response = PumpEventResponse.model_validate(latest) if latest else None
+
+    # A legacy-region user can reach here by *disabling* (the enable path
+    # 409s above), so compute the flag rather than hardcoding False.
+    needs_country = bool(
+        credential.region and is_legacy_tandem_region(credential.region)
+    )
+
+    return TandemSyncStatusResponse(
+        integration_status=credential.status.value,
+        last_sync_at=credential.last_sync_at,
+        last_error=credential.last_error,
+        events_available=events_count,
+        latest_event=latest_response,
+        enabled=state.enabled,
+        sync_interval_minutes=state.sync_interval_minutes,
+        events_pulled_total=state.events_pulled_total,
+        needs_country_reselect=needs_country,
+    )
+
+
+@router.get(
+    "/tandem/sync/availability",
+    response_model=TandemAvailabilityResponse,
+    responses={
+        200: {"description": "Available data date range"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        403: {"model": ErrorResponse, "description": "Permission denied"},
+        404: {"model": ErrorResponse, "description": "Tandem not configured"},
+        409: {"model": ErrorResponse, "description": "Country re-selection required"},
+        503: {"model": ErrorResponse, "description": "Tandem service unavailable"},
+    },
+)
+@limiter.limit("10/minute")
+async def get_tandem_sync_availability(
+    request: Request,
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> TandemAvailabilityResponse:
+    """Report the date range of pump data available in the user's t:connect
+    cloud, to bound the manual-import date picker.
+
+    Authenticates to Tandem (live call), so it's rate-limited and maps the
+    same Tandem*Error types to HTTP statuses as the sync endpoint.
+    """
+    try:
+        result = await get_tandem_availability(db, current_user.id)
+    except TandemNotConfiguredError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tandem integration not configured",
+        ) from e
+    except TandemNeedsCountryError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+    except TandemAuthError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid Tandem credentials. Please reconnect your account.",
+        ) from e
+    except TandemConnectionError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to reach Tandem. Please try again later.",
+        ) from e
+    except TandemSyncError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Could not read availability: {str(e)}",
+        ) from e
+
+    return TandemAvailabilityResponse(
+        earliest=result["earliest"],
+        latest=result["latest"],
+        pump_count=result["pump_count"],
+    )
+
+
+@router.post(
+    "/tandem/sync/import",
+    response_model=TandemSyncResponse,
+    responses={
+        200: {"description": "Import completed"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        403: {"model": ErrorResponse, "description": "Permission denied"},
+        404: {"model": ErrorResponse, "description": "Tandem not configured"},
+        409: {"model": ErrorResponse, "description": "Country re-selection required"},
+        422: {"model": ErrorResponse, "description": "Invalid date range"},
+        503: {"model": ErrorResponse, "description": "Tandem service unavailable"},
+    },
+)
+@limiter.limit("5/minute")
+async def import_tandem_range(
+    body: TandemImportRequest,
+    request: Request,
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> TandemSyncResponse:
+    """One-time manual import of a user-chosen date range from t:connect.
+
+    Unlike the scheduled sync (which pulls a recent window ending now), this
+    fetches exactly the requested range -- the way to backfill history or fill
+    a gap after sync was off. Idempotent (ON CONFLICT DO NOTHING), so an
+    overlapping re-import is safe. Rate-limited; authenticates live.
+    """
+    try:
+        result = await sync_tandem_for_user(
+            db,
+            current_user.id,
+            start_date=body.start_date,
+            end_date=body.end_date,
+        )
+    except TandemNotConfiguredError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tandem integration not configured",
+        ) from e
+    except TandemNeedsCountryError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+    except TandemAuthError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid Tandem credentials. Please reconnect your account.",
+        ) from e
+    except TandemConnectionError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to reach Tandem. Please try again later.",
+        ) from e
+    except TandemSyncError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Import failed: {str(e)}",
+        ) from e
+
+    # Count imported events toward the cumulative counter, matching the
+    # scheduler. Atomic upsert-increment; does NOT touch last_attempt_at
+    # (that's the scheduler's pacing cursor -- a manual import shouldn't
+    # reset it). Best-effort: the events are already committed inside
+    # sync_tandem_for_user, so a failure here must NOT turn a successful
+    # import into a 500 (which would invite pointless retries against Tandem).
+    if result["events_stored"]:
+        try:
+            await db.execute(
+                pg_insert(TandemSyncState)
+                .values(
+                    user_id=current_user.id,
+                    events_pulled_total=result["events_stored"],
+                )
+                .on_conflict_do_update(
+                    index_elements=["user_id"],
+                    set_={
+                        "events_pulled_total": TandemSyncState.events_pulled_total
+                        + result["events_stored"]
+                    },
+                )
+            )
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            logger.warning(
+                "Tandem import succeeded but the events_pulled_total update "
+                "failed (non-fatal)",
+                user_id=str(current_user.id),
+                exc_info=True,
+            )
+
+    last_event = None
+    if result["last_event"]:
+        last_event = PumpEventResponse(
+            event_type=result["last_event"]["event_type"],
+            event_timestamp=result["last_event"]["timestamp"],
+            units=result["last_event"]["units"],
+            is_automated=result["last_event"]["is_automated"],
+            received_at=datetime.now(UTC),
+            source="tandem",
+        )
+
+    return TandemSyncResponse(
+        message="Import completed successfully",
+        events_fetched=result["events_fetched"],
+        events_stored=result["events_stored"],
+        profiles_stored=result.get("profiles_stored", 0),
+        last_event=last_event,
     )
 
 

@@ -151,13 +151,112 @@ class TandemSyncResponse(BaseModel):
 
 
 class TandemSyncStatusResponse(BaseModel):
-    """Response schema for Tandem sync status."""
+    """Response schema for Tandem sync status.
+
+    Combines the per-user sync *control* (``enabled`` / interval / cumulative
+    pull count, from ``TandemSyncState``) with sync *freshness*
+    (``last_sync_at`` / ``last_error``, from ``IntegrationCredential``).
+    ``enabled`` / ``sync_interval_minutes`` reflect the effective state:
+    when no state row exists, a connected user defaults to enabled at the
+    default interval (backward-compatible with the prior global sync).
+    """
 
     integration_status: str
     last_sync_at: datetime | None = None
     last_error: str | None = None
     events_available: int
     latest_event: PumpEventResponse | None = None
+
+    # Per-user control surface (Story: per-user Tandem sync).
+    enabled: bool = True
+    sync_interval_minutes: int = 60
+    events_pulled_total: int = 0
+    # True when the stored Tandem region is a legacy bucket label (e.g. "EU")
+    # that can no longer be resolved to a country -- the user must reconnect
+    # with their country selected before sync can run.
+    needs_country_reselect: bool = False
+
+
+class TandemAvailabilityResponse(BaseModel):
+    """Date range of pump data available in the user's t:connect cloud.
+
+    Used to bound the manual-import date picker. ``latest`` is the last-upload
+    timestamp (the reliable "newest data" marker); Tandem's maxDateWithEvents
+    is ignored because it returns a bogus far-future date.
+    """
+
+    earliest: datetime | None = Field(
+        default=None, description="Oldest date with pump data available to pull"
+    )
+    latest: datetime | None = Field(
+        default=None,
+        description="Most recent date with data (the last upload to t:connect)",
+    )
+    pump_count: int = Field(default=0, description="Pumps found on the account")
+
+
+# Max span for a single manual import. Tandem's event log is dense
+# (~30 days of Control-IQ data ≈ 9k stored events and ~24s to fetch+store);
+# the web's reverse proxy times the request out around 30s, so we cap the
+# window to one that reliably completes well under that. Larger/older
+# history is imported in successive month chunks (full-history backfill via
+# a background job is a planned follow-up).
+MAX_IMPORT_RANGE_DAYS = 31
+
+
+class TandemImportRequest(BaseModel):
+    """Manual one-time custom-range import (Tandem cloud download).
+
+    Bounds: ``end`` after ``start``; ``end`` not in the future; span capped
+    at ``MAX_IMPORT_RANGE_DAYS`` so a single synchronous import completes
+    before the HTTP proxy times out.
+    """
+
+    start_date: datetime = Field(..., description="Start of the range to import")
+    end_date: datetime = Field(..., description="End of the range to import")
+
+    @model_validator(mode="after")
+    def _validate_range(self) -> "TandemImportRequest":
+        # Normalize to UTC and persist back onto the model: a naive input is
+        # assumed UTC, an offset-aware input is converted. Downstream code
+        # formats these as %Y-%m-%d, so without normalization an offset-aware
+        # value would format in its original tz and shift the requested day.
+        start = (
+            self.start_date.replace(tzinfo=UTC)
+            if self.start_date.tzinfo is None
+            else self.start_date.astimezone(UTC)
+        )
+        end = (
+            self.end_date.replace(tzinfo=UTC)
+            if self.end_date.tzinfo is None
+            else self.end_date.astimezone(UTC)
+        )
+        self.start_date = start
+        self.end_date = end
+        if end <= start:
+            raise ValueError("end_date must be after start_date")
+        if end > datetime.now(UTC) + timedelta(minutes=5):
+            raise ValueError("end_date cannot be in the future")
+        if (end - start) > timedelta(days=MAX_IMPORT_RANGE_DAYS):
+            raise ValueError(f"import range cannot exceed {MAX_IMPORT_RANGE_DAYS} days")
+        return self
+
+
+class TandemSyncSettingsRequest(BaseModel):
+    """Request schema for updating per-user Tandem sync settings.
+
+    ``sync_interval_minutes`` floor of 15 matches the model/DB bound:
+    t:connect refreshes its cloud roughly hourly, so sub-15-min polling
+    cannot surface fresher data.
+    """
+
+    enabled: bool = Field(..., description="Whether scheduled sync runs for this user")
+    sync_interval_minutes: int = Field(
+        default=60,
+        ge=15,
+        le=1440,
+        description="Minutes between scheduled syncs (15-1440)",
+    )
 
 
 class ControlIQActivityResponse(BaseModel):

@@ -35,7 +35,7 @@ import {
   type NightscoutConnectionResponse,
 } from "@/lib/api";
 import { OfflineBanner } from "@/components/ui/offline-banner";
-import { PumpIntegrationsSection } from "@/components/integrations/pump-integrations-section";
+import { CloudSyncSection } from "@/components/integrations/cloud-sync-section";
 import { CGMIntegrationsSection } from "@/components/integrations/cgm-integrations-section";
 import { NightscoutIntegrationsSection } from "@/components/integrations/nightscout-integrations-section";
 
@@ -411,23 +411,6 @@ export default function IntegrationsPage() {
         </div>
       )}
 
-      {/* Pump Integrations (Tandem) */}
-      {!isLoading && (
-        <PumpIntegrationsSection
-          tandem={tandem}
-          tandemEmail={tandemEmail}
-          tandemPassword={tandemPassword}
-          tandemCountry={tandemCountry}
-          isTandemConnecting={isTandemConnecting}
-          isOffline={isOffline}
-          onTandemEmailChange={setTandemEmail}
-          onTandemPasswordChange={setTandemPassword}
-          onTandemCountryChange={setTandemCountry}
-          onConnectTandem={handleConnectTandem}
-          onDisconnectTandem={handleDisconnectTandem}
-        />
-      )}
-
       {/* CGM Integrations (Dexcom) */}
       {!isLoading && (
         <CGMIntegrationsSection
@@ -442,6 +425,23 @@ export default function IntegrationsPage() {
           onDexcomRegionChange={setDexcomRegion}
           onConnectDexcom={handleConnectDexcom}
           onDisconnectDexcom={handleDisconnectDexcom}
+        />
+      )}
+
+      {/* Cloud Sync (Tandem t:connect; more vendors planned) */}
+      {!isLoading && (
+        <CloudSyncSection
+          tandem={tandem}
+          tandemEmail={tandemEmail}
+          tandemPassword={tandemPassword}
+          tandemCountry={tandemCountry}
+          isTandemConnecting={isTandemConnecting}
+          isOffline={isOffline}
+          onTandemEmailChange={setTandemEmail}
+          onTandemPasswordChange={setTandemPassword}
+          onTandemCountryChange={setTandemCountry}
+          onConnectTandem={handleConnectTandem}
+          onDisconnectTandem={handleDisconnectTandem}
         />
       )}
 
