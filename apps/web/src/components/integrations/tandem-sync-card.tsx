@@ -121,11 +121,15 @@ export function TandemSyncCard({ isOffline }: { isOffline: boolean }) {
       setError("End date must be on or after the start date");
       return;
     }
-    // Enforce the per-import span client-side so the user gets an instant,
-    // clear message instead of a slow round-trip + 422.
-    const spanDays =
-      (Date.parse(importEnd) - Date.parse(importStart)) / 86400000;
-    if (spanDays > MAX_IMPORT_DAYS) {
+    // Build the exact start/end we'll send. Start = start-of-day; end =
+    // end-of-day capped to now (so a same-day import doesn't send a future
+    // timestamp the server rejects).
+    const startMs = Date.parse(`${importStart}T00:00:00Z`);
+    const endMs = Math.min(Date.parse(`${importEnd}T23:59:59Z`), Date.now());
+    // Validate the actual interval being sent (matches the server's cap on
+    // end-start), not an exclusive day delta -- otherwise an over-limit range
+    // slips through client-side and only fails at the server with a 422.
+    if (endMs - startMs > MAX_IMPORT_DAYS * 86_400_000) {
       setError(
         `Import up to ${MAX_IMPORT_DAYS} days at a time. For older history, import in ${MAX_IMPORT_DAYS}-day chunks.`
       );
@@ -134,12 +138,10 @@ export function TandemSyncCard({ isOffline }: { isOffline: boolean }) {
     setIsImporting(true);
     setError(null);
     try {
-      // Cap the end to "now" so a same-day import doesn't send a future
-      // timestamp (end-of-day 23:59:59Z) that the server rejects.
-      const endIso = new Date(
-        Math.min(Date.parse(`${importEnd}T23:59:59Z`), Date.now())
-      ).toISOString();
-      const res = await importTandemRange(`${importStart}T00:00:00Z`, endIso);
+      const res = await importTandemRange(
+        new Date(startMs).toISOString(),
+        new Date(endMs).toISOString()
+      );
       setSuccess(
         res.events_stored > 0
           ? `Imported ${res.events_stored} new event(s) from ${importStart} to ${importEnd}`
