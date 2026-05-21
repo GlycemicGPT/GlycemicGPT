@@ -55,6 +55,59 @@ The platform makes outbound network calls in only these cases:
 
 There are no other outbound calls.
 
+## Error monitoring in the project's own development
+
+The project uses [Sentry](https://sentry.io/) -- donated through the [Sentry for Good](https://sentry.io/for/good/) open-source program -- for error monitoring in **its own development, CI, and staging environments**. The purpose is narrow: catch and triage crashes during development, before they reach a release.
+
+This does not change anything above. To be explicit:
+
+- **No build the project distributes phones home.** The Sentry DSN (the credential that directs error reports to an account) is supplied only through an environment variable in maintainer-controlled environments. It is **never baked into any published Docker image, web bundle, or Android APK** -- production *or* `develop`. A build you pull and run sends nothing to the project's Sentry, because it has no DSN to send to.
+- **Production releases are telemetry-free, and so are distributed `develop` builds.** The `develop` tag exists for testing pre-release features; it is not a channel for collecting your error data.
+- **You can opt your own deployment in.** If you *want* error monitoring for your self-hosted deployment, you can set your own Sentry DSN. Error reports then go to **your** Sentry account, never the project's. This is a feature for operators who want it, off by default.
+
+> **Status:** The Sentry SDK integration is not yet shipped. This section documents the committed posture so the privacy commitment is on record before the integration lands. When it ships, it will follow exactly the design described here.
+
+### Which Sentry features the project uses -- and which it never enables
+
+Sentry for Good grants a broad set of products. The project deliberately uses only the low-risk subset that cannot carry your data, and **declines the ones that could**.
+
+**Used** -- against the project's own development, CI, staging, and public infrastructure:
+
+- **Error monitoring** -- crashes and exceptions, scrubbed of the data listed below
+- **Cron monitoring** -- whether the project's own scheduled jobs ran (run/miss/duration only)
+- **Uptime monitoring** -- availability pings against the project's own public endpoints
+- **Performance profiling and tracing** -- CPU/UI profiles and request traces in development and staging, with sensitive parameters scrubbed
+
+**Never enabled** -- on any project-operated instance, including demos and staging:
+
+- **Session Replay** -- it records what's on screen, and on a glucose dashboard that is exactly the data we refuse to collect
+- **Log ingestion** -- application logs routinely contain health data and identifiers
+- **Event attachments** -- screenshots or files attached to errors can carry the same
+
+These three are declined precisely because they would carry the data the next section says we never send. Sentry's on-demand (paid overage) budget is also left disabled, so usage stays within the donated quota.
+
+### What error reports contain (and what they never contain)
+
+When the project's own development environment reports an error to Sentry -- or when a self-hoster opts their own deployment in -- the integration is designed so reports carry only diagnostic context, never your data. Reports include:
+
+- The stack trace and exception type
+- Operating system and runtime versions
+- The GlycemicGPT version and commit hash
+- The line of code that triggered the error
+
+Reports will be configured to **never** include:
+
+- Blood glucose readings or any health data
+- User identifiers, names, or contact information
+- API keys, tokens, or credentials
+- Device serial numbers or pairing IDs
+- Database contents or query parameters
+- Local variables captured in error contexts
+- HTTP request or response bodies
+- Health data or identifiers interpolated into exception or log messages
+
+These exclusions will be enforced in the SDK configuration (no default PII collection, local-variable capture disabled, request/response bodies dropped, and an event scrubber that redacts the categories above -- including values interpolated into exception or log messages) -- not left to chance. The project's contribution guidelines will likewise prohibit embedding health data or identifiers in exception messages.
+
 ## What about the project's hosted service?
 
 The roadmap (Phase 4) includes a "hosted service for non-technical users" -- a managed deployment for users who don't want to run their own infrastructure. **The hosted service is not yet available**; this section is forward-looking.
