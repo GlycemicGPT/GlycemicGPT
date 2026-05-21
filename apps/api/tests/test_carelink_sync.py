@@ -1,7 +1,8 @@
 """End-to-end orchestrator test: CareLink export -> parse -> map -> store."""
 
 import uuid
-from datetime import UTC, date, timedelta, timezone
+from datetime import UTC, date
+from zoneinfo import ZoneInfo
 
 import httpx
 from sqlalchemy import select
@@ -63,6 +64,7 @@ async def test_sync_end_to_end_stores_records():
                 start_date=date(2025, 1, 20),
                 end_date=date(2025, 1, 20),
                 client=client,
+                tz=ZoneInfo("UTC"),
             )
         assert res.patient_id == "P1"
         assert res.glucose_stored == 1  # the one Sensor Glucose row
@@ -87,8 +89,9 @@ async def test_sync_end_to_end_stores_records():
         assert event_types == {PumpEventType.BASAL, PumpEventType.BOLUS}
 
 
-async def test_sync_localizes_naive_times_with_tz():
-    """With tz=-05:00, the naive 12:00 pump time is stored as 17:00 UTC."""
+async def test_sync_localizes_naive_times_with_zoneinfo():
+    """Jan 20 in America/New_York is EST (-05:00) -> 12:05 local = 17:05 UTC.
+    Uses a real IANA zone so the offset is DST-correct for that date."""
     async with get_session_maker()() as db:
         uid = await _make_user(db)
         async with _client() as client:
@@ -98,7 +101,7 @@ async def test_sync_localizes_naive_times_with_tz():
                 start_date=date(2025, 1, 20),
                 end_date=date(2025, 1, 20),
                 client=client,
-                tz=timezone(timedelta(hours=-5)),
+                tz=ZoneInfo("America/New_York"),
             )
         sg = (
             await db.execute(

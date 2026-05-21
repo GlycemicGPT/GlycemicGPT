@@ -4,16 +4,19 @@ Ties the four data-pipeline layers together for one user + date range. Takes a
 ready :class:`CareLinkClient` (the caller builds it with the auth/session, so
 this stays decoupled from -- and testable without -- the session-capture flow).
 
-Timezone: CareLink CSV times are naive pump-local. If the caller knows the
-user's timezone it passes ``tz`` so naive timestamps are localized before
-storage; otherwise storage falls back to treating them as UTC.
+Timezone: CareLink CSV times are naive *pump-local*. ``tz`` is REQUIRED so we
+never silently store local times as UTC (which would misdate every event by
+the user's offset). Pass a ``zoneinfo.ZoneInfo`` (an IANA zone like
+``America/Chicago``), NOT a fixed-offset ``timezone(...)`` -- a historical
+import can span DST changes, and only a real zone localizes each timestamp
+with the correct offset for its own date.
 """
 
 from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import date, tzinfo
+from datetime import date, datetime, tzinfo
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -51,20 +54,23 @@ async def sync_carelink_for_user(
     start_date: date,
     end_date: date,
     client: CareLinkClient,
-    tz: tzinfo | None = None,
+    tz: tzinfo,
 ) -> CareLinkSyncResult:
     """Export [start_date, end_date] from CareLink, parse + map + store it.
 
-    Idempotent end to end (storage upserts on the natural keys), so an
-    overlapping re-sync is safe.
+    ``tz`` is the user's timezone (use a ZoneInfo for DST-correctness across a
+    historical range). Idempotent end to end (storage upserts on the natural
+    keys), so an overlapping re-sync is safe.
     """
     patient_id = await client.get_patient_id()
     csv_text = await client.export_csv(
-        patient_id=patient_id, start_date=start_date, end_date=end_date
+        patient_id=patient_id,
+        start_date=start_date,
+        end_date=end_date,
+        client_time=datetime.now(tz),  # local time so date edges resolve right
     )
     records = map_carelink_export(parse_carelink_csv(csv_text))
-    if tz is not None:
-        _localize(records, tz)
+    _localize(records, tz)
     stored = await store_carelink_records(db, user_id, records)
     return CareLinkSyncResult(
         patient_id=patient_id,

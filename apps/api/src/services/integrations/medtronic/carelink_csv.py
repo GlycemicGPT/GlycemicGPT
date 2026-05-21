@@ -49,16 +49,15 @@ COL_SENSOR_STATE = "Sensor State"
 
 _HEADER_FIRST_COL = COL_INDEX
 
-# Date formats seen / plausible across locales. The US web export emits the
-# data-row date as YYYY/MM/DD with a 24h time; we try the observed format
-# first, then defensive fallbacks (EU day-first, dash separators).
+# Only UNAMBIGUOUS date formats. The US web export emits the data-row date as
+# YYYY/MM/DD; ISO (YYYY-MM-DD) is also year-first and unambiguous. We do NOT
+# guess between %d/%m and %m/%d -- ordering luck there would silently mis-date
+# events by months. A date that matches neither yields no timestamp (the row
+# is skipped, a visible failure) instead of being silently mis-parsed; other
+# locale formats must be added explicitly once confirmed live.
 _DATE_FORMATS = (
     "%Y/%m/%d",
-    "%d/%m/%Y",
-    "%m/%d/%Y",
     "%Y-%m-%d",
-    "%d-%m-%Y",
-    "%m-%d-%Y",
 )
 _TIME_FORMATS = ("%H:%M:%S", "%H:%M")
 
@@ -116,9 +115,12 @@ def _parse_float(value: str | None) -> float | None:
     v = _clean(value)
     if v is None:
         return None
-    # Tolerate a European decimal comma when it's unambiguously the decimal
-    # mark (no dot present), e.g. "1,5" -> 1.5.
-    if "," in v and "." not in v:
+    # Tolerate a European decimal comma only when it's unambiguously the
+    # decimal mark: exactly one comma, no dot (e.g. "1,5" -> 1.5). The single-
+    # comma guard avoids mangling a thousands-grouped value like "1,234,5".
+    # (A comma can only appear inside a value at all when the file is
+    # semicolon-delimited, since the csv reader splits on a comma delimiter.)
+    if v.count(",") == 1 and "." not in v:
         v = v.replace(",", ".")
     try:
         return float(v)
@@ -168,12 +170,17 @@ def _detect_delimiter(text: str) -> str:
     return ","
 
 
-def parse_carelink_csv(text: str) -> CareLinkExport:
+def parse_carelink_csv(text: str, *, keep_raw: bool = False) -> CareLinkExport:
     """Parse a CareLink Data Export (CSV) into a :class:`CareLinkExport`.
 
     Tolerant by design: unknown/extra columns are ignored, missing fields
     become ``None``, unparseable rows are skipped rather than raising. Rows
     are emitted in file order across all sections.
+
+    ``keep_raw=False`` (default) leaves ``CareLinkRow.raw`` empty -- the typed
+    fields cover everything the mapper needs, and a per-row dict of every cell
+    roughly doubles memory on a multi-year export. Pass ``keep_raw=True`` only
+    if a caller needs columns not lifted into the typed fields.
     """
     export = CareLinkExport()
     if not text:
@@ -219,7 +226,11 @@ def parse_carelink_csv(text: str) -> CareLinkExport:
         if idx is None and ts is None:
             continue
 
-        raw = {header[i]: fields_[i] for i in range(min(len(header), len(fields_)))}
+        raw = (
+            {header[i]: fields_[i] for i in range(min(len(header), len(fields_)))}
+            if keep_raw
+            else {}
+        )
         export.rows.append(
             CareLinkRow(
                 timestamp=ts,

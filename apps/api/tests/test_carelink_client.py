@@ -10,6 +10,7 @@ from src.services.integrations.medtronic.client import (
     US_BASE_URL,
     CareLinkAuthError,
     CareLinkClient,
+    CareLinkError,
     CareLinkReportTimeoutError,
 )
 
@@ -142,3 +143,51 @@ async def test_status_204_is_treated_ready():
 
 def test_default_base_url_is_us():
     assert US_BASE_URL == "https://carelink.minimed.com"
+
+
+async def test_rejects_untrusted_base_url():
+    with pytest.raises(ValueError, match="untrusted host"):
+        CareLinkClient(bearer_provider=_bearer, base_url="https://evil.example.com")
+
+
+async def test_eu_host_is_allowed():
+    # Should not raise (regional EU host under minimed.eu).
+    c = CareLinkClient(bearer_provider=_bearer, base_url="https://carelink.minimed.eu")
+    await c.aclose()
+
+
+async def test_retries_on_429_then_succeeds():
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(429, headers={"Retry-After": "0"}, json={})
+        return httpx.Response(
+            200, json={"start": "2012-01-01T00:00:00Z", "end": "2025-01-31T00:00:00Z"}
+        )
+
+    async with _make_client(handler) as client:
+        avail = await client.get_availability()
+    assert calls["n"] == 2  # retried once after the 429
+    assert avail.end.year == 2025
+
+
+async def test_export_rejects_csv_without_index_header():
+    """A too-early/partial reportCsv (no 'Index,' header) must not be accepted
+    as a successful (but empty) import."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/patient/reports/generateReport":
+            return httpx.Response(200, json={"uuid": "u1"})
+        if request.url.path == "/patient/reports/reportStatus":
+            return httpx.Response(200, json={"status": "COMPLETE"})
+        if request.url.path == "/patient/reports/reportCsv":
+            return httpx.Response(200, text="<html>not ready</html>")
+        return httpx.Response(404)
+
+    async with _make_client(handler) as client:
+        with pytest.raises(CareLinkError, match="Index"):
+            await client.export_csv(
+                patient_id="1", start_date=date(2025, 1, 1), end_date=date(2025, 1, 2)
+            )

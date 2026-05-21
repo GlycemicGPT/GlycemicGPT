@@ -276,3 +276,38 @@ def test_empty_input_returns_empty_export():
     export = parse_carelink_csv("")
     assert export.rows == []
     assert export.section_count == 0
+
+
+def test_ambiguous_non_year_first_date_yields_no_timestamp():
+    """We only accept unambiguous year-first dates. A day/month-first value is
+    NOT guessed (which could misdate by months) -> timestamp is None."""
+    csv_text = _build_csv(
+        [
+            {
+                "Index": "0",
+                "Date": "02/03/2025",
+                "Time": "08:00:00",
+                "Sensor Glucose (mg/dL)": "130",
+            }
+        ]
+    )
+    export = parse_carelink_csv(csv_text)
+    assert len(export.rows) == 1
+    assert export.rows[0].timestamp is None  # not silently mis-parsed
+    assert export.rows[0].sensor_glucose_mgdl == 130
+
+
+def test_raw_is_empty_unless_keep_raw():
+    csv_text = _build_csv(
+        [
+            {
+                "Index": "0",
+                "Date": "2025/01/31",
+                "Time": "08:00:00",
+                "Basal Rate (U/h)": "0.7",
+            }
+        ]
+    )
+    assert parse_carelink_csv(csv_text).rows[0].raw == {}
+    kept = parse_carelink_csv(csv_text, keep_raw=True).rows[0].raw
+    assert kept.get("Basal Rate (U/h)") == "0.7"
