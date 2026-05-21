@@ -173,11 +173,10 @@ GlycemicGPT is free and open source. Funding flows through [Open Collective](htt
 
 ## Supported by
 
-<a href="https://github.com/1Password/for-open-source">
-  <img src="assets/sponsors/1password.svg" alt="1Password for Open Source" width="64" height="64">
-</a>
+<a href="https://github.com/1Password/for-open-source"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/sponsors/1password-dark.svg"><img src="assets/sponsors/1password.svg" alt="1Password for Open Source" width="64" height="64"></picture></a>
+<a href="https://sentry.io/for/good/"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/sponsors/sentry-dark.svg"><img src="assets/sponsors/sentry.svg" alt="Sentry for Good" width="64" height="64"></picture></a>
 
-<sub>See [SPONSORS.md](./SPONSORS.md) for the full record of our support relationships.</sub>
+<sub>Both are in-kind program participation, not financial sponsorship. See [SPONSORS.md](./SPONSORS.md) for the full record of our support relationships.</sub>
 
 ## License
 
