@@ -587,16 +587,24 @@ class TestDevicestatusPath:
         )
         await session.flush()
 
-        # Now run devicestatus translation -- the loop_devicestatus
-        # fixture is timestamped 2026-05-06T14:30:00Z and has
-        # iob.iob = 1.2; the loop_correction_bolus fixture is
-        # timestamped 2026-05-06T14:32:18Z (~2 min later), so the
-        # backfill correlates them via the 15-min window rule.
+        # Now run devicestatus translation -- the loop_devicestatus fixture
+        # has iob.iob = 1.2; the loop_correction_bolus fixture is ~2 min later,
+        # so the backfill correlates them via the 15-min window rule.
+        #
+        # The backfill window is `received_at - 14 days`, defaulting to now().
+        # Anchor it to the devicestatus fixture's own timestamp (derived, not
+        # hard-coded) so the test stays deterministic instead of aging out once
+        # the wall clock drifts >14 days past the fixed-date fixtures.
+        devicestatus = _load("devicestatus", "loop_devicestatus")
+        fixture_received_at = datetime.fromisoformat(
+            devicestatus["created_at"].replace("Z", "+00:00")
+        )
         await translate_devicestatuses(
-            [_load("devicestatus", "loop_devicestatus")],
+            [devicestatus],
             session=session,
             user_id=str(user_id),
             connection_id=str(conn_id),
+            received_at=fixture_received_at,
         )
         await session.flush()
 
