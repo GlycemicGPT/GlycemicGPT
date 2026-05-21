@@ -1622,23 +1622,34 @@ async def import_tandem_range(
     # Count imported events toward the cumulative counter, matching the
     # scheduler. Atomic upsert-increment; does NOT touch last_attempt_at
     # (that's the scheduler's pacing cursor -- a manual import shouldn't
-    # reset it).
+    # reset it). Best-effort: the events are already committed inside
+    # sync_tandem_for_user, so a failure here must NOT turn a successful
+    # import into a 500 (which would invite pointless retries against Tandem).
     if result["events_stored"]:
-        await db.execute(
-            pg_insert(TandemSyncState)
-            .values(
-                user_id=current_user.id,
-                events_pulled_total=result["events_stored"],
+        try:
+            await db.execute(
+                pg_insert(TandemSyncState)
+                .values(
+                    user_id=current_user.id,
+                    events_pulled_total=result["events_stored"],
+                )
+                .on_conflict_do_update(
+                    index_elements=["user_id"],
+                    set_={
+                        "events_pulled_total": TandemSyncState.events_pulled_total
+                        + result["events_stored"]
+                    },
+                )
             )
-            .on_conflict_do_update(
-                index_elements=["user_id"],
-                set_={
-                    "events_pulled_total": TandemSyncState.events_pulled_total
-                    + result["events_stored"]
-                },
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            logger.warning(
+                "Tandem import succeeded but the events_pulled_total update "
+                "failed (non-fatal)",
+                user_id=str(current_user.id),
+                exc_info=True,
             )
-        )
-        await db.commit()
 
     last_event = None
     if result["last_event"]:

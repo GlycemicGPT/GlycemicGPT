@@ -217,12 +217,22 @@ class TandemImportRequest(BaseModel):
 
     @model_validator(mode="after")
     def _validate_range(self) -> "TandemImportRequest":
-        start = self.start_date
-        end = self.end_date
-        if start.tzinfo is None:
-            start = start.replace(tzinfo=UTC)
-        if end.tzinfo is None:
-            end = end.replace(tzinfo=UTC)
+        # Normalize to UTC and persist back onto the model: a naive input is
+        # assumed UTC, an offset-aware input is converted. Downstream code
+        # formats these as %Y-%m-%d, so without normalization an offset-aware
+        # value would format in its original tz and shift the requested day.
+        start = (
+            self.start_date.replace(tzinfo=UTC)
+            if self.start_date.tzinfo is None
+            else self.start_date.astimezone(UTC)
+        )
+        end = (
+            self.end_date.replace(tzinfo=UTC)
+            if self.end_date.tzinfo is None
+            else self.end_date.astimezone(UTC)
+        )
+        self.start_date = start
+        self.end_date = end
         if end <= start:
             raise ValueError("end_date must be after start_date")
         if end > datetime.now(UTC) + timedelta(minutes=5):

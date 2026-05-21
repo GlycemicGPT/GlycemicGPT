@@ -134,10 +134,12 @@ export function TandemSyncCard({ isOffline }: { isOffline: boolean }) {
     setIsImporting(true);
     setError(null);
     try {
-      const res = await importTandemRange(
-        `${importStart}T00:00:00Z`,
-        `${importEnd}T23:59:59Z`
-      );
+      // Cap the end to "now" so a same-day import doesn't send a future
+      // timestamp (end-of-day 23:59:59Z) that the server rejects.
+      const endIso = new Date(
+        Math.min(Date.parse(`${importEnd}T23:59:59Z`), Date.now())
+      ).toISOString();
+      const res = await importTandemRange(`${importStart}T00:00:00Z`, endIso);
       setSuccess(
         res.events_stored > 0
           ? `Imported ${res.events_stored} new event(s) from ${importStart} to ${importEnd}`

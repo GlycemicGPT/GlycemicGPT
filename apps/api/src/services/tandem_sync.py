@@ -755,9 +755,13 @@ async def _authenticate_tandem_api(
         await _mark_error(message)
         raise TandemNeedsCountryError(message) from e
 
-    # Connect to Tandem (cloud is "US" or "EU", which is what tconnectsync expects)
+    # Connect to Tandem (cloud is "US" or "EU", which is what tconnectsync
+    # expects). TandemSourceApi.__init__ performs a blocking login() (network
+    # I/O), so run it in a thread to avoid stalling the event loop.
     try:
-        return TandemSourceApi(email=username, password=password, region=cloud)
+        return await asyncio.to_thread(
+            TandemSourceApi, email=username, password=password, region=cloud
+        )
     except ValueError as e:
         logger.warning(
             "Tandem invalid region",
