@@ -1,0 +1,276 @@
+"""CareLink Personal HTTP client -- data methods (clean-room).
+
+Built from our own observation of the CareLink Personal web API. Covers the
+read/download surface this feature needs:
+
+- ``get_patient_id()``  -> GET /patient/users/me
+- ``get_availability()`` -> GET /patient/reports/snapshotTimelinesRange
+- ``export_csv(...)``    -> the async CSV-export job:
+      POST /patient/reports/generateReport  (returns a job uuid)
+   -> GET  /patient/reports/reportStatus?uuid=...  (poll until ready)
+   -> GET  /patient/reports/reportCsv?uuid=...      (download the CSV text)
+
+**Auth is injected** as an async ``bearer_provider`` callable, so these data
+methods are independent of (and testable without) the session-capture flow,
+which is the genuinely uncertain part of this integration. The provider
+returns a valid bearer for each call; refreshing it is the provider's job.
+
+Confirmed against a live US account: the auth model, the availability shape
+``{"start", "end"}``, the generateReport request body, and the
+generateReport->reportStatus->reportCsv sequence. NOT yet confirmed live (so
+parsed tolerantly here, to be pinned during the integration spike): the exact
+field names in the /users/me and generateReport *responses* and the
+reportStatus *response* body. These are marked inline.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from datetime import UTC, date, datetime
+
+import httpx
+
+#: US CareLink host (confirmed). EU uses a different host; pass base_url
+#: explicitly for it rather than guessing here.
+US_BASE_URL = "https://carelink.minimed.com"
+
+BearerProvider = Callable[[], Awaitable[str]]
+
+# reportStatus "ready" signals. We observed the generateReport ->
+# reportStatus -> reportCsv sequence but not the status response body, so we
+# accept a tolerant set of completion markers; to be confirmed live.
+_READY_TOKENS = {
+    "COMPLETE",
+    "COMPLETED",
+    "READY",
+    "DONE",
+    "SUCCESS",
+    "SUCCEEDED",
+    "FINISHED",
+}
+
+
+class CareLinkError(Exception):
+    """Base error for CareLink client calls."""
+
+
+class CareLinkAuthError(CareLinkError):
+    """401/403 from CareLink -- the session/bearer is invalid or expired."""
+
+
+class CareLinkReportTimeoutError(CareLinkError):
+    """The CSV-export job did not become ready within the poll budget."""
+
+
+@dataclass
+class CareLinkAvailability:
+    """Date range of pump data available in the user's CareLink cloud."""
+
+    start: datetime
+    end: datetime
+
+
+def _parse_iso(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def _first(d: dict, *keys: str) -> object | None:
+    """First present, truthy value among ``keys`` (tolerant response parsing)."""
+    for k in keys:
+        v = d.get(k)
+        if v:
+            return v
+    return None
+
+
+class CareLinkClient:
+    def __init__(
+        self,
+        *,
+        bearer_provider: BearerProvider,
+        base_url: str = US_BASE_URL,
+        client: httpx.AsyncClient | None = None,
+        timeout_seconds: float = 30.0,
+        poll_interval_seconds: float = 2.0,
+        poll_max_attempts: int = 30,
+    ) -> None:
+        self._bearer_provider = bearer_provider
+        self._base_url = base_url.rstrip("/")
+        self._poll_interval = poll_interval_seconds
+        self._poll_max_attempts = poll_max_attempts
+        self._owns_client = client is None
+        self._client = client or httpx.AsyncClient(
+            timeout=httpx.Timeout(
+                connect=min(5.0, timeout_seconds),
+                read=timeout_seconds,
+                write=min(5.0, timeout_seconds),
+                pool=min(2.0, timeout_seconds),
+            )
+        )
+
+    async def aclose(self) -> None:
+        if self._owns_client:
+            await self._client.aclose()
+
+    async def __aenter__(self) -> CareLinkClient:
+        return self
+
+    async def __aexit__(self, *_args: object) -> None:
+        await self.aclose()
+
+    async def _headers(self) -> dict[str, str]:
+        bearer = await self._bearer_provider()
+        return {
+            "Authorization": f"Bearer {bearer}",
+            "Accept": "application/json, text/plain, */*",
+        }
+
+    def _check(self, resp: httpx.Response) -> None:
+        if resp.status_code in (401, 403):
+            raise CareLinkAuthError(
+                f"CareLink auth failed ({resp.status_code}); session invalid/expired"
+            )
+        if resp.status_code >= 400:
+            raise CareLinkError(
+                f"CareLink request to {resp.request.url.path} failed: "
+                f"{resp.status_code}"
+            )
+
+    async def _get(self, path: str, **kwargs: object) -> httpx.Response:
+        try:
+            resp = await self._client.get(
+                f"{self._base_url}{path}", headers=await self._headers(), **kwargs
+            )
+        except httpx.HTTPError as e:
+            raise CareLinkError(f"CareLink network error on GET {path}: {e}") from e
+        self._check(resp)
+        return resp
+
+    async def _post(self, path: str, *, json: dict) -> httpx.Response:
+        try:
+            resp = await self._client.post(
+                f"{self._base_url}{path}", headers=await self._headers(), json=json
+            )
+        except httpx.HTTPError as e:
+            raise CareLinkError(f"CareLink network error on POST {path}: {e}") from e
+        self._check(resp)
+        return resp
+
+    async def get_patient_id(self) -> str:
+        """Fetch the patient/account id required by generateReport."""
+        data = self._json(await self._get("/patient/users/me"))
+        # Response field name unconfirmed live -- accept the likely candidates.
+        pid = _first(data, "patientId", "accountId", "loginId", "id")
+        if pid is None:
+            raise CareLinkError("Could not find patient id in /patient/users/me")
+        return str(pid)
+
+    async def get_availability(self) -> CareLinkAvailability:
+        """Date range of data available in the CareLink cloud."""
+        data = self._json(await self._get("/patient/reports/snapshotTimelinesRange"))
+        start, end = data.get("start"), data.get("end")
+        if not start or not end:
+            raise CareLinkError("snapshotTimelinesRange missing start/end")
+        return CareLinkAvailability(start=_parse_iso(start), end=_parse_iso(end))
+
+    async def export_csv(
+        self,
+        *,
+        patient_id: str,
+        start_date: date,
+        end_date: date,
+    ) -> str:
+        """Run the CSV-export job for [start_date, end_date] and return the CSV.
+
+        Raises CareLinkReportTimeoutError if the job doesn't finish in the poll
+        budget, CareLinkAuthError on 401/403, CareLinkError otherwise.
+        """
+        body = self._build_generate_report_body(patient_id, start_date, end_date)
+        gen = self._json(await self._post("/patient/reports/generateReport", json=body))
+        uuid = _first(gen, "uuid", "reportUuid", "id")
+        if uuid is None:
+            raise CareLinkError("generateReport did not return a report uuid")
+        uuid = str(uuid)
+
+        for _ in range(self._poll_max_attempts):
+            status_resp = await self._get(
+                "/patient/reports/reportStatus", params={"uuid": uuid}
+            )
+            if self._is_report_ready(status_resp):
+                break
+            await asyncio.sleep(self._poll_interval)
+        else:
+            raise CareLinkReportTimeoutError(
+                f"CSV export job {uuid} not ready after {self._poll_max_attempts} polls"
+            )
+
+        csv_resp = await self._get(
+            "/patient/reports/reportCsv",
+            params={"uuid": uuid, "dMInFileName": "false"},
+        )
+        return csv_resp.text
+
+    @staticmethod
+    def _build_generate_report_body(
+        patient_id: str, start_date: date, end_date: date
+    ) -> dict:
+        """Mirror the observed generateReport body: CSV only, all PDF report
+        sections off, aggregated CSV enabled."""
+        return {
+            "clientTime": datetime.now(UTC).isoformat(),
+            "dailyDetailReportDays": [],
+            "patientId": patient_id,
+            "reportFileFormat": "CSV",
+            "aggregatedCsvEnabled": True,
+            "reportShowAdherence": False,
+            "reportShowAssessmentAndProgress": False,
+            "reportShowBolusWizardFoodBolus": False,
+            "reportShowDashBoard": False,
+            "reportShowDataTable": False,
+            "reportShowDeviceSettings": False,
+            "reportShowEpisodeSummary": False,
+            "reportShowLogbook": False,
+            "reportShowOverview": False,
+            "reportShowWeeklyReview": False,
+            "reportShowSettingsHistory": False,
+            "reportShowInsulinAssessment": False,
+            "startDate": start_date.strftime("%Y-%m-%d"),
+            "endDate": end_date.strftime("%Y-%m-%d"),
+        }
+
+    @staticmethod
+    def _is_report_ready(resp: httpx.Response) -> bool:
+        """Tolerant readiness check (exact reportStatus body unconfirmed live).
+
+        Treats as ready: an explicit ``status``/``state`` token in the ready
+        set, a truthy ``ready``/``completed``/``done`` flag, or an empty 204.
+        """
+        if resp.status_code == 204:
+            return True
+        try:
+            data = resp.json()
+        except ValueError:
+            return False
+        if not isinstance(data, dict):
+            return False
+        for key in ("status", "state", "reportStatus"):
+            token = data.get(key)
+            if isinstance(token, str) and token.strip().upper() in _READY_TOKENS:
+                return True
+        return any(bool(data.get(k)) for k in ("ready", "completed", "done"))
+
+    @staticmethod
+    def _json(resp: httpx.Response) -> dict:
+        try:
+            data = resp.json()
+        except ValueError as e:
+            raise CareLinkError(
+                f"CareLink returned non-JSON on {resp.request.url.path}"
+            ) from e
+        if not isinstance(data, dict):
+            raise CareLinkError(
+                f"CareLink returned unexpected JSON shape on {resp.request.url.path}"
+            )
+        return data
