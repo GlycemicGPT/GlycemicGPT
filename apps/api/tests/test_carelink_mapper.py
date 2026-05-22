@@ -132,14 +132,15 @@ def test_scheduled_basal_maps_to_basal_rate():
     assert basal[0].is_automated is False
 
 
-def test_temp_basal_maps_to_automated_basal_with_duration():
+def test_absolute_temp_basal_maps_to_automated_basal_with_duration():
+    # An ABSOLUTE temp basal amount is a U/h rate -> stored in BASAL.units.
     rec = map_carelink_export(
         _export(
             CareLinkRow(
                 timestamp=TS,
                 index=0,
                 temp_basal_amount=1.2,
-                temp_basal_type="Percent",
+                temp_basal_type="Rate",
                 temp_basal_duration="0:30:00",
             )
         )
@@ -150,6 +151,23 @@ def test_temp_basal_maps_to_automated_basal_with_duration():
     assert basal[0].duration_minutes == 30
     assert basal[0].is_automated is True
     assert basal[0].control_iq_reason == "temp_basal"
+
+
+def test_percent_temp_basal_is_skipped():
+    # A PERCENT temp basal (amount = % of scheduled, not U/h) must NOT be stored
+    # as a BASAL rate event -- it would be x24'd by the rate-based TDD calc.
+    rec = map_carelink_export(
+        _export(
+            CareLinkRow(
+                timestamp=TS,
+                index=0,
+                temp_basal_amount=120.0,
+                temp_basal_type="Percent",
+                temp_basal_duration="0:30:00",
+            )
+        )
+    )
+    assert _events_of(rec, PumpEventType.BASAL) == []
 
 
 def test_suspend_and_resume():

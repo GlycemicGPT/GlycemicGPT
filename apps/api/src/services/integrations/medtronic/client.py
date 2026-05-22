@@ -37,6 +37,10 @@ import httpx
 #: Max retries on HTTP 429 (rate limit) before giving up.
 _MAX_RETRIES_429 = 3
 
+#: Reject an absurdly large report rather than parsing it into memory. A real
+#: 31-day CGM-dense CSV is well under 1 MB; this is a generous safety net.
+_MAX_CSV_BYTES = 25 * 1024 * 1024
+
 #: US CareLink host (confirmed). EU uses a different regional host; pass
 #: base_url explicitly for it rather than guessing here.
 US_BASE_URL = "https://carelink.minimed.com"
@@ -216,7 +220,12 @@ class CareLinkClient:
         start, end = data.get("start"), data.get("end")
         if not start or not end:
             raise CareLinkError("snapshotTimelinesRange missing start/end")
-        return CareLinkAvailability(start=_parse_iso(start), end=_parse_iso(end))
+        try:
+            return CareLinkAvailability(start=_parse_iso(start), end=_parse_iso(end))
+        except (ValueError, TypeError) as e:
+            raise CareLinkError(
+                f"Could not parse snapshotTimelinesRange dates ({start!r}, {end!r})"
+            ) from e
 
     async def export_csv(
         self,
@@ -260,6 +269,11 @@ class CareLinkClient:
             "/patient/reports/reportCsv",
             params={"uuid": uuid, "dMInFileName": "false"},
         )
+        if len(csv_resp.content) > _MAX_CSV_BYTES:
+            raise CareLinkError(
+                f"CareLink reportCsv for job {uuid} is too large "
+                f"({len(csv_resp.content)} bytes > {_MAX_CSV_BYTES} cap)"
+            )
         text = csv_resp.text
         # Validate it actually looks like a CareLink export. Because the
         # reportStatus "ready" shape is unconfirmed, a too-early/partial fetch

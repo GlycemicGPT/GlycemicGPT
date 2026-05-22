@@ -1,9 +1,10 @@
 """Schemas for the Medtronic CareLink manual historical-import (feature B).
 
-Stateless: the request carries the captured ``auth_tmp_token`` bearer (the user
-grabs it via the bookmarklet capture flow); the backend uses it per-request and
-never stores it. No credential storage / scheduler / sync-state -- a manual
-import completes within one ~50-min token life.
+Stateless: the captured ``auth_tmp_token`` is sent in the ``X-CareLink-Token``
+request HEADER (NOT the JSON body) so it can never land in a body-validation
+422 echo or in request-body logging. The backend uses it per-request and never
+stores it. No credential storage / scheduler / sync-state -- a manual import
+completes within one ~50-min token life.
 """
 
 from __future__ import annotations
@@ -20,6 +21,13 @@ from src.core.medtronic_regions import SUPPORTED_MEDTRONIC_REGIONS
 #: (mirrors the Tandem 31-day cap process).
 MAX_IMPORT_DAYS = 31
 
+#: Header carrying the captured CareLink session token (kept out of the body).
+CARELINK_TOKEN_HEADER = "X-CareLink-Token"
+
+#: Upper bound on the captured token length -- reject absurd payloads early. A
+#: real auth_tmp_token (a JWT) is ~1-2 KB.
+MAX_TOKEN_LEN = 8192
+
 
 def _validate_region(v: str) -> str:
     key = (v or "").strip().upper()
@@ -32,7 +40,6 @@ def _validate_region(v: str) -> str:
 
 class MedtronicAvailabilityRequest(BaseModel):
     region: str
-    token: str = Field(min_length=1, description="Captured CareLink auth_tmp_token")
 
     _region = field_validator("region")(_validate_region)
 
@@ -44,7 +51,6 @@ class MedtronicAvailabilityResponse(BaseModel):
 
 class MedtronicImportRequest(BaseModel):
     region: str
-    token: str = Field(min_length=1, description="Captured CareLink auth_tmp_token")
     start_date: date
     end_date: date
     tz: str = Field(

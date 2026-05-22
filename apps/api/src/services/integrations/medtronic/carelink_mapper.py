@@ -163,18 +163,23 @@ def _map_row(row: CareLinkRow) -> tuple[list[MappedGlucose], list[MappedPumpEven
         )
 
     # Temp basal (SmartGuard auto-adjusts basal -> mark automated) takes
-    # precedence over a scheduled basal-rate change on the same row.
+    # precedence over a scheduled basal-rate change on the same row. Only an
+    # ABSOLUTE temp basal is a U/h rate we can put in BASAL.units. A PERCENT
+    # temp basal (amount = % of the scheduled rate, e.g. 120) would be read as a
+    # U/h rate and multiplied by 24 in the rate-based TDD calc, so skip it -- we
+    # can't resolve % -> U/h without the active scheduled rate at that instant.
     if row.temp_basal_amount is not None:
-        events.append(
-            MappedPumpEvent(
-                event_type=PumpEventType.BASAL,
-                timestamp=ts,
-                units=row.temp_basal_amount,
-                duration_minutes=_duration_to_minutes(row.temp_basal_duration),
-                is_automated=True,
-                control_iq_reason="temp_basal",
+        if "PERCENT" not in (row.temp_basal_type or "").upper():
+            events.append(
+                MappedPumpEvent(
+                    event_type=PumpEventType.BASAL,
+                    timestamp=ts,
+                    units=row.temp_basal_amount,
+                    duration_minutes=_duration_to_minutes(row.temp_basal_duration),
+                    is_automated=True,
+                    control_iq_reason="temp_basal",
+                )
             )
-        )
     elif row.basal_rate_uh is not None:
         events.append(
             MappedPumpEvent(

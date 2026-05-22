@@ -8,7 +8,16 @@ import uuid
 import zoneinfo
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    status,
+)
 from pydexcom import Dexcom
 from pydexcom import errors as dexcom_errors
 from sqlalchemy import and_, case, func, select, text
@@ -69,6 +78,8 @@ from src.schemas.integration import (
     TandemCredentialsRequest,
 )
 from src.schemas.medtronic import (
+    CARELINK_TOKEN_HEADER,
+    MAX_TOKEN_LEN,
     MedtronicAvailabilityRequest,
     MedtronicAvailabilityResponse,
     MedtronicImportRequest,
@@ -1706,6 +1717,17 @@ def _build_carelink_client(region: str, token: str) -> CareLinkClient:
     return CareLinkClient(bearer_provider=_bearer, base_url=base_url)
 
 
+def _carelink_token_or_422(token: str | None) -> str:
+    """Validate the captured token from the X-CareLink-Token header. The error
+    message never echoes the token value (it must not land in logs/responses)."""
+    if not token or not (1 <= len(token) <= MAX_TOKEN_LEN):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Missing or malformed CareLink token.",
+        )
+    return token
+
+
 @router.post(
     "/medtronic/availability",
     response_model=MedtronicAvailabilityResponse,
@@ -1721,13 +1743,16 @@ async def get_medtronic_availability(
     body: MedtronicAvailabilityRequest,
     request: Request,
     current_user: DiabeticOrAdminUser,
+    carelink_token: str = Header(alias=CARELINK_TOKEN_HEADER),
     db: AsyncSession = Depends(get_db),
 ) -> MedtronicAvailabilityResponse:
     """Validate the captured CareLink token and report the available data range
-    (to bound the manual-import date picker). Stateless -- the token is used for
-    this call only and never stored.
+    (to bound the manual-import date picker). Stateless -- the token (sent in the
+    X-CareLink-Token header, never the body) is used for this call only and never
+    stored.
     """
-    client = _build_carelink_client(body.region, body.token)
+    token = _carelink_token_or_422(carelink_token)
+    client = _build_carelink_client(body.region, token)
     try:
         await client.get_patient_id()  # validates the bearer early
         avail = await client.get_availability()
@@ -1764,14 +1789,17 @@ async def import_medtronic_range(
     body: MedtronicImportRequest,
     request: Request,
     current_user: DiabeticOrAdminUser,
+    carelink_token: str = Header(alias=CARELINK_TOKEN_HEADER),
     db: AsyncSession = Depends(get_db),
 ) -> MedtronicImportResponse:
     """One-time manual import of a user-chosen CareLink date range. Builds a
     cookie-less client from the captured bearer, exports the CSV, maps it, and
     stores it idempotently (upsert on natural keys -- overlapping re-imports are
-    safe). The token is used only here and never persisted.
+    safe). The token (sent in the X-CareLink-Token header, never the body) is
+    used only here and never persisted.
     """
-    client = _build_carelink_client(body.region, body.token)
+    token = _carelink_token_or_422(carelink_token)
+    client = _build_carelink_client(body.region, token)
     try:
         result = await sync_carelink_for_user(
             db,

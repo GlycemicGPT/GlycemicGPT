@@ -80,6 +80,7 @@ export function MedtronicImportCard({ isOffline }: { isOffline: boolean }) {
     return `javascript:(function(){try{var m=document.cookie.match(/(?:^|;\\s*)auth_tmp_token=([^;]+)/);if(!m){alert('GlycemicGPT: no CareLink token found - are you signed in?');return;}var t=decodeURIComponent(m[1]);if(window.opener&&!window.opener.closed){window.opener.postMessage({source:'${MESSAGE_SOURCE}',token:t},'${origin}');alert('GlycemicGPT: token sent. You can close this tab.');}else if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(function(){alert('GlycemicGPT: token copied. Paste it into GlycemicGPT.');},function(){prompt('GlycemicGPT: copy this token:',t);});}else{prompt('GlycemicGPT: copy this token:',t);}}catch(e){alert('GlycemicGPT capture error: '+e);}})();`;
   }, []);
 
+  const popupRef = useRef<Window | null>(null);
   const bookmarkletRef = useRef<HTMLAnchorElement | null>(null);
   useEffect(() => {
     // Set the javascript: href via the DOM so React doesn't strip it; the user
@@ -131,6 +132,9 @@ export function MedtronicImportCard({ isOffline }: { isOffline: boolean }) {
   useEffect(() => {
     function onMessage(event: MessageEvent) {
       if (event.origin !== region.origin) return;
+      // Only accept the token from the CareLink popup we opened (defense against
+      // any other window posting a look-alike message).
+      if (popupRef.current && event.source !== popupRef.current) return;
       const data = event.data;
       if (
         data &&
@@ -139,6 +143,7 @@ export function MedtronicImportCard({ isOffline }: { isOffline: boolean }) {
         data.token.length > 0
       ) {
         setToken(data.token);
+        setPasteValue("");
         void fetchAvailability(data.token);
       }
     }
@@ -148,13 +153,18 @@ export function MedtronicImportCard({ isOffline }: { isOffline: boolean }) {
 
   const openCareLink = useCallback(() => {
     setError(null);
-    window.open(region.loginUrl, "carelink_login", "width=1100,height=860");
+    popupRef.current = window.open(
+      region.loginUrl,
+      "carelink_login",
+      "width=1100,height=860"
+    );
   }, [region.loginUrl]);
 
   const usePastedToken = useCallback(() => {
     const t = pasteValue.trim();
     if (!t) return;
     setToken(t);
+    setPasteValue("");
     void fetchAvailability(t);
   }, [pasteValue, fetchAvailability]);
 

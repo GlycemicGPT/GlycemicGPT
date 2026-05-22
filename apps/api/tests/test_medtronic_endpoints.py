@@ -26,6 +26,10 @@ from src.services.integrations.medtronic.sync import CareLinkSyncResult
 AVAIL_PATH = "/api/integrations/medtronic/availability"
 IMPORT_PATH = "/api/integrations/medtronic/import"
 
+# The captured token rides in a header (never the body) so it can't land in a
+# body-validation 422 echo or request-body logging.
+_HDR = {"X-CareLink-Token": "tok-abc"}
+
 _AVAIL = CareLinkAvailability(
     start=datetime(2012, 1, 1, tzinfo=UTC), end=datetime(2025, 1, 31, tzinfo=UTC)
 )
@@ -67,7 +71,6 @@ class _FakeClient:
 def _import_body(**over) -> dict:
     body = {
         "region": "US",
-        "token": "tok-abc",
         "start_date": "2025-01-15",
         "end_date": "2025-01-20",
         "tz": "America/New_York",
@@ -105,7 +108,7 @@ async def test_availability_requires_auth():
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
     ) as client:
-        resp = await client.post(AVAIL_PATH, json={"region": "US", "token": "x"})
+        resp = await client.post(AVAIL_PATH, json={"region": "US"}, headers=_HDR)
     assert resp.status_code == 401
 
 
@@ -117,7 +120,7 @@ async def test_availability_success(mock_build):
     ) as client:
         cookies = await _login(client)
         resp = await client.post(
-            AVAIL_PATH, json={"region": "US", "token": "tok-abc"}, cookies=cookies
+            AVAIL_PATH, json={"region": "US"}, headers=_HDR, cookies=cookies
         )
     assert resp.status_code == 200, resp.text
     data = resp.json()
@@ -133,7 +136,7 @@ async def test_availability_expired_token_401(mock_build):
     ) as client:
         cookies = await _login(client)
         resp = await client.post(
-            AVAIL_PATH, json={"region": "US", "token": "tok-abc"}, cookies=cookies
+            AVAIL_PATH, json={"region": "US"}, headers=_HDR, cookies=cookies
         )
     assert resp.status_code == 401, resp.text
 
@@ -146,7 +149,7 @@ async def test_availability_service_error_503(mock_build):
     ) as client:
         cookies = await _login(client)
         resp = await client.post(
-            AVAIL_PATH, json={"region": "US", "token": "tok-abc"}, cookies=cookies
+            AVAIL_PATH, json={"region": "US"}, headers=_HDR, cookies=cookies
         )
     assert resp.status_code == 503, resp.text
 
@@ -157,7 +160,7 @@ async def test_availability_bad_region_422():
     ) as client:
         cookies = await _login(client)
         resp = await client.post(
-            AVAIL_PATH, json={"region": "ZZ", "token": "tok-abc"}, cookies=cookies
+            AVAIL_PATH, json={"region": "ZZ"}, headers=_HDR, cookies=cookies
         )
     assert resp.status_code == 422, resp.text
 
@@ -174,7 +177,9 @@ async def test_import_success(mock_build, mock_sync):
         transport=ASGITransport(app=app), base_url="http://test"
     ) as client:
         cookies = await _login(client)
-        resp = await client.post(IMPORT_PATH, json=_import_body(), cookies=cookies)
+        resp = await client.post(
+            IMPORT_PATH, json=_import_body(), headers=_HDR, cookies=cookies
+        )
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["glucose_stored"] == 480
@@ -199,6 +204,7 @@ async def test_import_rejects_bad_range_422(start, end):
         resp = await client.post(
             IMPORT_PATH,
             json=_import_body(start_date=start, end_date=end),
+            headers=_HDR,
             cookies=cookies,
         )
     assert resp.status_code == 422, resp.text
@@ -210,7 +216,7 @@ async def test_import_bad_region_422():
     ) as client:
         cookies = await _login(client)
         resp = await client.post(
-            IMPORT_PATH, json=_import_body(region="ZZ"), cookies=cookies
+            IMPORT_PATH, json=_import_body(region="ZZ"), headers=_HDR, cookies=cookies
         )
     assert resp.status_code == 422, resp.text
 
@@ -221,7 +227,10 @@ async def test_import_invalid_tz_422():
     ) as client:
         cookies = await _login(client)
         resp = await client.post(
-            IMPORT_PATH, json=_import_body(tz="Not/AZone"), cookies=cookies
+            IMPORT_PATH,
+            json=_import_body(tz="Not/AZone"),
+            headers=_HDR,
+            cookies=cookies,
         )
     assert resp.status_code == 422, resp.text
 
@@ -235,7 +244,9 @@ async def test_import_expired_token_401(mock_build, mock_sync):
         transport=ASGITransport(app=app), base_url="http://test"
     ) as client:
         cookies = await _login(client)
-        resp = await client.post(IMPORT_PATH, json=_import_body(), cookies=cookies)
+        resp = await client.post(
+            IMPORT_PATH, json=_import_body(), headers=_HDR, cookies=cookies
+        )
     assert resp.status_code == 401, resp.text
 
 
@@ -248,5 +259,26 @@ async def test_import_timeout_504(mock_build, mock_sync):
         transport=ASGITransport(app=app), base_url="http://test"
     ) as client:
         cookies = await _login(client)
-        resp = await client.post(IMPORT_PATH, json=_import_body(), cookies=cookies)
+        resp = await client.post(
+            IMPORT_PATH, json=_import_body(), headers=_HDR, cookies=cookies
+        )
     assert resp.status_code == 504, resp.text
+
+
+async def test_token_not_leaked_in_validation_error():
+    """A body-validation 422 (e.g. bad date range) must NOT echo the captured
+    token. The token rides in the X-CareLink-Token header, never the body, so a
+    body-validation error can't include it."""
+    secret = "SUPERSECRETtok_abc_should_never_appear"
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        cookies = await _login(client)
+        resp = await client.post(
+            IMPORT_PATH,
+            json=_import_body(start_date="2025-01-01", end_date="2099-01-01"),
+            headers={"X-CareLink-Token": secret},
+            cookies=cookies,
+        )
+    assert resp.status_code == 422, resp.text
+    assert secret not in resp.text

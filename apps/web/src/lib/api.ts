@@ -3629,8 +3629,10 @@ export async function getMedtronicAvailability(
     `${API_BASE_URL}/api/integrations/medtronic/availability`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ region, token }),
+      // Token goes in a header, never the JSON body, so it can't land in a
+      // body-validation error echo or request-body logging.
+      headers: { "Content-Type": "application/json", "X-CareLink-Token": token },
+      body: JSON.stringify({ region }),
     }
   );
   if (!response.ok) {
@@ -3653,10 +3655,9 @@ export async function importMedtronicRange(
     `${API_BASE_URL}/api/integrations/medtronic/import`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-CareLink-Token": token },
       body: JSON.stringify({
         region,
-        token,
         start_date: startDate,
         end_date: endDate,
         tz,
