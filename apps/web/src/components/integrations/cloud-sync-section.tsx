@@ -7,6 +7,7 @@ import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { TANDEM_COUNTRY_GROUPS } from "@/lib/tandem-countries";
 import { IntegrationCard, PasswordInput, StatusBadge } from "./integration-card";
 import { TandemSyncCard } from "./tandem-sync-card";
+import { MedtronicImportCard } from "./medtronic-import-card";
 
 interface CloudSyncSectionProps {
   tandem: IntegrationResponse | null;
@@ -142,6 +143,10 @@ export function CloudSyncSection({
               <TandemSyncCard isOffline={isOffline} />
             )}
           </div>
+        </CollapsibleSection>
+
+        <CollapsibleSection title="Medtronic CareLink" variant="subsection">
+          <MedtronicImportCard isOffline={isOffline} />
         </CollapsibleSection>
       </div>
     </CollapsibleSection>
