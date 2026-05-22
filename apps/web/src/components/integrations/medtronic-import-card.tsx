@@ -201,12 +201,19 @@ export function MedtronicImportCard({ isOffline }: { isOffline: boolean }) {
 
   return (
     <div className="space-y-5 rounded-lg border border-slate-700 bg-slate-900/40 p-4">
-      <p className="text-sm text-slate-400">
-        CareLink has no public API, so importing is manual: sign in to CareLink
-        (one-time captcha), click the GlycemicGPT bookmarklet to hand your
-        session back, then pick a date range to import. Your session token is
-        used only for the import and is never stored.
-      </p>
+      <div className="space-y-2 text-sm text-slate-400">
+        <p>
+          Bring your Medtronic pump history into GlycemicGPT from the CareLink
+          website — no pump connection or cables needed.
+        </p>
+        <p>
+          Medtronic doesn&apos;t offer a direct app connection, so you sign in to
+          CareLink yourself and send a copy of your data over. There&apos;s a
+          quick one-time setup, then importing takes just a few clicks. Your
+          CareLink sign-in is used only to fetch the data you ask for, and
+          GlycemicGPT never sees your CareLink password or saves your sign-in.
+        </p>
+      </div>
 
       {/* Region */}
       <div className="max-w-xs">
@@ -214,7 +221,7 @@ export function MedtronicImportCard({ isOffline }: { isOffline: boolean }) {
           htmlFor="medtronic-region"
           className="block text-sm font-medium text-slate-300 mb-1"
         >
-          Region
+          Where is your CareLink account?
         </label>
         <select
           id="medtronic-region"
@@ -233,16 +240,20 @@ export function MedtronicImportCard({ isOffline }: { isOffline: boolean }) {
             </option>
           ))}
         </select>
+        <p className="mt-1 text-xs text-slate-500">
+          Choose the region your Medtronic CareLink account is registered in.
+        </p>
       </div>
 
       {/* Step 1: bookmarklet (one-time setup) */}
       <div className="space-y-2">
         <p className="text-sm font-medium text-slate-300">
-          1. Save the capture button (one time)
+          Step 1 — One-time setup: save the GlycemicGPT button
         </p>
         <p className="text-xs text-slate-500">
-          This is a “bookmarklet” — a bookmark that grabs your CareLink session
-          and hands it back here. Save it once using either method below.
+          Save this button to your browser once. Later, while you&apos;re signed
+          in to CareLink, you&apos;ll click it to send your data to GlycemicGPT —
+          like a one-click bridge between the two sites. You only do this once.
         </p>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -261,29 +272,33 @@ export function MedtronicImportCard({ isOffline }: { isOffline: boolean }) {
             onClick={copyBookmarklet}
             className="rounded-md border border-slate-600 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
           >
-            {bookmarkletCopied ? "Copied!" : "Copy bookmarklet code"}
+            {bookmarkletCopied ? "Copied!" : "Copy button instead"}
           </button>
         </div>
 
-        <div className="space-y-1 rounded-md bg-slate-800/50 p-3 text-xs text-slate-400">
+        <div className="space-y-1.5 rounded-md bg-slate-800/50 p-3 text-xs text-slate-400">
           <p className="font-medium text-slate-300">How to save it:</p>
           <p>
-            <span className="text-slate-300">Easiest:</span> press{" "}
+            1. Show your browser&apos;s bookmarks bar — the row of saved links
+            under the address bar at the top. Press{" "}
             <kbd className="rounded bg-slate-700 px-1">Ctrl</kbd>+
             <kbd className="rounded bg-slate-700 px-1">Shift</kbd>+
             <kbd className="rounded bg-slate-700 px-1">B</kbd> (
-            <kbd className="rounded bg-slate-700 px-1">⌘</kbd>+Shift+B on Mac) to
-            show your bookmarks bar, then drag the blue button onto it.
+            <kbd className="rounded bg-slate-700 px-1">⌘</kbd>+Shift+B on a Mac)
+            to show it.
           </p>
           <p>
-            <span className="text-slate-300">Or:</span> click{" "}
-            <span className="text-slate-300">“Copy bookmarklet code”</span>,
-            right-click your bookmarks bar → “Add page…”, name it anything, and
-            paste the code into the URL field.
+            2. Drag the blue{" "}
+            <span className="text-slate-300">Capture CareLink → GlycemicGPT</span>{" "}
+            button up onto that bar.
           </p>
-          <p className="text-slate-500">
-            You only do this once. Pasting it into the address bar won’t work —
-            browsers block that for security.
+          <p>
+            Rather not drag? Click{" "}
+            <span className="text-slate-300">“Copy button instead”</span>, then
+            right-click your bookmarks bar, choose{" "}
+            <span className="text-slate-300">“Add page”</span>, type any name, and
+            paste. (Pasting it into the address bar won&apos;t work — browsers
+            block that.)
           </p>
         </div>
       </div>
@@ -291,7 +306,7 @@ export function MedtronicImportCard({ isOffline }: { isOffline: boolean }) {
       {/* Step 2: sign in + capture */}
       <div className="space-y-2">
         <p className="text-sm font-medium text-slate-300">
-          2. Sign in to CareLink and capture
+          Step 2 — Sign in to Medtronic CareLink
         </p>
         <button
           type="button"
@@ -302,18 +317,24 @@ export function MedtronicImportCard({ isOffline }: { isOffline: boolean }) {
           Open CareLink &amp; sign in
         </button>
         <p className="text-xs text-slate-500">
-          After signing in, click the{" "}
+          This opens Medtronic&apos;s CareLink website in a new window. Sign in
+          with your Medtronic username and password (you may be asked to confirm
+          you&apos;re not a robot). You sign in directly with Medtronic —
+          GlycemicGPT never sees your password.
+        </p>
+        <p className="text-xs text-slate-500">
+          Once you&apos;re signed in, click the{" "}
           <span className="text-slate-300">Capture CareLink → GlycemicGPT</span>{" "}
-          bookmark you just saved (in your bookmarks bar) while on the CareLink
-          page. If the token doesn&apos;t arrive automatically, the bookmarklet
-          copies it — paste it here:
+          button you saved (in your bookmarks bar). Your data connection comes
+          back here automatically. If nothing appears here after a few seconds,
+          the button will have copied a code instead — paste it below:
         </p>
         <div className="flex gap-2">
           <input
             type="text"
             value={pasteValue}
             onChange={(e) => setPasteValue(e.target.value)}
-            placeholder="Paste captured token (fallback)"
+            placeholder="Paste the copied code (only if needed)"
             disabled={isOffline}
             className={inputClass}
           />
@@ -323,12 +344,13 @@ export function MedtronicImportCard({ isOffline }: { isOffline: boolean }) {
             disabled={isOffline || !pasteValue.trim()}
             className={clsx(btnClass, "whitespace-nowrap")}
           >
-            Use token
+            Use code
           </button>
         </div>
         {token && (
           <p className="text-xs text-green-400">
-            ✓ Session captured{isFetchingAvail ? " — reading availability…" : ""}
+            ✓ Connected to your CareLink account
+            {isFetchingAvail ? " — checking what data is available…" : ""}
           </p>
         )}
       </div>
@@ -337,12 +359,13 @@ export function MedtronicImportCard({ isOffline }: { isOffline: boolean }) {
       {availability && (
         <div className="space-y-3">
           <p className="text-sm font-medium text-slate-300">
-            3. Choose a range to import
+            Step 3 — Choose dates and import
           </p>
           <p className="text-xs text-slate-500">
-            Data available {availability.start?.slice(0, 10) ?? "?"} →{" "}
-            {availability.end?.slice(0, 10) ?? "?"}. Max {MAX_IMPORT_DAYS} days
-            per import.
+            Your CareLink account has data from{" "}
+            {availability.start?.slice(0, 10) ?? "?"} to{" "}
+            {availability.end?.slice(0, 10) ?? "?"}. Pick the dates you&apos;d
+            like to bring in (up to {MAX_IMPORT_DAYS} days at a time).
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-md">
             <div>
@@ -385,8 +408,8 @@ export function MedtronicImportCard({ isOffline }: { isOffline: boolean }) {
           {importStart && importEnd && !rangeValid && (
             <p className="text-xs text-amber-400">
               {rangeDays < 0
-                ? "End date must be on or after the start date."
-                : `Range is ${rangeDays} days — max ${MAX_IMPORT_DAYS} per import.`}
+                ? "The end date needs to be on or after the start date."
+                : `That's ${rangeDays} days — please choose ${MAX_IMPORT_DAYS} days or fewer at a time.`}
             </p>
           )}
           <button
@@ -395,15 +418,16 @@ export function MedtronicImportCard({ isOffline }: { isOffline: boolean }) {
             disabled={isOffline || isImporting || !rangeValid}
             className={btnClass}
           >
-            {isImporting ? "Importing…" : "Import range"}
+            {isImporting ? "Importing…" : "Import these dates"}
           </button>
         </div>
       )}
 
       {result && (
         <div className="rounded-md border border-green-600/40 bg-green-600/10 p-3 text-sm text-green-300">
-          Imported {result.glucose_stored} glucose readings and{" "}
-          {result.events_stored} pump events.
+          ✓ Done! Imported {result.glucose_stored} glucose readings and{" "}
+          {result.events_stored} pump events. You can pick another date range
+          above to bring in more.
         </div>
       )}
       {error && (
