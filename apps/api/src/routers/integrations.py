@@ -19,6 +19,7 @@ from tconnectsync.api.tandemsource import TandemSourceApi
 
 from src.core.auth import CurrentUser, DiabeticOrAdminUser
 from src.core.encryption import encrypt_credential
+from src.core.medtronic_regions import resolve_region_base_url
 from src.core.tandem_regions import (
     country_to_cloud,
     is_legacy_tandem_region,
@@ -67,6 +68,12 @@ from src.schemas.integration import (
     IntegrationResponse,
     TandemCredentialsRequest,
 )
+from src.schemas.medtronic import (
+    MedtronicAvailabilityRequest,
+    MedtronicAvailabilityResponse,
+    MedtronicImportRequest,
+    MedtronicImportResponse,
+)
 from src.schemas.pump import (
     BolusReviewItem,
     BolusReviewResponse,
@@ -104,6 +111,13 @@ from src.services.forecast_reader import (
     resolve_effective_source,
     set_forecast_source,
 )
+from src.services.integrations.medtronic.client import (
+    CareLinkAuthError,
+    CareLinkClient,
+    CareLinkError,
+    CareLinkReportTimeoutError,
+)
+from src.services.integrations.medtronic.sync import sync_carelink_for_user
 from src.services.iob_projection import get_iob_projection, get_user_dia
 from src.services.loop_state_extractor import get_latest_loop_state
 from src.services.tandem_sync import (
@@ -1668,6 +1682,129 @@ async def import_tandem_range(
         events_stored=result["events_stored"],
         profiles_stored=result.get("profiles_stored", 0),
         last_event=last_event,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Medtronic CareLink -- manual historical import (feature B)
+#
+# Stateless: the request carries the captured auth_tmp_token bearer (the user
+# grabs it via the bookmarklet capture flow). We build a COOKIE-LESS
+# CareLinkClient (bearer header only -- verified sufficient for /patient/*),
+# import within the token's ~50-min life, and NEVER store the token. No
+# credential row / scheduler / sync-state (manual, on-demand).
+# ---------------------------------------------------------------------------
+
+
+def _build_carelink_client(region: str, token: str) -> CareLinkClient:
+    """Cookie-less CareLink client authed by the captured bearer only."""
+    base_url = resolve_region_base_url(region)  # ValueError -> 400 (bad region)
+
+    async def _bearer() -> str:
+        return token
+
+    return CareLinkClient(bearer_provider=_bearer, base_url=base_url)
+
+
+@router.post(
+    "/medtronic/availability",
+    response_model=MedtronicAvailabilityResponse,
+    responses={
+        200: {"description": "Available data date range"},
+        400: {"model": ErrorResponse, "description": "Invalid region"},
+        401: {"model": ErrorResponse, "description": "CareLink token invalid/expired"},
+        503: {"model": ErrorResponse, "description": "CareLink unavailable"},
+    },
+)
+@limiter.limit("10/minute")
+async def get_medtronic_availability(
+    body: MedtronicAvailabilityRequest,
+    request: Request,
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> MedtronicAvailabilityResponse:
+    """Validate the captured CareLink token and report the available data range
+    (to bound the manual-import date picker). Stateless -- the token is used for
+    this call only and never stored.
+    """
+    client = _build_carelink_client(body.region, body.token)
+    try:
+        await client.get_patient_id()  # validates the bearer early
+        avail = await client.get_availability()
+    except CareLinkAuthError as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="CareLink session is invalid or expired. Reconnect and try again.",
+        ) from e
+    except CareLinkError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to reach CareLink. Please try again later.",
+        ) from e
+    finally:
+        await client.aclose()
+
+    return MedtronicAvailabilityResponse(start=avail.start, end=avail.end)
+
+
+@router.post(
+    "/medtronic/import",
+    response_model=MedtronicImportResponse,
+    responses={
+        200: {"description": "Import completed"},
+        400: {"model": ErrorResponse, "description": "Invalid region"},
+        401: {"model": ErrorResponse, "description": "CareLink token invalid/expired"},
+        422: {"model": ErrorResponse, "description": "Invalid date range / timezone"},
+        503: {"model": ErrorResponse, "description": "CareLink unavailable"},
+        504: {"model": ErrorResponse, "description": "CareLink report timed out"},
+    },
+)
+@limiter.limit("5/minute")
+async def import_medtronic_range(
+    body: MedtronicImportRequest,
+    request: Request,
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> MedtronicImportResponse:
+    """One-time manual import of a user-chosen CareLink date range. Builds a
+    cookie-less client from the captured bearer, exports the CSV, maps it, and
+    stores it idempotently (upsert on natural keys -- overlapping re-imports are
+    safe). The token is used only here and never persisted.
+    """
+    client = _build_carelink_client(body.region, body.token)
+    try:
+        result = await sync_carelink_for_user(
+            db,
+            current_user.id,
+            start_date=body.start_date,
+            end_date=body.end_date,
+            client=client,
+            tz=zoneinfo.ZoneInfo(body.tz),
+        )
+    except CareLinkAuthError as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="CareLink session is invalid or expired. Reconnect and try again.",
+        ) from e
+    except CareLinkReportTimeoutError as e:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="CareLink took too long to generate the report. Try a smaller range.",
+        ) from e
+    except CareLinkError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to reach CareLink. Please try again later.",
+        ) from e
+    finally:
+        await client.aclose()
+
+    return MedtronicImportResponse(
+        message="Import completed successfully",
+        glucose_fetched=result.glucose_fetched,
+        glucose_stored=result.glucose_stored,
+        events_fetched=result.events_fetched,
+        events_stored=result.events_stored,
     )
 
 
