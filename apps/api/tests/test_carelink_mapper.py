@@ -56,14 +56,15 @@ def test_manual_bolus_maps_to_bolus_with_carbs_and_iob():
     assert _events_of(rec, PumpEventType.CORRECTION) == []
 
 
-def test_smartguard_auto_bolus_maps_to_automated_correction():
+def test_smartguard_auto_correction_maps_to_automated_correction():
+    # Real 780G closed-loop correction source (no food component).
     rec = map_carelink_export(
         _export(
             CareLinkRow(
                 timestamp=TS,
                 index=0,
                 bolus_delivered_u=0.6,
-                bolus_source="CLOSED_LOOP_AUTO_BOLUS",
+                bolus_source="CLOSED_LOOP_BG_CORRECTION",
             )
         )
     )
@@ -71,7 +72,45 @@ def test_smartguard_auto_bolus_maps_to_automated_correction():
     assert len(corr) == 1
     assert corr[0].units == 0.6
     assert corr[0].is_automated is True
-    assert corr[0].control_iq_reason == "auto_correction"
+    assert corr[0].control_iq_reason == "correction"
+    assert _events_of(rec, PumpEventType.BOLUS) == []
+
+
+def test_smartguard_food_bolus_maps_to_user_bolus():
+    # A closed-loop meal bolus is user-initiated -> BOLUS, not automated.
+    rec = map_carelink_export(
+        _export(
+            CareLinkRow(
+                timestamp=TS,
+                index=0,
+                bolus_delivered_u=3.5,
+                bolus_source="CLOSED_LOOP_BG_CORRECTION_AND_FOOD_BOLUS",
+            )
+        )
+    )
+    bolus = _events_of(rec, PumpEventType.BOLUS)
+    assert len(bolus) == 1
+    assert bolus[0].units == 3.5
+    assert bolus[0].is_automated is False
+    assert _events_of(rec, PumpEventType.CORRECTION) == []
+
+
+def test_auto_insulin_daily_basal_total_is_skipped():
+    # CLOSED_LOOP_AUTO_INSULIN is a daily auto-basal TOTAL, not a bolus -- it
+    # must NOT be stored as a bolus (inflates bolus insulin) or a basal-rate
+    # event (would be x24'd by the TDD calc). It produces no event.
+    rec = map_carelink_export(
+        _export(
+            CareLinkRow(
+                timestamp=TS,
+                index=0,
+                bolus_delivered_u=47.872,
+                bolus_source="CLOSED_LOOP_AUTO_INSULIN",
+            )
+        )
+    )
+    assert rec.pump_events == []
+    assert rec.glucose == []
 
 
 def test_fingerstick_bg_maps_to_bg_reading_event():

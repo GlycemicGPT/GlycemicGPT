@@ -6,10 +6,18 @@ records (CGM glucose + pump events). A separate storage layer assigns
 persistence for testability (mirrors the Nightscout parser/mapper split).
 
 Mapping mirrors the Tandem conventions so the two integrations populate the
-same model the same way:
-- SmartGuard auto-bolus (``Bolus Source = CLOSED_LOOP_AUTO_BOLUS``) ->
-  CORRECTION + ``is_automated`` (analogous to Tandem Control-IQ corrections).
-- A manual/wizard bolus -> BOLUS.
+same shared model the same way (BASAL.units = U/h rate; BOLUS/CORRECTION.units =
+absolute units delivered):
+- SmartGuard auto-correction (``Bolus Source`` contains CORRECTION but not FOOD,
+  e.g. ``CLOSED_LOOP_BG_CORRECTION``) -> CORRECTION + ``is_automated`` (mirrors
+  Tandem Control-IQ corrections, so the shared AI/brief "auto-correction" rollups
+  include Medtronic).
+- A meal/manual/wizard bolus (incl. ``CLOSED_LOOP_BG_CORRECTION_AND_FOOD_BOLUS``)
+  -> BOLUS (user-initiated).
+- ``CLOSED_LOOP_AUTO_INSULIN`` is a DAILY auto-basal TOTAL (logged at 00:00), NOT
+  a bolus -> SKIPPED. As a bolus it inflates bolus insulin; as a BASAL event it
+  would be read as a U/h rate and multiplied by 24 in the rate-based TDD calc
+  (``daily_brief``). Basal comes from the scheduled ``Basal Rate (U/h)`` events.
 - Fingerstick meter reading -> BG_READING pump event (as Tandem does).
 - Continuous Sensor Glucose -> a glucose reading (Medtronic provides CGM
   inline, unlike Tandem where glucose comes from Dexcom).
@@ -27,8 +35,25 @@ from .carelink_csv import CareLinkExport, CareLinkRow
 #: Source tag written on every persisted Medtronic row.
 SOURCE = "medtronic"
 
-#: ``Bolus Source`` value Medtronic uses for a SmartGuard auto-correction bolus.
-_AUTO_BOLUS_SOURCE = "CLOSED_LOOP_AUTO_BOLUS"
+
+def _classify_bolus(
+    source: str | None,
+) -> tuple[PumpEventType, bool, str | None] | None:
+    """Classify a delivered bolus by its CareLink ``Bolus Source``.
+
+    Returns ``(event_type, is_automated, control_iq_reason)`` or ``None`` if the
+    row must NOT be recorded as a bolus. Source values verified against a live
+    780G SmartGuard export.
+    """
+    s = (source or "").upper()
+    # Daily auto-basal total -- not a discrete bolus (see module docstring).
+    if "AUTO_INSULIN" in s:
+        return None
+    # Closed-loop BG correction (no food) -> automated correction (like Tandem).
+    if "CORRECTION" in s and "FOOD" not in s:
+        return (PumpEventType.CORRECTION, True, "correction")
+    # Meal/food bolus, wizard, manual, preset -> user-initiated bolus.
+    return (PumpEventType.BOLUS, False, None)
 
 
 @dataclass
@@ -106,16 +131,22 @@ def _map_row(row: CareLinkRow) -> tuple[list[MappedGlucose], list[MappedPumpEven
             )
         )
 
-    # Bolus delivery.
-    if row.bolus_delivered_u is not None and row.bolus_delivered_u > 0:
-        auto = (row.bolus_source or "").upper() == _AUTO_BOLUS_SOURCE
+    # Bolus delivery. CLOSED_LOOP_AUTO_INSULIN (a daily auto-basal total) maps to
+    # None and is skipped -- it must not become a bolus or a basal-rate event.
+    bolus_class = (
+        _classify_bolus(row.bolus_source)
+        if row.bolus_delivered_u is not None and row.bolus_delivered_u > 0
+        else None
+    )
+    if bolus_class is not None:
+        etype, automated, reason = bolus_class
         events.append(
             MappedPumpEvent(
-                event_type=PumpEventType.CORRECTION if auto else PumpEventType.BOLUS,
+                event_type=etype,
                 timestamp=ts,
                 units=row.bolus_delivered_u,
-                is_automated=auto,
-                control_iq_reason="auto_correction" if auto else None,
+                is_automated=automated,
+                control_iq_reason=reason,
                 cob_at_event=row.carb_input_g,
                 iob_at_event=row.active_insulin_u,
             )
