@@ -54,6 +54,7 @@ export function MedtronicImportCard({ isOffline }: { isOffline: boolean }) {
   const [regionCode, setRegionCode] = useState<string>("US");
   const [token, setToken] = useState<string>("");
   const [pasteValue, setPasteValue] = useState<string>("");
+  const [bookmarkletCopied, setBookmarkletCopied] = useState(false);
   const [availability, setAvailability] =
     useState<MedtronicAvailabilityResponse | null>(null);
   const [importStart, setImportStart] = useState<string>("");
@@ -86,6 +87,16 @@ export function MedtronicImportCard({ isOffline }: { isOffline: boolean }) {
     if (bookmarkletRef.current) {
       bookmarkletRef.current.setAttribute("href", bookmarklet);
     }
+  }, [bookmarklet]);
+
+  const copyBookmarklet = useCallback(() => {
+    navigator.clipboard?.writeText(bookmarklet).then(
+      () => {
+        setBookmarkletCopied(true);
+        setTimeout(() => setBookmarkletCopied(false), 2000);
+      },
+      () => {}
+    );
   }, [bookmarklet]);
 
   const fetchAvailability = useCallback(
@@ -227,20 +238,54 @@ export function MedtronicImportCard({ isOffline }: { isOffline: boolean }) {
       {/* Step 1: bookmarklet (one-time setup) */}
       <div className="space-y-2">
         <p className="text-sm font-medium text-slate-300">
-          1. Save the capture bookmarklet (one time)
+          1. Save the capture button (one time)
         </p>
         <p className="text-xs text-slate-500">
-          Drag this button to your bookmarks bar:
+          This is a “bookmarklet” — a bookmark that grabs your CareLink session
+          and hands it back here. Save it once using either method below.
         </p>
-        <a
-          ref={bookmarkletRef}
-          href="#"
-          onClick={(e) => e.preventDefault()}
-          draggable
-          className="inline-block cursor-grab rounded-md border border-blue-500/50 bg-blue-500/10 px-3 py-1.5 text-sm font-medium text-blue-300"
-        >
-          Capture CareLink → GlycemicGPT
-        </a>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <a
+            ref={bookmarkletRef}
+            href="#"
+            onClick={(e) => e.preventDefault()}
+            draggable
+            title="Drag me to your bookmarks bar"
+            className="inline-block cursor-grab rounded-md border border-blue-500/50 bg-blue-500/10 px-3 py-1.5 text-sm font-medium text-blue-300"
+          >
+            Capture CareLink → GlycemicGPT
+          </a>
+          <button
+            type="button"
+            onClick={copyBookmarklet}
+            className="rounded-md border border-slate-600 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
+          >
+            {bookmarkletCopied ? "Copied!" : "Copy bookmarklet code"}
+          </button>
+        </div>
+
+        <div className="space-y-1 rounded-md bg-slate-800/50 p-3 text-xs text-slate-400">
+          <p className="font-medium text-slate-300">How to save it:</p>
+          <p>
+            <span className="text-slate-300">Easiest:</span> press{" "}
+            <kbd className="rounded bg-slate-700 px-1">Ctrl</kbd>+
+            <kbd className="rounded bg-slate-700 px-1">Shift</kbd>+
+            <kbd className="rounded bg-slate-700 px-1">B</kbd> (
+            <kbd className="rounded bg-slate-700 px-1">⌘</kbd>+Shift+B on Mac) to
+            show your bookmarks bar, then drag the blue button onto it.
+          </p>
+          <p>
+            <span className="text-slate-300">Or:</span> click{" "}
+            <span className="text-slate-300">“Copy bookmarklet code”</span>,
+            right-click your bookmarks bar → “Add page…”, name it anything, and
+            paste the code into the URL field.
+          </p>
+          <p className="text-slate-500">
+            You only do this once. Pasting it into the address bar won’t work —
+            browsers block that for security.
+          </p>
+        </div>
       </div>
 
       {/* Step 2: sign in + capture */}
@@ -257,9 +302,11 @@ export function MedtronicImportCard({ isOffline }: { isOffline: boolean }) {
           Open CareLink &amp; sign in
         </button>
         <p className="text-xs text-slate-500">
-          After signing in, click the bookmarklet on the CareLink page. If the
-          token doesn&apos;t arrive automatically, the bookmarklet copies it —
-          paste it here:
+          After signing in, click the{" "}
+          <span className="text-slate-300">Capture CareLink → GlycemicGPT</span>{" "}
+          bookmark you just saved (in your bookmarks bar) while on the CareLink
+          page. If the token doesn&apos;t arrive automatically, the bookmarklet
+          copies it — paste it here:
         </p>
         <div className="flex gap-2">
           <input
