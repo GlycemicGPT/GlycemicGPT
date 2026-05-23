@@ -82,12 +82,25 @@ def test_init_treats_unknown_release_as_none(monkeypatch):
 
 
 def test_scrub_text_redacts_secrets_and_identifiers():
+    # Assert BOTH that the marker appears AND that the original secret is gone,
+    # so a buggy scrubber that only appends a marker (without removing the
+    # value) would fail.
     assert scrub_text("contact jane.doe@example.com") == "contact [email]"
-    assert "[token]" in scrub_text("key " + _API_KEY)
-    assert "[token]" in scrub_text(_GH_TOKEN)
-    assert "[jwt]" in scrub_text("auth " + _JWT)
-    assert "[number]" in scrub_text("phone 15551234567")  # 11-digit run
-    assert "bearer [token]" in scrub_text(_BEARER)
+
+    result = scrub_text("key " + _API_KEY)
+    assert "[token]" in result and _API_KEY not in result
+
+    result = scrub_text(_GH_TOKEN)
+    assert "[token]" in result and _GH_TOKEN not in result
+
+    result = scrub_text("auth " + _JWT)
+    assert "[jwt]" in result and _JWT not in result
+
+    result = scrub_text("phone 15551234567")
+    assert "[number]" in result and "15551234567" not in result
+
+    result = scrub_text(_BEARER)
+    assert "bearer [token]" in result and _BEARER not in result
 
 
 def test_scrub_text_redacts_inline_url_credentials():
