@@ -3600,3 +3600,88 @@ export async function importTandemRange(
   }
   return response.json();
 }
+
+// ============================================================================
+// Medtronic CareLink manual import (stateless -- token captured client-side)
+// ============================================================================
+
+export interface MedtronicAvailabilityResponse {
+  /** Oldest date with data in the user's CareLink cloud (ISO), or null. */
+  start: string | null;
+  /** Most recent date with data (ISO), or null. */
+  end: string | null;
+}
+
+export interface MedtronicImportResponse {
+  message: string;
+  glucose_fetched: number;
+  glucose_stored: number;
+  events_fetched: number;
+  events_stored: number;
+}
+
+/** Trim the captured token and fail fast if empty (avoids sending whitespace
+ * that would cause an avoidable auth failure). */
+function _normalizeCareLinkToken(token: string): string {
+  const t = token.trim();
+  if (!t) throw new Error("CareLink token is required");
+  return t;
+}
+
+/** Validate the captured CareLink token and read the available data range. */
+export async function getMedtronicAvailability(
+  region: string,
+  token: string
+): Promise<MedtronicAvailabilityResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/medtronic/availability`,
+    {
+      method: "POST",
+      // Token goes in a header, never the JSON body, so it can't land in a
+      // body-validation error echo or request-body logging.
+      headers: {
+        "Content-Type": "application/json",
+        "X-CareLink-Token": _normalizeCareLinkToken(token),
+      },
+      body: JSON.stringify({ region }),
+    }
+  );
+  if (!response.ok) {
+    throw new Error(
+      await _readErrorDetail(response, "Failed to read available data range")
+    );
+  }
+  return response.json();
+}
+
+/** One-time manual import of a chosen CareLink date range. */
+export async function importMedtronicRange(
+  region: string,
+  token: string,
+  startDate: string,
+  endDate: string,
+  tz: string
+): Promise<MedtronicImportResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/medtronic/import`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CareLink-Token": _normalizeCareLinkToken(token),
+      },
+      body: JSON.stringify({
+        region,
+        start_date: startDate,
+        end_date: endDate,
+        tz,
+      }),
+    }
+  );
+  if (!response.ok) {
+    throw new Error(
+      await _readErrorDetail(response, "Failed to import data range")
+    );
+  }
+  return response.json();
+}
