@@ -70,6 +70,10 @@ services:
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
       AI_SIDECAR_URL: http://ai-sidecar:3456
       AI_SIDECAR_API_KEY: ${SIDECAR_API_KEY:-}
+      # Sentry error monitoring (Sentry for Good) -- empty default = disabled.
+      # Set only in the project's own dev/CI/staging; never in a distributed build.
+      GLYCEMICGPT_SENTRY_DSN: ${GLYCEMICGPT_SENTRY_DSN:-}
+      GLYCEMICGPT_SENTRY_ENVIRONMENT: ${GLYCEMICGPT_SENTRY_ENVIRONMENT:-production}
     depends_on:
       db:
         condition: service_healthy

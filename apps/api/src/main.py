@@ -18,6 +18,7 @@ from src.middleware import CorrelationIdMiddleware
 from src.middleware.csrf import CSRFMiddleware
 from src.middleware.rate_limit import limiter, rate_limit_exceeded_handler
 from src.middleware.security_headers import SecurityHeadersMiddleware
+from src.observability import init_sentry
 from src.routers import (
     ai,
     alert_api,
@@ -57,6 +58,11 @@ setup_logging(
     service_name=settings.service_name,
 )
 logger = get_logger(__name__)
+
+# Initialize Sentry as early as possible. No-op unless GLYCEMICGPT_SENTRY_DSN is
+# set -- the running platform sends nothing by default. See src/observability.py
+# and PRIVACY.md.
+init_sentry()
 
 
 @asynccontextmanager
