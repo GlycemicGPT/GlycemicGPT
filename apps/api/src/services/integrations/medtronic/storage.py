@@ -45,7 +45,16 @@ class CareLinkStoreResult:
 
 
 def _aware(ts: datetime) -> datetime:
-    return ts.replace(tzinfo=UTC) if ts.tzinfo is None else ts
+    # CareLink timestamps are pump-LOCAL; the sync layer (sync._localize)
+    # attaches the user's zone before storage. A naive timestamp here would be
+    # local time, and silently calling replace(tzinfo=UTC) would misdate it by
+    # the user's offset -- for a medical data path we fail fast instead.
+    if ts.tzinfo is None or ts.utcoffset() is None:
+        raise ValueError(
+            "CareLink timestamps must be timezone-aware before storage "
+            "(sync._localize attaches the user's timezone)"
+        )
+    return ts.astimezone(UTC)
 
 
 async def store_carelink_records(

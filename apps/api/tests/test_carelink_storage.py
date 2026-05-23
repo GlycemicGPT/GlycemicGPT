@@ -2,7 +2,9 @@
 
 import uuid
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
+import pytest
 from sqlalchemy import func, select
 
 from src.database import get_session_maker
@@ -90,14 +92,30 @@ async def test_intra_batch_duplicates_deduped():
         assert res.events_stored == 1
 
 
-async def test_naive_timestamp_is_coerced_to_utc():
+async def test_naive_timestamp_is_rejected():
+    # Storage requires tz-aware timestamps (sync._localize attaches the user's
+    # zone). A naive pump-local time must NOT be silently coerced to UTC.
     naive = datetime(2025, 1, 31, 9, 30, 0)  # no tzinfo
+    async with get_session_maker()() as db:
+        uid = await _make_user(db)
+        with pytest.raises(ValueError, match="timezone-aware"):
+            await store_carelink_records(
+                db,
+                uid,
+                MappedRecords(glucose=[MappedGlucose(timestamp=naive, value_mgdl=99)]),
+            )
+
+
+async def test_aware_timestamp_normalized_to_utc():
+    # An aware non-UTC timestamp is stored as the same instant in UTC
+    # (NY 09:30 EST == 14:30 UTC).
+    local = datetime(2025, 1, 31, 9, 30, 0, tzinfo=ZoneInfo("America/New_York"))
     async with get_session_maker()() as db:
         uid = await _make_user(db)
         res = await store_carelink_records(
             db,
             uid,
-            MappedRecords(glucose=[MappedGlucose(timestamp=naive, value_mgdl=99)]),
+            MappedRecords(glucose=[MappedGlucose(timestamp=local, value_mgdl=99)]),
         )
         assert res.glucose_stored == 1
         row = (
@@ -105,5 +123,5 @@ async def test_naive_timestamp_is_coerced_to_utc():
                 select(GlucoseReading).where(GlucoseReading.user_id == uid)
             )
         ).scalar_one()
-        assert row.reading_timestamp.utcoffset() is not None  # stored tz-aware
         assert row.value == 99
+        assert row.reading_timestamp.astimezone(UTC).hour == 14

@@ -176,13 +176,16 @@ export function MedtronicImportCard({ isOffline }: { isOffline: boolean }) {
     void fetchAvailability(t);
   }, [pasteValue, fetchAvailability]);
 
-  const rangeDays =
+  const rangeDeltaDays =
     importStart && importEnd ? daysBetween(importStart, importEnd) : 0;
+  // Inclusive count to match the backend's 31-day cap (start..end).
+  const rangeDaysInclusive =
+    importStart && importEnd ? rangeDeltaDays + 1 : 0;
   const rangeValid =
     !!importStart &&
     !!importEnd &&
-    rangeDays >= 0 &&
-    rangeDays <= MAX_IMPORT_DAYS;
+    rangeDeltaDays >= 0 &&
+    rangeDaysInclusive <= MAX_IMPORT_DAYS;
 
   const runImport = useCallback(async () => {
     if (!token || !rangeValid) return;
@@ -425,9 +428,9 @@ export function MedtronicImportCard({ isOffline }: { isOffline: boolean }) {
           </div>
           {importStart && importEnd && !rangeValid && (
             <p className="text-xs text-amber-400">
-              {rangeDays < 0
+              {rangeDeltaDays < 0
                 ? "The end date needs to be on or after the start date."
-                : `That's ${rangeDays} days — please choose ${MAX_IMPORT_DAYS} days or fewer at a time.`}
+                : `That's ${rangeDaysInclusive} days — please choose ${MAX_IMPORT_DAYS} days or fewer at a time.`}
             </p>
           )}
           <button

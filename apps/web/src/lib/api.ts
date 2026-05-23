@@ -3620,6 +3620,14 @@ export interface MedtronicImportResponse {
   events_stored: number;
 }
 
+/** Trim the captured token and fail fast if empty (avoids sending whitespace
+ * that would cause an avoidable auth failure). */
+function _normalizeCareLinkToken(token: string): string {
+  const t = token.trim();
+  if (!t) throw new Error("CareLink token is required");
+  return t;
+}
+
 /** Validate the captured CareLink token and read the available data range. */
 export async function getMedtronicAvailability(
   region: string,
@@ -3631,7 +3639,10 @@ export async function getMedtronicAvailability(
       method: "POST",
       // Token goes in a header, never the JSON body, so it can't land in a
       // body-validation error echo or request-body logging.
-      headers: { "Content-Type": "application/json", "X-CareLink-Token": token },
+      headers: {
+        "Content-Type": "application/json",
+        "X-CareLink-Token": _normalizeCareLinkToken(token),
+      },
       body: JSON.stringify({ region }),
     }
   );
@@ -3655,7 +3666,10 @@ export async function importMedtronicRange(
     `${API_BASE_URL}/api/integrations/medtronic/import`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-CareLink-Token": token },
+      headers: {
+        "Content-Type": "application/json",
+        "X-CareLink-Token": _normalizeCareLinkToken(token),
+      },
       body: JSON.stringify({
         region,
         start_date: startDate,
