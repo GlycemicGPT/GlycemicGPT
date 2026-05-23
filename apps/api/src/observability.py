@@ -75,14 +75,24 @@ def _drop_frame_vars(stacktrace: Any) -> None:
                 frame.pop("vars", None)
 
 
+def _scrub_logentry(entry: dict[str, Any]) -> None:
+    """Scrub a logentry-shaped dict's formatted/message strings in place."""
+    for key in ("formatted", "message"):
+        if isinstance(entry.get(key), str):
+            entry[key] = scrub_text(entry[key])
+
+
 def _scrub_message(event: dict[str, Any]) -> None:
     message = event.get("message")
     if isinstance(message, str):
         event["message"] = scrub_text(message)
     elif isinstance(message, dict):
-        for key in ("formatted", "message"):
-            if isinstance(message.get(key), str):
-                message[key] = scrub_text(message[key])
+        _scrub_logentry(message)
+    # Sentry's event serializer prefers logentry.formatted as the effective
+    # displayed message, so it can carry text that bypasses event["message"].
+    logentry = event.get("logentry")
+    if isinstance(logentry, dict):
+        _scrub_logentry(logentry)
 
 
 def _scrub_common(event: dict[str, Any]) -> None:
