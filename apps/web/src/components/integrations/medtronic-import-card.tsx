@@ -91,7 +91,11 @@ export function MedtronicImportCard({ isOffline }: { isOffline: boolean }) {
   }, [bookmarklet]);
 
   const copyBookmarklet = useCallback(() => {
-    navigator.clipboard?.writeText(bookmarklet).then(
+    // Guard the whole call: `navigator.clipboard?.writeText(...).then()` would
+    // throw if clipboard is undefined (the optional chain returns undefined and
+    // .then is then called on it).
+    if (!navigator.clipboard) return;
+    navigator.clipboard.writeText(bookmarklet).then(
       () => {
         setBookmarkletCopied(true);
         setTimeout(() => setBookmarkletCopied(false), 2000);
@@ -108,6 +112,10 @@ export function MedtronicImportCard({ isOffline }: { isOffline: boolean }) {
       try {
         const avail = await getMedtronicAvailability(region.code, tok);
         setAvailability(avail);
+        // Clear any prior window so a new account with no data doesn't show a
+        // stale range from the previous one.
+        setImportStart("");
+        setImportEnd("");
         // Default the picker to the most recent ~14 days of available data.
         if (avail.end) {
           const end = avail.end.slice(0, 10);

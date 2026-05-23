@@ -1708,8 +1708,17 @@ async def import_tandem_range(
 
 
 def _build_carelink_client(region: str, token: str) -> CareLinkClient:
-    """Cookie-less CareLink client authed by the captured bearer only."""
-    base_url = resolve_region_base_url(region)  # ValueError -> 400 (bad region)
+    """Cookie-less CareLink client authed by the captured bearer only.
+
+    Region is normally validated by the request schema (-> 422); this guards the
+    helper directly too so a bad region can never surface as an uncaught 500.
+    """
+    try:
+        base_url = resolve_region_base_url(region)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
 
     async def _bearer() -> str:
         return token
@@ -1733,8 +1742,8 @@ def _carelink_token_or_422(token: str | None) -> str:
     response_model=MedtronicAvailabilityResponse,
     responses={
         200: {"description": "Available data date range"},
-        400: {"model": ErrorResponse, "description": "Invalid region"},
         401: {"model": ErrorResponse, "description": "CareLink token invalid/expired"},
+        422: {"model": ErrorResponse, "description": "Invalid region or token"},
         503: {"model": ErrorResponse, "description": "CareLink unavailable"},
     },
 )
@@ -1777,9 +1786,11 @@ async def get_medtronic_availability(
     response_model=MedtronicImportResponse,
     responses={
         200: {"description": "Import completed"},
-        400: {"model": ErrorResponse, "description": "Invalid region"},
         401: {"model": ErrorResponse, "description": "CareLink token invalid/expired"},
-        422: {"model": ErrorResponse, "description": "Invalid date range / timezone"},
+        422: {
+            "model": ErrorResponse,
+            "description": "Invalid region, date range, timezone, or token",
+        },
         503: {"model": ErrorResponse, "description": "CareLink unavailable"},
         504: {"model": ErrorResponse, "description": "CareLink report timed out"},
     },

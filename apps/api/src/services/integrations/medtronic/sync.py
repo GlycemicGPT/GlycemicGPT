@@ -38,7 +38,15 @@ class CareLinkSyncResult:
 
 
 def _localize(records: MappedRecords, tz: tzinfo) -> None:
-    """Attach ``tz`` to naive timestamps in place (pump-local -> aware)."""
+    """Attach ``tz`` to naive timestamps in place (pump-local -> aware).
+
+    ``replace(tzinfo=tz)`` is DST-aware for the date (it picks the correct
+    offset per ZoneInfo). The only ambiguity is the ~1-hour fall-back window
+    where a wall-clock time occurs twice: CareLink exports a naive local time
+    with no fold flag, so the true occurrence is unknowable from the source and
+    we accept Python's default (``fold=0``, the first occurrence). This affects
+    at most one repeated hour per DST transition.
+    """
     for g in records.glucose:
         if g.timestamp.tzinfo is None:
             g.timestamp = g.timestamp.replace(tzinfo=tz)

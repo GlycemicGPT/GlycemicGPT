@@ -74,10 +74,12 @@ class MedtronicImportRequest(BaseModel):
             raise ValueError("end_date must be on or after start_date")
         if self.end_date > datetime.now(UTC).date():
             raise ValueError("end_date cannot be in the future")
-        span = (self.end_date - self.start_date).days
-        if span > MAX_IMPORT_DAYS:
+        # Inclusive day count: 2025-01-01..2025-01-31 is 31 days, not 30.
+        span_days = (self.end_date - self.start_date).days + 1
+        if span_days > MAX_IMPORT_DAYS:
             raise ValueError(
-                f"Date range too large ({span} days); max {MAX_IMPORT_DAYS} days per import"
+                f"Date range too large ({span_days} days); "
+                f"max {MAX_IMPORT_DAYS} days per import"
             )
         return self
 

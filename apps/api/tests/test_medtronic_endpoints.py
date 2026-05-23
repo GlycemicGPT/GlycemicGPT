@@ -193,7 +193,8 @@ async def test_import_success(mock_build, mock_sync):
     [
         ("2025-01-20", "2025-01-15"),  # end before start
         ("2025-01-01", "2099-01-01"),  # future
-        ("2025-01-01", "2025-03-01"),  # span > 31-day cap
+        ("2025-01-01", "2025-02-01"),  # 32 inclusive days -- just over the cap
+        ("2025-01-01", "2025-03-01"),  # span well over the 31-day cap
     ],
 )
 async def test_import_rejects_bad_range_422(start, end):

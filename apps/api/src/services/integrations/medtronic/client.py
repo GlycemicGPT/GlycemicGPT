@@ -278,10 +278,12 @@ class CareLinkClient:
         # Validate it actually looks like a CareLink export. Because the
         # reportStatus "ready" shape is unconfirmed, a too-early/partial fetch
         # would otherwise parse to zero rows and silently under-import.
-        if "Index," not in text:
+        # Accept both comma and semicolon (EU-locale) delimited exports -- the
+        # parser handles either; this guard must not reject a valid one.
+        if "Index," not in text and "Index;" not in text:
             raise CareLinkError(
                 f"CareLink reportCsv for job {uuid} did not return a CSV "
-                "with an 'Index,' header (job may not have been ready)"
+                "with an 'Index' header (job may not have been ready)"
             )
         return text
 
