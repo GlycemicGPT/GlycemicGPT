@@ -392,12 +392,11 @@ async def get_suggested_sources(
 ) -> list[dict]:
     """Get suggested research sources based on user's device/insulin configuration.
 
-    Reads InsulinConfig, IntegrationCredentials, and PumpHardwareInfo to
-    determine which manufacturer documentation would be relevant.
+    Reads InsulinConfig and IntegrationCredentials to determine which
+    manufacturer documentation would be relevant.
     """
     from src.models.insulin_config import InsulinConfig
     from src.models.integration import IntegrationCredential, IntegrationType
-    from src.models.pump_hardware_info import PumpHardwareInfo
 
     suggestions: list[dict] = []
     existing_urls: set[str] = set()
@@ -420,13 +419,23 @@ async def get_suggested_sources(
             if source["url"] not in existing_urls:
                 suggestions.append(source)
 
-    # Pump-based suggestions
-    pump_result = await db.execute(
-        select(PumpHardwareInfo).where(PumpHardwareInfo.user_id == user_id)
+    # Pump-based suggestions. A connected Tandem integration is the proxy
+    # signal that the user is on a Tandem pump. Previously this was
+    # inferred from PumpHardwareInfo (only populated when paired-pump BLE
+    # bytes had actually been pushed), which was a stricter "owns a pump"
+    # signal. After PumpHardwareInfo was removed in PR1c we use the
+    # credential's existence instead -- broader (false-positives for
+    # caregivers shadowing patients, or users who connected t:connect
+    # speculatively without owning a pump), but it's the highest-signal
+    # data point still available and the cost of an extra suggestion is
+    # one optional research-source link the user can ignore.
+    tandem_result = await db.execute(
+        select(IntegrationCredential).where(
+            IntegrationCredential.user_id == user_id,
+            IntegrationCredential.integration_type == IntegrationType.TANDEM,
+        )
     )
-    pump_info = pump_result.scalar_one_or_none()
-    if pump_info:
-        # If user has pump hardware info, they have a Tandem pump
+    if tandem_result.scalar_one_or_none():
         tandem_source = PUMP_SOURCES.get("tandem")
         if tandem_source and tandem_source["url"] not in existing_urls:
             suggestions.append(tandem_source)

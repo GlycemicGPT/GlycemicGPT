@@ -8,7 +8,16 @@ import uuid
 import zoneinfo
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    status,
+)
 from pydexcom import Dexcom
 from pydexcom import errors as dexcom_errors
 from sqlalchemy import and_, case, func, select, text
@@ -19,8 +28,8 @@ from tconnectsync.api.tandemsource import TandemSourceApi
 
 from src.core.auth import CurrentUser, DiabeticOrAdminUser
 from src.core.encryption import encrypt_credential
+from src.core.medtronic_regions import resolve_region_base_url
 from src.core.tandem_regions import (
-    TandemLegacyRegionError,
     country_to_cloud,
     is_legacy_tandem_region,
 )
@@ -34,9 +43,10 @@ from src.models.integration import (
     IntegrationType,
 )
 from src.models.pump_data import PumpEvent, PumpEventType
-from src.models.pump_hardware_info import PumpHardwareInfo
-from src.models.pump_raw_event import PumpRawEvent
-from src.models.tandem_upload_state import TandemUploadState
+from src.models.tandem_sync_state import (
+    SYNC_INTERVAL_DEFAULT_MINUTES,
+    TandemSyncState,
+)
 from src.schemas.auth import ErrorResponse
 from src.schemas.forecast import (
     ForecastPayload,
@@ -67,6 +77,14 @@ from src.schemas.integration import (
     IntegrationResponse,
     TandemCredentialsRequest,
 )
+from src.schemas.medtronic import (
+    CARELINK_TOKEN_HEADER,
+    MAX_TOKEN_LEN,
+    MedtronicAvailabilityRequest,
+    MedtronicAvailabilityResponse,
+    MedtronicImportRequest,
+    MedtronicImportResponse,
+)
 from src.schemas.pump import (
     BolusReviewItem,
     BolusReviewResponse,
@@ -83,12 +101,11 @@ from src.schemas.pump import (
     PumpStatusBattery,
     PumpStatusReservoir,
     PumpStatusResponse,
+    TandemAvailabilityResponse,
+    TandemImportRequest,
     TandemSyncResponse,
+    TandemSyncSettingsRequest,
     TandemSyncStatusResponse,
-    TandemUploadResetResponse,
-    TandemUploadSettingsRequest,
-    TandemUploadStatusResponse,
-    TandemUploadTriggerResponse,
 )
 from src.services.dexcom_sync import (
     DexcomAuthError,
@@ -105,6 +122,13 @@ from src.services.forecast_reader import (
     resolve_effective_source,
     set_forecast_source,
 )
+from src.services.integrations.medtronic.client import (
+    CareLinkAuthError,
+    CareLinkClient,
+    CareLinkError,
+    CareLinkReportTimeoutError,
+)
+from src.services.integrations.medtronic.sync import sync_carelink_for_user
 from src.services.iob_projection import get_iob_projection, get_user_dia
 from src.services.loop_state_extractor import get_latest_loop_state
 from src.services.tandem_sync import (
@@ -117,6 +141,7 @@ from src.services.tandem_sync import (
     get_latest_pump_event,
     get_latest_pump_status,
     get_pump_events,
+    get_tandem_availability,
     sync_tandem_for_user,
 )
 from src.services.target_glucose_range import get_or_create_range
@@ -535,8 +560,6 @@ async def connect_tandem(
     if existing:
         # Update existing credentials. region column stores the country code
         # for Tandem (see model comment in src/models/integration.py).
-        previous_country = existing.region or ""
-        country_changed = previous_country != request.country
         existing.encrypted_username = encrypt_credential(request.username)
         existing.encrypted_password = encrypt_credential(request.password)
         existing.region = request.country
@@ -544,29 +567,6 @@ async def connect_tandem(
         existing.last_error = None
         existing.updated_at = datetime.now(UTC)
         credential = existing
-
-        # If the country (and therefore the Tandem cloud bucket) changed, the
-        # cached OAuth token is bound to the old cloud and will fail with an
-        # opaque 401 against the new endpoints. Clear it so the next upload
-        # re-authenticates fresh.
-        if country_changed:
-            state_result = await db.execute(
-                select(TandemUploadState).where(
-                    TandemUploadState.user_id == current_user.id
-                )
-            )
-            state = state_result.scalar_one_or_none()
-            if state is not None:
-                state.tandem_access_token = None
-                state.tandem_refresh_token = None
-                state.tandem_token_expires_at = None
-                state.tandem_pumper_id = None
-                logger.info(
-                    "Cleared cached Tandem auth on country change",
-                    user_id=str(current_user.id),
-                    old_country=previous_country,
-                    new_country=request.country,
-                )
     else:
         credential = IntegrationCredential(
             user_id=current_user.id,
@@ -577,6 +577,10 @@ async def connect_tandem(
             status=IntegrationStatus.CONNECTED,
         )
         db.add(credential)
+
+    # (TandemUploadState cache-clear on reconnect was removed alongside the
+    # Tandem cloud-upload feature in PR1c. The download direction uses
+    # tconnectsync's own session, which authenticates fresh each sync.)
 
     await db.commit()
     await db.refresh(credential)
@@ -1354,7 +1358,11 @@ async def get_tandem_sync_status(
 ) -> TandemSyncStatusResponse:
     """Get the current Tandem sync status.
 
-    Returns the integration status, last sync time, and latest event.
+    Returns integration status + freshness (from the credential) and the
+    per-user sync control (enabled / interval / cumulative pulls, from
+    ``TandemSyncState``). When no state row exists, a connected user
+    defaults to enabled at the default interval -- backward-compatible with
+    the prior global sync that synced every connected user.
     """
     # Get integration status
     result = await db.execute(
@@ -1377,12 +1385,465 @@ async def get_tandem_sync_status(
     if latest:
         latest_response = PumpEventResponse.model_validate(latest)
 
+    # Per-user sync control. Absent row => effective enabled@default.
+    state_result = await db.execute(
+        select(TandemSyncState).where(TandemSyncState.user_id == current_user.id)
+    )
+    state = state_result.scalar_one_or_none()
+
+    # Legacy-region detection: a stored "EU"-style bucket can't be resolved
+    # to a country, so sync would 409. Surface it so the UI can prompt a
+    # reconnect instead of silently showing "enabled" that never runs.
+    needs_country = bool(
+        credential and credential.region and is_legacy_tandem_region(credential.region)
+    )
+
+    # A user with no Tandem credential has nothing to sync -- report
+    # enabled=False so the response isn't misleading (the "no row =>
+    # enabled@default" rule only applies to *connected* users).
+    if credential is None:
+        effective_enabled = False
+    elif state is not None:
+        effective_enabled = state.enabled
+    else:
+        effective_enabled = True
+
     return TandemSyncStatusResponse(
         integration_status=credential.status.value if credential else "not_configured",
         last_sync_at=credential.last_sync_at if credential else None,
         last_error=credential.last_error if credential else None,
         events_available=events_count,
         latest_event=latest_response,
+        enabled=effective_enabled,
+        sync_interval_minutes=(
+            state.sync_interval_minutes if state else SYNC_INTERVAL_DEFAULT_MINUTES
+        ),
+        events_pulled_total=state.events_pulled_total if state else 0,
+        needs_country_reselect=needs_country,
+    )
+
+
+@router.put(
+    "/tandem/sync/settings",
+    response_model=TandemSyncStatusResponse,
+    responses={
+        200: {"description": "Settings updated"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        403: {"model": ErrorResponse, "description": "Permission denied"},
+        404: {"model": ErrorResponse, "description": "Tandem not configured"},
+        409: {
+            "model": ErrorResponse,
+            "description": "Country re-selection required (legacy region value)",
+        },
+    },
+)
+async def update_tandem_sync_settings(
+    body: TandemSyncSettingsRequest,
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> TandemSyncStatusResponse:
+    """Update the per-user Tandem sync toggle + interval.
+
+    Upserts the user's ``TandemSyncState`` row. Guards:
+    - 404 if Tandem isn't connected (nothing to sync).
+    - 409 only when *enabling* sync on a legacy-region credential (it would
+      just 409 on every tick). Disabling is always allowed -- a legacy-region
+      user must be able to turn sync off without first reconnecting.
+    """
+    cred_result = await db.execute(
+        select(IntegrationCredential).where(
+            IntegrationCredential.user_id == current_user.id,
+            IntegrationCredential.integration_type == IntegrationType.TANDEM,
+        )
+    )
+    credential = cred_result.scalar_one_or_none()
+    if not credential:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tandem integration not configured",
+        )
+    if (
+        body.enabled
+        and credential.region
+        and is_legacy_tandem_region(credential.region)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Your Tandem integration uses a legacy region setting. "
+                "Reconnect with your country selected before enabling sync."
+            ),
+        )
+
+    # Upsert-then-lock: insert the row if missing (ON CONFLICT DO NOTHING),
+    # then SELECT ... FOR UPDATE so a concurrent settings change or the
+    # scheduler's events_pulled_total bump can't race the field writes.
+    await db.execute(
+        pg_insert(TandemSyncState)
+        .values(
+            user_id=current_user.id,
+            enabled=body.enabled,
+            sync_interval_minutes=body.sync_interval_minutes,
+        )
+        .on_conflict_do_nothing(index_elements=["user_id"])
+    )
+    state_result = await db.execute(
+        select(TandemSyncState)
+        .where(TandemSyncState.user_id == current_user.id)
+        .with_for_update()
+    )
+    state = state_result.scalar_one()
+    state.enabled = body.enabled
+    state.sync_interval_minutes = body.sync_interval_minutes
+    await db.commit()
+
+    logger.info(
+        "Tandem sync settings updated",
+        user_id=str(current_user.id),
+        enabled=body.enabled,
+        interval_minutes=body.sync_interval_minutes,
+    )
+
+    # Re-read freshness for the response.
+    count_result = await db.execute(
+        select(func.count(PumpEvent.id)).where(PumpEvent.user_id == current_user.id)
+    )
+    events_count = count_result.scalar() or 0
+    latest = await get_latest_pump_event(db, current_user.id)
+    latest_response = PumpEventResponse.model_validate(latest) if latest else None
+
+    # A legacy-region user can reach here by *disabling* (the enable path
+    # 409s above), so compute the flag rather than hardcoding False.
+    needs_country = bool(
+        credential.region and is_legacy_tandem_region(credential.region)
+    )
+
+    return TandemSyncStatusResponse(
+        integration_status=credential.status.value,
+        last_sync_at=credential.last_sync_at,
+        last_error=credential.last_error,
+        events_available=events_count,
+        latest_event=latest_response,
+        enabled=state.enabled,
+        sync_interval_minutes=state.sync_interval_minutes,
+        events_pulled_total=state.events_pulled_total,
+        needs_country_reselect=needs_country,
+    )
+
+
+@router.get(
+    "/tandem/sync/availability",
+    response_model=TandemAvailabilityResponse,
+    responses={
+        200: {"description": "Available data date range"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        403: {"model": ErrorResponse, "description": "Permission denied"},
+        404: {"model": ErrorResponse, "description": "Tandem not configured"},
+        409: {"model": ErrorResponse, "description": "Country re-selection required"},
+        503: {"model": ErrorResponse, "description": "Tandem service unavailable"},
+    },
+)
+@limiter.limit("10/minute")
+async def get_tandem_sync_availability(
+    request: Request,
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> TandemAvailabilityResponse:
+    """Report the date range of pump data available in the user's t:connect
+    cloud, to bound the manual-import date picker.
+
+    Authenticates to Tandem (live call), so it's rate-limited and maps the
+    same Tandem*Error types to HTTP statuses as the sync endpoint.
+    """
+    try:
+        result = await get_tandem_availability(db, current_user.id)
+    except TandemNotConfiguredError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tandem integration not configured",
+        ) from e
+    except TandemNeedsCountryError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+    except TandemAuthError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid Tandem credentials. Please reconnect your account.",
+        ) from e
+    except TandemConnectionError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to reach Tandem. Please try again later.",
+        ) from e
+    except TandemSyncError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Could not read availability: {str(e)}",
+        ) from e
+
+    return TandemAvailabilityResponse(
+        earliest=result["earliest"],
+        latest=result["latest"],
+        pump_count=result["pump_count"],
+    )
+
+
+@router.post(
+    "/tandem/sync/import",
+    response_model=TandemSyncResponse,
+    responses={
+        200: {"description": "Import completed"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        403: {"model": ErrorResponse, "description": "Permission denied"},
+        404: {"model": ErrorResponse, "description": "Tandem not configured"},
+        409: {"model": ErrorResponse, "description": "Country re-selection required"},
+        422: {"model": ErrorResponse, "description": "Invalid date range"},
+        503: {"model": ErrorResponse, "description": "Tandem service unavailable"},
+    },
+)
+@limiter.limit("5/minute")
+async def import_tandem_range(
+    body: TandemImportRequest,
+    request: Request,
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> TandemSyncResponse:
+    """One-time manual import of a user-chosen date range from t:connect.
+
+    Unlike the scheduled sync (which pulls a recent window ending now), this
+    fetches exactly the requested range -- the way to backfill history or fill
+    a gap after sync was off. Idempotent (ON CONFLICT DO NOTHING), so an
+    overlapping re-import is safe. Rate-limited; authenticates live.
+    """
+    try:
+        result = await sync_tandem_for_user(
+            db,
+            current_user.id,
+            start_date=body.start_date,
+            end_date=body.end_date,
+        )
+    except TandemNotConfiguredError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tandem integration not configured",
+        ) from e
+    except TandemNeedsCountryError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+    except TandemAuthError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid Tandem credentials. Please reconnect your account.",
+        ) from e
+    except TandemConnectionError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to reach Tandem. Please try again later.",
+        ) from e
+    except TandemSyncError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Import failed: {str(e)}",
+        ) from e
+
+    # Count imported events toward the cumulative counter, matching the
+    # scheduler. Atomic upsert-increment; does NOT touch last_attempt_at
+    # (that's the scheduler's pacing cursor -- a manual import shouldn't
+    # reset it). Best-effort: the events are already committed inside
+    # sync_tandem_for_user, so a failure here must NOT turn a successful
+    # import into a 500 (which would invite pointless retries against Tandem).
+    if result["events_stored"]:
+        try:
+            await db.execute(
+                pg_insert(TandemSyncState)
+                .values(
+                    user_id=current_user.id,
+                    events_pulled_total=result["events_stored"],
+                )
+                .on_conflict_do_update(
+                    index_elements=["user_id"],
+                    set_={
+                        "events_pulled_total": TandemSyncState.events_pulled_total
+                        + result["events_stored"]
+                    },
+                )
+            )
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            logger.warning(
+                "Tandem import succeeded but the events_pulled_total update "
+                "failed (non-fatal)",
+                user_id=str(current_user.id),
+                exc_info=True,
+            )
+
+    last_event = None
+    if result["last_event"]:
+        last_event = PumpEventResponse(
+            event_type=result["last_event"]["event_type"],
+            event_timestamp=result["last_event"]["timestamp"],
+            units=result["last_event"]["units"],
+            is_automated=result["last_event"]["is_automated"],
+            received_at=datetime.now(UTC),
+            source="tandem",
+        )
+
+    return TandemSyncResponse(
+        message="Import completed successfully",
+        events_fetched=result["events_fetched"],
+        events_stored=result["events_stored"],
+        profiles_stored=result.get("profiles_stored", 0),
+        last_event=last_event,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Medtronic CareLink -- manual historical import (feature B)
+#
+# Stateless: the request carries the captured auth_tmp_token bearer (the user
+# grabs it via the bookmarklet capture flow). We build a COOKIE-LESS
+# CareLinkClient (bearer header only -- verified sufficient for /patient/*),
+# import within the token's ~50-min life, and NEVER store the token. No
+# credential row / scheduler / sync-state (manual, on-demand).
+# ---------------------------------------------------------------------------
+
+
+def _build_carelink_client(region: str, token: str) -> CareLinkClient:
+    """Cookie-less CareLink client authed by the captured bearer only.
+
+    Region is normally validated by the request schema (-> 422); this guards the
+    helper directly too so a bad region can never surface as an uncaught 500.
+    """
+    try:
+        base_url = resolve_region_base_url(region)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+
+    async def _bearer() -> str:
+        return token
+
+    return CareLinkClient(bearer_provider=_bearer, base_url=base_url)
+
+
+def _carelink_token_or_422(token: str | None) -> str:
+    """Validate the captured token from the X-CareLink-Token header. The error
+    message never echoes the token value (it must not land in logs/responses)."""
+    if not token or not (1 <= len(token) <= MAX_TOKEN_LEN):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Missing or malformed CareLink token.",
+        )
+    return token
+
+
+@router.post(
+    "/medtronic/availability",
+    response_model=MedtronicAvailabilityResponse,
+    responses={
+        200: {"description": "Available data date range"},
+        401: {"model": ErrorResponse, "description": "CareLink token invalid/expired"},
+        422: {"model": ErrorResponse, "description": "Invalid region or token"},
+        503: {"model": ErrorResponse, "description": "CareLink unavailable"},
+    },
+)
+@limiter.limit("10/minute")
+async def get_medtronic_availability(
+    body: MedtronicAvailabilityRequest,
+    request: Request,
+    current_user: DiabeticOrAdminUser,
+    carelink_token: str = Header(alias=CARELINK_TOKEN_HEADER),
+    db: AsyncSession = Depends(get_db),
+) -> MedtronicAvailabilityResponse:
+    """Validate the captured CareLink token and report the available data range
+    (to bound the manual-import date picker). Stateless -- the token (sent in the
+    X-CareLink-Token header, never the body) is used for this call only and never
+    stored.
+    """
+    token = _carelink_token_or_422(carelink_token)
+    client = _build_carelink_client(body.region, token)
+    try:
+        await client.get_patient_id()  # validates the bearer early
+        avail = await client.get_availability()
+    except CareLinkAuthError as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="CareLink session is invalid or expired. Reconnect and try again.",
+        ) from e
+    except CareLinkError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to reach CareLink. Please try again later.",
+        ) from e
+    finally:
+        await client.aclose()
+
+    return MedtronicAvailabilityResponse(start=avail.start, end=avail.end)
+
+
+@router.post(
+    "/medtronic/import",
+    response_model=MedtronicImportResponse,
+    responses={
+        200: {"description": "Import completed"},
+        401: {"model": ErrorResponse, "description": "CareLink token invalid/expired"},
+        422: {
+            "model": ErrorResponse,
+            "description": "Invalid region, date range, timezone, or token",
+        },
+        503: {"model": ErrorResponse, "description": "CareLink unavailable"},
+        504: {"model": ErrorResponse, "description": "CareLink report timed out"},
+    },
+)
+@limiter.limit("5/minute")
+async def import_medtronic_range(
+    body: MedtronicImportRequest,
+    request: Request,
+    current_user: DiabeticOrAdminUser,
+    carelink_token: str = Header(alias=CARELINK_TOKEN_HEADER),
+    db: AsyncSession = Depends(get_db),
+) -> MedtronicImportResponse:
+    """One-time manual import of a user-chosen CareLink date range. Builds a
+    cookie-less client from the captured bearer, exports the CSV, maps it, and
+    stores it idempotently (upsert on natural keys -- overlapping re-imports are
+    safe). The token (sent in the X-CareLink-Token header, never the body) is
+    used only here and never persisted.
+    """
+    token = _carelink_token_or_422(carelink_token)
+    client = _build_carelink_client(body.region, token)
+    try:
+        result = await sync_carelink_for_user(
+            db,
+            current_user.id,
+            start_date=body.start_date,
+            end_date=body.end_date,
+            client=client,
+            tz=zoneinfo.ZoneInfo(body.tz),
+        )
+    except CareLinkAuthError as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="CareLink session is invalid or expired. Reconnect and try again.",
+        ) from e
+    except CareLinkReportTimeoutError as e:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="CareLink took too long to generate the report. Try a smaller range.",
+        ) from e
+    except CareLinkError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to reach CareLink. Please try again later.",
+        ) from e
+    finally:
+        await client.aclose()
+
+    return MedtronicImportResponse(
+        message="Import completed successfully",
+        glucose_fetched=result.glucose_fetched,
+        glucose_stored=result.glucose_stored,
+        events_fetched=result.events_fetched,
+        events_stored=result.events_stored,
     )
 
 
@@ -1737,6 +2198,12 @@ async def get_iob_projection_endpoint(
 # Story 16.5: Mobile Pump Push Endpoint
 # ============================================================================
 
+# RFC 9745 Deprecation header value for the legacy ``raw_events`` /
+# ``pump_info`` fields on ``/pump/push``. Format is ``@<unix-timestamp>``
+# (Structured Field Date item). 1779148800 == 2026-05-19 00:00:00 UTC,
+# the date PR1c removed the consuming cloud-upload feature.
+_PUMP_PUSH_RAW_FIELDS_DEPRECATED_AT = "@1779148800"
+
 
 @router.post(
     "/pump/push",
@@ -1750,6 +2217,7 @@ async def get_iob_projection_endpoint(
 async def push_pump_events(
     body: PumpPushRequest,
     request: Request,
+    response: Response,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> PumpPushResponse:
@@ -1757,6 +2225,12 @@ async def push_pump_events(
 
     Uses PostgreSQL ON CONFLICT DO NOTHING on the existing unique index
     (user_id, event_timestamp, event_type) for idempotent inserts.
+
+    The ``raw_events`` / ``pump_info`` fields are kept for back-compat with
+    older mobile builds but are discarded server-side. When either field
+    is present on the request, an IETF ``Deprecation`` response header is
+    set so clients have a protocol-level signal to detect and remove the
+    capture logic.
     """
     now = datetime.now(UTC)
     rows = []
@@ -1799,68 +2273,26 @@ async def push_pump_events(
     accepted = max(result.rowcount, 0)
     duplicates = len(rows) - accepted
 
-    # Store raw events for Tandem cloud upload (Story 16.6)
-    raw_accepted = 0
-    raw_duplicates = 0
-    if body.raw_events:
-        raw_rows = [
-            {
-                "user_id": current_user.id,
-                "sequence_number": item.sequence_number,
-                "raw_bytes_b64": item.raw_bytes_b64,
-                "event_type_id": item.event_type_id,
-                "pump_time_seconds": item.pump_time_seconds,
-            }
-            for item in body.raw_events
-        ]
-        raw_stmt = (
-            pg_insert(PumpRawEvent)
-            .values(raw_rows)
-            .on_conflict_do_nothing(
-                constraint="uq_pump_raw_event_user_seq",
-            )
+    # ``body.raw_events`` and ``body.pump_info`` are accepted for backward
+    # compatibility with mobile clients that still send them, but no longer
+    # persisted -- the cloud upload feature that consumed them was removed
+    # (see PR1c). The response reports zero raw_accepted/raw_duplicates so
+    # the mobile client's success path still works without changes.
+    #
+    # RFC 9745 specifies the ``Deprecation`` header as a Structured Field
+    # Date item: ``@<unix-timestamp>``. The timestamp marks the moment
+    # the resource (in this case, *these specific request fields*) was
+    # deprecated. We use 2026-05-19 00:00:00 UTC, the date PR1c landed.
+    # Paired with ``Sunset`` (RFC 8594) -- a far-future date because we
+    # still need to accept the fields from older mobile builds in the
+    # field for a long tail -- and a ``Link`` to the deprecation docs.
+    if body.raw_events is not None or body.pump_info is not None:
+        response.headers["Deprecation"] = _PUMP_PUSH_RAW_FIELDS_DEPRECATED_AT
+        response.headers["Sunset"] = "Mon, 31 Dec 2029 23:59:59 GMT"
+        response.headers["Link"] = (
+            "<https://glycemicgpt.org/docs/daily-use/connecting-tandem-cloud>; "
+            'rel="deprecation"; type="text/html"'
         )
-        raw_result = await db.execute(raw_stmt)
-        raw_accepted = max(raw_result.rowcount, 0)
-        raw_duplicates = len(raw_rows) - raw_accepted
-
-    # Upsert pump hardware info (Story 16.6)
-    if body.pump_info:
-        hw_stmt = (
-            pg_insert(PumpHardwareInfo)
-            .values(
-                user_id=current_user.id,
-                serial_number=body.pump_info.serial_number,
-                model_number=body.pump_info.model_number,
-                part_number=body.pump_info.part_number,
-                pump_rev=body.pump_info.pump_rev,
-                arm_sw_ver=body.pump_info.arm_sw_ver,
-                msp_sw_ver=body.pump_info.msp_sw_ver,
-                config_a_bits=body.pump_info.config_a_bits,
-                config_b_bits=body.pump_info.config_b_bits,
-                pcba_sn=body.pump_info.pcba_sn,
-                pcba_rev=body.pump_info.pcba_rev,
-                pump_features=body.pump_info.pump_features,
-            )
-            .on_conflict_do_update(
-                index_elements=["user_id"],
-                set_={
-                    "serial_number": body.pump_info.serial_number,
-                    "model_number": body.pump_info.model_number,
-                    "part_number": body.pump_info.part_number,
-                    "pump_rev": body.pump_info.pump_rev,
-                    "arm_sw_ver": body.pump_info.arm_sw_ver,
-                    "msp_sw_ver": body.pump_info.msp_sw_ver,
-                    "config_a_bits": body.pump_info.config_a_bits,
-                    "config_b_bits": body.pump_info.config_b_bits,
-                    "pcba_sn": body.pump_info.pcba_sn,
-                    "pcba_rev": body.pump_info.pcba_rev,
-                    "pump_features": body.pump_info.pump_features,
-                    "updated_at": now,
-                },
-            )
-        )
-        await db.execute(hw_stmt)
 
     await db.commit()
 
@@ -1870,320 +2302,13 @@ async def push_pump_events(
         total=len(rows),
         accepted=accepted,
         duplicates=duplicates,
-        raw_accepted=raw_accepted,
-        raw_duplicates=raw_duplicates,
     )
 
     return PumpPushResponse(
         accepted=accepted,
         duplicates=duplicates,
-        raw_accepted=raw_accepted,
-        raw_duplicates=raw_duplicates,
-    )
-
-
-# ============================================================================
-# Story 16.6: Tandem Cloud Upload Endpoints
-# ============================================================================
-
-
-@router.get(
-    "/tandem/cloud-upload/status",
-    response_model=TandemUploadStatusResponse,
-    responses={
-        200: {"description": "Tandem upload status"},
-        401: {"model": ErrorResponse, "description": "Not authenticated"},
-    },
-)
-async def get_tandem_upload_status(
-    current_user: CurrentUser,
-    db: AsyncSession = Depends(get_db),
-) -> TandemUploadStatusResponse:
-    """Get the Tandem cloud upload status for the current user."""
-    result = await db.execute(
-        select(TandemUploadState).where(TandemUploadState.user_id == current_user.id)
-    )
-    state = result.scalar_one_or_none()
-
-    # Count pending raw events
-    pending_result = await db.execute(
-        select(func.count(PumpRawEvent.id)).where(
-            PumpRawEvent.user_id == current_user.id,
-            PumpRawEvent.uploaded_to_tandem.is_(False),
-        )
-    )
-    pending_count = pending_result.scalar() or 0
-
-    # Resolve stored country and legacy flag from the Tandem credential.
-    cred_result = await db.execute(
-        select(IntegrationCredential).where(
-            IntegrationCredential.user_id == current_user.id,
-            IntegrationCredential.integration_type == IntegrationType.TANDEM,
-        )
-    )
-    credential = cred_result.scalar_one_or_none()
-    stored = credential.region if credential else None
-    needs_country = bool(stored) and is_legacy_tandem_region(stored)
-
-    if not state:
-        return TandemUploadStatusResponse(
-            enabled=False,
-            upload_interval_minutes=15,
-            pending_raw_events=pending_count,
-            country=stored if not needs_country else None,
-            needs_country_reselect=needs_country,
-        )
-
-    return TandemUploadStatusResponse(
-        enabled=state.enabled,
-        upload_interval_minutes=state.upload_interval_minutes,
-        last_upload_at=state.last_upload_at,
-        last_upload_status=state.last_upload_status,
-        last_error=state.last_error,
-        max_event_index_uploaded=state.max_event_index_uploaded,
-        pending_raw_events=pending_count,
-        country=stored if not needs_country else None,
-        needs_country_reselect=needs_country,
-    )
-
-
-@router.put(
-    "/tandem/cloud-upload/settings",
-    response_model=TandemUploadStatusResponse,
-    responses={
-        200: {"description": "Settings updated"},
-        401: {"model": ErrorResponse, "description": "Not authenticated"},
-        404: {
-            "model": ErrorResponse,
-            "description": "Tandem not configured (only raised when enabling)",
-        },
-        409: {
-            "model": ErrorResponse,
-            "description": "Legacy region requires country re-selection before enable",
-        },
-    },
-)
-async def update_tandem_upload_settings(
-    request: TandemUploadSettingsRequest,
-    current_user: CurrentUser,
-    db: AsyncSession = Depends(get_db),
-) -> TandemUploadStatusResponse:
-    """Enable/disable Tandem cloud upload and set interval.
-
-    Refuses to enable when the user's stored Tandem region is legacy
-    (e.g. ``"EU"``) — they must re-select their country first via the
-    ``POST /api/integrations/tandem`` connect endpoint.
-    """
-    cred_result = await db.execute(
-        select(IntegrationCredential).where(
-            IntegrationCredential.user_id == current_user.id,
-            IntegrationCredential.integration_type == IntegrationType.TANDEM,
-        )
-    )
-    credential = cred_result.scalar_one_or_none()
-    stored = credential.region if credential else None
-    needs_country = bool(stored) and is_legacy_tandem_region(stored)
-
-    # Allow disable always (users should be able to turn the feature off even
-    # if they're stuck on a legacy region or have no credential at all). Only
-    # enable requires a healthy credential + non-legacy region.
-    if request.enabled:
-        if credential is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=(
-                    "Tandem integration not configured. Please connect your "
-                    "Tandem account before enabling cloud upload."
-                ),
-            )
-        if needs_country:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=(
-                    "Your Tandem integration uses a legacy region value and "
-                    "must be re-connected with your country selected before "
-                    "uploads can be enabled."
-                ),
-            )
-
-    result = await db.execute(
-        select(TandemUploadState).where(TandemUploadState.user_id == current_user.id)
-    )
-    state = result.scalar_one_or_none()
-
-    if state:
-        state.enabled = request.enabled
-        state.upload_interval_minutes = request.interval_minutes
-    else:
-        state = TandemUploadState(
-            user_id=current_user.id,
-            enabled=request.enabled,
-            upload_interval_minutes=request.interval_minutes,
-        )
-        db.add(state)
-
-    await db.commit()
-    await db.refresh(state)
-
-    # Count pending raw events
-    pending_result = await db.execute(
-        select(func.count(PumpRawEvent.id)).where(
-            PumpRawEvent.user_id == current_user.id,
-            PumpRawEvent.uploaded_to_tandem.is_(False),
-        )
-    )
-    pending_count = pending_result.scalar() or 0
-
-    logger.info(
-        "Tandem upload settings updated",
-        user_id=str(current_user.id),
-        enabled=request.enabled,
-        interval=request.interval_minutes,
-    )
-
-    return TandemUploadStatusResponse(
-        enabled=state.enabled,
-        upload_interval_minutes=state.upload_interval_minutes,
-        last_upload_at=state.last_upload_at,
-        last_upload_status=state.last_upload_status,
-        last_error=state.last_error,
-        max_event_index_uploaded=state.max_event_index_uploaded,
-        pending_raw_events=pending_count,
-        country=stored if not needs_country else None,
-        needs_country_reselect=needs_country,
-    )
-
-
-@router.post(
-    "/tandem/cloud-upload/trigger",
-    response_model=TandemUploadTriggerResponse,
-    responses={
-        200: {"description": "Upload triggered"},
-        401: {"model": ErrorResponse, "description": "Not authenticated"},
-        404: {"model": ErrorResponse, "description": "Tandem not configured"},
-        409: {"model": ErrorResponse, "description": "Integration disconnected"},
-        429: {"model": ErrorResponse, "description": "Rate limit exceeded"},
-        500: {"model": ErrorResponse, "description": "Upload failed"},
-    },
-)
-@limiter.limit("5/minute")
-async def trigger_tandem_upload(
-    request: Request,
-    current_user: CurrentUser,
-    db: AsyncSession = Depends(get_db),
-) -> TandemUploadTriggerResponse:
-    """Manually trigger a Tandem cloud upload.
-
-    Uploads pending raw events to the Tandem cloud immediately. Rate-limited
-    to 5/minute per IP -- the scheduler handles steady-state uploads on its
-    own interval; this endpoint is a manual override.
-    """
-    # Verify Tandem credentials exist and are not disconnected.
-    cred_result = await db.execute(
-        select(IntegrationCredential).where(
-            IntegrationCredential.user_id == current_user.id,
-            IntegrationCredential.integration_type == IntegrationType.TANDEM,
-        )
-    )
-    credential = cred_result.scalar_one_or_none()
-    if not credential:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tandem integration not configured. Please connect your Tandem account first.",
-        )
-    if credential.status == IntegrationStatus.DISCONNECTED:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Tandem integration is disconnected. Reconnect Tandem first.",
-        )
-
-    # Import here to avoid circular imports
-    from src.services.tandem_upload import upload_to_tandem
-
-    try:
-        result = await upload_to_tandem(db, current_user.id)
-    except TandemLegacyRegionError as e:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=str(e),
-        ) from e
-    except Exception as e:
-        logger.error(
-            "Tandem upload trigger failed",
-            user_id=str(current_user.id),
-            error=str(e),
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Upload failed. Please try again later.",
-        ) from e
-
-    return TandemUploadTriggerResponse(
-        message=result.get("message", "Upload complete"),
-        events_uploaded=result.get("events_uploaded", 0),
-        status=result.get("status", "success"),
-    )
-
-
-@router.post(
-    "/tandem/cloud-upload/reset",
-    response_model=TandemUploadResetResponse,
-    responses={
-        200: {"description": "Upload state reset"},
-        401: {"model": ErrorResponse, "description": "Not authenticated"},
-        404: {"model": ErrorResponse, "description": "Tandem not configured"},
-        409: {"model": ErrorResponse, "description": "Integration disconnected"},
-        429: {"model": ErrorResponse, "description": "Rate limit exceeded"},
-    },
-)
-@limiter.limit("5/minute")
-async def reset_tandem_upload(
-    request: Request,
-    current_user: CurrentUser,
-    db: AsyncSession = Depends(get_db),
-) -> TandemUploadResetResponse:
-    """Reset the Tandem upload high-water mark and re-queue all stored events.
-
-    Recovery action for cases where the local state has drifted out of sync
-    with reality -- e.g. after a pump re-pair, sequence-counter reset, or
-    when migrating off the legacy incremental-sync logic that silently
-    filtered queued events.
-
-    Rate-limited to 5/minute per IP: the reset is a heavy ``UPDATE`` over
-    every ``pump_raw_events`` row for the user and takes a row-lock on the
-    upload state -- a tight loop could saturate the connection pool for
-    legitimate uploads. Idempotent: safe to call repeatedly within the
-    limit.
-    """
-    cred_result = await db.execute(
-        select(IntegrationCredential).where(
-            IntegrationCredential.user_id == current_user.id,
-            IntegrationCredential.integration_type == IntegrationType.TANDEM,
-        )
-    )
-    credential = cred_result.scalar_one_or_none()
-    if not credential:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tandem integration not configured.",
-        )
-    # Respect the user's "off" decision: a disconnected integration should
-    # not be re-armed by the reset path. The user must reconnect first.
-    if credential.status == IntegrationStatus.DISCONNECTED:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "Tandem integration is disconnected. Reconnect Tandem "
-                "before resetting the upload state."
-            ),
-        )
-
-    from src.services.tandem_upload import reset_tandem_upload_state
-
-    result = await reset_tandem_upload_state(db, current_user.id)
-    return TandemUploadResetResponse(
-        message=result.get("message", "Reset complete"),
-        events_requeued=result.get("events_requeued", 0),
+        raw_accepted=0,
+        raw_duplicates=0,
     )
 
 

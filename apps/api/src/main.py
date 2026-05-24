@@ -171,6 +171,9 @@ app.add_middleware(
         "X-CSRF-Token",
         "X-Correlation-ID",
         "X-API-Key",
+        # Carries the captured CareLink session token for the Medtronic manual
+        # import (kept out of the request body so it can't leak via a 422 echo).
+        "X-CareLink-Token",
     ],
 )
 

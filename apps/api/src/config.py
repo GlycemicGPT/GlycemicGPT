@@ -66,9 +66,19 @@ class Settings(BaseSettings):
     dexcom_max_readings_per_sync: int = 12  # Max readings to fetch per sync (1 hour)
 
     # Tandem Sync Configuration (Story 3.4)
-    tandem_sync_interval_minutes: int = 60  # Sync every hour
-    tandem_sync_enabled: bool = True  # Enable/disable automatic sync
-    tandem_sync_hours_back: int = 24  # Hours of history to fetch per sync
+    # The scheduler now ticks on `tandem_sync_tick_interval_minutes`; on each
+    # tick it scans connected Tandem users and runs the sync for any whose
+    # per-user `sync_interval_minutes` (TandemSyncState, default below) has
+    # elapsed since the credential's last_sync_at. `tandem_sync_enabled`
+    # gates the whole job; `tandem_sync_interval_minutes` is the default
+    # per-user cadence applied when a user has no TandemSyncState row.
+    # Bounded at parse time: these feed APScheduler's IntervalTrigger, which
+    # misbehaves on 0/negative/huge values. Default per-user cadence matches
+    # the TandemSyncState column bounds (15-1440).
+    tandem_sync_tick_interval_minutes: int = Field(default=15, ge=1, le=60)
+    tandem_sync_interval_minutes: int = Field(default=60, ge=15, le=1440)
+    tandem_sync_enabled: bool = True  # Enable/disable the whole job
+    tandem_sync_hours_back: int = Field(default=24, ge=1, le=168)
 
     # Nightscout Sync Configuration (Story 43.4)
     # The scheduler ticks on a fixed interval; on each tick it scans
@@ -101,11 +111,6 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     telegram_polling_enabled: bool = True
     telegram_polling_interval_seconds: int = 5
-
-    # Tandem Cloud Upload (Story 16.6)
-    tandem_upload_enabled: bool = True
-    tandem_upload_check_interval_minutes: int = 1  # Check for due uploads every minute
-    tandem_upload_config_base: str = "https://assets.tandemdiabetes.com"
 
     # AI Sidecar (Story 15.2)
     ai_sidecar_url: str = "http://ai-sidecar:3456"

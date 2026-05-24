@@ -1788,8 +1788,8 @@ export interface IntegrationResponse {
   updated_at: string;
   /**
    * Per-integration region/locale stored on the credential.
-   *  - Tandem: ISO-3166-1 alpha-2 country code (or legacy "EU" -- in which
-   *    case `TandemUploadStatusResponse.needs_country_reselect` will be true).
+   *  - Tandem: ISO-3166-1 alpha-2 country code (or legacy "EU" from an
+   *    older schema version, which is no longer supported).
    *  - Dexcom: pydexcom region ("US" | "OUS" | "JP").
    */
   region: string | null;
@@ -2308,125 +2308,6 @@ export async function applyNightscoutOnboarding(
       await _readErrorDetail(response, "Failed to apply Nightscout onboarding")
     );
   }
-  return response.json();
-}
-
-// ============================================================================
-// Story 18.3: Tandem Cloud Upload
-// ============================================================================
-
-export interface TandemUploadStatusResponse {
-  enabled: boolean;
-  upload_interval_minutes: number;
-  last_upload_at: string | null;
-  last_upload_status: string | null;
-  last_error: string | null;
-  max_event_index_uploaded: number;
-  pending_raw_events: number;
-  /** ISO-3166-1 alpha-2 country code currently configured (or null when legacy). */
-  country: string | null;
-  /**
-   * True when the stored Tandem region is a legacy bucket label (e.g. "EU")
-   * that can no longer be resolved to a country -- the user must re-connect
-   * with their country selected before uploads can be enabled.
-   */
-  needs_country_reselect: boolean;
-}
-
-export interface TandemUploadTriggerResponse {
-  message: string;
-  events_uploaded: number;
-  status: string;
-}
-
-export interface TandemUploadResetResponse {
-  message: string;
-  events_requeued: number;
-}
-
-/**
- * Get the Tandem cloud upload status for the current user.
- */
-export async function getTandemUploadStatus(): Promise<TandemUploadStatusResponse> {
-  const response = await apiFetch(
-    `${API_BASE_URL}/api/integrations/tandem/cloud-upload/status`
-  );
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(
-      error.detail || `Failed to fetch upload status: ${response.status}`
-    );
-  }
-
-  return response.json();
-}
-
-/**
- * Update Tandem cloud upload settings (enable/disable, interval).
- */
-export async function updateTandemUploadSettings(data: {
-  enabled: boolean;
-  interval_minutes: number;
-}): Promise<TandemUploadStatusResponse> {
-  const response = await apiFetch(
-    `${API_BASE_URL}/api/integrations/tandem/cloud-upload/settings`,
-    {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    }
-  );
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(
-      error.detail || `Failed to update upload settings: ${response.status}`
-    );
-  }
-
-  return response.json();
-}
-
-/**
- * Trigger an immediate Tandem cloud upload.
- */
-export async function triggerTandemUpload(): Promise<TandemUploadTriggerResponse> {
-  const response = await apiFetch(
-    `${API_BASE_URL}/api/integrations/tandem/cloud-upload/trigger`,
-    { method: "POST" }
-  );
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(
-      error.detail || `Failed to trigger upload: ${response.status}`
-    );
-  }
-
-  return response.json();
-}
-
-/**
- * Reset the Tandem upload high-water mark and re-queue every stored raw event.
- *
- * Use this when uploads appear stuck despite pending events being reported --
- * e.g. after a pump re-pair, sequence-counter reset, or to recover from the
- * legacy incremental-sync bug that silently filtered queued events.
- */
-export async function resetTandemUpload(): Promise<TandemUploadResetResponse> {
-  const response = await apiFetch(
-    `${API_BASE_URL}/api/integrations/tandem/cloud-upload/reset`,
-    { method: "POST" }
-  );
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(
-      error.detail || `Failed to reset upload state: ${response.status}`
-    );
-  }
-
   return response.json();
 }
 
@@ -3591,6 +3472,215 @@ export async function getBolusReviewByDateRange(
     const error = await response.json().catch(() => ({}));
     throw new Error(
       error.detail || `Failed to fetch bolus review: ${response.status}`
+    );
+  }
+  return response.json();
+}
+
+// ============================================================================
+// Per-user Tandem cloud sync (download direction)
+// ============================================================================
+
+export interface TandemSyncStatusResponse {
+  integration_status: string;
+  last_sync_at: string | null;
+  last_error: string | null;
+  events_available: number;
+  /** Whether scheduled sync runs for this user. */
+  enabled: boolean;
+  /** Minutes between scheduled syncs (15-1440). */
+  sync_interval_minutes: number;
+  /** Cumulative count of events stored across all syncs (display only). */
+  events_pulled_total: number;
+  /**
+   * True when the stored Tandem region is a legacy bucket label (e.g. "EU")
+   * that can no longer be resolved to a country -- the user must reconnect
+   * with their country selected before sync can run.
+   */
+  needs_country_reselect: boolean;
+}
+
+export interface TandemSyncSettingsRequest {
+  enabled: boolean;
+  sync_interval_minutes: number;
+}
+
+export interface TandemSyncResponse {
+  message: string;
+  events_fetched: number;
+  events_stored: number;
+  profiles_stored: number;
+}
+
+/** Get the per-user Tandem cloud-sync status + control. */
+export async function getTandemSyncStatus(): Promise<TandemSyncStatusResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/tandem/sync/status`
+  );
+  if (!response.ok) {
+    throw new Error(
+      await _readErrorDetail(response, "Failed to load Tandem sync status")
+    );
+  }
+  return response.json();
+}
+
+/** Update the per-user Tandem sync toggle + interval. */
+export async function updateTandemSyncSettings(
+  body: TandemSyncSettingsRequest
+): Promise<TandemSyncStatusResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/tandem/sync/settings`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }
+  );
+  if (!response.ok) {
+    throw new Error(
+      await _readErrorDetail(response, "Failed to update Tandem sync settings")
+    );
+  }
+  return response.json();
+}
+
+/** Manually trigger a Tandem sync ("Sync now"). */
+export async function triggerTandemSync(): Promise<TandemSyncResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/tandem/sync`,
+    { method: "POST" }
+  );
+  if (!response.ok) {
+    throw new Error(
+      await _readErrorDetail(response, "Failed to trigger Tandem sync")
+    );
+  }
+  return response.json();
+}
+
+export interface TandemAvailabilityResponse {
+  /** Oldest date with data available to pull (ISO), or null. */
+  earliest: string | null;
+  /** Most recent date with data — the last upload to t:connect (ISO), or null. */
+  latest: string | null;
+  pump_count: number;
+}
+
+/** Query the date range of pump data available in the t:connect cloud. */
+export async function getTandemSyncAvailability(): Promise<TandemAvailabilityResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/tandem/sync/availability`
+  );
+  if (!response.ok) {
+    throw new Error(
+      await _readErrorDetail(response, "Failed to read available data range")
+    );
+  }
+  return response.json();
+}
+
+/** One-time manual import of a chosen date range from t:connect. */
+export async function importTandemRange(
+  startDate: string,
+  endDate: string
+): Promise<TandemSyncResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/tandem/sync/import`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ start_date: startDate, end_date: endDate }),
+    }
+  );
+  if (!response.ok) {
+    throw new Error(
+      await _readErrorDetail(response, "Failed to import data range")
+    );
+  }
+  return response.json();
+}
+
+// ============================================================================
+// Medtronic CareLink manual import (stateless -- token captured client-side)
+// ============================================================================
+
+export interface MedtronicAvailabilityResponse {
+  /** Oldest date with data in the user's CareLink cloud (ISO), or null. */
+  start: string | null;
+  /** Most recent date with data (ISO), or null. */
+  end: string | null;
+}
+
+export interface MedtronicImportResponse {
+  message: string;
+  glucose_fetched: number;
+  glucose_stored: number;
+  events_fetched: number;
+  events_stored: number;
+}
+
+/** Trim the captured token and fail fast if empty (avoids sending whitespace
+ * that would cause an avoidable auth failure). */
+function _normalizeCareLinkToken(token: string): string {
+  const t = token.trim();
+  if (!t) throw new Error("CareLink token is required");
+  return t;
+}
+
+/** Validate the captured CareLink token and read the available data range. */
+export async function getMedtronicAvailability(
+  region: string,
+  token: string
+): Promise<MedtronicAvailabilityResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/medtronic/availability`,
+    {
+      method: "POST",
+      // Token goes in a header, never the JSON body, so it can't land in a
+      // body-validation error echo or request-body logging.
+      headers: {
+        "Content-Type": "application/json",
+        "X-CareLink-Token": _normalizeCareLinkToken(token),
+      },
+      body: JSON.stringify({ region }),
+    }
+  );
+  if (!response.ok) {
+    throw new Error(
+      await _readErrorDetail(response, "Failed to read available data range")
+    );
+  }
+  return response.json();
+}
+
+/** One-time manual import of a chosen CareLink date range. */
+export async function importMedtronicRange(
+  region: string,
+  token: string,
+  startDate: string,
+  endDate: string,
+  tz: string
+): Promise<MedtronicImportResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/medtronic/import`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CareLink-Token": _normalizeCareLinkToken(token),
+      },
+      body: JSON.stringify({
+        region,
+        start_date: startDate,
+        end_date: endDate,
+        tz,
+      }),
+    }
+  );
+  if (!response.ok) {
+    throw new Error(
+      await _readErrorDetail(response, "Failed to import data range")
     );
   }
   return response.json();
