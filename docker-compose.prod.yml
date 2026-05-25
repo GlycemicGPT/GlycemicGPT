@@ -99,6 +99,10 @@ services:
       - "${WEB_PORT:-3000}:3000"
     environment:
       API_URL: http://api:8000
+      # Sentry error monitoring (own project, SERVER-SIDE only) -- empty = disabled.
+      # Runtime-only; never baked into the image or browser bundle (see PRIVACY.md).
+      GLYCEMICGPT_WEB_SENTRY_DSN: ${GLYCEMICGPT_WEB_SENTRY_DSN:-}
+      GLYCEMICGPT_WEB_SENTRY_ENVIRONMENT: ${GLYCEMICGPT_WEB_SENTRY_ENVIRONMENT:-production}
     depends_on:
       api:
         condition: service_healthy

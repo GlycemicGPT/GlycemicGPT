@@ -37,6 +37,9 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
+# Surface the build commit so Sentry can tag the release (no-op when unset/"unknown").
+ARG GIT_SHA=unknown
+ENV GLYCEMICGPT_WEB_SENTRY_RELEASE=${GIT_SHA}
 
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
