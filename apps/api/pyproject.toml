@@ -6,6 +6,10 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.109.0",
+    # Security floor: starlette is transitive via fastapi (which allows the
+    # 1.x line). 1.0.0 is vulnerable to PYSEC-2026-161 (fixed in 1.0.1); we
+    # floor at the fix and let uv take the latest compatible release.
+    "starlette>=1.0.1",
     "uvicorn[standard]>=0.27.0",
     "pydantic[email]>=2.6.0",
     "pydantic-settings>=2.1.0",
