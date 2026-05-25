@@ -5,12 +5,24 @@
 # Each entry requires a reason explaining why it's safe to ignore.
 # Review suppressions quarterly.
 
-# ecdsa 0.19.1 -- no fix available. Used transitively by python-jose
-# for JWT signing. We use HMAC (HS256), not ECDSA, so the Minerva
-# timing attack is not exploitable in our usage.
+# ecdsa -- CVE-2024-23342 / GHSA-wj6h-64fc-37mp ("Minerva" ECDSA timing
+# side-channel). NOT EXPLOITABLE in our usage, and no upstream fix exists:
+#   * Minerva affects ECDSA signing/keygen only -- NOT verification.
+#   * We sign/verify JWTs exclusively with HS256 (HMAC); decode pins
+#     algorithms=["HS256"] (no algorithm-confusion path), and no EC algorithms
+#     (ES256/384/512) are used anywhere. ecdsa is a dormant transitive dep of
+#     python-jose and is never imported on our code path.
+#   * python-jose[cryptography] routes any EC op through the constant-time
+#     `cryptography` backend, not `ecdsa`.
+#   * Upstream is WONTFIX (side channels are out of scope for a pure-Python
+#     lib; no patched release exists -- latest 0.19.2 is still flagged).
+# Real fix = migrate python-jose -> PyJWT (drops the dep). Tracked in #673.
+# ignoreUntil forces re-evaluation (revisit sooner if we ever adopt an
+# EC-based JWT algorithm, which would change the exposure).
 [[IgnoredVulns]]
 id = "GHSA-wj6h-64fc-37mp"
-reason = "No fix available; not exploitable -- we use HMAC signing, not ECDSA"
+ignoreUntil = 2026-08-25T00:00:00Z
+reason = "Not exploitable: HS256/HMAC only, no ECDSA signing; ecdsa is a dormant transitive dep (python-jose[cryptography] uses the cryptography backend). Upstream WONTFIX (no patched release). Real fix = migrate to PyJWT, tracked in #673."
 
 # @tootallnate/once 2.0.0 -- dev-only transitive dependency
 # (jest-environment-jsdom -> jsdom -> http-proxy-agent). Not in
