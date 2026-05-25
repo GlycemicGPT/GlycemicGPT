@@ -39,6 +39,10 @@ data:
   LOG_LEVEL: "INFO"
   SERVICE_NAME: "glycemicgpt-api"
 
+  # Sentry environment label (shared by all services; events are only sent when
+  # the per-service DSN secret is set). Override per overlay (dev/prod).
+  SENTRY_ENVIRONMENT: "kubernetes"
+
   # Backup configuration 
   BACKUP_PATH: "/backups"
   BACKUP_RETENTION_DAYS: "7"

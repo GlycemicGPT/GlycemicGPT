@@ -86,6 +86,19 @@ spec:
                 secretKeyRef:
                   name: glycemicgpt-secrets
                   key: SIDECAR_API_KEY
+            # Sentry error monitoring -- optional; empty/absent secret = disabled.
+            - name: GLYCEMICGPT_SENTRY_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: glycemicgpt-secrets
+                  key: GLYCEMICGPT_SENTRY_DSN
+                  optional: true
+            - name: GLYCEMICGPT_SENTRY_ENVIRONMENT
+              valueFrom:
+                configMapKeyRef:
+                  name: glycemicgpt-config
+                  key: SENTRY_ENVIRONMENT
+                  optional: true
           resources:
             requests:
               memory: "512Mi"
