@@ -88,12 +88,20 @@ describe("scrubText", () => {
     expect(scrubText("glucose reading 180 mg/dL")).toBe("glucose reading 180 mg/dL");
   });
 
-  it("is bounded on large pathological input", () => {
-    const pathological = "a.".repeat(8000) + "@" + "b".repeat(8000);
+  it("clamps oversized input and stays fast (ReDoS guard)", () => {
+    // The tail marker sits PAST the 8192-char clamp, so it must be truncated
+    // before scrubbing -- this proves the clamp (the ReDoS guard) actually fires.
+    const tail = "ZZTAILMARKERZZ";
+    const pathological = "a.".repeat(8000) + "@" + "b".repeat(8000) + tail;
     const start = performance.now();
     const result = scrubText(pathological);
+    const elapsed = performance.now() - start;
     expect(typeof result).toBe("string");
-    expect(performance.now() - start).toBeLessThan(2000);
+    // Catastrophic backtracking would blow past this by orders of magnitude; a
+    // clamped, length-bounded scrub finishes well under it even on slow CI.
+    expect(elapsed).toBeLessThan(200);
+    // Content past the clamp is dropped -- never scrubbed, never emitted.
+    expect(result).not.toContain(tail);
   });
 });
 
