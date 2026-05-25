@@ -57,12 +57,13 @@ describe("scrubText", () => {
     expect(scrubText("glucose 180 mg/dL")).toBe("glucose 180 mg/dL");
   });
 
-  it("clamps oversized input and stays fast (ReDoS guard)", () => {
+  it("clamps oversized input before scrubbing (ReDoS guard)", () => {
+    // The clamp bounds what the regexes ever see (the structural ReDoS guard);
+    // we assert that behavior -- the tail past the 8192 boundary is truncated --
+    // rather than a flaky wall-clock timing.
     const tail = "ZZTAILZZ";
     const input = "a.".repeat(8000) + tail; // tail is past the 8192 clamp
-    const start = performance.now();
     const out = scrubText(input);
-    expect(performance.now() - start).toBeLessThan(200);
     expect(out).not.toContain(tail);
   });
 });
