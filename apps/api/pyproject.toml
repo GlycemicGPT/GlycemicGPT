@@ -37,6 +37,7 @@ dependencies = [
     "fastembed>=0.4.0,<1.0",
     "pgvector>=0.3.0",
     "beautifulsoup4>=4.12.0",
+    "sentry-sdk[fastapi]>=2.35.0",
 ]
 
 [project.optional-dependencies]

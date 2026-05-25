@@ -14,6 +14,12 @@ LABEL org.opencontainers.image.revision="${GIT_SHA}"
 LABEL org.opencontainers.image.source="https://github.com/GlycemicGPT/GlycemicGPT"
 LABEL org.opencontainers.image.licenses="MIT"
 
+# Surface the build commit to the runtime so Sentry can tag the release.
+# No-op in the app when unset/"unknown" (e.g. local builds). See
+# src/observability.py and PRIVACY.md.
+ARG GIT_SHA=unknown
+ENV GLYCEMICGPT_SENTRY_RELEASE=${GIT_SHA}
+
 WORKDIR /app
 
 # Install system dependencies

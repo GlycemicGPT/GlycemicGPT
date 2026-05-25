@@ -146,6 +146,19 @@ class Settings(BaseSettings):
     # bootstrap RAG augmentation.
     embedding_offline_only: bool = False
 
+    # Sentry error monitoring (Sentry for Good). DISABLED by default: with no
+    # DSN the SDK is a no-op and the running platform sends nothing. The DSN is
+    # supplied only in the project's own dev/CI/staging via a runtime env var
+    # and is never baked into a distributed build; self-hosters may set their
+    # own DSN to send errors to their own Sentry. See PRIVACY.md.
+    glycemicgpt_sentry_dsn: str = ""
+    glycemicgpt_sentry_environment: str = "development"
+    # Tracing off by default (errors only); bounded 0.0-1.0.
+    glycemicgpt_sentry_traces_sample_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+    # Release identifier (commit SHA), injected at build time via the Dockerfile
+    # GIT_SHA build arg -> env. "unknown"/"" => no release tag.
+    glycemicgpt_sentry_release: str = ""
+
     # Testing
     testing: bool = False  # Set to True during tests to disable connection pooling
 
