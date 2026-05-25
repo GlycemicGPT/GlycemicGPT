@@ -183,6 +183,22 @@ def test_before_send_strips_phi():
     assert "extra" not in out  # additional-data dump dropped
 
 
+def test_before_send_strips_query_and_fragment_from_url():
+    """A secret in the URL query or fragment must not survive: both are dropped
+    wholesale, not merely pattern-scrubbed. The values below match NO scrub
+    pattern, so this fails unless the query/fragment is actually stripped."""
+    event = {
+        "request": {
+            "url": "https://host/api/glucose?session=keepoutofreports#tok=alsosecret",
+        }
+    }
+    out = _before_send(event, {})
+    url = out["request"]["url"]
+    assert url == "https://host/api/glucose"
+    assert "keepoutofreports" not in url and "alsosecret" not in url
+    assert "?" not in url and "#" not in url
+
+
 def test_before_send_scrubs_logentry():
     """Sentry's serializer prefers logentry.formatted as the displayed message."""
     event = {

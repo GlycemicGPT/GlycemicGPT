@@ -135,7 +135,11 @@ def _scrub_common(event: dict[str, Any]) -> None:
         if "query_string" in request:
             request["query_string"] = ""
         if isinstance(request.get("url"), str):
-            request["url"] = scrub_text(request["url"])
+            # Strip the query string AND fragment from the URL (query_string is
+            # already blanked above). A token glued into the query/fragment can
+            # otherwise survive pattern-scrubbing; keep scheme/host/path, scrub it.
+            base_url = request["url"].split("?", 1)[0].split("#", 1)[0]
+            request["url"] = scrub_text(base_url)
 
 
 def _before_send(event: dict[str, Any], hint: dict[str, Any]) -> dict[str, Any] | None:
