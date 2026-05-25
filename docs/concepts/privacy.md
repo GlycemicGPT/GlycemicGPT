@@ -65,7 +65,7 @@ This does not change anything above. To be explicit:
 - **Production releases are telemetry-free, and so are distributed `develop` builds.** The `develop` tag exists for testing pre-release features; it is not a channel for collecting your error data.
 - **You can opt your own deployment in.** If you *want* error monitoring for your self-hosted deployment, you can set your own Sentry DSN. Error reports then go to **your** Sentry account, never the project's. This is a feature for operators who want it, off by default.
 
-> **Status:** The Sentry SDK integration is now shipped for the **API** (`apps/api`) and implements exactly the design described here; it stays disabled unless `GLYCEMICGPT_SENTRY_DSN` is set in a maintainer-controlled environment. The ai-sidecar, web, and mobile components are not yet instrumented.
+> **Status:** The Sentry SDK integration is shipped for the **API** (`apps/api`), **ai-sidecar** (`sidecar/`), and **web** (`apps/web`, server-side only) components -- each implements exactly the design described here and stays disabled unless its own `*_SENTRY_DSN` environment variable is set in a maintainer-controlled environment. The mobile app is not yet instrumented.
 
 ### Which Sentry features the project uses -- and which it never enables
 

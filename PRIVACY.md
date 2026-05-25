@@ -53,10 +53,11 @@ self-hoster who opts in):
 - HTTP request or response bodies
 - Health data or identifiers interpolated into exception or log messages
 
-> **Status:** The Sentry SDK integration is now shipped for the **API**
-> (`apps/api`) and implements exactly the design above; it stays disabled unless
-> `GLYCEMICGPT_SENTRY_DSN` is set in a maintainer-controlled environment. The
-> ai-sidecar, web, and mobile components are not yet instrumented.
+> **Status:** The Sentry SDK integration is shipped for the **API** (`apps/api`),
+> **ai-sidecar** (`sidecar/`), and **web** (`apps/web`, server-side only)
+> components -- each implements exactly the design above and stays disabled unless
+> its own `*_SENTRY_DSN` environment variable is set in a maintainer-controlled
+> environment. The mobile app is not yet instrumented.
 
 ## Controlling error monitoring
 
