@@ -43,6 +43,10 @@ RUN mkdir -p /home/sidecar/.config/sidecar /home/sidecar/.codex && \
 
 USER sidecar
 
+# Surface the build commit so Sentry can tag the release (no-op when unset/"unknown").
+# CI passes GIT_SHA as a build-arg; see src/observability.ts and PRIVACY.md.
+ARG GIT_SHA=unknown
+ENV GLYCEMICGPT_SIDECAR_SENTRY_RELEASE=${GIT_SHA}
 ENV NODE_ENV=production
 ENV SIDECAR_PORT=3456
 ENV TOKEN_DIR=/home/sidecar/.config/sidecar
