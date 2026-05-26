@@ -44,7 +44,12 @@ async def create_invitation(
     Raises:
         ValueError: If the patient already has too many pending invitations.
     """
-    # Check pending invitation count (with lock to prevent races)
+    # Serialize concurrent invitation creation for this patient by locking the
+    # patient's user row. PostgreSQL forbids FOR UPDATE on an aggregate query
+    # (SELECT count(*) ... FOR UPDATE raises ProgrammingError), so we take the
+    # row lock on `users` first, then count without a lock.
+    await db.execute(select(User.id).where(User.id == patient_id).with_for_update())
+
     result = await db.execute(
         select(func.count())
         .select_from(CaregiverInvitation)
@@ -54,7 +59,6 @@ async def create_invitation(
                 CaregiverInvitation.status == InvitationStatus.PENDING.value,
             )
         )
-        .with_for_update()
     )
     pending_count = result.scalar_one()
 
