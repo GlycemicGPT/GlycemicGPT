@@ -612,3 +612,69 @@ class TestMaskEmail:
         from src.routers.caregivers import _mask_email
 
         assert _mask_email("Unknown") == "***"
+
+
+# ── Integration tests (real database) ──
+#
+# Regression coverage for the invite-creation 500: create_invitation previously
+# used `select(func.count()).with_for_update()`, which PostgreSQL rejects
+# ("FOR UPDATE is not allowed with aggregate functions"). The mocked unit tests
+# above never issue real SQL, so they could not catch it. These tests run
+# against the real database session and exercise the actual query path.
+
+
+class TestCreateInvitationIntegration:
+    """Real-DB tests for create_invitation (exercises actual SQL)."""
+
+    async def _make_patient(self, db_session) -> User:
+        patient = User(
+            email=f"patient-{uuid.uuid4().hex}@integration.test",
+            hashed_password="x" * 60,  # noqa: S106 -- not a real hash, test-only
+            role=UserRole.DIABETIC,
+        )
+        db_session.add(patient)
+        await db_session.commit()
+        await db_session.refresh(patient)
+        return patient
+
+    async def _cleanup(self, db_session, patient_id: uuid.UUID) -> None:
+        from sqlalchemy import delete
+
+        # If the test left the transaction aborted (e.g. the pre-fix FOR UPDATE
+        # error), roll back first so the deletes can run and we don't leak users.
+        await db_session.rollback()
+        await db_session.execute(
+            delete(CaregiverInvitation).where(
+                CaregiverInvitation.patient_id == patient_id
+            )
+        )
+        await db_session.execute(delete(User).where(User.id == patient_id))
+        await db_session.commit()
+
+    @pytest.mark.asyncio
+    async def test_create_invitation_succeeds_against_real_db(self, db_session):
+        """A diabetic user can create an invitation (no 500 from FOR UPDATE)."""
+        patient = await self._make_patient(db_session)
+        try:
+            invitation = await create_invitation(db_session, patient.id)
+
+            assert invitation.id is not None
+            assert invitation.token
+            assert invitation.patient_id == patient.id
+            assert invitation.status == InvitationStatus.PENDING.value
+            assert invitation.expires_at is not None
+        finally:
+            await self._cleanup(db_session, patient.id)
+
+    @pytest.mark.asyncio
+    async def test_create_invitation_enforces_max_pending(self, db_session):
+        """The pending-count limit still holds after the FOR UPDATE fix."""
+        patient = await self._make_patient(db_session)
+        try:
+            for _ in range(MAX_PENDING_INVITATIONS_PER_PATIENT):
+                await create_invitation(db_session, patient.id)
+
+            with pytest.raises(ValueError, match="Maximum"):
+                await create_invitation(db_session, patient.id)
+        finally:
+            await self._cleanup(db_session, patient.id)
