@@ -59,6 +59,9 @@ patches:
       - op: replace
         path: /data/CORS_ORIGINS
         value: "http://localhost:3000,http://localhost:8000"
+      - op: replace
+        path: /data/SENTRY_ENVIRONMENT
+        value: "development"
     target:
       kind: ConfigMap
       name: glycemicgpt-config

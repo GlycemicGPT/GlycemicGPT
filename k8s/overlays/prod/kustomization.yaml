@@ -81,6 +81,9 @@ patches:
       - op: replace
         path: /data/CORS_ORIGINS
         value: "https://glycemicgpt.yourdomain.com"
+      - op: replace
+        path: /data/SENTRY_ENVIRONMENT
+        value: "production"
     target:
       kind: ConfigMap
       name: glycemicgpt-config

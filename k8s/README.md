@@ -49,6 +49,12 @@ Update the following in `secret.yaml`:
 - `SECRET_KEY`: Random string for session encryption
 - `DATABASE_URL`: Update password in connection string
 
+Optional — Sentry error monitoring (leave empty to keep it OFF; set a per-service
+project DSN to enable, and override `SENTRY_ENVIRONMENT` in the ConfigMap if the
+overlay default isn't right):
+- `GLYCEMICGPT_SENTRY_DSN` (API), `GLYCEMICGPT_SIDECAR_SENTRY_DSN` (sidecar),
+  `GLYCEMICGPT_WEB_SENTRY_DSN` (web — server-side only)
+
 ### 2. Build and Push Images
 
 ```bash
