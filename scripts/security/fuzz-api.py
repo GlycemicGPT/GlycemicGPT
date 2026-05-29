@@ -341,8 +341,10 @@ def main() -> int:
     args = parser.parse_args()
     api_url = args.api_url
 
-    # Refuse to register throwaway users against the persistent dev stack.
-    assert_ephemeral_target(api_url)
+    # Only the authenticated passes register throwaway users; a purely
+    # unauthenticated fuzz is read-only and safe against any target.
+    if args.mode in ("authenticated", "both"):
+        assert_ephemeral_target(api_url)
 
     print("=== OpenAPI Endpoint Fuzzer ===")
     print(f"API: {api_url}")

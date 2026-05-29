@@ -18,6 +18,8 @@ import this path needs no per-user timezone localization before storage.
 
 from __future__ import annotations
 
+import asyncio
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -39,6 +41,30 @@ from .storage import store_carelink_records
 
 logger = get_logger(__name__)
 
+# Per-user in-flight locks. A manual "Sync now" (POST /connect/sync) and the
+# scheduled tick can both fire for the same user; without serialization they
+# race on the rotating Auth0 refresh token -- one cycle rotates it, the other
+# then presents the now-stale token, gets invalid_grant, and the connection is
+# marked disconnected (forcing a full browser+captcha re-pair). Mirrors the
+# Nightscout per-connection lock. In-process only; cross-replica overlap is
+# bounded by the scheduler tick spacing + per-user pacing.
+_in_flight_locks: dict[uuid.UUID, asyncio.Lock] = {}
+
+
+def _lock_for(user_id: uuid.UUID) -> asyncio.Lock:
+    lock = _in_flight_locks.get(user_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _in_flight_locks[user_id] = lock
+    return lock
+
+
+def _release_lock(user_id: uuid.UUID, lock: asyncio.Lock) -> None:
+    # Drop the entry when no one else is waiting, so the dict tracks
+    # "currently syncing" rather than every user this worker has seen.
+    if not getattr(lock, "_waiters", None):
+        _in_flight_locks.pop(user_id, None)
+
 
 class ConnectSyncError(Exception):
     """A Connect sync cycle failed (after the state row was updated)."""
@@ -58,10 +84,32 @@ async def sync_connect_for_user(
     *,
     now: datetime | None = None,
 ) -> ConnectSyncResult:
+    """Run one sync cycle for ``state`` under a per-user lock.
+
+    The lock serializes a manual "Sync now" against the scheduled tick so the
+    two can't race on the rotating refresh token (see ``_in_flight_locks``).
+    """
+    lock = _lock_for(state.user_id)
+    async with lock:
+        try:
+            return await _sync_connect_for_user_locked(db, state, now=now)
+        finally:
+            _release_lock(state.user_id, lock)
+
+
+async def _sync_connect_for_user_locked(
+    db: AsyncSession,
+    state: MedtronicConnectState,
+    *,
+    now: datetime | None = None,
+) -> ConnectSyncResult:
     """Run one autonomous sync cycle for ``state`` and update it in place.
 
     Always stamps ``last_attempt_at`` and commits (so a rotated refresh token is
-    never lost), then raises ``ConnectSyncError`` on failure.
+    never lost), then raises ``ConnectSyncError`` on failure. On success, the
+    mapped records and the updated state row are persisted in a SINGLE final
+    commit (``store_carelink_records(..., commit=False)``) so a crash can't
+    leave glucose stored with the status not yet flipped to connected.
     """
     now = now or datetime.now(UTC)
     state.last_attempt_at = now
@@ -111,7 +159,11 @@ async def sync_connect_for_user(
         ) as client:
             recent = await client.get_recent_data()
         records = map_recent_data(recent)
-        store = await store_carelink_records(db, state.user_id, records, now=now)
+        # commit=False: defer to the single final commit below so glucose +
+        # events + the connected-state update land atomically.
+        store = await store_carelink_records(
+            db, state.user_id, records, now=now, commit=False
+        )
     except ConnectTokenError as e:
         # Refresh token dead/revoked -> the user must re-login. Mark
         # disconnected so the scheduler stops retrying a hopeless credential.

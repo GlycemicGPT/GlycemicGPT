@@ -23,10 +23,12 @@ DB_NAME="${POSTGRES_DB:-glycemicgpt}"
 #   sectest_<uuid>@example.com   (test-auth-flows.py)
 #   fuzz_<uuid>@example.com       (fuzz-api.py)
 #   dyntest_<uuid>@example.com    (test-data-isolation.py)
+# The '_' after each prefix is a literal underscore, so escape it -- in a SQL
+# LIKE pattern an unescaped '_' is a single-char wildcard.
 SQL="DELETE FROM users WHERE
-  email LIKE 'sectest_%@example.com'
-  OR email LIKE 'fuzz_%@example.com'
-  OR email LIKE 'dyntest_%@example.com';"
+  email LIKE 'sectest\_%@example.com' ESCAPE '\'
+  OR email LIKE 'fuzz\_%@example.com' ESCAPE '\'
+  OR email LIKE 'dyntest\_%@example.com' ESCAPE '\';"
 
 echo "Purging security-test users (sectest_/fuzz_/dyntest_) from ${DB_NAME}..."
 docker compose exec -T db psql -U "${DB_USER}" -d "${DB_NAME}" -c "${SQL}"

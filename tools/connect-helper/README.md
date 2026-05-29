@@ -67,6 +67,14 @@ go test ./...
 Chrome, Edge, Brave, or Chromium installed locally. Firefox-only users get a
 clear error message; Firefox support (via Marionette) is a follow-up.
 
+## Scope (v1)
+
+This helper connects the user's **own** Medtronic account (the `patient` role).
+The **follower / care-partner** case — logging in to follow someone else's pump
+— additionally needs `role` and `patient_id` in the exchange payload (the
+backend `/exchange` already accepts them) plus a way to choose the patient.
+That's a tracked follow-up, not in v1.
+
 ## Source of truth
 
 This binary speaks two GlycemicGPT endpoints, exactly the same ones the Python

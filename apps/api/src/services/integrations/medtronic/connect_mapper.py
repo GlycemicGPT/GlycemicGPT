@@ -200,7 +200,10 @@ def map_recent_data(recent: dict) -> MappedRecords:
             continue
         if mtype in _MARKER_BG_TYPES:
             bg = _bg_value(m)
-            if bg:
+            # Apply the same physiologic clamp as sensor glucose -- a finger BG
+            # is a glucose value too, and a corrupt/unit-confused one would
+            # poison TIR/alerts/AI context just the same.
+            if bg and _SG_MIN_MGDL <= bg <= _SG_MAX_MGDL:
                 records.pump_events.append(
                     MappedPumpEvent(PumpEventType.BG_READING, dt, bg_at_event=bg)
                 )

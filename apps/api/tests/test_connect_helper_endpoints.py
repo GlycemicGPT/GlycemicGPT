@@ -111,8 +111,8 @@ async def test_helper_sh_renders_with_substituted_values():
             HELPER_SH,
             params={
                 "pair": pair_token,
-                "api": "https://glycemicgpt.homelab0.org",
-                "username": "jlengelbrecht96",
+                "api": "https://glycemicgpt.example.com",
+                "username": "testuser",
                 "region": "US",
             },
         )
@@ -120,11 +120,14 @@ async def test_helper_sh_renders_with_substituted_values():
     assert r.headers["content-type"].startswith("text/x-shellscript")
     body = r.text
     assert body.startswith("#!/bin/bash")
-    assert "API='https://glycemicgpt.homelab0.org'" in body
+    assert "API='https://glycemicgpt.example.com'" in body
     assert f"PAIR='{pair_token}'" in body
-    assert "USERNAME='jlengelbrecht96'" in body
+    assert "USERNAME='testuser'" in body
     assert "REGION='US'" in body
-    assert "helper-binary?os=$OS&arch=$ARCH&pair=$PAIR" in body
+    # Binary download carries the pair token in a header, never the URL.
+    assert "helper-binary?os=$OS&arch=$ARCH" in body
+    assert "helper-binary?os=$OS&arch=$ARCH&pair=" not in body
+    assert '-H "X-Connect-Pair-Token: $PAIR"' in body
     # Caches must not serve a stale tokenised script.
     assert r.headers.get("cache-control") == "no-store"
 
@@ -210,7 +213,9 @@ async def test_helper_ps1_renders_with_powershell_quoting():
     assert "$USERNAME = 'evil''; Remove-Item C:\\ -Recurse'" in body
     assert "$API = 'https://my.example'" in body
     assert "$REGION = 'EU'" in body
-    assert "helper-binary?os=$OS&arch=$ARCH&pair=$PAIR" in body
+    # Binary download carries the pair token in a header, never the URL.
+    assert "helper-binary?os=$OS&arch=$ARCH" in body
+    assert "-Headers @{ 'X-Connect-Pair-Token' = $PAIR }" in body
 
 
 # --- helper-binary: gating + os/arch allowlist + missing-file 404 ---
@@ -223,7 +228,9 @@ async def test_helper_binary_404_on_unsupported_platform():
     async with _client() as c:
         for bad in [("linux", "386"), ("openbsd", "amd64"), ("", "")]:
             r = await c.get(
-                HELPER_BIN, params={"pair": pair_token, "os": bad[0], "arch": bad[1]}
+                HELPER_BIN,
+                params={"os": bad[0], "arch": bad[1]},
+                headers={"X-Connect-Pair-Token": pair_token},
             )
             assert r.status_code == 404, f"expected 404 for {bad}"
 
@@ -243,7 +250,9 @@ async def test_helper_binary_404_when_file_absent_in_dev(tmp_path, monkeypatch):
         pair_token = await _pair(c, cookies)
     async with _client() as c:
         r = await c.get(
-            HELPER_BIN, params={"pair": pair_token, "os": "linux", "arch": "amd64"}
+            HELPER_BIN,
+            params={"os": "linux", "arch": "amd64"},
+            headers={"X-Connect-Pair-Token": pair_token},
         )
         assert r.status_code == 404
 
@@ -264,7 +273,9 @@ async def test_helper_binary_serves_when_file_present(tmp_path, monkeypatch):
         pair_token = await _pair(c, cookies)
     async with _client() as c:
         r = await c.get(
-            HELPER_BIN, params={"pair": pair_token, "os": "linux", "arch": "amd64"}
+            HELPER_BIN,
+            params={"os": "linux", "arch": "amd64"},
+            headers={"X-Connect-Pair-Token": pair_token},
         )
     assert r.status_code == 200, r.text
     assert r.content == b"FAKE_GO_BINARY"
@@ -279,8 +290,8 @@ async def _install(
     client: AsyncClient,
     cookies: dict,
     *,
-    api: str = "https://glycemicgpt.homelab0.org",
-    username: str = "jlengelbrecht96",
+    api: str = "https://glycemicgpt.example.com",
+    username: str = "testuser",
     region: str = "US",
 ) -> dict:
     r = await client.post(
@@ -330,14 +341,14 @@ async def test_install_sh_renders_bundle_values():
     async with _client() as c:
         cookies = await _login(c)
         data = await _install(
-            c, cookies, api="https://glycemicgpt.homelab0.org", username="u@x.test"
+            c, cookies, api="https://glycemicgpt.example.com", username="u@x.test"
         )
     async with _client() as c:
         r = await c.get(INSTALL_SH.format(handle=data["handle"]))
     assert r.status_code == 200, r.text
     body = r.text
     assert body.startswith("#!/bin/bash")
-    assert "API='https://glycemicgpt.homelab0.org'" in body
+    assert "API='https://glycemicgpt.example.com'" in body
     assert f"PAIR='{data['pairing_token']}'" in body
     assert "USERNAME='u@x.test'" in body
     assert "REGION='US'" in body

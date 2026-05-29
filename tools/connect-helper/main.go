@@ -232,6 +232,11 @@ func captureRedirect(ctx context.Context, authorizeURL string, headless bool) (s
 	}
 }
 
+// exchangeRequest is the v1 (patient-self) payload: a user connecting their
+// OWN Medtronic account. The follower / care-partner case (logging in to follow
+// someone else's pump) additionally needs role + patient_id; the backend
+// /exchange accepts them, but plumbing them through the CLI plus a way to pick
+// the patient is a tracked follow-up, not in v1. See README.md.
 type exchangeRequest struct {
 	PKCESession string `json:"pkce_session"`
 	RedirectURL string `json:"redirect_url"`

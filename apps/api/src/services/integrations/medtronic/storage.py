@@ -63,8 +63,15 @@ async def store_carelink_records(
     records: MappedRecords,
     *,
     now: datetime | None = None,
+    commit: bool = True,
 ) -> CareLinkStoreResult:
-    """Upsert mapped glucose readings + pump events for a user. Idempotent."""
+    """Upsert mapped glucose readings + pump events for a user. Idempotent.
+
+    ``commit=False`` lets a caller fold this write into a larger transaction
+    (e.g. the autonomous Connect sync commits the records and the updated
+    connection-state row together, atomically). Defaults to committing so the
+    manual CareLink import path is unchanged.
+    """
     now = now or datetime.now(UTC)
     result = CareLinkStoreResult(
         glucose_fetched=len(records.glucose), events_fetched=len(records.pump_events)
@@ -131,5 +138,6 @@ async def store_carelink_records(
         res = await db.execute(stmt)
         result.events_stored += max(res.rowcount, 0)
 
-    await db.commit()
+    if commit:
+        await db.commit()
     return result

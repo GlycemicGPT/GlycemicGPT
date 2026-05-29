@@ -2074,7 +2074,7 @@ trap 'rm -rf "$TMP"' EXIT
 BIN="$TMP/glycemicgpt-connect"
 
 echo "Downloading helper for $OS/$ARCH from $API..."
-curl -fsSL "$API/api/integrations/medtronic/connect/helper-binary?os=$OS&arch=$ARCH&pair=$PAIR" -o "$BIN"
+curl -fsSL -H "X-Connect-Pair-Token: $PAIR" "$API/api/integrations/medtronic/connect/helper-binary?os=$OS&arch=$ARCH" -o "$BIN"
 chmod +x "$BIN"
 
 echo "Launching browser; sign in to CareLink to complete setup."
@@ -2100,7 +2100,7 @@ $ARCH = 'amd64'
 
 $BIN = Join-Path ([System.IO.Path]::GetTempPath()) 'glycemicgpt-connect.exe'
 Write-Host "Downloading helper for $OS/$ARCH from $API..."
-Invoke-WebRequest -Uri "$API/api/integrations/medtronic/connect/helper-binary?os=$OS&arch=$ARCH&pair=$PAIR" -OutFile $BIN -UseBasicParsing
+Invoke-WebRequest -Headers @{{ 'X-Connect-Pair-Token' = $PAIR }} -Uri "$API/api/integrations/medtronic/connect/helper-binary?os=$OS&arch=$ARCH" -OutFile $BIN -UseBasicParsing
 
 Write-Host 'Launching browser; sign in to CareLink to complete setup.'
 & $BIN --api $API --pair $PAIR --username $USERNAME --region $REGION
@@ -2170,11 +2170,16 @@ async def medtronic_connect_helper_ps1(
 )
 async def medtronic_connect_helper_binary(
     request: Request,
-    pair: str = Query(default=""),
     os: str = Query(default=""),
     arch: str = Query(default=""),
+    pair: str = Header(default="", alias="X-Connect-Pair-Token"),
 ) -> FileResponse:
     """Stream the right Go helper binary for the requested OS/arch.
+
+    The pair token is taken from the ``X-Connect-Pair-Token`` header (not the
+    query string) so it can't leak through reverse-proxy access logs, browser
+    history, or endpoint telemetry. The generated installer scripts send it via
+    ``curl -H`` / ``Invoke-WebRequest -Headers``.
 
     Binaries are baked into the API image by the multi-stage Dockerfile; in dev
     (no Go builder ran) the files are absent and we 404, which falls through to

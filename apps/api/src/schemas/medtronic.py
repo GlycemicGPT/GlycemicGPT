@@ -10,6 +10,7 @@ completes within one ~50-min token life.
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -171,11 +172,21 @@ class MedtronicConnectInstallRequest(BaseModel):
     @classmethod
     def _api_scheme(cls, v: str) -> str:
         s = (v or "").strip()
-        if not s.startswith(("https://", "http://")):
-            raise ValueError("api_url must start with http:// or https://")
         if any(c in s for c in "\r\n\0"):
             raise ValueError("api_url contains control characters")
-        return s
+        # Require HTTPS so the pairing token / auth handshake is never sent in
+        # cleartext, with an explicit carve-out for loopback (local dev /
+        # self-host on the same machine, where there's no network to sniff).
+        host = (urlparse(s).hostname or "").lower()
+        is_loopback = host in {"localhost", "127.0.0.1", "::1"}
+        if s.startswith("https://"):
+            return s
+        if s.startswith("http://") and is_loopback:
+            return s
+        raise ValueError(
+            "api_url must use https:// (http:// is allowed only for "
+            "loopback hosts: localhost, 127.0.0.1, ::1)"
+        )
 
     @field_validator("username")
     @classmethod

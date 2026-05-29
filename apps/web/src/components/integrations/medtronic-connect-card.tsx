@@ -164,19 +164,39 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
   // holds the same {pair, api, username, region}, with the same single-use
   // gate as the long URL form.
   const nativeCommand = useMemo(() => {
-    if (!pairing || !instanceUrl) return "";
+    const base = instanceUrl.trim();
+    if (!pairing || !base) return "";
     const ext = selectedOS === "windows" ? "ps1" : "sh";
-    const u = new URL(
-      `/api/integrations/medtronic/connect/install/${pairing.handle}.${ext}`,
-      instanceUrl
-    );
-    const url = u.toString();
+    let url: string;
+    try {
+      // Runs during render -- a malformed/whitespace-padded instance URL would
+      // otherwise throw here and take down the whole settings page.
+      url = new URL(
+        `/api/integrations/medtronic/connect/install/${pairing.handle}.${ext}`,
+        base
+      ).toString();
+    } catch {
+      return "";
+    }
     if (selectedOS === "windows") {
       // PowerShell single-quoted; the URL has no ' so no doubling needed.
       return `iwr '${url}' -UseBasicParsing | iex`;
     }
     return `curl -fsSL '${url}' | bash`;
   }, [pairing, instanceUrl, selectedOS]);
+
+  // Non-empty but unparseable instance URL -> show an inline error instead of
+  // silently rendering no command (and never throw during render).
+  const instanceUrlInvalid = useMemo(() => {
+    const t = instanceUrl.trim();
+    if (!t) return false;
+    try {
+      new URL(t);
+      return false;
+    } catch {
+      return true;
+    }
+  }, [instanceUrl]);
 
   // Advanced fallback for users who'd rather run the in-tree Python CLI than
   // download a binary -- same backend endpoints, same flow, just heavier deps.
@@ -316,7 +336,10 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                disabled={isOffline}
+                // Frozen once a pairing token is minted: the bundle was created
+                // with this username, so editing it now would desync the
+                // displayed setup command from the server-side bundle.
+                disabled={isOffline || !!pairing}
                 placeholder="your CareLink username"
                 autoComplete="username"
                 className={inputClass}
@@ -366,11 +389,19 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
                   onChange={(e) => setInstanceUrl(e.target.value)}
                   className={clsx(inputClass, "max-w-md")}
                   spellCheck={false}
+                  aria-invalid={instanceUrlInvalid}
                 />
-                <p className="mt-1 text-xs text-slate-500">
-                  Auto-detected from your address bar. Only edit this if your
-                  API is at a different URL than this dashboard.
-                </p>
+                {instanceUrlInvalid ? (
+                  <p className="mt-1 text-xs text-red-400">
+                    That doesn&apos;t look like a valid URL. Include the scheme,
+                    e.g. https://glycemicgpt.example.com.
+                  </p>
+                ) : (
+                  <p className="mt-1 text-xs text-slate-500">
+                    Auto-detected from your address bar. Only edit this if your
+                    API is at a different URL than this dashboard.
+                  </p>
+                )}
               </div>
 
               {/* OS picker. */}

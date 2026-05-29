@@ -91,7 +91,7 @@ def patched(monkeypatch):
         cs, "map_recent_data", lambda recent: captured.setdefault("recent", recent)
     )
 
-    async def _fake_store(db, user_id, records, *, now=None):
+    async def _fake_store(db, user_id, records, *, now=None, commit=True):
         return CareLinkStoreResult(
             glucose_fetched=1, glucose_stored=1, events_fetched=0, events_stored=0
         )

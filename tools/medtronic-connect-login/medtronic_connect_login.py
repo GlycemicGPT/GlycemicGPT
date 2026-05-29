@@ -172,6 +172,9 @@ async def _capture_redirect(authorize_url: str, timeout: int, headless: bool) ->
 async def _exchange(
     args: argparse.Namespace, pkce_session: str, redirect_url: str
 ) -> dict:
+    # v1 (patient-self) payload: connecting the user's OWN Medtronic account.
+    # The follower / care-partner case needs role + patient_id too (the backend
+    # /exchange accepts them); that's a tracked follow-up, not in v1. See README.
     async with httpx.AsyncClient(timeout=30) as http:
         resp = await http.post(
             build_url(args.api, EXCHANGE_PATH),

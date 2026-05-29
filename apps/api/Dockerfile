@@ -107,6 +107,16 @@ COPY knowledge/ ./knowledge/
 # Make start script executable
 RUN chmod +x ./scripts/start.sh
 
+# Drop root for the runtime. Dependencies are installed system-wide (/usr/local,
+# world-readable) above as root; the only path the app writes at runtime is the
+# embedding cache, so pre-create it and hand /app to the non-root user. The
+# embedding_cache named volume mounts at /app/.cache/fastembed and inherits this
+# directory's ownership on first creation, so the model download stays writable.
+RUN useradd --create-home --uid 10001 appuser \
+    && mkdir -p /app/.cache/fastembed \
+    && chown -R appuser:appuser /app
+USER appuser
+
 # Expose port
 EXPOSE 8000
 
