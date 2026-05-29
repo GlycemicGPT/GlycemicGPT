@@ -80,6 +80,20 @@ class Settings(BaseSettings):
     tandem_sync_enabled: bool = True  # Enable/disable the whole job
     tandem_sync_hours_back: int = Field(default=24, ge=1, le=168)
 
+    # Medtronic CareLink CarePartner (Connect) autonomous sync.
+    # Operator kill switch for the background sync job, mirroring
+    # dexcom/tandem/nightscout_sync_enabled (all default True, all gate only the
+    # scheduler tick -- not the UI or endpoints). Set False via env to stop just
+    # the Medtronic background sync (e.g. if it floods errors or hammers
+    # CareLink) without a redeploy; users retain per-connection enable/disconnect
+    # regardless. When enabled, the scheduler ticks every
+    # `medtronic_connect_tick_interval_minutes` and runs the follower sync for
+    # any connected user whose per-user `sync_interval_minutes`
+    # (MedtronicConnectState) has elapsed. Bounded at parse time (feeds
+    # APScheduler's IntervalTrigger).
+    medtronic_connect_enabled: bool = True  # Enable/disable the whole job
+    medtronic_connect_tick_interval_minutes: int = Field(default=15, ge=1, le=60)
+
     # Nightscout Sync Configuration (Story 43.4)
     # The scheduler ticks on a fixed interval; on each tick it scans
     # nightscout_connections and runs the per-connection sync for any

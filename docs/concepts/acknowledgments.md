@@ -7,7 +7,7 @@ GlycemicGPT exists because of work that came before it. This page acknowledges t
 
 ## Pump and CGM library credits
 
-This project's diabetes-device integrations are built on top of -- or directly informed by -- several MIT-licensed open-source libraries. The categorization below distinguishes "runtime dependency" (we ship and consume the library directly) from "architectural reference" (we studied the work to build our own, no code is imported).
+This project's diabetes-device integrations are built on top of -- or directly informed by -- several open-source libraries (MIT- and GPL-licensed). The categorization below distinguishes "runtime dependency" (we ship and consume the library directly) from "architectural reference" (we studied the work to build our own, no code is imported).
 
 ### James Woglom ([@jwoglom](https://github.com/jwoglom))
 
@@ -32,6 +32,12 @@ If you're using GlycemicGPT's Tandem integration, you're benefiting from years o
 
 MIT-licensed by Gage Benne. Credit lives in [`apps/api/THIRD_PARTY_LICENSES.md`](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/apps/api/THIRD_PARTY_LICENSES.md).
 
+### xDrip+ contributors / Nightscout Foundation
+
+- **[xDrip+ `carelinkfollow`](https://github.com/NightscoutFoundation/xDrip/tree/master/app/src/main/java/com/eveningoutpost/dexdrip/cgm/carelinkfollow)** -- *architectural reference, not a runtime dependency.* GlycemicGPT's Medtronic CareLink **CarePartner (Connect)** autonomous-sync feature is an independent Python implementation informed by xDrip+'s reverse-engineering of the CarePartner follower cloud: the `display/message` endpoint shape, the `RecentData` / `Marker` / `SensorGlucose` field semantics, and the device-vs-server clock-skew time-correction algorithm. No xDrip+ source code is imported or vendored -- we re-implemented the protocol from what its source documents. Without xDrip+'s published reverse-engineering, this feature would not exist.
+
+xDrip+ is **GPL-3.0**-licensed; GlycemicGPT is also GPL-3.0, so the two are license-compatible and this project remains GPL-3.0 accordingly. API-side credit lives in [`apps/api/THIRD_PARTY_LICENSES.md`](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/apps/api/THIRD_PARTY_LICENSES.md), and the `connect_mapper.py` and `connect_client.py` source files reference it in their module docstrings. (xDrip+ also appears below under the diabetes-OSS movement for its broader influence on the category.)
+
 ## The diabetes-OSS movement
 
 GlycemicGPT is part of a much larger #WeAreNotWaiting tradition that has been building open-source diabetes tools collaboratively since around 2013. The projects below predate this one by years; in many cases by a decade. We're listed alongside them, not above them.
@@ -40,7 +46,7 @@ GlycemicGPT is part of a much larger #WeAreNotWaiting tradition that has been bu
 - **[OpenAPS](https://openaps.org/)** and Dana Lewis -- the project that started the closed-loop branch of #WeAreNotWaiting. GlycemicGPT does not do closed-loop and never will, but the broader tradition of "T1s building safety-critical software for themselves" comes from here.
 - **[Loop](https://loopkit.github.io/loopdocs/)** and the LoopKit / Pete Schwamb -- the iOS closed-loop project that brought thousands of T1s and parents into the DIY closed-loop world. GlycemicGPT respects the legal and architectural posture (forks-as-personal-medical-device) that Loop established.
 - **[AndroidAPS / AAPS](https://androidaps.readthedocs.io/)** -- the Android closed-loop project that supports the broadest pump matrix in the open-source space. The plugin architecture in GlycemicGPT's mobile app borrows conceptual framing from AAPS's pump-driver model.
-- **[xDrip+](https://github.com/NightscoutFoundation/xDrip)** -- the Android CGM relay-and-dashboard that supports more sensors than anything else. The "what should a CGM-companion app on Android even look like" question is largely answered by xDrip+; we benefit from the answer.
+- **[xDrip+](https://github.com/NightscoutFoundation/xDrip)** -- the Android CGM relay-and-dashboard that supports more sensors than anything else. The "what should a CGM-companion app on Android even look like" question is largely answered by xDrip+; we benefit from the answer. (xDrip+ is also credited above under "Pump and CGM library credits" as the architectural reference for our Medtronic CarePartner integration.)
 - **[Tidepool](https://www.tidepool.org/)** -- a nonprofit cloud platform for uploading and reporting on diabetes data, and the FDA-cleared variant of Loop ([Tidepool Loop](https://www.tidepool.org/tidepool-loop)). The "free, open, vendor-neutral diabetes data layer" pattern is something GlycemicGPT learns from.
 
 ## AI

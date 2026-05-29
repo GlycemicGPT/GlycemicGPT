@@ -21,8 +21,18 @@ from src.models.integration import (
     IntegrationStatus,
     IntegrationType,
 )
+from src.models.medtronic_connect_state import (
+    STATUS_CONNECTED,
+    STATUS_ERROR,
+    STATUS_PENDING,
+    MedtronicConnectState,
+)
 from src.models.tandem_sync_state import TandemSyncState
 from src.services.dexcom_sync import DexcomSyncError, sync_dexcom_for_user
+from src.services.integrations.medtronic.connect_sync import (
+    ConnectSyncError,
+    sync_connect_for_user,
+)
 from src.services.integrations.nightscout.scheduler import (
     run_nightscout_sync_all_users,
 )
@@ -318,6 +328,85 @@ async def sync_all_tandem_users() -> None:
     )
 
 
+async def sync_all_medtronic_connect_users() -> None:
+    """One scheduler tick: sync each due, enabled Medtronic Connect user.
+
+    Runs on ``medtronic_connect_tick_interval_minutes``. Unlike Tandem, the
+    ``MedtronicConnectState`` row IS the credential (self-contained), so absence
+    of a row means "not connected" -- only rows that are enabled and not
+    disconnected are considered. Pacing is by ``last_attempt_at`` (reusing the
+    Tandem pacing rule) so a failing user retries once per interval, not every
+    tick. ``sync_connect_for_user`` updates the row (status, freshness, rotated
+    refresh token, counter) itself.
+    """
+    now = datetime.now(UTC)
+    logger.info("Starting scheduled Medtronic Connect sync tick")
+
+    async with get_session_maker()() as db:
+        result = await db.execute(
+            select(MedtronicConnectState).where(
+                MedtronicConnectState.enabled.is_(True),
+                MedtronicConnectState.status.in_(
+                    [STATUS_CONNECTED, STATUS_ERROR, STATUS_PENDING]
+                ),
+            )
+        )
+        due_ids = [
+            state.user_id
+            for state in result.scalars().all()
+            if _tandem_is_due(
+                state.last_attempt_at, state.sync_interval_minutes, now=now
+            )
+        ]
+
+    if not due_ids:
+        logger.info("No Medtronic Connect users due for sync this tick")
+        return
+
+    logger.info("Found Medtronic Connect users due for sync", user_count=len(due_ids))
+
+    success_count = 0
+    error_count = 0
+    for user_id in due_ids:
+        try:
+            # New session per user to isolate errors; re-read the row inside it.
+            async with get_session_maker()() as user_db:
+                state = (
+                    await user_db.execute(
+                        select(MedtronicConnectState).where(
+                            MedtronicConnectState.user_id == user_id
+                        )
+                    )
+                ).scalar_one_or_none()
+                if state is None:
+                    continue
+                await sync_connect_for_user(user_db, state)
+                success_count += 1
+        except ConnectSyncError as e:
+            logger.warning(
+                "Scheduled Medtronic Connect sync failed for user",
+                user_id=str(user_id),
+                error=str(e),
+            )
+            error_count += 1
+        except Exception as e:
+            logger.error(
+                "Unexpected error in scheduled Medtronic Connect sync",
+                user_id=str(user_id),
+                error=str(e),
+            )
+            error_count += 1
+
+        # Small delay between users to avoid rate limiting.
+        await asyncio.sleep(1)
+
+    logger.info(
+        "Scheduled Medtronic Connect sync tick completed",
+        success_count=success_count,
+        error_count=error_count,
+    )
+
+
 async def check_alerts_all_users() -> None:
     """Run predictive alert evaluation for all users with active integrations.
 
@@ -596,6 +685,35 @@ def start_scheduler() -> AsyncIOScheduler:
             "Tandem sync scheduler DISABLED via TANDEM_SYNC_ENABLED env var. "
             "Manual sync via POST /api/integrations/tandem/sync still works; "
             "scheduled pulls will not run."
+        )
+
+    # Medtronic CareLink CarePartner (Connect) autonomous sync tick. Enabled
+    # by default (MEDTRONIC_CONNECT_ENABLED); set it false to disable the whole
+    # job without a redeploy. The tick no-ops safely until a user connects a
+    # Medtronic account -- the per-user cadence
+    # (MedtronicConnectState.sync_interval_minutes) is honored inside
+    # sync_all_medtronic_connect_users.
+    if settings.medtronic_connect_enabled:
+        scheduler.add_job(
+            sync_all_medtronic_connect_users,
+            trigger=IntervalTrigger(
+                minutes=settings.medtronic_connect_tick_interval_minutes
+            ),
+            id="medtronic_connect_sync",
+            name="Medtronic Connect Data Sync Tick",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
+        logger.info(
+            "Scheduled Medtronic Connect sync tick job",
+            tick_interval_minutes=settings.medtronic_connect_tick_interval_minutes,
+        )
+    else:
+        logger.info(
+            "Medtronic Connect sync scheduler disabled (set "
+            "MEDTRONIC_CONNECT_ENABLED=true to enable). Manual sync via "
+            "POST /api/integrations/medtronic/connect/sync still works."
         )
 
     # Add Nightscout sync tick job if enabled (Story 43.4)

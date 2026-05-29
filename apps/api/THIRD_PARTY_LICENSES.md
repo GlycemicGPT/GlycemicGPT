@@ -29,6 +29,25 @@ Python library for fetching glucose data from Dexcom's cloud using the user's
 own Dexcom account credentials. Used by `apps/api/src/services/dexcom_sync.py`
 on a polling schedule. Consumed via `pyproject.toml` as `pydexcom>=0.2.0`.
 
+## Derived specifications (no code copied)
+
+### xDrip+ — CareLink CarePartner / Connect follower
+
+- Repository: https://github.com/NightscoutFoundation/xDrip
+  (`app/src/main/java/com/eveningoutpost/dexdrip/cgm/carelinkfollow`)
+- License: GNU GPL-3.0 (the same license as this project)
+
+The Medtronic CareLink **CarePartner (Connect)** autonomous-sync feature
+(`apps/api/src/services/integrations/medtronic/connect_*.py`) was implemented
+independently in Python, but the wire-level specification it conforms to — the
+`display/message` endpoint shape, the `RecentData`/`Marker`/`SensorGlucose`
+field semantics, and the device-vs-server clock-skew time-correction algorithm
+— was learned from xDrip+'s `carelinkfollow` package. xDrip+ is GPL-3.0, which
+is license-compatible with this GPL-3.0 project. **No xDrip source code is
+copied or vendored;** we credit the xDrip+ / CareLink-follower authors for the
+reverse-engineering work the specification rests on, and this project remains
+GPL-3.0 accordingly.
+
 ---
 
 MIT License

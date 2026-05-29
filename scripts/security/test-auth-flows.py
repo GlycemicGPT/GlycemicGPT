@@ -21,6 +21,7 @@ import time
 import uuid
 
 import httpx
+from _ephemeral_guard import assert_ephemeral_target
 from jose import jwt
 
 API_URL = os.environ.get("API_URL", "http://localhost:8001")
@@ -828,6 +829,9 @@ ALL_TESTS = AUTH_TESTS + RATE_LIMIT_TESTS
 
 
 def main() -> int:
+    # Refuse to register throwaway users against the persistent dev stack.
+    assert_ephemeral_target(API_URL)
+
     print(f"=== Auth Flow & Security Tests ({len(ALL_TESTS)} tests) ===")
     print(f"API: {API_URL}  |  Web: {WEB_URL}")
     print()

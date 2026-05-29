@@ -56,6 +56,12 @@ services:
     build:
       context: ./apps/api
       dockerfile: Dockerfile
+      # The Medtronic Connect desktop-helper Go binaries are cross-compiled in
+      # a builder stage and baked into the image; the helper sources live at
+      # repo root so we expose them as an additional build context here. See
+      # apps/api/Dockerfile (FROM golang:1.26 AS connect-helper-builder).
+      additional_contexts:
+        helper-src: ./tools/connect-helper
     restart: unless-stopped
     ports:
       - "8000:8000"

@@ -90,3 +90,167 @@ class MedtronicImportResponse(BaseModel):
     glucose_stored: int
     events_fetched: int
     events_stored: int
+
+
+# ---------------------------------------------------------------------------
+# Medtronic CareLink CarePartner (Connect) -- autonomous sync (feature A)
+#
+# Unlike the manual import, this stores a credential: the captured Auth0
+# refresh token. Like the manual token it is sent in a request HEADER (NOT the
+# body) so a body-validation 422 can never echo it and it never lands in
+# request-body logging. The backend encrypts it at rest and rotates it.
+# ---------------------------------------------------------------------------
+
+#: Connect regions (Auth0 tenant + cloud host). Mirrors connect_auth.REGIONS.
+#: "EU" covers all non-US CarePartner countries (UK/GB, EU, AU, ZA, …) -- they
+#: all share Medtronic's single OUS Auth0 tenant + cloud.
+SUPPORTED_CONNECT_REGIONS = ("US", "EU")
+
+#: Connect roles: "patient" (self-sync) or "carepartner" (follower).
+CONNECT_ROLES = ("patient", "carepartner")
+
+# Per-user sync cadence bounds (mirror the model's CHECK constraint).
+CONNECT_SYNC_INTERVAL_MIN = 15
+CONNECT_SYNC_INTERVAL_MAX = 1440
+CONNECT_SYNC_INTERVAL_DEFAULT = 30
+
+
+class MedtronicConnectStatusResponse(BaseModel):
+    connected: bool
+    status: str
+    enabled: bool
+    region: str | None = None
+    role: str | None = None
+    sync_interval_minutes: int = CONNECT_SYNC_INTERVAL_DEFAULT
+    last_sync_at: datetime | None = None
+    last_error: str | None = None
+    readings_synced_total: int = 0
+
+
+class MedtronicConnectSettingsRequest(BaseModel):
+    enabled: bool
+    sync_interval_minutes: int = Field(
+        default=CONNECT_SYNC_INTERVAL_DEFAULT,
+        ge=CONNECT_SYNC_INTERVAL_MIN,
+        le=CONNECT_SYNC_INTERVAL_MAX,
+    )
+
+
+class MedtronicConnectSyncResponse(BaseModel):
+    message: str
+    glucose_fetched: int
+    glucose_stored: int
+    events_fetched: int
+    events_stored: int
+
+
+#: Max length of the opaque PKCE session blob / pasted redirect URL.
+MAX_PKCE_BLOB_LEN = 8192
+
+
+class MedtronicConnectPairResponse(BaseModel):
+    """A short-lived pairing token for the local login-helper CLI."""
+
+    pairing_token: str
+    expires_at: datetime
+
+
+class MedtronicConnectInstallRequest(BaseModel):
+    """The web card's call to mint a short-handle install bundle.
+
+    Inputs mirror the four query params the long-form one-liner used to
+    inline. They're validated once here (instead of on every helper-
+    template render) and stored in Redis under the returned handle.
+    """
+
+    api_url: str = Field(min_length=1, max_length=1024)
+    username: str = Field(min_length=1, max_length=256)
+    region: str
+
+    @field_validator("api_url")
+    @classmethod
+    def _api_scheme(cls, v: str) -> str:
+        s = (v or "").strip()
+        if not s.startswith(("https://", "http://")):
+            raise ValueError("api_url must start with http:// or https://")
+        if any(c in s for c in "\r\n\0"):
+            raise ValueError("api_url contains control characters")
+        return s
+
+    @field_validator("username")
+    @classmethod
+    def _username_clean(cls, v: str) -> str:
+        s = (v or "").strip()
+        if not s:
+            raise ValueError("username is required")
+        if any(c in s for c in "\r\n\0"):
+            raise ValueError("username contains control characters")
+        return s
+
+    @field_validator("region")
+    @classmethod
+    def _install_region(cls, v: str) -> str:
+        key = (v or "").strip().upper()
+        if key not in SUPPORTED_CONNECT_REGIONS:
+            raise ValueError(
+                f"Unsupported region {v!r}; supported: {list(SUPPORTED_CONNECT_REGIONS)}"
+            )
+        return key
+
+
+class MedtronicConnectInstallResponse(BaseModel):
+    """Short-handle install bundle response. The frontend assembles the actual
+    install URL from this handle + its own knowledge of the instance origin --
+    the backend doesn't try to guess the user's reverse-proxy hostname.
+
+    ``pairing_token`` is the SAME underlying Fernet token stored inside the
+    handle's bundle. It's exposed here so the in-page Python-CLI advanced
+    fallback can still build a ``--pair <token>`` command without needing a
+    second backend call. Both the short ``/install/<handle>.sh`` URL and the
+    long-form CLI invocation consume the same jti at ``/exchange`` -- using
+    one immediately darks the other.
+    """
+
+    handle: str
+    pairing_token: str
+    expires_at: datetime
+
+
+class MedtronicConnectAuthUrlResponse(BaseModel):
+    """The one-time CarePartner login URL + an opaque PKCE session blob.
+
+    ``pkce_session`` is an encrypted blob (the backend holds the code_verifier
+    inside it); the frontend round-trips it to ``/connect/exchange`` unchanged.
+    It is opaque + Fernet-encrypted, so it carries no usable secret in the clear.
+    """
+
+    authorize_url: str
+    pkce_session: str
+    state: str
+
+
+class MedtronicConnectExchangeRequest(BaseModel):
+    """Complete the PKCE login: the opaque session + the pasted blocked-redirect
+    URL (which carries the single-use authorization ``code`` + ``state``)."""
+
+    pkce_session: str = Field(min_length=1, max_length=MAX_PKCE_BLOB_LEN)
+    redirect_url: str = Field(min_length=1, max_length=MAX_PKCE_BLOB_LEN)
+    username: str = Field(min_length=1, max_length=256)
+    role: str = "patient"
+    patient_id: str | None = Field(default=None, max_length=256)
+
+    @field_validator("role")
+    @classmethod
+    def _exchange_role(cls, v: str) -> str:
+        key = (v or "").strip().lower()
+        if key not in CONNECT_ROLES:
+            raise ValueError(
+                f"Unsupported role {v!r}; supported: {list(CONNECT_ROLES)}"
+            )
+        return key
+
+    @model_validator(mode="after")
+    def _follower_needs_patient(self) -> MedtronicConnectExchangeRequest:
+        if self.role == "carepartner" and not self.patient_id:
+            raise ValueError("patient_id is required for the carepartner role")
+        return self

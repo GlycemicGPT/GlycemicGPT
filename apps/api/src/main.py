@@ -180,6 +180,10 @@ app.add_middleware(
         # Carries the captured CareLink session token for the Medtronic manual
         # import (kept out of the request body so it can't leak via a 422 echo).
         "X-CareLink-Token",
+        # Carries the captured Auth0 refresh token for the Medtronic Connect
+        # autonomous-sync handshake (also kept out of the body for the same
+        # reason; it is encrypted at rest server-side).
+        "X-CareLink-Refresh-Token",
     ],
 )
 
