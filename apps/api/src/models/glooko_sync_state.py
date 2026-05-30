@@ -97,6 +97,16 @@ class GlookoSyncState(Base, TimestampMixin):
     encrypted_email: Mapped[str] = mapped_column(Text, nullable=False)
     encrypted_password: Mapped[str] = mapped_column(Text, nullable=False)
 
+    # When the user explicitly acknowledged the Glooko ToS / account-ban risk at
+    # connect time. Stamped server-side with the connect timestamp (never a
+    # client-supplied value); NULL means consent was never recorded. Lives on the
+    # row it governs, so disconnect (row delete) clears it and reconnecting
+    # re-requires consent.
+    consent_acknowledged_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
     enabled: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,

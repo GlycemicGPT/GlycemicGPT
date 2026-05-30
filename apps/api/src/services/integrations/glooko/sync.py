@@ -52,7 +52,7 @@ from src.models.glooko_sync_state import (
 from .auth import GlookoSession, glooko_login, resolve_region
 from .client import ZERO_GUID, GlookoClient
 from .errors import GlookoAuthError, GlookoNetworkError, GlookoSyncError
-from .mapper import map_glooko
+from .mapper import map_cgm_points, map_glooko
 from .storage import GlookoStoreResult, store_glooko_records
 
 logger = get_logger(__name__)
@@ -88,6 +88,15 @@ _IMPORT_MAX_PAGES = 200
 # is date-windowed, so we chunk to keep each request modest.
 _IMPORT_CGM_DAYS = 90
 _IMPORT_CGM_WINDOW_DAYS = 30
+
+# --- Availability-probe tuning ---
+# The read-only availability check answers "is CGM flowing, and over what recent
+# span" -- it does NOT need the import's full 90-day reach. A single recent window
+# (one login + one graph request) keeps the per-check upstream load minimal, which
+# matters because the connect card can call this repeatedly and Glooko's ToS treat
+# aggressive programmatic access as ban-worthy. 30 days = the import chunk size,
+# proven safe as a single request.
+_AVAILABILITY_LOOKBACK_DAYS = 30
 
 
 # Per-user in-flight locks. A manual "Sync now" / "Import" and the scheduled tick
@@ -395,6 +404,62 @@ async def _import_cgm_points(client: GlookoClient, now: datetime) -> list[dict]:
         )
         window_end = window_start
     return points
+
+
+# ---------------------------------------------------------------------------
+# Read-only availability probe
+# ---------------------------------------------------------------------------
+@dataclass
+class GlookoAvailability:
+    """What CGM data is reachable in the user's Glooko cloud right now."""
+
+    cgm_available: bool = False
+    earliest: datetime | None = None
+    latest: datetime | None = None
+
+
+async def probe_glooko_availability(
+    state: GlookoSyncState,
+    *,
+    now: datetime | None = None,
+) -> GlookoAvailability:
+    """Live, READ-ONLY probe of reachable Glooko CGM data for the connect card.
+
+    Logs in and fetches a single recent CGM window (``_AVAILABILITY_LOOKBACK_DAYS``)
+    to report whether CGM is flowing and over what recent span -- a lightweight
+    check, not the import's full-history reach. Deliberately does NOT touch the
+    ``GlookoSyncState`` row -- no ``last_attempt_at`` / ``status`` / ``last_error``
+    writes -- mirroring the Tandem #669 ``persist_status=False`` contract for
+    availability checks. Takes no ``db`` for that reason.
+
+    Raises (for the caller to map to HTTP) ``GlookoAuthError`` on bad credentials,
+    ``GlookoNetworkError`` on a transport failure, and ``ValueError`` on a bad
+    region or undecryptable credential -- never persisting any of them.
+    """
+    now = now or datetime.now(UTC)
+    # resolve_region raises ValueError on a bad region; decrypt raises on a
+    # corrupt credential. Both propagate WITHOUT mutating the row (read-only).
+    region = resolve_region(state.region).key
+    email = decrypt_credential(state.encrypted_email)
+    password = decrypt_credential(state.encrypted_password)
+
+    async def _reauth() -> GlookoSession:
+        return await glooko_login(email, password, region)
+
+    start = now - timedelta(days=_AVAILABILITY_LOOKBACK_DAYS)
+    session = await glooko_login(email, password, region)
+    async with GlookoClient(session, reauth=_reauth) as client:
+        points = await client.fetch_cgm_points(_iso_z(start), _iso_z(now))
+
+    # Base availability on what would actually be stored (post soft-delete /
+    # range filtering), not the raw point count.
+    mapped = map_cgm_points(points)
+    if not mapped:
+        return GlookoAvailability(cgm_available=False)
+    times = [m.timestamp for m in mapped]
+    return GlookoAvailability(
+        cgm_available=True, earliest=min(times), latest=max(times)
+    )
 
 
 # ---------------------------------------------------------------------------

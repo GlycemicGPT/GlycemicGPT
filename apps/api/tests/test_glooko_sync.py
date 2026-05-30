@@ -394,3 +394,49 @@ async def test_import_paginates_from_epoch(patched):
     assert len(windows) > 1
     assert windows[0][1] == gs._iso_z(_NOW)
     assert windows[-1][0] == gs._iso_z(_NOW - timedelta(days=gs._IMPORT_CGM_DAYS))
+
+
+# --- availability probe (read-only) ----------------------------------------
+async def test_probe_availability_is_read_only_and_lightweight(patched):
+    # A `connected` row with prior freshness; the probe must leave EVERY field
+    # untouched (the persist_status=False contract) -- it takes no db and must
+    # not mutate the row object either.
+    state = _state(
+        status=STATUS_CONNECTED,
+        last_sync_at=_NOW,
+        last_attempt_at=_NOW,
+        last_error="stale error",
+        readings_synced_total=42,
+        stream_cursors={"normal_boluses": {"last_updated_at": "x", "last_guid": "y"}},
+        last_cgm_window_end=_NOW,
+    )
+    snapshot = {
+        "status": state.status,
+        "last_sync_at": state.last_sync_at,
+        "last_attempt_at": state.last_attempt_at,
+        "last_error": state.last_error,
+        "readings_synced_total": state.readings_synced_total,
+        "stream_cursors": dict(state.stream_cursors),
+        "last_cgm_window_end": state.last_cgm_window_end,
+    }
+
+    result = await gs.probe_glooko_availability(state, now=_NOW)
+
+    # Nothing on the row changed.
+    assert state.status == snapshot["status"]
+    assert state.last_sync_at == snapshot["last_sync_at"]
+    assert state.last_attempt_at == snapshot["last_attempt_at"]
+    assert state.last_error == snapshot["last_error"]
+    assert state.readings_synced_total == snapshot["readings_synced_total"]
+    assert state.stream_cursors == snapshot["stream_cursors"]
+    assert state.last_cgm_window_end == snapshot["last_cgm_window_end"]
+
+    # The mapped fixture CGM point surfaces as available.
+    assert isinstance(result, gs.GlookoAvailability)
+    assert result.cgm_available is True
+    # Lightweight: a SINGLE recent window (one graph request), not the import walk.
+    assert len(patched["cgm_windows"]) == 1
+    assert patched["cgm_windows"][0] == (
+        gs._iso_z(_NOW - timedelta(days=gs._AVAILABILITY_LOOKBACK_DAYS)),
+        gs._iso_z(_NOW),
+    )
