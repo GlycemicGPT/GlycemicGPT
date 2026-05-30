@@ -22,6 +22,7 @@ import time
 import uuid
 
 import httpx
+from _ephemeral_guard import assert_ephemeral_target
 
 API_URL = os.environ.get("API_URL", "http://localhost:8001")
 
@@ -411,6 +412,9 @@ def test_cross_user_isolation() -> None:
 # Main
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
+    # Refuse to register throwaway users against the persistent dev stack.
+    assert_ephemeral_target(API_URL)
+
     print(f"Running dynamic security tests against {API_URL}")
     print("=" * 60)
 

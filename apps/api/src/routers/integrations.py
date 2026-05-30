@@ -3,13 +3,19 @@
 API endpoints for managing third-party integrations (Dexcom, Tandem) and data sync.
 """
 
+import json
 import math
+import secrets
+import time
 import uuid
 import zoneinfo
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 from fastapi import (
     APIRouter,
+    Cookie,
     Depends,
     Header,
     HTTPException,
@@ -18,21 +24,33 @@ from fastapi import (
     Response,
     status,
 )
+from fastapi.responses import FileResponse, PlainTextResponse
 from pydexcom import Dexcom
 from pydexcom import errors as dexcom_errors
-from sqlalchemy import and_, case, func, select, text
+from sqlalchemy import and_, case, delete, func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from tconnectsync.api.common import ApiException
 from tconnectsync.api.tandemsource import TandemSourceApi
 
-from src.core.auth import CurrentUser, DiabeticOrAdminUser
-from src.core.encryption import encrypt_credential
+from src.config import settings
+from src.core.auth import (
+    CurrentUser,
+    DiabeticOrAdminUser,
+    get_current_user,
+    require_diabetic_or_admin,
+)
+from src.core.connect_install_bundle import (
+    get_install_bundle,
+    store_install_bundle,
+)
+from src.core.encryption import decrypt_credential, encrypt_credential
 from src.core.medtronic_regions import resolve_region_base_url
 from src.core.tandem_regions import (
     country_to_cloud,
     is_legacy_tandem_region,
 )
+from src.core.token_blacklist import consume_token_once, is_token_blacklisted
 from src.database import get_db
 from src.logging_config import get_logger
 from src.middleware.rate_limit import limiter
@@ -42,11 +60,17 @@ from src.models.integration import (
     IntegrationStatus,
     IntegrationType,
 )
+from src.models.medtronic_connect_state import (
+    STATUS_CONNECTED,
+    STATUS_DISCONNECTED,
+    MedtronicConnectState,
+)
 from src.models.pump_data import PumpEvent, PumpEventType
 from src.models.tandem_sync_state import (
     SYNC_INTERVAL_DEFAULT_MINUTES,
     TandemSyncState,
 )
+from src.models.user import User
 from src.schemas.auth import ErrorResponse
 from src.schemas.forecast import (
     ForecastPayload,
@@ -82,6 +106,14 @@ from src.schemas.medtronic import (
     MAX_TOKEN_LEN,
     MedtronicAvailabilityRequest,
     MedtronicAvailabilityResponse,
+    MedtronicConnectAuthUrlResponse,
+    MedtronicConnectExchangeRequest,
+    MedtronicConnectInstallRequest,
+    MedtronicConnectInstallResponse,
+    MedtronicConnectPairResponse,
+    MedtronicConnectSettingsRequest,
+    MedtronicConnectStatusResponse,
+    MedtronicConnectSyncResponse,
     MedtronicImportRequest,
     MedtronicImportResponse,
 )
@@ -127,6 +159,25 @@ from src.services.integrations.medtronic.client import (
     CareLinkClient,
     CareLinkError,
     CareLinkReportTimeoutError,
+)
+from src.services.integrations.medtronic.connect_auth import (
+    ConnectTokenError,
+    build_authorize_url,
+    exchange_code_for_tokens,
+    generate_pkce,
+    get_region,
+)
+from src.services.integrations.medtronic.connect_pairing import (
+    CONNECT_PAIR_TOKEN_HEADER,
+    PAIR_TOKEN_TTL_SECONDS,
+    PairingTokenError,
+    decode_pairing_token,
+    issue_pairing_token,
+    pairing_token_jti,
+)
+from src.services.integrations.medtronic.connect_sync import (
+    ConnectSyncError,
+    sync_connect_for_user,
 )
 from src.services.integrations.medtronic.sync import sync_carelink_for_user
 from src.services.iob_projection import get_iob_projection, get_user_dia
@@ -1840,6 +1891,868 @@ async def import_medtronic_range(
 
     return MedtronicImportResponse(
         message="Import completed successfully",
+        glucose_fetched=result.glucose_fetched,
+        glucose_stored=result.glucose_stored,
+        events_fetched=result.events_fetched,
+        events_stored=result.events_stored,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Medtronic CareLink CarePartner (Connect) -- autonomous sync (feature A)
+#
+# Disabled by default until the mapping is validated on a live pump. The
+# one-time CarePartner login captures an Auth0 auth code; the backend exchanges
+# it for a refresh token, stores it encrypted, and the scheduler renews + pulls
+# the recent (~24h) follower snapshot on a per-user cadence (Tandem parity).
+# Because the only allowed interactive grant redirects to a mobile-app custom
+# scheme, the login + capture is driven by a local helper CLI, which
+# authenticates here with a short-lived pairing token (see connect_pairing).
+# ---------------------------------------------------------------------------
+
+
+async def get_connect_actor(
+    request: Request,
+    pair_token: str | None = Header(default=None, alias=CONNECT_PAIR_TOKEN_HEADER),
+    session_token: str | None = Cookie(default=None, alias=settings.jwt_cookie_name),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Resolve the acting user for the Connect handshake from EITHER a pairing
+    token (the local login-helper CLI) OR the normal session/Bearer/API-key
+    auth (the web UI). Scoped to the handshake endpoints only -- the pairing
+    token cannot authenticate anything else."""
+    if pair_token:
+        try:
+            user_id = decode_pairing_token(pair_token)
+        except PairingTokenError as e:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired pairing token. Reissue it from GlycemicGPT.",
+            ) from e
+        user = (
+            await db.execute(select(User).where(User.id == user_id))
+        ).scalar_one_or_none()
+        if user is None or not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
+            )
+        await require_diabetic_or_admin(request, user)
+        return user
+    # No pairing token -> normal auth (cookie/Bearer/API-key) + role check.
+    user = await get_current_user(request, session_token, db)
+    await require_diabetic_or_admin(request, user)
+    return user
+
+
+@router.post(
+    "/medtronic/connect/pair",
+    response_model=MedtronicConnectPairResponse,
+    responses={
+        200: {"description": "Pairing token issued"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+    },
+)
+@limiter.limit("10/minute")
+async def pair_medtronic_connect(
+    request: Request,
+    current_user: DiabeticOrAdminUser,
+) -> MedtronicConnectPairResponse:
+    """Mint a short-lived pairing token for the local login-helper CLI. Only a
+    logged-in web user can mint one (for their own account)."""
+    token, expires_at = issue_pairing_token(current_user.id)
+    logger.info("Medtronic Connect pairing token issued", user_id=str(current_user.id))
+    return MedtronicConnectPairResponse(pairing_token=token, expires_at=expires_at)
+
+
+# ---------------------------------------------------------------------------
+# Helper-binary distribution (gated by the pair token)
+#
+# These endpoints serve the small native Go helper (chromedp-driven CarePartner
+# login + 302 capture) that runs on the user's PC during a one-time setup.
+# They are intentionally gated by the SAME short-lived pair token used for the
+# rest of the handshake -- i.e., they only respond when a user has actively
+# clicked "Connect with the desktop helper" in the web UI, and they go dark
+# again the moment `/exchange` consumes the token (or it expires). This is the
+# explicit "not constantly exposed" property we want: no helper download
+# surface exists outside an active pairing window.
+#
+# All failures return 404 (not 401/403) so the endpoints look indistinguishable
+# from "not there" when no active pairing is in progress.
+# ---------------------------------------------------------------------------
+
+#: Where the API container has the per-OS/arch helper binaries baked in by the
+#: multi-stage Dockerfile. In dev (no Go builder ran) the files are absent and
+#: the binary endpoint just returns 404 -- power users fall back to the Python
+#: CLI.
+_CONNECT_HELPER_DIST_ROOT = Path("/app/connect-helper-dist")
+
+#: Allowlist of (os, arch) the binary endpoint will serve. Anything else 404s.
+_CONNECT_HELPER_PLATFORMS: set[tuple[str, str]] = {
+    ("linux", "amd64"),
+    ("linux", "arm64"),
+    ("darwin", "amd64"),
+    ("darwin", "arm64"),
+    ("windows", "amd64"),
+}
+
+
+async def _pair_token_or_404(pair: str | None) -> str:
+    """Validate a pair token for helper-download endpoints. Returns the jti.
+
+    Returns 404 (not 401) on ANY failure -- a probe should not be able to
+    distinguish "no active pairing" from "wrong token" from "endpoint exists."
+    """
+    not_found = HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    if not pair:
+        raise not_found
+    try:
+        jti = pairing_token_jti(pair)
+    except PairingTokenError as e:
+        raise not_found from e
+    # Once /exchange consumed the token, the helper download must go dark too.
+    if await is_token_blacklisted(f"medtronic_pair:{jti}"):
+        raise not_found
+    return jti
+
+
+def _bash_q(value: str) -> str:
+    """POSIX single-quote a value for safe embedding in a bash script."""
+    return "'" + value.replace("'", "'\\''") + "'"
+
+
+def _ps_q(value: str) -> str:
+    """PowerShell single-quote a value for safe embedding in a .ps1 script."""
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _validate_helper_inputs(
+    api: str, region: str, username: str
+) -> tuple[str, str, str]:
+    """Common boundary checks for helper.sh / helper.ps1. 404s on any failure."""
+    not_found = HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    api_stripped = (api or "").strip()
+    if not api_stripped or not api_stripped.startswith(("https://", "http://")):
+        raise not_found
+    if len(api_stripped) > 1024 or any(c in api_stripped for c in "\r\n\0"):
+        raise not_found
+    try:
+        get_region(region)  # validates against the live regions allowlist
+    except ValueError as e:
+        raise not_found from e
+    user_stripped = (username or "").strip()
+    if not (1 <= len(user_stripped) <= 256) or any(
+        c in user_stripped for c in "\r\n\0"
+    ):
+        raise not_found
+    return api_stripped, region.upper(), user_stripped
+
+
+_HELPER_SH_TEMPLATE = """#!/bin/bash
+# GlycemicGPT Medtronic CareLink CarePartner Connect helper installer.
+# This script is auto-generated by your GlycemicGPT instance and is only
+# valid for a single pairing window (~15 minutes, single-use).
+set -eu
+
+API={api}
+PAIR={pair}
+USERNAME={username}
+REGION={region}
+
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m)
+case "$ARCH" in
+  x86_64|amd64) ARCH=amd64 ;;
+  arm64|aarch64) ARCH=arm64 ;;
+esac
+case "$OS:$ARCH" in
+  linux:amd64|linux:arm64|darwin:amd64|darwin:arm64) ;;
+  *) echo "Unsupported OS/arch: $OS/$ARCH" >&2; exit 1 ;;
+esac
+
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+BIN="$TMP/glycemicgpt-connect"
+
+echo "Downloading helper for $OS/$ARCH from $API..."
+curl -fsSL -H "X-Connect-Pair-Token: $PAIR" "$API/api/integrations/medtronic/connect/helper-binary?os=$OS&arch=$ARCH" -o "$BIN"
+chmod +x "$BIN"
+
+echo "Launching browser; sign in to CareLink to complete setup."
+"$BIN" --api "$API" --pair "$PAIR" --username "$USERNAME" --region "$REGION"
+"""
+
+
+_HELPER_PS1_TEMPLATE = """# GlycemicGPT Medtronic CareLink CarePartner Connect helper installer.
+# Auto-generated by your GlycemicGPT instance; valid for one pairing window.
+$ErrorActionPreference = 'Stop'
+
+$API = {api}
+$PAIR = {pair}
+$USERNAME = {username}
+$REGION = {region}
+
+if (-not [Environment]::Is64BitProcess) {{
+    Write-Error '32-bit Windows is not supported.'
+    exit 1
+}}
+$OS = 'windows'
+$ARCH = 'amd64'
+
+$BIN = Join-Path ([System.IO.Path]::GetTempPath()) 'glycemicgpt-connect.exe'
+Write-Host "Downloading helper for $OS/$ARCH from $API..."
+Invoke-WebRequest -Headers @{{ 'X-Connect-Pair-Token' = $PAIR }} -Uri "$API/api/integrations/medtronic/connect/helper-binary?os=$OS&arch=$ARCH" -OutFile $BIN -UseBasicParsing
+
+Write-Host 'Launching browser; sign in to CareLink to complete setup.'
+& $BIN --api $API --pair $PAIR --username $USERNAME --region $REGION
+"""
+
+
+@router.get(
+    "/medtronic/connect/helper.sh",
+    response_class=PlainTextResponse,
+    include_in_schema=False,
+)
+async def medtronic_connect_helper_sh(
+    request: Request,
+    pair: str = Query(default=""),
+    api: str = Query(default=""),
+    username: str = Query(default=""),
+    region: str = Query(default="US"),
+) -> PlainTextResponse:
+    """Render the bash helper-installer script, pre-filled and gated by the pair token."""
+    await _pair_token_or_404(pair)
+    api_v, region_v, username_v = _validate_helper_inputs(api, region, username)
+    body = _HELPER_SH_TEMPLATE.format(
+        api=_bash_q(api_v),
+        pair=_bash_q(pair),
+        username=_bash_q(username_v),
+        region=_bash_q(region_v),
+    )
+    # Prevent any intermediate cache from serving a stale + tokenised script.
+    return PlainTextResponse(
+        body,
+        media_type="text/x-shellscript; charset=utf-8",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.get(
+    "/medtronic/connect/helper.ps1",
+    response_class=PlainTextResponse,
+    include_in_schema=False,
+)
+async def medtronic_connect_helper_ps1(
+    request: Request,
+    pair: str = Query(default=""),
+    api: str = Query(default=""),
+    username: str = Query(default=""),
+    region: str = Query(default="US"),
+) -> PlainTextResponse:
+    """Render the PowerShell helper-installer script, pre-filled and gated by the pair token."""
+    await _pair_token_or_404(pair)
+    api_v, region_v, username_v = _validate_helper_inputs(api, region, username)
+    body = _HELPER_PS1_TEMPLATE.format(
+        api=_ps_q(api_v),
+        pair=_ps_q(pair),
+        username=_ps_q(username_v),
+        region=_ps_q(region_v),
+    )
+    return PlainTextResponse(
+        body,
+        media_type="text/plain; charset=utf-8",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.get(
+    "/medtronic/connect/helper-binary",
+    include_in_schema=False,
+)
+async def medtronic_connect_helper_binary(
+    request: Request,
+    os: str = Query(default=""),
+    arch: str = Query(default=""),
+    pair: str = Header(default="", alias="X-Connect-Pair-Token"),
+) -> FileResponse:
+    """Stream the right Go helper binary for the requested OS/arch.
+
+    The pair token is taken from the ``X-Connect-Pair-Token`` header (not the
+    query string) so it can't leak through reverse-proxy access logs, browser
+    history, or endpoint telemetry. The generated installer scripts send it via
+    ``curl -H`` / ``Invoke-WebRequest -Headers``.
+
+    Binaries are baked into the API image by the multi-stage Dockerfile; in dev
+    (no Go builder ran) the files are absent and we 404, which falls through to
+    the Python CLI as the advanced/dev path.
+    """
+    await _pair_token_or_404(pair)
+    key = (os.lower(), arch.lower())
+    if key not in _CONNECT_HELPER_PLATFORMS:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    bin_name = "glycemicgpt-connect" + (".exe" if key[0] == "windows" else "")
+    path = _CONNECT_HELPER_DIST_ROOT / key[0] / key[1] / bin_name
+    if not path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    return FileResponse(
+        path,
+        media_type="application/octet-stream",
+        filename=bin_name,
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Short-handle install URLs
+#
+# The long-form helper.sh URL carries the Fernet pair token (~272 chars) in
+# the query string -- a 540-char copy-paste line in the web UI. These
+# endpoints introduce an 8-byte (16-hex-char) opaque handle that indexes a
+# server-side bundle containing the same {pair, api, username, region}; the
+# user only ever sees the handle. Same single-use gate as the long form:
+# the bundle's pair-token jti is checked against the blacklist on every
+# render, so the install URL goes dark the instant /exchange consumes it.
+#
+# 16 hex chars = 64 bits of entropy. Inside the 15-min TTL, even at 10^5
+# guesses/sec brute-force, the success probability is ~5e-11. The /install
+# minter is rate-limited at 10/min behind cookie+CSRF auth, so an
+# unauthenticated attacker can't even bulk-enumerate handles to test.
+# ---------------------------------------------------------------------------
+
+#: How many random bytes a handle encodes. 8 bytes -> 16 hex chars.
+_INSTALL_HANDLE_BYTES = 8
+
+
+def _new_install_handle() -> str:
+    """Cryptographically random 16-hex-char handle for install bundles."""
+    return secrets.token_hex(_INSTALL_HANDLE_BYTES)
+
+
+async def _install_bundle_or_404(handle: str) -> tuple[str, str, str, str]:
+    """Resolve a handle to (pair_token, api, username, region) or 404.
+
+    Same posture as `_pair_token_or_404`: any failure (unknown handle,
+    expired bundle, malformed payload, or a pair-token jti already on the
+    blacklist) returns 404, so the endpoint is indistinguishable from
+    "not there" without a live pairing window.
+    """
+    not_found = HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    bundle = await get_install_bundle(handle)
+    if not bundle:
+        raise not_found
+    pair = bundle.get("pair")
+    api = bundle.get("api")
+    username = bundle.get("username")
+    region = bundle.get("region")
+    if not all(isinstance(v, str) and v for v in (pair, api, username, region)):
+        raise not_found
+    # If the underlying pair token has been consumed by /exchange (or
+    # expired), the install URL must go dark too.
+    try:
+        jti = pairing_token_jti(pair)
+    except PairingTokenError as e:
+        raise not_found from e
+    if await is_token_blacklisted(f"medtronic_pair:{jti}"):
+        raise not_found
+    return pair, api, username, region
+
+
+@router.post(
+    "/medtronic/connect/install",
+    response_model=MedtronicConnectInstallResponse,
+    responses={
+        200: {"description": "Install bundle minted; handle returned"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        422: {"model": ErrorResponse, "description": "Invalid api_url/username/region"},
+    },
+)
+@limiter.limit("10/minute")
+async def install_medtronic_connect(
+    request: Request,
+    payload: MedtronicConnectInstallRequest,
+    current_user: DiabeticOrAdminUser,
+) -> MedtronicConnectInstallResponse:
+    """Mint a single-use install bundle for the desktop helper.
+
+    The bundle holds the pair token + the three "what to tell the helper"
+    fields the long URL used to carry as query string. Returns only the
+    opaque handle + expiry; the web card builds the actual install URL
+    from its own origin (so a reverse-proxy hostname is honored).
+    """
+    token, expires_at = issue_pairing_token(current_user.id)
+    handle = _new_install_handle()
+    await store_install_bundle(
+        handle,
+        {
+            "pair": token,
+            "api": payload.api_url,
+            "username": payload.username,
+            "region": payload.region,
+        },
+        ttl_seconds=PAIR_TOKEN_TTL_SECONDS,
+    )
+    logger.info(
+        "Medtronic Connect install bundle issued",
+        user_id=str(current_user.id),
+        region=payload.region,
+    )
+    return MedtronicConnectInstallResponse(
+        handle=handle, pairing_token=token, expires_at=expires_at
+    )
+
+
+@router.get(
+    "/medtronic/connect/install/{handle}.sh",
+    response_class=PlainTextResponse,
+    include_in_schema=False,
+)
+async def medtronic_connect_install_sh(
+    request: Request,
+    handle: str,
+) -> PlainTextResponse:
+    """Render the bash helper-installer for a short-handle bundle.
+
+    Same output as ``/helper.sh?pair=…&api=…&username=…&region=…`` but the
+    bundle's values come from Redis under the handle rather than the
+    query string.
+    """
+    pair, api, username, region = await _install_bundle_or_404(handle)
+    body = _HELPER_SH_TEMPLATE.format(
+        api=_bash_q(api),
+        pair=_bash_q(pair),
+        username=_bash_q(username),
+        region=_bash_q(region),
+    )
+    return PlainTextResponse(
+        body,
+        media_type="text/x-shellscript; charset=utf-8",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.get(
+    "/medtronic/connect/install/{handle}.ps1",
+    response_class=PlainTextResponse,
+    include_in_schema=False,
+)
+async def medtronic_connect_install_ps1(
+    request: Request,
+    handle: str,
+) -> PlainTextResponse:
+    """Render the PowerShell helper-installer for a short-handle bundle."""
+    pair, api, username, region = await _install_bundle_or_404(handle)
+    body = _HELPER_PS1_TEMPLATE.format(
+        api=_ps_q(api),
+        pair=_ps_q(pair),
+        username=_ps_q(username),
+        region=_ps_q(region),
+    )
+    return PlainTextResponse(
+        body,
+        media_type="text/plain; charset=utf-8",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+async def _store_connect_state(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    *,
+    region_key: str,
+    username: str,
+    refresh_token: str,
+    role: str,
+    patient_id: str | None,
+) -> MedtronicConnectState:
+    """Upsert-then-lock the Connect state row with a fresh (encrypted) credential.
+
+    Used by both connect paths (direct header handshake + PKCE exchange). The
+    refresh token is encrypted at rest and never returned to the client.
+    """
+    enc_username = encrypt_credential(username)
+    enc_refresh = encrypt_credential(refresh_token)
+    enc_patient = encrypt_credential(patient_id) if patient_id else None
+
+    await db.execute(
+        pg_insert(MedtronicConnectState)
+        .values(
+            user_id=user_id,
+            region=region_key,
+            encrypted_username=enc_username,
+            encrypted_refresh_token=enc_refresh,
+            role=role,
+            encrypted_patient_id=enc_patient,
+            enabled=True,
+            status=STATUS_CONNECTED,
+        )
+        .on_conflict_do_nothing(index_elements=["user_id"])
+    )
+    state = (
+        await db.execute(
+            select(MedtronicConnectState)
+            .where(MedtronicConnectState.user_id == user_id)
+            .with_for_update()
+        )
+    ).scalar_one()
+    # Overwrite (covers the existing-row / reconnect case).
+    state.region = region_key
+    state.encrypted_username = enc_username
+    state.encrypted_refresh_token = enc_refresh
+    state.role = role
+    state.encrypted_patient_id = enc_patient
+    state.enabled = True
+    state.status = STATUS_CONNECTED
+    state.last_error = None
+    await db.commit()
+    return state
+
+
+def _connect_status_response(
+    state: MedtronicConnectState | None,
+) -> MedtronicConnectStatusResponse:
+    """Build the status response from a state row (never exposes the token)."""
+    if state is None:
+        return MedtronicConnectStatusResponse(
+            connected=False,
+            status="not_configured",
+            enabled=False,
+        )
+    return MedtronicConnectStatusResponse(
+        connected=state.status == STATUS_CONNECTED,
+        status=state.status,
+        enabled=state.enabled,
+        region=state.region,
+        role=state.role,
+        sync_interval_minutes=state.sync_interval_minutes,
+        last_sync_at=state.last_sync_at,
+        last_error=state.last_error,
+        readings_synced_total=state.readings_synced_total,
+    )
+
+
+# How long a started PKCE login stays valid before the user must restart it.
+_PKCE_SESSION_TTL_SECONDS = 900
+
+
+@router.get(
+    "/medtronic/connect/authorize-url",
+    response_model=MedtronicConnectAuthUrlResponse,
+    responses={
+        200: {"description": "Authorize URL + opaque PKCE session"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        422: {"model": ErrorResponse, "description": "Invalid region"},
+    },
+)
+@limiter.limit("10/minute")
+async def get_medtronic_connect_authorize_url(
+    request: Request,
+    region: str = Query(description="CarePartner region: US or EU"),
+    current_user: User = Depends(get_connect_actor),
+) -> MedtronicConnectAuthUrlResponse:
+    """Start the one-time CarePartner PKCE login.
+
+    Returns the Auth0 ``/authorize`` URL (the user opens it, logs in, solves the
+    captcha) plus an opaque, encrypted ``pkce_session`` that carries the
+    code_verifier server-side -- the verifier never reaches the browser in the
+    clear. The frontend round-trips ``pkce_session`` to ``/connect/exchange``.
+    """
+    try:
+        reg = get_region(region)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
+        ) from e
+
+    verifier, challenge = generate_pkce()
+    state = secrets.token_urlsafe(16)
+    authorize_url = build_authorize_url(reg, code_challenge=challenge, state=state)
+    # Encrypt the verifier + binding into an opaque blob (Fernet). It carries no
+    # usable secret in the clear and is bound to this user + a freshness stamp.
+    pkce_session = encrypt_credential(
+        json.dumps(
+            {
+                "v": verifier,
+                "r": reg.key,
+                "s": state,
+                "u": str(current_user.id),
+                "ts": int(time.time()),
+            }
+        )
+    )
+    return MedtronicConnectAuthUrlResponse(
+        authorize_url=authorize_url, pkce_session=pkce_session, state=state
+    )
+
+
+@router.post(
+    "/medtronic/connect/exchange",
+    response_model=MedtronicConnectStatusResponse,
+    responses={
+        200: {"description": "Connected"},
+        401: {"model": ErrorResponse, "description": "Authorization code rejected"},
+        422: {
+            "model": ErrorResponse,
+            "description": "Invalid/expired session or unparseable redirect",
+        },
+        503: {"model": ErrorResponse, "description": "CareLink auth unavailable"},
+    },
+)
+@limiter.limit("5/minute")
+async def exchange_medtronic_connect_code(
+    body: MedtronicConnectExchangeRequest,
+    request: Request,
+    current_user: User = Depends(get_connect_actor),
+    pair_token: str | None = Header(default=None, alias=CONNECT_PAIR_TOKEN_HEADER),
+    db: AsyncSession = Depends(get_db),
+) -> MedtronicConnectStatusResponse:
+    """Finish the login: parse the captured redirect for the ``code`` + ``state``,
+    exchange them for a refresh token, and store it (encrypted). The authorization
+    code is single-use and useless without the server-held verifier.
+
+    When authenticated by a pairing token (the local helper CLI), the token's
+    ``jti`` is consumed once -- AFTER the Auth0 code exchange succeeds but BEFORE
+    storing -- so (a) a transient failure (bad/expired code, network) does NOT
+    burn a still-valid token (the CLI can retry in the same window), and (b) a
+    replayed token still can't overwrite the stored credential with a different
+    CareLink account."""
+    try:
+        session = json.loads(decrypt_credential(body.pkce_session))
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid connect session. Please restart the CarePartner login.",
+        ) from e
+
+    # Bind the session to this user + enforce freshness (replay/staleness guard).
+    if session.get("u") != str(current_user.id):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Connect session does not belong to this account.",
+        )
+    if int(time.time()) - int(session.get("ts", 0)) > _PKCE_SESSION_TTL_SECONDS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Connect login expired. Please restart the CarePartner login.",
+        )
+
+    try:
+        reg = get_region(session["r"])
+    except (ValueError, KeyError) as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid connect session region.",
+        ) from e
+
+    # Parse the pasted redirect (custom scheme -> still urlparse-able).
+    parsed = urlparse(body.redirect_url.strip())
+    qs = parse_qs(parsed.query)
+    code = (qs.get("code") or [None])[0]
+    returned_state = (qs.get("state") or [None])[0]
+    if not code:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Could not find an authorization code in the pasted URL. Copy the "
+                "full address you were redirected to after signing in."
+            ),
+        )
+    # CSRF/mix-up guard: the returned state must match the one we issued.
+    if returned_state != session.get("s"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Connect login could not be verified. Please try again.",
+        )
+
+    try:
+        token_result = await exchange_code_for_tokens(reg, code, session["v"])
+    except ConnectTokenError as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=(
+                "Could not complete the CareLink login. Please sign in again "
+                "and paste the redirect promptly (the code is short-lived)."
+            ),
+        ) from e
+    except ValueError as e:  # untrusted host (defensive)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
+        ) from e
+
+    # Auth0 exchange succeeded -> now consume the pairing token (single-use)
+    # BEFORE storing, so a replayed token can't overwrite the credential. A
+    # transient failure above left the token unconsumed, so the CLI can retry.
+    if pair_token is not None:
+        try:
+            jti = pairing_token_jti(pair_token)
+        except PairingTokenError as e:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired pairing token.",
+            ) from e
+        if not await consume_token_once(
+            f"medtronic_pair:{jti}", PAIR_TOKEN_TTL_SECONDS
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=(
+                    "This pairing token was already used. Start a new connection "
+                    "from GlycemicGPT to get a fresh one."
+                ),
+            )
+
+    state = await _store_connect_state(
+        db,
+        current_user.id,
+        region_key=reg.key,
+        username=body.username,
+        refresh_token=token_result.refresh_token,
+        role=body.role,
+        patient_id=body.patient_id,
+    )
+    logger.info(
+        "Medtronic Connect connected (PKCE)",
+        user_id=str(current_user.id),
+        region=reg.key,
+        role=body.role,
+    )
+    return _connect_status_response(state)
+
+
+@router.get(
+    "/medtronic/connect/status",
+    response_model=MedtronicConnectStatusResponse,
+    responses={
+        200: {"description": "Connect status"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+    },
+)
+async def get_medtronic_connect_status(
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> MedtronicConnectStatusResponse:
+    """Report the user's Medtronic Connect sync status (no token exposed)."""
+    state = (
+        await db.execute(
+            select(MedtronicConnectState).where(
+                MedtronicConnectState.user_id == current_user.id
+            )
+        )
+    ).scalar_one_or_none()
+    return _connect_status_response(state)
+
+
+@router.put(
+    "/medtronic/connect/settings",
+    response_model=MedtronicConnectStatusResponse,
+    responses={
+        200: {"description": "Settings updated"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        404: {"model": ErrorResponse, "description": "Connect not configured"},
+    },
+)
+async def update_medtronic_connect_settings(
+    body: MedtronicConnectSettingsRequest,
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> MedtronicConnectStatusResponse:
+    """Update the per-user Connect sync toggle + interval. 404 if not connected
+    (there is no row to control until the user completes the handshake)."""
+    state = (
+        await db.execute(
+            select(MedtronicConnectState)
+            .where(MedtronicConnectState.user_id == current_user.id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if state is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Medtronic Connect is not configured. Connect it first.",
+        )
+    state.enabled = body.enabled
+    state.sync_interval_minutes = body.sync_interval_minutes
+    await db.commit()
+    logger.info(
+        "Medtronic Connect settings updated",
+        user_id=str(current_user.id),
+        enabled=body.enabled,
+        interval_minutes=body.sync_interval_minutes,
+    )
+    return _connect_status_response(state)
+
+
+@router.post(
+    "/medtronic/connect/disconnect",
+    responses={
+        200: {"description": "Disconnected"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+    },
+)
+async def disconnect_medtronic_connect(
+    request: Request,
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    """Disconnect Medtronic Connect: delete the state row (and its encrypted
+    refresh token). Idempotent."""
+    await db.execute(
+        delete(MedtronicConnectState).where(
+            MedtronicConnectState.user_id == current_user.id
+        )
+    )
+    await db.commit()
+    logger.info("Medtronic Connect disconnected", user_id=str(current_user.id))
+    return {"message": "Medtronic Connect disconnected"}
+
+
+@router.post(
+    "/medtronic/connect/sync",
+    response_model=MedtronicConnectSyncResponse,
+    responses={
+        200: {"description": "Sync completed"},
+        401: {"model": ErrorResponse, "description": "Refresh token expired"},
+        404: {"model": ErrorResponse, "description": "Connect not configured"},
+        503: {"model": ErrorResponse, "description": "CareLink unavailable"},
+    },
+)
+@limiter.limit("5/minute")
+async def sync_medtronic_connect_now(
+    request: Request,
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> MedtronicConnectSyncResponse:
+    """Manually trigger a Connect sync now (in addition to the scheduler)."""
+    state = (
+        await db.execute(
+            select(MedtronicConnectState).where(
+                MedtronicConnectState.user_id == current_user.id
+            )
+        )
+    ).scalar_one_or_none()
+    if state is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Medtronic Connect is not configured. Connect it first.",
+        )
+    try:
+        result = await sync_connect_for_user(db, state)
+    except ConnectSyncError as e:
+        # The orchestrator already recorded the failure on the row. A dead
+        # refresh token surfaces as 401 (user must re-login); anything else 503.
+        if state.status == STATUS_DISCONNECTED:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=(
+                    "Your CareLink login expired. Please complete the "
+                    "CarePartner sign-in again to reconnect."
+                ),
+            ) from e
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to reach CareLink. Please try again later.",
+        ) from e
+
+    return MedtronicConnectSyncResponse(
+        message="Sync completed successfully",
         glucose_fetched=result.glucose_fetched,
         glucose_stored=result.glucose_stored,
         events_fetched=result.events_fetched,

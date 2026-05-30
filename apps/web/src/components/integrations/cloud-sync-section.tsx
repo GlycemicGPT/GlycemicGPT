@@ -8,6 +8,7 @@ import { TANDEM_COUNTRY_GROUPS } from "@/lib/tandem-countries";
 import { IntegrationCard, PasswordInput, StatusBadge } from "./integration-card";
 import { TandemSyncCard } from "./tandem-sync-card";
 import { MedtronicImportCard } from "./medtronic-import-card";
+import { MedtronicConnectCard } from "./medtronic-connect-card";
 
 interface CloudSyncSectionProps {
   tandem: IntegrationResponse | null;
@@ -146,7 +147,12 @@ export function CloudSyncSection({
         </CollapsibleSection>
 
         <CollapsibleSection title="Medtronic CareLink" variant="subsection">
-          <MedtronicImportCard isOffline={isOffline} />
+          <div className="space-y-4">
+            {/* Automatic sync (CarePartner/Connect) -- ongoing recent data. */}
+            <MedtronicConnectCard isOffline={isOffline} />
+            {/* Manual historical import -- deep backfill from the CareLink site. */}
+            <MedtronicImportCard isOffline={isOffline} />
+          </div>
         </CollapsibleSection>
       </div>
     </CollapsibleSection>

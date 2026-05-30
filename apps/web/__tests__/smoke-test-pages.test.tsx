@@ -105,6 +105,16 @@ jest.mock("@/lib/api", () => ({
   syncNightscoutConnection: jest.fn().mockResolvedValue({}),
   deleteNightscoutConnection: jest.fn().mockResolvedValue(undefined),
   patchNightscoutConnection: jest.fn().mockResolvedValue({}),
+  // Medtronic CareLink Connect (autonomous sync)
+  getMedtronicConnectStatus: jest
+    .fn()
+    .mockResolvedValue({ connected: false, status: "not_configured", enabled: false }),
+  installMedtronicConnect: jest.fn().mockResolvedValue({}),
+  syncMedtronicConnectNow: jest.fn().mockResolvedValue({}),
+  updateMedtronicConnectSettings: jest
+    .fn()
+    .mockResolvedValue({ connected: false, status: "not_configured", enabled: false }),
+  disconnectMedtronicConnect: jest.fn().mockResolvedValue(undefined),
   // Caregivers
   listLinkedCaregivers: jest.fn().mockResolvedValue({ caregivers: [] }),
   listCaregiverInvitations: jest.fn().mockResolvedValue({ invitations: [] }),

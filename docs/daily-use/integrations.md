@@ -15,7 +15,8 @@ This page is the index. Each integration with a longer setup flow has its own pa
 |---|---|---|---|
 | [Dexcom](./connecting-dexcom.md) | Real-time glucose | Have a Dexcom G6 / G7 / ONE+ | Dexcom email + password |
 | [Tandem Cloud](./connecting-tandem-cloud.md) | Pump history, boluses, basal, IoB | Have a t:slim X2 or Mobi | Tandem email + password |
-| [Nightscout](#nightscout) | CGM entries, treatments, devicestatus, profile | Already run a Nightscout site -- often with a CGM we don't speak directly to (Libre, Eversense, Medtronic, etc.) | Nightscout URL + API_SECRET |
+| [Medtronic CareLink](./connecting-medtronic.md) | CGM, boluses, carbs, fingersticks | Have a Medtronic pump + CGM on CareLink | CareLink login (signed in via your browser) |
+| [Nightscout](#nightscout) | CGM entries, treatments, devicestatus, profile | Already run a Nightscout site -- often with a CGM we don't speak directly to (Libre, Eversense, etc.) | Nightscout URL + API_SECRET |
 
 Everything lives at **Settings → Integrations** on the dashboard.
 
@@ -23,7 +24,7 @@ Everything lives at **Settings → Integrations** on the dashboard.
 
 ## Nightscout
 
-If you already self-host (or use a hosted) [Nightscout](https://nightscout.github.io/), GlycemicGPT can read your CGM entries, pump treatments, devicestatus, and profile straight from your Nightscout site. This is the easiest path for CGMs we don't speak to directly (Libre, Eversense, Medtronic), and for closed-loop users on Loop / AAPS / Trio whose loop already uploads to Nightscout.
+If you already self-host (or use a hosted) [Nightscout](https://nightscout.github.io/), GlycemicGPT can read your CGM entries, pump treatments, devicestatus, and profile straight from your Nightscout site. This is the easiest path for CGMs we don't speak to directly (Libre, Eversense), and for closed-loop users on Loop / AAPS / Trio whose loop already uploads to Nightscout. (Medtronic users can also connect [CareLink directly](./connecting-medtronic.md).)
 
 > **Why connect Nightscout?** Anything that flows into Nightscout -- glucose entries, boluses, basal changes, loop status, profile settings -- flows into GlycemicGPT through this connection. It's the universal onramp for the diabetes-OSS ecosystem.
 

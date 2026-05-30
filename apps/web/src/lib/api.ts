@@ -3685,3 +3685,130 @@ export async function importMedtronicRange(
   }
   return response.json();
 }
+
+// ============================================================================
+// Medtronic CareLink CarePartner (Connect) -- autonomous sync
+// The one-time CarePartner login is done by a LOCAL desktop helper CLI (the
+// login redirects to a mobile-app scheme a web app can't receive). The web UI
+// only mints a short-lived pairing token for that CLI and shows status. The
+// refresh token is exchanged + stored server-side; it never reaches the browser.
+// ============================================================================
+
+export interface MedtronicConnectStatus {
+  connected: boolean;
+  status: string;
+  enabled: boolean;
+  // The not-configured response only includes connected/status/enabled; the
+  // rest are present only once connected.
+  region?: string | null;
+  role?: string | null;
+  sync_interval_minutes?: number | null;
+  last_sync_at?: string | null;
+  last_error?: string | null;
+  readings_synced_total?: number;
+}
+
+export interface MedtronicConnectInstall {
+  handle: string;
+  pairing_token: string;
+  expires_at: string;
+}
+
+export interface MedtronicConnectSyncResult {
+  message: string;
+  glucose_fetched: number;
+  glucose_stored: number;
+  events_fetched: number;
+  events_stored: number;
+}
+
+/** Read the user's Medtronic Connect autonomous-sync status. */
+export async function getMedtronicConnectStatus(): Promise<MedtronicConnectStatus> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/medtronic/connect/status`
+  );
+  if (!response.ok) {
+    throw new Error(
+      await _readErrorDetail(response, "Failed to read Connect status")
+    );
+  }
+  return response.json();
+}
+
+/** Mint a short-handle install bundle for the desktop helper one-liner.
+ * The handle indexes a server-side bundle (pair token + api/username/region)
+ * so the copy-paste command stays compact instead of carrying the long
+ * Fernet pair token in the URL. Same TTL + single-use gate as the long form. */
+export async function installMedtronicConnect(params: {
+  apiUrl: string;
+  username: string;
+  region: string;
+}): Promise<MedtronicConnectInstall> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/medtronic/connect/install`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        api_url: params.apiUrl,
+        username: params.username,
+        region: params.region,
+      }),
+    }
+  );
+  if (!response.ok) {
+    throw new Error(
+      await _readErrorDetail(response, "Failed to start install")
+    );
+  }
+  return response.json();
+}
+
+/** Update the Connect sync toggle + interval. */
+export async function updateMedtronicConnectSettings(
+  enabled: boolean,
+  syncIntervalMinutes: number
+): Promise<MedtronicConnectStatus> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/medtronic/connect/settings`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        enabled,
+        sync_interval_minutes: syncIntervalMinutes,
+      }),
+    }
+  );
+  if (!response.ok) {
+    throw new Error(
+      await _readErrorDetail(response, "Failed to update Connect settings")
+    );
+  }
+  return response.json();
+}
+
+/** Disconnect Medtronic Connect (deletes the stored refresh token). */
+export async function disconnectMedtronicConnect(): Promise<void> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/medtronic/connect/disconnect`,
+    { method: "POST" }
+  );
+  if (!response.ok) {
+    throw new Error(
+      await _readErrorDetail(response, "Failed to disconnect Medtronic Connect")
+    );
+  }
+}
+
+/** Trigger a Connect sync now (in addition to the schedule). */
+export async function syncMedtronicConnectNow(): Promise<MedtronicConnectSyncResult> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/medtronic/connect/sync`,
+    { method: "POST" }
+  );
+  if (!response.ok) {
+    throw new Error(await _readErrorDetail(response, "Failed to sync now"));
+  }
+  return response.json();
+}

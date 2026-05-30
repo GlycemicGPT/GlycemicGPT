@@ -30,6 +30,7 @@ from src.models.integration import (
 )
 from src.models.knowledge_chunk import KnowledgeChunk
 from src.models.meal_analysis import MealAnalysis
+from src.models.medtronic_connect_state import MedtronicConnectState
 from src.models.plugin_declaration import PluginDeclaration
 from src.models.pump_data import PumpEvent, PumpEventType
 from src.models.pump_profile import PumpProfile
@@ -78,6 +79,7 @@ __all__ = [
     "IntegrationType",
     "KnowledgeChunk",
     "MealAnalysis",
+    "MedtronicConnectState",
     "NotificationStatus",
     "PluginDeclaration",
     "PumpEvent",

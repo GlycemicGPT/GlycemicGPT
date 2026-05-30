@@ -103,6 +103,12 @@ class User(Base, TimestampMixin):
         uselist=False,
         cascade="all, delete-orphan",
     )
+    medtronic_connect_state = relationship(
+        "MedtronicConnectState",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
     glucose_readings = relationship(
         "GlucoseReading",
         back_populates="user",
