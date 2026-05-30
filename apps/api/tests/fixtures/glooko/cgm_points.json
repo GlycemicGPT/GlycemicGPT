@@ -1,0 +1,7 @@
+[
+  {"x": 1685577728, "y": 204, "value": 20400, "mealTag": "none", "timestamp": "2023-06-01T00:02:08.000Z", "calculated": false},
+  {"x": 1685584628, "y": 180, "value": 18000, "mealTag": "none", "timestamp": "2023-06-01T01:57:08.000Z", "calculated": false},
+  {"x": 1685688433, "y": 69, "value": 6900, "mealTag": "none", "timestamp": "2023-06-02T06:47:13.000Z", "calculated": false},
+  {"x": 1685688733, "y": 700, "value": 70000, "mealTag": "none", "timestamp": "2023-06-02T06:52:13.000Z", "calculated": false},
+  {"x": 1685688999, "y": null, "value": null, "mealTag": "none", "timestamp": "2023-06-02T06:56:39.000Z", "calculated": true}
+]

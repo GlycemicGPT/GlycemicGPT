@@ -55,6 +55,10 @@ PUMP_STREAMS: dict[str, tuple[str, str]] = {
 }
 
 _GRAPH_STATS_PATH = "/api/v3/graph/statistics/overall"
+_GRAPH_DATA_PATH = "/api/v3/graph/data"
+#: The three range-bucketed CGM series whose union is the full per-reading CGM
+#: trace (47.A §7.1). Each datum: {y: mg/dL, value: mg/dL*100, timestamp: UTC, ...}.
+CGM_SERIES = ("cgmHigh", "cgmNormal", "cgmLow")
 
 _DEFAULT_LIMIT = 500
 #: Safety bound on pages drained in one ``fetch_stream`` call. Incremental fetches
@@ -64,6 +68,9 @@ _MAX_RETRIES_429 = 3
 _DEFAULT_TIMEOUT = 40.0
 
 ReauthProvider = Callable[[], Awaitable[GlookoSession]]
+# httpx accepts either a dict or a list of (key, value) pairs; the list form lets
+# us send the repeated ``series[]`` params graph/data requires.
+Params = dict[str, object] | list[tuple[str, str]]
 
 
 @dataclass
@@ -129,7 +136,7 @@ class GlookoClient:
         return slug
 
     # ---- HTTP plumbing --------------------------------------------------------
-    async def _send(self, path: str, params: dict[str, object]) -> httpx.Response:
+    async def _send(self, path: str, params: Params) -> httpx.Response:
         """One GET with retry on 429 (Retry-After) and a single 5xx retry.
 
         The final attempt is never "retriable" (429 needs ``attempt < max``; the 5xx
@@ -162,7 +169,7 @@ class GlookoClient:
             return min(float(header), 30.0)
         return min(2.0 * (2**attempt), 30.0) + random.random()
 
-    async def _get_json(self, path: str, params: dict[str, object]) -> dict:
+    async def _get_json(self, path: str, params: Params) -> dict:
         """GET returning parsed JSON, recovering from a single 401 via ``reauth``."""
         resp = await self._send(path, params)
         if resp.status_code in (401, 403):
@@ -186,9 +193,7 @@ class GlookoClient:
             )
         return body
 
-    async def _reauth_and_retry(
-        self, path: str, params: dict[str, object]
-    ) -> httpx.Response:
+    async def _reauth_and_retry(self, path: str, params: Params) -> httpx.Response:
         if self._reauth is None:
             raise GlookoAuthError(
                 f"Glooko session expired on {path} and no reauth provider is configured"
@@ -274,11 +279,11 @@ class GlookoClient:
 
     # ---- CGM glucose (v3 graph) ----------------------------------------------
     async def fetch_cgm_stats(self, start_date: str, end_date: str) -> dict:
-        """Fetch date-windowed CGM/insulin aggregates (the v3-graph glucose path).
+        """Fetch date-windowed CGM/insulin aggregates from ``graph/statistics/overall``.
 
-        Returns the ``graph/statistics/overall`` object (``averageBg``, ``min``,
-        ``max``, ``readingsPerDay``, ``activeCgmTimePercentage``, ...). The raw
-        per-reading series (``graph/data?series[]=``) is deferred to 47.B2.
+        Returns ``averageBg``, ``min``, ``max``, ``readingsPerDay``,
+        ``activeCgmTimePercentage``, ... -- useful for an availability/summary check.
+        For the per-reading trace use ``fetch_cgm_points``.
         """
         return await self._get_json(
             _GRAPH_STATS_PATH,
@@ -290,3 +295,31 @@ class GlookoClient:
                 "includeInsulin": "true",
             },
         )
+
+    async def fetch_cgm_points(self, start_date: str, end_date: str) -> list[dict]:
+        """Fetch the raw per-reading CGM trace for a window (47.A §7.1).
+
+        Merges the three range-bucketed ``cgm*`` series from ``graph/data`` into a
+        single list of points (``{y: mg/dL, value, timestamp: UTC, ...}``), which
+        ``mapper.map_cgm_points`` turns into glucose rows. The response's ``series``
+        is an OBJECT keyed by series name (an unknown name is silently dropped).
+        """
+        params: list[tuple[str, str]] = [
+            ("patient", self.patient),
+            ("startDate", start_date),
+            ("endDate", end_date),
+            *[("series[]", name) for name in CGM_SERIES],
+            ("locale", "en"),
+            ("insulinTooltips", "false"),
+            ("filterBgReadings", "false"),
+            ("splitByDay", "false"),
+        ]
+        body = await self._get_json(_GRAPH_DATA_PATH, params)
+        series = body.get("series")
+        points: list[dict] = []
+        if isinstance(series, dict):
+            for name in CGM_SERIES:
+                bucket = series.get(name)
+                if isinstance(bucket, list):
+                    points.extend(p for p in bucket if isinstance(p, dict))
+        return points
