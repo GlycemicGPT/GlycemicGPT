@@ -9,6 +9,7 @@ import { IntegrationCard, PasswordInput, StatusBadge } from "./integration-card"
 import { TandemSyncCard } from "./tandem-sync-card";
 import { MedtronicImportCard } from "./medtronic-import-card";
 import { MedtronicConnectCard } from "./medtronic-connect-card";
+import { GlookoSyncCard } from "./glooko-sync-card";
 
 interface CloudSyncSectionProps {
   tandem: IntegrationResponse | null;
@@ -26,8 +27,8 @@ interface CloudSyncSectionProps {
 
 /**
  * Cloud Sync: pull pump data from a vendor's cloud (no Bluetooth pairing
- * required). One subsection per vendor -- Tandem t:connect today; Medtronic
- * CareLink / Insulet Omnipod planned. Each subsection owns the full cloud
+ * required). One subsection per vendor -- Tandem t:connect, Medtronic CareLink,
+ * and Insulet Omnipod (via Glooko). Each subsection owns the full cloud
  * integration for that vendor: connecting the account AND the sync controls.
  */
 export function CloudSyncSection({
@@ -152,6 +153,14 @@ export function CloudSyncSection({
             <MedtronicConnectCard isOffline={isOffline} />
             {/* Manual historical import -- deep backfill from the CareLink site. */}
             <MedtronicImportCard isOffline={isOffline} />
+          </div>
+        </CollapsibleSection>
+
+        <CollapsibleSection title="Omnipod / Glooko" variant="subsection">
+          <div className="space-y-4">
+            {/* Omnipod 5 uploads to Glooko only -- continuous sync + one-time
+                historical import live in the one card. */}
+            <GlookoSyncCard isOffline={isOffline} />
           </div>
         </CollapsibleSection>
       </div>

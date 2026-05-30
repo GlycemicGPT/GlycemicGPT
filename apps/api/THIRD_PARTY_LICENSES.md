@@ -48,6 +48,33 @@ copied or vendored;** we credit the xDrip+ / CareLink-follower authors for the
 reverse-engineering work the specification rests on, and this project remains
 GPL-3.0 accordingly.
 
+### nightscout-connect / glooko2nightscout-bridge — Omnipod via Glooko
+
+- Repositories:
+  https://github.com/nightscout/nightscout-connect (Glooko source) and
+  https://github.com/jpollock/glooko2nightscout-bridge
+- License: GNU AGPL-3.0
+
+The Omnipod **Cloud Sync via Glooko** feature
+(`apps/api/src/services/integrations/glooko/`) was implemented independently in
+Python from observed wire-protocol facts. The endpoint shapes (web Devise
+session login, the `/api/v2/*` keyset cursor, the `/api/v3/graph/*` CGM path)
+and the pod-change event vocabulary were learned by studying these AGPL-3.0
+projects' protocol behavior. **Because AGPL-3.0 §13 is network copyleft, no code
+from either project is copied or vendored** — only the observable protocol is
+reimplemented clean-room; we credit their authors for the reverse-engineering
+work the specification rests on.
+
+### Tidepool data model — pod-change modeling
+
+- Repository: https://github.com/tidepool-org/TidepoolApi
+- License: BSD-2-Clause
+
+The Tidepool `deviceEvent` data model (`reservoirChange`/`prime`) informed how
+Omnipod pod-change events are mapped to GlycemicGPT's internal pump-event types
+in `apps/api/src/services/integrations/glooko/mapper.py`. No code is copied; the
+permissively-licensed schema is credited as a modeling reference.
+
 ---
 
 MIT License
