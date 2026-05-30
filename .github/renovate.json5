@@ -156,7 +156,8 @@
         "gradle",
         "gradle-wrapper",
         "docker-compose",
-        "dockerfile"
+        "dockerfile",
+        "gomod"
       ],
       "matchUpdateTypes": ["patch", "minor"],
       "addLabels": ["automerge"]
@@ -243,6 +244,14 @@
       "description": "Group Python dependencies",
       "matchManagers": ["pip_requirements", "pip-compile", "poetry", "pep621"],
       "groupName": "Python dependencies"
+    },
+    // Group Go dependencies -- the Medtronic Connect desktop-helper
+    // (tools/connect-helper) is the project's only Go module. Keep its
+    // updates in one PR so the chromedp/cdproto stack moves together.
+    {
+      "description": "Group Go dependencies",
+      "matchManagers": ["gomod"],
+      "groupName": "Go dependencies"
     },
     // Group Node.js dependencies
     {
