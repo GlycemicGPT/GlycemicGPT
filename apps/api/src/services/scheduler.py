@@ -16,6 +16,8 @@ from sqlalchemy import select
 from src.config import settings
 from src.database import get_session_maker
 from src.logging_config import get_logger
+from src.models import glooko_sync_state as glooko_state
+from src.models.glooko_sync_state import GlookoSyncState
 from src.models.integration import (
     IntegrationCredential,
     IntegrationStatus,
@@ -29,6 +31,10 @@ from src.models.medtronic_connect_state import (
 )
 from src.models.tandem_sync_state import TandemSyncState
 from src.services.dexcom_sync import DexcomSyncError, sync_dexcom_for_user
+from src.services.integrations.glooko.sync import (
+    GlookoSyncRunError,
+    sync_glooko_for_user,
+)
 from src.services.integrations.medtronic.connect_sync import (
     ConnectSyncError,
     sync_connect_for_user,
@@ -407,6 +413,91 @@ async def sync_all_medtronic_connect_users() -> None:
     )
 
 
+async def sync_all_glooko_users() -> None:
+    """One scheduler tick: sync each due, enabled Glooko user.
+
+    Runs on ``glooko_sync_tick_interval_minutes``. Like Medtronic (and unlike
+    Tandem), the ``GlookoSyncState`` row IS the credential (self-contained), so
+    absence of a row means "not connected" -- only rows that are enabled and not
+    ``disconnected`` are considered (a disconnected row = a dead credential the
+    decrypt-flood guard suspended; re-including it would retry a hopeless login
+    every tick). Pacing is by ``last_attempt_at`` (reusing the Tandem pacing rule)
+    so a failing user retries once per interval, not every tick.
+    ``sync_glooko_for_user`` updates the row (status, freshness, error, advanced
+    cursor, counter) itself.
+    """
+    now = datetime.now(UTC)
+    logger.info("Starting scheduled Glooko sync tick")
+
+    async with get_session_maker()() as db:
+        result = await db.execute(
+            select(GlookoSyncState).where(
+                GlookoSyncState.enabled.is_(True),
+                GlookoSyncState.status.in_(
+                    [
+                        glooko_state.STATUS_CONNECTED,
+                        glooko_state.STATUS_ERROR,
+                        glooko_state.STATUS_PENDING,
+                    ]
+                ),
+            )
+        )
+        due_ids = [
+            state.user_id
+            for state in result.scalars().all()
+            if _tandem_is_due(
+                state.last_attempt_at, state.sync_interval_minutes, now=now
+            )
+        ]
+
+    if not due_ids:
+        logger.info("No Glooko users due for sync this tick")
+        return
+
+    logger.info("Found Glooko users due for sync", user_count=len(due_ids))
+
+    success_count = 0
+    error_count = 0
+    for user_id in due_ids:
+        try:
+            # New session per user to isolate errors; re-read the row inside it.
+            async with get_session_maker()() as user_db:
+                state = (
+                    await user_db.execute(
+                        select(GlookoSyncState).where(
+                            GlookoSyncState.user_id == user_id
+                        )
+                    )
+                ).scalar_one_or_none()
+                if state is None:
+                    continue
+                await sync_glooko_for_user(user_db, state)
+                success_count += 1
+        except GlookoSyncRunError as e:
+            logger.warning(
+                "Scheduled Glooko sync failed for user",
+                user_id=str(user_id),
+                error=str(e),
+            )
+            error_count += 1
+        except Exception as e:
+            logger.error(
+                "Unexpected error in scheduled Glooko sync",
+                user_id=str(user_id),
+                error=str(e),
+            )
+            error_count += 1
+
+        # Small delay between users to avoid rate limiting.
+        await asyncio.sleep(1)
+
+    logger.info(
+        "Scheduled Glooko sync tick completed",
+        success_count=success_count,
+        error_count=error_count,
+    )
+
+
 async def check_alerts_all_users() -> None:
     """Run predictive alert evaluation for all users with active integrations.
 
@@ -714,6 +805,31 @@ def start_scheduler() -> AsyncIOScheduler:
             "Medtronic Connect sync scheduler disabled (set "
             "MEDTRONIC_CONNECT_ENABLED=true to enable). Manual sync via "
             "POST /api/integrations/medtronic/connect/sync still works."
+        )
+
+    # Glooko (Omnipod Cloud Sync) autonomous sync tick. Enabled by default
+    # (GLOOKO_SYNC_ENABLED); set it false to disable the whole job without a
+    # redeploy. The tick no-ops safely until a user connects a Glooko account --
+    # the per-user cadence (GlookoSyncState.sync_interval_minutes) is honored
+    # inside sync_all_glooko_users.
+    if settings.glooko_sync_enabled:
+        scheduler.add_job(
+            sync_all_glooko_users,
+            trigger=IntervalTrigger(minutes=settings.glooko_sync_tick_interval_minutes),
+            id="glooko_sync",
+            name="Glooko (Omnipod) Data Sync Tick",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
+        logger.info(
+            "Scheduled Glooko sync tick job",
+            tick_interval_minutes=settings.glooko_sync_tick_interval_minutes,
+        )
+    else:
+        logger.info(
+            "Glooko sync scheduler disabled (set GLOOKO_SYNC_ENABLED=true to "
+            "enable). Manual sync via the Glooko integration endpoints still works."
         )
 
     # Add Nightscout sync tick job if enabled (Story 43.4)

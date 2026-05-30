@@ -21,6 +21,7 @@ from src.models.escalation_event import (
     EscalationTier,
     NotificationStatus,
 )
+from src.models.glooko_sync_state import GlookoSyncState
 from src.models.glucose import GlucoseReading, TrendDirection
 from src.models.insulin_config import InsulinConfig
 from src.models.integration import (
@@ -71,6 +72,7 @@ __all__ = [
     "EscalationConfig",
     "EscalationEvent",
     "EscalationTier",
+    "GlookoSyncState",
     "GlucoseReading",
     "InsulinConfig",
     "InvitationStatus",
