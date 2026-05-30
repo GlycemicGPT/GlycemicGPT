@@ -47,13 +47,16 @@ protocol facts) — not glucose/insulin values, unless you pass `--show-values`.
 ## Usage
 
 ```bash
-# Wide default window (last ~3 years, US cluster) — locates where Omnipod-5 records cluster
+# US, web-session login, one cursor page per stream (shape capture)
 uv run tools/glooko-capture/capture.py
 
-# Target a specific historical window (AC2c: is the old Omnipod-5 data still API-reachable?)
-uv run tools/glooko-capture/capture.py --start 2023-06-01 --end 2024-03-01
+# Walk several cursor pages (history goes back to ~2023 on a real account)
+uv run tools/glooko-capture/capture.py --max-pages 5
 
-# EU cluster (fragile — nightscout-connect issue #14 saw a 422); show full first records
+# Replay a session cookie copied from a logged-in browser instead of logging in
+GLOOKO_SESSION_COOKIE=... uv run tools/glooko-capture/capture.py --auth cookie
+
+# EU cluster (fragile — nightscout-connect issue #14 saw a 422); show full records
 uv run tools/glooko-capture/capture.py --region EU --show-values
 ```
 
@@ -63,25 +66,21 @@ uv run tools/glooko-capture/capture.py --region EU --show-values
 
 | Flag | Default | Purpose |
 |---|---|---|
-| `--region {US,EU}` | `US` | Regional cluster. EU sets the `Host: eu.api.glooko.com` header. |
-| `--host-header` | (auto) | Override the `Host` header (EU edge quirk). |
-| `--start YYYY-MM-DD` | `end - days` | Window start. **Use this for the AC2c historical probe.** |
-| `--end YYYY-MM-DD` | today (UTC) | Window end. |
-| `--days N` | `1095` | Lookback when `--start` is omitted (wide net). |
-| `--limit N` | `500` | Per-endpoint record cap. |
-| `--out DIR` | `./.captures` | Raw-dump dir (gitignored, PHI). |
-| `--show-values` | off | Include full first-record values (PHI) in output. |
+| `--region {US,EU}` | `US` | Regional cluster (region-PREFIXED `us.`/`eu.` hosts). EU is known-fragile. |
+| `--auth {web,cookie}` | `web` | `web` = the Devise form login; `cookie` = replay `GLOOKO_SESSION_COOKIE`. |
+| `--max-pages N` | `1` | Keyset-cursor pages to walk per stream (1 = shape only; raise to walk history). |
+| `--out DIR` | `./.captures` | Raw-dump dir (gitignored, PHI). A path **outside** the tool dir is warned about. |
+| `--show-values` | off | Include full record values (PHI) in output. |
 
-## What it probes
+## What it does
 
-- **AC1 — auth:** `POST /api/v2/users/sign_in` with `{userLogin:{email,password}, deviceInformation:{deviceModel:"iPhone"}}`; reports status, `set-cookie` shape, the session cookie, and the patient-id candidates found in the body.
-- **AC2 / AC2c — coverage + historical reachability:** hits the three Discovery-confirmed core endpoints plus a **guessed probe set** (pod-change / reservoir / IOB / device-inventory / merged-sync / bulk-export routes) over an **explicit `startDate`/`endDate`** window, recording the status of each so we can state definitively what exists (200) vs is absent (404) vs gated (401/403).
-- **AC2d — device/source tagging:** detects device/source/model fields on each record and lists their distinct values across the batch (reveals Omnipod-vs-Tandem mixing).
-- **AC4 — shape/units/tz:** records field names + types, timestamp fields (with sample values, for offset handling), and unit fields.
-- **AC3 — bulk export:** probes report/export-job candidate routes.
+- **Auth:** the **web Devise session** flow — GET `us.my.glooko.com/users/sign_in` (CSRF + cookie) → form-POST the login → replay the `_logbook-web_session` cookie on `us.api.glooko.com`. (The mobile `POST /api/v2/users/sign_in` is a dead end for web-only accounts — see `capture.py` header.) `--auth cookie` skips the login and replays a cookie you supply.
+- **Discovery:** confirms the session via `/api/v3/session/users`, extracts the patient slug, and reads `/api/v3/end_dates` + `/api/v3/devices_and_settings` (device inventory).
+- **Pump data:** drains the `/api/v2/*` keyset-cursor streams (`pumps/scheduled_basals`, `pumps/normal_boluses`, `pumps/events`, `pumps/modes`, `pumps/alarms`, `cgm/readings`, `cgm/egvs`, …) using `lastUpdatedAt`+`lastGuid`, printing per-stream record counts + the historical span + distinct device/event-type values.
+- **CGM glucose:** queries `/api/v3/graph/statistics/overall` (the v3-graph path — CGM is not in the v2 cursor) to confirm glucose presence + units.
 
-Output: per-endpoint raw JSON under `--out`, plus a `_results.json` rollup that feeds
-`_bmad-output/planning-artifacts/glooko-reverse-engineering.md` (AC7).
+Output: per-stream raw JSON under `--out`, plus a `_results.json` rollup that feeds
+`_bmad-output/planning-artifacts/glooko-reverse-engineering.md`.
 
 ## ToS note
 

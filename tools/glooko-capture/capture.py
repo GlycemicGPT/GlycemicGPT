@@ -420,8 +420,18 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 def main(argv: list[str]) -> int:
     args = parse_args(argv)
-    cap = GlookoCapture(args.region, Path(args.out), args.show_values)
-    print(f"glooko-capture  region={args.region}  auth={args.auth}  out={args.out}")
+    out_dir = Path(args.out).resolve()
+    # PHI containment: only paths under this tool dir are covered by the local
+    # .gitignore. Warn loudly if captures would land somewhere that could be tracked.
+    tool_dir = Path(__file__).resolve().parent
+    if tool_dir not in out_dir.parents and out_dir != tool_dir:
+        print(
+            f"WARNING: --out {out_dir} is OUTSIDE {tool_dir} -- it is NOT covered by the "
+            f"tool's .gitignore. Raw captures contain PHI; ensure this path is gitignored.",
+            file=sys.stderr,
+        )
+    cap = GlookoCapture(args.region, out_dir, args.show_values)
+    print(f"glooko-capture  region={args.region}  auth={args.auth}  out={out_dir}")
     print("LICENSE: clean-room; prior art = nightscout-connect + jpollock/glooko2nightscout-bridge (AGPL-3.0, studied not copied).")
     try:
         if args.auth == "cookie":
