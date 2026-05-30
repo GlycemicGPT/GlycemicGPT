@@ -5,6 +5,7 @@
     "integrations",
     "connecting-dexcom",
     "connecting-tandem-cloud",
+    "connecting-medtronic",
     "ai-chat",
     "briefs",
     "alerts",
