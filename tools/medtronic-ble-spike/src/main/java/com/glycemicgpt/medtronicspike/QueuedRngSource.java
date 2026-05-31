@@ -1,7 +1,6 @@
 package com.glycemicgpt.medtronicspike;
 
 import java.util.ArrayDeque;
-import java.util.Arrays;
 import java.util.Deque;
 import org.openminimed.sake.RngSource;
 
@@ -17,7 +16,12 @@ final class QueuedRngSource implements RngSource {
     private final Deque<byte[]> queue;
 
     QueuedRngSource(byte[]... values) {
-        this.queue = new ArrayDeque<>(Arrays.asList(values));
+        // Snapshot each entry so later mutation of the caller's arrays can't change RNG output
+        // and silently break trace parity.
+        this.queue = new ArrayDeque<>(values.length);
+        for (byte[] value : values) {
+            this.queue.addLast(value.clone());
+        }
     }
 
     @Override

@@ -35,8 +35,8 @@ cd tools/medtronic-ble-spike
 
 `./gradlew run` prints the handshake stage-by-stage and the SeqCrypt round-trip. Expected tail:
 
-```
-SUMMARY: 15 passed, 0 failed -> ALL CHECKS PASSED
+```text
+SUMMARY: 16 passed, 0 failed -> ALL CHECKS PASSED
 ```
 
 ## What proves what
@@ -83,7 +83,7 @@ as a known, published-upstream artifact — not a leak.
 
 ## Layout
 
-```
+```text
 build.gradle.kts / settings.gradle.kts   self-contained JVM project (application plugin)
 src/main/java/org/openminimed/sake/       vendored JavaSake (attribution headers added)
 src/main/java/com/glycemicgpt/medtronicspike/

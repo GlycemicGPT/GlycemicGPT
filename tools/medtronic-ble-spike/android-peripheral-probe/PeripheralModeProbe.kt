@@ -139,8 +139,20 @@ class PeripheralModeProbe(private val context: Context) {
     }
 
     private fun tryOpenGattServer(): Pair<Boolean, Boolean> {
+        // addService() only reports that the add was *initiated*; the real outcome arrives on
+        // onServiceAdded(). The latch + status are local to this attempt and captured by a fresh
+        // per-attempt callback, so a delayed callback from an earlier probe() run signals its own
+        // (dead) latch and can never produce a false sakeServiceAdded on a later run.
+        val latch = CountDownLatch(1)
+        val status = AtomicInteger(BluetoothGatt.GATT_FAILURE)
+        val callback = object : BluetoothGattServerCallback() {
+            override fun onServiceAdded(serviceStatus: Int, service: BluetoothGattService) {
+                status.set(serviceStatus)
+                latch.countDown()
+            }
+        }
         return try {
-            val server = bluetoothManager?.openGattServer(context, gattServerCallback) ?: return false to false
+            val server = bluetoothManager?.openGattServer(context, callback) ?: return false to false
             gattServer = server
             val sakeService = BluetoothGattService(SAKE_SERVICE_UUID, BluetoothGattService.SERVICE_TYPE_PRIMARY)
             val sakeChar = BluetoothGattCharacteristic(
@@ -149,19 +161,11 @@ class PeripheralModeProbe(private val context: Context) {
                 BluetoothGattCharacteristic.PERMISSION_WRITE,
             )
             sakeService.addCharacteristic(sakeChar)
-
-            // addService() only reports that the add was *initiated*; the real outcome arrives on
-            // onServiceAdded(). Latch it so the probe records whether the service actually
-            // registered, not just that the request was accepted.
-            val latch = CountDownLatch(1)
-            serviceAddedLatch.set(latch)
-            serviceAddedStatus.set(BluetoothGatt.GATT_FAILURE)
             if (!server.addService(sakeService)) {
                 return true to false
             }
             val completed = latch.await(SERVICE_ADD_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            val added = completed && serviceAddedStatus.get() == BluetoothGatt.GATT_SUCCESS
-            true to added
+            true to (completed && status.get() == BluetoothGatt.GATT_SUCCESS)
         } catch (e: SecurityException) {
             Log.e(TAG, "GATT server open denied", e)
             false to false
@@ -252,17 +256,6 @@ class PeripheralModeProbe(private val context: Context) {
         else -> true
     }
 
-    // Latches the real outcome of addService(), delivered asynchronously to onServiceAdded().
-    private val serviceAddedLatch = java.util.concurrent.atomic.AtomicReference<CountDownLatch?>()
-    private val serviceAddedStatus = AtomicInteger(BluetoothGatt.GATT_FAILURE)
-
-    // The probe does not drive a handshake; the callback only records the service-add outcome.
-    private val gattServerCallback = object : BluetoothGattServerCallback() {
-        override fun onServiceAdded(status: Int, service: BluetoothGattService) {
-            serviceAddedStatus.set(status)
-            serviceAddedLatch.get()?.countDown()
-        }
-    }
 
     companion object {
         private const val TAG = "PeripheralModeProbe"
