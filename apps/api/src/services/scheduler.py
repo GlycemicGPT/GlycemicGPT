@@ -429,25 +429,30 @@ async def sync_all_glooko_users() -> None:
     now = datetime.now(UTC)
     logger.info("Starting scheduled Glooko sync tick")
 
+    syncable_statuses = (
+        glooko_state.STATUS_CONNECTED,
+        glooko_state.STATUS_ERROR,
+        glooko_state.STATUS_PENDING,
+    )
+
+    def _glooko_eligible(state: GlookoSyncState) -> bool:
+        return (
+            state.enabled
+            and state.status in syncable_statuses
+            and _tandem_is_due(
+                state.last_attempt_at, state.sync_interval_minutes, now=now
+            )
+        )
+
     async with get_session_maker()() as db:
         result = await db.execute(
             select(GlookoSyncState).where(
                 GlookoSyncState.enabled.is_(True),
-                GlookoSyncState.status.in_(
-                    [
-                        glooko_state.STATUS_CONNECTED,
-                        glooko_state.STATUS_ERROR,
-                        glooko_state.STATUS_PENDING,
-                    ]
-                ),
+                GlookoSyncState.status.in_(syncable_statuses),
             )
         )
         due_ids = [
-            state.user_id
-            for state in result.scalars().all()
-            if _tandem_is_due(
-                state.last_attempt_at, state.sync_interval_minutes, now=now
-            )
+            state.user_id for state in result.scalars().all() if _glooko_eligible(state)
         ]
 
     if not due_ids:
@@ -469,7 +474,11 @@ async def sync_all_glooko_users() -> None:
                         )
                     )
                 ).scalar_one_or_none()
-                if state is None:
+                # Re-evaluate eligibility against the freshly-read row: it can
+                # have changed since the discovery snapshot (the user disabled or
+                # disconnected, or another tick already synced and advanced
+                # last_attempt_at), so don't sync a row that's no longer due.
+                if state is None or not _glooko_eligible(state):
                     continue
                 await sync_glooko_for_user(user_db, state)
                 success_count += 1

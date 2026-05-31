@@ -478,29 +478,39 @@ async def _mark_failure(
     Returns (rather than raises) the ``GlookoSyncRunError`` so the caller's
     ``raise ... from e`` keeps an honest traceback and the call site reads as the
     failure path it is.
+
+    ``store_glooko_records`` stages its inserts with ``commit=False`` so they land
+    atomically with the success-path state write. On failure we roll back first so
+    a partial batch is never committed alongside the error status -- but the
+    rollback also reverts the caller's ``last_attempt_at`` pacing stamp, so we
+    capture and re-apply it (otherwise the scheduler would retry the failing user
+    on every tick instead of next interval).
     """
+    prior_attempt = state.last_attempt_at
+    await db.rollback()
+    state.last_attempt_at = prior_attempt
+
     if isinstance(exc, GlookoAuthError):
         state.status = STATUS_DISCONNECTED
         state.last_error = str(exc)
-        await db.commit()
-        return GlookoSyncRunError(f"Glooko auth failed: {exc}")
-    if isinstance(exc, GlookoNetworkError):
+        msg = f"Glooko auth failed: {exc}"
+    elif isinstance(exc, GlookoNetworkError):
         state.status = STATUS_ERROR
         state.last_error = str(exc)
-        await db.commit()
-        return GlookoSyncRunError(f"Glooko sync transient failure: {exc}")
-    if isinstance(exc, (GlookoSyncError, ValueError)):
+        msg = f"Glooko sync transient failure: {exc}"
+    elif isinstance(exc, (GlookoSyncError, ValueError)):
         state.status = STATUS_ERROR
         state.last_error = str(exc)
-        await db.commit()
-        return GlookoSyncRunError(f"Glooko sync failed: {exc}")
-    # Unexpected (e.g. a transient DB/network error during store). Best-effort
-    # commit of the error state; if the commit itself failed, roll back and still
-    # surface the original failure.
-    state.status = STATUS_ERROR
-    state.last_error = f"Unexpected error: {exc}"
+        msg = f"Glooko sync failed: {exc}"
+    else:
+        state.status = STATUS_ERROR
+        state.last_error = f"Unexpected error: {exc}"
+        msg = f"Glooko sync failed unexpectedly: {exc}"
+
+    # Best-effort commit of the error state; if the bookkeeping commit itself
+    # fails, roll back and still surface the original failure.
     try:
         await db.commit()
     except Exception:  # noqa: BLE001
         await db.rollback()
-    return GlookoSyncRunError(f"Glooko sync failed unexpectedly: {exc}")
+    return GlookoSyncRunError(msg)

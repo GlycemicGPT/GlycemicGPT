@@ -93,9 +93,12 @@ async def store_glooko_records(
             insert(GlucoseReading)
             .values(g_rows[start : start + _CHUNK])
             .on_conflict_do_nothing(index_elements=["user_id", "reading_timestamp"])
+            # RETURNING yields one row per ACTUAL insert (conflicts return nothing),
+            # so counting it is exact regardless of driver rowcount support.
+            .returning(GlucoseReading.id)
         )
         res = await db.execute(stmt)
-        result.glucose_stored += max(res.rowcount, 0)
+        result.glucose_stored += len(res.fetchall())
 
     # --- Pump events: split by whether they carry a Glooko guid (ns_id) ---
     with_guid: dict[str, dict] = {}
@@ -132,9 +135,10 @@ async def store_glooko_records(
                 index_elements=["source", "ns_id"],
                 index_where=text("ns_id IS NOT NULL"),
             )
+            .returning(PumpEvent.id)
         )
         res = await db.execute(stmt)
-        result.events_stored += max(res.rowcount, 0)
+        result.events_stored += len(res.fetchall())
 
     natural_rows = list(without_guid.values())
     for start in range(0, len(natural_rows), _CHUNK):
@@ -145,9 +149,10 @@ async def store_glooko_records(
                 index_elements=["user_id", "event_timestamp", "event_type"],
                 index_where=text("ns_id IS NULL"),
             )
+            .returning(PumpEvent.id)
         )
         res = await db.execute(stmt)
-        result.events_stored += max(res.rowcount, 0)
+        result.events_stored += len(res.fetchall())
 
     if commit:
         await db.commit()

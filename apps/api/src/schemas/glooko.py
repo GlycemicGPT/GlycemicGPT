@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 from src.models.glooko_sync_state import (
     SYNC_INTERVAL_DEFAULT_MINUTES,
@@ -64,13 +64,15 @@ class GlookoConnectRequest(BaseModel):
 
     @field_validator("email", "password")
     @classmethod
-    def _no_control_chars(cls, v: str) -> str:
-        s = (v or "").strip()
-        if not s:
+    def _no_control_chars(cls, v: str, info: ValidationInfo) -> str:
+        if not v or not v.strip():
             raise ValueError("must not be blank")
-        if any(c in s for c in "\r\n\0"):
+        if any(c in v for c in "\r\n\0"):
             raise ValueError("must not contain control characters")
-        return s
+        # Email is safe to normalize, but a password must be stored byte-for-byte
+        # -- leading/trailing spaces can be significant, and stripping them would
+        # make some valid Glooko accounts impossible to connect.
+        return v.strip() if info.field_name == "email" else v
 
     @field_validator("accept_risk")
     @classmethod

@@ -36,8 +36,9 @@ def _load(name: str) -> list[dict]:
 
 def test_map_cgm_points_value_unit_and_utc():
     points = mapper.map_cgm_points(_load("cgm_points.json"))
-    # 5 raw points: 204, 180, 69 valid; 700 (>600 bound) and null dropped.
-    assert [p.value_mgdl for p in points] == [204, 180, 69]
+    # 204/180/69 valid; the 10 and 600 mg/dL records exercise the exact lower and
+    # upper sensor bounds (both kept); 700 (>600), 9 (<10), and null are dropped.
+    assert [p.value_mgdl for p in points] == [204, 180, 69, 10, 600]
     first = points[0]
     assert first.timestamp == datetime(
         2023, 6, 1, 0, 2, 8, tzinfo=UTC
@@ -112,7 +113,7 @@ def test_map_glooko_combines_all_series():
         normal_boluses=_load("normal_boluses.json"),
         events=_load("events.json"),
     )
-    assert len(rec.glucose) == 3
+    assert len(rec.glucose) == 5
     assert len(rec.pump_events) == 2 + 2 + 4  # basals + boluses + events
 
 
@@ -125,7 +126,7 @@ def test_map_pump_ts_refuses_missing_offset():
 
 
 def test_map_honors_soft_deleted():
-    # A record the user deleted in Glooko must not be ingested (reverse-eng §9/§11).
+    # A record the user deleted in Glooko must not be ingested.
     deleted = {
         "pumpTimestamp": "2023-03-29T18:27:45.000Z",
         "pumpTimestampUtcOffset": "-04:00",

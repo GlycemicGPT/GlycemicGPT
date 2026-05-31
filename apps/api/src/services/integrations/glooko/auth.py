@@ -189,8 +189,20 @@ async def glooko_login(
                 reg.web_host + _SIGN_IN_PAGE_PATH,
                 headers={"Accept": "text/html"},
             )
+            # A failed sign-in PAGE fetch (5xx) or a page that doesn't expose the
+            # CSRF token is a transient/protocol problem, NOT bad credentials --
+            # surfacing it as a network error keeps a valid connection from being
+            # marked disconnected on a Glooko outage.
+            if 500 <= page.status_code < 600:
+                raise GlookoNetworkError(
+                    f"Glooko sign-in page server error ({page.status_code})"
+                )
             token = _extract_csrf(page.text)
-            await http.post(
+            if not token:
+                raise GlookoNetworkError(
+                    "Glooko sign-in page did not expose a CSRF token"
+                )
+            login = await http.post(
                 reg.web_host + _SIGN_IN_POST_PATH,
                 data={
                     "authenticity_token": token,
@@ -205,6 +217,10 @@ async def glooko_login(
                     "Origin": reg.web_host,
                 },
             )
+            if 500 <= login.status_code < 600:
+                raise GlookoNetworkError(
+                    f"Glooko login server error ({login.status_code})"
+                )
             # The session-users call is the authoritative success oracle: a
             # pre-auth `_logbook-web_session` cookie exists even before login, so
             # cookie-presence alone is not proof. 401 here == bad credentials.

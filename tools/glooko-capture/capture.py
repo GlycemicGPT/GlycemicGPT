@@ -202,6 +202,10 @@ class GlookoCapture:
         self.client = httpx.Client(
             timeout=40.0,
             follow_redirects=True,
+            # Don't inherit HTTP(S)_PROXY / TLS settings from the environment:
+            # this client carries the operator's Glooko session cookie and PHI,
+            # which must not be transparently routed through an env-configured proxy.
+            trust_env=False,
             headers={"User-Agent": "GlycemicGPT-glooko-capture/0.2 (spike)"},
         )
         self.out_dir = out_dir
@@ -420,6 +424,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 def main(argv: list[str]) -> int:
     args = parse_args(argv)
+    if args.max_pages < 1:
+        # 0/negative would skip enumeration entirely yet still write a results
+        # file with status=200 / total_records=0, making a bad run look like a
+        # successful empty capture.
+        print("error: --max-pages must be >= 1.", file=sys.stderr)
+        return 2
     out_dir = Path(args.out).resolve()
     # PHI containment: only paths under this tool dir are covered by the local
     # .gitignore. Warn loudly if captures would land somewhere that could be tracked.

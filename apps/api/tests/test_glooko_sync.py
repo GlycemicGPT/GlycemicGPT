@@ -10,6 +10,7 @@ error, and the import path's "don't bump last_sync_at / don't touch the cursor"
 contract. Hermetic: no DB, no network (mirrors ``test_connect_sync.py``).
 """
 
+import copy
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -45,7 +46,7 @@ def _state(**overrides) -> GlookoSyncState:
         "user_id": uuid.uuid4(),
         "region": "US",
         "encrypted_email": encrypt_credential("user@example.com"),
-        "encrypted_password": encrypt_credential("hunter2"),
+        "encrypted_password": encrypt_credential("SecurePass123"),
         "enabled": True,
         "sync_interval_minutes": 30,
         "status": "pending",
@@ -168,7 +169,7 @@ async def test_success_updates_state_and_advances_cursor(patched):
     assert state.last_cgm_window_end == _NOW
     # Credentials were decrypted and threaded into login.
     assert patched["login"]["email"] == "user@example.com"
-    assert patched["login"]["password"] == "hunter2"
+    assert patched["login"]["password"] == "SecurePass123"
     # Records + state committed together (storage deferred to the final commit).
     assert patched["store"]["commit"] is False
     # Each stream's records must land in its OWN mapper kwarg (a swapped
@@ -297,6 +298,10 @@ async def test_midstream_failure_does_not_persist_cursor(patched, monkeypatch):
         }
     }
     prior_cgm_end = datetime(2025, 1, 31, tzinfo=UTC)
+    # Deep-copy the expectation: the row holds `prior_cursors` by reference, so an
+    # in-place mutation of an inner cursor dict would change both and self-compare
+    # would pass spuriously.
+    expected_cursors = copy.deepcopy(prior_cursors)
     state = _state(
         status="connected",
         stream_cursors=prior_cursors,
@@ -339,7 +344,7 @@ async def test_midstream_failure_does_not_persist_cursor(patched, monkeypatch):
 
     assert state.status == STATUS_ERROR
     # Untouched: the half-advanced cursor and CGM mark were never committed.
-    assert state.stream_cursors == prior_cursors
+    assert state.stream_cursors == expected_cursors
     assert state.last_cgm_window_end == prior_cgm_end
     assert state.last_sync_at is None
 
@@ -416,7 +421,9 @@ async def test_probe_availability_is_read_only_and_lightweight(patched):
         "last_attempt_at": state.last_attempt_at,
         "last_error": state.last_error,
         "readings_synced_total": state.readings_synced_total,
-        "stream_cursors": dict(state.stream_cursors),
+        # Deep-copy so an in-place mutation of an inner cursor dict can't make the
+        # snapshot track the live value and pass spuriously.
+        "stream_cursors": copy.deepcopy(state.stream_cursors),
         "last_cgm_window_end": state.last_cgm_window_end,
     }
 

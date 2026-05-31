@@ -38,8 +38,9 @@ SETTINGS = "/api/integrations/glooko/sync/settings"
 AVAILABILITY = "/api/integrations/glooko/sync/availability"
 IMPORT = "/api/integrations/glooko/sync/import"
 
-# A Glooko account password we assert never leaks into any response body.
-GLOOKO_PASSWORD = "Sup3r-Secret-Glooko-Pw"
+# A throwaway Glooko account password we assert never leaks into any response
+# body (the repo-standard test credential, exempt from secret scanning).
+GLOOKO_PASSWORD = "SecurePass123"  # noqa: S105 - test placeholder, not a real secret
 GLOOKO_EMAIL = "omnipod-user@example.com"
 
 

@@ -183,7 +183,9 @@ def map_normal_boluses(records: list[dict]) -> list[MappedPumpEvent]:
             continue
         ts = _parse_pump_ts(r.get("pumpTimestamp"), r.get("pumpTimestampUtcOffset"))
         delivered = r.get("insulinDelivered")
-        if ts is None or not isinstance(delivered, (int, float)):
+        # Reject negative delivery the same way basal rejects negative rates --
+        # a negative dose is impossible and would corrupt insulin totals.
+        if ts is None or not isinstance(delivered, (int, float)) or delivered < 0:
             continue
         bg = r.get("bloodGlucoseInput")
         carbs = r.get("carbsInput")

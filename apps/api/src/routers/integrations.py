@@ -2813,9 +2813,11 @@ async def _store_glooko_state(
 
     Stamps the consent acknowledgment with the connect time (server-side, never a
     client value) and (re)enables sync -- reconnecting is an explicit intent to
-    use the integration. Preserves the existing sync interval, cursors, and
-    counters so a reconnect doesn't reset sync continuity. The credentials are
-    encrypted at rest and never returned to the client.
+    use the integration. Reconnecting with the SAME Glooko patient preserves the
+    sync interval, cursors, and counters so continuity isn't lost; reconnecting
+    with a DIFFERENT patient resets the per-stream cursors and freshness so the
+    next sync can't resume from the prior account's position and mis-associate
+    medical data. The credentials are encrypted at rest and never returned.
     """
     enc_email = encrypt_credential(email)
     enc_password = encrypt_credential(password)
@@ -2843,6 +2845,12 @@ async def _store_glooko_state(
             .with_for_update()
         )
     ).scalar_one()
+    # Detect an account switch BEFORE overwriting: if the discovered patient
+    # differs from the stored one, the existing cursors point into a different
+    # account's data and must not be reused.
+    patient_changed = (state.patient_slug or None) != (patient_slug or None) or (
+        state.patient_oid or None
+    ) != (patient_oid or None)
     # Overwrite (covers the existing-row / reconnect case).
     state.region = region
     state.encrypted_email = enc_email
@@ -2853,6 +2861,12 @@ async def _store_glooko_state(
     state.last_error = None
     state.patient_slug = patient_slug
     state.patient_oid = patient_oid
+    if patient_changed:
+        # Fresh account -> drop sync progress so the next sync starts clean.
+        state.stream_cursors = None
+        state.last_sync_at = None
+        state.last_cgm_window_end = None
+        state.readings_synced_total = 0
     await db.commit()
     return state
 

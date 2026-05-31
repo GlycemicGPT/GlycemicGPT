@@ -45,6 +45,10 @@ function regionLabel(code: string | null | undefined): string {
 export function GlookoSyncCard({ isOffline }: { isOffline: boolean }) {
   const [status, setStatus] = useState<GlookoStatus | null>(null);
   const [loaded, setLoaded] = useState(false);
+  // True when the initial status fetch failed on a transport/auth error (the
+  // endpoint returns 200 "not_configured" when there's simply no connection, so
+  // an actual failure here is transient -- we show a retry, not the connect form).
+  const [loadFailed, setLoadFailed] = useState(false);
 
   // Connect-form state.
   const [regionCode, setRegionCode] = useState<string>("US");
@@ -78,22 +82,23 @@ export function GlookoSyncCard({ isOffline }: { isOffline: boolean }) {
     if (s.sync_interval_minutes) setIntervalMinutes(s.sync_interval_minutes);
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    getGlookoStatus()
-      .then((s) => {
-        if (!cancelled) applyStatus(s);
-      })
-      .catch(() => {
-        /* not configured / unauth -- treated as not connected */
-      })
-      .finally(() => {
-        if (!cancelled) setLoaded(true);
-      });
-    return () => {
-      cancelled = true;
-    };
+  const loadStatus = useCallback(async () => {
+    setLoadFailed(false);
+    try {
+      applyStatus(await getGlookoStatus());
+    } catch {
+      // 200 "not_configured" covers the no-connection case, so reaching here is
+      // a transient transport/auth failure -- flag it instead of silently
+      // rendering the connect form for a possibly-connected account.
+      setLoadFailed(true);
+    } finally {
+      setLoaded(true);
+    }
   }, [applyStatus]);
+
+  useEffect(() => {
+    void loadStatus();
+  }, [loadStatus]);
 
   // "configured" = a row exists (any state). "needsReconnect" = the stored login
   // is no longer valid, so the user must re-enter credentials. A transient
@@ -101,7 +106,10 @@ export function GlookoSyncCard({ isOffline }: { isOffline: boolean }) {
   // whereas "disconnected" sends the user back to the connect form.
   const configured = !!status && status.status !== "not_configured";
   const needsReconnect = status?.status === "disconnected";
-  const showConnectForm = loaded && (!configured || needsReconnect);
+  // When the initial load failed we can't tell connected from not-connected, so
+  // show a retry rather than the connect form (which would imply not-connected).
+  const showLoadError = loaded && loadFailed && !configured;
+  const showConnectForm = loaded && !showLoadError && (!configured || needsReconnect);
   const showControls = loaded && configured && !needsReconnect && !!status;
   const isConnected = status?.status === "connected";
 
@@ -154,7 +162,13 @@ export function GlookoSyncCard({ isOffline }: { isOffline: boolean }) {
     setIsSyncing(true);
     try {
       setSyncResult(await syncGlookoNow());
-      applyStatus(await getGlookoStatus());
+      // The sync itself succeeded; a failed status refresh must not turn that
+      // into "Sync failed". Refresh best-effort -- the status reloads anyway.
+      try {
+        applyStatus(await getGlookoStatus());
+      } catch {
+        /* keep the successful sync result */
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Sync failed");
     } finally {
@@ -168,7 +182,11 @@ export function GlookoSyncCard({ isOffline }: { isOffline: boolean }) {
     setIsImporting(true);
     try {
       setSyncResult(await importGlookoHistory());
-      applyStatus(await getGlookoStatus());
+      try {
+        applyStatus(await getGlookoStatus());
+      } catch {
+        /* keep the successful import result */
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Import failed");
     } finally {
@@ -239,6 +257,23 @@ export function GlookoSyncCard({ isOffline }: { isOffline: boolean }) {
           Glooko.
         </p>
       </div>
+
+      {/* ---- Initial status load failed (transient): offer a retry ---- */}
+      {showLoadError && (
+        <div className="space-y-2">
+          <p className="text-sm text-slate-400">
+            Couldn&apos;t load your Glooko connection status.
+          </p>
+          <button
+            type="button"
+            onClick={() => void loadStatus()}
+            disabled={isOffline}
+            className="rounded-lg border border-slate-600 px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* ---- Not connected (or login expired): direct email/password connect ---- */}
       {showConnectForm && (
