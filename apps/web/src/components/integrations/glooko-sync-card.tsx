@@ -170,7 +170,19 @@ export function GlookoSyncCard({ isOffline }: { isOffline: boolean }) {
         /* keep the successful sync result */
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Sync failed");
+      // A failed sync may have flipped the connection to disconnected; refresh so
+      // the card reflects it instead of showing a stale "Connected" banner. When
+      // it did disconnect, the reconnect prompt already explains it -- skip the
+      // redundant error banner; otherwise surface the failure.
+      try {
+        const s = await getGlookoStatus();
+        applyStatus(s);
+        if (s.status !== "disconnected") {
+          setError(e instanceof Error ? e.message : "Sync failed");
+        }
+      } catch {
+        setError(e instanceof Error ? e.message : "Sync failed");
+      }
     } finally {
       setIsSyncing(false);
     }
@@ -188,7 +200,17 @@ export function GlookoSyncCard({ isOffline }: { isOffline: boolean }) {
         /* keep the successful import result */
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Import failed");
+      // Same as syncNow: refresh so a disconnect is reflected; when disconnected
+      // the reconnect prompt covers it, so skip the redundant error banner.
+      try {
+        const s = await getGlookoStatus();
+        applyStatus(s);
+        if (s.status !== "disconnected") {
+          setError(e instanceof Error ? e.message : "Import failed");
+        }
+      } catch {
+        setError(e instanceof Error ? e.message : "Import failed");
+      }
     } finally {
       setIsImporting(false);
     }
