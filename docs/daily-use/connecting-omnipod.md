@@ -24,11 +24,11 @@ There are **two ways** to bring Omnipod data in, and you can use either or both.
 
 ---
 
-## A note on the Glooko Terms of Service
+## A note on how this connection works
 
-Glooko does **not** publish an official developer API. GlycemicGPT connects by signing in to Glooko the same way the website does, using your own credentials. **This may violate Glooko's Terms of Service, and Glooko reserves the right to suspend or terminate accounts** that access their service in ways they don't sanction.
+Glooko doesn't offer an official way for other apps to connect. So GlycemicGPT connects by **signing in to Glooko the same way the website does, using your own credentials** — there's no official Glooko integration behind it.
 
-Because of that, connecting Omnipod requires you to **check a consent box** acknowledging this risk. You are connecting **your own account, at your own risk.** GlycemicGPT only ever reads your data — it never uploads anything back to Glooko — but the risk of account action is real, and we'd rather you decide that knowingly than be surprised.
+Because this isn't something Glooko officially supports, connecting Omnipod asks you to **check a box** confirming you understand that. You're connecting **your own account, by choice.** GlycemicGPT only ever *reads* your data — it never uploads anything back to Glooko. We're not aware of Glooko taking action against accounts for this, but since it's unofficial we'd rather you know how it works than be surprised.
 
 ---
 
@@ -49,7 +49,7 @@ In your GlycemicGPT dashboard:
 
 1. Go to **Settings → Integrations → Cloud Sync** and find **Omnipod / Glooko**.
 2. Enter your **Glooko email** and **password**, and pick your **region** (United States is the supported default; Europe / International is experimental).
-3. Check the box acknowledging the **Glooko Terms of Service risk** (see above).
+3. Check the box confirming you understand this is an **unofficial connection** (see above).
 4. Click **Connect Glooko**. GlycemicGPT signs in to confirm your credentials work, then stores them encrypted and starts syncing.
 
 Once connected, the card shows whether sensor glucose is available, your last sync time, and how many readings have synced so far.
@@ -91,7 +91,7 @@ What this means in practice:
 
 - **Glooko can break it.** Sign-in flows and data shapes can change without notice; when they do, expect a lag of days to weeks for a fix.
 - **CGM availability depends on your setup.** Pump data syncs reliably; sensor glucose only appears if your Omnipod streams integrated CGM to Glooko.
-- **Account risk is yours.** Automated access may violate Glooko's Terms of Service — see the consent note above.
+- **It's an unofficial connection.** Glooko doesn't offer an official integration, so this works by signing in with your credentials — see the note above.
 
 ## When the integration breaks
 

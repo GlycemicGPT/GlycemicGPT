@@ -6,10 +6,11 @@ account email + password (replayed via the web Devise login each sync, NOT rotat
 plus the control + freshness fields. These schemas only carry credentials INBOUND
 on connect; no response ever echoes them back.
 
-Connect also records an explicit-consent acknowledgment (``accept_risk``): Glooko's
-ToS prohibit programmatic access and reserve account termination, so the user must
-knowingly accept that risk before we store their credentials and sync on their
-behalf.
+Connect also records an explicit acknowledgment (``accept_risk``): Glooko has no
+official app integration, so we sign in with the user's own credentials. The user
+confirms they understand this isn't officially supported before we store their
+credentials and sync on their behalf. (The field name is historical; it gates an
+informed acknowledgment, not a warranty of risk.)
 """
 
 from __future__ import annotations
@@ -50,12 +51,12 @@ class GlookoConnectRequest(BaseModel):
     email: str = Field(min_length=1, max_length=MAX_CREDENTIAL_LEN)
     password: str = Field(min_length=1, max_length=MAX_CREDENTIAL_LEN)
     region: str = "US"
-    # Explicit acknowledgment of the Glooko ToS / account-ban risk. Required true
+    # Explicit acknowledgment that this is an unofficial connection. Required true
     # -- the endpoint refuses to store credentials without it (422 otherwise).
     accept_risk: bool = Field(
         description=(
-            "Must be true: the user acknowledges that programmatic access may "
-            "violate Glooko's Terms of Service and risk account termination."
+            "Must be true: the user acknowledges that Glooko has no official app "
+            "integration and that GlycemicGPT signs in with their credentials."
         ),
     )
 
@@ -76,8 +77,8 @@ class GlookoConnectRequest(BaseModel):
     def _must_accept(cls, v: bool) -> bool:
         if v is not True:
             raise ValueError(
-                "You must acknowledge the Glooko Terms of Service / account-ban "
-                "risk to connect."
+                "Please acknowledge that this is an unofficial Glooko connection "
+                "before connecting."
             )
         return v
 

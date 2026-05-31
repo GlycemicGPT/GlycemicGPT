@@ -114,7 +114,7 @@ export function GlookoSyncCard({ isOffline }: { isOffline: boolean }) {
       return;
     }
     if (!acceptRisk) {
-      setError("Please acknowledge the Glooko Terms of Service risk to connect.");
+      setError("Please check the acknowledgment box before connecting.");
       return;
     }
     setIsConnecting(true);
@@ -310,11 +310,12 @@ export function GlookoSyncCard({ isOffline }: { isOffline: boolean }) {
             />
           </div>
 
-          {/* Required consent: Glooko's ToS prohibit programmatic access and
-              reserve account termination. The user must knowingly accept this
-              before we store credentials and sync on their behalf. */}
-          <div className="rounded-md border border-amber-600/40 bg-amber-600/10 p-3">
-            <label className="flex items-start gap-2 text-sm text-amber-200">
+          {/* Required acknowledgment: Glooko has no official app integration, so
+              we sign in with the user's credentials. We ask them to confirm they
+              understand this isn't officially supported before we store
+              credentials and sync on their behalf. */}
+          <div className="rounded-md border border-slate-600 bg-slate-800/40 p-3">
+            <label className="flex items-start gap-2 text-sm text-slate-300">
               <input
                 type="checkbox"
                 checked={acceptRisk}
@@ -323,10 +324,10 @@ export function GlookoSyncCard({ isOffline }: { isOffline: boolean }) {
                 className="mt-0.5 h-4 w-4 shrink-0"
               />
               <span>
-                I understand that Glooko does not offer an official API, that
-                automated access may violate Glooko&apos;s Terms of Service, and
-                that Glooko could suspend or terminate my account. I&apos;m
-                connecting my own account at my own risk.
+                I understand that Glooko doesn&apos;t offer an official way for
+                other apps to connect, so GlycemicGPT signs in with my Glooko
+                credentials on my behalf. This isn&apos;t officially supported by
+                Glooko, and I&apos;m connecting my own account by choice.
               </span>
             </label>
           </div>
