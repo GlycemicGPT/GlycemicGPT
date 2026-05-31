@@ -30,12 +30,10 @@ import { PasswordInput } from "./integration-card";
 const MIN_INTERVAL = 15;
 const MAX_INTERVAL = 1440;
 
-// US is the supported default. EU is wired but unvalidated against a live
-// account (the eu.api.glooko.com host is fragile upstream) -- it is offered but
-// labeled so users know what they're choosing.
+// US and EU select the region-prefixed Glooko hosts (us.api / eu.api).
 const REGIONS = [
   { code: "US", label: "United States" },
-  { code: "EU", label: "Europe / International (experimental)" },
+  { code: "EU", label: "Europe / International" },
 ] as const;
 
 function regionLabel(code: string | null | undefined): string {

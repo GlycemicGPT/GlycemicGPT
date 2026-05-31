@@ -27,8 +27,8 @@ from src.models.glooko_sync_state import (
 
 #: Region keys the connect flow accepts. Must mirror
 #: ``services.integrations.glooko.auth.REGIONS`` (the runtime SSRF allowlist);
-#: this tuple is the early request-validation gate. US is the supported default;
-#: EU is wired but unvalidated against a live account.
+#: this tuple is the early request-validation gate. US is the default; EU selects
+#: the region-prefixed ``eu.api`` / ``eu.my`` hosts.
 SUPPORTED_GLOOKO_REGIONS = ("US", "EU")
 
 #: Upper bound on a submitted credential length -- reject absurd payloads early
