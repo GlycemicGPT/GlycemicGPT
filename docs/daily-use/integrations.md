@@ -16,6 +16,7 @@ This page is the index. Each integration with a longer setup flow has its own pa
 | [Dexcom](./connecting-dexcom.md) | Real-time glucose | Have a Dexcom G6 / G7 / ONE+ | Dexcom email + password |
 | [Tandem Cloud](./connecting-tandem-cloud.md) | Pump history, boluses, basal, IoB | Have a t:slim X2 or Mobi | Tandem email + password |
 | [Medtronic CareLink](./connecting-medtronic.md) | CGM, boluses, carbs, fingersticks | Have a Medtronic pump + CGM on CareLink | CareLink login (signed in via your browser) |
+| [Omnipod (via Glooko)](./connecting-omnipod.md) | Basal, boluses, pod changes, CGM when available | Have an Omnipod 5 uploading to Glooko | Glooko email + password |
 | [Nightscout](#nightscout) | CGM entries, treatments, devicestatus, profile | Already run a Nightscout site -- often with a CGM we don't speak directly to (Libre, Eversense, etc.) | Nightscout URL + API_SECRET |
 
 Everything lives at **Settings → Integrations** on the dashboard.

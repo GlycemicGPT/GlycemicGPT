@@ -109,6 +109,12 @@ class User(Base, TimestampMixin):
         uselist=False,
         cascade="all, delete-orphan",
     )
+    glooko_sync_state = relationship(
+        "GlookoSyncState",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
     glucose_readings = relationship(
         "GlucoseReading",
         back_populates="user",

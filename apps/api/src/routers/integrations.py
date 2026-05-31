@@ -54,6 +54,15 @@ from src.core.token_blacklist import consume_token_once, is_token_blacklisted
 from src.database import get_db
 from src.logging_config import get_logger
 from src.middleware.rate_limit import limiter
+from src.models.glooko_sync_state import (
+    STATUS_CONNECTED as GLOOKO_STATUS_CONNECTED,
+)
+from src.models.glooko_sync_state import (
+    STATUS_DISCONNECTED as GLOOKO_STATUS_DISCONNECTED,
+)
+from src.models.glooko_sync_state import (
+    GlookoSyncState,
+)
 from src.models.glucose import GlucoseReading
 from src.models.integration import (
     IntegrationCredential,
@@ -78,6 +87,13 @@ from src.schemas.forecast import (
     ForecastSourcePreferenceResponse,
     ForecastSourcePreferenceUpdate,
     curves_from_jsonb,
+)
+from src.schemas.glooko import (
+    GlookoAvailabilityResponse,
+    GlookoConnectRequest,
+    GlookoStatusResponse,
+    GlookoSyncResponse,
+    GlookoSyncSettingsRequest,
 )
 from src.schemas.glucose import (
     AGPBucket,
@@ -153,6 +169,17 @@ from src.services.forecast_reader import (
     read_forecast_preference,
     resolve_effective_source,
     set_forecast_source,
+)
+from src.services.integrations.glooko.auth import glooko_login
+from src.services.integrations.glooko.errors import (
+    GlookoAuthError,
+    GlookoNetworkError,
+)
+from src.services.integrations.glooko.sync import (
+    GlookoSyncRunError,
+    import_glooko_history_for_user,
+    probe_glooko_availability,
+    sync_glooko_for_user,
 )
 from src.services.integrations.medtronic.client import (
     CareLinkAuthError,
@@ -2753,6 +2780,444 @@ async def sync_medtronic_connect_now(
 
     return MedtronicConnectSyncResponse(
         message="Sync completed successfully",
+        glucose_fetched=result.glucose_fetched,
+        glucose_stored=result.glucose_stored,
+        events_fetched=result.events_fetched,
+        events_stored=result.events_stored,
+    )
+
+
+# ============================================================================
+# Glooko (Omnipod Cloud Sync) -- autonomous sync (connect/sync API endpoints)
+#
+# Credential-based like Tandem (the user's own Glooko email + password), but --
+# like Medtronic Connect -- everything lives on a dedicated GlookoSyncState row
+# (encrypted credentials + control + freshness), so these endpoints mirror the
+# Medtronic Connect URL shape. Connect records an explicit acknowledgment that
+# this is an unofficial Glooko connection; credentials are Fernet-encrypted and
+# NEVER logged or returned.
+# ============================================================================
+
+
+async def _store_glooko_state(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    *,
+    region: str,
+    email: str,
+    password: str,
+    patient_slug: str | None,
+    patient_oid: str | None,
+) -> GlookoSyncState:
+    """Upsert-then-lock the Glooko state row with fresh (encrypted) credentials.
+
+    Stamps the consent acknowledgment with the connect time (server-side, never a
+    client value) and (re)enables sync -- reconnecting is an explicit intent to
+    use the integration. Reconnecting with the SAME Glooko patient preserves the
+    sync interval, cursors, and counters so continuity isn't lost; reconnecting
+    with a DIFFERENT patient resets the per-stream cursors and freshness so the
+    next sync can't resume from the prior account's position and mis-associate
+    medical data. The credentials are encrypted at rest and never returned.
+    """
+    enc_email = encrypt_credential(email)
+    enc_password = encrypt_credential(password)
+    now = datetime.now(UTC)
+
+    await db.execute(
+        pg_insert(GlookoSyncState)
+        .values(
+            user_id=user_id,
+            region=region,
+            encrypted_email=enc_email,
+            encrypted_password=enc_password,
+            status=GLOOKO_STATUS_CONNECTED,
+            enabled=True,
+            consent_acknowledged_at=now,
+            patient_slug=patient_slug,
+            patient_oid=patient_oid,
+        )
+        .on_conflict_do_nothing(index_elements=["user_id"])
+    )
+    state = (
+        await db.execute(
+            select(GlookoSyncState)
+            .where(GlookoSyncState.user_id == user_id)
+            .with_for_update()
+        )
+    ).scalar_one()
+    # Detect an account switch BEFORE overwriting: if the discovered patient
+    # differs from the stored one, the existing cursors point into a different
+    # account's data and must not be reused.
+    patient_changed = (state.patient_slug or None) != (patient_slug or None) or (
+        state.patient_oid or None
+    ) != (patient_oid or None)
+    # Overwrite (covers the existing-row / reconnect case).
+    state.region = region
+    state.encrypted_email = enc_email
+    state.encrypted_password = enc_password
+    state.status = GLOOKO_STATUS_CONNECTED
+    state.enabled = True
+    state.consent_acknowledged_at = now
+    state.last_error = None
+    state.patient_slug = patient_slug
+    state.patient_oid = patient_oid
+    if patient_changed:
+        # Fresh account -> drop sync progress so the next sync starts clean.
+        state.stream_cursors = None
+        state.last_sync_at = None
+        state.last_cgm_window_end = None
+        state.readings_synced_total = 0
+    await db.commit()
+    return state
+
+
+def _glooko_status_response(
+    state: GlookoSyncState | None,
+) -> GlookoStatusResponse:
+    """Build the status response from a state row (never exposes credentials)."""
+    if state is None:
+        return GlookoStatusResponse(
+            connected=False,
+            status="not_configured",
+            enabled=False,
+        )
+    return GlookoStatusResponse(
+        connected=state.status == GLOOKO_STATUS_CONNECTED,
+        status=state.status,
+        enabled=state.enabled,
+        region=state.region,
+        sync_interval_minutes=state.sync_interval_minutes,
+        last_sync_at=state.last_sync_at,
+        last_error=state.last_error,
+        readings_synced_total=state.readings_synced_total,
+        consent_acknowledged_at=state.consent_acknowledged_at,
+    )
+
+
+@router.post(
+    "/glooko",
+    response_model=GlookoStatusResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        201: {"description": "Glooko connected successfully"},
+        400: {"model": ErrorResponse, "description": "Invalid Glooko credentials"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        403: {"model": ErrorResponse, "description": "Permission denied"},
+        422: {
+            "model": ErrorResponse,
+            "description": "Validation error (consent not acknowledged, "
+            "unsupported region, or malformed body)",
+        },
+        503: {"model": ErrorResponse, "description": "Glooko service unavailable"},
+    },
+)
+@limiter.limit("5/minute")
+async def connect_glooko(
+    body: GlookoConnectRequest,
+    request: Request,
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> GlookoStatusResponse:
+    """Connect a Glooko account: validate credentials live, then store them
+    encrypted and record the consent acknowledgment.
+
+    A live login proves the credentials work (fail fast rather than storing a
+    bad credential that only fails on the first scheduled sync) and discovers the
+    patient identifiers. The acknowledgment (``accept_risk``) is enforced by the
+    request schema -- the user must acknowledge this is an unofficial Glooko
+    connection before we store anything.
+    """
+    try:
+        session = await glooko_login(body.email, body.password, body.region)
+    except GlookoAuthError as e:
+        logger.warning(
+            "Glooko connection rejected (bad credentials)",
+            user_id=str(current_user.id),
+            region=body.region,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid Glooko email or password.",
+        ) from e
+    except GlookoNetworkError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to reach Glooko. Please try again later.",
+        ) from e
+    except ValueError as e:  # unsupported region (defensive; schema validates)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
+        ) from e
+
+    state = await _store_glooko_state(
+        db,
+        current_user.id,
+        region=body.region,
+        email=body.email,
+        password=body.password,
+        patient_slug=session.patient_slug,
+        patient_oid=session.patient_oid,
+    )
+    logger.info(
+        "Glooko connected successfully",
+        user_id=str(current_user.id),
+        region=body.region,
+    )
+    return _glooko_status_response(state)
+
+
+@router.get(
+    "/glooko/status",
+    response_model=GlookoStatusResponse,
+    responses={
+        200: {"description": "Glooko sync status"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+    },
+)
+async def get_glooko_status(
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> GlookoStatusResponse:
+    """Report the user's Glooko sync status (no credentials exposed). Returns a
+    ``not_configured`` status (rather than 404) when there is no row, so the
+    Cloud Sync card can render an honest disconnected state."""
+    state = (
+        await db.execute(
+            select(GlookoSyncState).where(GlookoSyncState.user_id == current_user.id)
+        )
+    ).scalar_one_or_none()
+    return _glooko_status_response(state)
+
+
+@router.delete(
+    "/glooko",
+    responses={
+        200: {"description": "Glooko disconnected"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+    },
+)
+async def disconnect_glooko(
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    """Disconnect Glooko: delete the state row (and its encrypted credentials +
+    consent record). Idempotent -- a no-op if the user was never connected."""
+    await db.execute(
+        delete(GlookoSyncState).where(GlookoSyncState.user_id == current_user.id)
+    )
+    await db.commit()
+    logger.info("Glooko disconnected", user_id=str(current_user.id))
+    return {"message": "Glooko disconnected"}
+
+
+@router.post(
+    "/glooko/sync",
+    response_model=GlookoSyncResponse,
+    responses={
+        200: {"description": "Sync completed"},
+        400: {"model": ErrorResponse, "description": "Glooko login no longer valid"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        404: {"model": ErrorResponse, "description": "Glooko not configured"},
+        503: {"model": ErrorResponse, "description": "Glooko service unavailable"},
+    },
+)
+@limiter.limit("5/minute")
+async def sync_glooko_now(
+    request: Request,
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> GlookoSyncResponse:
+    """Manually trigger an incremental Glooko sync now (in addition to the
+    scheduler). Resumes each stream from its stored cursor."""
+    state = (
+        await db.execute(
+            select(GlookoSyncState).where(GlookoSyncState.user_id == current_user.id)
+        )
+    ).scalar_one_or_none()
+    if state is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Glooko is not configured. Connect it first.",
+        )
+    try:
+        result = await sync_glooko_for_user(db, state)
+    except GlookoSyncRunError as e:
+        # The orchestrator already recorded the failure on the row. Bad
+        # credentials surface as disconnected (the user must reconnect);
+        # anything else is transient.
+        if state.status == GLOOKO_STATUS_DISCONNECTED:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Your Glooko login is no longer valid. Please reconnect.",
+            ) from e
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to sync from Glooko. Please try again later.",
+        ) from e
+
+    return GlookoSyncResponse(
+        message="Sync completed successfully",
+        glucose_fetched=result.glucose_fetched,
+        glucose_stored=result.glucose_stored,
+        events_fetched=result.events_fetched,
+        events_stored=result.events_stored,
+    )
+
+
+@router.put(
+    "/glooko/sync/settings",
+    response_model=GlookoStatusResponse,
+    responses={
+        200: {"description": "Settings updated"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        404: {"model": ErrorResponse, "description": "Glooko not configured"},
+    },
+)
+async def update_glooko_sync_settings(
+    body: GlookoSyncSettingsRequest,
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> GlookoStatusResponse:
+    """Update the per-user Glooko sync toggle + interval. 404 if not connected
+    (there is no row to control until the user completes the connect)."""
+    state = (
+        await db.execute(
+            select(GlookoSyncState)
+            .where(GlookoSyncState.user_id == current_user.id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if state is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Glooko is not configured. Connect it first.",
+        )
+    state.enabled = body.enabled
+    state.sync_interval_minutes = body.sync_interval_minutes
+    await db.commit()
+    logger.info(
+        "Glooko sync settings updated",
+        user_id=str(current_user.id),
+        enabled=body.enabled,
+        interval_minutes=body.sync_interval_minutes,
+    )
+    return _glooko_status_response(state)
+
+
+@router.get(
+    "/glooko/sync/availability",
+    response_model=GlookoAvailabilityResponse,
+    responses={
+        200: {"description": "Reachable Glooko CGM data"},
+        400: {"model": ErrorResponse, "description": "Glooko login no longer valid"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        404: {"model": ErrorResponse, "description": "Glooko not configured"},
+        503: {"model": ErrorResponse, "description": "Glooko service unavailable"},
+    },
+)
+@limiter.limit("10/minute")
+async def get_glooko_sync_availability(
+    request: Request,
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> GlookoAvailabilityResponse:
+    """Report whether CGM data is reachable in the user's Glooko cloud, to let the
+    Cloud Sync card be honest about what will sync.
+
+    A live, READ-ONLY probe: it authenticates and walks the CGM window but does
+    NOT mutate the sync-state row (the Tandem #669 ``persist_status=False``
+    contract), so a probe failure never flips the stored status/last_error.
+    """
+    state = (
+        await db.execute(
+            select(GlookoSyncState).where(GlookoSyncState.user_id == current_user.id)
+        )
+    ).scalar_one_or_none()
+    if state is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Glooko is not configured. Connect it first.",
+        )
+    try:
+        result = await probe_glooko_availability(state)
+    except GlookoAuthError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Your Glooko login is no longer valid. Please reconnect.",
+        ) from e
+    except GlookoNetworkError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to reach Glooko. Please try again later.",
+        ) from e
+    except ValueError as e:
+        # A bad stored region or an undecryptable credential (e.g. a rotated
+        # Fernet key) -- both are recovered by reconnecting, so give the same
+        # remediation the rest of the integration does rather than an opaque 500.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Your Glooko connection needs to be re-established. "
+            "Please reconnect.",
+        ) from e
+
+    return GlookoAvailabilityResponse(
+        connected=state.status == GLOOKO_STATUS_CONNECTED,
+        cgm_available=result.cgm_available,
+        earliest=result.earliest,
+        latest=result.latest,
+    )
+
+
+@router.post(
+    "/glooko/sync/import",
+    response_model=GlookoSyncResponse,
+    responses={
+        200: {"description": "Import completed"},
+        400: {"model": ErrorResponse, "description": "Glooko login no longer valid"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        404: {"model": ErrorResponse, "description": "Glooko not configured"},
+        503: {"model": ErrorResponse, "description": "Glooko service unavailable"},
+    },
+)
+@limiter.limit("5/minute")
+async def import_glooko_history(
+    request: Request,
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> GlookoSyncResponse:
+    """One-time historical backfill from Glooko.
+
+    Unlike the incremental sync (which pulls a recent window ending now), this
+    paginates each pump stream from the start and walks the CGM window back over a
+    bounded span -- the way to backfill history after connecting. It does NOT
+    advance the incremental cursors or ``last_sync_at`` (it fills the past). Safe
+    to re-run: storage is idempotent.
+    """
+    state = (
+        await db.execute(
+            select(GlookoSyncState).where(GlookoSyncState.user_id == current_user.id)
+        )
+    ).scalar_one_or_none()
+    if state is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Glooko is not configured. Connect it first.",
+        )
+    try:
+        result = await import_glooko_history_for_user(db, state)
+    except GlookoSyncRunError as e:
+        if state.status == GLOOKO_STATUS_DISCONNECTED:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Your Glooko login is no longer valid. Please reconnect.",
+            ) from e
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to import from Glooko. Please try again later.",
+        ) from e
+
+    return GlookoSyncResponse(
+        message="Import completed successfully",
         glucose_fetched=result.glucose_fetched,
         glucose_stored=result.glucose_stored,
         events_fetched=result.events_fetched,

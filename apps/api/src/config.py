@@ -94,6 +94,19 @@ class Settings(BaseSettings):
     medtronic_connect_enabled: bool = True  # Enable/disable the whole job
     medtronic_connect_tick_interval_minutes: int = Field(default=15, ge=1, le=60)
 
+    # Glooko (Omnipod Cloud Sync) autonomous sync. Operator kill switch for the
+    # background sync job, mirroring the dexcom/tandem/medtronic flags (all default
+    # True, all gate only the scheduler tick -- not the UI or endpoints). Set False
+    # via env to stop just the Glooko background sync (e.g. if it floods errors or
+    # hammers Glooko) without a redeploy; users retain per-connection
+    # enable/disconnect regardless. The tick no-ops safely until a user connects.
+    # When enabled, the scheduler ticks every `glooko_sync_tick_interval_minutes`
+    # and runs the sync for any connected user whose per-user `sync_interval_minutes`
+    # (GlookoSyncState) has elapsed. Bounded at parse time (feeds APScheduler's
+    # IntervalTrigger).
+    glooko_sync_enabled: bool = True  # Enable/disable the whole job
+    glooko_sync_tick_interval_minutes: int = Field(default=15, ge=1, le=60)
+
     # Nightscout Sync Configuration (Story 43.4)
     # The scheduler ticks on a fixed interval; on each tick it scans
     # nightscout_connections and runs the per-connection sync for any

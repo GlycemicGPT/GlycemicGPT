@@ -1,0 +1,4 @@
+[
+  {"pumpTimestamp": "2023-03-30T19:10:26.000Z", "pumpTimestampUtcOffset": "-04:00", "pumpGuid": "00000000-0000-0000-0000-0000000000aa", "syncTimestamp": "2023-03-31T05:27:40.056Z", "startTime": 69026, "duration": 318, "segmentId": "", "rate": 0.55, "guid": "11111111-0000-0000-0000-000000000001", "softDeleted": false, "updatedAt": "2023-03-31T09:27:45.973Z", "updatedBy": "server"},
+  {"pumpTimestamp": "2023-03-30T19:15:44.000Z", "pumpTimestampUtcOffset": "-04:00", "pumpGuid": "00000000-0000-0000-0000-0000000000aa", "syncTimestamp": "2023-03-31T05:27:40.056Z", "startTime": 69344, "duration": 600, "segmentId": "", "rate": 0.0, "guid": "11111111-0000-0000-0000-000000000002", "softDeleted": false, "updatedAt": "2023-03-31T09:27:45.973Z", "updatedBy": "server"}
+]

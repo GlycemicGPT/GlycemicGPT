@@ -3812,3 +3812,167 @@ export async function syncMedtronicConnectNow(): Promise<MedtronicConnectSyncRes
   }
   return response.json();
 }
+
+// ============================================================================
+// Omnipod via Glooko -- autonomous cloud sync
+// Omnipod 5 uploads to Glooko only (Insulet mandates Glooko as the sole data
+// system), so Glooko is the onramp. Unlike Medtronic Connect's mobile-app login
+// (which needs a desktop helper), Glooko authenticates with a plain web session,
+// so the user connects directly with their Glooko email + password. The
+// credentials are encrypted at rest on the backend and never returned here.
+// ============================================================================
+
+export interface GlookoStatus {
+  connected: boolean;
+  /** Server-side row status; `not_configured` when the user has never connected.
+   * Mirrors the backend `GlookoSyncState.status` vocabulary. */
+  status:
+    | "not_configured"
+    | "pending"
+    | "connected"
+    | "error"
+    | "disconnected";
+  enabled: boolean;
+  region?: string | null;
+  /** Minutes between scheduled syncs (15-1440). */
+  sync_interval_minutes?: number;
+  last_sync_at?: string | null;
+  last_error?: string | null;
+  readings_synced_total?: number;
+  /** When the user acknowledged the unofficial-connection notice, or null.
+   * Returned by the API; not yet surfaced in the UI. */
+  consent_acknowledged_at?: string | null;
+}
+
+export interface GlookoSyncResult {
+  message: string;
+  glucose_fetched: number;
+  glucose_stored: number;
+  events_fetched: number;
+  events_stored: number;
+}
+
+export interface GlookoAvailability {
+  connected: boolean;
+  /**
+   * Whether CGM (sensor glucose) data is reachable in the account. Omnipod 5
+   * only streams integrated CGM to Glooko on some setups, so this can be false
+   * even when pump data syncs fine -- the card stays honest about it.
+   */
+  cgm_available: boolean;
+  /** Oldest CGM datapoint reachable (ISO), or null. */
+  earliest?: string | null;
+  /** Most recent CGM datapoint reachable (ISO), or null. */
+  latest?: string | null;
+}
+
+/** Connect a Glooko account: validates credentials live, then stores them
+ * encrypted server-side and records the consent acknowledgment. `acceptRisk`
+ * must be true -- the backend refuses to store credentials without it. */
+export async function connectGlooko(params: {
+  email: string;
+  password: string;
+  region: string;
+  acceptRisk: boolean;
+}): Promise<GlookoStatus> {
+  const response = await apiFetch(`${API_BASE_URL}/api/integrations/glooko`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      email: params.email,
+      password: params.password,
+      region: params.region,
+      accept_risk: params.acceptRisk,
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(await _readErrorDetail(response, "Failed to connect Glooko"));
+  }
+  return response.json();
+}
+
+/** Read the user's Glooko sync status (no credentials exposed). Returns a
+ * `not_configured` status rather than 404 when never connected. */
+export async function getGlookoStatus(): Promise<GlookoStatus> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/glooko/status`
+  );
+  if (!response.ok) {
+    throw new Error(await _readErrorDetail(response, "Failed to read Glooko status"));
+  }
+  return response.json();
+}
+
+/** Disconnect Glooko (deletes the stored credentials + consent record). */
+export async function disconnectGlooko(): Promise<void> {
+  const response = await apiFetch(`${API_BASE_URL}/api/integrations/glooko`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    throw new Error(await _readErrorDetail(response, "Failed to disconnect Glooko"));
+  }
+}
+
+/** Trigger an incremental Glooko sync now (in addition to the schedule). */
+export async function syncGlookoNow(): Promise<GlookoSyncResult> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/glooko/sync`,
+    { method: "POST" }
+  );
+  if (!response.ok) {
+    throw new Error(await _readErrorDetail(response, "Failed to sync Glooko"));
+  }
+  return response.json();
+}
+
+/** Update the Glooko sync toggle + interval. */
+export async function updateGlookoSyncSettings(
+  enabled: boolean,
+  syncIntervalMinutes: number
+): Promise<GlookoStatus> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/glooko/sync/settings`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        enabled,
+        sync_interval_minutes: syncIntervalMinutes,
+      }),
+    }
+  );
+  if (!response.ok) {
+    throw new Error(
+      await _readErrorDetail(response, "Failed to update Glooko settings")
+    );
+  }
+  return response.json();
+}
+
+/** Read-only probe of what CGM data is reachable in the user's Glooko cloud.
+ * Does not mutate the sync-state row, so it is safe to call to drive honest
+ * CGM-availability messaging. */
+export async function getGlookoSyncAvailability(): Promise<GlookoAvailability> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/glooko/sync/availability`
+  );
+  if (!response.ok) {
+    throw new Error(
+      await _readErrorDetail(response, "Failed to read available Glooko data")
+    );
+  }
+  return response.json();
+}
+
+/** One-time historical backfill from Glooko (no body; fills the past without
+ * advancing the incremental cursors). Safe to re-run -- storage is idempotent. */
+export async function importGlookoHistory(): Promise<GlookoSyncResult> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/glooko/sync/import`,
+    { method: "POST" }
+  );
+  if (!response.ok) {
+    throw new Error(await _readErrorDetail(response, "Failed to import Glooko history"));
+  }
+  return response.json();
+}
