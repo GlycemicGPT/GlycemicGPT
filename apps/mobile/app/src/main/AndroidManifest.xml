@@ -56,6 +56,12 @@
         android:networkSecurityConfig="@xml/network_security_config"
         tools:targetApi="35">
 
+        <!-- Sentry: disable ContentProvider auto-init; we initialize manually in
+             SentryInitializer so the DSN, scrubbing, and privacy options are applied in one place. -->
+        <meta-data
+            android:name="io.sentry.auto-init"
+            android:value="false" />
+
         <!-- Intentional: MAIN/LAUNCHER activity must be exported (required since API 31).
              Safe because: no incoming intent data/extras are processed, auth is enforced
              in GlycemicGptNavHost before any sensitive data is shown.

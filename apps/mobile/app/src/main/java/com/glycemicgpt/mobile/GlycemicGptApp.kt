@@ -9,6 +9,7 @@ import androidx.work.WorkManager
 import com.glycemicgpt.mobile.data.auth.AuthManager
 import com.glycemicgpt.mobile.data.local.PumpCredentialStore
 import com.glycemicgpt.mobile.logging.ReleaseTree
+import com.glycemicgpt.mobile.logging.SentryInitializer
 import com.glycemicgpt.mobile.plugin.PluginRegistry
 import com.glycemicgpt.mobile.service.DataRetentionWorker
 import com.glycemicgpt.mobile.service.PumpConnectionService
@@ -44,6 +45,9 @@ class GlycemicGptApp : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+        // Initialize crash/error reporting first so failures during the rest of startup are
+        // captured. No-op when no DSN is compiled in (release builds, or debug without one).
+        SentryInitializer.init(this)
         if (BuildConfig.DEBUG) {
             Timber.plant(Timber.DebugTree())
         } else {
