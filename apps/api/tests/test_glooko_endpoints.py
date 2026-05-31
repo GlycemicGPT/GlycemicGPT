@@ -1,4 +1,4 @@
-"""Tests for the Glooko (Omnipod Cloud Sync) connect/sync endpoints (Milestone D).
+"""Tests for the Glooko (Omnipod Cloud Sync) connect/sync endpoints.
 
 The Glooko web login (``glooko_login``) and the sync/import/availability
 orchestrators are patched so these stay pure unit/HTTP tests against a real test

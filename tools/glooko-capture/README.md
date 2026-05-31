@@ -1,7 +1,7 @@
 # glooko-capture
 
-A re-runnable Glooko wire-protocol capture helper for **Story 47.A** (Epic 47 — Omnipod
-Cloud Sync via Glooko). It logs in to a real Glooko account, enumerates the reachable
+A re-runnable Glooko wire-protocol capture helper for the Omnipod Cloud Sync via Glooko
+integration. It logs in to a real Glooko account, enumerates the reachable
 `/api/v2` endpoints, and captures the CGM / basal / bolus payloads so the protocol can be
 re-verified in minutes instead of re-discovered.
 
@@ -79,12 +79,12 @@ uv run tools/glooko-capture/capture.py --region EU --show-values
 - **Pump data:** drains the `/api/v2/*` keyset-cursor streams (`pumps/scheduled_basals`, `pumps/normal_boluses`, `pumps/events`, `pumps/modes`, `pumps/alarms`, `cgm/readings`, `cgm/egvs`, …) using `lastUpdatedAt`+`lastGuid`, printing per-stream record counts + the historical span + distinct device/event-type values.
 - **CGM glucose:** queries `/api/v3/graph/statistics/overall` (the v3-graph path — CGM is not in the v2 cursor) to confirm glucose presence + units.
 
-Output: per-stream raw JSON under `--out`, plus a `_results.json` rollup that feeds
-`_bmad-output/planning-artifacts/glooko-reverse-engineering.md`.
+Output: per-stream raw JSON under `--out`, plus a `_results.json` rollup that documents
+the observed Glooko protocol.
 
-## ToS note
+## A note on Glooko
 
-Glooko's ToS prohibit reverse-engineering and bypassing access measures, and reserve
-account termination. This helper is intended for the operator's **own** account, used
-knowingly. The account-ban risk is real and is documented in the findings doc so the
-eventual consent UX is honest.
+Glooko has no official API, so this helper signs in with the operator's own
+credentials the way the website does — it's an unofficial connection. It's
+intended for the operator's **own** account, used knowingly; never point it at an
+account you don't own.

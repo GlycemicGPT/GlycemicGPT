@@ -1,8 +1,8 @@
 """Tests for the Glooko mapper (pure) + storage (DB idempotency).
 
-Mapper fixtures are captured-real (redacted) payloads from the 47.A live capture
-(`tests/fixtures/glooko/`), not invented shapes -- per the B2 dev note that
-invented JSON is how mappers pass tests and fail on real data.
+Mapper fixtures are captured-real (redacted) payloads from the live capture
+(`tests/fixtures/glooko/`), not invented shapes -- because invented JSON is how
+mappers pass tests and then fail on real data.
 """
 
 import json

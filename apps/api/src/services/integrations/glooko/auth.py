@@ -3,12 +3,12 @@
 The Glooko personal account authenticates through its **web app** (a Rails
 Devise form login), NOT the mobile ``POST /api/v2/users/sign_in`` endpoint --
 that one authenticates the credentials but then 422s for web-only accounts
-(no completed mobile-device registration). See ``glooko-reverse-engineering.md``
-§3 for the full live finding.
+(no completed mobile-device registration). This was confirmed first-hand from a
+live capture.
 
 Working flow (reproduced headlessly here, no browser -- happy path only; no
 CAPTCHA/MFA was observed in the personal flow, but headless-login durability is the
-one open productionization risk flagged in the reverse-engineering doc §12):
+one open productionization risk):
 
     1. GET  {web_host}/users/sign_in            -> pre-auth session cookie + CSRF <meta>
     2. POST {web_host}/users/sign_in?id=login_form  (form-urlencoded:
@@ -22,7 +22,7 @@ by ``GlookoClient`` on the region API host. There is no reliable session TTL fro
 single capture window, so we treat a later data-call 401 as "expired, re-login".
 
 Clean-room attribution: the endpoint paths and form fields were observed
-first-hand (live capture, Story 47.A), not copied from the AGPL-3.0
+first-hand from a live capture, not copied from the AGPL-3.0
 ``nightscout-connect`` / ``jpollock`` Glooko sources.
 """
 
@@ -103,8 +103,8 @@ class GlookoSession:
     """An authenticated Glooko web session, replayable on the region API host.
 
     Carries the cookie jar (so a fresh client can replay it), the region key, and
-    the discovered patient identifiers. Model-agnostic -- Milestone C persists the
-    relevant bits onto ``GlookoSyncState``.
+    the discovered patient identifiers. Model-agnostic -- the sync orchestrator
+    persists the relevant bits onto ``GlookoSyncState``.
     """
 
     region: str
@@ -129,7 +129,7 @@ _OID_RE = re.compile(r"^[0-9a-f]{24}$")
 def _extract_patient_ids(body: object) -> tuple[str | None, str | None]:
     """Extract (patient_slug, patient_oid) from the ``/api/v3/session/users`` payload.
 
-    Live capture (47.A §4) showed the slug under ``currentPatient.glookoCode`` and a
+    The live capture showed the slug under ``currentPatient.glookoCode`` and a
     Mongo OID under ``currentPatient.id`` -- parse that known shape directly. As a
     defensive fallback (the session shape is upstream-``Experimental`` and may carry
     the patient under a different wrapper), scan the top-level dict values one level
@@ -169,7 +169,7 @@ async def glooko_login(
     """Log in via the Glooko web Devise flow and return an authenticated session.
 
     Takes credentials as arguments (no DB coupling) so it is unit-testable and
-    Milestone C can wire it to decrypted ``GlookoSyncState`` creds.
+    the sync orchestrator can wire it to decrypted ``GlookoSyncState`` creds.
 
     Raises ``GlookoAuthError`` on bad credentials / unconfirmed session, and
     ``GlookoNetworkError`` on transport failures.

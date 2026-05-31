@@ -3,11 +3,11 @@
 # requires-python = ">=3.10"
 # dependencies = ["httpx>=0.27"]
 # ///
-"""glooko-capture: a re-runnable Glooko wire-protocol capture helper (Story 47.A).
+"""glooko-capture: a re-runnable Glooko wire-protocol capture helper.
 
 WHY THIS EXISTS
-  Epic 47 (Omnipod Cloud Sync via Glooko) needs the Glooko REST protocol confirmed
-  against a real Omnipod-on-Glooko account before the full build (Milestones B-F). This
+  The Omnipod Cloud Sync via Glooko integration needs the Glooko REST protocol confirmed
+  against a real Omnipod-on-Glooko account before the full build. This
   helper logs in the way the real Glooko web app does, then enumerates and captures the
   data endpoints so the protocol can be re-verified in minutes instead of re-discovered.
 
@@ -202,7 +202,7 @@ class GlookoCapture:
         self.client = httpx.Client(
             timeout=40.0,
             follow_redirects=True,
-            headers={"User-Agent": "GlycemicGPT-glooko-capture/0.2 (spike; +Story-47.A)"},
+            headers={"User-Agent": "GlycemicGPT-glooko-capture/0.2 (spike)"},
         )
         self.out_dir = out_dir
         self.show_values = show_values
@@ -406,7 +406,7 @@ def _today_iso() -> str:
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     p = argparse.ArgumentParser(prog="glooko-capture",
-                                description="Capture the Glooko wire protocol against a real account (Story 47.A).")
+                                description="Capture the Glooko wire protocol against a real account.")
     p.add_argument("--region", choices=["US", "EU"], default="US")
     p.add_argument("--auth", choices=["web", "cookie"], default="web",
                    help="web = Devise form login (default); cookie = replay GLOOKO_SESSION_COOKIE")

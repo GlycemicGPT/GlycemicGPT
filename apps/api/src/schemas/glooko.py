@@ -28,7 +28,7 @@ from src.models.glooko_sync_state import (
 #: Region keys the connect flow accepts. Must mirror
 #: ``services.integrations.glooko.auth.REGIONS`` (the runtime SSRF allowlist);
 #: this tuple is the early request-validation gate. US is the supported default;
-#: EU is wired but unvalidated against a live account (see Milestone F).
+#: EU is wired but unvalidated against a live account.
 SUPPORTED_GLOOKO_REGIONS = ("US", "EU")
 
 #: Upper bound on a submitted credential length -- reject absurd payloads early
@@ -117,7 +117,7 @@ class GlookoSyncResponse(BaseModel):
 class GlookoAvailabilityResponse(BaseModel):
     """Read-only probe of what data is reachable in the user's Glooko cloud.
 
-    Bounds expectations for the web Cloud Sync card (Milestone E). A live login
+    Bounds expectations for the web Cloud Sync card. A live login
     that does NOT mutate the sync-state row (Tandem #669 ``persist_status=False``).
     """
 

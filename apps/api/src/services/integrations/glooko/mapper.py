@@ -3,11 +3,10 @@
 Pure functions (no DB) -- they turn captured Glooko payloads into neutral typed
 ``Mapped*`` records that ``storage.store_glooko_records`` persists into the same
 ``glucose_readings`` / ``pump_events`` tables every other source uses
-(``source = "glooko"``). All shapes/units/timezone semantics come from
-``glooko-reverse-engineering.md`` (Story 47.A live capture), not from any
-third-party source.
+(``source = "glooko"``). All shapes/units/timezone semantics come from our own
+live capture of the Glooko protocol, not from any third-party source.
 
-Coverage (47.A-confirmed): CGM glucose (v3 graph ``cgm*`` series), scheduled
+Coverage (confirmed in the live capture): CGM glucose (v3 graph ``cgm*`` series), scheduled
 basal, normal bolus (carrying IOB/carbs/BG context), and pod-lifecycle / suspend
 / resume events. Pump modes + alarms are out of scope here (informational only).
 
@@ -93,7 +92,7 @@ def _parse_utc(value: object) -> datetime | None:
 def _parse_pump_ts(timestamp: object, offset: object) -> datetime | None:
     """Resolve a pump-data timestamp to UTC.
 
-    FOOTGUN (47.A §9): ``pumpTimestamp`` is LOCAL wall-clock time serialized with a
+    FOOTGUN (observed in the live capture): ``pumpTimestamp`` is LOCAL wall-clock time serialized with a
     misleading trailing ``Z``; the real offset is the separate
     ``pumpTimestampUtcOffset`` (e.g. ``-04:00``). UTC = local-wall-time interpreted
     AT that offset. We refuse a missing/garbage offset rather than misdate a medical

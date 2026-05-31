@@ -63,7 +63,7 @@ export function GlookoSyncCard({ isOffline }: { isOffline: boolean }) {
 
   // CGM availability is fetched on demand (it does a live Glooko login), not on
   // mount -- auto-probing on every page visit would add credential-replay
-  // traffic against an account whose ToS already make automation risky.
+  // traffic to Glooko on every render, which we'd rather keep minimal.
   const [availability, setAvailability] = useState<GlookoAvailability | null>(
     null
   );
@@ -314,7 +314,7 @@ export function GlookoSyncCard({ isOffline }: { isOffline: boolean }) {
               we sign in with the user's credentials. We ask them to confirm they
               understand this isn't officially supported before we store
               credentials and sync on their behalf. */}
-          <div className="rounded-md border border-slate-600 bg-slate-800/40 p-3">
+          <div className="rounded-md border border-slate-700 bg-slate-800/40 p-3">
             <label className="flex items-start gap-2 text-sm text-slate-300">
               <input
                 type="checkbox"

@@ -20,7 +20,7 @@ Two entry points share the per-user lock and the decrypt/login/error machinery:
     now"). Resumes each pump stream from its stored keyset cursor and the CGM
     path from ``last_cgm_window_end``; advances both and bumps ``last_sync_at``.
   * ``import_glooko_history_for_user`` -- the one-time historical backfill
-    (Milestone D's import endpoint). Paginates each pump stream from the epoch
+    (the import endpoint). Paginates each pump stream from the epoch
     under a page budget and walks the CGM path back over a bounded window. It does
     NOT touch the incremental cursors or ``last_sync_at`` -- it fills the past, it
     doesn't make the connection fresher (Tandem #669 import-doesn't-bump lesson).
@@ -63,7 +63,7 @@ logger = get_logger(__name__)
 # translation yet, so syncing them would just discard the records):
 #   * ``extended_boluses`` -- square/dual-wave bolus modeling (follow-up story).
 #   * ``modes`` / ``alarms`` -- informational, not part of the glucose/insulin model.
-# Tracked as Epic 47 follow-ups (see the Milestone F "help wanted" issues); add the
+# Tracked as follow-up issues ("help wanted"); add the
 # stream here together with its mapper support, never one without the other.
 SYNC_PUMP_STREAMS = ("scheduled_basals", "normal_boluses", "events")
 
@@ -179,7 +179,7 @@ async def _decrypt_creds_or_disconnect(
     failure -- retrying every tick would flood logs/Sentry forever. So mark the
     row ``disconnected`` (the scheduler's discovery query then skips it; recovery
     is re-connecting, which re-encrypts under the current key) and raise. This is
-    the decrypt-flood guard (Epic 47 Milestone C AC4).
+    the decrypt-flood guard.
     """
     try:
         region = state.region

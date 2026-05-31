@@ -2788,14 +2788,14 @@ async def sync_medtronic_connect_now(
 
 
 # ============================================================================
-# Glooko (Omnipod Cloud Sync) -- autonomous sync (Epic 47, Milestone D)
+# Glooko (Omnipod Cloud Sync) -- autonomous sync (connect/sync API endpoints)
 #
 # Credential-based like Tandem (the user's own Glooko email + password), but --
 # like Medtronic Connect -- everything lives on a dedicated GlookoSyncState row
 # (encrypted credentials + control + freshness), so these endpoints mirror the
-# Medtronic Connect URL shape. Connect records an explicit consent ack of the
-# Glooko ToS / account-ban risk; credentials are Fernet-encrypted and NEVER
-# logged or returned.
+# Medtronic Connect URL shape. Connect records an explicit acknowledgment that
+# this is an unofficial Glooko connection; credentials are Fernet-encrypted and
+# NEVER logged or returned.
 # ============================================================================
 
 
@@ -2909,9 +2909,9 @@ async def connect_glooko(
 
     A live login proves the credentials work (fail fast rather than storing a
     bad credential that only fails on the first scheduled sync) and discovers the
-    patient identifiers. The consent ack (``accept_risk``) is enforced by the
-    request schema -- the user must knowingly accept the Glooko ToS / account-ban
-    risk before we store anything.
+    patient identifiers. The acknowledgment (``accept_risk``) is enforced by the
+    request schema -- the user must acknowledge this is an unofficial Glooko
+    connection before we store anything.
     """
     try:
         session = await glooko_login(body.email, body.password, body.region)

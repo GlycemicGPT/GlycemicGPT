@@ -1,6 +1,6 @@
 """Glooko data client -- keyset-cursor pump fetch + v3-graph CGM (clean-room).
 
-Two retrieval paths, because the live capture (Story 47.A) proved the integrated
+Two retrieval paths, because the live capture proved the integrated
 CGM is NOT in the v2 cursor for an Omnipod-5 account:
 
   * **Pump data** -- ``/api/v2/*`` keyset-cursor endpoints (basal/bolus/events/
@@ -10,7 +10,7 @@ CGM is NOT in the v2 cursor for an Omnipod-5 account:
     write time), so it captures late uploads/edits -- good for incremental sync,
     and a full backfill just walks from the epoch.
   * **CGM glucose** -- ``/api/v3/graph/statistics/overall`` (date-windowed). The
-    raw per-reading series (``graph/data?series[]=...``) is deferred to 47.B2.
+    raw per-reading series (``graph/data?series[]=...``) is deferred to a follow-up.
 
 The ``_logbook-web_session`` cookie from ``auth.glooko_login`` is replayed on the
 region API host. A data-call 401 means the session expired; if a ``reauth``
@@ -57,7 +57,7 @@ PUMP_STREAMS: dict[str, tuple[str, str]] = {
 _GRAPH_STATS_PATH = "/api/v3/graph/statistics/overall"
 _GRAPH_DATA_PATH = "/api/v3/graph/data"
 #: The three range-bucketed CGM series whose union is the full per-reading CGM
-#: trace (47.A §7.1). Each datum: {y: mg/dL, value: mg/dL*100, timestamp: UTC, ...}.
+#: trace (observed in the live capture). Each datum: {y: mg/dL, value: mg/dL*100, timestamp: UTC, ...}.
 CGM_SERIES = ("cgmHigh", "cgmNormal", "cgmLow")
 
 _DEFAULT_LIMIT = 500
@@ -89,7 +89,7 @@ class GlookoClient:
     """Replays a ``GlookoSession`` against the region API host.
 
     ``reauth`` (optional) returns a fresh authenticated session; the client uses
-    it to recover from a single 401 (Milestone C supplies it from stored creds).
+    it to recover from a single 401 (the sync orchestrator supplies it from stored creds).
     """
 
     def __init__(
@@ -225,7 +225,7 @@ class GlookoClient:
 
         Note: all pages are buffered in memory before returning. Incremental syncs are
         small, but a backfill should bound ``max_pages`` per call (the orchestrator in
-        Milestone C chunks it and persists the cursor between calls) rather than draining
+        chunks it and persists the cursor between calls) rather than draining
         years of history in one go.
         """
         try:
@@ -297,7 +297,7 @@ class GlookoClient:
         )
 
     async def fetch_cgm_points(self, start_date: str, end_date: str) -> list[dict]:
-        """Fetch the raw per-reading CGM trace for a window (47.A §7.1).
+        """Fetch the raw per-reading CGM trace for a window.
 
         Merges the three range-bucketed ``cgm*`` series from ``graph/data`` into a
         single list of points (``{y: mg/dL, value, timestamp: UTC, ...}``), which

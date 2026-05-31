@@ -1,6 +1,6 @@
 """Typed errors for the Glooko integration.
 
-The sync orchestrator (Milestone C) must distinguish an **auth failure** (mark
+The sync orchestrator must distinguish an **auth failure** (mark
 the connection ``disconnected`` and prompt re-auth -- do NOT retry every tick)
 from a **transient network error** (retry with backoff). Keep them separate.
 """

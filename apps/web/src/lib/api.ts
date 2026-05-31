@@ -3839,7 +3839,7 @@ export interface GlookoStatus {
   last_sync_at?: string | null;
   last_error?: string | null;
   readings_synced_total?: number;
-  /** When the user acknowledged the Glooko ToS / account-ban risk, or null.
+  /** When the user acknowledged the unofficial-connection notice, or null.
    * Returned by the API; not yet surfaced in the UI. */
   consent_acknowledged_at?: string | null;
 }

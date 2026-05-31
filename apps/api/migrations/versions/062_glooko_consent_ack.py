@@ -1,8 +1,8 @@
 """Record Glooko connect-time consent acknowledgment.
 
 Adds ``glooko_sync_state.consent_acknowledged_at`` -- the timestamp at which the
-user explicitly acknowledged the Glooko ToS / account-ban risk when connecting
-(Milestone D). It is stamped server-side at connect time (never a client value);
+user explicitly acknowledged the unofficial Glooko connection when connecting.
+It is stamped server-side at connect time (never a client value);
 NULL means consent was never recorded. Kept on the state row (not a separate
 audit table -- matching the Medtronic/Tandem "all per-integration state on one
 row" convention), so disconnect (row delete) clears it and reconnecting

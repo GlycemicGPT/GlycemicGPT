@@ -5,8 +5,8 @@ this one self-contained row. Unlike Tandem there is no pre-existing Glooko
 ``IntegrationCredential``, so -- mirroring ``MedtronicConnectState`` -- this table
 holds both the encrypted credentials AND the control + freshness fields.
 
-Two things differ from the Medtronic sibling, driven by the Glooko protocol
-(``glooko-reverse-engineering.md``, Story 47.A):
+Two things differ from the Medtronic sibling, driven by the observed Glooko
+protocol behavior:
 
   * **Credentials are the user's email + password**, replayed via the web Devise
     login on every sync (the ``_logbook-web_session`` cookie is ephemeral and
@@ -97,7 +97,7 @@ class GlookoSyncState(Base, TimestampMixin):
     encrypted_email: Mapped[str] = mapped_column(Text, nullable=False)
     encrypted_password: Mapped[str] = mapped_column(Text, nullable=False)
 
-    # When the user explicitly acknowledged the Glooko ToS / account-ban risk at
+    # When the user explicitly acknowledged the unofficial Glooko connection at
     # connect time. Stamped server-side with the connect timestamp (never a
     # client-supplied value); NULL means consent was never recorded. Lives on the
     # row it governs, so disconnect (row delete) clears it and reconnecting
