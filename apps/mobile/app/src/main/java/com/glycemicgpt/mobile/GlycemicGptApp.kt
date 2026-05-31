@@ -45,14 +45,16 @@ class GlycemicGptApp : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
-        // Initialize crash/error reporting first so failures during the rest of startup are
-        // captured. No-op when no DSN is compiled in (release builds, or debug without one).
-        SentryInitializer.init(this)
+        // Plant Timber first so SentryInitializer's own diagnostics (including an init-failure
+        // log) are not silently dropped, then bring Sentry up before the rest of startup so those
+        // failures are captured. Sentry is a no-op when no DSN is compiled in (release builds, or
+        // debug without one).
         if (BuildConfig.DEBUG) {
             Timber.plant(Timber.DebugTree())
         } else {
             Timber.plant(ReleaseTree())
         }
+        SentryInitializer.init(this)
         scheduleDataRetention()
 
         // Initialize the plugin system (discovers and creates all registered plugins)

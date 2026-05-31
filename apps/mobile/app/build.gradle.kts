@@ -73,8 +73,10 @@ android {
             // the published debug `dev-latest` APK ships with an empty DSN even though it is
             // downloadable. A DSN baked into any distributed client APK is extractable; keeping it
             // opt-in and local-only is the guarantee. See SentryInitializer.
-            val sentryDsn = (System.getenv("SENTRY_DSN")
-                ?: (project.findProperty("sentryDsn") as? String).orEmpty()).trim()
+            // A blank env var is treated as absent (so an exported-but-empty SENTRY_DSN= still
+            // falls back to the -PsentryDsn property rather than forcing it empty).
+            val sentryDsn = (System.getenv("SENTRY_DSN")?.takeIf { it.isNotBlank() }
+                ?: (project.findProperty("sentryDsn") as? String)).orEmpty().trim()
             // Hard guard: never let a DSN ride along in a CI-produced (publishable) artifact.
             if (sentryDsn.isNotEmpty() && System.getenv("CI") == "true") {
                 throw GradleException(
@@ -82,13 +84,14 @@ android {
                         "downloadable artifact and the DSN would be extractable from it.",
                 )
             }
-            val sentryEnv = (System.getenv("SENTRY_ENVIRONMENT")
-                ?: (project.findProperty("sentryEnvironment") as? String).orEmpty())
-                .trim().ifEmpty { "development" }
+            val sentryEnv = (System.getenv("SENTRY_ENVIRONMENT")?.takeIf { it.isNotBlank() }
+                ?: (project.findProperty("sentryEnvironment") as? String))
+                .orEmpty().trim().ifEmpty { "development" }
             // Escape backslash/quote so an unusual value can't break the generated Java literal.
-            val sentryDsnLiteral = "\"" + sentryDsn.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
-            buildConfigField("String", "SENTRY_DSN", sentryDsnLiteral)
-            buildConfigField("String", "SENTRY_ENVIRONMENT", "\"$sentryEnv\"")
+            fun toJavaStringLiteral(value: String) =
+                "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+            buildConfigField("String", "SENTRY_DSN", toJavaStringLiteral(sentryDsn))
+            buildConfigField("String", "SENTRY_ENVIRONMENT", toJavaStringLiteral(sentryEnv))
         }
         release {
             isMinifyEnabled = true
