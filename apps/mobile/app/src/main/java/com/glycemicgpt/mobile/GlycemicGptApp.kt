@@ -9,6 +9,7 @@ import androidx.work.WorkManager
 import com.glycemicgpt.mobile.data.auth.AuthManager
 import com.glycemicgpt.mobile.data.local.PumpCredentialStore
 import com.glycemicgpt.mobile.logging.ReleaseTree
+import com.glycemicgpt.mobile.logging.SentryInitializer
 import com.glycemicgpt.mobile.plugin.PluginRegistry
 import com.glycemicgpt.mobile.service.DataRetentionWorker
 import com.glycemicgpt.mobile.service.PumpConnectionService
@@ -44,11 +45,16 @@ class GlycemicGptApp : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+        // Plant Timber first so SentryInitializer's own diagnostics (including an init-failure
+        // log) are not silently dropped, then bring Sentry up before the rest of startup so those
+        // failures are captured. Sentry is a no-op when no DSN is compiled in (release builds, or
+        // debug without one).
         if (BuildConfig.DEBUG) {
             Timber.plant(Timber.DebugTree())
         } else {
             Timber.plant(ReleaseTree())
         }
+        SentryInitializer.init(this)
         scheduleDataRetention()
 
         // Initialize the plugin system (discovers and creates all registered plugins)

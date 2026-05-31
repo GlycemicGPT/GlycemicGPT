@@ -66,6 +66,32 @@ android {
             buildConfigField("String", "UPDATE_CHANNEL", "\"dev\"")
             val devBuildNumber = (project.findProperty("devBuildNumber") as? String)?.toIntOrNull() ?: 0
             buildConfigField("int", "DEV_BUILD_NUMBER", devBuildNumber.toString())
+
+            // Sentry DSN is compiled in ONLY when a developer explicitly provides it at build time
+            // (env SENTRY_DSN or -PsentryDsn), e.g. `op run -- ./gradlew assembleDebug` for local
+            // testing. It is empty otherwise -> Sentry stays disabled. CI does NOT provide it, so
+            // the published debug `dev-latest` APK ships with an empty DSN even though it is
+            // downloadable. A DSN baked into any distributed client APK is extractable; keeping it
+            // opt-in and local-only is the guarantee. See SentryInitializer.
+            // A blank env var is treated as absent (so an exported-but-empty SENTRY_DSN= still
+            // falls back to the -PsentryDsn property rather than forcing it empty).
+            val sentryDsn = (System.getenv("SENTRY_DSN")?.takeIf { it.isNotBlank() }
+                ?: (project.findProperty("sentryDsn") as? String)).orEmpty().trim()
+            // Hard guard: never let a DSN ride along in a CI-produced (publishable) artifact.
+            if (sentryDsn.isNotEmpty() && System.getenv("CI") == "true") {
+                throw GradleException(
+                    "SENTRY_DSN must not be set for CI builds: the debug APK is published as a " +
+                        "downloadable artifact and the DSN would be extractable from it.",
+                )
+            }
+            val sentryEnv = (System.getenv("SENTRY_ENVIRONMENT")?.takeIf { it.isNotBlank() }
+                ?: (project.findProperty("sentryEnvironment") as? String))
+                .orEmpty().trim().ifEmpty { "development" }
+            // Escape backslash/quote so an unusual value can't break the generated Java literal.
+            fun toJavaStringLiteral(value: String) =
+                "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+            buildConfigField("String", "SENTRY_DSN", toJavaStringLiteral(sentryDsn))
+            buildConfigField("String", "SENTRY_ENVIRONMENT", toJavaStringLiteral(sentryEnv))
         }
         release {
             isMinifyEnabled = true
@@ -82,6 +108,10 @@ android {
             }
             buildConfigField("String", "UPDATE_CHANNEL", "\"stable\"")
             buildConfigField("int", "DEV_BUILD_NUMBER", "0")
+
+            // Never embed a Sentry DSN in a distributed/downloadable APK (it is client-extractable).
+            buildConfigField("String", "SENTRY_DSN", "\"\"")
+            buildConfigField("String", "SENTRY_ENVIRONMENT", "\"production\"")
         }
     }
 
@@ -183,6 +213,11 @@ dependencies {
 
     // Logging
     implementation(libs.timber)
+
+    // Crash/error reporting. The DSN is injected only into debug builds (see buildTypes); it is
+    // never embedded in a distributed/release APK, where it would be client-extractable.
+    implementation(libs.sentry.android)
+    implementation(libs.sentry.android.timber)
 
     // Wearable Data Layer (phone-to-watch sync)
     implementation(libs.play.services.wearable)
