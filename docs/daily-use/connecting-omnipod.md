@@ -48,7 +48,7 @@ This keeps GlycemicGPT updated automatically. After you connect, a background jo
 In your GlycemicGPT dashboard:
 
 1. Go to **Settings → Integrations → Cloud Sync** and find **Omnipod / Glooko**.
-2. Enter your **Glooko email** and **password**, and pick your **region** (United States is the supported default; Europe / International is experimental).
+2. Enter your **Glooko email** and **password**, and pick your **region** (United States or Europe / International).
 3. Check the box confirming you understand this is an **unofficial connection** (see above).
 4. Click **Connect Glooko**. GlycemicGPT signs in to confirm your credentials work, then stores them encrypted and starts syncing.
 
