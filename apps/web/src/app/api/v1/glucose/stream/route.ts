@@ -24,9 +24,24 @@ export async function GET(request: NextRequest) {
   // Forward the session cookie to the backend for authentication
   const cookie = request.headers.get("cookie") || "";
 
-  // Abort if the client disconnects OR the backend takes too long to respond
-  const timeout = AbortSignal.timeout(BACKEND_CONNECT_TIMEOUT_MS);
-  const signal = AbortSignal.any([request.signal, timeout]);
+  // The timeout must bound only the INITIAL connection, not the whole stream.
+  // SSE responses stay open indefinitely, so leaving a timeout armed on the
+  // fetch signal would abort a healthy stream ~30s in -- killing the glucose
+  // feed and surfacing the abort as a TimeoutError in Next's response pipe.
+  // Use a dedicated controller cleared as soon as the backend responds; the
+  // client-disconnect signal stays attached so navigating away still tears
+  // down the upstream fetch.
+  // Abort the connect with a TimeoutError reason (distinct from the AbortError
+  // a client disconnect raises on request.signal) so the two are told apart.
+  const connectController = new AbortController();
+  const connectTimer = setTimeout(
+    () =>
+      connectController.abort(
+        new DOMException("Backend connection timed out", "TimeoutError")
+      ),
+    BACKEND_CONNECT_TIMEOUT_MS
+  );
+  const signal = AbortSignal.any([request.signal, connectController.signal]);
 
   let backendResponse: Response;
   try {
@@ -38,13 +53,18 @@ export async function GET(request: NextRequest) {
       signal,
     });
   } catch (err: unknown) {
-    const isAbort =
-      err instanceof DOMException && err.name === "AbortError";
-    const message = isAbort
-      ? "Client disconnected or connection timed out"
-      : "Backend connection failed";
-    // 499 (client closed) for aborts, 502 for everything else
-    return new Response(message, { status: isAbort ? 499 : 502 });
+    // A slow/hung backend hits the connect timeout (504); the client navigating
+    // away aborts request.signal (499); anything else is a real failure (502).
+    if (err instanceof DOMException && err.name === "TimeoutError") {
+      return new Response("Backend connection timed out", { status: 504 });
+    }
+    if (err instanceof DOMException && err.name === "AbortError") {
+      return new Response("Client disconnected", { status: 499 });
+    }
+    return new Response("Backend connection failed", { status: 502 });
+  } finally {
+    // Stop the connect timeout so it can never fire mid-stream.
+    clearTimeout(connectTimer);
   }
 
   if (!backendResponse.ok) {
@@ -59,9 +79,46 @@ export async function GET(request: NextRequest) {
     return new Response("No stream body", { status: 502 });
   }
 
-  // Stream the backend SSE response directly to the client.
+  // Pipe the backend SSE through a wrapper instead of returning its body
+  // directly. When the client navigates away, request.signal aborts the
+  // upstream fetch, which surfaces as an undici SocketError on the in-flight
+  // body -- returning the body directly lets that error escape into Next's
+  // response pipe and reach Sentry. Reading it ourselves lets us treat a
+  // client-disconnect abort as a normal end-of-stream and close cleanly.
+  const upstream = backendResponse.body.getReader();
+  const stream = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const { done, value } = await upstream.read();
+        if (done) {
+          controller.close();
+          return;
+        }
+        controller.enqueue(value);
+      } catch {
+        // Upstream aborted (client gone) or dropped -- expected teardown, not
+        // an error worth reporting. Close gracefully.
+        try {
+          controller.close();
+        } catch {
+          /* already closing/cancelled */
+        }
+      }
+    },
+    async cancel(reason) {
+      // Client went away: tear down the upstream fetch so the backend
+      // connection isn't leaked. The cancel itself may reject as the socket
+      // aborts -- that's expected.
+      try {
+        await upstream.cancel(reason);
+      } catch {
+        /* ignore */
+      }
+    },
+  });
+
   // x-accel-buffering: no disables buffering in Nginx reverse proxies.
-  return new Response(backendResponse.body, {
+  return new Response(stream, {
     headers: {
       "content-type": "text/event-stream",
       "cache-control": "no-cache, no-transform",
