@@ -1,0 +1,107 @@
+/*
+ * Low-level value decoding for the Medtronic MiniMed 700-series read-only driver.
+ *
+ * Ported to Kotlin from OpenMinimed PythonPumpConnector (https://github.com/OpenMinimed),
+ * GPL-3.0, used with the author's permission: the IEEE-11073 SFLOAT decode and the little-endian
+ * field consumers from `parse_utils.py` (ParseUtils) and the E2E-CRC / medfloat helpers from
+ * `value_converter.py` (ValueConverter). Copyright (C) OpenMinimed contributors: palmarci
+ * (Pal Marci), drfubar, Morten Fyhn Amundsen, Stenium; original medtronic-bt-decrypt PoC by
+ * @planiitis. GlycemicGPT is itself GPL-3.0, so this is redistributed under the same license.
+ *
+ * See medtronic-ble-reverse-engineering.md Sec. 8-9.
+ */
+package com.glycemicgpt.mobile.ble.read
+
+/**
+ * Pure byte-level decoders shared by the Medtronic CGM / device-info parsers: little-endian
+ * integers, the IEEE-11073 16-bit SFLOAT ("medfloat16") used by the CGM Measurement record, and the
+ * E2E-CRC (CRC-16/CCITT-FALSE) that guards CGM packets.
+ *
+ * Stateless and side-effect free so the parsers stay unit-testable against captured frames.
+ */
+internal object MedtronicCodec {
+
+    /** Read [n] bytes of [data] starting at [offset] as a little-endian unsigned integer. */
+    fun readUIntLe(data: ByteArray, offset: Int, n: Int): Int {
+        require(n in 1..4) { "n must be in 1..4, was $n" }
+        require(offset >= 0 && offset + n <= data.size) {
+            "range [$offset, ${offset + n}) out of bounds for ${data.size} bytes"
+        }
+        var value = 0
+        for (i in 0 until n) {
+            value = value or ((data[offset + i].toInt() and 0xFF) shl (8 * i))
+        }
+        return value
+    }
+
+    /**
+     * Decode a 16-bit IEEE-11073 SFLOAT: a 4-bit signed exponent in the high nibble and a 12-bit
+     * signed mantissa, valued as `mantissa * 10^exponent`. Mirrors `ValueConverter.decode_medfloat16`.
+     * For CGM glucose the exponent is 0, so the value is the integer mantissa in mg/dL; the trend
+     * field uses a small negative exponent (e.g. mantissa 116, exponent -2 -> 1.16 mg/dL/min).
+     *
+     * Computed as `mantissa * 10^exponent` via a precomputed power-of-ten table. Upstream
+     * `value_converter.py` instead parses `float(f"{m}e{e}")` to minimize floating-point drift; the
+     * difference is immaterial here because glucose is rounded to an Int and trend is only
+     * magnitude-bucketed into arrows.
+     *
+     * The reserved IEEE-11073 SFLOAT mantissa codes are returned as non-finite Doubles
+     * (NaN / +-Infinity) rather than decoded as ordinary numbers, so callers reject them instead of
+     * surfacing a "no value" sentinel (e.g. 0x07FF) as a real glucose or trend. Upstream
+     * `value_converter.py` does not special-case these; we do, because the trend field is only
+     * magnitude-bucketed and would otherwise turn a sentinel into a bogus arrow.
+     */
+    fun decodeMedFloat16(raw: Int): Double {
+        when (raw and 0x0FFF) {
+            SFLOAT_NAN, SFLOAT_NRES, SFLOAT_RESERVED -> return Double.NaN
+            SFLOAT_POSITIVE_INFINITY -> return Double.POSITIVE_INFINITY
+            SFLOAT_NEGATIVE_INFINITY -> return Double.NEGATIVE_INFINITY
+        }
+        var exponent = (raw and 0xF000) shr 12
+        var mantissa = raw and 0x0FFF
+        if (exponent and 0x8 != 0) exponent -= 0x10
+        if (mantissa and 0x800 != 0) mantissa -= 0x1000
+        return mantissa.toDouble() * POW10[exponent + EXPONENT_BIAS]
+    }
+
+    /**
+     * CRC-16/CCITT-FALSE over [data]: width 16, polynomial 0x1021, init 0xffff, no input/output
+     * reflection, zero final XOR. Mirrors `ValueConverter.e2e_crc`.
+     */
+    fun e2eCrc(data: ByteArray, length: Int = data.size): Int {
+        var crc = 0xFFFF
+        for (i in 0 until length) {
+            crc = crc xor ((data[i].toInt() and 0xFF) shl 8)
+            repeat(8) {
+                crc = if (crc and 0x8000 != 0) (crc shl 1) xor 0x1021 else crc shl 1
+                crc = crc and 0xFFFF
+            }
+        }
+        return crc
+    }
+
+    /**
+     * Verify the trailing 2-byte little-endian E2E-CRC of a packet: the CRC is computed over every
+     * byte except the last two and compared to those two. Mirrors `ValueConverter.check_crc`.
+     */
+    fun checkE2eCrc(message: ByteArray): Boolean {
+        if (message.size < CRC_SIZE) return false
+        val received = readUIntLe(message, message.size - CRC_SIZE, CRC_SIZE)
+        return e2eCrc(message, message.size - CRC_SIZE) == received
+    }
+
+    /** Number of trailing bytes holding the little-endian E2E-CRC. */
+    const val CRC_SIZE = 2
+
+    // Exponents seen on the wire span a single signed nibble (-8..7); precompute the powers of ten
+    // so decoding does no floating-point exponentiation per field.
+    private const val EXPONENT_BIAS = 8
+    private val POW10 = DoubleArray(16) { Math.pow(10.0, (it - EXPONENT_BIAS).toDouble()) }
+
+    // Reserved IEEE-11073 SFLOAT mantissa codes (12-bit field, exponent-independent).
+    private const val SFLOAT_POSITIVE_INFINITY = 0x07FE
+    private const val SFLOAT_NAN = 0x07FF
+    private const val SFLOAT_NRES = 0x0800
+    private const val SFLOAT_RESERVED = 0x0801
+    private const val SFLOAT_NEGATIVE_INFINITY = 0x0802
+}

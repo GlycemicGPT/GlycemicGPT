@@ -114,6 +114,7 @@ object MedtronicProtocol {
     val MODEL_NUMBER_UUID: UUID = sigUuid(0x2A24)
     val SERIAL_NUMBER_UUID: UUID = sigUuid(0x2A25)
     val FIRMWARE_REVISION_UUID: UUID = sigUuid(0x2A26)
+    val HARDWARE_REVISION_UUID: UUID = sigUuid(0x2A27)
     val SOFTWARE_REVISION_UUID: UUID = sigUuid(0x2A28)
     val SYSTEM_ID_UUID: UUID = sigUuid(0x2A23)
     val PNP_ID_UUID: UUID = sigUuid(0x2A50)
