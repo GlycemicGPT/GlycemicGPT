@@ -426,8 +426,13 @@ class MedtronicBleConnectionManager(
         /** Default advertised local name. Must match `Mobile .{0,7}`. TODO(48.A2/D): per-install identity. */
         const val DEFAULT_LOCAL_NAME = "Mobile 000001"
 
-        /** Plugin id stamped on discovered devices. The MedtronicDevicePlugin (Milestone C) owns the canonical id. */
-        const val PLUGIN_ID = "medtronic"
+        /**
+         * Canonical reverse-domain plugin id, stamped on discovered devices and reused as the
+         * [com.glycemicgpt.mobile.domain.plugin.PluginMetadata.id] by `MedtronicDevicePlugin`/
+         * `MedtronicPluginFactory` so there is a single source of truth (B2 shipped a `"medtronic"`
+         * placeholder; Milestone C set the canonical id here).
+         */
+        const val PLUGIN_ID = "com.glycemicgpt.medtronic"
 
         private const val SAKE_WORKER_THREAD_NAME = "medtronic-sake"
 

@@ -715,9 +715,10 @@ private fun PluginsSection(
     onShowRemovePlugin: (String) -> Unit,
     onClearPluginInstallError: () -> Unit,
 ) {
-    // Only show pump pairing card when the Tandem plugin is active.
-    // Uses literal ID to avoid importing TandemDevicePlugin into the UI layer.
-    if ("com.glycemicgpt.tandem" in state.activePluginIds) {
+    // Show the pump pairing card whenever any pump DevicePlugin is active (the registry resolves the
+    // active PUMP_STATUS/INSULIN_SOURCE plugin generically into activePumpPluginId), so it works for
+    // every pump driver -- Tandem, Medtronic, or a future one -- without hardcoding a vendor id.
+    if (state.activePumpPluginId != null) {
         PumpSection(
             state = state,
             onNavigateToPairing = onNavigateToPairing,
