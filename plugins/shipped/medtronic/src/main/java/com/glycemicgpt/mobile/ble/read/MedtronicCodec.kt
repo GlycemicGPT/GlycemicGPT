@@ -21,9 +21,16 @@ package com.glycemicgpt.mobile.ble.read
  */
 internal object MedtronicCodec {
 
-    /** Read [n] bytes of [data] starting at [offset] as a little-endian unsigned integer. */
+    /**
+     * Read [n] bytes of [data] starting at [offset] as a little-endian unsigned integer.
+     *
+     * Bounded to 1..3 bytes: a signed [Int] cannot represent a full unsigned 32-bit value, so a
+     * 4-byte field with the top bit set would read back negative and silently violate the unsigned
+     * contract. The 4-byte (uint32) fields appear only in the history records (48.C2); add a
+     * `Long`-returning reader there rather than widening this one.
+     */
     fun readUIntLe(data: ByteArray, offset: Int, n: Int): Int {
-        require(n in 1..4) { "n must be in 1..4, was $n" }
+        require(n in 1..3) { "n must be in 1..3 (Int cannot hold a full uint32), was $n" }
         require(offset >= 0 && offset + n <= data.size) {
             "range [$offset, ${offset + n}) out of bounds for ${data.size} bytes"
         }

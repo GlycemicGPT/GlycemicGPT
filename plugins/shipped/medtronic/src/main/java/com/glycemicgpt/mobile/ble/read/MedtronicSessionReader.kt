@@ -187,8 +187,12 @@ class MedtronicSessionReader(
         }
 
         link.subscribe(socp) { pdu ->
+            if (finished) return@subscribe
             try {
                 val frame = assembler.offer(pdu) ?: return@subscribe
+                // Decrypting advances the session's inbound sequence counter; only do it while the
+                // exchange is live so a late/duplicate notification after finish() cannot consume the
+                // next operation's frame or desync the session (mirrors reportLastRecord).
                 finish(Result.success(session.decryptFromPump(frame)))
             } catch (e: Exception) {
                 finish(Result.failure(asReadException(e, "SOCP response could not be decrypted")))

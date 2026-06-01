@@ -123,6 +123,45 @@ class MedtronicSessionReaderTest {
     }
 
     @Test
+    fun `socpGet ignores a notification delivered after the exchange finished`() {
+        val two = TwoSidedSession()
+        val link = FakeGattLink()
+        val results = mutableListOf<Result<ByteArray>>()
+        link.onWrite = { characteristic, _ ->
+            if (characteristic == socp) emit(socp, two.pumpEncrypt(hex("9100")))
+        }
+
+        MedtronicSessionReader(link, two.server).socpGet(socp, byteArrayOf(0x90.toByte())) { results.add(it) }
+        assertEquals(1, results.size)
+        assertArrayEquals(hex("9100"), results[0].getOrThrow())
+
+        // A duplicate/late notification still in flight when the reader unsubscribed must be dropped:
+        // the post-finish guard stops a second decryptFromPump that would consume a sequence slot.
+        link.emitInFlight(socp, two.pumpEncrypt(hex("dead")))
+        assertEquals(1, results.size)
+    }
+
+    @Test
+    fun `reportLastRecord ignores a measurement delivered after the exchange finished`() {
+        val two = TwoSidedSession()
+        val link = FakeGattLink()
+        val results = mutableListOf<Result<ByteArray>>()
+        link.onWrite = { characteristic, _ ->
+            if (characteristic == racp) {
+                emit(dataChar, two.pumpEncrypt(hex("0ec3f900f40b000074e00a00e0f1")))
+                emit(racp, MedtronicSessionReader.RACP_REPORT_SUCCESS)
+            }
+        }
+
+        MedtronicSessionReader(link, two.server).reportLastRecord(dataChar, racp) { results.add(it) }
+        assertEquals(1, results.size)
+        assertTrue(results[0].isSuccess)
+
+        link.emitInFlight(dataChar, two.pumpEncrypt(hex("0ec38d00e803000010e00a00d9af")))
+        assertEquals(1, results.size)
+    }
+
+    @Test
     fun `socpGet encrypts the request and decrypts the response`() {
         val two = TwoSidedSession()
         val link = FakeGattLink()

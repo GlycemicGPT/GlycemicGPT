@@ -26,6 +26,9 @@ internal class FakeGattLink : MedtronicGattLink {
     val reads = mutableMapOf<UUID, ByteArray>()
     val writes = mutableListOf<Pair<UUID, ByteArray>>()
     private val handlers = mutableMapOf<UUID, (ByteArray) -> Unit>()
+    // The last handler ever registered per characteristic, retained across unsubscribe so a test can
+    // simulate a BLE notification already in flight when the reader unsubscribes (see [emitInFlight]).
+    private val retained = mutableMapOf<UUID, (ByteArray) -> Unit>()
 
     /** Invoked on every [write]; the receiver scripts notifications via [emit]. */
     var onWrite: (FakeGattLink.(characteristic: UUID, value: ByteArray) -> Unit)? = null
@@ -40,6 +43,7 @@ internal class FakeGattLink : MedtronicGattLink {
 
     override fun subscribe(characteristic: UUID, onPdu: (ByteArray) -> Unit) {
         handlers[characteristic] = onPdu
+        retained[characteristic] = onPdu
     }
 
     override fun unsubscribe(characteristic: UUID) {
@@ -49,6 +53,15 @@ internal class FakeGattLink : MedtronicGattLink {
     /** Deliver one inbound PDU to whatever handler is currently subscribed on [characteristic]. */
     fun emit(characteristic: UUID, pdu: ByteArray) {
         handlers[characteristic]?.invoke(pdu)
+    }
+
+    /**
+     * Deliver a PDU to the last-registered handler even after the reader has unsubscribed, simulating
+     * a BLE notification that was already in flight when the exchange finished. Used to exercise the
+     * reader's post-finish guard.
+     */
+    fun emitInFlight(characteristic: UUID, pdu: ByteArray) {
+        retained[characteristic]?.invoke(pdu)
     }
 
     fun isSubscribed(characteristic: UUID): Boolean = handlers.containsKey(characteristic)
