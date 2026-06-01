@@ -265,6 +265,7 @@ class MedtronicSessionReader(
                             ),
                         ),
                     )
+                    return@subscribe
                 }
             } catch (e: Exception) {
                 finish(Result.failure(asReadException(e, "History record could not be decrypted")))

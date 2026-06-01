@@ -75,6 +75,8 @@ class HistoryReaderTest {
                 value[0] == HistoryReader.REQUEST_REPORT_WITHIN_RANGE_PREFIX[0]
             ) {
                 PduFramer.fragment(two.pumpEncrypt(rec1)).forEach { emit(data, it) }
+                // Emit rec1 again (same sequence 118) so dedup is actually exercised end to end.
+                PduFramer.fragment(two.pumpEncrypt(rec1)).forEach { emit(data, it) }
                 PduFramer.fragment(two.pumpEncrypt(rec2)).forEach { emit(data, it) }
                 emit(racp, HistoryReader.EXPECTED_REPORT_SUCCESS)
             }
