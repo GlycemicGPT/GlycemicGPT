@@ -2,11 +2,12 @@
  * Low-level value decoding for the Medtronic MiniMed 700-series read-only driver.
  *
  * Ported to Kotlin from OpenMinimed PythonPumpConnector (https://github.com/OpenMinimed),
- * GPL-3.0, used with the author's permission: the IEEE-11073 SFLOAT decode and the little-endian
- * field consumers from `parse_utils.py` (ParseUtils) and the E2E-CRC / medfloat helpers from
- * `value_converter.py` (ValueConverter). Copyright (C) OpenMinimed contributors: palmarci
- * (Pal Marci), drfubar, Morten Fyhn Amundsen, Stenium; original medtronic-bt-decrypt PoC by
- * @planiitis. GlycemicGPT is itself GPL-3.0, so this is redistributed under the same license.
+ * GPL-3.0, used with the author's permission: the IEEE-11073 SFLOAT/FLOAT decode, the sign-extend,
+ * and the little-endian field consumers from `parse_utils.py` (ParseUtils) and the E2E-CRC /
+ * medfloat helpers from `value_converter.py` (ValueConverter). Copyright (C) OpenMinimed
+ * contributors: palmarci (Pal Marci), drfubar, Morten Fyhn Amundsen, Stenium; original
+ * medtronic-bt-decrypt PoC by @planiitis. GlycemicGPT is itself GPL-3.0, so this is redistributed
+ * under the same license.
  *
  * See medtronic-ble-reverse-engineering.md Sec. 8-9.
  */
@@ -39,6 +40,74 @@ internal object MedtronicCodec {
             value = value or ((data[offset + i].toInt() and 0xFF) shl (8 * i))
         }
         return value
+    }
+
+    /**
+     * Read [n] bytes of [data] starting at [offset] as a little-endian unsigned integer, widened into
+     * a [Long]. Bounded to 1..4 bytes: the IDD/history records carry unsigned 32-bit fields (record
+     * sequence number, bolus start-time offset, annunciation timestamp) that overflow a signed [Int];
+     * [readUIntLe] stays the right tool for the 1..3-byte fields. Mirrors `ParseUtils.consume_u32`.
+     */
+    fun readULongLe(data: ByteArray, offset: Int, n: Int): Long {
+        require(n in 1..4) { "n must be in 1..4, was $n" }
+        require(offset >= 0 && offset + n <= data.size) {
+            "range [$offset, ${offset + n}) out of bounds for ${data.size} bytes"
+        }
+        var value = 0L
+        for (i in 0 until n) {
+            value = value or ((data[offset + i].toLong() and 0xFF) shl (8 * i))
+        }
+        return value
+    }
+
+    /** Lower-case hex of [data], for diagnostic/error messages. */
+    fun toHex(data: ByteArray): String = data.joinToString("") { "%02x".format(it) }
+
+    /** Encode [value] as a 4-byte little-endian unsigned 32-bit field (the RACP sequence operands). */
+    fun u32Le(value: Int): ByteArray =
+        byteArrayOf(
+            (value and 0xFF).toByte(),
+            ((value ushr 8) and 0xFF).toByte(),
+            ((value ushr 16) and 0xFF).toByte(),
+            ((value ushr 24) and 0xFF).toByte(),
+        )
+
+    /**
+     * Sign-extend the low [bits] of [value] to a signed [Int]. Mirrors `ValueConverter.sign_extend`;
+     * used for the signed time-offset fields in the history records (`consume_i16`).
+     */
+    fun signExtend(value: Int, bits: Int): Int {
+        require(bits in 1..32) { "bits must be in 1..32, was $bits" }
+        // A full-width Int needs no extension, and `1 shl 32` would wrap (Kotlin masks the shift count
+        // to the low 5 bits, so `1 shl 32 == 1`) and corrupt the result.
+        if (bits == 32) return value
+        val signBit = 1 shl (bits - 1)
+        return if (value and signBit != 0) value - (1 shl bits) else value
+    }
+
+    /**
+     * Decode a 32-bit IEEE-11073 FLOAT ("medfloat32"): an 8-bit signed exponent in the high byte and
+     * a 24-bit signed mantissa, valued as `mantissa * 10^exponent`. Mirrors
+     * `ValueConverter.decode_medfloat32`; used for the insulin amounts (reservoir, IOB, basal rate,
+     * bolus units) the IDD/history records carry in IU.
+     *
+     * Takes the raw value as a [Long] (from [readULongLe] with n=4) so the unsigned 32-bit field is
+     * not misread as a negative [Int]. Computed with [Math.pow] rather than the [decodeMedFloat16]
+     * lookup table because the signed-byte exponent spans -128..127 and these fields are read only a
+     * few times per status read, not per CGM sample.
+     *
+     * Unlike [decodeMedFloat16] this does not special-case the IEEE-11073 reserved/NaN/Inf mantissa
+     * codes (upstream's `decode_medfloat32` does not either, and the 32-bit reserved codes differ).
+     * A reserved/garbled insulin field therefore decodes to a bogus finite number or a non-finite
+     * value; callers gate it with `isFinite()` + a physiological range check and reject it, so a
+     * sentinel never surfaces as a real reservoir/IOB/basal/bolus amount.
+     */
+    fun decodeMedFloat32(raw: Long): Double {
+        var exponent = ((raw ushr 24) and 0xFF).toInt()
+        var mantissa = (raw and 0x00FFFFFF).toInt()
+        if (exponent and 0x80 != 0) exponent -= 0x100
+        if (mantissa and 0x800000 != 0) mantissa -= 0x1000000
+        return mantissa.toDouble() * Math.pow(10.0, exponent.toDouble())
     }
 
     /**

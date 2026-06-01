@@ -79,7 +79,8 @@ internal class NotificationReassembler(
 /**
  * Reusable read layer over a live [MedtronicSakeSession]: subscribes to a characteristic, reassembles
  * fragmented notifications, decrypts pump->phone payloads, and orchestrates the control-point
- * request -> notify -> response pattern shared by RACP and SOCP.
+ * request -> notify -> response pattern shared by the RACP (CGM single-record + IDD multi-record),
+ * SOCP and IDD SRCP exchanges, plus encrypted static reads (IDD Status/Features).
  *
  * **Read-only.** Only report/get-class requests are issued; no control or calibration opcode is ever
  * written.
@@ -176,32 +177,174 @@ class MedtronicSessionReader(
      * impose the operation timeout (see the class-level timeout contract).
      */
     fun socpGet(socp: UUID, requestOpcode: ByteArray, onResult: (Result<ByteArray>) -> Unit) {
+        val request = appendE2eCrc(requestOpcode)
+        Timber.d("SOCP GET request (%d bytes)", request.size)
+        encryptedGet(socp, session.encryptForPump(request), "SOCP response could not be decrypted", onResult)
+    }
+
+    /**
+     * IDD Status Reader Control Point (SRCP) read-only GET: SAKE-encrypt the (little-endian)
+     * [requestOpcode], write it to the [srcp] characteristic, then reassemble + decrypt the
+     * SAKE-encrypted indication and deliver the plaintext, exactly as `idd/status/reader.py`'s
+     * `_send_and_receive_opcode` does. Only GET-class opcodes (IOB, active basal, therapy state, ...)
+     * belong here -- no reset or control opcode is ever issued.
+     *
+     * Unlike [socpGet] the request is **not** E2E-CRC-wrapped: the 780G does not enable E2E
+     * protection in the IDD service, and upstream reads the IDD Features E2E bit to decide rather than
+     * assuming. `TODO(48.A2)`: honor that features flag per model once a live pump confirms it. As
+     * with the other exchanges the caller must impose the operation timeout.
+     */
+    fun srcpGet(srcp: UUID, requestOpcode: ByteArray, onResult: (Result<ByteArray>) -> Unit) {
+        Timber.d("IDD SRCP GET request (%d bytes)", requestOpcode.size)
+        encryptedGet(srcp, session.encryptForPump(requestOpcode), "IDD SRCP response could not be decrypted", onResult)
+    }
+
+    /**
+     * Read a SAKE-encrypted static characteristic (e.g. IDD Status `0x102`) and decrypt it. Unlike the
+     * plain [MedtronicGattLink.read] used for SIG characteristics, the IDD Status/Features values are
+     * encrypted, so they are decrypted here exactly as `idd/status/reader.py`'s `get_pump_status`
+     * does (`server_crypt.decrypt` of the raw read).
+     *
+     * Decrypting advances the session's inbound sequence counter, so this must be ordered with the
+     * other reads against the same session. Synchronous: the underlying [MedtronicGattLink.read] is.
+     *
+     * @throws MedtronicReadException if the read fails or the value does not authenticate/decrypt.
+     */
+    fun decryptedRead(characteristic: UUID): ByteArray =
+        try {
+            session.decryptFromPump(link.read(characteristic))
+        } catch (e: Exception) {
+            throw asReadException(e, "Encrypted characteristic $characteristic could not be decrypted")
+        }
+
+    /**
+     * Multi-record RACP report: write the (plaintext) [request] to [controlPoint], collect the stream
+     * of SAKE-encrypted record notifications on [dataChar] -- decrypting each -- and terminate when the
+     * plaintext RACP indication arrives. [isSuccess] decides whether that terminating indication is a
+     * success (deliver the collected records) or a failure (e.g. an IDD RACP error code).
+     *
+     * Mirrors `history_reader.py` (`get_records_between` / `get_last_record`): the RACP itself is not
+     * encrypted, only the IDD History Data records it triggers are, and the RACP indication follows
+     * after all records. Records are delimited by the same short-PDU rule [NotificationReassembler]
+     * uses; see the record-framing caveat on [HistoryReader]. The caller imposes the operation
+     * timeout (class-level contract).
+     */
+    fun reportRecords(
+        dataChar: UUID,
+        controlPoint: UUID,
+        request: ByteArray,
+        isSuccess: (ByteArray) -> Boolean,
+        onResult: (Result<List<ByteArray>>) -> Unit,
+    ) {
+        val assembler = NotificationReassembler()
+        val records = ArrayList<ByteArray>()
+        var finished = false
+
+        fun finish(result: Result<List<ByteArray>>) {
+            if (finished) return
+            finished = true
+            link.unsubscribe(dataChar)
+            link.unsubscribe(controlPoint)
+            onResult(result)
+        }
+
+        link.subscribe(dataChar) { pdu ->
+            if (finished) return@subscribe
+            try {
+                val frame = assembler.offer(pdu) ?: return@subscribe
+                records.add(session.decryptFromPump(frame))
+                // Defense-in-depth: a misbehaving (but authenticated) pump that streams records but
+                // never sends the terminating RACP indication must not grow memory without bound. The
+                // ceiling is far above any realistic single-fetch window; the operation timeout the C3
+                // caller imposes is the primary bound (mirrors NotificationReassembler's frame cap).
+                if (records.size > MAX_RECORDS_PER_REPORT) {
+                    finish(
+                        Result.failure(
+                            MedtronicReadException(
+                                "History report exceeded $MAX_RECORDS_PER_REPORT records without a terminating response",
+                            ),
+                        ),
+                    )
+                    return@subscribe
+                }
+            } catch (e: Exception) {
+                finish(Result.failure(asReadException(e, "History record could not be decrypted")))
+            }
+        }
+
+        link.subscribe(controlPoint) { response ->
+            if (finished) return@subscribe
+            if (isSuccess(response)) {
+                finish(Result.success(records.toList()))
+            } else {
+                finish(
+                    Result.failure(MedtronicReadException("Unexpected/failed RACP response: ${response.toHex()}")),
+                )
+            }
+        }
+
+        Timber.d("RACP report-records request (%d bytes)", request.size)
+        link.write(controlPoint, request)
+    }
+
+    /**
+     * Single plaintext control-point query (no encrypted data records): write [request] to
+     * [controlPoint] and deliver the first RACP indication verbatim. Used for the IDD "report number
+     * of records" query (`history_reader.py`'s `get_available_record_count`), where the count rides in
+     * the RACP indication itself and the IDD History Data characteristic is not involved.
+     */
+    fun controlPointQuery(controlPoint: UUID, request: ByteArray, onResult: (Result<ByteArray>) -> Unit) {
+        var finished = false
+
+        fun finish(result: Result<ByteArray>) {
+            if (finished) return
+            finished = true
+            link.unsubscribe(controlPoint)
+            onResult(result)
+        }
+
+        link.subscribe(controlPoint) { response ->
+            if (finished) return@subscribe
+            finish(Result.success(response.copyOf()))
+        }
+
+        Timber.d("RACP control-point query (%d bytes)", request.size)
+        link.write(controlPoint, request)
+    }
+
+    /**
+     * Shared body for the encrypted request -> single encrypted response exchanges ([socpGet],
+     * [srcpGet]): subscribe to [char], reassemble + decrypt the first complete response frame, and
+     * finish. Decrypting only while the exchange is live keeps a late/duplicate notification after
+     * finish() from consuming the next operation's sequence slot and desyncing the session.
+     */
+    private fun encryptedGet(
+        char: UUID,
+        encryptedRequest: ByteArray,
+        failMessage: String,
+        onResult: (Result<ByteArray>) -> Unit,
+    ) {
         val assembler = NotificationReassembler()
         var finished = false
 
         fun finish(result: Result<ByteArray>) {
             if (finished) return
             finished = true
-            link.unsubscribe(socp)
+            link.unsubscribe(char)
             onResult(result)
         }
 
-        link.subscribe(socp) { pdu ->
+        link.subscribe(char) { pdu ->
             if (finished) return@subscribe
             try {
                 val frame = assembler.offer(pdu) ?: return@subscribe
-                // Decrypting advances the session's inbound sequence counter; only do it while the
-                // exchange is live so a late/duplicate notification after finish() cannot consume the
-                // next operation's frame or desync the session (mirrors reportLastRecord).
                 finish(Result.success(session.decryptFromPump(frame)))
             } catch (e: Exception) {
-                finish(Result.failure(asReadException(e, "SOCP response could not be decrypted")))
+                finish(Result.failure(asReadException(e, failMessage)))
             }
         }
 
-        val request = appendE2eCrc(requestOpcode)
-        Timber.d("SOCP GET request (%d bytes)", request.size)
-        link.write(socp, session.encryptForPump(request))
+        link.write(char, encryptedRequest)
     }
 
     /** Map any decrypt/parse failure to a [MedtronicReadException], preserving an already-typed one. */
@@ -229,6 +372,13 @@ class MedtronicSessionReader(
          */
         val RACP_REPORT_SUCCESS = byteArrayOf(0x06, 0x00, 0x01, 0x01)
 
-        private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
+        /**
+         * Upper bound on records collected in a single [reportRecords] call before the read is failed.
+         * Generous (far above any realistic incremental/backfill window) -- it only bounds memory when
+         * a pump streams records but never terminates the RACP procedure.
+         */
+        const val MAX_RECORDS_PER_REPORT = 50_000
+
+        private fun ByteArray.toHex(): String = MedtronicCodec.toHex(this)
     }
 }
