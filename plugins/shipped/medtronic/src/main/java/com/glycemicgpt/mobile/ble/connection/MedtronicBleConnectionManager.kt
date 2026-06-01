@@ -283,7 +283,8 @@ class MedtronicBleConnectionManager(
     }
 
     private fun onCentralConnected(address: String) {
-        Timber.i("Pump connected: %s", address)
+        // Debug level only: the MAC is a device identifier and WARN+/INFO can be Sentry-eligible.
+        Timber.d("Pump connected: %s", address)
         pairingWaitJob?.cancel()
         pairingWaitJob = null
         _fault.value = null

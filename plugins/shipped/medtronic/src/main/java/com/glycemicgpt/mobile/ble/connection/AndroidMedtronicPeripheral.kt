@@ -33,7 +33,7 @@ import android.os.ParcelUuid
 import com.glycemicgpt.mobile.ble.protocol.MedtronicProtocol
 import com.glycemicgpt.mobile.ble.protocol.PduFramer
 import timber.log.Timber
-import java.util.ArrayDeque
+import java.util.concurrent.ConcurrentLinkedQueue
 
 /**
  * Real-device [MedtronicPeripheral]. Construct with the application [Context]; permissions
@@ -78,8 +78,10 @@ class AndroidMedtronicPeripheral(context: Context) : MedtronicPeripheral {
     private var pendingAdvertise: Pair<AdvertisingMode, String>? = null
 
     // Services are added one at a time: addService -> onServiceAdded -> addNextService (the Android
-    // GATT server only accepts a new service once the previous add has completed).
-    private val pendingServices = ArrayDeque<BluetoothGattService>()
+    // GATT server only accepts a new service once the previous add has completed). The queue is
+    // populated on the worker thread but drained from onServiceAdded on the binder thread, so it must
+    // be thread-safe.
+    private val pendingServices = ConcurrentLinkedQueue<BluetoothGattService>()
 
     override fun isSupported(): Boolean {
         val ad = adapter ?: return false
