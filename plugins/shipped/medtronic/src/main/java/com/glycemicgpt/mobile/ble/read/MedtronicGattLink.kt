@@ -42,8 +42,15 @@ interface MedtronicGattLink {
      *
      * **Threading contract:** all [onPdu] callbacks across every subscribed characteristic are
      * delivered serialized on a single thread. [MedtronicSessionReader] relies on this to keep its
-     * per-exchange state lock-free; the on-device implementation (C3) must honor it (e.g. by hopping
-     * BLE callbacks onto one handler thread, as the connection manager already does).
+     * per-exchange state lock-free; the on-device implementation (Milestone D) must honor it (e.g. by
+     * hopping BLE callbacks onto one handler thread, as the connection manager already does).
+     *
+     * **Cancellation/cleanup contract:** the caller bounds each exchange with an operation timeout and
+     * cancels the coroutine on expiry, but a reader only calls [unsubscribe] when the pump *responds*.
+     * The implementation MUST therefore release every outstanding subscription/notification when the
+     * driving operation's coroutine is cancelled, so a timed-out read leaves no dangling notifications
+     * that could desync the next exchange. See the matching "Cancellation/cleanup contract" /
+     * `TODO(48.D)` on [MedtronicReadGateway] for the full semantics.
      */
     fun subscribe(characteristic: UUID, onPdu: (ByteArray) -> Unit)
 

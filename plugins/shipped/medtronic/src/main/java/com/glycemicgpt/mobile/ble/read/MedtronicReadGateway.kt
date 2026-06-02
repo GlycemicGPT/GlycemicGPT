@@ -162,9 +162,18 @@ class MedtronicReadGateway(
     private suspend fun <T> withOperationTimeout(op: String, block: suspend () -> Result<T>): Result<T> =
         try {
             withTimeout(operationTimeoutMs) { block() }
-                .onFailure { Timber.w(it, "Medtronic %s read failed", op) }
+                .onFailure { e ->
+                    // WARN is forwarded to the glycemicgpt-mobile Sentry project, so it must NOT carry
+                    // the exception message/stacktrace: reader failures embed health values (e.g.
+                    // "SG 142 mg/dL outside ...", IOB/basal/reservoir) and raw pump bytes. Log only the
+                    // operation + exception type at WARN; keep the full detail at DEBUG (local logcat).
+                    Timber.w("Medtronic %s read failed: %s", op, e.javaClass.simpleName)
+                    Timber.d(e, "Medtronic %s read failure detail", op)
+                }
         } catch (e: TimeoutCancellationException) {
-            Timber.w(e, "Medtronic %s read timed out after %d ms", op, operationTimeoutMs)
+            // No PHI in a timeout, but keep the same WARN discipline (message only, throwable at DEBUG).
+            Timber.w("Medtronic %s read timed out after %d ms", op, operationTimeoutMs)
+            Timber.d(e, "Medtronic %s read timeout detail", op)
             Result.failure(MedtronicReadException("Medtronic $op read timed out after $operationTimeoutMs ms", e))
         }
 

@@ -115,9 +115,9 @@ class MedtronicDevicePluginTest {
     }
 
     @Test
-    fun `shutdown disconnects`() {
+    fun `shutdown fully closes the connection manager`() {
         plugin.shutdown()
-        verify { connectionManager.disconnect() }
+        verify { connectionManager.close() }
     }
 
     @Test

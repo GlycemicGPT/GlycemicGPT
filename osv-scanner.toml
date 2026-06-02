@@ -49,3 +49,14 @@ reason = "Dev-only transitive dependency (jest/eslint toolchain); fix requires b
 [[IgnoredVulns]]
 id = "GHSA-qx2v-qp2m-jg93"
 reason = "Nested only inside next; build-time CSS pipeline does not process untrusted CSS; top-level postcss is patched to 8.5.13"
+
+# vitest 3.2.4 -- dev-only test runner in the sidecar (sidecar/package.json devDependencies).
+# GHSA-5xrq-8626-4rwp: arbitrary file read/exec only when the Vitest *UI server* is listening and
+# exposed to the network (--api.host / api.host), or Vitest UI/Browser Mode on Windows. We never run
+# the UI server -- CI runs vitest headless on Linux, no --api.host -- so the vulnerable surface is
+# never enabled, and vitest is not in any production build. Fix = bump vitest to >= 4.1.0 (major),
+# tracked separately; ignoreUntil forces re-evaluation.
+[[IgnoredVulns]]
+id = "GHSA-5xrq-8626-4rwp"
+ignoreUntil = 2026-09-01T00:00:00Z
+reason = "Dev-only test dependency (sidecar vitest); not exploitable -- the affected Vitest UI server is never started/exposed (headless Linux CI, no --api.host); not in production. Fix = bump vitest >= 4.1.0 (major), tracked separately."

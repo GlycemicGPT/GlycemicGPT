@@ -53,7 +53,11 @@ class MedtronicDevicePlugin(
     }
 
     override fun shutdown() {
-        connectionManager.disconnect()
+        // Terminal teardown: fully release the connection manager's worker thread + coroutine scope
+        // (not just the BLE session). shutdown() is the destroy hook -- distinct from onDeactivated(),
+        // which only disconnects so the plugin can be reactivated. close() is safe here because the
+        // plugin is being discarded and is not re-created against the same manager.
+        connectionManager.close()
     }
 
     override fun onActivated() {
@@ -62,7 +66,9 @@ class MedtronicDevicePlugin(
     }
 
     override fun onDeactivated() {
-        // Drop the live session but keep the pairing, so reactivating reconnects without re-pairing.
+        // Drop the live session but keep the pairing (and the manager alive), so reactivating
+        // reconnects without re-pairing. Use disconnect(), not close(): close() is reserved for
+        // terminal shutdown().
         connectionManager.disconnect()
     }
 
