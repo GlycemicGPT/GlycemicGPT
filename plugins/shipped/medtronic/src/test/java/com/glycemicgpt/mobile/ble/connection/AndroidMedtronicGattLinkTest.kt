@@ -301,6 +301,22 @@ class AndroidMedtronicGattLinkTest {
     }
 
     @Test
+    fun `unsubscribe disables the CCCD off the worker thread`() {
+        // A reader calls unsubscribe from inside its onPdu handler on the worker; the blocking CCCD
+        // disable must not run on that worker. With a worker whose queue is never drained, the disable
+        // still happens -- via the cleanup executor -- so it cannot have gone through the worker.
+        val queueingWorker = QueueingWorker()
+        val link = newLink(worker = queueingWorker)
+        link.subscribe(MedtronicProtocol.CGM_MEASUREMENT_UUID) {} // writeDescriptor #1 = CCCD enable
+
+        link.unsubscribe(MedtronicProtocol.CGM_MEASUREMENT_UUID) // writeDescriptor #2 = CCCD disable
+
+        assertEquals(0, link.activeSubscriptionCount())
+        @Suppress("DEPRECATION")
+        verify(exactly = 2) { gatt.writeDescriptor(any<BluetoothGattDescriptor>()) }
+    }
+
+    @Test
     fun `a failed CCCD enable leaves no phantom subscription`() {
         descriptorStatus = GATT_INSUFFICIENT_AUTHENTICATION
         val link = newLink()
@@ -392,6 +408,8 @@ class AndroidMedtronicGattLinkTest {
                 this.task = null
             }
         }
+
+        override fun execute(task: () -> Unit) = task()
 
         fun fire() = task?.invoke() ?: Unit
     }

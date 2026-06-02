@@ -132,6 +132,13 @@ class AndroidMedtronicGattLink(
     @Volatile
     private var connectPending: ArrayBlockingQueue<GattOutcome>? = null
 
+    // The BluetoothGatt of the in-flight connect attempt. Connect-phase callbacks are accepted only for
+    // this handle, so a late callback from a prior (timed-out) attempt can't complete a newer one. Null
+    // while no connect is in progress -- a callback arriving then is tolerated (the matching
+    // [connectPending] is also null, so the offer is a no-op).
+    @Volatile
+    private var connectingGatt: BluetoothGatt? = null
+
     @Volatile
     private var watchdogHandle: SubscriptionWatchdog.Handle? = null
 
@@ -217,10 +224,12 @@ class AndroidMedtronicGattLink(
 
     override fun unsubscribe(characteristic: UUID) {
         // Drop the handler first, lock-free: this is the AC4 correctness guarantee (no notification
-        // reaches a finished exchange) and must never block the worker thread on the CCCD round trip.
+        // reaches a finished exchange). A reader calls unsubscribe from inside its onPdu handler, which
+        // runs on the shared worker thread, so the blocking CCCD-disable round trip is run off that
+        // thread (the cleanup executor) -- otherwise it would stall connection-lifecycle events.
         val sub = handlers.remove(characteristic) ?: return
         if (handlers.isEmpty()) cancelWatchdog()
-        disableNotifications("unsubscribe", sub)
+        watchdog.execute { disableNotifications("unsubscribe", sub) }
     }
 
     // -- Connection / discovery ---------------------------------------------
@@ -245,8 +254,10 @@ class AndroidMedtronicGattLink(
             connectPending = null
             throw MedtronicReadException("Medtronic GATT connect returned no client")
         }
+        connectingGatt = opened
         val outcome = slot.poll(connectTimeoutMs, TimeUnit.MILLISECONDS)
         connectPending = null
+        connectingGatt = null
         if (outcome == null || outcome.status != BluetoothGatt.GATT_SUCCESS) {
             logGattWarning("connect", null, outcome?.status ?: SYNTHETIC_TIMEOUT_STATUS)
             closeClient(opened)
@@ -435,10 +446,18 @@ class AndroidMedtronicGattLink(
 
     // -- GATT callback (binder thread) --------------------------------------
 
+    // A connect-phase callback (CONNECTED / services-discovered / a disconnect of the connecting handle)
+    // is stale if it belongs to a BluetoothGatt other than the one the current attempt opened. While no
+    // connect is in progress [connectingGatt] is null and the callback is tolerated (connectPending is
+    // also null then, so any offer is a no-op).
+    private fun isStaleConnectCallback(g: BluetoothGatt): Boolean =
+        connectingGatt != null && g !== connectingGatt
+
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> {
+                    if (isStaleConnectCallback(g)) return
                     if (status != BluetoothGatt.GATT_SUCCESS) {
                         connectPending?.offer(GattOutcome(status, null))
                         return
@@ -459,6 +478,7 @@ class AndroidMedtronicGattLink(
         }
 
         override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
+            if (isStaleConnectCallback(g)) return
             connectPending?.offer(GattOutcome(status, null))
         }
 
@@ -507,10 +527,10 @@ class AndroidMedtronicGattLink(
     }
 
     private fun teardownOnDisconnect(g: BluetoothGatt, status: Int) {
-        // Fail whatever blocking call is parked so it returns instead of waiting out its full timeout.
-        // (Offered regardless of identity: a disconnect of the in-progress connect arrives before [gatt]
-        // is published, and the connect awaiter must still be released.)
-        connectPending?.offer(GattOutcome(status, null))
+        // A disconnect of the handle a connect is currently waiting on (it fires before [gatt] is
+        // published) must release that connect awaiter -- but only for that handle, so a stale prior
+        // attempt's disconnect can't wake a newer connect's slot.
+        if (!isStaleConnectCallback(g)) connectPending?.offer(GattOutcome(status, null))
         if (gatt !== g) {
             // A stale handle disconnected (e.g. after a reconnect to a new device); just close it.
             closeClient(g)
@@ -521,6 +541,9 @@ class AndroidMedtronicGattLink(
         racpServiceUuids = emptySet()
         cancelWatchdog()
         handlers.clear()
+        // `gatt === g` here, so this disconnect is for the live connection: failing its in-flight op is
+        // correct. (A concurrent op-thread timeout would have already replaced [gatt], taking the early
+        // return above, so it can't be redirected to a newer op's slot.)
         pending?.offer(GattOutcome(status, null))
         closeClient(g)
         gatt = null
@@ -623,13 +646,18 @@ class AndroidMedtronicGattLink(
 }
 
 /**
- * One-shot delayed scheduler for the GATT-client subscription watchdog (AC4). Abstracted like
- * [SerialWorker] so the cleanup-on-timeout path is deterministically unit-testable without a real
+ * The off-thread mechanism for GATT-client subscription cleanup (AC4): a one-shot delayed timer (the
+ * dangling-subscription watchdog) plus immediate off-caller-thread execution (so an `unsubscribe`
+ * issued from a notification handler doesn't block the shared worker thread on its CCCD round trip).
+ * Abstracted like [SerialWorker] so both paths are deterministically unit-testable without a real
  * timer thread.
  */
 interface SubscriptionWatchdog {
     /** Run [task] after [delayMs]; the returned handle cancels it if the subscription is released first. */
     fun schedule(delayMs: Long, task: () -> Unit): Handle
+
+    /** Run [task] as soon as possible on the cleanup thread, off the calling thread. */
+    fun execute(task: () -> Unit)
 
     /** Release any resources (e.g. the executor thread). Default no-op for in-memory test doubles. */
     fun close() {}
@@ -649,6 +677,10 @@ class ScheduledSubscriptionWatchdog(
     override fun schedule(delayMs: Long, task: () -> Unit): SubscriptionWatchdog.Handle {
         val future = executor.schedule(task, delayMs, TimeUnit.MILLISECONDS)
         return SubscriptionWatchdog.Handle { future.cancel(false) }
+    }
+
+    override fun execute(task: () -> Unit) {
+        executor.execute(task)
     }
 
     override fun close() {
