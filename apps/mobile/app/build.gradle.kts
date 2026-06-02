@@ -154,6 +154,7 @@ dependencies {
     // Pump driver modules
     implementation(project(":pump-driver-api"))
     implementation(project(":tandem-pump-driver"))
+    implementation(project(":medtronic-pump-driver"))
 
     // AndroidX Core
     implementation(libs.androidx.core.ktx)
