@@ -146,6 +146,8 @@ class AndroidMedtronicPeripheral(context: Context) : MedtronicPeripheral {
         }
     }
 
+    override fun connectedDevice(): BluetoothDevice? = peer
+
     override fun removeBond(address: String): Boolean {
         val device = adapter?.getRemoteDevice(address) ?: return false
         if (device.bondState != BluetoothDevice.BOND_BONDED) return false

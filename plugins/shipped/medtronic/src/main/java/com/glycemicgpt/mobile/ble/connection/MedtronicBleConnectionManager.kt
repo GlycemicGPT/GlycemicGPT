@@ -15,6 +15,7 @@
  */
 package com.glycemicgpt.mobile.ble.connection
 
+import android.bluetooth.BluetoothDevice
 import android.content.Context
 import com.glycemicgpt.mobile.ble.sake.MedtronicSakeSession
 import com.glycemicgpt.mobile.domain.model.ConnectionState
@@ -117,6 +118,15 @@ class MedtronicBleConnectionManager(
     @Volatile
     var sakeSession: MedtronicSakeSession? = null
         private set
+
+    /**
+     * The connected pump's [BluetoothDevice], captured by the peripheral when the pump connected to
+     * our GATT server. The Milestone D `BluetoothGatt`-client transport ([AndroidMedtronicGattLink])
+     * opens a client connection back to this device over the same link to read the pump's GATT server
+     * -- it must not start a fresh scan/advertise cycle. `null` until a pump is connected.
+     */
+    val connectedPumpDevice: BluetoothDevice?
+        get() = peripheral.connectedDevice()
 
     @Volatile
     private var autoReconnect = false
