@@ -64,35 +64,44 @@ class AndroidMedtronicGattLinkTest {
     private var writeStatus = BluetoothGatt.GATT_SUCCESS
     private var descriptorStatus = BluetoothGatt.GATT_SUCCESS
 
+    // The client(s) `connectGatt` hands back, in order; defaults to the single shared [gatt].
+    private val connectQueue = ArrayDeque<BluetoothGatt>()
+
     init {
         every { device.address } returns PUMP_ADDRESS
         every { device.connectGatt(any(), any(), capture(callbackSlot), any()) } answers {
             // Simulate the stack connecting + discovering synchronously off the connectGatt call.
-            callback.onConnectionStateChange(gatt, BluetoothGatt.GATT_SUCCESS, BluetoothProfile.STATE_CONNECTED)
-            gatt
+            val client = if (connectQueue.isEmpty()) gatt else connectQueue.removeFirst()
+            callback.onConnectionStateChange(client, BluetoothGatt.GATT_SUCCESS, BluetoothProfile.STATE_CONNECTED)
+            client
         }
-        every { gatt.services } returns listOf(cgmService, iddService, batteryService)
-        every { gatt.discoverServices() } answers {
-            callback.onServicesDiscovered(gatt, BluetoothGatt.GATT_SUCCESS)
+        stubGattClient(gatt)
+    }
+
+    /** Stub a `BluetoothGatt` client so its callbacks fire synchronously off each operation. */
+    private fun stubGattClient(client: BluetoothGatt) {
+        every { client.services } returns listOf(cgmService, iddService, batteryService)
+        every { client.discoverServices() } answers {
+            callback.onServicesDiscovered(client, BluetoothGatt.GATT_SUCCESS)
             true
         }
-        every { gatt.setCharacteristicNotification(any(), any()) } returns true
-        every { gatt.readCharacteristic(any()) } answers {
+        every { client.setCharacteristicNotification(any(), any()) } returns true
+        every { client.readCharacteristic(any()) } answers {
             val char = firstArg<BluetoothGattCharacteristic>()
-            callback.onCharacteristicRead(gatt, char, readValues[char.uuid] ?: ByteArray(0), readStatus)
+            callback.onCharacteristicRead(client, char, readValues[char.uuid] ?: ByteArray(0), readStatus)
             true
         }
         @Suppress("DEPRECATION")
-        every { gatt.writeCharacteristic(any<BluetoothGattCharacteristic>()) } answers {
+        every { client.writeCharacteristic(any<BluetoothGattCharacteristic>()) } answers {
             val char = firstArg<BluetoothGattCharacteristic>()
             events.add("write-char:${char.uuid}")
-            callback.onCharacteristicWrite(gatt, char, writeStatus)
+            callback.onCharacteristicWrite(client, char, writeStatus)
             true
         }
         @Suppress("DEPRECATION")
-        every { gatt.writeDescriptor(any<BluetoothGattDescriptor>()) } answers {
+        every { client.writeDescriptor(any<BluetoothGattDescriptor>()) } answers {
             events.add("write-cccd")
-            callback.onDescriptorWrite(gatt, firstArg(), descriptorStatus)
+            callback.onDescriptorWrite(client, firstArg(), descriptorStatus)
             true
         }
     }
@@ -317,6 +326,28 @@ class AndroidMedtronicGattLinkTest {
     }
 
     @Test
+    fun `a deferred unsubscribe does not disable a characteristic on a reconnected client`() {
+        val gattB = mockk<BluetoothGatt>(relaxed = true)
+        stubGattClient(gattB)
+        readValues[MedtronicProtocol.BATTERY_LEVEL_UUID] = byteArrayOf(85)
+        connectQueue.addAll(listOf(gatt, gattB)) // connection A then, after reconnect, B
+        val deferring = DeferringWatchdog()
+        val link = AndroidMedtronicGattLink(context, deviceProvider = { device }, worker = DirectSerialWorker(), watchdog = deferring)
+
+        link.subscribe(MedtronicProtocol.CGM_MEASUREMENT_UUID) {} // connects to A; CCCD enable on A; owner = A
+        link.unsubscribe(MedtronicProtocol.CGM_MEASUREMENT_UUID) // queues the disable, deferred
+        // A drops; the next read reconnects to B.
+        callback.onConnectionStateChange(gatt, GATT_CONN_TERMINATE_PEER_USER, BluetoothProfile.STATE_DISCONNECTED)
+        link.read(MedtronicProtocol.BATTERY_LEVEL_UUID)
+
+        deferring.runDeferred() // the queued disable now runs against the live client (B)
+
+        @Suppress("DEPRECATION")
+        verify(exactly = 0) { gattB.writeDescriptor(any<BluetoothGattDescriptor>()) }
+        verify(exactly = 0) { gattB.setCharacteristicNotification(any(), false) }
+    }
+
+    @Test
     fun `a failed CCCD enable leaves no phantom subscription`() {
         descriptorStatus = GATT_INSUFFICIENT_AUTHENTICATION
         val link = newLink()
@@ -412,6 +443,25 @@ class AndroidMedtronicGattLinkTest {
         override fun execute(task: () -> Unit) = task()
 
         fun fire() = task?.invoke() ?: Unit
+    }
+
+    /** A [SubscriptionWatchdog] that defers `execute` work so a test can run it after a reconnect. */
+    private class DeferringWatchdog : SubscriptionWatchdog {
+        private var timerTask: (() -> Unit)? = null
+        private val deferred = ArrayDeque<() -> Unit>()
+
+        override fun schedule(delayMs: Long, task: () -> Unit): SubscriptionWatchdog.Handle {
+            timerTask = task
+            return SubscriptionWatchdog.Handle { timerTask = null }
+        }
+
+        override fun execute(task: () -> Unit) {
+            deferred.add(task)
+        }
+
+        fun runDeferred() {
+            while (deferred.isNotEmpty()) deferred.removeFirst().invoke()
+        }
     }
 
     /** Records emitted Timber logs so a test can assert the WARN discipline (AC7). */

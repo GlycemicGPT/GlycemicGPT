@@ -203,7 +203,8 @@ class AndroidMedtronicGattLink(
                 }
                 // Register the handler before enabling notifications so a PDU delivered the instant the
                 // CCCD takes effect is not lost. Re-subscribing replaces the handler (seam contract).
-                handlers[characteristic] = ActiveSubscription(resolved, onPdu)
+                // Record the owning client so a deferred unsubscribe can't disable a later connection.
+                handlers[characteristic] = ActiveSubscription(resolved, onPdu, link)
                 val enable = if (isIndication(char)) CCCD_ENABLE_INDICATION else CCCD_ENABLE_NOTIFICATION
                 // The CCCD write completes before this returns, so notifications are effective before
                 // the caller's subsequent control-point write (AC3).
@@ -402,6 +403,10 @@ class AndroidMedtronicGattLink(
         try {
             opLock.withLock {
                 val link = gatt ?: return
+                // This cleanup may be deferred (run off the worker / on the watchdog) and the client may
+                // have been replaced by a reconnect meanwhile. The old connection's subscriptions died
+                // with it, so skip rather than disable a characteristic on the new connection.
+                if (link !== sub.ownerGatt) return
                 val char = sub.resolved.characteristic
                 if (!link.setCharacteristicNotification(char, false)) {
                     Timber.w("Medtronic GATT %s: setCharacteristicNotification(false) was rejected", op)
@@ -589,7 +594,11 @@ class AndroidMedtronicGattLink(
 
     private data class ResolvedChar(val serviceUuid: UUID, val characteristic: BluetoothGattCharacteristic)
 
-    private class ActiveSubscription(val resolved: ResolvedChar, val onPdu: (ByteArray) -> Unit)
+    private class ActiveSubscription(
+        val resolved: ResolvedChar,
+        val onPdu: (ByteArray) -> Unit,
+        val ownerGatt: BluetoothGatt,
+    )
 
     private class GattOutcome(val status: Int, val value: ByteArray?)
 
