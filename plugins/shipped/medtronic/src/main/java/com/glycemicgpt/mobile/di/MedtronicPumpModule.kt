@@ -9,12 +9,14 @@
 package com.glycemicgpt.mobile.di
 
 import android.content.Context
+import com.glycemicgpt.mobile.ble.connection.AndroidMedtronicGattLink
 import com.glycemicgpt.mobile.ble.connection.AndroidMedtronicPeripheral
 import com.glycemicgpt.mobile.ble.connection.HandlerThreadSerialWorker
 import com.glycemicgpt.mobile.ble.connection.MedtronicBleConnectionManager
 import com.glycemicgpt.mobile.ble.connection.MedtronicPeripheral
 import com.glycemicgpt.mobile.ble.connection.SerialWorker
 import com.glycemicgpt.mobile.ble.read.MedtronicReadGateway
+import com.glycemicgpt.mobile.domain.model.ConnectionState
 import com.glycemicgpt.mobile.domain.plugin.PluginFactory
 import com.glycemicgpt.mobile.domain.pump.PumpCredentialProvider
 import com.glycemicgpt.mobile.plugin.MedtronicPluginFactory
@@ -64,17 +66,40 @@ abstract class MedtronicPumpModule {
                 scope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
             )
 
+        /**
+         * The on-device `BluetoothGatt`-client transport. It opens a client connection back to the
+         * connected pump (captured by the connection manager when the pump connected to our GATT
+         * server) and reuses the same SAKE [worker] thread so inbound notifications stay serialized on
+         * one thread.
+         */
+        @Provides
+        @Singleton
+        fun provideGattLink(
+            @ApplicationContext context: Context,
+            connectionManager: MedtronicBleConnectionManager,
+            worker: SerialWorker,
+        ): AndroidMedtronicGattLink =
+            AndroidMedtronicGattLink(
+                context = context,
+                deviceProvider = { connectionManager.connectedPumpDevice },
+                worker = worker,
+            )
+
         @Provides
         @Singleton
         fun provideReadGateway(
             connectionManager: MedtronicBleConnectionManager,
+            gattLink: AndroidMedtronicGattLink,
         ): MedtronicReadGateway =
             MedtronicReadGateway(
                 sessionProvider = { connectionManager.sakeSession },
-                // TODO(48.D): supply the on-device BluetoothGatt-client MedtronicGattLink (scoping the
-                // shared SIG 0x2A52 RACP characteristic under the CGM vs IDD service). Until the
-                // transport lands the gateway reports "not connected"; pairing + handshake already work.
-                linkProvider = { null },
+                // Supply the transport only while a pump is authenticated; otherwise null so the
+                // gateway keeps reporting the clean "not connected" failure rather than reading a dead
+                // link. The shared SIG 0x2A52 RACP characteristic is scoped to the CGM vs IDD service
+                // inside the link itself (TODO(48.C3) closed).
+                linkProvider = {
+                    if (connectionManager.connectionState.value == ConnectionState.CONNECTED) gattLink else null
+                },
             )
 
         private const val SAKE_WORKER_THREAD_NAME = "medtronic-sake"

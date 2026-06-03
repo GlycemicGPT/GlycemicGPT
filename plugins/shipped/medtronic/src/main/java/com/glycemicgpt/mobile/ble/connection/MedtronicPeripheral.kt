@@ -10,6 +10,7 @@
  */
 package com.glycemicgpt.mobile.ble.connection
 
+import android.bluetooth.BluetoothDevice
 import com.glycemicgpt.mobile.ble.protocol.MedtronicProtocol
 
 /**
@@ -93,6 +94,15 @@ interface MedtronicPeripheral {
 
     /** Best-effort removal of the OS-level BLE bond for [address] (used by unpair). */
     fun removeBond(address: String): Boolean
+
+    /**
+     * The pump's [BluetoothDevice] captured when it connected to our GATT server (as the BLE
+     * central), or `null` when no pump is connected. The Milestone D `BluetoothGatt`-client transport
+     * opens a client connection back to *this* device over the same link to read the pump's
+     * CGM / IDD / Device-Info GATT server; it must **not** start a fresh scan to obtain it. Defaults
+     * to `null` for the connection-only collaborators the B2 lifecycle tests exercise.
+     */
+    fun connectedDevice(): BluetoothDevice? = null
 
     /** Stop advertising and close the GATT server, releasing all BLE resources. */
     fun stop()
