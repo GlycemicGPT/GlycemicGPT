@@ -51,8 +51,8 @@ class MedtronicInsulinSourceTest {
     }
 
     @Test
-    fun `getBolusHistory fetches history from the start of the window`() = runTest {
-        // No records -> no boluses; this asserts the wiring (full-window fetch + empty extraction),
+    fun `the first bolus poll fetches from sequence 0`() = runTest {
+        // No records -> no boluses; this asserts the wiring (the initial cursor is 0 + empty extraction),
         // not the parser internals (covered by MedtronicHistoryParserTest).
         coEvery { gateway.getHistoryLogs(0) } returns Result.success(emptyList())
 
@@ -61,6 +61,28 @@ class MedtronicInsulinSourceTest {
         assertTrue(result.isSuccess)
         assertEquals(emptyList<Any>(), result.getOrThrow())
         coVerify { gateway.getHistoryLogs(0) }
+    }
+
+    @Test
+    fun `bolus polling advances the sequence cursor so the next poll is incremental`() = runTest {
+        // First poll returns records up to sequence 111; the cursor must advance there so the second
+        // poll requests only newer records (the AC4 incremental cursor path) instead of rescanning the
+        // full window from sequence 0.
+        val reference = LocalDateTime.of(2026, 6, 1, 12, 0, 0).toInstant(ZoneOffset.UTC)
+        val firstBatch = listOf(
+            rawRecord(0xF00E, seq = 100, offsetSec = 0, bodyHex = "3cea0706010c0000"),
+            rawRecord(0x0069, seq = 110, offsetSec = 600, bodyHex = "010033190000ff000000000000"),
+            rawRecord(0x0096, seq = 111, offsetSec = 600, bodyHex = "01000000005a"),
+        )
+        coEvery { gateway.getHistoryLogs(0) } returns Result.success(firstBatch)
+        coEvery { gateway.getHistoryLogs(111) } returns Result.success(emptyList())
+
+        source.getBolusHistory(reference, SafetyLimits()).getOrThrow()
+        val second = source.getBolusHistory(reference, SafetyLimits()).getOrThrow()
+
+        assertTrue(second.isEmpty())
+        coVerify(exactly = 1) { gateway.getHistoryLogs(0) }
+        coVerify(exactly = 1) { gateway.getHistoryLogs(111) }
     }
 
     @Test
@@ -85,13 +107,16 @@ class MedtronicInsulinSourceTest {
         )
         coEvery { gateway.getHistoryLogs(0) } returns Result.success(records)
 
+        // Fresh sources per assertion so each exercises the since filter from a clean cursor (the
+        // incremental cursor advance is covered separately above).
         // since at the reference -> the bolus (at +600s) is included.
-        val included = source.getBolusHistory(reference, SafetyLimits()).getOrThrow()
+        val included = MedtronicInsulinSource(gateway).getBolusHistory(reference, SafetyLimits()).getOrThrow()
         assertEquals(1, included.size)
         assertEquals(2.5f, included[0].units, 1e-4f)
 
         // since after the bolus -> filtered out.
-        val excluded = source.getBolusHistory(reference.plusSeconds(601), SafetyLimits()).getOrThrow()
+        val excluded = MedtronicInsulinSource(gateway)
+            .getBolusHistory(reference.plusSeconds(601), SafetyLimits()).getOrThrow()
         assertTrue(excluded.isEmpty())
     }
 

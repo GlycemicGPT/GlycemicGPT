@@ -169,6 +169,51 @@ class PluginRegistryTest {
     }
 
     @Test
+    fun `activating Medtronic excludes an active Tandem across all single-instance capabilities`() {
+        // AC5: a pump driver declares GLUCOSE_SOURCE / INSULIN_SOURCE / PUMP_STATUS -- all single-instance
+        // -- so activating Medtronic must evict an already-active Tandem from every one of those slots.
+        val singleInstanceCaps = setOf(
+            PluginCapability.GLUCOSE_SOURCE,
+            PluginCapability.INSULIN_SOURCE,
+            PluginCapability.PUMP_STATUS,
+        )
+        val tandem: DevicePlugin = mockk(relaxed = true) {
+            every { metadata } returns PluginMetadata(
+                id = "com.glycemicgpt.tandem",
+                name = "Tandem",
+                version = "1.0.0",
+                apiVersion = PLUGIN_API_VERSION,
+            )
+            every { capabilities } returns singleInstanceCaps
+        }
+        val medtronic: DevicePlugin = mockk(relaxed = true) {
+            every { metadata } returns PluginMetadata(
+                id = "com.glycemicgpt.medtronic",
+                name = "Medtronic",
+                version = "1.0.0",
+                apiVersion = PLUGIN_API_VERSION,
+            )
+            every { capabilities } returns singleInstanceCaps
+        }
+        val registry = createRegistry(setOf(createFactory(tandem), createFactory(medtronic)))
+        registry.initialize()
+
+        registry.activatePlugin("com.glycemicgpt.tandem")
+        // Tandem now owns every single-instance slot.
+        every { preferences.getActivePluginId(any()) } returns "com.glycemicgpt.tandem"
+
+        val result = registry.activatePlugin("com.glycemicgpt.medtronic")
+
+        assertTrue(result.isSuccess)
+        verify { tandem.onDeactivated() }
+        verify { medtronic.onActivated() }
+        // Exactly one pump is active, and Medtronic occupies the pump + glucose slots.
+        assertEquals(1, registry.allActivePlugins.value.size)
+        assertEquals("com.glycemicgpt.medtronic", registry.activePumpPlugin.value?.metadata?.id)
+        assertEquals("com.glycemicgpt.medtronic", registry.activeGlucoseSource.value?.metadata?.id)
+    }
+
+    @Test
     fun `deactivatePlugin removes from active and clears preferences`() {
         val plugin = createPlugin(
             "test.plugin",

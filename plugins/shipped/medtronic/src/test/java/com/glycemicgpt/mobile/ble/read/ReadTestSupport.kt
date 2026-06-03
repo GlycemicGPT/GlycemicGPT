@@ -98,6 +98,12 @@ internal fun hex(s: String): ByteArray {
     return ByteArray(s.length / 2) { i -> s.substring(2 * i, 2 * i + 2).toInt(16).toByte() }
 }
 
+/** CGM Feature characteristic value with the E2E-CRC bit (12) set. */
+internal const val CGM_FEATURE_E2E_ENABLED_HEX = "009001591404"
+
+/** A captured plaintext CGM measurement frame that parses to 249 mg/dL, rising. */
+internal const val CGM_MEASUREMENT_249_HEX = "0ec3f900f40b000074e00a00e0f1"
+
 /** Server-side (MOBILE_APPLICATION) half of the matched synthetic two-sided test pair. */
 internal const val CUSTOM_SERVER_KEYDB_HEX =
     "b079cdc504010144455249564154494f4e5f5f5f4b4559484e4453484b455f41" +

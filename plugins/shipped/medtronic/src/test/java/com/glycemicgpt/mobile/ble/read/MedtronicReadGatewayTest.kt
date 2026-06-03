@@ -10,6 +10,7 @@ import com.glycemicgpt.mobile.ble.sake.MedtronicSakeSession
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -81,10 +82,10 @@ class MedtronicReadGatewayTest {
     fun `getCgmReading drives the full session read to a parsed reading`() = runTest {
         val two = TwoSidedSession()
         val link = FakeGattLink()
-        link.reads[feature] = hex("009001591404") // E2E-CRC enabled
+        link.reads[feature] = hex(CGM_FEATURE_E2E_ENABLED_HEX)
         link.onWrite = { characteristic, _ ->
             if (characteristic == racp) {
-                emit(measurement, two.pumpEncrypt(hex("0ec3f900f40b000074e00a00e0f1")))
+                emit(measurement, two.pumpEncrypt(hex(CGM_MEASUREMENT_249_HEX)))
                 emit(racp, MedtronicSessionReader.RACP_REPORT_SUCCESS)
             }
         }
@@ -98,7 +99,7 @@ class MedtronicReadGatewayTest {
     fun `a hung read is bounded by the operation timeout`() = runTest {
         val two = TwoSidedSession()
         val link = FakeGattLink()
-        link.reads[feature] = hex("009001591404")
+        link.reads[feature] = hex(CGM_FEATURE_E2E_ENABLED_HEX)
         // The pump never responds to the RACP request, so the reader's callback never fires.
 
         val result = gateway(link = link, session = two.server, timeoutMs = 5_000L).getCgmReading()
@@ -137,5 +138,83 @@ class MedtronicReadGatewayTest {
 
         assertTrue(result.isFailure)
         assertTrue(result.exceptionOrNull()!!.message!!.contains("timed out"))
+    }
+
+    /**
+     * Single-flight (Story AC1): the Medtronic link is one-exchange-at-a-time, but the polling
+     * orchestrator drives the fast/medium/slow tiers as independent coroutines, so the gateway must
+     * serialize them. Two concurrent reads are launched eagerly; the first holds the link awaiting its
+     * (deferred) response, so the second must park on the gateway's mutex and reach the wire only after
+     * the first finishes -- exactly one RACP write is outstanding at a time, never two overlapping.
+     */
+    @Test
+    fun `concurrent reads are serialized single-flight on the one link`() = runTest {
+        val two = TwoSidedSession()
+        val link = SerializingProbeLink(two)
+        val io = UnconfinedTestDispatcher(testScheduler)
+        val gw = MedtronicReadGateway(
+            sessionProvider = { two.server },
+            linkProvider = { link },
+            ioDispatcher = io,
+            operationTimeoutMs = 30_000L,
+        )
+
+        // Eagerly dispatched (Unconfined): each runs until it suspends. The first parks awaiting the
+        // pump's deferred response while holding the mutex; the second parks on the mutex itself.
+        val first = async(io) { gw.getCgmReading() }
+        val second = async(io) { gw.getCgmReading() }
+
+        // The proof: only the first exchange has reached the wire. Without single-flight the second
+        // would already have written its own RACP request (racpWrites == 2).
+        assertEquals("second read must not touch the link while the first holds it", 1, link.racpWrites)
+
+        link.releaseNext() // complete the first; releasing the mutex lets the second proceed
+        assertEquals("second read reaches the wire only after the first finishes", 2, link.racpWrites)
+
+        link.releaseNext() // complete the second
+
+        assertEquals(249, first.await().getOrThrow().glucoseMgDl)
+        assertEquals(249, second.await().getOrThrow().glucoseMgDl)
+    }
+
+    /**
+     * A [MedtronicGattLink] that defers each RACP exchange's response until [releaseNext], so a read
+     * stays in flight (holding the single-flight lock) until the test chooses to complete it. Counts
+     * RACP writes so a test can prove that a second exchange does not reach the wire while a first is
+     * outstanding. Only valid under single-flight (one set of handlers registered at a time).
+     */
+    private class SerializingProbeLink(private val two: TwoSidedSession) : MedtronicGattLink {
+        private val handlers = mutableMapOf<UUID, (ByteArray) -> Unit>()
+        private val pendingResponses = ArrayDeque<() -> Unit>()
+
+        var racpWrites = 0
+            private set
+
+        override fun read(characteristic: UUID): ByteArray =
+            if (characteristic == MedtronicProtocol.CGM_FEATURE_UUID) hex(CGM_FEATURE_E2E_ENABLED_HEX)
+            else throw MedtronicReadException("no read stub for $characteristic")
+
+        override fun write(characteristic: UUID, value: ByteArray) {
+            if (characteristic != MedtronicProtocol.RACP_UUID) return
+            racpWrites++
+            // Defer the pump's response so the exchange stays in flight, holding the single-flight lock
+            // until releaseNext() delivers it.
+            pendingResponses.addLast {
+                handlers[MedtronicProtocol.CGM_MEASUREMENT_UUID]
+                    ?.invoke(two.pumpEncrypt(hex(CGM_MEASUREMENT_249_HEX)))
+                handlers[MedtronicProtocol.RACP_UUID]?.invoke(MedtronicSessionReader.RACP_REPORT_SUCCESS)
+            }
+        }
+
+        override fun subscribe(characteristic: UUID, onPdu: (ByteArray) -> Unit) {
+            handlers[characteristic] = onPdu
+        }
+
+        override fun unsubscribe(characteristic: UUID) {
+            handlers.remove(characteristic)
+        }
+
+        /** Deliver the next deferred pump response, completing the oldest in-flight exchange. */
+        fun releaseNext() = pendingResponses.removeFirst().invoke()
     }
 }
