@@ -207,6 +207,12 @@ class PluginRegistryTest {
         assertTrue(result.isSuccess)
         verify { tandem.onDeactivated() }
         verify { medtronic.onActivated() }
+        // The single-instance ownership bookkeeping moved from Tandem to Medtronic for every slot:
+        // Medtronic claims each capability and Tandem's is cleared.
+        for (cap in singleInstanceCaps) {
+            verify { preferences.setActivePluginId(cap, "com.glycemicgpt.medtronic") }
+            verify { preferences.clearActivePlugin(cap) }
+        }
         // Exactly one pump is active, and Medtronic occupies the pump + glucose slots.
         assertEquals(1, registry.allActivePlugins.value.size)
         assertEquals("com.glycemicgpt.medtronic", registry.activePumpPlugin.value?.metadata?.id)
