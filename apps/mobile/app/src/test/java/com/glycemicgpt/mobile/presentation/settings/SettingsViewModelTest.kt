@@ -24,6 +24,10 @@ import com.glycemicgpt.mobile.wear.WearDataSender
 import com.glycemicgpt.mobile.domain.plugin.DevicePlugin
 import com.glycemicgpt.mobile.domain.plugin.Plugin
 import com.glycemicgpt.mobile.domain.plugin.PluginMetadata
+import com.glycemicgpt.mobile.domain.plugin.ui.ButtonStyle
+import com.glycemicgpt.mobile.domain.plugin.ui.PluginSettingsDescriptor
+import com.glycemicgpt.mobile.domain.plugin.ui.PluginSettingsSection
+import com.glycemicgpt.mobile.domain.plugin.ui.SettingDescriptor
 import com.glycemicgpt.mobile.plugin.PluginRegistry
 import com.glycemicgpt.mobile.plugin.RuntimePluginInfo
 import io.mockk.coEvery
@@ -586,6 +590,91 @@ class SettingsViewModelTest {
         val state = vm.uiState.value.watchAppUpdateState
         assertTrue(state is WatchAppUpdateState.Error)
         assertEquals("Watch version not available", (state as WatchAppUpdateState.Error).message)
+    }
+
+    @Test
+    fun `loadState reduces the active pump descriptor to informational notes only`() {
+        // Descriptor mixes an info note with an interactive action; the pump card must surface only
+        // the note (the generic card chrome owns pair/unpair actions), so the action is filtered out.
+        val descriptor = PluginSettingsDescriptor(
+            sections = listOf(
+                PluginSettingsSection(
+                    title = "Connection",
+                    items = listOf(
+                        SettingDescriptor.InfoText(key = "single_peer_note", text = "one phone at a time"),
+                        SettingDescriptor.ActionButton(
+                            key = "unpair",
+                            label = "Unpair Pump",
+                            style = ButtonStyle.DESTRUCTIVE,
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val pumpPlugin = mockk<DevicePlugin> {
+            every { metadata } returns PluginMetadata(
+                id = "com.glycemicgpt.medtronic",
+                name = "Medtronic MiniMed Pump",
+                version = "1.0.0",
+                apiVersion = 1,
+            )
+            every { settingsDescriptor() } returns descriptor
+        }
+        every { pluginRegistry.activePumpPlugin } returns MutableStateFlow<DevicePlugin?>(pumpPlugin)
+
+        val vm = createViewModel()
+        val items = vm.uiState.value.activePumpSettingsDescriptor?.sections?.single()?.items
+
+        assertEquals(1, items?.size)
+        assertTrue(items?.single() is SettingDescriptor.InfoText)
+        assertEquals("single_peer_note", (items?.single() as SettingDescriptor.InfoText).key)
+    }
+
+    @Test
+    fun `loadState exposes no pump notes when the descriptor has only interactive items`() {
+        val descriptor = PluginSettingsDescriptor(
+            sections = listOf(
+                PluginSettingsSection(
+                    title = "Connection",
+                    items = listOf(
+                        SettingDescriptor.ActionButton(key = "unpair", label = "Unpair Pump"),
+                    ),
+                ),
+            ),
+        )
+        val pumpPlugin = mockk<DevicePlugin> {
+            every { metadata } returns PluginMetadata(
+                id = "com.glycemicgpt.tandem",
+                name = "Tandem Insulin Pump",
+                version = "1.0.0",
+                apiVersion = 1,
+            )
+            every { settingsDescriptor() } returns descriptor
+        }
+        every { pluginRegistry.activePumpPlugin } returns MutableStateFlow<DevicePlugin?>(pumpPlugin)
+
+        val vm = createViewModel()
+
+        assertNull(vm.uiState.value.activePumpSettingsDescriptor)
+    }
+
+    @Test
+    fun `loadState tolerates a plugin whose settings descriptor throws`() {
+        val pumpPlugin = mockk<DevicePlugin> {
+            every { metadata } returns PluginMetadata(
+                id = "com.glycemicgpt.medtronic",
+                name = "Medtronic MiniMed Pump",
+                version = "1.0.0",
+                apiVersion = 1,
+            )
+            every { settingsDescriptor() } throws IllegalStateException("boom")
+        }
+        every { pluginRegistry.activePumpPlugin } returns MutableStateFlow<DevicePlugin?>(pumpPlugin)
+
+        val vm = createViewModel()
+
+        assertNull(vm.uiState.value.activePumpSettingsDescriptor)
+        assertEquals("com.glycemicgpt.medtronic", vm.uiState.value.activePumpPluginId)
     }
 
     @Test

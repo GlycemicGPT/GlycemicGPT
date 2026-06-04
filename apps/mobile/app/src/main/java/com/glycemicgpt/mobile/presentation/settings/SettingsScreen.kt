@@ -80,6 +80,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.glycemicgpt.mobile.data.local.AlertSoundCategory
 import com.glycemicgpt.mobile.domain.plugin.PluginMetadata
 import com.glycemicgpt.mobile.plugin.RuntimePluginInfo
+import com.glycemicgpt.mobile.presentation.plugin.PluginSettingsRenderer
 import com.glycemicgpt.mobile.presentation.theme.ThemeMode
 import com.glycemicgpt.mobile.wear.WatchFaceVariant
 import java.io.File
@@ -986,6 +987,18 @@ private fun PumpSection(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+            }
+
+            // Pump-specific connection notes (e.g. Medtronic's single-peer limitation) declared by the
+            // active plugin's settings descriptor. The card chrome above/below owns live pairing status
+            // and the pair/unpair actions; the ViewModel has already reduced this to informational
+            // notes only, so no settings store is needed here.
+            val pumpNotes = state.activePumpSettingsDescriptor
+            if (pumpNotes != null) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Column(modifier = Modifier.testTag("pump_settings_notes")) {
+                    PluginSettingsRenderer(descriptor = pumpNotes)
                 }
             }
 
