@@ -21,7 +21,6 @@ import com.glycemicgpt.mobile.domain.plugin.PluginMetadata
 import com.glycemicgpt.mobile.domain.plugin.capabilities.GlucoseSource
 import com.glycemicgpt.mobile.domain.plugin.capabilities.InsulinSource
 import com.glycemicgpt.mobile.domain.plugin.capabilities.PumpStatus
-import com.glycemicgpt.mobile.domain.plugin.ui.ButtonStyle
 import com.glycemicgpt.mobile.domain.plugin.ui.DashboardCardDescriptor
 import com.glycemicgpt.mobile.domain.plugin.ui.PluginSettingsDescriptor
 import com.glycemicgpt.mobile.domain.plugin.ui.PluginSettingsSection
@@ -105,27 +104,23 @@ class MedtronicDevicePlugin(
     override fun scan(): Flow<DiscoveredDevice> =
         connectionManager.scan()
 
+    /**
+     * Pump-specific connection notes surfaced under the generic pump settings card. The card chrome
+     * already renders live pairing status and the Unpair action for any active pump plugin, so the
+     * descriptor only contributes what is unique to this driver: the single-peer limitation.
+     */
     override fun settingsDescriptor(): PluginSettingsDescriptor = PluginSettingsDescriptor(
         sections = listOf(
             PluginSettingsSection(
                 title = "Connection",
                 items = listOf(
-                    SettingDescriptor.InfoText(
-                        key = "pairing_status",
-                        text = "Status: ${connectionManager.connectionState.value}",
-                    ),
                     // Single-peer limitation (medtronic-ble-reverse-engineering.md Sec. 7): a 700-series
                     // pump talks to one phone at a time, so pairing GlycemicGPT requires first removing
-                    // the pump from the official Medtronic app. Surfaced here for Milestone D's pairing UX.
+                    // the pump from the official Medtronic app. Surfaced here for the pairing UX.
                     SettingDescriptor.InfoText(
                         key = "single_peer_note",
                         text = "A MiniMed pump pairs with only one phone at a time. " +
                             "Remove the pump from the official Medtronic app before pairing it here.",
-                    ),
-                    SettingDescriptor.ActionButton(
-                        key = "unpair",
-                        label = "Unpair Pump",
-                        style = ButtonStyle.DESTRUCTIVE,
                     ),
                 ),
             ),

@@ -14,9 +14,6 @@ import com.glycemicgpt.mobile.domain.plugin.capabilities.InsulinSource
 import com.glycemicgpt.mobile.domain.plugin.capabilities.PumpStatus
 import com.glycemicgpt.mobile.domain.plugin.ui.DashboardCardDescriptor
 import com.glycemicgpt.mobile.domain.plugin.ui.PluginSettingsDescriptor
-import com.glycemicgpt.mobile.domain.plugin.ui.PluginSettingsSection
-import com.glycemicgpt.mobile.domain.plugin.ui.SettingDescriptor
-import com.glycemicgpt.mobile.domain.plugin.ui.ButtonStyle
 import com.glycemicgpt.mobile.ble.connection.BleConnectionManager
 import com.glycemicgpt.mobile.ble.connection.BleScanner
 import com.glycemicgpt.mobile.ble.connection.TandemBleDriver
@@ -95,24 +92,12 @@ class TandemDevicePlugin(
             )
         }
 
-    override fun settingsDescriptor(): PluginSettingsDescriptor = PluginSettingsDescriptor(
-        sections = listOf(
-            PluginSettingsSection(
-                title = "Connection",
-                items = listOf(
-                    SettingDescriptor.InfoText(
-                        key = "pairing_status",
-                        text = "Status: ${connectionManager.connectionState.value}",
-                    ),
-                    SettingDescriptor.ActionButton(
-                        key = "unpair",
-                        label = "Unpair Pump",
-                        style = ButtonStyle.DESTRUCTIVE,
-                    ),
-                ),
-            ),
-        ),
-    )
+    /**
+     * Tandem contributes no pump-specific connection notes: the generic pump settings card already
+     * renders live pairing status and the Unpair action for any active pump plugin.
+     */
+    override fun settingsDescriptor(): PluginSettingsDescriptor =
+        PluginSettingsDescriptor(sections = emptyList())
 
     override fun observeDashboardCards(): Flow<List<DashboardCardDescriptor>> =
         flowOf(emptyList())

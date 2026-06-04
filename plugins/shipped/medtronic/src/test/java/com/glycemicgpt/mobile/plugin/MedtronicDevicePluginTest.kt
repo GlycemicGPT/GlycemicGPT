@@ -1,7 +1,7 @@
 /*
  * AC2 / AC3 / AC5: the MedtronicDevicePlugin exposes the read-only capability contract, maps the
- * lifecycle onto the connection manager, and renders the settings descriptor (status + Unpair +
- * single-peer note) -- all without any write/PUMP_CONTROL surface.
+ * lifecycle onto the connection manager, and declares the pump-specific single-peer settings note
+ * -- all without any write/PUMP_CONTROL surface.
  */
 package com.glycemicgpt.mobile.plugin
 
@@ -15,7 +15,6 @@ import com.glycemicgpt.mobile.domain.plugin.capabilities.BgmSource
 import com.glycemicgpt.mobile.domain.plugin.capabilities.GlucoseSource
 import com.glycemicgpt.mobile.domain.plugin.capabilities.InsulinSource
 import com.glycemicgpt.mobile.domain.plugin.capabilities.PumpStatus
-import com.glycemicgpt.mobile.domain.plugin.ui.ButtonStyle
 import com.glycemicgpt.mobile.domain.plugin.ui.SettingDescriptor
 import io.mockk.every
 import io.mockk.mockk
@@ -135,18 +134,16 @@ class MedtronicDevicePluginTest {
     }
 
     @Test
-    fun `settings descriptor shows status, the single-peer note, and a destructive Unpair`() {
-        every { connectionManager.connectionState } returns MutableStateFlow(ConnectionState.DISCONNECTED)
-
+    fun `settings descriptor surfaces only the single-peer note`() {
         val items = plugin.settingsDescriptor().sections.single().items
-        val status = items.filterIsInstance<SettingDescriptor.InfoText>().first { it.key == "pairing_status" }
-        assertTrue(status.text.contains("DISCONNECTED"))
 
-        val singlePeer = items.filterIsInstance<SettingDescriptor.InfoText>().first { it.key == "single_peer_note" }
+        // The pump-specific note is present and explains the single-peer limitation.
+        val singlePeer = items.filterIsInstance<SettingDescriptor.InfoText>().single { it.key == "single_peer_note" }
         assertTrue(singlePeer.text.contains("one phone at a time"))
 
-        val unpair = items.filterIsInstance<SettingDescriptor.ActionButton>().single()
-        assertEquals("unpair", unpair.key)
-        assertEquals(ButtonStyle.DESTRUCTIVE, unpair.style)
+        // Live status and the Unpair action are owned by the generic pump settings card, so the
+        // descriptor must not duplicate them (no stale status snapshot, no second Unpair button).
+        assertNull(items.filterIsInstance<SettingDescriptor.InfoText>().firstOrNull { it.key == "pairing_status" })
+        assertTrue(items.none { it is SettingDescriptor.ActionButton })
     }
 }
