@@ -4,6 +4,7 @@ import com.glycemicgpt.mobile.domain.model.ConnectionState
 import com.glycemicgpt.mobile.domain.model.DiscoveredDevice
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flowOf
 
 /**
  * Extension of [Plugin] for plugins that connect to hardware devices via BLE
@@ -12,6 +13,19 @@ import kotlinx.coroutines.flow.StateFlow
 interface DevicePlugin : Plugin {
     /** Observable connection state for this device plugin. */
     fun observeConnectionState(): StateFlow<ConnectionState>
+
+    /**
+     * How this plugin pairs (central-scan vs advertise-and-wait). The pairing screen renders off this
+     * so each plugin drives its own flow. Defaults to [PairingStyle.CENTRAL_SCAN]; peripheral-mode
+     * plugins (phone advertises, device connects) override it with [PairingStyle.ADVERTISE_AND_WAIT].
+     */
+    val pairingProfile: PairingProfile get() = PairingProfile()
+
+    /**
+     * Why an advertise-and-wait pairing is stalled or failed, or `null` when there is nothing to
+     * report. Central-scan plugins keep the default (always `null`) and rely on connection state.
+     */
+    fun observePairingFault(): Flow<PairingFault?> = flowOf(null)
 
     /**
      * Connect to a device at the given address. Optional config for pairing codes, etc.

@@ -19,6 +19,8 @@ import com.glycemicgpt.mobile.domain.pump.DebugLogger
 import com.glycemicgpt.mobile.domain.pump.PumpCredentialProvider
 import com.glycemicgpt.mobile.domain.pump.toSpacedHex
 import com.glycemicgpt.mobile.domain.model.ConnectionState
+import com.glycemicgpt.mobile.domain.plugin.PairingFault
+import com.glycemicgpt.mobile.domain.plugin.PairingProfile
 import com.glycemicgpt.mobile.domain.pump.PumpConnectionManager
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CompletableDeferred
@@ -67,6 +69,11 @@ class BleConnectionManager @Inject constructor(
 
     private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
     override val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
+
+    // Tandem is the BLE central: the phone scans and the user taps a pump from the list. There is no
+    // advertise-and-wait fault to surface, so the pairing screen drives Tandem off connection state.
+    override val pairingProfile: StateFlow<PairingProfile> = MutableStateFlow(PairingProfile())
+    override val pairingFault: StateFlow<PairingFault?> = MutableStateFlow(null)
 
     private var gatt: BluetoothGatt? = null
     private val gattLock = Any()

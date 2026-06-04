@@ -1,6 +1,8 @@
 package com.glycemicgpt.mobile.plugin.adapter
 
 import com.glycemicgpt.mobile.domain.model.ConnectionState
+import com.glycemicgpt.mobile.domain.plugin.PairingFault
+import com.glycemicgpt.mobile.domain.plugin.PairingProfile
 import com.glycemicgpt.mobile.domain.plugin.asPumpStatus
 import com.glycemicgpt.mobile.domain.pump.PumpConnectionManager
 import com.glycemicgpt.mobile.plugin.PluginRegistry
@@ -12,6 +14,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import timber.log.Timber
 import javax.inject.Inject
@@ -33,6 +36,16 @@ class PumpConnectionAdapter @Inject constructor(
         registry.activePumpPlugin.flatMapLatest { plugin ->
             plugin?.observeConnectionState() ?: flowOf(ConnectionState.DISCONNECTED)
         }.stateIn(scope, SharingStarted.Eagerly, ConnectionState.DISCONNECTED)
+
+    override val pairingProfile: StateFlow<PairingProfile> =
+        registry.activePumpPlugin.map { plugin ->
+            plugin?.pairingProfile ?: PairingProfile()
+        }.stateIn(scope, SharingStarted.Eagerly, PairingProfile())
+
+    override val pairingFault: StateFlow<PairingFault?> =
+        registry.activePumpPlugin.flatMapLatest { plugin ->
+            plugin?.observePairingFault() ?: flowOf(null)
+        }.stateIn(scope, SharingStarted.Eagerly, null)
 
     override fun connect(address: String, pairingCode: String?) {
         val plugin = registry.activePumpPlugin.value

@@ -58,12 +58,19 @@ android {
         }
     }
 
+    // Medtronic read-only BLE driver kill switch. Default ON (the driver ships BETA, flag-gated);
+    // build with MEDTRONIC_DRIVER_ENABLED=false to make the plugin invisible/inert (not selectable,
+    // no pairing, no polling) without a code change -- the mobile analogue of the backend's
+    // MEDTRONIC_CONNECT_ENABLED operator kill switch. Anything other than "false" keeps it enabled.
+    val medtronicDriverEnabled = System.getenv("MEDTRONIC_DRIVER_ENABLED")?.lowercase() != "false"
+
     buildTypes {
         debug {
             isDebuggable = true
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
             buildConfigField("String", "UPDATE_CHANNEL", "\"dev\"")
+            buildConfigField("boolean", "MEDTRONIC_DRIVER_ENABLED", medtronicDriverEnabled.toString())
             val devBuildNumber = (project.findProperty("devBuildNumber") as? String)?.toIntOrNull() ?: 0
             buildConfigField("int", "DEV_BUILD_NUMBER", devBuildNumber.toString())
 
@@ -108,6 +115,7 @@ android {
             }
             buildConfigField("String", "UPDATE_CHANNEL", "\"stable\"")
             buildConfigField("int", "DEV_BUILD_NUMBER", "0")
+            buildConfigField("boolean", "MEDTRONIC_DRIVER_ENABLED", medtronicDriverEnabled.toString())
 
             // Never embed a Sentry DSN in a distributed/downloadable APK (it is client-extractable).
             buildConfigField("String", "SENTRY_DSN", "\"\"")

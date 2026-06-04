@@ -5,7 +5,9 @@ import com.glycemicgpt.mobile.domain.pump.HistoryLogParser
 import com.glycemicgpt.mobile.domain.pump.PumpConnectionManager
 import com.glycemicgpt.mobile.domain.pump.PumpDriver
 import com.glycemicgpt.mobile.domain.pump.PumpScanner
+import com.glycemicgpt.mobile.plugin.BuildConfigPluginFeatureGate
 import com.glycemicgpt.mobile.plugin.PluginEventBusImpl
+import com.glycemicgpt.mobile.plugin.PluginFeatureGate
 import com.glycemicgpt.mobile.plugin.adapter.HistoryLogParserAdapter
 import com.glycemicgpt.mobile.plugin.adapter.PumpConnectionAdapter
 import com.glycemicgpt.mobile.plugin.adapter.PumpDriverAdapter
@@ -47,4 +49,8 @@ abstract class PluginModule {
     @Binds
     @Singleton
     abstract fun bindHistoryLogParser(impl: HistoryLogParserAdapter): HistoryLogParser
+
+    @Binds
+    @Singleton
+    abstract fun bindPluginFeatureGate(impl: BuildConfigPluginFeatureGate): PluginFeatureGate
 }
