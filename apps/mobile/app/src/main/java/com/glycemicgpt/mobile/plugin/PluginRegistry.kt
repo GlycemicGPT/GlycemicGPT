@@ -51,6 +51,7 @@ class PluginRegistry @Inject constructor(
     private val credentialProvider: PumpCredentialProvider,
     private val debugLogger: DebugLogger,
     private val safetyLimitsStore: SafetyLimitsStore,
+    private val featureGate: PluginFeatureGate,
 ) {
     // Thread-safe maps: activation/deactivation can be triggered from
     // multiple coroutine dispatchers or UI callbacks concurrently.
@@ -114,6 +115,15 @@ class PluginRegistry @Inject constructor(
                     "Plugin %s has API version %d, expected %d -- skipping",
                     meta.id, meta.apiVersion, PLUGIN_API_VERSION,
                 )
+                continue
+            }
+            // Feature gate / kill switch: a disabled plugin is never created, so it stays invisible in
+            // Available Plugins, has no pairing entry, and is never polled. Default-on. A persisted
+            // active-plugin preference is intentionally left untouched: this is an operator toggle, so
+            // re-enabling restores the user's prior selection (restoreActivePlugins skips an absent
+            // plugin without disturbing the empty slot).
+            if (!featureGate.isEnabled(meta.id)) {
+                Timber.i("Plugin %s disabled by feature gate -- skipping", meta.id)
                 continue
             }
             try {

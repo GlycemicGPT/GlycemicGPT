@@ -64,7 +64,10 @@ class PluginRegistryTest {
         }
     }
 
-    private fun createRegistry(factories: Set<PluginFactory>): PluginRegistry =
+    private fun createRegistry(
+        factories: Set<PluginFactory>,
+        featureGate: PluginFeatureGate = PluginFeatureGate { true },
+    ): PluginRegistry =
         PluginRegistry(
             factories = factories,
             preferences = preferences,
@@ -73,6 +76,7 @@ class PluginRegistryTest {
             credentialProvider = credentialProvider,
             debugLogger = debugLogger,
             safetyLimitsStore = safetyLimitsStore,
+            featureGate = featureGate,
         )
 
     @Before
@@ -98,6 +102,26 @@ class PluginRegistryTest {
         verify { plugin.initialize(any()) }
         assertEquals(1, registry.availablePlugins.value.size)
         assertEquals("test.plugin.1", registry.availablePlugins.value[0].id)
+    }
+
+    @Test
+    fun `feature gate disabled plugin is never created and stays invisible`() {
+        val enabled = createFactory(createPlugin("test.enabled"))
+        val disabled = createFactory(createPlugin("test.disabled"))
+        val registry = createRegistry(
+            factories = setOf(enabled, disabled),
+            featureGate = PluginFeatureGate { it != "test.disabled" },
+        )
+
+        registry.initialize()
+
+        // The disabled plugin is never instantiated...
+        verify(exactly = 1) { enabled.create(any()) }
+        verify(exactly = 0) { disabled.create(any()) }
+        // ...and is absent from Available Plugins, so it cannot be selected or activated.
+        val ids = registry.availablePlugins.value.map { it.id }
+        assertEquals(listOf("test.enabled"), ids)
+        assertTrue(registry.activatePlugin("test.disabled").isFailure)
     }
 
     @Test
@@ -305,6 +329,7 @@ class PluginRegistryTest {
             credentialProvider = credentialProvider,
             debugLogger = debugLogger,
             safetyLimitsStore = localStore,
+            featureGate = PluginFeatureGate { true },
         )
         registry.initialize()
 

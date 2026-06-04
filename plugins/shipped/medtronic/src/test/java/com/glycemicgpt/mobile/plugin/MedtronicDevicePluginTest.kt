@@ -6,10 +6,13 @@
 package com.glycemicgpt.mobile.plugin
 
 import com.glycemicgpt.mobile.ble.connection.MedtronicBleConnectionManager
+import com.glycemicgpt.mobile.ble.connection.MedtronicConnectionFault
 import com.glycemicgpt.mobile.ble.read.MedtronicReadGateway
 import com.glycemicgpt.mobile.domain.model.ConnectionState
 import com.glycemicgpt.mobile.domain.model.DiscoveredDevice
 import com.glycemicgpt.mobile.domain.plugin.PLUGIN_API_VERSION
+import com.glycemicgpt.mobile.domain.plugin.PairingFault
+import com.glycemicgpt.mobile.domain.plugin.PairingStyle
 import com.glycemicgpt.mobile.domain.plugin.PluginCapability
 import com.glycemicgpt.mobile.domain.plugin.capabilities.BgmSource
 import com.glycemicgpt.mobile.domain.plugin.capabilities.GlucoseSource
@@ -131,6 +134,29 @@ class MedtronicDevicePluginTest {
         val device = DiscoveredDevice(name = "Mobile 000001", address = "AA:BB", pluginId = "com.glycemicgpt.medtronic")
         every { connectionManager.scan() } returns flowOf(device)
         assertEquals(device, plugin.scan().first())
+    }
+
+    @Test
+    fun `pairing profile is advertise-and-wait with the advertised name`() {
+        assertEquals(PairingStyle.ADVERTISE_AND_WAIT, plugin.pairingProfile.style)
+        assertEquals(
+            MedtronicBleConnectionManager.DEFAULT_LOCAL_NAME,
+            plugin.pairingProfile.advertisedName,
+        )
+    }
+
+    @Test
+    fun `observePairingFault maps the manager fault to a transport-neutral fault`() = runTest {
+        val faults = MutableStateFlow<MedtronicConnectionFault?>(null)
+        every { connectionManager.fault } returns faults
+
+        assertNull(plugin.observePairingFault().first())
+
+        faults.value = MedtronicConnectionFault.BOUND_ELSEWHERE_SUSPECTED
+        assertEquals(PairingFault.BOUND_ELSEWHERE, plugin.observePairingFault().first())
+
+        faults.value = MedtronicConnectionFault.PERIPHERAL_UNSUPPORTED
+        assertEquals(PairingFault.PERIPHERAL_UNSUPPORTED, plugin.observePairingFault().first())
     }
 
     @Test

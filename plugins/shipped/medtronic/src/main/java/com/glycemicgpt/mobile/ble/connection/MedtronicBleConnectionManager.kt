@@ -224,7 +224,10 @@ class MedtronicBleConnectionManager(
      */
     fun scan(): Flow<DiscoveredDevice> = callbackFlow {
         if (!peripheral.isSupported()) {
-            Timber.e("BLE peripheral advertising not supported; cannot scan")
+            // Handled, expected condition (some phones can't advertise as a peripheral) -- surfaced to
+            // the user via the PERIPHERAL_UNSUPPORTED fault, so log at WARN (a breadcrumb, not a
+            // Sentry-eligible error event).
+            Timber.w("BLE peripheral advertising not supported; cannot scan")
             worker.post { _fault.value = MedtronicConnectionFault.PERIPHERAL_UNSUPPORTED }
             close()
             return@callbackFlow
@@ -418,7 +421,9 @@ class MedtronicBleConnectionManager(
 
     private fun ensureSupported(): Boolean {
         if (peripheral.isSupported()) return true
-        Timber.e("BLE peripheral advertising not supported on this device")
+        // Handled, expected condition surfaced via the PERIPHERAL_UNSUPPORTED fault -- WARN (breadcrumb),
+        // not a Sentry-eligible error event.
+        Timber.w("BLE peripheral advertising not supported on this device")
         _fault.value = MedtronicConnectionFault.PERIPHERAL_UNSUPPORTED
         _connectionState.value = ConnectionState.DISCONNECTED
         return false

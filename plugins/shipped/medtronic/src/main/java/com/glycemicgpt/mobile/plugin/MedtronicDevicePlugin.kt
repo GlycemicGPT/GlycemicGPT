@@ -9,11 +9,15 @@
 package com.glycemicgpt.mobile.plugin
 
 import com.glycemicgpt.mobile.ble.connection.MedtronicBleConnectionManager
+import com.glycemicgpt.mobile.ble.connection.MedtronicConnectionFault
 import com.glycemicgpt.mobile.ble.read.MedtronicReadGateway
 import com.glycemicgpt.mobile.domain.model.ConnectionState
 import com.glycemicgpt.mobile.domain.model.DiscoveredDevice
 import com.glycemicgpt.mobile.domain.plugin.DevicePlugin
 import com.glycemicgpt.mobile.domain.plugin.PLUGIN_API_VERSION
+import com.glycemicgpt.mobile.domain.plugin.PairingFault
+import com.glycemicgpt.mobile.domain.plugin.PairingProfile
+import com.glycemicgpt.mobile.domain.plugin.PairingStyle
 import com.glycemicgpt.mobile.domain.plugin.PluginCapability
 import com.glycemicgpt.mobile.domain.plugin.PluginCapabilityInterface
 import com.glycemicgpt.mobile.domain.plugin.PluginContext
@@ -28,6 +32,7 @@ import com.glycemicgpt.mobile.domain.plugin.ui.SettingDescriptor
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlin.reflect.KClass
 
 class MedtronicDevicePlugin(
@@ -81,6 +86,26 @@ class MedtronicDevicePlugin(
 
     override fun observeConnectionState(): StateFlow<ConnectionState> =
         connectionManager.connectionState
+
+    /**
+     * Advertise-and-wait: the phone advertises as "Mobile …" and the pump (the BLE central) connects
+     * to it -- there is no central scan and no device list. The pairing screen renders this flow off
+     * [pairingProfile] instead of the central-scan flow used by client-mode pumps. [advertisedName]
+     * is the exact BLE name the user picks on the pump's pairing menu.
+     */
+    override val pairingProfile: PairingProfile = PairingProfile(
+        style = PairingStyle.ADVERTISE_AND_WAIT,
+        advertisedName = MedtronicBleConnectionManager.DEFAULT_LOCAL_NAME,
+    )
+
+    /**
+     * Surfaces the connection manager's [MedtronicConnectionFault] to the pairing UI as a transport-
+     * neutral [PairingFault]. Needed because several faults (this phone can't advertise; the pump is
+     * still bound to another phone) produce no [ConnectionState] transition, so the UI would otherwise
+     * have nothing to show after the user starts pairing.
+     */
+    override fun observePairingFault(): Flow<PairingFault?> =
+        connectionManager.fault.map { it?.toPairingFault() }
 
     /**
      * Begin a connection. In the inverted (phone-as-peripheral) topology there is no pump address to
@@ -145,4 +170,13 @@ class MedtronicDevicePlugin(
             protocolName = "Medtronic",
         )
     }
+}
+
+/** Maps the driver-internal connection fault onto the transport-neutral pairing fault the UI shows. */
+private fun MedtronicConnectionFault.toPairingFault(): PairingFault = when (this) {
+    MedtronicConnectionFault.PERIPHERAL_UNSUPPORTED -> PairingFault.PERIPHERAL_UNSUPPORTED
+    MedtronicConnectionFault.ADVERTISE_FAILED -> PairingFault.ADVERTISE_FAILED
+    MedtronicConnectionFault.HANDSHAKE_TIMEOUT -> PairingFault.HANDSHAKE_TIMEOUT
+    MedtronicConnectionFault.AUTH_FAILED -> PairingFault.AUTH_FAILED
+    MedtronicConnectionFault.BOUND_ELSEWHERE_SUSPECTED -> PairingFault.BOUND_ELSEWHERE
 }
