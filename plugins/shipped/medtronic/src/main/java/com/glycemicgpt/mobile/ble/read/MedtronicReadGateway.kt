@@ -4,25 +4,27 @@
  *
  * This is the Medtronic analog of Tandem's `TandemBleDriver`: a single seam the capability delegates
  * (MedtronicGlucoseSource / MedtronicInsulinSource / MedtronicPumpStatus) forward to, so the delegates
- * stay thin. It owns three cross-cutting concerns the individual C1/C2 readers deliberately left to
+ * stay thin. It owns four cross-cutting concerns the individual C1/C2 readers deliberately left to
  * their caller (see MedtronicSessionReader's timeout contract):
  *   1. resolving the live SAKE session + the GATT-client transport, failing cleanly when not connected;
  *   2. bounding every read with a per-operation timeout (the readers carry no timers);
- *   3. routing caught failures through Timber so they are observable in the glycemicgpt-mobile Sentry
+ *   3. serializing every read so no two exchanges overlap on the single one-exchange-at-a-time link
+ *      (the polling orchestrator drives the fast/medium/slow tiers as independent coroutines, so this
+ *      seam is where they coalesce into single-flight -- see [readMutex]);
+ *   4. routing caught failures through Timber so they are observable in the glycemicgpt-mobile Sentry
  *      project once this runs in :app (Story AC7).
  *
  * It adds no parsing of its own -- the readers (CgmReader / IddStatusReader / HistoryReader /
  * DeviceInfoReader / BatteryReader) own that. READ-ONLY: only report/get-class reads are issued.
  *
- * **Transport seam (Milestone D).** The on-device [MedtronicGattLink] (a `BluetoothGatt` client to the
- * connected pump's CGM / IDD / Device-Info GATT server) is wired with the polling/orchestration slice
- * in Milestone D; [linkProvider] returns `null` until then, so reads report "not connected" rather
- * than fabricate data. Pairing, the SAKE handshake and connection state already work end-to-end
- * (Milestone B2), so the plugin is fully discoverable/activatable now; data lights up when the link
- * provider is supplied. `TODO(48.D)`: provide a real `BluetoothGatt`-client link, scoping the shared
- * SIG `0x2A52` [MedtronicProtocol.RACP_UUID] under the CGM service for [getCgmReading] and under the
- * IDD service for [getHistoryLogs] (the readers reuse the same characteristic UUID across both
- * services; the on-device link must resolve it by service -- `TODO(48.C3)` carried forward).
+ * **Transport seam.** The on-device `AndroidMedtronicGattLink` (a `BluetoothGatt` client to the
+ * connected pump's CGM / IDD / Device-Info GATT server) implements [MedtronicGattLink] and is supplied
+ * by the DI module's [linkProvider], which returns the link while a pump is `CONNECTED` and `null`
+ * otherwise -- so reads report "not connected" rather than fabricate data when no pump is authenticated.
+ * The link resolves the shared SIG `0x2A52` [MedtronicProtocol.RACP_UUID] under the CGM service for
+ * [getCgmReading] and under the IDD service for [getHistoryLogs] (the readers reuse the same
+ * characteristic UUID across both services). The link is strictly one-exchange-at-a-time; this gateway
+ * owns the cross-exchange serialization (see [readMutex]).
  */
 package com.glycemicgpt.mobile.ble.read
 
@@ -38,6 +40,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlin.coroutines.resume
@@ -48,8 +52,8 @@ import timber.log.Timber
  *
  * @param sessionProvider supplies the live post-handshake session (the connection manager's
  *     `sakeSession`), or `null` when no pump is authenticated.
- * @param linkProvider supplies the GATT-client transport to the connected pump, or `null` when the
- *     transport is unavailable (the deferred Milestone D seam; see the class header).
+ * @param linkProvider supplies the GATT-client transport to the connected pump, or `null` when no pump
+ *     is connected (see the class header).
  * @param ioDispatcher dispatcher for the blocking SIG reads (Device Info / Battery).
  * @param operationTimeoutMs hard upper bound on every read; expiry surfaces as a failed [Result].
  */
@@ -59,6 +63,21 @@ class MedtronicReadGateway(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val operationTimeoutMs: Long = DEFAULT_OPERATION_TIMEOUT_MS,
 ) {
+
+    /**
+     * Single-flight guard. The Medtronic link is strictly one-exchange-at-a-time: a read is a stateful
+     * subscribe -> control-point write -> await-indication -> unsubscribe choreography on characteristics
+     * the CGM and IDD services *share* (the SIG `0x2A52` RACP), with no transaction id to demultiplex
+     * overlapping exchanges. The polling orchestrator runs the fast/medium/slow tiers as independent
+     * coroutines, so two reads can be issued concurrently; this mutex serializes them into single-flight
+     * so a slow exchange never interleaves with -- or stacks on top of -- the next one on the wire. The
+     * lock is held for the whole exchange (including the per-operation timeout), so a queued read waits
+     * its turn rather than spending its timeout budget racing for the link. The mutex is fair (FIFO), so
+     * a waiting keep-alive read is admitted as soon as the in-flight exchange releases the link. Keeping
+     * each exchange short enough to protect the pump's idle-timeout budget is the orchestrator's job (it
+     * releases the link between history-backfill batches); this seam only guarantees non-overlap.
+     */
+    private val readMutex = Mutex()
 
     /** Latest sensor glucose (CGM RACP "report last record"). */
     suspend fun getCgmReading(): Result<CgmReading> =
@@ -109,22 +128,28 @@ class MedtronicReadGateway(
      * **Cancellation/cleanup contract.** On a timeout this coroutine is cancelled while the reader may
      * still hold notification subscriptions on the link (the reader only unsubscribes when the pump
      * responds). The gateway cannot drop them here -- it does not know which characteristics the reader
-     * subscribed. The on-device [MedtronicGattLink] (Milestone D) MUST therefore release all
-     * outstanding subscriptions for an operation when that operation's coroutine is cancelled, so a
-     * timed-out read leaves no dangling notifications. `TODO(48.D)`.
+     * subscribed. The on-device `AndroidMedtronicGattLink` satisfies this: a subscription watchdog
+     * releases all outstanding subscriptions when an operation can no longer complete, so a timed-out
+     * read leaves no dangling notifications that would desync the next exchange.
      */
     private suspend fun <T> sessionRead(
         op: String,
         start: (MedtronicGattLink, MedtronicSakeSession, (Result<T>) -> Unit) -> Unit,
     ): Result<T> {
+        // Resolve the transport before queuing on [readMutex]: when no pump is connected this fails fast
+        // (a clean "not connected" Result) instead of blocking behind any in-flight exchange.
         val link = linkProvider() ?: return notConnected(op, "transport unavailable")
         val session = sessionProvider() ?: return notConnected(op, "no authenticated session")
-        return withOperationTimeout(op) {
-            // The readers issue blocking GATT read/write before registering their callback, so offload
-            // to [ioDispatcher] (as [blockingRead] does); the callback resume is dispatcher-agnostic.
-            withContext(ioDispatcher) {
-                suspendCancellableCoroutine { cont ->
-                    start(link, session) { result -> if (cont.isActive) cont.resume(result) }
+        // Hold the single-flight lock for the entire exchange so no other read touches the shared link
+        // until this one's await-indication completes (or its timeout tears it down).
+        return readMutex.withLock {
+            withOperationTimeout(op) {
+                // The readers issue blocking GATT read/write before registering their callback, so offload
+                // to [ioDispatcher] (as [blockingRead] does); the callback resume is dispatcher-agnostic.
+                withContext(ioDispatcher) {
+                    suspendCancellableCoroutine { cont ->
+                        start(link, session) { result -> if (cont.isActive) cont.resume(result) }
+                    }
                 }
             }
         }
@@ -138,22 +163,26 @@ class MedtronicReadGateway(
      * on its own. [runInterruptible] turns the operation timeout's cancellation into a thread interrupt,
      * so an interruptible blocking read (e.g. one parked on a latch / interruptible I/O) aborts at the
      * deadline. A read that ignores interruption still cannot be force-unwound here; the on-device
-     * [MedtronicGattLink] (Milestone D) must therefore also enforce its own per-read timeout, as its
-     * interface contract requires.
+     * `AndroidMedtronicGattLink` therefore also enforces its own per-operation timeout, as the
+     * [MedtronicGattLink] contract requires.
      */
     private suspend fun <T> blockingRead(op: String, read: (MedtronicGattLink) -> T): Result<T> {
         val link = linkProvider() ?: return notConnected(op, "transport unavailable")
-        return withOperationTimeout(op) {
-            runInterruptible(ioDispatcher) {
-                @Suppress("TooGenericExceptionCaught")
-                try {
-                    Result.success(read(link))
-                } catch (e: InterruptedException) {
-                    // A timeout interrupt: rethrow so it surfaces as cancellation and the operation
-                    // timeout reports it, rather than being swallowed into a Result.failure.
-                    throw e
-                } catch (e: Exception) {
-                    Result.failure(e)
+        // Single-flight: a SIG battery/device-info read shares the same one-op-at-a-time link as the
+        // session reads, so it queues behind any in-flight exchange rather than racing it.
+        return readMutex.withLock {
+            withOperationTimeout(op) {
+                runInterruptible(ioDispatcher) {
+                    @Suppress("TooGenericExceptionCaught")
+                    try {
+                        Result.success(read(link))
+                    } catch (e: InterruptedException) {
+                        // A timeout interrupt: rethrow so it surfaces as cancellation and the operation
+                        // timeout reports it, rather than being swallowed into a Result.failure.
+                        throw e
+                    } catch (e: Exception) {
+                        Result.failure(e)
+                    }
                 }
             }
         }
@@ -178,8 +207,8 @@ class MedtronicReadGateway(
         }
 
     private fun <T> notConnected(op: String, reason: String): Result<T> {
-        // Expected before Milestone D wires the transport; debug (not warn) so it never reads as a
-        // Sentry-worthy error while the driver is inert.
+        // Expected whenever no pump is connected; debug (not warn) so a poll that fires between sessions
+        // never reads as a Sentry-worthy error.
         Timber.d("Medtronic %s read skipped: %s", op, reason)
         return Result.failure(MedtronicReadException("Medtronic $op read skipped: pump not connected ($reason)"))
     }
