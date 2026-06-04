@@ -235,16 +235,27 @@ class SettingsViewModel @Inject constructor(
     /** Copy active pump plugin display fields from the registry into the state. */
     private fun SettingsUiState.withActivePumpFields(): SettingsUiState {
         val plugin = pluginRegistry.activePumpPlugin.value
-        val meta = plugin?.metadata
-        // A misbehaving (e.g. runtime) plugin must not crash settings; default to no notes.
-        val notes = plugin?.let {
+        // Both reads cross the plugin boundary, so a misbehaving (e.g. runtime) plugin must not crash
+        // settings via a throwing getter or a linkage Error (AbstractMethodError / NoClassDefFoundError);
+        // catch Throwable on each (mirrors the SentryInitializer init guard). They are guarded
+        // separately on purpose: a descriptor failure drops only the notes and keeps the pump card,
+        // whereas losing metadata necessarily drops the card (its id/name are required).
+        val meta = plugin?.let {
             try {
-                it.settingsDescriptor()
-            } catch (e: Exception) {
-                Timber.w(e, "Failed to read settings descriptor for plugin %s", meta?.id)
+                it.metadata
+            } catch (t: Throwable) {
+                Timber.w(t, "Failed to read metadata for active pump plugin")
                 null
             }
-        }?.infoNotesOnly()
+        }
+        val notes = plugin?.let {
+            try {
+                it.settingsDescriptor().infoNotesOnly()
+            } catch (t: Throwable) {
+                Timber.w(t, "Failed to read settings descriptor for active pump plugin")
+                null
+            }
+        }
         return copy(
             activePumpPluginId = meta?.id,
             activePumpPluginName = meta?.name,
