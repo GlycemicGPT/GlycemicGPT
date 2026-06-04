@@ -117,7 +117,12 @@ class PairingViewModel @Inject constructor(
                 // the manager owns the lifecycle. We only need to hold the flow open here.
                 pumpScanner.scan().collect { }
             } finally {
-                _isAdvertising.value = false
+                // Reset the flag only when the flow ended on its own (e.g. PERIPHERAL_UNSUPPORTED closed
+                // it). On cancellation -- stopAdvertising() or a superseding startAdvertising() -- that
+                // caller owns the flag, so a stale cancelled job must not clobber the newer state.
+                if (coroutineContext[Job]?.isCancelled != true) {
+                    _isAdvertising.value = false
+                }
             }
         }
     }

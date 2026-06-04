@@ -580,16 +580,17 @@ private fun AdvertiseAndWaitContent(
 
     // The phase is driven off the manager's connection state, not the advertise job's liveness: the
     // scan flow stays open across terminal faults and a completed handshake, so it can't be the source
-    // of truth. A pending fault is excluded from the advertising phase so terminal faults
-    // (advertise/handshake/auth) fall through to the idle branch and surface their message + Try Again
-    // instead of an endless "Waiting" spinner.
+    // of truth. Only TERMINAL faults route to the idle branch (so they surface their message + Try
+    // Again instead of an endless "Waiting" spinner); BOUND_ELSEWHERE means "still advertising, nothing
+    // has connected yet", so it stays in the waiting state where the Cancel action is shown.
+    val terminalFault = fault != null && fault != PairingFault.BOUND_ELSEWHERE
     when {
         connectionState == ConnectionState.CONNECTING ||
             connectionState == ConnectionState.AUTHENTICATING ->
             ConnectingCard(connectionState)
 
         connectionState == ConnectionState.SCANNING ||
-            (isAdvertising && fault == null && connectionState == ConnectionState.DISCONNECTED) ->
+            (isAdvertising && !terminalFault && connectionState == ConnectionState.DISCONNECTED) ->
             AdvertisingCard(
                 advertisedName = advertisedName,
                 fault = fault,
