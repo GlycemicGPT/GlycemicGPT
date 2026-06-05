@@ -7,6 +7,7 @@
     "real-data-pipeline-verification",
     "security-testing",
     "plugin-architecture",
+    "medtronic-live-validation-runbook",
     "wear-os-architecture",
     "k8s-external-access"
   ]

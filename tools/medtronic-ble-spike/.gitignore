@@ -5,3 +5,9 @@ build/
 # IDE
 *.iml
 .idea/
+
+# Live-session captures — contain real glucose/insulin/device data (PHI). Never commit.
+# See docs/dev/medtronic-live-validation-runbook.md ("Capturing the session").
+captures/
+*.btsnoop
+*.bleraw

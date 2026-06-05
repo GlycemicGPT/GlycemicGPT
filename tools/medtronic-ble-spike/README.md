@@ -71,6 +71,32 @@ permission to use it; GlycemicGPT is itself GPL-3.0, so copyleft propagation is 
 - Full project-level attribution (`THIRD_PARTY_LICENSES.md`, acknowledgments) lands with the
   production module, not in this spike.
 
+## Live-session captures (gitignored)
+
+When the driver is finally exercised against a real 700-series pump, the raw BLE session can be
+recorded so the protocol can be re-verified — and any uncertain field (IoB especially) corrected —
+**offline afterward, without the pump**. Captures go under `captures/` here.
+
+The Medtronic driver is PHI-hardened and logs **no** raw wire bytes, so the Tandem-style
+`./scripts/mobile-dev.sh phone ble-raw` (logcat `BLE_RAW`) capture is empty for a Medtronic session
+and is not used. Capture the over-the-air frames at the OS level via the **Bluetooth HCI snoop log**
+instead (enable it in Developer Options before pairing, then pull it after):
+
+```sh
+mkdir -p tools/medtronic-ble-spike/captures
+adb pull /sdcard/btsnoop_hci.log tools/medtronic-ble-spike/captures/session.btsnoop
+# (path is OEM-dependent; the portable fallback is `adb bugreport`, which embeds the snoop log)
+```
+
+> **PHI.** A live capture contains real glucose, insulin, and device-identifier data. `captures/`,
+> `*.btsnoop`, and `*.bleraw` are **gitignored** (this directory's `.gitignore` + the repo root
+> `.gitignore`) so a capture never gets committed. Confirm with
+> `git check-ignore -v tools/medtronic-ble-spike/captures/session.btsnoop`.
+
+The full live procedure (pairing, per-field comparison against the pump display, the Sentry gate,
+and the per-model matrix) is in
+[`docs/dev/medtronic-live-validation-runbook.md`](../../docs/dev/medtronic-live-validation-runbook.md).
+
 ## Static key DB posture (for the security review)
 
 `org.openminimed.sake.Constants` and `SakeTestVectors` embed firmware-extracted SAKE key databases
