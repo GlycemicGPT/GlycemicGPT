@@ -38,6 +38,20 @@ MIT-licensed by Gage Benne. Credit lives in [`apps/api/THIRD_PARTY_LICENSES.md`]
 
 xDrip+ is **GPL-3.0**-licensed; GlycemicGPT is also GPL-3.0, so the two are license-compatible and this project remains GPL-3.0 accordingly. API-side credit lives in [`apps/api/THIRD_PARTY_LICENSES.md`](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/apps/api/THIRD_PARTY_LICENSES.md), and the `connect_mapper.py` and `connect_client.py` source files reference it in their module docstrings. (xDrip+ also appears below under the diabetes-OSS movement for its broader influence on the category.)
 
+### palmarci ([@palmarci](https://github.com/palmarci)) and the OpenMinimed project
+
+The Medtronic MiniMed **on-device Bluetooth** driver (which talks to a 680G / 770G / 780G pump directly, no cloud) exists because of [OpenMinimed](https://github.com/OpenMinimed) -- a community project that reverse-engineered the MiniMed 700-series BLE protocol, including the SAKE authenticated key exchange and the read-only data surface (sensor glucose, insulin-on-board, basal, bolus history, reservoir, battery).
+
+This is the **one place GlycemicGPT differs from its Tandem posture.** Where the Tandem driver is an independent reimplementation that imports no upstream code, the Medtronic BLE driver is a **direct vendor / port** of OpenMinimed:
+
+- **[JavaSake](https://github.com/OpenMinimed/JavaSake)** -- ***runtime dependency.*** OpenMinimed's production-grade SAKE handshake is vendored verbatim (package `org.openminimed.sake`) and compiled into the app, driven through `MedtronicSakeSession`.
+- **[PythonPumpConnector](https://github.com/OpenMinimed/PythonPumpConnector)** -- ***ported, not merely referenced.*** The CGM, IDD-status, history, device-info, and battery readers are ported line-for-line into Kotlin from this project.
+- **[PythonSake](https://github.com/OpenMinimed/PythonSake)** and **[JavaPumpConnector](https://github.com/OpenMinimed/JavaPumpConnector)** -- the SAKE reference and the Android BLE peripheral scaffolding that informed the connection manager.
+
+This is possible because **OpenMinimed is GPL-3.0 and GlycemicGPT is itself GPL-3.0**, so the licenses are compatible and copyleft propagation is a non-issue. The work is used **with the explicit permission of the author, palmarci (Pál Marci)**, who relicensed OpenMinimed to GPL-3.0 for this purpose. Upstream copyright and GPL-3.0 notices are retained verbatim in every vendored and ported file, and in-source headers cite the specific upstream source file each port derives from. The project credits **palmarci** as primary author and reverse-engineer, contributors **drfubar**, **Morten Fyhn Amundsen**, and **Stenium**, and the original `medtronic-bt-decrypt` proof-of-concept by **[@planiitis](https://github.com/planiitis)**. The Android/JVM ports of JavaSake and JavaPumpConnector are maintained by the GlycemicGPT project lead under [jlengelbrecht](https://github.com/jlengelbrecht).
+
+Without OpenMinimed's published reverse-engineering, the Medtronic on-device driver would not exist. Mobile-side per-package credit lives in [`apps/mobile/THIRD_PARTY_LICENSES.md`](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/apps/mobile/THIRD_PARTY_LICENSES.md). (This BLE driver is separate from the Medtronic **CareLink / CarePartner cloud** sync credited above under xDrip+; the two are different data paths.)
+
 ## The diabetes-OSS movement
 
 GlycemicGPT is part of a much larger #WeAreNotWaiting tradition that has been building open-source diabetes tools collaboratively since around 2013. The projects below predate this one by years; in many cases by a decade. We're listed alongside them, not above them.

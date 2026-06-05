@@ -5,6 +5,8 @@ description: How GlycemicGPT pulls Medtronic pump and CGM data from CareLink —
 
 GlycemicGPT can bring your Medtronic pump and sensor data in from **Medtronic CareLink** without linking your pump to a phone over Bluetooth. This is an onramp for Medtronic users: your CGM readings, boluses, carbs, and fingersticks flow into GlycemicGPT so the dashboard and AI analysis have the same data CareLink shows.
 
+> **Prefer to skip the cloud?** If you use the GlycemicGPT mobile app and have a MiniMed 680G / 770G / 780G, you can [pair the pump directly over Bluetooth](./connecting-medtronic-pump.md) (beta) — no CareLink account needed. This page covers the **CareLink cloud** path; the two are independent.
+
 There are **two ways** to bring Medtronic data in, and you can use either or both.
 
 > **Continuous vs one-time, what's the difference?**
