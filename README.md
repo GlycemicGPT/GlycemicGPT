@@ -11,23 +11,10 @@
 
 <p align="center">
   <a href="https://github.com/GlycemicGPT/GlycemicGPT/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/GlycemicGPT/GlycemicGPT/ci.yml?branch=develop&style=for-the-badge&labelColor=1e293b&label=CI&logo=githubactions&logoColor=white" alt="CI"></a>
-  <a href="https://github.com/GlycemicGPT/GlycemicGPT/actions/workflows/container-build.yml"><img src="https://img.shields.io/github/actions/workflow/status/GlycemicGPT/GlycemicGPT/container-build.yml?branch=develop&style=for-the-badge&labelColor=1e293b&label=Containers&logo=docker&logoColor=white" alt="Container Build"></a>
-  <a href="https://github.com/GlycemicGPT/GlycemicGPT/actions/workflows/android.yml"><img src="https://img.shields.io/github/actions/workflow/status/GlycemicGPT/GlycemicGPT/android.yml?branch=develop&style=for-the-badge&labelColor=1e293b&label=Android&logo=android&logoColor=white" alt="Android Build"></a>
   <a href="https://github.com/GlycemicGPT/GlycemicGPT/actions/workflows/security-full-suite.yml"><img src="https://img.shields.io/github/actions/workflow/status/GlycemicGPT/GlycemicGPT/security-full-suite.yml?branch=main&style=for-the-badge&labelColor=1e293b&label=Security&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IndoaXRlIiBzdHJva2Utd2lkdGg9IjIiPjxwYXRoIGQ9Ik0xMiAyMnM4LTQgOC0xMFY1bC04LTMtOCAzdjdjMCA2IDggMTAgOCAxMCIvPjwvc3ZnPg==&logoColor=white" alt="Security Suite"></a>
-</p>
-
-<p align="center">
-  <a href="https://github.com/GlycemicGPT/GlycemicGPT/releases/tag/dev-latest"><img src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.github.com%2Frepos%2FGlycemicGPT%2FGlycemicGPT%2Freleases%2Ftags%2Fdev-latest&query=%24.name&style=for-the-badge&labelColor=1e293b&label=Dev+Build&color=f59e0b&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IndoaXRlIiBzdHJva2Utd2lkdGg9IjIiPjxwYXRoIGQ9Ik0xMiAyMnM4LTQgOC0xMFY1bC04LTMtOCAzdjdjMCA2IDggMTAgOCAxMCIvPjwvc3ZnPg==&logoColor=white" alt="Dev Build"></a>
-  <a href="https://github.com/GlycemicGPT/GlycemicGPT/releases/latest"><img src="https://img.shields.io/github/v/release/GlycemicGPT/GlycemicGPT?style=for-the-badge&labelColor=1e293b&label=Stable&color=22c55e&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IndoaXRlIiBzdHJva2Utd2lkdGg9IjIiPjxwYXRoIGQ9Im0xMiAyLTMuMDQgNi4zNkg3LjUyTDEyIDE0bDQuNDgtNS42NEgxNC4zTDEyIDJ6Ii8+PHBhdGggZD0iTTE1LjUgMTQgMTkgMjBINWw0LTYiLz48L3N2Zz4=&logoColor=white" alt="Stable Release"></a>
+  <a href="https://github.com/GlycemicGPT/GlycemicGPT/releases/latest"><img src="https://img.shields.io/github/v/release/GlycemicGPT/GlycemicGPT?style=for-the-badge&labelColor=1e293b&label=Release&color=22c55e&logo=github&logoColor=white" alt="Latest Release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/GlycemicGPT/GlycemicGPT?style=for-the-badge&labelColor=1e293b&color=6366f1" alt="License"></a>
-</p>
-
-<p align="center">
-  <a href="https://discord.gg/QbyhCQKDBs" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/Discord-Join%20Server-5865F2?style=for-the-badge&labelColor=1e293b&logo=discord&logoColor=white" alt="Join GlycemicGPT Discord server"></a>
-  <a href="https://github.com/GlycemicGPT/GlycemicGPT/issues"><img src="https://img.shields.io/github/issues/GlycemicGPT/GlycemicGPT?style=for-the-badge&labelColor=1e293b&color=64748b&logo=github&logoColor=white" alt="Issues"></a>
-  <a href="https://github.com/GlycemicGPT/GlycemicGPT/pulls"><img src="https://img.shields.io/github/issues-pr/GlycemicGPT/GlycemicGPT?style=for-the-badge&labelColor=1e293b&color=64748b&logo=github&logoColor=white&label=PRs" alt="Pull Requests"></a>
-  <a href="https://github.com/GlycemicGPT/GlycemicGPT/actions/workflows/renovate.yml"><img src="https://img.shields.io/github/actions/workflow/status/GlycemicGPT/GlycemicGPT/renovate.yml?branch=main&style=for-the-badge&labelColor=1e293b&label=Renovate&logo=renovate&logoColor=white" alt="Renovate"></a>
-  <a href="https://coderabbit.ai" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/coderabbit/prs/github/GlycemicGPT/GlycemicGPT?utm_source=oss&utm_medium=github&utm_campaign=GlycemicGPT%2FGlycemicGPT&style=for-the-badge&labelColor=1e293b&color=7c3aed&label=CodeRabbit+Reviews&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IndoaXRlIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI+PHBhdGggZD0iTTEzIDE2YTMgMyAwIDAgMSAyLjI0IDEiLz48cGF0aCBkPSJNMTggMTJoLjAxIi8+PHBhdGggZD0iTTE4IDIxaC04YTQgNCAwIDAgMS00LTQgNyA3IDAgMCAxIDctN2guMkw5LjYgNi40YTEuOTMgMS45MyAwIDEgMSAyLjgtMi44TDE1LjggN2guMmMzLjMgMCA2IDIuNyA2IDZ2MWEyIDIgMCAwIDEtMiAyaC0xYTMgMyAwIDAgMC0zIDMiLz48cGF0aCBkPSJNMjAgOC41NFY0YTIgMiAwIDEgMC00IDB2MyIvPjxwYXRoIGQ9Ik03LjYxMiAxMi41MjRhMyAzIDAgMSAwLTEuNiA0LjMiLz48L3N2Zz4=&logoColor=white" alt="CodeRabbit Reviews"></a>
+  <a href="https://discord.gg/QbyhCQKDBs" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/Discord-Join-5865F2?style=for-the-badge&labelColor=1e293b&logo=discord&logoColor=white" alt="Join GlycemicGPT Discord server"></a>
 </p>
 
 <p align="center">
@@ -75,8 +62,11 @@ GlycemicGPT is an open source diabetes platform built around AI-powered analysis
 | Dexcom G7 | CGM | Cloud API | Verified |
 | Tandem t:slim X2 | Insulin Pump | BLE (direct) + Cloud API | Verified |
 | Tandem Mobi | Insulin Pump | BLE (direct) + Cloud API | Protocol-compatible (see note) |
+| Medtronic MiniMed 680G / 770G / 780G | Insulin Pump + CGM | BLE (direct) + Cloud (CareLink) | Unverified (see note) |
 
 > **Tandem Mobi note:** The Mobi uses the same BLE protocol, authentication, and data formats as the t:slim X2. Our Tandem plugin reads data from both models, but **Mobi support has not been verified against physical hardware**. Protocol compatibility does not guarantee correct operation on untested devices. Use with Mobi hardware is entirely at your own risk — see [MEDICAL-DISCLAIMER.md](MEDICAL-DISCLAIMER.md) for full liability terms. If you have a Mobi and can help validate data reading, please open an issue.
+
+> **Medtronic note:** MiniMed 700-series support is **read-only** and reaches your data two independent ways — pairing the pump [directly to the phone over Bluetooth](docs/daily-use/connecting-medtronic-pump.md) (mobile app, no account) and [CareLink cloud sync](docs/daily-use/connecting-medtronic.md) (web). Both are built and shipping, but the data mapping — especially insulin-on-board and per-model sensor glucose — **has not been verified against physical hardware**, and SmartGuard auto-basal micro-bolus attribution is a known rough edge. Use at your own risk; see [MEDICAL-DISCLAIMER.md](MEDICAL-DISCLAIMER.md). If you have a 680G / 770G / 780G, we'd genuinely value your feedback — please report how it went on [issue #708](https://github.com/GlycemicGPT/GlycemicGPT/issues/708).
 
 Support for reading data from additional pumps and CGMs is planned. The mobile app uses a [capability-based plugin architecture](docs/dev/plugin-architecture.md) for community device data drivers — see [CONTRIBUTING.md](CONTRIBUTING.md) if you'd like to help add data reading support for your device. If your device isn't supported today, the recommended path is the upcoming Nightscout integration — once that lands, anything that flows into Nightscout flows into GlycemicGPT.
 
@@ -86,7 +76,7 @@ Support for reading data from additional pumps and CGMs is planned. The mobile a
 - Conversational AI chat backed by clinical diabetes knowledge base
 - Configurable alerts with caregiver escalation and multi-channel delivery (Telegram, push, in-app)
 - Real-time glucose monitoring with trend charts and Time in Range tracking
-- BLE connectivity to Tandem pumps (basal, bolus, IoB, reservoir, battery)
+- BLE connectivity to Tandem and Medtronic 700-series pumps (basal, bolus, IoB, reservoir, battery)
 - Nightscout API integration for existing ecosystem users (coming soon)
 - Android phone app + Wear OS companion with watch face complications
 - Self-hosted Docker stack with web dashboard and REST API
