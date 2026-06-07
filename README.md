@@ -55,12 +55,6 @@
 
 GlycemicGPT is an open source diabetes platform built around AI-powered analysis. It connects directly to your CGM and insulin pump for a full standalone experience — real-time monitoring, daily AI briefs, pattern detection, conversational AI chat, and caregiver alerting. Already running Nightscout? GlycemicGPT can also pull data from your existing instance and add AI analysis on top, no changes required to your current setup. See the [Relationship to other tools](https://glycemicgpt.org/docs/platform/concepts/relationship-to-other-tools) page for the honest comparison.
 
-<p align="center">
-  <img src="assets/demo-platform.gif" alt="GlycemicGPT across phone, watch, and web: AI chat and caregiver alerts on the phone, glucose at a glance on the watch, and an AI daily brief with pattern detection on the web dashboard" width="860">
-  <br/>
-  <sub>One platform, every surface — AI chat &amp; caregiver alerts on your phone, glucose at a glance on your wrist, and AI daily briefs with pattern detection on the web.</sub>
-</p>
-
 **Currently supported devices:**
 
 | Device | Type | Connection | Status |
