@@ -51,6 +51,13 @@ from src.models.pump_data import PumpEventType
 _UNIT_QUANTUM = Decimal("0.1")
 _TIME_BUCKET_SECONDS = 30
 
+# Only insulin-DELIVERY events participate in cross-source dedupe. Telemetry
+# events also populate `units` -- RESERVOIR stores units-remaining, BATTERY a
+# percentage -- so hashing them would collapse legitimately-distinct status
+# snapshots reported by two uploaders. The double-counting this story targets
+# is in TDD / bolus_count, which only deliveries feed.
+_DELIVERY_EVENT_TYPE_VALUES = frozenset({"bolus", "correction", "combo_bolus", "basal"})
+
 
 def compute_pump_event_dedupe_hash(
     *,
@@ -76,14 +83,21 @@ def compute_pump_event_dedupe_hash(
     ``decimal.InvalidOperation`` in the quantizer. The row still persists via
     its natural key; it simply opts out of cross-source dedupe. Client input
     is additionally rejected at the schema boundary (see ``PumpEventPushItem``).
+
+    Only insulin-DELIVERY event types (bolus / correction / combo_bolus /
+    basal) are hashed; telemetry events that also carry ``units`` (RESERVOIR,
+    BATTERY) return ``None`` so distinct status snapshots aren't collapsed.
     """
     if units is None or not math.isfinite(units):
+        return None
+
+    type_value = getattr(event_type, "value", event_type)
+    if type_value not in _DELIVERY_EVENT_TYPE_VALUES:
         return None
 
     ts_bucket = _round_to_bucket(event_timestamp)
     units_q = Decimal(str(units)).quantize(_UNIT_QUANTUM, rounding=ROUND_HALF_UP)
     duration = duration_minutes or 0
-    type_value = getattr(event_type, "value", event_type)
 
     payload = f"{user_id}|{type_value}|{ts_bucket}|{units_q}|{duration}"
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
