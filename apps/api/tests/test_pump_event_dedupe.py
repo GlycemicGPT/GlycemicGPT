@@ -162,6 +162,10 @@ class TestMigrationHashParity:
             )
             is None
         )
+        # ...and the non-finite opt-out (a stored inf must not crash the
+        # backfill's Decimal quantizer).
+        assert mig._dedupe_hash(uid, "bolus", ts, float("inf"), None) is None
+        assert _hash(uid, units=float("inf")) is None
 
 
 async def _register(client: AsyncClient) -> uuid.UUID:
