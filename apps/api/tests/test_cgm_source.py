@@ -52,14 +52,19 @@ async def _register(client: AsyncClient) -> tuple[str, uuid.UUID]:
     return cookie, uuid.UUID(me.json()["id"])
 
 
-async def _add_dexcom(db: AsyncSession, uid: uuid.UUID, role: str) -> None:
+async def _add_dexcom(
+    db: AsyncSession,
+    uid: uuid.UUID,
+    role: str,
+    status: IntegrationStatus = IntegrationStatus.CONNECTED,
+) -> None:
     db.add(
         IntegrationCredential(
             user_id=uid,
             integration_type=IntegrationType.DEXCOM,
             encrypted_username="x",
             encrypted_password="y",
-            status=IntegrationStatus.CONNECTED,
+            status=status,
             cgm_role=role,
         )
     )
@@ -251,6 +256,24 @@ class TestCgmSourceService:
                 assert roles[f"nightscout:{off_id}"] == CGM_ROLE_OFF  # stayed off
                 assert roles[f"nightscout:{live_id}"] == CGM_ROLE_PRIMARY
                 assert roles["dexcom"] == CGM_ROLE_SECONDARY
+                break
+
+    async def test_errored_dexcom_not_listed(self):
+        # An errored Dexcom must not count as an active CGM source -- otherwise
+        # an errored primary would blank the dashboard while NS keeps syncing.
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            _, uid = await _register(client)
+            async for db in get_db():
+                await _add_dexcom(
+                    db, uid, CGM_ROLE_PRIMARY, status=IntegrationStatus.ERROR
+                )
+                ns_id = await _add_ns(db, uid, CGM_ROLE_SECONDARY, "Live NS")
+                sources = await list_cgm_sources(db, uid)
+                assert {s.source for s in sources} == {f"nightscout:{ns_id}"}
+                # No active primary -> exclude nothing, so the live NS shows.
+                assert await get_excluded_cgm_sources(db, uid) == []
                 break
 
     async def test_no_primary_excludes_nothing(self):

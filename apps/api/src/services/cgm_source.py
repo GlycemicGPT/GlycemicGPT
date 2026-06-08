@@ -36,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.models.glucose import GlucoseReading
 from src.models.integration import (
     IntegrationCredential,
+    IntegrationStatus,
     IntegrationType,
 )
 from src.models.nightscout_connection import NightscoutConnection
@@ -93,11 +94,16 @@ async def list_cgm_sources(db: AsyncSession, user_id: uuid.UUID) -> list[CgmSour
     """
     sources: list[CgmSource] = []
 
+    # Only a CONNECTED Dexcom counts as an active CGM source -- mirrors the
+    # `is_active` filter on Nightscout connections. An errored / disconnected
+    # Dexcom must not occupy the primary slot and block a working secondary
+    # (the dashboard would go dark while the secondary keeps syncing).
     dexcom = (
         await db.execute(
             select(IntegrationCredential).where(
                 IntegrationCredential.user_id == user_id,
                 IntegrationCredential.integration_type == IntegrationType.DEXCOM,
+                IntegrationCredential.status == IntegrationStatus.CONNECTED,
             )
         )
     ).scalar_one_or_none()
@@ -180,6 +186,16 @@ async def default_cgm_role_for_new_source(db: AsyncSession, user_id: uuid.UUID) 
     """Role to assign a NEW CGM source: primary iff the user has none yet.
 
     Call before inserting the new row so it doesn't count itself.
+
+    This is a read-then-write, so two concurrent source-creation requests can
+    both observe "no primary" and both persist ``primary``. That race is
+    deliberately tolerated because it is *fail-safe*: ``get_excluded_cgm_sources``
+    only excludes secondaries when a primary exists, and with two primaries
+    (and no secondary) the exclusion set is empty -- both sources simply
+    display, so no glucose is ever wrongly hidden. The picker lets the user
+    resolve to a single primary on first use. A hard guarantee would need a
+    per-user advisory lock spanning role-selection + insert (the insert happens
+    in the caller); not worth the contention for a benign, rare race.
     """
     return (
         CGM_ROLE_SECONDARY if await has_primary_cgm(db, user_id) else CGM_ROLE_PRIMARY

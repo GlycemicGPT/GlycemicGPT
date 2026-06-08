@@ -28,34 +28,45 @@ export function useCgmSources(): UseCgmSourcesReturn {
   const [error, setError] = useState<Error | null>(null);
   const fetchGenRef = useRef(0);
 
-  const fetchData = useCallback(async () => {
-    const gen = ++fetchGenRef.current;
-    setIsLoading(true);
-    try {
-      const data = await getCgmSources();
-      if (gen === fetchGenRef.current) {
-        setCgm(data);
-        setError(null);
+  const fetchData = useCallback(
+    async (opts?: { throwOnError?: boolean }) => {
+      const gen = ++fetchGenRef.current;
+      setIsLoading(true);
+      try {
+        const data = await getCgmSources();
+        if (gen === fetchGenRef.current) {
+          setCgm(data);
+          setError(null);
+        }
+      } catch (err) {
+        if (gen === fetchGenRef.current) {
+          // Preserve the previous state on a network blip so the picker
+          // doesn't flicker away on a transient failure.
+          setError(err instanceof Error ? err : new Error(String(err)));
+        }
+        if (process.env.NODE_ENV === "development") {
+          console.warn("Failed to fetch CGM sources:", err);
+        }
+        // Propagate when the caller (the picker's post-PUT refresh) needs to
+        // know the re-read failed, so it doesn't report success on stale UI.
+        // The initial auto-load passes nothing and stays resilient.
+        if (opts?.throwOnError) {
+          throw err;
+        }
+      } finally {
+        if (gen === fetchGenRef.current) {
+          setIsLoading(false);
+        }
       }
-    } catch (err) {
-      if (gen === fetchGenRef.current) {
-        // Preserve the previous state on a network blip so the picker
-        // doesn't flicker away on a transient failure.
-        setError(err instanceof Error ? err : new Error(String(err)));
-      }
-      if (process.env.NODE_ENV === "development") {
-        console.warn("Failed to fetch CGM sources:", err);
-      }
-    } finally {
-      if (gen === fetchGenRef.current) {
-        setIsLoading(false);
-      }
-    }
-  }, []);
+    },
+    []
+  );
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
 
-  return { cgm, isLoading, error, refresh: fetchData };
+  const refresh = useCallback(() => fetchData({ throwOnError: true }), [fetchData]);
+
+  return { cgm, isLoading, error, refresh };
 }

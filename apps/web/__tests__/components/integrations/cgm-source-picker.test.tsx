@@ -119,4 +119,28 @@ describe("CgmSourcePicker", () => {
       expect(select.value).toBe("nightscout:abc");
     });
   });
+
+  it("surfaces an error when the post-PUT refresh fails", async () => {
+    // PUT succeeds but the re-read rejects -> the picker must show an error
+    // rather than silently reporting success on stale UI.
+    mockGet
+      .mockResolvedValueOnce(makeResponse())
+      .mockRejectedValueOnce(new Error("network down"));
+    mockUpdate.mockResolvedValue({ primary_source: "nightscout:abc" });
+
+    render(<CgmSourcePicker />);
+    await waitFor(() =>
+      expect(screen.getByTestId("cgm-source-picker")).toBeInTheDocument()
+    );
+
+    await act(async () => {
+      fireEvent.change(screen.getByRole("combobox"), {
+        target: { value: "nightscout:abc" },
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent("network down");
+    });
+  });
 });
