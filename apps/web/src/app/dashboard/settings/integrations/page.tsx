@@ -37,6 +37,7 @@ import {
 import { OfflineBanner } from "@/components/ui/offline-banner";
 import { CloudSyncSection } from "@/components/integrations/cloud-sync-section";
 import { CGMIntegrationsSection } from "@/components/integrations/cgm-integrations-section";
+import { CgmSourcePicker } from "@/components/integrations/cgm-source-picker";
 import { ForecastSourcePicker } from "@/components/integrations/forecast-source-picker";
 import { NightscoutIntegrationsSection } from "@/components/integrations/nightscout-integrations-section";
 
@@ -467,6 +468,13 @@ export default function IntegrationsPage() {
         every forecast-publishing source today flows through NS.
       */}
       {!isLoading && <ForecastSourcePicker />}
+
+      {/*
+        CGM primary-source picker (Story 43.10). Auto-hides unless the
+        user has more than one CGM source -- the component reads its own
+        state from `/api/integrations/cgm` and decides whether to render.
+      */}
+      {!isLoading && <CgmSourcePicker />}
 
       {/* Info card */}
       <div className="bg-slate-50/50 dark:bg-slate-900/50 rounded-xl p-4 border border-slate-200 dark:border-slate-800">

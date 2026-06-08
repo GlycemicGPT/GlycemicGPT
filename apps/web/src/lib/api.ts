@@ -3053,6 +3053,63 @@ export async function updateForecastSource(
 }
 
 // ============================================================================
+// CGM primary-source picker (Story 43.10)
+// ============================================================================
+// Backend: GET /api/integrations/cgm + PUT /api/integrations/cgm/source
+// (apps/api/src/schemas/cgm.py). Keep these shapes in sync.
+
+export type CgmRole = "primary" | "secondary" | "off";
+
+export interface CgmSourceItem {
+  /** glucose_readings.source string -- the stable key. */
+  source: string;
+  /** Human-readable name for the picker. */
+  label: string;
+  role: CgmRole;
+  /** "dexcom" | "nightscout". */
+  kind: string;
+}
+
+export interface CgmSourcesResponse {
+  sources: CgmSourceItem[];
+  /** The source currently marked primary, or null. */
+  primary_source: string | null;
+  /** True only when more than one CGM source exists (picker renders then). */
+  multiple_sources: boolean;
+}
+
+export async function getCgmSources(): Promise<CgmSourcesResponse> {
+  const response = await apiFetch(`${API_BASE_URL}/api/integrations/cgm`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to fetch CGM sources: ${response.status}`
+    );
+  }
+  return response.json();
+}
+
+export async function updatePrimaryCgmSource(
+  source: string
+): Promise<{ primary_source: string | null }> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/cgm/source`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source }),
+    }
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to update primary CGM source: ${response.status}`
+    );
+  }
+  return response.json();
+}
+
+// ============================================================================
 // Safety Limits (Phase 3)
 // ============================================================================
 
