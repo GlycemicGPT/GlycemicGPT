@@ -37,6 +37,9 @@ depends_on: str | Sequence[str] | None = None
 _UNIT_QUANTUM = Decimal("0.1")
 _TIME_BUCKET_SECONDS = 30
 _BACKFILL_BATCH = 1000
+# Only insulin-delivery events are deduped (mirrors the app helper). Telemetry
+# events (RESERVOIR/BATTERY) also carry `units` but must not collapse.
+_DELIVERY_EVENT_TYPE_VALUES = frozenset({"bolus", "correction", "combo_bolus", "basal"})
 
 
 def _round_to_bucket(ts: datetime) -> int:
@@ -57,7 +60,7 @@ def _dedupe_hash(
     duration_minutes: int | None,
 ) -> str | None:
     """Inlined copy of ``compute_pump_event_dedupe_hash`` (kept in sync)."""
-    if units is None:
+    if units is None or event_type not in _DELIVERY_EVENT_TYPE_VALUES:
         return None
     ts_bucket = _round_to_bucket(event_timestamp)
     units_q = Decimal(str(units)).quantize(_UNIT_QUANTUM, rounding=ROUND_HALF_UP)
@@ -82,20 +85,29 @@ def upgrade() -> None:
         SELECT id, user_id, event_type, event_timestamp, units, duration_minutes
         FROM pump_events
         WHERE units IS NOT NULL
+          AND event_type IN ('bolus', 'correction', 'combo_bolus', 'basal')
         ORDER BY user_id, received_at, id
         """
     )
     update_stmt = sa.text("UPDATE pump_events SET dedupe_hash = :hash WHERE id = :id")
 
-    seen: set[tuple] = set()
-    pending: list[dict] = []
     # Buffer the rows client-side (no server-side cursor): the backfill issues
     # UPDATE statements on the same connection while iterating, which would
     # invalidate a streaming portal (asyncpg InvalidCursorNameError). The
-    # result set is bounded by the insulin-bearing pump_events count -- modest
+    # result set is bounded by the insulin-DELIVERY pump_events count -- modest
     # at this stage and consistent with the repo's other data backfills.
+    #
+    # `seen` is reset on every user_id change: dedupe uniqueness is per user
+    # and the query is ordered by user_id, so the set never holds more than one
+    # user's hashes regardless of total history.
+    current_user = None
+    seen_hashes: set[str] = set()
+    pending: list[dict] = []
     result = bind.execute(select_stmt).fetchall()
     for row in result:
+        if row.user_id != current_user:
+            current_user = row.user_id
+            seen_hashes = set()
         h = _dedupe_hash(
             row.user_id,
             row.event_type,
@@ -105,12 +117,11 @@ def upgrade() -> None:
         )
         if h is None:
             continue
-        key = (row.user_id, h)
-        if key in seen:
+        if h in seen_hashes:
             # Pre-existing cross-source duplicate -- leave NULL so the
             # unique index can build and historical data is preserved.
             continue
-        seen.add(key)
+        seen_hashes.add(h)
         pending.append({"id": row.id, "hash": h})
         if len(pending) >= _BACKFILL_BATCH:
             bind.execute(update_stmt, pending)

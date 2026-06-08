@@ -105,6 +105,16 @@ class TestPumpEventDedupeHash:
         assert _hash(uid, units=float("-inf")) is None
         assert _hash(uid, units=float("nan")) is None
 
+    def test_telemetry_events_not_hashed(self):
+        # RESERVOIR/BATTERY carry `units` (units-remaining / percentage) but are
+        # status snapshots, not deliveries -- they must not collapse.
+        uid = uuid.uuid4()
+        assert _hash(uid, event_type="reservoir", units=150.0) is None
+        assert _hash(uid, event_type="battery", units=80.0) is None
+        # Deliveries still hash.
+        assert _hash(uid, event_type="bolus", units=2.5) is not None
+        assert _hash(uid, event_type="basal", units=0.65) is not None
+
 
 class TestMigrationHashParity:
     """The migration inlines a copy of the hash; pin them together."""
@@ -140,6 +150,18 @@ class TestMigrationHashParity:
         assert helper == inlined
         # And the None-units opt-out matches too.
         assert mig._dedupe_hash(uid, "note", ts, None, None) is None
+        # ...as does the telemetry (non-delivery) opt-out.
+        assert mig._dedupe_hash(uid, "reservoir", ts, 150.0, None) is None
+        assert (
+            compute_pump_event_dedupe_hash(
+                user_id=uid,
+                event_type=PumpEventType.RESERVOIR,
+                event_timestamp=ts,
+                units=150.0,
+                duration_minutes=None,
+            )
+            is None
+        )
 
 
 async def _register(client: AsyncClient) -> uuid.UUID:
@@ -197,11 +219,17 @@ def _row(uid, *, source, ns_id=None, ts, units, event_type=PumpEventType.BOLUS):
 
 
 async def _insert(db, row):
-    """Insert one row via the production bare ON CONFLICT DO NOTHING path."""
-    stmt = insert(PumpEvent).values([row]).on_conflict_do_nothing()
+    """Insert one row via the production bare ON CONFLICT DO NOTHING path.
+
+    Counts via RETURNING (not rowcount) -- rowcount is unreliable under
+    ON CONFLICT DO NOTHING on asyncpg, matching the production insert paths.
+    """
+    stmt = (
+        insert(PumpEvent).values([row]).on_conflict_do_nothing().returning(PumpEvent.id)
+    )
     result = await db.execute(stmt)
     await db.commit()
-    return max(result.rowcount, 0)
+    return len(result.scalars().all())
 
 
 async def _bolus_count(db, uid) -> int:
