@@ -213,6 +213,19 @@ class NightscoutConnection(Base, TimestampMixin):
         nullable=True,
     )
 
+    # Cross-source CGM role (Story 43.10): "primary" drives the glucose
+    # charts/stats; "secondary" rows are kept for audit but don't drive
+    # widgets by default; "off" excludes the source entirely. When a user
+    # has multiple CGM sources (e.g. Dexcom + this Loop-via-Nightscout
+    # connection reading the same sensor), only the primary's readings
+    # count, so AGP / TIR aren't doubled. Assigned at creation (primary if
+    # the user has no existing primary, else secondary).
+    cgm_role: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        server_default="primary",
+    )
+
     # Relationship back to the owning user.
     user = relationship("User", back_populates="nightscout_connections")
 

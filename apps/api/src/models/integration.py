@@ -115,6 +115,19 @@ class IntegrationCredential(Base, TimestampMixin):
         server_default="US",
     )
 
+    # Cross-source CGM role (Story 43.10) -- meaningful only for CGM-providing
+    # integration types (currently Dexcom). "primary" drives glucose
+    # charts/stats; "secondary"/"off" are kept for audit but don't drive
+    # widgets by default. Lets a user with Dexcom + a Loop-via-Nightscout
+    # connection (same sensor) avoid double-counting in AGP / TIR. Ignored
+    # for pump-only types (Tandem). Assigned at creation (primary if the user
+    # has no existing primary CGM, else secondary).
+    cgm_role: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        server_default="primary",
+    )
+
     # Relationship to user
     user = relationship("User", back_populates="integrations")
 

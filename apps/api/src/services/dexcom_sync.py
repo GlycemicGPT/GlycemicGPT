@@ -256,19 +256,27 @@ async def sync_dexcom_for_user(
 async def get_latest_glucose_reading(
     db: AsyncSession,
     user_id: uuid.UUID,
+    *,
+    excluded_sources: list[str] | None = None,
 ) -> GlucoseReading | None:
     """Get the most recent glucose reading for a user.
 
     Args:
         db: Database session
         user_id: User ID
+        excluded_sources: CGM ``source`` strings to exclude (Story 43.10
+            secondary/off sources). When non-empty the latest reading is
+            drawn from the primary source only.
 
     Returns:
         Most recent GlucoseReading or None
     """
+    conditions = [GlucoseReading.user_id == user_id]
+    if excluded_sources:
+        conditions.append(GlucoseReading.source.notin_(excluded_sources))
     result = await db.execute(
         select(GlucoseReading)
-        .where(GlucoseReading.user_id == user_id)
+        .where(*conditions)
         .order_by(GlucoseReading.reading_timestamp.desc())
         .limit(1)
     )
@@ -283,6 +291,7 @@ async def get_glucose_readings(
     *,
     start: datetime | None = None,
     end: datetime | None = None,
+    excluded_sources: list[str] | None = None,
 ) -> list[GlucoseReading]:
     """Get recent glucose readings for a user.
 
@@ -293,6 +302,9 @@ async def get_glucose_readings(
         limit: Maximum readings to return (applied regardless of date range)
         start: Optional absolute start of date range (overrides minutes)
         end: Optional absolute end of date range (overrides minutes)
+        excluded_sources: CGM ``source`` strings to exclude (Story 43.10
+            secondary/off sources) so the history reflects the primary CGM
+            only.
 
     Returns:
         List of GlucoseReading objects, ordered by timestamp descending
@@ -318,6 +330,8 @@ async def get_glucose_readings(
     ]
     if upper is not None:
         conditions.append(GlucoseReading.reading_timestamp < upper)
+    if excluded_sources:
+        conditions.append(GlucoseReading.source.notin_(excluded_sources))
 
     result = await db.execute(
         select(GlucoseReading)
