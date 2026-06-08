@@ -283,6 +283,7 @@ export function prettySourceName(source: string): string {
     trio: "Trio",
     oref0: "oref0",
     iaps: "iAPS",
+    glycemicgpt: "GlycemicGPT",
   };
   return map[source] ?? "Closed loop";
 }

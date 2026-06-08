@@ -12,6 +12,7 @@ import {
   ResponsiveContainer,
   ComposedChart,
   Scatter,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -22,10 +23,14 @@ import {
 import { ZoomIn, ZoomOut } from "lucide-react";
 import clsx from "clsx";
 import type { MouseHandlerDataParam } from "recharts/types/synchronisation/types";
-import { type GlucoseHistoryReading, type PumpEventReading } from "@/lib/api";
+import {
+  type GlucoseHistoryReading,
+  type PumpEventReading,
+  type ForecastReadResponse,
+} from "@/lib/api";
 import { lttbDownsample } from "@/lib/downsample";
 import { type ChartTimePeriod, PERIOD_TO_MS, isMultiDay } from "@/lib/chart-periods";
-import { GLUCOSE_THRESHOLDS } from "./glucose-hero";
+import { GLUCOSE_THRESHOLDS, prettySourceName } from "./glucose-hero";
 import { useGlucoseHistory } from "@/hooks/use-glucose-history";
 import { usePumpEvents } from "@/hooks/use-pump-events";
 import { TREND_ARROWS, TREND_DESCRIPTIONS, type TrendDirection } from "./trend-arrow";
@@ -592,12 +597,35 @@ export interface GlucoseTrendChartProps {
     high: number;
     urgentHigh: number;
   };
+  /** Story 43.12 PR 4: forecast overlay state. `null` while loading or
+   * when no forecast-publishing integration is connected. Only rendered
+   * on 3H / 6H periods so longer historical views stay clean. */
+  forecast?: ForecastReadResponse | null;
+}
+
+const FORECAST_OVERLAY_PERIODS: ReadonlySet<ChartTimePeriod> = new Set<ChartTimePeriod>([
+  "3h",
+  "6h",
+]);
+
+const FORECAST_STROKE = "#A78BFA";
+
+// Defense-in-depth ceiling on the number of forecast points we'll draw.
+// Backend Pydantic caps horizon/step so a normal payload is ~36-72 points;
+// this guards against a future regression or malformed response from
+// blowing up React reconciliation with a 100k-point array.
+const MAX_FORECAST_POINTS = 256;
+
+interface ForecastPoint {
+  timestamp: number;
+  forecast_value: number;
 }
 
 export function GlucoseTrendChart({
   refreshKey,
   className,
   thresholds,
+  forecast,
 }: GlucoseTrendChartProps) {
   const { readings, isLoading, error, period, setPeriod, refetch } =
     useGlucoseHistory("3h");
@@ -625,6 +653,52 @@ export function GlucoseTrendChart({
 
   const multiDay = isMultiDay(period);
   const data = useMemo(() => transformReadings(readings, thresholds), [readings, thresholds]);
+
+  // Story 43.12 PR 4: forecast overlay points.
+  // - Gated to 3H/6H periods: longer historical views shouldn't be cluttered
+  //   with a ~3h-into-the-future dotted line; legend stays clean too.
+  // - Anchored to the most recent actual reading so the dotted line visually
+  //   starts where the solid scatter ends (no floating gap).
+  // - Returns `null` when there's nothing to draw -- callers conditional-render
+  //   on that to avoid an empty `<Line>` element in the chart tree.
+  const forecastPoints = useMemo<ForecastPoint[] | null>(() => {
+    if (!FORECAST_OVERLAY_PERIODS.has(period)) return null;
+    const payload = forecast?.forecast;
+    if (!payload) return null;
+    // Runtime-narrow the default curve name -- backend type is plain
+    // `string`, so a future / unexpected curve name must fall through to
+    // null rather than blowing up the render.
+    const curves = payload.curves_mgdl as Record<string, number[] | null | undefined>;
+    const curve = curves[payload.default_curve_name];
+    if (!curve || curve.length === 0) return null;
+    const startMs = new Date(payload.start_at).getTime();
+    if (!Number.isFinite(startMs)) return null;
+    const stepMs = payload.step_minutes * 60_000;
+    // Defensive: a malformed / regressed `step_minutes` (zero, negative,
+    // NaN) would collapse every forecast point onto `startMs` and draw
+    // a vertical line, or break Recharts' SVG path math entirely.
+    if (!Number.isFinite(stepMs) || stepMs <= 0) return null;
+    const points: ForecastPoint[] = [];
+    // Anchor to the latest actual reading so the dotted line continues
+    // from the last scatter point with no visible gap.
+    const anchorTs = data.length > 0 ? data[data.length - 1].timestamp : null;
+    if (anchorTs !== null) {
+      points.push({ timestamp: anchorTs, forecast_value: data[data.length - 1].value });
+    }
+    const limit = Math.min(curve.length, MAX_FORECAST_POINTS);
+    for (let i = 0; i < limit; i++) {
+      const v = curve[i];
+      if (v === null || v === undefined || !Number.isFinite(v)) continue;
+      const ts = startMs + i * stepMs;
+      // Skip points at/before the anchor -- a `start_at` that lags the
+      // latest reading would otherwise draw a backward (right-to-left)
+      // segment on the chart.
+      if (anchorTs !== null && ts <= anchorTs) continue;
+      points.push({ timestamp: ts, forecast_value: v });
+    }
+    return points.length >= 2 ? points : null;
+  }, [period, forecast, data]);
+
   const bolusData = useMemo(() => transformBolusEvents(pumpEvents), [pumpEvents]);
   const basalData = useMemo(() => {
     const points = transformBasalEvents(pumpEvents);
@@ -664,13 +738,25 @@ export function GlucoseTrendChart({
     return modes;
   }, [basalData]);
 
+  // Last forecast point timestamp -- used to extend `fullDomain[1]`
+  // past `now` so the dotted line isn't clipped. Without this the
+  // forecast x-coordinates (start_at + i*step_minutes) all sit > now
+  // and Recharts drops them on the unzoomed view.
+  const forecastEndMs = useMemo(() => {
+    if (forecastPoints === null || forecastPoints.length === 0) return null;
+    return forecastPoints[forecastPoints.length - 1].timestamp;
+  }, [forecastPoints]);
+
   // Full time window for the selected period.
-  // Depends on `data` so it recomputes with fresh Date.now() on refetch.
+  // Depends on `data` so it recomputes with fresh Date.now() on refetch,
+  // and on `forecastEndMs` so the future-side of the axis grows to fit
+  // the forecast horizon.
   const fullDomain = useMemo(() => {
     const now = Date.now();
-    return [now - PERIOD_TO_MS[period], now] as [number, number];
+    const rightEdge = forecastEndMs !== null ? Math.max(now, forecastEndMs) : now;
+    return [now - PERIOD_TO_MS[period], rightEdge] as [number, number];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [period, data]);
+  }, [period, data, forecastEndMs]);
 
   // When zoomed, use the zoom domain; otherwise show the full period
   const xDomain = zoomDomain ?? fullDomain;
@@ -806,17 +892,28 @@ export function GlucoseTrendChart({
   // FIX #7: Disable tooltip during drag selection to avoid interference
   const isDragging = selectionStart != null;
 
-  // Y-axis domain: show reasonable range, expand to fit data
+  // Y-axis domain: show reasonable range, expand to fit data + forecast.
+  // Including forecast values prevents a high/low prediction from being
+  // clipped at the top/bottom of the chart -- the predicted excursion
+  // is precisely the signal the overlay is meant to surface.
   const yDomain = useMemo(() => {
-    if (data.length === 0) return [40, 300];
-    let min = data[0].value;
-    let max = data[0].value;
-    for (const d of data) {
-      if (d.value < min) min = d.value;
-      if (d.value > max) max = d.value;
+    if (data.length === 0 && (forecastPoints === null || forecastPoints.length === 0)) {
+      return [40, 300];
     }
-    return [Math.min(40, min - 10), Math.max(300, max + 10)];
-  }, [data]);
+    let min: number | null = null;
+    let max: number | null = null;
+    for (const d of data) {
+      if (min === null || d.value < min) min = d.value;
+      if (max === null || d.value > max) max = d.value;
+    }
+    if (forecastPoints !== null) {
+      for (const p of forecastPoints) {
+        if (min === null || p.forecast_value < min) min = p.forecast_value;
+        if (max === null || p.forecast_value > max) max = p.forecast_value;
+      }
+    }
+    return [Math.min(40, (min ?? 40) - 10), Math.max(300, (max ?? 300) + 10)];
+  }, [data, forecastPoints]);
 
   // Bolus scatter data with y-position for chart rendering
   // Memoized to avoid recreating array on every render (adversarial fix #1)
@@ -1055,6 +1152,25 @@ export function GlucoseTrendChart({
               ))}
             </Scatter>
 
+            {/* Forecast overlay (Story 43.12 PR 4) -- dotted purple line
+                anchored to the latest reading, only on 3H/6H. */}
+            {forecastPoints !== null && (
+              <Line
+                yAxisId="glucose"
+                data={forecastPoints}
+                dataKey="forecast_value"
+                stroke={FORECAST_STROKE}
+                strokeOpacity={0.6}
+                strokeDasharray="4 4"
+                strokeWidth={2}
+                dot={false}
+                activeDot={false}
+                isAnimationActive={false}
+                connectNulls={false}
+                legendType="none"
+              />
+            )}
+
             {/* Bolus markers as hoverable scatter points near chart top */}
             {bolusScatterData.length > 0 && (
               <Scatter
@@ -1176,8 +1292,77 @@ export function GlucoseTrendChart({
             Activity
           </span>
         )}
+        {/* Forecast legend chip (Story 43.12 PR 4) -- only on 3H / 6H */}
+        {FORECAST_OVERLAY_PERIODS.has(period) && forecast !== null && forecast !== undefined && (
+          <ForecastLegendChip forecast={forecast} hasOverlay={forecastPoints !== null} />
+        )}
       </div>
     </div>
+  );
+}
+
+interface ForecastLegendChipProps {
+  forecast: ForecastReadResponse;
+  hasOverlay: boolean;
+}
+
+/**
+ * Story 43.12 PR 4: Legend entry for the forecast overlay.
+ *
+ * When the dotted line IS drawing, this is a swatch + attribution line
+ * ("Forecast - from your Loop"). When it isn't, it's a one-liner that
+ * dispatches on `forecast_unavailable_reason` so the user knows what
+ * happened. Wording mirrors design doc Section 3.
+ */
+function ForecastLegendChip({ forecast, hasOverlay }: ForecastLegendChipProps) {
+  if (hasOverlay && forecast.effective_source !== null) {
+    return (
+      <span
+        className="flex items-center gap-1"
+        data-testid="forecast-legend-chip"
+      >
+        <svg width="18" height="6" aria-hidden="true" className="inline-block">
+          <line
+            x1="0"
+            y1="3"
+            x2="18"
+            y2="3"
+            stroke={FORECAST_STROKE}
+            strokeOpacity={0.6}
+            strokeWidth={2}
+            strokeDasharray="4 4"
+          />
+        </svg>
+        Forecast - from {prettySourceName(forecast.effective_source)}
+      </span>
+    );
+  }
+  const reason = forecast.forecast_unavailable_reason;
+  if (reason === null || reason === "no_sources") return null;
+  const message = (() => {
+    switch (reason) {
+      case "opted_out":
+        return "Forecast overlay off";
+      case "needs_pick":
+        return "Forecast - pick a source in Integrations";
+      case "source_silent":
+        return "Forecast - source paused (no recent data)";
+      case "stale":
+        return "Forecast - data older than 30 minutes";
+      default:
+        // Fail closed if the backend adds a new reason -- show nothing
+        // instead of rendering an empty chip.
+        return null;
+    }
+  })();
+  if (message === null) return null;
+  return (
+    <span
+      className="text-slate-500 dark:text-slate-400 italic"
+      data-testid="forecast-legend-chip"
+    >
+      {message}
+    </span>
   );
 }
 
