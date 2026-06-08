@@ -22,6 +22,7 @@ Create Date: 2026-06-08
 """
 
 import hashlib
+import math
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from decimal import ROUND_HALF_UP, Decimal
@@ -60,7 +61,11 @@ def _dedupe_hash(
     duration_minutes: int | None,
 ) -> str | None:
     """Inlined copy of ``compute_pump_event_dedupe_hash`` (kept in sync)."""
-    if units is None or event_type not in _DELIVERY_EVENT_TYPE_VALUES:
+    if (
+        units is None
+        or not math.isfinite(units)
+        or event_type not in _DELIVERY_EVENT_TYPE_VALUES
+    ):
         return None
     ts_bucket = _round_to_bucket(event_timestamp)
     units_q = Decimal(str(units)).quantize(_UNIT_QUANTUM, rounding=ROUND_HALF_UP)
