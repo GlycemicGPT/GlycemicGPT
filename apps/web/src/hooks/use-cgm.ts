@@ -4,10 +4,11 @@
  * useCgmSources Hook (Story 43.10)
  *
  * Fetches the user's CGM-providing integrations and which one is the
- * primary source driving charts/stats. Mirrors `useForecast`: a
- * generation counter (`fetchGenRef`) prevents a stale response from
- * overwriting a newer one when the user switches the primary between
- * fetches, and the previous state is preserved on a transient failure.
+ * primary source driving charts/stats. A generation counter
+ * (`fetchGenRef`) prevents a stale response from overwriting a newer one
+ * when the user switches the primary between fetches, and the previous
+ * state is preserved on a transient failure. The picker drives re-fetches
+ * explicitly via `refresh()` after a successful PUT.
  */
 
 import { type CgmSourcesResponse, getCgmSources } from "@/lib/api";
@@ -21,7 +22,7 @@ export interface UseCgmSourcesReturn {
   refresh: () => Promise<void>;
 }
 
-export function useCgmSources(refreshKey: number = 0): UseCgmSourcesReturn {
+export function useCgmSources(): UseCgmSourcesReturn {
   const [cgm, setCgm] = useState<CgmSourcesResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
@@ -54,7 +55,7 @@ export function useCgmSources(refreshKey: number = 0): UseCgmSourcesReturn {
 
   useEffect(() => {
     fetchData();
-  }, [fetchData, refreshKey]);
+  }, [fetchData]);
 
   return { cgm, isLoading, error, refresh: fetchData };
 }

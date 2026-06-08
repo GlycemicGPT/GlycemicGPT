@@ -71,14 +71,22 @@ async def build_glucose_section(
     """Build glucose summary section from recent CGM readings."""
     from src.models.glucose import GlucoseReading
     from src.models.target_glucose_range import TargetGlucoseRange
+    from src.services.cgm_source import (
+        get_excluded_cgm_sources,
+        glucose_source_exclusion_clause,
+    )
 
     cutoff = datetime.now(UTC) - timedelta(hours=GLUCOSE_CONTEXT_HOURS)
 
+    # Primary CGM source only (Story 43.10) so the AI's glucose summary
+    # isn't doubled when two sources report the same sensor.
+    excluded = await get_excluded_cgm_sources(db, user_id)
     result = await db.execute(
         select(GlucoseReading)
         .where(
             GlucoseReading.user_id == user_id,
             GlucoseReading.reading_timestamp >= cutoff,
+            *glucose_source_exclusion_clause(excluded),
         )
         .order_by(GlucoseReading.reading_timestamp.desc())
         .limit(GLUCOSE_MAX_READINGS)

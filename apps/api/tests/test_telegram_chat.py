@@ -140,6 +140,18 @@ def make_ciq_summary(**kwargs) -> MagicMock:
 class TestBuildGlucoseSection:
     """Tests for build_glucose_section."""
 
+    @pytest.fixture(autouse=True)
+    def _no_cgm_exclusion(self):
+        # build_glucose_section resolves the primary-CGM exclusion (Story
+        # 43.10) via two extra queries; these tests mock db.execute with
+        # fixed sequences, so neutralize the lookup to keep them focused on
+        # the glucose-summary logic.
+        with patch(
+            "src.services.cgm_source.get_excluded_cgm_sources",
+            new=AsyncMock(return_value=[]),
+        ):
+            yield
+
     @pytest.mark.asyncio
     async def test_no_readings_returns_none(self):
         db = AsyncMock()

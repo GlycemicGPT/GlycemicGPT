@@ -112,7 +112,7 @@ class TestCgmSourceService:
             _, uid = await _register(client)
             async for db in get_db():
                 await _add_dexcom(db, uid, CGM_ROLE_PRIMARY)
-                await _add_ns(db, uid, CGM_ROLE_SECONDARY, "My NS")
+                ns_id = await _add_ns(db, uid, CGM_ROLE_SECONDARY, "My NS")
                 # A pump-only Tandem credential must not appear.
                 db.add(
                     IntegrationCredential(
@@ -126,9 +126,12 @@ class TestCgmSourceService:
                 await db.commit()
 
                 sources = await list_cgm_sources(db, uid)
-                kinds = {s.kind for s in sources}
-                assert kinds == {"dexcom", "nightscout"}
-                assert {s.source for s in sources} >= {"dexcom"}
+                assert {s.kind for s in sources} == {"dexcom", "nightscout"}
+                assert {s.source for s in sources} == {
+                    "dexcom",
+                    f"nightscout:{ns_id}",
+                }
+                assert len(sources) == 2
                 break
 
     async def test_default_role_primary_then_secondary(self):
@@ -213,6 +216,65 @@ class TestCgmSourceService:
                 await _add_dexcom(db, uid, CGM_ROLE_PRIMARY)
                 assert await set_primary_cgm_source(db, uid, "nightscout:nope") is False
                 break
+
+    async def test_set_primary_dexcom_direction(self):
+        # The asymmetric branch: promote Dexcom, demote NS.
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            _, uid = await _register(client)
+            async for db in get_db():
+                await _add_dexcom(db, uid, CGM_ROLE_SECONDARY)
+                await _add_ns(db, uid, CGM_ROLE_PRIMARY, "Loop NS")
+                assert await set_primary_cgm_source(db, uid, "dexcom") is True
+                await db.commit()
+                roles = {s.source: s.role for s in await list_cgm_sources(db, uid)}
+                assert roles["dexcom"] == CGM_ROLE_PRIMARY
+                assert all(
+                    r == CGM_ROLE_SECONDARY for s, r in roles.items() if s != "dexcom"
+                )
+                break
+
+    async def test_set_primary_preserves_off(self):
+        # Switching the primary must not silently re-enable an "off" source.
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            _, uid = await _register(client)
+            async for db in get_db():
+                await _add_dexcom(db, uid, CGM_ROLE_PRIMARY)
+                off_id = await _add_ns(db, uid, CGM_ROLE_OFF, "Disabled NS")
+                live_id = await _add_ns(db, uid, CGM_ROLE_SECONDARY, "Live NS")
+                await set_primary_cgm_source(db, uid, f"nightscout:{live_id}")
+                await db.commit()
+                roles = {s.source: s.role for s in await list_cgm_sources(db, uid)}
+                assert roles[f"nightscout:{off_id}"] == CGM_ROLE_OFF  # stayed off
+                assert roles[f"nightscout:{live_id}"] == CGM_ROLE_PRIMARY
+                assert roles["dexcom"] == CGM_ROLE_SECONDARY
+                break
+
+    async def test_no_primary_excludes_nothing(self):
+        # H1 invariant: a lone surviving secondary (no primary) is NOT hidden.
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            _, uid = await _register(client)
+            async for db in get_db():
+                # Only a secondary source exists -- e.g. the primary was
+                # disconnected. Excluding it would blank the dashboard.
+                await _add_ns(db, uid, CGM_ROLE_SECONDARY, "Survivor NS")
+                assert await get_excluded_cgm_sources(db, uid) == []
+                break
+
+    async def test_nightscout_source_format_matches_translator(self):
+        # Pinning test: the role-resolver's source string must equal what the
+        # Nightscout translator writes into glucose_readings.source, or the
+        # dedupe filter silently stops matching real rows.
+        from src.services.cgm_source import nightscout_source
+        from src.services.integrations.nightscout.translator import _build_source
+
+        cid = uuid.uuid4()
+        assert nightscout_source(cid) == _build_source(str(cid))
 
 
 @pytest.mark.asyncio
@@ -329,3 +391,58 @@ class TestGlucoseFilteringByPrimary:
                 cookies={settings.jwt_cookie_name: cookie},
             )
             assert tir.json()["readings_count"] == 10
+
+    async def test_current_and_percentiles_honor_primary(self):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie, uid = await _register(client)
+            async for db in get_db():
+                await _add_dexcom(db, uid, CGM_ROLE_PRIMARY)
+                ns_id = await _add_ns(db, uid, CGM_ROLE_SECONDARY, "Loop NS")
+                # Primary readings are older; the secondary posts the most
+                # recent row -- /current must still return a primary reading.
+                now = datetime.now(UTC)
+                db.add(
+                    GlucoseReading(
+                        user_id=uid,
+                        value=99,
+                        reading_timestamp=now - timedelta(minutes=10),
+                        trend=TrendDirection.FLAT,
+                        trend_rate=0.0,
+                        received_at=now,
+                        source="dexcom",
+                    )
+                )
+                db.add(
+                    GlucoseReading(
+                        user_id=uid,
+                        value=222,
+                        reading_timestamp=now,
+                        trend=TrendDirection.FLAT,
+                        trend_rate=0.0,
+                        received_at=now,
+                        source=f"nightscout:{ns_id}",
+                    )
+                )
+                await db.commit()
+
+            current = await client.get(
+                "/api/integrations/glucose/current",
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+            assert current.status_code == 200
+            # The secondary's 222 is newer but excluded -> primary's 99 shows.
+            assert current.json()["value"] == 99
+
+            # Seed enough primary history for the 7-day AGP minimum, plus a
+            # secondary that would skew percentiles if not excluded.
+            async for db in get_db():
+                await _seed_glucose(db, uid, "dexcom", 200)
+                await _seed_glucose(db, uid, f"nightscout:{ns_id}", 200)
+                break
+            agp = await client.get(
+                "/api/integrations/glucose/percentiles?days=14",
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+            assert agp.status_code == 200

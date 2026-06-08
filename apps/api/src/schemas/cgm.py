@@ -34,7 +34,9 @@ class CgmPrimaryUpdate(BaseModel):
     """Request body to switch the primary CGM source."""
 
     source: str = Field(
-        ..., description="The glucose source string to promote to primary."
+        ...,
+        max_length=128,
+        description="The glucose source string to promote to primary.",
     )
 
 

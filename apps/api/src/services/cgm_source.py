@@ -16,6 +16,13 @@ primary source drives widgets while the others stay queryable for audit.
 A source is identified everywhere by its ``glucose_readings.source``
 string: ``"dexcom"`` for the Dexcom integration and
 ``"nightscout:<connection_id>"`` for a Nightscout connection.
+
+Scope: this story covers Dexcom + Nightscout (the two CGM feeds named in
+the story). Other CGM-writing integrations added later (Glooko cloud,
+Medtronic Connect) keep their own state tables without a ``cgm_role`` and
+are therefore not yet role-managed -- their readings are additive, never
+hidden. Extending dedupe to them is a follow-up (needs a ``cgm_role`` on
+those tables + picker entries).
 """
 
 from __future__ import annotations
@@ -26,6 +33,7 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.models.glucose import GlucoseReading
 from src.models.integration import (
     IntegrationCredential,
     IntegrationType,
@@ -34,11 +42,36 @@ from src.models.nightscout_connection import NightscoutConnection
 
 CGM_ROLE_PRIMARY = "primary"
 CGM_ROLE_SECONDARY = "secondary"
+# Reserved third state: a source explicitly disabled by the user. It is
+# permitted by the DB CHECK constraint and honored by the exclusion filter
+# (always excluded when a primary exists), but this story's picker only
+# toggles primary/secondary -- "off" is settable by a future UI / manual op.
 CGM_ROLE_OFF = "off"
-VALID_CGM_ROLES = frozenset({CGM_ROLE_PRIMARY, CGM_ROLE_SECONDARY, CGM_ROLE_OFF})
 
-_DEXCOM_SOURCE = "dexcom"
+DEXCOM_SOURCE = "dexcom"
 _NS_SOURCE_PREFIX = "nightscout:"
+
+
+def nightscout_source(connection_id: uuid.UUID | str) -> str:
+    """Canonical ``glucose_readings.source`` string for a NS connection.
+
+    Mirrors the Nightscout translator's ``_build_source``; a pinning test
+    keeps the two in sync so the dedupe filter never silently stops
+    matching real rows if the format changes.
+    """
+    return f"{_NS_SOURCE_PREFIX}{connection_id}"
+
+
+def glucose_source_exclusion_clause(excluded: list[str] | None) -> list:
+    """SQLAlchemy WHERE fragment that drops the excluded CGM sources.
+
+    Returns an empty list when there's nothing to exclude so callers can
+    splat it unconditionally (`*glucose_source_exclusion_clause(excluded)`)
+    without emitting a degenerate `source NOT IN ()`.
+    """
+    if not excluded:
+        return []
+    return [GlucoseReading.source.notin_(excluded)]
 
 
 @dataclass(frozen=True)
@@ -71,7 +104,7 @@ async def list_cgm_sources(db: AsyncSession, user_id: uuid.UUID) -> list[CgmSour
     if dexcom is not None:
         sources.append(
             CgmSource(
-                source=_DEXCOM_SOURCE,
+                source=DEXCOM_SOURCE,
                 label="Dexcom",
                 role=dexcom.cgm_role,
                 kind="dexcom",
@@ -95,7 +128,7 @@ async def list_cgm_sources(db: AsyncSession, user_id: uuid.UUID) -> list[CgmSour
     for conn in ns_conns:
         sources.append(
             CgmSource(
-                source=f"{_NS_SOURCE_PREFIX}{conn.id}",
+                source=nightscout_source(conn.id),
                 label=conn.name,
                 role=conn.cgm_role,
                 kind="nightscout",
@@ -118,9 +151,19 @@ async def get_excluded_cgm_sources(
     yields an empty list (nothing to exclude), so single-source users are
     never filtered -- the dedupe only takes effect once a second source is
     demoted to secondary/off.
+
+    Safety invariant: if NO source is currently ``primary`` (e.g. the user
+    disconnected their primary and only a secondary survives, or a soft-
+    deleted primary left no active winner) we exclude NOTHING. Hiding every
+    secondary while no primary drives the widgets would blank the dashboard
+    even though a working CGM is still syncing -- showing the survivor is
+    always safer than going dark.
     """
+    sources = await list_cgm_sources(db, user_id)
+    if not any(s.role == CGM_ROLE_PRIMARY for s in sources):
+        return []
     excluded: list[str] = []
-    for src in await list_cgm_sources(db, user_id):
+    for src in sources:
         if src.role == CGM_ROLE_OFF or (
             src.role == CGM_ROLE_SECONDARY and not include_secondary
         ):
@@ -133,14 +176,14 @@ async def has_primary_cgm(db: AsyncSession, user_id: uuid.UUID) -> bool:
     return any(s.role == CGM_ROLE_PRIMARY for s in await list_cgm_sources(db, user_id))
 
 
-async def default_cgm_role_for_new_source(
-    db: AsyncSession, user_id: uuid.UUID
-) -> str:
+async def default_cgm_role_for_new_source(db: AsyncSession, user_id: uuid.UUID) -> str:
     """Role to assign a NEW CGM source: primary iff the user has none yet.
 
     Call before inserting the new row so it doesn't count itself.
     """
-    return CGM_ROLE_SECONDARY if await has_primary_cgm(db, user_id) else CGM_ROLE_PRIMARY
+    return (
+        CGM_ROLE_SECONDARY if await has_primary_cgm(db, user_id) else CGM_ROLE_PRIMARY
+    )
 
 
 async def set_primary_cgm_source(
@@ -156,7 +199,10 @@ async def set_primary_cgm_source(
         return False
 
     # Demote all, then promote the chosen one -- single source of truth, no
-    # window where two rows are primary.
+    # window where two rows are primary. `chosen_found` makes the return
+    # value reflect what actually got promoted rather than trusting the
+    # upstream `known` membership check alone.
+    chosen_found = False
     dexcom = (
         await db.execute(
             select(IntegrationCredential).where(
@@ -166,9 +212,9 @@ async def set_primary_cgm_source(
         )
     ).scalar_one_or_none()
     if dexcom is not None:
-        dexcom.cgm_role = (
-            CGM_ROLE_PRIMARY if source == _DEXCOM_SOURCE else CGM_ROLE_SECONDARY
-        )
+        is_chosen = source == DEXCOM_SOURCE
+        dexcom.cgm_role = _demote_unless_chosen(dexcom.cgm_role, is_chosen)
+        chosen_found = chosen_found or is_chosen
 
     ns_conns = (
         (
@@ -183,11 +229,24 @@ async def set_primary_cgm_source(
         .all()
     )
     for conn in ns_conns:
-        conn.cgm_role = (
-            CGM_ROLE_PRIMARY
-            if source == f"{_NS_SOURCE_PREFIX}{conn.id}"
-            else CGM_ROLE_SECONDARY
-        )
+        is_chosen = source == nightscout_source(conn.id)
+        conn.cgm_role = _demote_unless_chosen(conn.cgm_role, is_chosen)
+        chosen_found = chosen_found or is_chosen
 
     await db.flush()
-    return True
+    return chosen_found
+
+
+def _demote_unless_chosen(current_role: str, is_chosen: bool) -> str:
+    """Resolve a source's role during a primary switch.
+
+    The chosen source becomes ``primary``. Others are demoted to
+    ``secondary`` -- except a source the user explicitly turned ``off``,
+    which stays off (switching the primary must not silently re-enable a
+    disabled source).
+    """
+    if is_chosen:
+        return CGM_ROLE_PRIMARY
+    if current_role == CGM_ROLE_OFF:
+        return CGM_ROLE_OFF
+    return CGM_ROLE_SECONDARY

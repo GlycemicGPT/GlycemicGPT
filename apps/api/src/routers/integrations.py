@@ -165,6 +165,7 @@ from src.services.cgm_source import (
     CGM_ROLE_PRIMARY,
     default_cgm_role_for_new_source,
     get_excluded_cgm_sources,
+    glucose_source_exclusion_clause,
     list_cgm_sources,
     set_primary_cgm_source,
 )
@@ -1104,9 +1105,7 @@ async def get_time_in_range(
                 GlucoseReading.reading_timestamp < now,
                 GlucoseReading.value >= 20,
                 GlucoseReading.value <= 500,
-                *(
-                    [GlucoseReading.source.notin_(excluded)] if excluded else []
-                ),
+                *glucose_source_exclusion_clause(excluded),
             )
         )
         row = result.one()
@@ -1278,7 +1277,7 @@ async def _query_5_buckets(
             GlucoseReading.reading_timestamp < end,
             GlucoseReading.value >= 20,
             GlucoseReading.value <= 500,
-            *([GlucoseReading.source.notin_(excluded_sources)] if excluded_sources else []),
+            *glucose_source_exclusion_clause(excluded_sources),
         )
     )
     row = result.one()
@@ -3974,8 +3973,7 @@ async def get_glucose_stats(
     ]
     if upper is not None:
         conditions.append(GlucoseReading.reading_timestamp < upper)
-    if excluded:
-        conditions.append(GlucoseReading.source.notin_(excluded))
+    conditions.extend(glucose_source_exclusion_clause(excluded))
 
     result = await db.execute(
         select(
@@ -4080,7 +4078,7 @@ async def get_glucose_percentiles(
             GlucoseReading.reading_timestamp >= cutoff,
             GlucoseReading.value >= 20,
             GlucoseReading.value <= 500,
-            *([GlucoseReading.source.notin_(excluded)] if excluded else []),
+            *glucose_source_exclusion_clause(excluded),
         )
         .order_by(GlucoseReading.reading_timestamp)
         .limit(_AGP_MAX_ROWS)

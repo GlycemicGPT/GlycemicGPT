@@ -21,6 +21,7 @@ from src.models.integration import (
     IntegrationStatus,
     IntegrationType,
 )
+from src.services.cgm_source import glucose_source_exclusion_clause
 
 logger = get_logger(__name__)
 
@@ -271,9 +272,10 @@ async def get_latest_glucose_reading(
     Returns:
         Most recent GlucoseReading or None
     """
-    conditions = [GlucoseReading.user_id == user_id]
-    if excluded_sources:
-        conditions.append(GlucoseReading.source.notin_(excluded_sources))
+    conditions = [
+        GlucoseReading.user_id == user_id,
+        *glucose_source_exclusion_clause(excluded_sources),
+    ]
     result = await db.execute(
         select(GlucoseReading)
         .where(*conditions)
@@ -330,8 +332,7 @@ async def get_glucose_readings(
     ]
     if upper is not None:
         conditions.append(GlucoseReading.reading_timestamp < upper)
-    if excluded_sources:
-        conditions.append(GlucoseReading.source.notin_(excluded_sources))
+    conditions.extend(glucose_source_exclusion_clause(excluded_sources))
 
     result = await db.execute(
         select(GlucoseReading)
