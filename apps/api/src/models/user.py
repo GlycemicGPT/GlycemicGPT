@@ -97,6 +97,24 @@ class User(Base, TimestampMixin):
         back_populates="user",
         cascade="all, delete-orphan",
     )
+    tandem_sync_state = relationship(
+        "TandemSyncState",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    medtronic_connect_state = relationship(
+        "MedtronicConnectState",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    glooko_sync_state = relationship(
+        "GlookoSyncState",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
     glucose_readings = relationship(
         "GlucoseReading",
         back_populates="user",
@@ -212,25 +230,8 @@ class User(Base, TimestampMixin):
         cascade="all, delete-orphan",
         uselist=False,
     )
-    pump_raw_events = relationship(
-        "PumpRawEvent",
-        back_populates="user",
-        cascade="all, delete-orphan",
-    )
-    pump_hardware_info = relationship(
-        "PumpHardwareInfo",
-        back_populates="user",
-        cascade="all, delete-orphan",
-        uselist=False,
-    )
     safety_limits = relationship(
         "SafetyLimits",
-        back_populates="user",
-        cascade="all, delete-orphan",
-        uselist=False,
-    )
-    tandem_upload_state = relationship(
-        "TandemUploadState",
         back_populates="user",
         cascade="all, delete-orphan",
         uselist=False,

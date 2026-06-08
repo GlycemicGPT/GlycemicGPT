@@ -10,6 +10,14 @@ The country list was determined empirically by probing
 on 2026-05-17. Any country not listed here is not provisioned by Tandem.
 """
 
+TANDEM_EPOCH_OFFSET_SECONDS: int = 1_199_145_600
+"""Seconds between the UNIX epoch (1970-01-01T00:00:00 UTC) and the Tandem
+pump epoch (2008-01-01T00:00:00 UTC). The pump reports event timestamps as
+seconds since the Tandem epoch; add this offset to convert to UNIX time.
+
+Mirrors ``plugins/shipped/tandem/.../StatusResponseParser.kt:TANDEM_EPOCH_OFFSET``.
+"""
+
 TANDEM_COUNTRY_TO_CLOUD: dict[str, str] = {
     # US cloud (tdcservices.tandemdiabetes.com)
     "US": "US",

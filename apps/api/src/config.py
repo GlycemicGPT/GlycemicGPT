@@ -66,9 +66,46 @@ class Settings(BaseSettings):
     dexcom_max_readings_per_sync: int = 12  # Max readings to fetch per sync (1 hour)
 
     # Tandem Sync Configuration (Story 3.4)
-    tandem_sync_interval_minutes: int = 60  # Sync every hour
-    tandem_sync_enabled: bool = True  # Enable/disable automatic sync
-    tandem_sync_hours_back: int = 24  # Hours of history to fetch per sync
+    # The scheduler now ticks on `tandem_sync_tick_interval_minutes`; on each
+    # tick it scans connected Tandem users and runs the sync for any whose
+    # per-user `sync_interval_minutes` (TandemSyncState, default below) has
+    # elapsed since the credential's last_sync_at. `tandem_sync_enabled`
+    # gates the whole job; `tandem_sync_interval_minutes` is the default
+    # per-user cadence applied when a user has no TandemSyncState row.
+    # Bounded at parse time: these feed APScheduler's IntervalTrigger, which
+    # misbehaves on 0/negative/huge values. Default per-user cadence matches
+    # the TandemSyncState column bounds (15-1440).
+    tandem_sync_tick_interval_minutes: int = Field(default=15, ge=1, le=60)
+    tandem_sync_interval_minutes: int = Field(default=60, ge=15, le=1440)
+    tandem_sync_enabled: bool = True  # Enable/disable the whole job
+    tandem_sync_hours_back: int = Field(default=24, ge=1, le=168)
+
+    # Medtronic CareLink CarePartner (Connect) autonomous sync.
+    # Operator kill switch for the background sync job, mirroring
+    # dexcom/tandem/nightscout_sync_enabled (all default True, all gate only the
+    # scheduler tick -- not the UI or endpoints). Set False via env to stop just
+    # the Medtronic background sync (e.g. if it floods errors or hammers
+    # CareLink) without a redeploy; users retain per-connection enable/disconnect
+    # regardless. When enabled, the scheduler ticks every
+    # `medtronic_connect_tick_interval_minutes` and runs the follower sync for
+    # any connected user whose per-user `sync_interval_minutes`
+    # (MedtronicConnectState) has elapsed. Bounded at parse time (feeds
+    # APScheduler's IntervalTrigger).
+    medtronic_connect_enabled: bool = True  # Enable/disable the whole job
+    medtronic_connect_tick_interval_minutes: int = Field(default=15, ge=1, le=60)
+
+    # Glooko (Omnipod Cloud Sync) autonomous sync. Operator kill switch for the
+    # background sync job, mirroring the dexcom/tandem/medtronic flags (all default
+    # True, all gate only the scheduler tick -- not the UI or endpoints). Set False
+    # via env to stop just the Glooko background sync (e.g. if it floods errors or
+    # hammers Glooko) without a redeploy; users retain per-connection
+    # enable/disconnect regardless. The tick no-ops safely until a user connects.
+    # When enabled, the scheduler ticks every `glooko_sync_tick_interval_minutes`
+    # and runs the sync for any connected user whose per-user `sync_interval_minutes`
+    # (GlookoSyncState) has elapsed. Bounded at parse time (feeds APScheduler's
+    # IntervalTrigger).
+    glooko_sync_enabled: bool = True  # Enable/disable the whole job
+    glooko_sync_tick_interval_minutes: int = Field(default=15, ge=1, le=60)
 
     # Nightscout Sync Configuration (Story 43.4)
     # The scheduler ticks on a fixed interval; on each tick it scans
@@ -101,11 +138,6 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     telegram_polling_enabled: bool = True
     telegram_polling_interval_seconds: int = 5
-
-    # Tandem Cloud Upload (Story 16.6)
-    tandem_upload_enabled: bool = True
-    tandem_upload_check_interval_minutes: int = 1  # Check for due uploads every minute
-    tandem_upload_config_base: str = "https://assets.tandemdiabetes.com"
 
     # AI Sidecar (Story 15.2)
     ai_sidecar_url: str = "http://ai-sidecar:3456"
@@ -140,6 +172,19 @@ class Settings(BaseSettings):
     # is skipped cleanly with an explicit log line; AI chat works without
     # bootstrap RAG augmentation.
     embedding_offline_only: bool = False
+
+    # Sentry error monitoring (Sentry for Good). DISABLED by default: with no
+    # DSN the SDK is a no-op and the running platform sends nothing. The DSN is
+    # supplied only in the project's own dev/CI/staging via a runtime env var
+    # and is never baked into a distributed build; self-hosters may set their
+    # own DSN to send errors to their own Sentry. See PRIVACY.md.
+    glycemicgpt_sentry_dsn: str = ""
+    glycemicgpt_sentry_environment: str = "development"
+    # Tracing off by default (errors only); bounded 0.0-1.0.
+    glycemicgpt_sentry_traces_sample_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+    # Release identifier (commit SHA), injected at build time via the Dockerfile
+    # GIT_SHA build arg -> env. "unknown"/"" => no release tag.
+    glycemicgpt_sentry_release: str = ""
 
     # Testing
     testing: bool = False  # Set to True during tests to disable connection pooling

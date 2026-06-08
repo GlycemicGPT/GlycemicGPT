@@ -105,6 +105,32 @@ jest.mock("@/lib/api", () => ({
   syncNightscoutConnection: jest.fn().mockResolvedValue({}),
   deleteNightscoutConnection: jest.fn().mockResolvedValue(undefined),
   patchNightscoutConnection: jest.fn().mockResolvedValue({}),
+  // Medtronic CareLink Connect (autonomous sync)
+  getMedtronicConnectStatus: jest
+    .fn()
+    .mockResolvedValue({ connected: false, status: "not_configured", enabled: false }),
+  installMedtronicConnect: jest.fn().mockResolvedValue({}),
+  syncMedtronicConnectNow: jest.fn().mockResolvedValue({}),
+  updateMedtronicConnectSettings: jest
+    .fn()
+    .mockResolvedValue({ connected: false, status: "not_configured", enabled: false }),
+  disconnectMedtronicConnect: jest.fn().mockResolvedValue(undefined),
+  // Omnipod via Glooko (autonomous sync)
+  getGlookoStatus: jest
+    .fn()
+    .mockResolvedValue({ connected: false, status: "not_configured", enabled: false }),
+  connectGlooko: jest
+    .fn()
+    .mockResolvedValue({ connected: false, status: "not_configured", enabled: false }),
+  syncGlookoNow: jest.fn().mockResolvedValue({}),
+  updateGlookoSyncSettings: jest
+    .fn()
+    .mockResolvedValue({ connected: false, status: "not_configured", enabled: false }),
+  getGlookoSyncAvailability: jest
+    .fn()
+    .mockResolvedValue({ connected: false, cgm_available: false }),
+  importGlookoHistory: jest.fn().mockResolvedValue({}),
+  disconnectGlooko: jest.fn().mockResolvedValue(undefined),
   // Caregivers
   listLinkedCaregivers: jest.fn().mockResolvedValue({ caregivers: [] }),
   listCaregiverInvitations: jest.fn().mockResolvedValue({ invitations: [] }),

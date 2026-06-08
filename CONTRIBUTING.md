@@ -34,7 +34,16 @@ GlycemicGPT is a monitoring and analysis platform. The plugin SDK exists for one
 2. Open an issue describing the device, the protocol you intend to use, and the data you'll surface
 3. Submit a PR with a new Gradle module under `plugins/shipped/<device-name>/` (these modules are compiled into official builds), declaring only capabilities from the official read-only enum. For device data drivers the relevant capabilities are typically `GLUCOSE_SOURCE`, `INSULIN_SOURCE`, `PUMP_STATUS`, `BGM_SOURCE`, `CALIBRATION_TARGET`, and/or `BOLUS_CATEGORY_PROVIDER`. The `DATA_SYNC` capability is reserved for future external-sync integrations (Nightscout, Tidepool); its interface is not yet defined and it is not currently implementable
 4. Include unit tests, especially for parsing and `SafetyLimits` validation of incoming values
-5. Existing plugins (`:tandem-pump-driver`, under `plugins/shipped/tandem/`) serve as the reference implementation. Runtime-loaded plugins (under `plugins/example/`) are a separate, advanced contribution path -- they are not compiled into official builds and run with `RestrictedPluginContext`
+5. Existing plugins serve as reference implementations. Runtime-loaded plugins (under `plugins/example/`) are a separate, advanced contribution path -- they are not compiled into official builds and run with `RestrictedPluginContext`
+
+**Shipped device data drivers:**
+
+| Driver | Module | Transport | Reads | Status |
+|---|---|---|---|---|
+| Tandem (t:slim X2 / Mobi) | `:tandem-pump-driver` (`plugins/shipped/tandem/`) | BLE (central) | Glucose, IoB, basal, bolus history, pump status | Stable — reference implementation |
+| Medtronic MiniMed (680G / 770G / 780G) | `:medtronic-pump-driver` (`plugins/shipped/medtronic/`) | BLE (peripheral, advertise-and-wait) | Sensor glucose, IoB, basal, bolus history, reservoir, battery | **Beta**, read-only |
+
+Both drivers are **read-only** — they read data from the pump and never issue therapeutic writes. The Medtronic driver is gated behind the `MEDTRONIC_DRIVER_ENABLED` build flag (default on); a build with the flag off omits the plugin entirely.
 
 ---
 
@@ -672,7 +681,8 @@ GlycemicGPT/
 ├── plugins/            # Plugin ecosystem
 │   ├── pump-driver-api/       # Plugin SDK (interfaces & domain models)
 │   ├── shipped/               # Built-in plugins (compiled into APK)
-│   │   └── tandem/            # Tandem plugin (t:slim X2 + Mobi)
+│   │   ├── tandem/            # Tandem plugin (t:slim X2 + Mobi)
+│   │   └── medtronic/         # Medtronic MiniMed plugin (680G/770G/780G, BLE, read-only, beta)
 │   └── example/               # Example runtime plugins (NOT compiled into APK)
 ├── sidecar/            # AI provider proxy (TypeScript/Express)
 │   ├── src/            # Source code

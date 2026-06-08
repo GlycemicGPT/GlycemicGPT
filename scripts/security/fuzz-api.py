@@ -22,6 +22,8 @@ import uuid
 
 import httpx
 
+from _ephemeral_guard import assert_ephemeral_target
+
 API_URL = os.environ.get("API_URL", "http://localhost:8001")
 
 # Endpoints to skip (docs, health, SSE streams)
@@ -338,6 +340,11 @@ def main() -> int:
     )
     args = parser.parse_args()
     api_url = args.api_url
+
+    # Only the authenticated passes register throwaway users; a purely
+    # unauthenticated fuzz is read-only and safe against any target.
+    if args.mode in ("authenticated", "both"):
+        assert_ephemeral_target(api_url)
 
     print("=== OpenAPI Endpoint Fuzzer ===")
     print(f"API: {api_url}")

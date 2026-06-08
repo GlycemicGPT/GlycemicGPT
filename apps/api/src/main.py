@@ -18,6 +18,7 @@ from src.middleware import CorrelationIdMiddleware
 from src.middleware.csrf import CSRFMiddleware
 from src.middleware.rate_limit import limiter, rate_limit_exceeded_handler
 from src.middleware.security_headers import SecurityHeadersMiddleware
+from src.observability import init_sentry
 from src.routers import (
     ai,
     alert_api,
@@ -57,6 +58,11 @@ setup_logging(
     service_name=settings.service_name,
 )
 logger = get_logger(__name__)
+
+# Initialize Sentry as early as possible. No-op unless GLYCEMICGPT_SENTRY_DSN is
+# set -- the running platform sends nothing by default. See src/observability.py
+# and PRIVACY.md.
+init_sentry()
 
 
 @asynccontextmanager
@@ -171,6 +177,13 @@ app.add_middleware(
         "X-CSRF-Token",
         "X-Correlation-ID",
         "X-API-Key",
+        # Carries the captured CareLink session token for the Medtronic manual
+        # import (kept out of the request body so it can't leak via a 422 echo).
+        "X-CareLink-Token",
+        # Carries the captured Auth0 refresh token for the Medtronic Connect
+        # autonomous-sync handshake (also kept out of the body for the same
+        # reason; it is encrypted at rest server-side).
+        "X-CareLink-Refresh-Token",
     ],
 )
 

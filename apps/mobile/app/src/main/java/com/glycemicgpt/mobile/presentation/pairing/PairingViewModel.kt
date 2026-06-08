@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.glycemicgpt.mobile.data.local.PumpCredentialStore
 import com.glycemicgpt.mobile.domain.model.ConnectionState
 import com.glycemicgpt.mobile.domain.model.DiscoveredPump
+import com.glycemicgpt.mobile.domain.plugin.PairingFault
+import com.glycemicgpt.mobile.domain.plugin.PairingProfile
 import com.glycemicgpt.mobile.domain.pump.PumpConnectionManager
 import com.glycemicgpt.mobile.domain.pump.PumpScanner
 import com.glycemicgpt.mobile.service.PumpConnectionService
@@ -39,12 +41,40 @@ class PairingViewModel @Inject constructor(
     private val _selectedPump = MutableStateFlow<DiscoveredPump?>(null)
     val selectedPump: StateFlow<DiscoveredPump?> = _selectedPump.asStateFlow()
 
+    /** True while the phone is advertising and waiting for an advertise-and-wait pump to connect. */
+    private val _isAdvertising = MutableStateFlow(false)
+    val isAdvertising: StateFlow<Boolean> = _isAdvertising.asStateFlow()
+
     val connectionState: StateFlow<ConnectionState> = connectionManager.connectionState
+
+    /** How the active pump pairs -- the screen renders the central-scan or advertise-and-wait flow off this. */
+    val pairingProfile: StateFlow<PairingProfile> = connectionManager.pairingProfile
+
+    /** Why an advertise-and-wait pairing is stalled/failed, or null. */
+    val pairingFault: StateFlow<PairingFault?> = connectionManager.pairingFault
 
     val isPaired: Boolean get() = credentialStore.isPaired()
     val pairedAddress: String? get() = credentialStore.getPairedAddress()
 
     private var scanJob: Job? = null
+    private var advertiseJob: Job? = null
+
+    init {
+        // Tie the polling/connection foreground service to an actual session, not to the user tapping
+        // "Start Pairing". Starting it up front and then stopping it when advertising can't even begin
+        // (e.g. a phone that can't act as a BLE peripheral, where scan() closes immediately) crashes the
+        // app with ForegroundServiceDidNotStartInTime -- the service is torn down before it can promote
+        // itself. Instead, start it only once a pump is actually connecting/connected, so polling is
+        // ready and survives navigation away; it is stopped on unpair like the central-scan flow. Safe
+        // and idempotent for Tandem, whose pair() already starts it at its own connection point.
+        viewModelScope.launch {
+            connectionState.collect { state ->
+                if (state in SESSION_LIVE_OR_FORMING) {
+                    PumpConnectionService.start(appContext)
+                }
+            }
+        }
+    }
 
     fun startScan() {
         stopScan()
@@ -69,6 +99,44 @@ class PairingViewModel @Inject constructor(
         scanJob?.cancel()
         scanJob = null
         _isScanning.value = false
+    }
+
+    /**
+     * Advertise-and-wait pairing (phone-as-peripheral). Begins advertising and waits for the pump to
+     * connect; the connection manager drives [connectionState] all the way to CONNECTED (SAKE has no
+     * pairing code, so there is no [pair] step). The foreground service is started by the
+     * [connectionState] observer once a session forms, not here -- see the init block. On a device that
+     * cannot advertise, the flow completes immediately and [pairingFault] reports PERIPHERAL_UNSUPPORTED.
+     */
+    fun startAdvertising() {
+        cancelAdvertiseJob()
+        _isAdvertising.value = true
+        advertiseJob = viewModelScope.launch {
+            try {
+                // Collecting keeps advertising alive; emissions signal the pump connected, after which
+                // the manager owns the lifecycle. We only need to hold the flow open here.
+                pumpScanner.scan().collect { }
+            } finally {
+                // Reset the flag only when the flow ended on its own (e.g. PERIPHERAL_UNSUPPORTED closed
+                // it). On cancellation -- stopAdvertising() or a superseding startAdvertising() -- that
+                // caller owns the flag, so a stale cancelled job must not clobber the newer state.
+                if (coroutineContext[Job]?.isCancelled != true) {
+                    _isAdvertising.value = false
+                }
+            }
+        }
+    }
+
+    /** Cancel advertise-and-wait before a session forms. The foreground service is only ever started
+     * once a session forms (see init), so there is nothing to stop here. */
+    fun stopAdvertising() {
+        cancelAdvertiseJob()
+        _isAdvertising.value = false
+    }
+
+    private fun cancelAdvertiseJob() {
+        advertiseJob?.cancel()
+        advertiseJob = null
     }
 
     fun selectPump(pump: DiscoveredPump) {
@@ -106,5 +174,15 @@ class PairingViewModel @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         stopScan()
+        cancelAdvertiseJob()
+    }
+
+    private companion object {
+        /** Connection states where a session is live or actively forming -- the service must keep running. */
+        val SESSION_LIVE_OR_FORMING = setOf(
+            ConnectionState.CONNECTING,
+            ConnectionState.AUTHENTICATING,
+            ConnectionState.CONNECTED,
+        )
     }
 }

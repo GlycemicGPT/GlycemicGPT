@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+      The Medtronic 700-series driver is a BLE *peripheral* (the pump is the central and connects
+      to us), so it needs BLUETOOTH_ADVERTISE in addition to the BLUETOOTH_CONNECT the host app
+      already declares. Merged into the app manifest; the host app requests it at runtime.
+    -->
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE"
+        tools:targetApi="s" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+
+</manifest>

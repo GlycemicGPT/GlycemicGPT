@@ -1,9 +1,9 @@
 ---
 title: Connecting Your Tandem Pump (Cloud)
-description: How GlycemicGPT integrates with the Tandem t:connect cloud, in both directions.
+description: How GlycemicGPT integrates with the Tandem t:connect cloud.
 ---
 
-Tandem pumps can flow data into GlycemicGPT through two paths: cloud (this page) or Bluetooth via the mobile app. Most users will end up using both. This page covers the cloud path.
+GlycemicGPT can pull your pump's history from the Tandem t:connect cloud on a schedule. Boluses, basal changes, Control-IQ corrections, and pump settings flow into GlycemicGPT so the dashboard and AI analysis have the same data your endocrinologist sees in t:connect.
 
 > **Cloud vs Bluetooth, what's the difference?**
 >
@@ -16,26 +16,24 @@ Tandem pumps can flow data into GlycemicGPT through two paths: cloud (this page)
 
 > **Before you start, you need:**
 >
-> - A Tandem pump (t:slim X2 or Mobi -- see Mobi caveat below) with the official t:connect mobile / desktop app already syncing your pump to the Tandem cloud
+> - A Tandem t:slim X2 with the official t:connect mobile or desktop app already syncing your pump to the Tandem cloud
 > - Your Tandem account email and password
 > - GlycemicGPT running and you signed in
 
-> **Mobi caveat:** the Mobi shares most of the t:slim X2 protocol and the GlycemicGPT cloud integration is expected to work with Mobi, but the project lead does not own a Mobi for continuous verification. Mobi field reports welcome via [Discord](https://discord.gg/QbyhCQKDBs).
+## A note on the upload direction
 
-## Two directions of integration
+GlycemicGPT used to also offer the reverse direction -- pushing BLE-captured pump events from your GlycemicGPT instance *back* to the t:connect cloud so an endocrinologist's portal would stay current. **That feature was removed.** Pushing data into a clinical-record system used by endocrinologists for dosing decisions, while impersonating Tandem's official mobile app, was a regulatory and patient-safety risk we weren't equipped to ship responsibly as an open-source project without medical-device certification.
 
-GlycemicGPT's Tandem cloud integration is **bidirectional** -- which is more than what most people expect.
+If your goal is to make sure your endo sees pump data in their t:connect portal, the safer paths are:
 
-| Direction | What it does | Why it exists |
-|---|---|---|
-| **Pull from Tandem → GlycemicGPT** (default, primary) | Fetches your pump history from Tandem's cloud (boluses, basal, Control-IQ corrections, settings) on a 60-min schedule | Gives GlycemicGPT historical pump data even if you don't use the mobile app |
-| **Push from GlycemicGPT → Tandem** (optional, off by default) | Uploads BLE-captured pump data from GlycemicGPT *back* to Tandem's cloud, so your endocrinologist's t:connect portal stays current | Keeps your clinician's view in sync if you use GlycemicGPT instead of (or in addition to) the official t:connect mobile app |
+- Keep the official Tandem mobile app installed and paired to your pump (it'll upload to t:connect on its own).
+- Or export a PDF/CSV report from GlycemicGPT and share that with your endocrinologist directly.
 
-Both directions use your t:connect credentials. They are configured separately -- you can have one without the other.
+The rest of this page is about the **pull** direction (Tandem cloud → GlycemicGPT), which remains supported.
 
 ## What "t:connect cloud" is
 
-t:connect is Tandem's cloud service. The official t:connect mobile app or desktop uploader syncs your pump's history (boluses, basal changes, alarms, settings) to Tandem's servers periodically -- typically every 60 minutes from the mobile app. Once your data is in the t:connect cloud, GlycemicGPT can pull it. And -- in the upload direction -- GlycemicGPT can push BLE-captured data back to those same servers.
+t:connect is Tandem's cloud service. The official t:connect mobile app or desktop uploader syncs your pump's history (boluses, basal changes, alarms, settings) to Tandem's servers periodically -- typically every 60 minutes from the mobile app. Once your data is in the t:connect cloud, GlycemicGPT can pull it.
 
 If you've never used t:connect before, set it up first:
 
@@ -46,8 +44,6 @@ If you've never used t:connect before, set it up first:
 Sign in, pair your pump, and let it sync at least once. After you see your pump data in the t:connect web portal, you're ready.
 
 ## Setting up the pull (Tandem → GlycemicGPT)
-
-This is what most users want. It's the default direction.
 
 ### 1. Configure the integration in GlycemicGPT
 
@@ -71,11 +67,11 @@ Tandem operates two cloud backends — a US cluster and an EU cluster — and ro
 | **US cloud** | United States, Canada, Mexico |
 | **EU cloud** | United Kingdom, Ireland, EEA (DE, FR, IT, ES, NL, BE, SE, NO, FI, DK, PT, LU, CH, AT, GR, PL, CZ, SK, HU, SI, HR, RO, BG, IS, EE, LV, LT, MT), Australia, New Zealand, Israel, South Africa, plus RU, UA, RS, BA, AL, ME, MK |
 
-If your country isn't in the picker, Tandem hasn't published a config for it — t:slim X2 isn't sold there commercially today (Japan, Korea, India, Brazil, etc. all fall into this bucket). The Mobi is currently US-only.
+If your country isn't in the picker, Tandem hasn't published a config for it — t:slim X2 isn't sold there commercially today (Japan, Korea, India, Brazil, etc. all fall into this bucket).
 
-Picking the wrong country will make uploads fail or appear stuck because GlycemicGPT will fetch the wrong cluster's config file. The status card will surface a clear error and the "Re-select your country" banner; if you need to recover after switching, use [Recovering stuck uploads](#recovering-stuck-uploads) below.
+Picking the wrong country will make the sync fail because GlycemicGPT will authenticate against the wrong cluster. The integration row will show an error and you can simply reconnect with the right country.
 
-> **Existing users:** If you connected Tandem before the country picker existed (when only "US" / "EU" were stored), you'll see a "Re-select your country" banner on the Cloud Upload card. Re-connect with your country selected to clear it. Uploads won't run until you do.
+> **Existing users:** If you connected Tandem before the country picker existed (when only "US" / "EU" were stored), you'll see a status of "needs country re-select." Re-connect with your country selected to clear it.
 
 ### 2. Wait for the first sync
 
@@ -99,64 +95,27 @@ For real-time data (IoB, basal, glucose every few minutes), use the Bluetooth pa
 
 It does **not** read CGM data via t:connect for the live dashboard -- the cloud path is too slow for live glucose. CGM data on the dashboard comes from the [Dexcom integration](./connecting-dexcom.md) or the mobile app's BLE stream.
 
-## Setting up the push (GlycemicGPT → Tandem) -- optional
-
-This direction is **off by default**. You only want this if you use GlycemicGPT's mobile app as your primary pump-Bluetooth client *and* you want your endocrinologist's t:connect portal to stay current. If you still use the official t:connect mobile app, you don't need this -- it'll keep uploading on its own.
-
-### How it works
-
-The mobile app captures raw pump events over Bluetooth and stores them in GlycemicGPT. The backend then takes those raw events and uploads them to Tandem's cloud using the same upload endpoint that the official t:connect mobile app uses, with a request signature derived from a key extracted by reverse-engineering the official app. From Tandem's perspective, the upload looks like the t:connect mobile app -- just running on your GlycemicGPT server instead of your phone.
-
-This is the same path the [tconnectsync](https://github.com/jwoglom/tconnectsync) library and tools like the now-defunct [tconnectpatcher](https://github.com/jamoocha/tconnectpatcher) have implemented over the years.
-
-### Configure the upload
-
-1. **Settings → Integrations → Tandem → Cloud Upload**
-2. Toggle the upload on
-3. Pick an upload interval (default: 15 minutes)
-4. Save
-
-The pull direction must be configured first (the upload reuses the same credentials). The upload runs in the background; there's nothing else to do.
-
-### Recovering stuck uploads
-
-If the **Cloud Upload** card shows pending events but each manual **Upload Now** completes with "no pending events," your local upload-state has drifted out of sync with what's actually uploadable. This can happen after a pump re-pair, a sequence-counter reset, or (historically) the legacy incremental-sync bug that silently filtered queued events.
-
-Use **Reset upload state & re-queue events** at the bottom of the card to clear the local high-water mark and re-flag every stored event as pending. Tandem dedupes by sequence number on its side, so re-uploading events it already has is a safe no-op — the next upload run will simply be larger than usual.
-
-### Why it's off by default
-
-- Most users either (a) keep using the official Tandem app and don't need the upload, or (b) explicitly do not want their data going back to Tandem's cloud beyond what their pump itself uploads.
-- The upload depends on impersonating the official Tandem mobile app, which is a more invasive integration shape than the pull direction. Off-by-default lets you opt in deliberately.
-
-### Future: pump-report-only configuration
-
-For users who don't want a direct pump integration at all, the project plans a separate ingestion path that pulls official pump reports from each vendor's portal (Tandem t:connect, Omnipod, Medtronic CareLink, Dana, etc.) on a configurable schedule and feeds them into GlycemicGPT's analysis layer. This is a **third adoption pillar** alongside (1) direct device integration and (2) third-party platform relays like Nightscout. It's not in the platform today.
-
-See [ROADMAP -- Pump Report Ingestion](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/ROADMAP.md#pump-report-ingestion-adoption-path-for-users-without-direct-integration) for the full scope.
-
 ## Privacy
 
 - Your Tandem credentials are encrypted on the platform
-- Pump data flows in whichever direction(s) you've configured -- pull-only by default
-- The upload direction sends data only to Tandem's cloud (the same destination as the official t:connect app); no third-party data sharing
+- Pump data flows in only one direction: from Tandem's cloud into GlycemicGPT (the push direction was removed)
 - GlycemicGPT does not share your pump data with anyone (see [Privacy](../concepts/privacy.md))
 
 ## When the integration breaks
 
-If your Tandem account password changes, the platform's credentials become invalid. The integration will eventually show as **Disconnected**. Update the password in **Settings → Integrations → Tandem**. (Both directions break at the same time, since they share credentials.)
+If your Tandem account password changes, the platform's credentials become invalid. The integration will eventually show as **Disconnected**. Update the password in **Settings → Integrations → Tandem**.
 
 If you see Tandem-side errors in the platform logs, sign in at [tconnect.tandemdiabetes.com](https://tconnect.tandemdiabetes.com) to confirm your account is in good standing. If t:connect itself is down or your account is locked, GlycemicGPT can only show what t:connect has.
 
 ## Stability of the t:connect cloud path
 
-Honest disclosure: GlycemicGPT's t:connect integration sits on top of an unofficial-from-our-side path in **both directions**. Tandem does not publish a developer API. The pull direction reuses the [tconnectsync](https://github.com/jwoglom/tconnectsync) library; the push direction goes through endpoints and request shapes derived from reverse-engineering the official t:connect mobile app.
+Honest disclosure: GlycemicGPT's t:connect integration sits on top of an unofficial-from-our-side path. Tandem does not publish a developer API. The pull direction reuses the [tconnectsync](https://github.com/jwoglom/tconnectsync) library.
 
 What this means in practice:
 
 - **Tandem can break it.** They've broken similar community projects before -- [tconnectpatcher](https://github.com/jamoocha/tconnectpatcher), an earlier reverse-engineering effort, died in 2022 when its targeted t:connect version (v1.2 from 2020) got rotated out. Auth flows, endpoints, and response shapes change without notice.
-- **When it breaks, fixes take time.** The maintainers of the underlying libraries are responsive but unpaid; expect days to weeks for a fix when Tandem rotates something major. The push direction is more fragile than the pull direction because it impersonates the mobile app at a deeper level.
-- **The Bluetooth path through the mobile app is more stable than either cloud direction** because it talks to the pump directly, not to Tandem's cloud. If you're using GlycemicGPT primarily for live data, treat the cloud integration as a backup / history-fill-in path and the Bluetooth path as primary.
+- **When it breaks, fixes take time.** The maintainers of the underlying library are responsive but unpaid; expect days to weeks for a fix when Tandem rotates something major.
+- **The Bluetooth path through the mobile app is more stable than the cloud path** because it talks to the pump directly. If you're using GlycemicGPT primarily for live data, treat the cloud integration as a backup / history-fill-in path and the Bluetooth path as primary.
 
 If you depend on the cloud path for caregiver alerts or anything time-sensitive, plan for the integration to occasionally lag by a day or two during a Tandem-side rotation.
 

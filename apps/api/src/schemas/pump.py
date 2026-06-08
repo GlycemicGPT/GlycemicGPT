@@ -5,7 +5,7 @@ including pump activity mode data.
 """
 
 from datetime import UTC, datetime, timedelta
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -151,13 +151,112 @@ class TandemSyncResponse(BaseModel):
 
 
 class TandemSyncStatusResponse(BaseModel):
-    """Response schema for Tandem sync status."""
+    """Response schema for Tandem sync status.
+
+    Combines the per-user sync *control* (``enabled`` / interval / cumulative
+    pull count, from ``TandemSyncState``) with sync *freshness*
+    (``last_sync_at`` / ``last_error``, from ``IntegrationCredential``).
+    ``enabled`` / ``sync_interval_minutes`` reflect the effective state:
+    when no state row exists, a connected user defaults to enabled at the
+    default interval (backward-compatible with the prior global sync).
+    """
 
     integration_status: str
     last_sync_at: datetime | None = None
     last_error: str | None = None
     events_available: int
     latest_event: PumpEventResponse | None = None
+
+    # Per-user control surface (Story: per-user Tandem sync).
+    enabled: bool = True
+    sync_interval_minutes: int = 60
+    events_pulled_total: int = 0
+    # True when the stored Tandem region is a legacy bucket label (e.g. "EU")
+    # that can no longer be resolved to a country -- the user must reconnect
+    # with their country selected before sync can run.
+    needs_country_reselect: bool = False
+
+
+class TandemAvailabilityResponse(BaseModel):
+    """Date range of pump data available in the user's t:connect cloud.
+
+    Used to bound the manual-import date picker. ``latest`` is the last-upload
+    timestamp (the reliable "newest data" marker); Tandem's maxDateWithEvents
+    is ignored because it returns a bogus far-future date.
+    """
+
+    earliest: datetime | None = Field(
+        default=None, description="Oldest date with pump data available to pull"
+    )
+    latest: datetime | None = Field(
+        default=None,
+        description="Most recent date with data (the last upload to t:connect)",
+    )
+    pump_count: int = Field(default=0, description="Pumps found on the account")
+
+
+# Max span for a single manual import. Tandem's event log is dense
+# (~30 days of Control-IQ data ≈ 9k stored events and ~24s to fetch+store);
+# the web's reverse proxy times the request out around 30s, so we cap the
+# window to one that reliably completes well under that. Larger/older
+# history is imported in successive month chunks (full-history backfill via
+# a background job is a planned follow-up).
+MAX_IMPORT_RANGE_DAYS = 31
+
+
+class TandemImportRequest(BaseModel):
+    """Manual one-time custom-range import (Tandem cloud download).
+
+    Bounds: ``end`` after ``start``; ``end`` not in the future; span capped
+    at ``MAX_IMPORT_RANGE_DAYS`` so a single synchronous import completes
+    before the HTTP proxy times out.
+    """
+
+    start_date: datetime = Field(..., description="Start of the range to import")
+    end_date: datetime = Field(..., description="End of the range to import")
+
+    @model_validator(mode="after")
+    def _validate_range(self) -> "TandemImportRequest":
+        # Normalize to UTC and persist back onto the model: a naive input is
+        # assumed UTC, an offset-aware input is converted. Downstream code
+        # formats these as %Y-%m-%d, so without normalization an offset-aware
+        # value would format in its original tz and shift the requested day.
+        start = (
+            self.start_date.replace(tzinfo=UTC)
+            if self.start_date.tzinfo is None
+            else self.start_date.astimezone(UTC)
+        )
+        end = (
+            self.end_date.replace(tzinfo=UTC)
+            if self.end_date.tzinfo is None
+            else self.end_date.astimezone(UTC)
+        )
+        self.start_date = start
+        self.end_date = end
+        if end <= start:
+            raise ValueError("end_date must be after start_date")
+        if end > datetime.now(UTC) + timedelta(minutes=5):
+            raise ValueError("end_date cannot be in the future")
+        if (end - start) > timedelta(days=MAX_IMPORT_RANGE_DAYS):
+            raise ValueError(f"import range cannot exceed {MAX_IMPORT_RANGE_DAYS} days")
+        return self
+
+
+class TandemSyncSettingsRequest(BaseModel):
+    """Request schema for updating per-user Tandem sync settings.
+
+    ``sync_interval_minutes`` floor of 15 matches the model/DB bound:
+    t:connect refreshes its cloud roughly hourly, so sub-15-min polling
+    cannot surface fresher data.
+    """
+
+    enabled: bool = Field(..., description="Whether scheduled sync runs for this user")
+    sync_interval_minutes: int = Field(
+        default=60,
+        ge=15,
+        le=1440,
+        description="Minutes between scheduled syncs (15-1440)",
+    )
 
 
 class ControlIQActivityResponse(BaseModel):
@@ -272,49 +371,41 @@ class PumpEventPushItem(BaseModel):
         return v
 
 
-class PumpRawEventItem(BaseModel):
-    """A single raw BLE history log record from the pump."""
-
-    sequence_number: int = Field(..., ge=0, description="Pump event sequence index")
-    raw_bytes_b64: str = Field(
-        ...,
-        min_length=1,
-        max_length=100,
-        description="Base64-encoded raw BLE bytes (18-byte record)",
-    )
-    event_type_id: int = Field(..., ge=0, description="Pump event type ID")
-    pump_time_seconds: int = Field(..., ge=0, description="Pump internal timestamp")
-
-
-class PumpHardwareInfoSchema(BaseModel):
-    """Hardware identification from the Tandem pump."""
-
-    serial_number: int = Field(..., gt=0)
-    model_number: int = Field(..., gt=0)
-    part_number: int = Field(..., gt=0)
-    pump_rev: str = Field(..., max_length=50)
-    arm_sw_ver: int = Field(..., ge=0)
-    msp_sw_ver: int = Field(..., ge=0)
-    config_a_bits: int = Field(..., ge=0)
-    config_b_bits: int = Field(..., ge=0)
-    pcba_sn: int = Field(..., ge=0)
-    pcba_rev: str = Field(..., max_length=50)
-    pump_features: dict = Field(
-        default_factory=dict, description="Feature flags (dexcomG5, controlIQ, etc.)"
-    )
-
-
 class PumpPushRequest(BaseModel):
-    """Batch of pump events pushed from a mobile client."""
+    """Batch of pump events pushed from a mobile client.
+
+    ``raw_events`` and ``pump_info`` are kept for backward compatibility
+    with mobile clients built before the Tandem cloud-upload feature was
+    removed (PR1c). Newer servers accept the fields but no longer persist
+    them; older mobile builds that send them are not broken.
+
+    The legacy fields are typed loosely on purpose: an older mobile build
+    whose ``raw_events`` shape has drifted slightly (e.g. an extra field,
+    a renamed key) should *not* take down its real ``events`` batch with
+    a 422. Since the server discards these payloads, validating them adds
+    risk without any safety benefit.
+    """
 
     events: list[PumpEventPushItem] = Field(
         ..., min_length=1, max_length=100, description="Pump events to push (1-100)"
     )
-    raw_events: list[PumpRawEventItem] | None = Field(
-        default=None, max_length=500, description="Raw BLE bytes for Tandem upload"
+    raw_events: Any = Field(
+        default=None,
+        description=(
+            "Deprecated and ignored. Previously: raw BLE bytes used by the "
+            "Tandem cloud-upload feature, which was removed (PR1c). Loose-typed "
+            "(any JSON shape accepted) so an older client with a drifted shape "
+            "does not lose its real ``events`` batch to a 422."
+        ),
     )
-    pump_info: PumpHardwareInfoSchema | None = Field(
-        default=None, description="Pump hardware identification"
+    pump_info: Any = Field(
+        default=None,
+        description=(
+            "Deprecated and ignored. Previously: pump hardware identification "
+            "used by the Tandem cloud-upload feature, which was removed (PR1c). "
+            "Loose-typed (any JSON shape accepted) so an older client with a "
+            "drifted shape does not lose its real ``events`` batch to a 422."
+        ),
     )
     source: str = Field(default="mobile", max_length=50)
 
@@ -325,71 +416,17 @@ class PumpPushResponse(BaseModel):
     accepted: int = Field(..., description="Number of new events stored")
     duplicates: int = Field(..., description="Number of duplicate events skipped")
     raw_accepted: int = Field(
-        default=0, description="Number of raw events stored for Tandem upload"
-    )
-    raw_duplicates: int = Field(
-        default=0, description="Number of duplicate raw events skipped"
-    )
-
-
-# ============================================================================
-# Story 16.6: Tandem Cloud Upload Schemas
-# ============================================================================
-
-
-class TandemUploadStatusResponse(BaseModel):
-    """Status of Tandem cloud upload for the current user."""
-
-    enabled: bool
-    upload_interval_minutes: int
-    last_upload_at: datetime | None = None
-    last_upload_status: str | None = None
-    last_error: str | None = None
-    max_event_index_uploaded: int = 0
-    pending_raw_events: int = 0
-    country: str | None = Field(
-        default=None,
-        description="ISO-3166-1 alpha-2 country code currently configured for Tandem uploads.",
-    )
-    needs_country_reselect: bool = Field(
-        default=False,
+        default=0,
         description=(
-            "True when the stored Tandem region is a legacy value (e.g. 'EU') "
-            "that can no longer be resolved to a country. The user must "
-            "re-select their country before uploads can resume."
+            "Always 0. Kept for backward compatibility; raw events are no "
+            "longer persisted (the consuming Tandem cloud-upload feature "
+            "was removed)."
         ),
     )
-
-
-class TandemUploadSettingsRequest(BaseModel):
-    """Request to update Tandem cloud upload settings."""
-
-    enabled: bool
-    interval_minutes: int = Field(
-        default=15, description="Upload interval in minutes (5, 10, or 15)"
+    raw_duplicates: int = Field(
+        default=0,
+        description="Always 0. Kept for backward compatibility (see raw_accepted).",
     )
-
-    @field_validator("interval_minutes")
-    @classmethod
-    def validate_interval(cls, v: int) -> int:
-        if v not in (5, 10, 15):
-            raise ValueError("interval_minutes must be 5, 10, or 15")
-        return v
-
-
-class TandemUploadTriggerResponse(BaseModel):
-    """Response after triggering a manual Tandem upload."""
-
-    message: str
-    events_uploaded: int = 0
-    status: str = "pending"
-
-
-class TandemUploadResetResponse(BaseModel):
-    """Response after resetting the Tandem upload high-water mark."""
-
-    message: str
-    events_requeued: int = 0
 
 
 # --- Story 30.1: Aggregate stats schemas ---

@@ -2,11 +2,12 @@
 and pump profile sync."""
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 
 from src.config import settings
 from src.main import app
@@ -1457,3 +1458,620 @@ class TestSyncTandemProfilesIntegration:
         data = response.json()
         assert data["events_stored"] == 1
         assert data["profiles_stored"] == 0
+
+
+# ============================================================================
+# Per-user Tandem sync control (toggle + interval) + scheduler due-checking
+# ============================================================================
+
+
+async def _register_login_connect_tandem(
+    client: AsyncClient,
+    email: str,
+    *,
+    password: str = "SecurePass123",
+    country: str = "US",
+) -> str:
+    """Register + login + connect Tandem. Returns the session cookie.
+
+    Caller MUST have ``validate_tandem_credentials`` patched to succeed.
+    """
+    await client.post("/api/auth/register", json={"email": email, "password": password})
+    login = await client.post(
+        "/api/auth/login", json={"email": email, "password": password}
+    )
+    cookie = login.cookies.get(settings.jwt_cookie_name)
+    assert cookie
+    resp = await client.post(
+        "/api/integrations/tandem",
+        json={"username": "t@example.com", "password": "pw", "country": country},
+        cookies={settings.jwt_cookie_name: cookie},
+    )
+    assert resp.status_code == 201, resp.text
+    return cookie
+
+
+class TestTandemSyncPerUserControl:
+    """The per-user sync toggle + interval surfaced on /tandem/sync/*."""
+
+    @patch("src.routers.integrations.validate_tandem_credentials")
+    async def test_status_defaults_when_no_state_row(self, mock_validate):
+        """A connected user with no state row defaults to enabled@60 --
+        the backward-compatible default (everyone was synced before)."""
+        mock_validate.return_value = (True, None)
+        email = unique_email("tsync_default")
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie = await _register_login_connect_tandem(client, email)
+            resp = await client.get(
+                "/api/integrations/tandem/sync/status",
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["enabled"] is True
+        assert data["sync_interval_minutes"] == 60
+        assert data["events_pulled_total"] == 0
+        assert data["needs_country_reselect"] is False
+
+    @patch("src.routers.integrations.validate_tandem_credentials")
+    async def test_settings_upsert_persists(self, mock_validate):
+        """PUT settings creates the row and round-trips through status."""
+        mock_validate.return_value = (True, None)
+        email = unique_email("tsync_persist")
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie = await _register_login_connect_tandem(client, email)
+            put = await client.put(
+                "/api/integrations/tandem/sync/settings",
+                json={"enabled": False, "sync_interval_minutes": 120},
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+            assert put.status_code == 200, put.text
+            assert put.json()["enabled"] is False
+            assert put.json()["sync_interval_minutes"] == 120
+
+            # Re-enable with a different interval.
+            put2 = await client.put(
+                "/api/integrations/tandem/sync/settings",
+                json={"enabled": True, "sync_interval_minutes": 30},
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+            assert put2.status_code == 200, put2.text
+
+            status = await client.get(
+                "/api/integrations/tandem/sync/status",
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        data = status.json()
+        assert data["enabled"] is True
+        assert data["sync_interval_minutes"] == 30
+
+    @patch("src.routers.integrations.validate_tandem_credentials")
+    async def test_settings_interval_bounds(self, mock_validate):
+        """Interval is bounded to [15, 1440]; out-of-range -> 422."""
+        mock_validate.return_value = (True, None)
+        email = unique_email("tsync_bounds")
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie = await _register_login_connect_tandem(client, email)
+
+            async def _put(interval: int) -> int:
+                r = await client.put(
+                    "/api/integrations/tandem/sync/settings",
+                    json={"enabled": True, "sync_interval_minutes": interval},
+                    cookies={settings.jwt_cookie_name: cookie},
+                )
+                return r.status_code
+
+            assert await _put(15) == 200
+            assert await _put(1440) == 200
+            assert await _put(60) == 200
+            assert await _put(14) == 422
+            assert await _put(1441) == 422
+            assert await _put(0) == 422
+
+    async def test_settings_404_when_not_configured(self):
+        """PUT settings with no Tandem integration -> 404."""
+        email = unique_email("tsync_nocfg")
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            await client.post(
+                "/api/auth/register",
+                json={"email": email, "password": "SecurePass123"},
+            )
+            login = await client.post(
+                "/api/auth/login",
+                json={"email": email, "password": "SecurePass123"},
+            )
+            cookie = login.cookies.get(settings.jwt_cookie_name)
+            resp = await client.put(
+                "/api/integrations/tandem/sync/settings",
+                json={"enabled": True, "sync_interval_minutes": 60},
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 404, resp.text
+
+    @patch("src.routers.integrations.validate_tandem_credentials")
+    async def test_settings_409_legacy_region(self, mock_validate):
+        """A legacy 'EU' region credential blocks enabling sync with 409
+        until the user reconnects with a country -- mirrors the sync 409."""
+        mock_validate.return_value = (True, None)
+        email = unique_email("tsync_legacy")
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie = await _register_login_connect_tandem(client, email)
+
+            # Force the stored region to the legacy bucket label.
+            from sqlalchemy import update
+
+            from src.database import get_session_maker
+            from src.models.integration import (
+                IntegrationCredential,
+                IntegrationType,
+            )
+            from src.models.user import User
+
+            async with get_session_maker()() as db:
+                user_id = (
+                    await db.execute(select(User.id).where(User.email == email))
+                ).scalar_one()
+                await db.execute(
+                    update(IntegrationCredential)
+                    .where(
+                        IntegrationCredential.user_id == user_id,
+                        IntegrationCredential.integration_type
+                        == IntegrationType.TANDEM,
+                    )
+                    .values(region="EU")
+                )
+                await db.commit()
+
+            # ENABLING on a legacy region is blocked with 409.
+            resp = await client.put(
+                "/api/integrations/tandem/sync/settings",
+                json={"enabled": True, "sync_interval_minutes": 60},
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+            assert resp.status_code == 409, resp.text
+
+            # DISABLING must still be allowed even on a legacy region -- a
+            # user has to be able to turn sync off without reconnecting.
+            off = await client.put(
+                "/api/integrations/tandem/sync/settings",
+                json={"enabled": False, "sync_interval_minutes": 60},
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+            assert off.status_code == 200, off.text
+            assert off.json()["enabled"] is False
+            assert off.json()["needs_country_reselect"] is True
+
+            # Status surfaces the needs_country_reselect flag.
+            status = await client.get(
+                "/api/integrations/tandem/sync/status",
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert status.json()["needs_country_reselect"] is True
+
+    @pytest.mark.parametrize(
+        "country",
+        [
+            "US",  # US cloud
+            "CA",  # US cloud
+            "MX",  # US cloud
+            "GB",  # EU cloud
+            "DE",  # EU cloud
+            "AU",  # EU cloud
+            "IL",  # EU cloud
+        ],
+    )
+    @patch("src.routers.integrations.validate_tandem_credentials")
+    async def test_per_user_control_works_across_regions(self, mock_validate, country):
+        """The per-user sync control is region-agnostic: every valid country
+        (both Tandem cloud clusters) gets working status + settings, and a
+        valid country must NEVER trip the legacy needs_country_reselect flag
+        (that is reserved for the old 'EU'/'US' bucket labels)."""
+        mock_validate.return_value = (True, None)
+        email = unique_email(f"tsync_region_{country.lower()}")
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie = await _register_login_connect_tandem(
+                client, email, country=country
+            )
+            status = await client.get(
+                "/api/integrations/tandem/sync/status",
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+            assert status.status_code == 200, status.text
+            data = status.json()
+            # Default control applies regardless of region.
+            assert data["enabled"] is True
+            assert data["sync_interval_minutes"] == 60
+            # A valid ISO country is NOT a legacy bucket label.
+            assert data["needs_country_reselect"] is False
+
+            # Settings update succeeds (no legacy-region 409) for every region.
+            put = await client.put(
+                "/api/integrations/tandem/sync/settings",
+                json={"enabled": True, "sync_interval_minutes": 90},
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+            assert put.status_code == 200, put.text
+            assert put.json()["sync_interval_minutes"] == 90
+
+
+class TestTandemSyncSchedulerDueLogic:
+    """The scheduler's per-user due-check + enabled gating."""
+
+    def test_is_due(self):
+        from src.services.scheduler import _tandem_is_due
+
+        now = datetime.now(UTC)
+        assert _tandem_is_due(None, 60, now=now) is True  # never synced
+        assert _tandem_is_due(now - timedelta(minutes=30), 60, now=now) is False
+        assert _tandem_is_due(now - timedelta(minutes=90), 60, now=now) is True
+        # Naive timestamp is treated as UTC, not crashed on.
+        assert (
+            _tandem_is_due(
+                (now - timedelta(minutes=90)).replace(tzinfo=None), 60, now=now
+            )
+            is True
+        )
+
+    @patch("src.services.scheduler.sync_tandem_for_user")
+    async def test_tick_honors_enabled_and_due(self, mock_sync):
+        """Scheduler tick behavior:
+        - no state row -> enabled@default -> synced (backward compat);
+        - explicitly disabled -> skipped;
+        - enabled but synced recently (last_sync_at) -> skipped;
+        - ERROR-status user with a RECENT last_attempt_at -> skipped (the
+          retry-amplification fix: failing users pace by attempt, not by the
+          success-only last_sync_at, so they aren't hammered every tick).
+        Also verifies the attempt is recorded: the no-row user gets a state
+        row auto-created with last_attempt_at stamped + events_pulled_total
+        bumped."""
+
+        from src.core.security import hash_password
+        from src.database import get_session_maker
+        from src.models.integration import (
+            IntegrationCredential,
+            IntegrationStatus,
+            IntegrationType,
+        )
+        from src.models.tandem_sync_state import TandemSyncState
+        from src.models.user import User, UserRole
+        from src.services.scheduler import sync_all_tandem_users
+
+        mock_sync.return_value = {"events_fetched": 7, "events_stored": 5}
+
+        now = datetime.now(UTC)
+        ids: dict[str, uuid.UUID] = {}
+        async with get_session_maker()() as db:
+            for key, status_, last_sync, state_kwargs in [
+                # no state row -> enabled@default -> due
+                ("norow", IntegrationStatus.CONNECTED, None, None),
+                # opted out -> skip
+                ("disabled", IntegrationStatus.CONNECTED, None, {"enabled": False}),
+                # just synced -> skip
+                (
+                    "notdue",
+                    IntegrationStatus.CONNECTED,
+                    now,
+                    {"enabled": True, "sync_interval_minutes": 60},
+                ),
+                # ERROR with a recent ATTEMPT -> skip (never succeeded, so
+                # last_sync_at is None; pre-fix this would sync every tick).
+                (
+                    "errored_recent",
+                    IntegrationStatus.ERROR,
+                    None,
+                    {
+                        "enabled": True,
+                        "sync_interval_minutes": 60,
+                        "last_attempt_at": now,
+                    },
+                ),
+            ]:
+                user = User(
+                    email=unique_email(f"tsched_{key}"),
+                    hashed_password=hash_password("SecurePass123"),
+                    role=UserRole.DIABETIC,
+                )
+                db.add(user)
+                await db.flush()
+                ids[key] = user.id
+                db.add(
+                    IntegrationCredential(
+                        user_id=user.id,
+                        integration_type=IntegrationType.TANDEM,
+                        encrypted_username="x",
+                        encrypted_password="x",
+                        region="US",
+                        status=status_,
+                        last_sync_at=last_sync,
+                    )
+                )
+                if state_kwargs is not None:
+                    db.add(TandemSyncState(user_id=user.id, **state_kwargs))
+            await db.commit()
+
+        await sync_all_tandem_users()
+
+        synced_ids = {call.args[1] for call in mock_sync.await_args_list}
+        # Robust against other users polluting the shared dev DB: assert
+        # membership for OUR seeded users, not exact counts.
+        assert ids["norow"] in synced_ids, "no-row user must sync (backward compat)"
+        assert ids["disabled"] not in synced_ids, "disabled user must be skipped"
+        assert ids["notdue"] not in synced_ids, "not-due user must be skipped"
+        assert ids["errored_recent"] not in synced_ids, (
+            "ERROR user with a recent attempt must NOT be re-synced every tick"
+        )
+
+        # The no-row user's attempt was recorded: a row now exists with
+        # last_attempt_at stamped and events_pulled_total bumped by the 5
+        # events the mock reported stored.
+        async with get_session_maker()() as db:
+            row = (
+                await db.execute(
+                    select(TandemSyncState).where(
+                        TandemSyncState.user_id == ids["norow"]
+                    )
+                )
+            ).scalar_one()
+            assert row.last_attempt_at is not None
+            assert row.events_pulled_total == 5
+
+
+class TestTandemSyncAvailability:
+    """GET /tandem/sync/availability reports the cloud's data date range."""
+
+    @patch("src.services.tandem_sync.TandemSourceApi")
+    @patch("src.routers.integrations.validate_tandem_credentials")
+    async def test_availability_returns_range_ignoring_bogus_max(
+        self, mock_validate, mock_api_class
+    ):
+        """earliest = minDateWithEvents, latest = lastUpload.lastUploadedAt.
+        The bogus far-future maxDateWithEvents (2066) must be ignored."""
+        mock_validate.return_value = (True, None)
+        mock_api = MagicMock()
+        mock_api.pump_event_metadata.return_value = [
+            {
+                "tconnectDeviceId": 945039,
+                "minDateWithEvents": "2018-07-18T22:35:14",
+                "maxDateWithEvents": "2066-05-24T04:59:14",  # bogus -> ignore
+                "lastUpload": {"lastUploadedAt": "2026-04-15T01:35:01.687"},
+            }
+        ]
+        mock_api_class.return_value = mock_api
+
+        email = unique_email("tsync_avail")
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie = await _register_login_connect_tandem(client, email)
+            resp = await client.get(
+                "/api/integrations/tandem/sync/availability",
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 200, resp.text
+        d = resp.json()
+        assert d["pump_count"] == 1
+        assert d["earliest"].startswith("2018-07-18")
+        # latest is the last-upload date, NOT the bogus 2066 maxDateWithEvents.
+        assert d["latest"].startswith("2026-04-15")
+        assert "2066" not in (d["latest"] or "")
+
+    async def test_availability_404_when_not_configured(self):
+        email = unique_email("tsync_avail_nocfg")
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            await client.post(
+                "/api/auth/register",
+                json={"email": email, "password": "SecurePass123"},
+            )
+            login = await client.post(
+                "/api/auth/login",
+                json={"email": email, "password": "SecurePass123"},
+            )
+            cookie = login.cookies.get(settings.jwt_cookie_name)
+            resp = await client.get(
+                "/api/integrations/tandem/sync/availability",
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 404, resp.text
+
+
+class TestTandemImport:
+    """POST /tandem/sync/import: one-time manual custom-range pull."""
+
+    @patch("src.services.tandem_sync.fetch_with_retry")
+    @patch("src.services.tandem_sync.TandemSourceApi")
+    @patch("src.routers.integrations.validate_tandem_credentials")
+    async def test_import_uses_explicit_range(
+        self, mock_validate, mock_api_class, mock_fetch
+    ):
+        """The import passes the user's explicit start/end through to the
+        fetch (NOT a now-anchored window), and stores what comes back."""
+        mock_validate.return_value = (True, None)
+        mock_api_class.return_value = MagicMock()
+        mock_fetch.return_value = (
+            [
+                {
+                    "type": "bolus",
+                    "timestamp": "2026-04-10T12:00:00+00:00",
+                    "units": 2.0,
+                }
+            ],
+            None,
+        )
+        email = unique_email("tsync_import")
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie = await _register_login_connect_tandem(client, email)
+            resp = await client.post(
+                "/api/integrations/tandem/sync/import",
+                json={
+                    "start_date": "2026-04-01T00:00:00+00:00",
+                    "end_date": "2026-04-16T00:00:00+00:00",
+                },
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["events_stored"] == 1
+        # fetch_with_retry(api, start_date, end_date) -- verify the explicit
+        # range reached it (run via asyncio.to_thread, so use call_args).
+        assert mock_fetch.call_args is not None
+        _api, start_arg, end_arg = mock_fetch.call_args.args[:3]
+        assert start_arg.date().isoformat() == "2026-04-01"
+        assert end_arg.date().isoformat() == "2026-04-16"
+
+    @pytest.mark.parametrize(
+        "start,end",
+        [
+            # end before start
+            ("2026-04-16T00:00:00+00:00", "2026-04-01T00:00:00+00:00"),
+            # end in the far future
+            ("2026-04-01T00:00:00+00:00", "2099-01-01T00:00:00+00:00"),
+            # span just over the 31-day cap (35 days)
+            ("2026-03-01T00:00:00+00:00", "2026-04-05T00:00:00+00:00"),
+            # span far over the cap
+            ("2024-01-01T00:00:00+00:00", "2025-06-01T00:00:00+00:00"),
+        ],
+    )
+    async def test_import_rejects_bad_range_422(self, start, end):
+        email = unique_email("tsync_import_bad")
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            await client.post(
+                "/api/auth/register",
+                json={"email": email, "password": "SecurePass123"},
+            )
+            login = await client.post(
+                "/api/auth/login",
+                json={"email": email, "password": "SecurePass123"},
+            )
+            cookie = login.cookies.get(settings.jwt_cookie_name)
+            resp = await client.post(
+                "/api/integrations/tandem/sync/import",
+                json={"start_date": start, "end_date": end},
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 422, resp.text
+
+    async def test_import_404_when_not_configured(self):
+        email = unique_email("tsync_import_nocfg")
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            await client.post(
+                "/api/auth/register",
+                json={"email": email, "password": "SecurePass123"},
+            )
+            login = await client.post(
+                "/api/auth/login",
+                json={"email": email, "password": "SecurePass123"},
+            )
+            cookie = login.cookies.get(settings.jwt_cookie_name)
+            resp = await client.post(
+                "/api/integrations/tandem/sync/import",
+                json={
+                    "start_date": "2026-04-01T00:00:00+00:00",
+                    "end_date": "2026-04-16T00:00:00+00:00",
+                },
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 404, resp.text
+
+
+class TestTandemImportSideEffects:
+    """Side-effect correctness of manual import (adversarial fixes)."""
+
+    async def test_sync_rejects_half_set_range(self):
+        """A lone start_date/end_date is a programming error -- reject it
+        rather than silently fall back to hours_back."""
+        from datetime import UTC, datetime
+
+        from src.database import get_session_maker
+        from src.services.tandem_sync import TandemSyncError, sync_tandem_for_user
+
+        async with get_session_maker()() as db:
+            with pytest.raises(TandemSyncError, match="together"):
+                await sync_tandem_for_user(
+                    db, uuid.uuid4(), start_date=datetime.now(UTC)
+                )
+
+    @patch("src.services.tandem_sync.fetch_with_retry")
+    @patch("src.services.tandem_sync.TandemSourceApi")
+    @patch("src.routers.integrations.validate_tandem_credentials")
+    async def test_import_does_not_advance_last_sync_and_counts(
+        self, mock_validate, mock_api_class, mock_fetch
+    ):
+        """A manual (often historical) import must NOT advance the credential's
+        last_sync_at (that would mislead "Last sync" + suppress the next
+        scheduled recent pull), but SHOULD count toward events_pulled_total."""
+        from sqlalchemy import select as _select
+
+        from src.database import get_session_maker
+        from src.models.integration import IntegrationCredential, IntegrationType
+        from src.models.tandem_sync_state import TandemSyncState
+        from src.models.user import User
+
+        mock_validate.return_value = (True, None)
+        mock_api_class.return_value = MagicMock()
+        mock_fetch.return_value = (
+            [
+                {
+                    "type": "bolus",
+                    "timestamp": "2026-04-10T12:00:00+00:00",
+                    "units": 2.0,
+                }
+            ],
+            None,
+        )
+        email = unique_email("tsync_import_fx")
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie = await _register_login_connect_tandem(client, email)
+            resp = await client.post(
+                "/api/integrations/tandem/sync/import",
+                json={
+                    "start_date": "2026-04-01T00:00:00+00:00",
+                    "end_date": "2026-04-16T00:00:00+00:00",
+                },
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["events_stored"] == 1
+
+        async with get_session_maker()() as db:
+            user_id = (
+                await db.execute(_select(User.id).where(User.email == email))
+            ).scalar_one()
+            cred = (
+                await db.execute(
+                    _select(IntegrationCredential).where(
+                        IntegrationCredential.user_id == user_id,
+                        IntegrationCredential.integration_type
+                        == IntegrationType.TANDEM,
+                    )
+                )
+            ).scalar_one()
+            # HIGH fix: historical import did not advance the recency cursor.
+            assert cred.last_sync_at is None
+            # #4 fix: imported events counted toward the cumulative total.
+            state = (
+                await db.execute(
+                    _select(TandemSyncState).where(TandemSyncState.user_id == user_id)
+                )
+            ).scalar_one_or_none()
+            assert state is not None and state.events_pulled_total == 1

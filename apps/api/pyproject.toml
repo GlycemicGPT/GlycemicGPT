@@ -6,6 +6,10 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.109.0",
+    # Security floor: starlette is transitive via fastapi (which allows the
+    # 1.x line). 1.0.0 is vulnerable to PYSEC-2026-161 (fixed in 1.0.1); we
+    # floor at the fix and let uv take the latest compatible release.
+    "starlette>=1.0.1",
     "uvicorn[standard]>=0.27.0",
     "pydantic[email]>=2.6.0",
     "pydantic-settings>=2.1.0",
@@ -33,6 +37,7 @@ dependencies = [
     "fastembed>=0.4.0,<1.0",
     "pgvector>=0.3.0",
     "beautifulsoup4>=4.12.0",
+    "sentry-sdk[fastapi]>=2.35.0",
 ]
 
 [project.optional-dependencies]
@@ -51,6 +56,14 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
+
+[tool.uv]
+# Force the transitive pyjwt (pulled in by tconnectsync) to a patched release.
+# pyjwt 2.12.1 is flagged by PYSEC-2026-175/177/178/179 (fixed in 2.13.0); tconnectsync
+# requires pyjwt with no upper bound, so this constraint just lifts the resolved version
+# without changing our direct dependencies. We do not import pyjwt directly -- our own JWTs
+# use python-jose[cryptography] with HS256.
+constraint-dependencies = ["pyjwt>=2.13.0"]
 
 [tool.ruff]
 target-version = "py312"

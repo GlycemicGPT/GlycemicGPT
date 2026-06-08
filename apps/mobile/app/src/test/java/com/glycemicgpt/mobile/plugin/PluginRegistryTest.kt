@@ -64,7 +64,10 @@ class PluginRegistryTest {
         }
     }
 
-    private fun createRegistry(factories: Set<PluginFactory>): PluginRegistry =
+    private fun createRegistry(
+        factories: Set<PluginFactory>,
+        featureGate: PluginFeatureGate = PluginFeatureGate { true },
+    ): PluginRegistry =
         PluginRegistry(
             factories = factories,
             preferences = preferences,
@@ -73,6 +76,7 @@ class PluginRegistryTest {
             credentialProvider = credentialProvider,
             debugLogger = debugLogger,
             safetyLimitsStore = safetyLimitsStore,
+            featureGate = featureGate,
         )
 
     @Before
@@ -98,6 +102,26 @@ class PluginRegistryTest {
         verify { plugin.initialize(any()) }
         assertEquals(1, registry.availablePlugins.value.size)
         assertEquals("test.plugin.1", registry.availablePlugins.value[0].id)
+    }
+
+    @Test
+    fun `feature gate disabled plugin is never created and stays invisible`() {
+        val enabled = createFactory(createPlugin("test.enabled"))
+        val disabled = createFactory(createPlugin("test.disabled"))
+        val registry = createRegistry(
+            factories = setOf(enabled, disabled),
+            featureGate = PluginFeatureGate { it != "test.disabled" },
+        )
+
+        registry.initialize()
+
+        // The disabled plugin is never instantiated...
+        verify(exactly = 1) { enabled.create(any()) }
+        verify(exactly = 0) { disabled.create(any()) }
+        // ...and is absent from Available Plugins, so it cannot be selected or activated.
+        val ids = registry.availablePlugins.value.map { it.id }
+        assertEquals(listOf("test.enabled"), ids)
+        assertTrue(registry.activatePlugin("test.disabled").isFailure)
     }
 
     @Test
@@ -166,6 +190,57 @@ class PluginRegistryTest {
         assertTrue(result.isSuccess)
         verify { oldPlugin.onDeactivated() }
         verify { newPlugin.onActivated() }
+    }
+
+    @Test
+    fun `activating Medtronic excludes an active Tandem across all single-instance capabilities`() {
+        // AC5: a pump driver declares GLUCOSE_SOURCE / INSULIN_SOURCE / PUMP_STATUS -- all single-instance
+        // -- so activating Medtronic must evict an already-active Tandem from every one of those slots.
+        val singleInstanceCaps = setOf(
+            PluginCapability.GLUCOSE_SOURCE,
+            PluginCapability.INSULIN_SOURCE,
+            PluginCapability.PUMP_STATUS,
+        )
+        val tandem: DevicePlugin = mockk(relaxed = true) {
+            every { metadata } returns PluginMetadata(
+                id = "com.glycemicgpt.tandem",
+                name = "Tandem",
+                version = "1.0.0",
+                apiVersion = PLUGIN_API_VERSION,
+            )
+            every { capabilities } returns singleInstanceCaps
+        }
+        val medtronic: DevicePlugin = mockk(relaxed = true) {
+            every { metadata } returns PluginMetadata(
+                id = "com.glycemicgpt.medtronic",
+                name = "Medtronic",
+                version = "1.0.0",
+                apiVersion = PLUGIN_API_VERSION,
+            )
+            every { capabilities } returns singleInstanceCaps
+        }
+        val registry = createRegistry(setOf(createFactory(tandem), createFactory(medtronic)))
+        registry.initialize()
+
+        registry.activatePlugin("com.glycemicgpt.tandem")
+        // Tandem now owns every single-instance slot.
+        every { preferences.getActivePluginId(any()) } returns "com.glycemicgpt.tandem"
+
+        val result = registry.activatePlugin("com.glycemicgpt.medtronic")
+
+        assertTrue(result.isSuccess)
+        verify { tandem.onDeactivated() }
+        verify { medtronic.onActivated() }
+        // The single-instance ownership bookkeeping moved from Tandem to Medtronic for every slot:
+        // Medtronic claims each capability and Tandem's is cleared.
+        for (cap in singleInstanceCaps) {
+            verify { preferences.setActivePluginId(cap, "com.glycemicgpt.medtronic") }
+            verify { preferences.clearActivePlugin(cap) }
+        }
+        // Exactly one pump is active, and Medtronic occupies the pump + glucose slots.
+        assertEquals(1, registry.allActivePlugins.value.size)
+        assertEquals("com.glycemicgpt.medtronic", registry.activePumpPlugin.value?.metadata?.id)
+        assertEquals("com.glycemicgpt.medtronic", registry.activeGlucoseSource.value?.metadata?.id)
     }
 
     @Test
@@ -254,6 +329,7 @@ class PluginRegistryTest {
             credentialProvider = credentialProvider,
             debugLogger = debugLogger,
             safetyLimitsStore = localStore,
+            featureGate = PluginFeatureGate { true },
         )
         registry.initialize()
 

@@ -3,6 +3,36 @@ ARG VERSION=0.0.0
 ARG BUILD_DATE=unknown
 ARG GIT_SHA=unknown
 
+# -----------------------------------------------------------------------------
+# Medtronic Connect desktop-helper builder
+#
+# Cross-compiles the small Go binary (tools/connect-helper/) for the major
+# desktop targets and bakes them into this image at /app/connect-helper-dist/.
+# The runtime API serves them, gated by the user's short-lived pair token, so
+# each self-hosted instance ships its own helper binary; no external CDN.
+#
+# The source is brought in via an "additional build context" (see
+# docker-compose.yml -> api.build.additional_contexts.helper-src). Requires a
+# modern docker buildx (>=v0.34 has it; compose v2.17+ wires it through).
+# -----------------------------------------------------------------------------
+FROM golang:1.26 AS connect-helper-builder
+ENV GOTOOLCHAIN=auto \
+    CGO_ENABLED=0 \
+    GOFLAGS=-buildvcs=false
+WORKDIR /src
+COPY --from=helper-src go.mod go.sum ./
+RUN go mod download
+COPY --from=helper-src . .
+RUN set -eu; \
+    for tgt in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do \
+      os="${tgt%/*}"; arch="${tgt#*/}"; \
+      ext=""; [ "$os" = windows ] && ext=".exe"; \
+      mkdir -p "/out/$os/$arch"; \
+      GOOS="$os" GOARCH="$arch" \
+        go build -trimpath -ldflags="-s -w" \
+                 -o "/out/$os/$arch/glycemicgpt-connect$ext" .; \
+    done
+
 FROM python:3.14-slim
 
 # Labels
@@ -13,6 +43,12 @@ LABEL org.opencontainers.image.created="${BUILD_DATE}"
 LABEL org.opencontainers.image.revision="${GIT_SHA}"
 LABEL org.opencontainers.image.source="https://github.com/GlycemicGPT/GlycemicGPT"
 LABEL org.opencontainers.image.licenses="MIT"
+
+# Surface the build commit to the runtime so Sentry can tag the release.
+# No-op in the app when unset/"unknown" (e.g. local builds). See
+# src/observability.py and PRIVACY.md.
+ARG GIT_SHA=unknown
+ENV GLYCEMICGPT_SENTRY_RELEASE=${GIT_SHA}
 
 WORKDIR /app
 
@@ -58,6 +94,11 @@ RUN mkdir -p src/static/swagger-ui src/static/redoc && \
 COPY migrations/ ./migrations/
 COPY alembic.ini ./
 COPY scripts/ ./scripts/
+
+# Medtronic Connect desktop-helper binaries (one per OS/arch). Served at runtime
+# by /api/integrations/medtronic/connect/helper-binary, gated by the user's
+# active pair token. ~40MB total for 5 platforms.
+COPY --from=connect-helper-builder /out /app/connect-helper-dist
 # Bootstrap knowledge content for the RAG system. Copied as a directory so
 # any markdown added under apps/api/knowledge/ ships with the image and is
 # picked up by seed_knowledge_base() at startup.
@@ -65,6 +106,16 @@ COPY knowledge/ ./knowledge/
 
 # Make start script executable
 RUN chmod +x ./scripts/start.sh
+
+# Drop root for the runtime. Dependencies are installed system-wide (/usr/local,
+# world-readable) above as root; the only path the app writes at runtime is the
+# embedding cache, so pre-create it and hand /app to the non-root user. The
+# embedding_cache named volume mounts at /app/.cache/fastembed and inherits this
+# directory's ownership on first creation, so the model download stays writable.
+RUN useradd --create-home --uid 10001 appuser \
+    && mkdir -p /app/.cache/fastembed \
+    && chown -R appuser:appuser /app
+USER appuser
 
 # Expose port
 EXPOSE 8000
