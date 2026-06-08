@@ -89,10 +89,12 @@ def upgrade() -> None:
 
     seen: set[tuple] = set()
     pending: list[dict] = []
-    # stream_results bounds client-side memory to the server cursor rather
-    # than materializing every insulin-bearing row; the `seen` set and the
-    # batched writes are the only unbounded buffers, both modest.
-    result = bind.execution_options(stream_results=True).execute(select_stmt)
+    # Buffer the rows client-side (no server-side cursor): the backfill issues
+    # UPDATE statements on the same connection while iterating, which would
+    # invalidate a streaming portal (asyncpg InvalidCursorNameError). The
+    # result set is bounded by the insulin-bearing pump_events count -- modest
+    # at this stage and consistent with the repo's other data backfills.
+    result = bind.execute(select_stmt).fetchall()
     for row in result:
         h = _dedupe_hash(
             row.user_id,
