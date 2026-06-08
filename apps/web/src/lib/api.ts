@@ -2952,6 +2952,107 @@ export async function getPumpStatus(): Promise<PumpStatusResponse> {
 }
 
 // ============================================================================
+// Forecast (Story 43.12 PR 3 backend, PR 4 frontend)
+// ============================================================================
+//
+// `source` enums mirror the backend Pydantic `Literal` types
+// (apps/api/src/schemas/forecast.py). Keep these unions in sync if the
+// backend's allowed set ever expands -- a frontend that accepts a
+// broader string than the backend emits is a quiet contract bug.
+
+/** Picker preference values, including the picker-only states. */
+export type ForecastSourcePreference =
+  | "auto"
+  | "none"
+  | "loop"
+  | "aaps"
+  | "trio"
+  | "oref0"
+  | "iaps"
+  | "glycemicgpt";
+
+/** Subset that can actually drive a forecast (excludes picker-only states). */
+export type ForecastEngine =
+  | "loop"
+  | "aaps"
+  | "trio"
+  | "oref0"
+  | "iaps"
+  | "glycemicgpt";
+
+/** Why no forecast is rendering. Null = happy path. */
+export type ForecastUnavailableReason =
+  | "opted_out"
+  | "needs_pick"
+  | "no_sources"
+  | "source_silent"
+  | "stale";
+
+/** Mg/dL curves keyed by curve name. Loop populates `main`; OpenAPS
+ * family populates any subset of `IOB`/`COB`/`UAM`/`ZT`. */
+export interface ForecastCurves {
+  main?: number[] | null;
+  IOB?: number[] | null;
+  COB?: number[] | null;
+  UAM?: number[] | null;
+  ZT?: number[] | null;
+}
+
+export interface ForecastPayload {
+  source_engine: ForecastEngine;
+  source_uploader: string | null;
+  /** ISO 8601. When the loop *emitted* the forecast. */
+  issued_at: string;
+  /** ISO 8601. t=0 of the curve. */
+  start_at: string;
+  step_minutes: number;
+  horizon_minutes: number;
+  curves_mgdl: ForecastCurves;
+  default_curve_name: string;
+}
+
+export interface ForecastReadResponse {
+  source_preference: ForecastSourcePreference;
+  effective_source: ForecastEngine | null;
+  available_sources: ForecastEngine[];
+  forecast: ForecastPayload | null;
+  /** Null on the happy path; specific reason when `forecast` is null
+   * so the UI can dispatch the right empty-state message. */
+  forecast_unavailable_reason: ForecastUnavailableReason | null;
+}
+
+export async function getForecast(): Promise<ForecastReadResponse> {
+  const response = await apiFetch(`${API_BASE_URL}/api/integrations/forecast`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to fetch forecast: ${response.status}`
+    );
+  }
+  return response.json();
+}
+
+export async function updateForecastSource(
+  source: ForecastSourcePreference
+): Promise<{ source_preference: ForecastSourcePreference }> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/forecast/source`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source }),
+    }
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to update forecast source: ${response.status}`
+    );
+  }
+  return response.json();
+}
+
+// ============================================================================
 // Safety Limits (Phase 3)
 // ============================================================================
 

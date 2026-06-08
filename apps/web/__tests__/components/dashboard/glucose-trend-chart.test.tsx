@@ -71,6 +71,13 @@ jest.mock("recharts", () => ({
   Scatter: ({ data }: { data: unknown[] }) => (
     <div data-testid="scatter" data-count={data?.length ?? 0} />
   ),
+  Line: ({ data, dataKey }: { data: unknown[]; dataKey: string }) => (
+    <div
+      data-testid="line"
+      data-count={data?.length ?? 0}
+      data-key={dataKey}
+    />
+  ),
   Area: () => <div data-testid="area" />,
   XAxis: () => <div data-testid="x-axis" />,
   YAxis: () => <div data-testid="y-axis" />,
@@ -353,6 +360,105 @@ describe("GlucoseTrendChart", () => {
       expect(screen.getByTestId("glucose-trend-chart")).toHaveClass(
         "custom-class"
       );
+    });
+  });
+
+  // Story 43.12 PR 4: forecast overlay
+  describe("forecast overlay", () => {
+    function makeForecastProp(
+      overrides: Partial<
+        NonNullable<GlucoseTrendChartProps["forecast"]>
+      > = {}
+    ): GlucoseTrendChartProps["forecast"] {
+      return {
+        source_preference: "auto",
+        effective_source: "loop",
+        available_sources: ["loop"],
+        forecast: {
+          source_engine: "loop",
+          source_uploader: "Loop",
+          issued_at: new Date().toISOString(),
+          start_at: new Date().toISOString(),
+          step_minutes: 5,
+          horizon_minutes: 180,
+          curves_mgdl: { main: [120, 125, 130, 135] },
+          default_curve_name: "main",
+        },
+        forecast_unavailable_reason: null,
+        ...overrides,
+      };
+    }
+
+    it("renders the dotted line on 3H when forecast data is present", () => {
+      mockHookReturn.readings = [makeReading(120, 5)];
+      mockHookReturn.period = "3h";
+      renderChart({ forecast: makeForecastProp() });
+
+      const line = screen.queryByTestId("line");
+      expect(line).not.toBeNull();
+      expect(line?.getAttribute("data-key")).toBe("forecast_value");
+    });
+
+    it("renders the dotted line on 6H too", () => {
+      mockHookReturn.readings = [makeReading(120, 5)];
+      mockHookReturn.period = "6h" as typeof mockHookReturn.period;
+      renderChart({ forecast: makeForecastProp() });
+
+      expect(screen.queryByTestId("line")).not.toBeNull();
+    });
+
+    it("hides the dotted line on 24H and longer", () => {
+      mockHookReturn.readings = [makeReading(120, 5)];
+      mockHookReturn.period = "24h" as typeof mockHookReturn.period;
+      renderChart({ forecast: makeForecastProp() });
+
+      expect(screen.queryByTestId("line")).toBeNull();
+    });
+
+    it("hides the dotted line when forecast prop is null", () => {
+      mockHookReturn.readings = [makeReading(120, 5)];
+      mockHookReturn.period = "3h";
+      renderChart({ forecast: null });
+
+      expect(screen.queryByTestId("line")).toBeNull();
+    });
+
+    it("hides the dotted line when forecast payload is missing", () => {
+      mockHookReturn.readings = [makeReading(120, 5)];
+      mockHookReturn.period = "3h";
+      renderChart({
+        forecast: makeForecastProp({
+          forecast: null,
+          forecast_unavailable_reason: "source_silent",
+        }),
+      });
+
+      expect(screen.queryByTestId("line")).toBeNull();
+    });
+
+    it("renders the attribution legend chip when overlay is drawing", () => {
+      mockHookReturn.readings = [makeReading(120, 5)];
+      mockHookReturn.period = "3h";
+      renderChart({ forecast: makeForecastProp() });
+
+      const chip = screen.queryByTestId("forecast-legend-chip");
+      expect(chip).not.toBeNull();
+      expect(chip?.textContent).toContain("Loop");
+    });
+
+    it("renders the unavailable-reason chip when overlay is not drawing", () => {
+      mockHookReturn.readings = [makeReading(120, 5)];
+      mockHookReturn.period = "3h";
+      renderChart({
+        forecast: makeForecastProp({
+          forecast: null,
+          forecast_unavailable_reason: "stale",
+        }),
+      });
+
+      const chip = screen.queryByTestId("forecast-legend-chip");
+      expect(chip).not.toBeNull();
+      expect(chip?.textContent?.toLowerCase()).toContain("30 minutes");
     });
   });
 });
