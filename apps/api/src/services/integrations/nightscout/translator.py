@@ -98,6 +98,7 @@ from src.services.integrations.nightscout.models import (
     NightscoutProfile,
     NightscoutTreatment,
 )
+from src.services.pump_event_dedupe import compute_pump_event_dedupe_hash
 
 logger = get_logger(__name__)
 
@@ -490,6 +491,31 @@ async def _upsert_pump_events(session: AsyncSession, rows: list[dict[str, Any]])
     """
     if not rows:
         return 0
+    for row in rows:
+        # Cross-source dedupe (Story 43.11): a Loop/AAPS treatment relayed
+        # through Nightscout collapses against the same physical bolus
+        # delivered by a direct integration (Tandem cloud, mobile BLE).
+        # The bare ON CONFLICT DO NOTHING below already arbitrates on the
+        # `(user_id, dedupe_hash)` partial unique index.
+        #
+        # Rows that are half of a split meal-bolus pair (they carry a
+        # `meal_event_id` linking the bolus to its sibling carb row) opt
+        # OUT: if the bolus half collapsed against a direct-integration
+        # bolus, the carb half (units=None, never hashed) would survive
+        # with a dangling `meal_event_id` pointing at a row that was never
+        # inserted. Keeping meal-paired boluses out of the cross-source
+        # collapse preserves carb<->insulin pairing; same-source re-import
+        # is still deduped by the `(source, ns_id)` index.
+        if row.get("meal_event_id") is not None:
+            row["dedupe_hash"] = None
+            continue
+        row["dedupe_hash"] = compute_pump_event_dedupe_hash(
+            user_id=row["user_id"],
+            event_type=row["event_type"],
+            event_timestamp=row["event_timestamp"],
+            units=row.get("units"),
+            duration_minutes=row.get("duration_minutes"),
+        )
     rows = _normalize_row_shapes(rows)
     stmt = (
         insert(PumpEvent).values(rows).on_conflict_do_nothing().returning(PumpEvent.id)

@@ -209,6 +209,7 @@ from src.services.integrations.medtronic.connect_sync import (
 from src.services.integrations.medtronic.sync import sync_carelink_for_user
 from src.services.iob_projection import get_iob_projection, get_user_dia
 from src.services.loop_state_extractor import get_latest_loop_state
+from src.services.pump_event_dedupe import compute_pump_event_dedupe_hash
 from src.services.tandem_sync import (
     TandemAuthError,
     TandemConnectionError,
@@ -3630,26 +3631,43 @@ async def push_pump_events(
                 "bg_at_event": item.bg_at_event,
                 "received_at": now,
                 "source": body.source,
+                # Cross-source dedupe key (Story 43.11): a mobile BLE
+                # delivery collapses against the same physical bolus
+                # relayed via Loop-over-Nightscout.
+                "dedupe_hash": compute_pump_event_dedupe_hash(
+                    user_id=current_user.id,
+                    event_type=item.event_type,
+                    event_timestamp=ts,
+                    units=item.units,
+                    duration_minutes=item.duration_minutes,
+                ),
             }
         )
 
+    submitted = len(rows)
+
+    # Bare ON CONFLICT DO NOTHING (no explicit conflict target) is REQUIRED
+    # now that pump_events carries two unique indexes a row can violate: the
+    # natural-key `(user_id, event_timestamp, event_type)` WHERE ns_id IS
+    # NULL and the cross-source `(user_id, dedupe_hash)` WHERE dedupe_hash IS
+    # NOT NULL (Story 43.11). A targeted clause arbitrates only its named
+    # index and raises a unique_violation on the other; the bare form skips a
+    # conflict on either (and Postgres also collapses within-statement
+    # duplicates under DO NOTHING). RETURNING gives a reliable inserted count
+    # -- rowcount is unreliable under ON CONFLICT DO NOTHING (asyncpg).
     stmt = (
         pg_insert(PumpEvent)
         .values(rows)
-        .on_conflict_do_nothing(
-            index_elements=["user_id", "event_timestamp", "event_type"],
-            # The (user_id, event_timestamp, event_type) unique index
-            # is partial -- it applies only to direct-integration rows
-            # (`ns_id IS NULL`). Including the WHERE clause here is
-            # required for PostgreSQL to recognize the partial index
-            # as the ON CONFLICT target.
-            index_where=text("ns_id IS NULL"),
-        )
+        .on_conflict_do_nothing()
+        .returning(PumpEvent.id)
     )
     result = await db.execute(stmt)
 
-    accepted = max(result.rowcount, 0)
-    duplicates = len(rows) - accepted
+    accepted = len(result.scalars().all())
+    # Everything the client sent that didn't insert -- a same-row resubmit, a
+    # cross-source near-match collapsed by the dedupe hash, or a within-batch
+    # duplicate -- counts as a duplicate.
+    duplicates = submitted - accepted
 
     # ``body.raw_events`` and ``body.pump_info`` are accepted for backward
     # compatibility with mobile clients that still send them, but no longer
@@ -3677,7 +3695,7 @@ async def push_pump_events(
     logger.info(
         "Mobile pump push",
         user_id=str(current_user.id),
-        total=len(rows),
+        total=submitted,
         accepted=accepted,
         duplicates=duplicates,
     )
