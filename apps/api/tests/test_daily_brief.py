@@ -287,6 +287,10 @@ class TestGenerateDailyBrief:
     @patch("src.services.daily_brief.notify_user_of_brief", new_callable=AsyncMock)
     @patch("src.services.daily_brief.get_ai_client")
     @patch("src.services.daily_brief.calculate_metrics")
+    @patch(
+        "src.services.daily_brief.get_excluded_cgm_sources",
+        new=AsyncMock(return_value=[]),
+    )
     async def test_generate_brief_success(
         self, mock_calc, mock_get_client, mock_notify
     ):
@@ -328,6 +332,10 @@ class TestGenerateDailyBrief:
         mock_db.commit.assert_called_once()
 
     @patch("src.services.daily_brief.calculate_metrics")
+    @patch(
+        "src.services.daily_brief.get_excluded_cgm_sources",
+        new=AsyncMock(return_value=[]),
+    )
     async def test_generate_brief_insufficient_data(self, mock_calc):
         """Test that insufficient readings raises 400."""
         from fastapi import HTTPException
@@ -354,6 +362,10 @@ class TestGenerateDailyBrief:
 
     @patch("src.services.daily_brief.get_ai_client")
     @patch("src.services.daily_brief.calculate_metrics")
+    @patch(
+        "src.services.daily_brief.get_excluded_cgm_sources",
+        new=AsyncMock(return_value=[]),
+    )
     async def test_generate_brief_ai_error_propagates(self, mock_calc, mock_get_client):
         """Test that AI provider errors propagate."""
         from src.services.daily_brief import generate_daily_brief
@@ -380,6 +392,10 @@ class TestGenerateDailyBrief:
     @patch("src.services.daily_brief.notify_user_of_brief", new_callable=AsyncMock)
     @patch("src.services.daily_brief.get_ai_client")
     @patch("src.services.daily_brief.calculate_metrics")
+    @patch(
+        "src.services.daily_brief.get_excluded_cgm_sources",
+        new=AsyncMock(return_value=[]),
+    )
     async def test_generate_brief_custom_hours(
         self, mock_calc, mock_get_client, mock_notify
     ):

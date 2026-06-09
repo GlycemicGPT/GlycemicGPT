@@ -52,6 +52,7 @@ from src.schemas.target_glucose_range import TargetGlucoseRangeUpdate
 from src.services import insulin_config as insulin_config_service
 from src.services import pump_profile as pump_profile_service
 from src.services import target_glucose_range as target_range_service
+from src.services.cgm_source import default_cgm_role_for_new_source
 from src.services.integrations.nightscout.connection_test import (
     ConnectionTestOutcome,
     test_connection,
@@ -197,6 +198,11 @@ async def create_connection(
     # last_sync_status stays NEVER until an actual sync runs (Story
     # 43.4). The test outcome is independent telemetry returned in the
     # response, NOT a substitute for a successful sync.
+    # Cross-source CGM role (Story 43.10): a brand-new CGM source is primary
+    # if the user has none yet, else secondary -- so adding a second CGM
+    # (e.g. a Loop-via-Nightscout connection alongside Dexcom) doesn't
+    # silently double the AGP/TIR until the user picks.
+    cgm_role = await default_cgm_role_for_new_source(db, current_user.id)
     conn = NightscoutConnection(
         user_id=current_user.id,
         name=request.name,
@@ -207,6 +213,7 @@ async def create_connection(
         sync_interval_minutes=request.sync_interval_minutes,
         initial_sync_window_days=request.initial_sync_window_days,
         last_sync_status=NightscoutSyncStatus.NEVER,
+        cgm_role=cgm_role,
     )
     db.add(conn)
     await db.commit()

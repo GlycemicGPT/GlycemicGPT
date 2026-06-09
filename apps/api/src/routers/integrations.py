@@ -81,6 +81,12 @@ from src.models.tandem_sync_state import (
 )
 from src.models.user import User
 from src.schemas.auth import ErrorResponse
+from src.schemas.cgm import (
+    CgmPrimaryResponse,
+    CgmPrimaryUpdate,
+    CgmSourceItem,
+    CgmSourcesResponse,
+)
 from src.schemas.forecast import (
     ForecastPayload,
     ForecastReadResponse,
@@ -154,6 +160,14 @@ from src.schemas.pump import (
     TandemSyncResponse,
     TandemSyncSettingsRequest,
     TandemSyncStatusResponse,
+)
+from src.services.cgm_source import (
+    CGM_ROLE_PRIMARY,
+    default_cgm_role_for_new_source,
+    get_excluded_cgm_sources,
+    glucose_source_exclusion_clause,
+    list_cgm_sources,
+    set_primary_cgm_source,
 )
 from src.services.dexcom_sync import (
     DexcomAuthError,
@@ -481,7 +495,9 @@ async def connect_dexcom(
         existing.updated_at = datetime.now(UTC)
         credential = existing
     else:
-        # Create new credential
+        # Create new credential. Cross-source CGM role (Story 43.10): primary
+        # if the user has no existing primary CGM source, else secondary.
+        cgm_role = await default_cgm_role_for_new_source(db, current_user.id)
         credential = IntegrationCredential(
             user_id=current_user.id,
             integration_type=IntegrationType.DEXCOM,
@@ -489,6 +505,7 @@ async def connect_dexcom(
             encrypted_password=encrypt_credential(request.password),
             region=request.region,
             status=IntegrationStatus.CONNECTED,
+            cgm_role=cgm_role,
         )
         db.add(credential)
 
@@ -901,12 +918,22 @@ async def get_sync_status(
 async def get_current_glucose(
     current_user: DiabeticOrAdminUser,
     db: AsyncSession = Depends(get_db),
+    include_secondary: bool = Query(
+        default=False,
+        description="Include secondary CGM sources (Story 43.10). Off by default.",
+    ),
 ) -> CurrentGlucoseResponse:
     """Get the current (most recent) glucose reading.
 
     Returns the latest glucose value with trend and staleness indicator.
+    By default reads from the primary CGM source only (Story 43.10).
     """
-    latest = await get_latest_glucose_reading(db, current_user.id)
+    excluded = await get_excluded_cgm_sources(
+        db, current_user.id, include_secondary=include_secondary
+    )
+    latest = await get_latest_glucose_reading(
+        db, current_user.id, excluded_sources=excluded
+    )
 
     if not latest:
         raise HTTPException(
@@ -956,6 +983,10 @@ async def get_glucose_history(
     end: datetime | None = Query(
         default=None, description="End of date range (ISO 8601, UTC)"
     ),
+    include_secondary: bool = Query(
+        default=False,
+        description="Include secondary CGM sources (Story 43.10). Off by default.",
+    ),
 ) -> GlucoseHistoryResponse:
     """Get glucose reading history.
 
@@ -965,15 +996,28 @@ async def get_glucose_history(
     downsampling (e.g., LTTB) for chart rendering.
 
     When start and end are provided, they override the minutes parameter.
+    By default reads from the primary CGM source only (Story 43.10).
     """
+    excluded = await get_excluded_cgm_sources(
+        db, current_user.id, include_secondary=include_secondary
+    )
     date_range = _validate_date_range(start, end)
     if date_range is not None:
         readings = await get_glucose_readings(
-            db, current_user.id, limit=limit, start=date_range[0], end=date_range[1]
+            db,
+            current_user.id,
+            limit=limit,
+            start=date_range[0],
+            end=date_range[1],
+            excluded_sources=excluded,
         )
     else:
         readings = await get_glucose_readings(
-            db, current_user.id, minutes=minutes, limit=limit
+            db,
+            current_user.id,
+            minutes=minutes,
+            limit=limit,
+            excluded_sources=excluded,
         )
 
     return GlucoseHistoryResponse(
@@ -1011,6 +1055,10 @@ async def get_time_in_range(
     end: datetime | None = Query(
         default=None, description="End of date range (ISO 8601, UTC)"
     ),
+    include_secondary: bool = Query(
+        default=False,
+        description="Include secondary CGM sources (Story 43.10). Off by default.",
+    ),
 ) -> TimeInRangeResponse | TimeInRangeDetailResponse:
     """Get time-in-range statistics for the specified period.
 
@@ -1022,8 +1070,12 @@ async def get_time_in_range(
     comparison data.
 
     When start and end are provided, they override the minutes parameter.
+    By default counts the primary CGM source only (Story 43.10).
     """
     date_range = _validate_date_range(start, end)
+    excluded = await get_excluded_cgm_sources(
+        db, current_user.id, include_secondary=include_secondary
+    )
 
     # Fetch user's target range thresholds
     target_range = await get_or_create_range(current_user.id, db)
@@ -1053,6 +1105,7 @@ async def get_time_in_range(
                 GlucoseReading.reading_timestamp < now,
                 GlucoseReading.value >= 20,
                 GlucoseReading.value <= 500,
+                *glucose_source_exclusion_clause(excluded),
             )
         )
         row = result.one()
@@ -1104,6 +1157,7 @@ async def get_time_in_range(
         low_threshold,
         high_threshold,
         urgent_high,
+        excluded_sources=excluded,
     )
 
     # Previous period: same duration ending at cutoff
@@ -1117,6 +1171,7 @@ async def get_time_in_range(
         low_threshold,
         high_threshold,
         urgent_high,
+        excluded_sources=excluded,
     )
 
     previous_buckets = None
@@ -1162,11 +1217,14 @@ async def _query_5_buckets(
     low: float,
     high: float,
     urgent_high: float,
+    *,
+    excluded_sources: list[str] | None = None,
 ) -> dict:
     """Query 5-bucket TIR counts for a time window.
 
     Filters to physiologically plausible glucose values (20-500 mg/dL)
     to prevent sensor errors or corrupt data from skewing percentages.
+    ``excluded_sources`` drops secondary/off CGM sources (Story 43.10).
     """
     result = await db.execute(
         select(
@@ -1219,6 +1277,7 @@ async def _query_5_buckets(
             GlucoseReading.reading_timestamp < end,
             GlucoseReading.value >= 20,
             GlucoseReading.value <= 500,
+            *glucose_source_exclusion_clause(excluded_sources),
         )
     )
     row = result.one()
@@ -3467,6 +3526,81 @@ async def update_forecast_source(
     )
 
 
+# ---------------------------------------------------------------------------
+# Story 43.10 -- cross-source CGM primary-source picker
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/cgm",
+    response_model=CgmSourcesResponse,
+    responses={
+        200: {
+            "description": (
+                "The user's CGM-providing integrations (Dexcom + Nightscout), "
+                "which one is primary, and whether the picker should render."
+            )
+        },
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        403: {"model": ErrorResponse, "description": "Permission denied"},
+    },
+)
+async def get_cgm_sources(
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> CgmSourcesResponse:
+    """List the user's CGM sources for the primary-source picker.
+
+    Read-only -- never mutates roles. The picker hides itself when fewer
+    than two sources exist (`multiple_sources=False`): a single source is
+    always primary and there is nothing to dedupe.
+    """
+    sources = await list_cgm_sources(db, current_user.id)
+    primary = next((s.source for s in sources if s.role == CGM_ROLE_PRIMARY), None)
+    return CgmSourcesResponse(
+        sources=[
+            CgmSourceItem(source=s.source, label=s.label, role=s.role, kind=s.kind)
+            for s in sources
+        ],
+        primary_source=primary,
+        multiple_sources=len(sources) > 1,
+    )
+
+
+@router.put(
+    "/cgm/source",
+    response_model=CgmPrimaryResponse,
+    responses={
+        200: {"description": "Primary CGM source updated."},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        403: {"model": ErrorResponse, "description": "Permission denied"},
+        404: {
+            "model": ErrorResponse,
+            "description": "`source` is not one of the user's CGM sources.",
+        },
+    },
+)
+async def update_primary_cgm_source(
+    body: CgmPrimaryUpdate,
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> CgmPrimaryResponse:
+    """Promote the chosen CGM source to primary; demote the rest to secondary.
+
+    Atomic across the user's CGM sources -- the chosen source becomes the
+    one that drives charts/stats; the others are kept for audit but stop
+    driving widgets by default.
+    """
+    ok = await set_primary_cgm_source(db, current_user.id, body.source)
+    if not ok:
+        raise HTTPException(
+            status_code=404,
+            detail="That source is not one of your CGM sources.",
+        )
+    await db.commit()
+    return CgmPrimaryResponse(primary_source=body.source)
+
+
 @router.get(
     "/tandem/control-iq/activity",
     response_model=ControlIQActivityResponse,
@@ -3803,6 +3937,10 @@ async def get_glucose_stats(
     end: datetime | None = Query(
         default=None, description="End of date range (ISO 8601, UTC)"
     ),
+    include_secondary: bool = Query(
+        default=False,
+        description="Include secondary CGM sources (Story 43.10). Off by default.",
+    ),
 ) -> GlucoseStatsResponse:
     """Get aggregate glucose statistics: mean, SD, CV%, GMI, CGM active%.
 
@@ -3812,8 +3950,12 @@ async def get_glucose_stats(
     CGM active % assumes 5-minute reading intervals (standard for Dexcom G6/G7).
 
     When start and end are provided, they override the minutes parameter.
+    By default aggregates the primary CGM source only (Story 43.10).
     """
     date_range = _validate_date_range(start, end)
+    excluded = await get_excluded_cgm_sources(
+        db, current_user.id, include_secondary=include_secondary
+    )
     if date_range is not None:
         cutoff = date_range[0]
         upper = date_range[1]
@@ -3831,6 +3973,7 @@ async def get_glucose_stats(
     ]
     if upper is not None:
         conditions.append(GlucoseReading.reading_timestamp < upper)
+    conditions.extend(glucose_source_exclusion_clause(excluded))
 
     result = await db.execute(
         select(
@@ -3898,12 +4041,17 @@ async def get_glucose_percentiles(
         max_length=50,
         description="IANA timezone for hour grouping (e.g. America/Chicago)",
     ),
+    include_secondary: bool = Query(
+        default=False,
+        description="Include secondary CGM sources (Story 43.10). Off by default.",
+    ),
 ) -> GlucosePercentilesResponse:
     """Get AGP (Ambulatory Glucose Profile) percentile bands.
 
     Returns 10th, 25th, 50th, 75th, and 90th percentile glucose values
     grouped by hour of day in the specified timezone.
     Requires at least 7 days of data.
+    By default profiles the primary CGM source only (Story 43.10).
     """
     # Validate timezone
     try:
@@ -3915,6 +4063,9 @@ async def get_glucose_percentiles(
         ) from e
 
     cutoff = datetime.now(UTC) - timedelta(days=days)
+    excluded = await get_excluded_cgm_sources(
+        db, current_user.id, include_secondary=include_secondary
+    )
 
     # Fetch readings with a hard row cap to prevent memory issues
     result = await db.execute(
@@ -3927,6 +4078,7 @@ async def get_glucose_percentiles(
             GlucoseReading.reading_timestamp >= cutoff,
             GlucoseReading.value >= 20,
             GlucoseReading.value <= 500,
+            *glucose_source_exclusion_clause(excluded),
         )
         .order_by(GlucoseReading.reading_timestamp)
         .limit(_AGP_MAX_ROWS)
