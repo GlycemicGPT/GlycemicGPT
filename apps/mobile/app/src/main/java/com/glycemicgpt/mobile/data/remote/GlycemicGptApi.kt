@@ -16,6 +16,8 @@ import com.glycemicgpt.mobile.data.remote.dto.HealthResponse
 import com.glycemicgpt.mobile.data.remote.dto.LoginRequest
 import com.glycemicgpt.mobile.data.remote.dto.LoginResponse
 import com.glycemicgpt.mobile.data.remote.dto.PumpPushRequest
+import com.glycemicgpt.mobile.data.remote.dto.NightscoutConnectionDto
+import com.glycemicgpt.mobile.data.remote.dto.NightscoutDataDto
 import com.glycemicgpt.mobile.data.remote.dto.PumpPushResponse
 import com.glycemicgpt.mobile.data.remote.dto.RefreshTokenRequest
 import retrofit2.Response
@@ -23,6 +25,7 @@ import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.POST
+import retrofit2.http.Query
 import retrofit2.http.PUT
 import retrofit2.http.Path
 
@@ -85,4 +88,17 @@ interface GlycemicGptApi {
 
     @DELETE("/api/settings/plugin-declarations")
     suspend fun deletePluginDeclarations(): Response<Unit>
+
+    // Nightscout cloud-source plugin (Story 43.8): the mobile plugin pulls the
+    // user's Nightscout-sourced data from the backend (the only Nightscout
+    // client lives in the Python backend) and writes it into Room.
+    @GET("/api/integrations/nightscout")
+    suspend fun listNightscoutConnections(): Response<List<NightscoutConnectionDto>>
+
+    @GET("/api/integrations/nightscout/{connectionId}/data")
+    suspend fun getNightscoutData(
+        @Path("connectionId") connectionId: String,
+        @Query("since") since: String? = null,
+        @Query("limit") limit: Int = 500,
+    ): Response<NightscoutDataDto>
 }
