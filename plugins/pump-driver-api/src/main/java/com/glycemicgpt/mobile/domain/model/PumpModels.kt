@@ -94,9 +94,15 @@ data class CgmReading(
     val timestamp: Instant,
 ) {
     init {
-        require(glucoseMgDl in 20..500) {
-            "glucoseMgDl must be in 20..500, was $glucoseMgDl"
+        require(glucoseMgDl in MIN_MG_DL..MAX_MG_DL) {
+            "glucoseMgDl must be in $MIN_MG_DL..$MAX_MG_DL, was $glucoseMgDl"
         }
+    }
+
+    companion object {
+        /** Physiologically valid CGM bounds (mg/dL); shared with ingestion-side validation. */
+        const val MIN_MG_DL = 20
+        const val MAX_MG_DL = 500
     }
 }
 

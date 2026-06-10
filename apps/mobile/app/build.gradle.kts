@@ -152,6 +152,10 @@ android {
             it.maxHeapSize = "2g"
         }
     }
+
+    // Expose the exported Room schemas to instrumented tests so MigrationTestHelper
+    // can build historical schema versions for migration tests.
+    sourceSets.getByName("androidTest").assets.srcDirs(files("$projectDir/schemas"))
 }
 
 ksp {
@@ -249,4 +253,5 @@ dependencies {
     androidTestImplementation(libs.espresso)
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.compose.ui.test)
+    androidTestImplementation(libs.room.testing)
 }
