@@ -16,7 +16,7 @@ import com.glycemicgpt.mobile.data.remote.dto.HealthResponse
 import com.glycemicgpt.mobile.data.remote.dto.LoginRequest
 import com.glycemicgpt.mobile.data.remote.dto.LoginResponse
 import com.glycemicgpt.mobile.data.remote.dto.PumpPushRequest
-import com.glycemicgpt.mobile.data.remote.dto.NightscoutConnectionDto
+import com.glycemicgpt.mobile.data.remote.dto.NightscoutConnectionListDto
 import com.glycemicgpt.mobile.data.remote.dto.NightscoutDataDto
 import com.glycemicgpt.mobile.data.remote.dto.PumpPushResponse
 import com.glycemicgpt.mobile.data.remote.dto.RefreshTokenRequest
@@ -93,7 +93,7 @@ interface GlycemicGptApi {
     // user's Nightscout-sourced data from the backend (the only Nightscout
     // client lives in the Python backend) and writes it into Room.
     @GET("/api/integrations/nightscout")
-    suspend fun listNightscoutConnections(): Response<List<NightscoutConnectionDto>>
+    suspend fun listNightscoutConnections(): Response<NightscoutConnectionListDto>
 
     @GET("/api/integrations/nightscout/{connectionId}/data")
     suspend fun getNightscoutData(

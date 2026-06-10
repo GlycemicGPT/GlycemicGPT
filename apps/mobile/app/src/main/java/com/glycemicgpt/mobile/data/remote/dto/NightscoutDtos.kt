@@ -17,6 +17,18 @@ data class NightscoutConnectionDto(
     val id: String,
     val name: String,
     @Json(name = "is_active") val isActive: Boolean = true,
+    /** The user's chosen Nightscout sync interval (minutes). Informs the worker's cadence (AC3). */
+    @Json(name = "sync_interval_minutes") val syncIntervalMinutes: Int = 0,
+)
+
+/**
+ * Wrapper for `GET /api/integrations/nightscout` -- the backend returns
+ * `{"connections": [...]}`, not a bare array (see
+ * apps/api/src/schemas/nightscout.py `NightscoutConnectionListResponse`).
+ */
+@JsonClass(generateAdapter = true)
+data class NightscoutConnectionListDto(
+    val connections: List<NightscoutConnectionDto>,
 )
 
 @JsonClass(generateAdapter = true)

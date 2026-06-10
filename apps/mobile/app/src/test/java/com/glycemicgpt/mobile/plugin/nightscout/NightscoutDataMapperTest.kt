@@ -50,6 +50,7 @@ class NightscoutDataMapperTest {
         assertEquals(1, out.size)
         assertEquals(142, out[0].glucoseMgDl)
         assertEquals("SingleUp", out[0].trendArrow)
+        assertEquals(NightscoutDataMapper.SOURCE, out[0].source)
         assertEquals(Instant.parse("2026-03-01T12:00:00Z").toEpochMilli(), out[0].timestampMs)
     }
 
@@ -92,5 +93,6 @@ class NightscoutDataMapperTest {
         assertEquals(1, out.size)
         assertEquals(0.65f, out[0].rate)
         assertEquals(true, out[0].isAutomated)
+        assertEquals(NightscoutDataMapper.SOURCE, out[0].source)
     }
 }

@@ -84,6 +84,18 @@ object DatabaseModule {
     }
 
     /**
+     * Migration 11->12: add a `source` column to cgm_readings and basal_readings so
+     * cloud-sourced rows (the Nightscout-source plugin, Story 43.8) carry the same
+     * per-row attribution that bolus_events already has. BLE writers leave it "".
+     */
+    private val MIGRATION_11_12 = object : Migration(11, 12) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE cgm_readings ADD COLUMN source TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE basal_readings ADD COLUMN source TEXT NOT NULL DEFAULT ''")
+        }
+    }
+
+    /**
      * Retrieve or generate the database passphrase from EncryptedSharedPreferences.
      *
      * The passphrase is generated once using SecureRandom and stored encrypted
@@ -151,7 +163,10 @@ object DatabaseModule {
 
         return Room.databaseBuilder(context, AppDatabase::class.java, "glycemicgpt_encrypted.db")
             .openHelperFactory(factory)
-            .addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
+            .addMigrations(
+                MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11,
+                MIGRATION_11_12,
+            )
             .fallbackToDestructiveMigration()
             .build()
     }

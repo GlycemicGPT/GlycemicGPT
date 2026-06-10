@@ -10,11 +10,11 @@ import com.glycemicgpt.mobile.data.remote.dto.NightscoutDataDto
  * the BLE plugins also write, so the dashboard is source-agnostic. Pure and
  * synchronous so it's unit-testable without Android.
  *
- * Source attribution (AC4): bolus rows carry `source = "nightscout-source"`
- * (the `bolus_events` table already has a `source` column). CGM/basal rows are
- * written without source until those entities gain a `source` column (tracked
- * in the story plan); their cross-source dedupe still works via the unique
- * `timestampMs` indexes.
+ * Source attribution (AC4): every row carries `source = "nightscout-source"`
+ * (cgm_readings, basal_readings, and bolus_events all have a `source` column).
+ * Cross-source dedupe still works via the unique `timestampMs` (cgm/basal) and
+ * `(units, timestampMs)` (bolus) indexes when a BLE plugin writes the same
+ * reading.
  */
 object NightscoutDataMapper {
 
@@ -28,6 +28,7 @@ object NightscoutDataMapper {
             CgmReadingEntity(
                 glucoseMgDl = r.value,
                 trendArrow = r.trend,
+                source = SOURCE,
                 timestampMs = r.readingTimestamp.toEpochMilli(),
             )
         }
@@ -53,6 +54,7 @@ object NightscoutDataMapper {
                     rate = e.units!!,
                     isAutomated = e.isAutomated,
                     activityMode = "",
+                    source = SOURCE,
                     timestampMs = e.eventTimestamp.toEpochMilli(),
                 )
             }
