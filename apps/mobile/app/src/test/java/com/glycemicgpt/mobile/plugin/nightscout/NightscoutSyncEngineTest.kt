@@ -118,6 +118,26 @@ class NightscoutSyncEngineTest {
     }
 
     @Test
+    fun `a saturated boundary page is a retryable stall, not a false success`() = runTest {
+        // A full page whose only row sits exactly on the cursor cannot advance an inclusive cursor.
+        store.enabled = true
+        val boundary = Instant.parse(T1).toEpochMilli()
+        store.setCursor(connId, boundary)
+        coEvery { api.listNightscoutConnections() } returns
+            Response.success(NightscoutConnectionListDto(listOf(connection(connId))))
+        coEvery { api.getNightscoutData(connId, Instant.parse(T1).toString(), 500) } returns
+            Response.success(data(limit = 1, glucose = listOf(glucose(120, T1))))
+
+        val outcome = engine.syncOnce(nowMs = 1L)
+
+        assertEquals(SyncOutcome.Transient, outcome)
+        assertEquals(NightscoutSyncStatus.ERROR, store.state.value.status)
+        // Cursor is preserved (progress not lost), and no clean success was recorded.
+        assertEquals(boundary, store.getCursor(connId))
+        assertEquals(null, store.state.value.lastSuccessAtMs)
+    }
+
+    @Test
     fun `cursors are tracked per connection`() = runTest {
         // A cursor for one connection must not leak into a different connection's backfill.
         store.enabled = true

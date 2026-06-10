@@ -136,11 +136,18 @@ class NightscoutDataMapperTest {
     }
 
     @Test
-    fun `negative basal rates are dropped`() {
+    fun `negative and over-cap basal rates are dropped`() {
         val out = NightscoutDataMapper.toBasalEntities(
-            data(events = listOf(event("basal", "2026-03-01T12:00:00Z", -0.5f)))
+            data(
+                events = listOf(
+                    event("basal", "2026-03-01T12:00:00Z", -0.5f), // negative
+                    event("basal", "2026-03-01T12:05:00Z", 0.8f),  // valid
+                    event("basal", "2026-03-01T12:10:00Z", 999f),  // absurdly large
+                )
+            )
         )
-        assertTrue(out.isEmpty())
+        assertEquals(1, out.size)
+        assertEquals(0.8f, out[0].rate)
     }
 
     @Test

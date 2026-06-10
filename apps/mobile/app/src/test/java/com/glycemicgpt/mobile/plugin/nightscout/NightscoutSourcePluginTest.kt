@@ -1,9 +1,11 @@
 package com.glycemicgpt.mobile.plugin.nightscout
 
+import app.cash.turbine.test
 import com.glycemicgpt.mobile.data.remote.dto.NightscoutConnectionDto
 import com.glycemicgpt.mobile.domain.plugin.PLUGIN_API_VERSION
 import com.glycemicgpt.mobile.domain.plugin.PluginCapability
 import com.glycemicgpt.mobile.domain.plugin.capabilities.GlucoseSource
+import com.glycemicgpt.mobile.domain.plugin.ui.CardElement
 import com.glycemicgpt.mobile.domain.plugin.ui.DetailElement
 import com.glycemicgpt.mobile.domain.plugin.ui.SettingDescriptor
 import io.mockk.mockk
@@ -114,6 +116,23 @@ class NightscoutSourcePluginTest {
     @Test
     fun `detail screen is null for an unrelated card`() {
         assertNull(plugin.observeDetailScreen("unrelated"))
+    }
+
+    @Test
+    fun `detail screen reacts to sync-state changes`() = runTest {
+        connections = listOf(connection("conn-1"))
+        plugin.observeDetailScreen(NightscoutSourcePlugin.CARD_ID)!!.test {
+            val initial = awaitItem()
+            assertFalse(initial.elements.any { it is DetailElement.Display && it.element is CardElement.StatusBadge })
+
+            store.recordStatus(NightscoutSyncStatus.AUTH_ERROR)
+
+            val updated = awaitItem()
+            assertTrue(
+                updated.elements.any { it is DetailElement.Display && it.element is CardElement.StatusBadge },
+            )
+            cancelAndIgnoreRemainingEvents()
+        }
     }
 
     @Test

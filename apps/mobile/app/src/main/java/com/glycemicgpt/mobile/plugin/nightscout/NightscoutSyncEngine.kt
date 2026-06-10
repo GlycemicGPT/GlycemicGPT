@@ -129,13 +129,20 @@ class NightscoutSyncEngine @Inject constructor(
             // `ts >= since ORDER BY ts ASC LIMIT n`, so a *short* array is fully drained for this
             // `since` -- only a *full* array may have more rows. Advance only as far as the lagging
             // full stream so its un-fetched tail is never skipped; the other stream's re-fetched
-            // boundary rows are harmless (idempotent inserts). A cursor that can't move forward (all
-            // rows share the boundary timestamp) stops the loop.
+            // boundary rows are harmless (idempotent inserts).
             val next = listOfNotNull(
                 glucoseMax.takeIf { glucoseFull },
                 eventsMax.takeIf { eventsFull },
             ).minOrNull() ?: overallMax
-            if (next <= cursorMs) break
+            if (next <= cursorMs) {
+                // Cursor stall: a full page whose rows all sit on the boundary timestamp, so an
+                // inclusive `since` cursor cannot advance without re-fetching the same page. Persist
+                // the progress made, then surface a retryable error instead of a false success that
+                // would silently drop the un-fetched tail. (Unreachable with real CGM data -- it would
+                // need more than PAGE_LIMIT rows sharing a single millisecond.)
+                store.setCursor(connection.id, cursorMs)
+                throw SyncTransientError("cursor stalled at $cursorMs on a saturated boundary page")
+            }
             cursorMs = next
         }
 

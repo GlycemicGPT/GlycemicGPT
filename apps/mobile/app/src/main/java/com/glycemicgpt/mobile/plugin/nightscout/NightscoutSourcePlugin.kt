@@ -20,6 +20,7 @@ import com.glycemicgpt.mobile.domain.plugin.ui.PluginSettingsSection
 import com.glycemicgpt.mobile.domain.plugin.ui.SettingDescriptor
 import com.glycemicgpt.mobile.domain.plugin.ui.UiColor
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import timber.log.Timber
@@ -98,7 +99,13 @@ class NightscoutSourcePlugin(
 
     override fun observeDetailScreen(cardId: String): Flow<DetailScreenDescriptor>? {
         if (cardId != CARD_ID) return null
-        return flow { emit(buildDetailScreen()) }
+        // Load the connection list once when the screen opens, then re-render reactively on every
+        // sync-state change (last-sync time, status badge) so the detail UI never goes stale -- e.g.
+        // after a "Sync now" tap updates the status.
+        return flow {
+            val activeConnections = loadActiveConnections()
+            emitAll(store.state.map { state -> buildDetailScreen(activeConnections, state) })
+        }
     }
 
     override fun onDetailAction(cardId: String, actionKey: String) {
@@ -119,16 +126,18 @@ class NightscoutSourcePlugin(
         },
     )
 
-    private suspend fun buildDetailScreen(): DetailScreenDescriptor {
-        val connections = try {
-            connectionsProvider()
+    private suspend fun loadActiveConnections(): List<NightscoutConnectionDto> =
+        try {
+            connectionsProvider().filter { it.isActive }
         } catch (e: Exception) {
             Timber.w(e, "Nightscout detail: failed to load connections")
             emptyList()
         }
-        val activeConnections = connections.filter { it.isActive }
-        val state = store.state.value
 
+    private fun buildDetailScreen(
+        activeConnections: List<NightscoutConnectionDto>,
+        state: NightscoutSyncState,
+    ): DetailScreenDescriptor {
         val elements = buildList {
             add(DetailElement.SectionHeader("Nightscout sync"))
             add(

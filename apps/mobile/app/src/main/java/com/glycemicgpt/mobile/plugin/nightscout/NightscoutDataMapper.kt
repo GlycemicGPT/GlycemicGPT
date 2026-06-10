@@ -6,26 +6,30 @@ import com.glycemicgpt.mobile.data.local.entity.CgmReadingEntity
 import com.glycemicgpt.mobile.data.remote.dto.NightscoutDataDto
 import com.glycemicgpt.mobile.domain.model.BolusEvent
 import com.glycemicgpt.mobile.domain.model.CgmReading
+import com.glycemicgpt.mobile.domain.pump.SafetyLimits
 
 /**
- * Maps the backend's Nightscout data slice (Story 43.8) into the Room entities
- * the BLE plugins also write, so the dashboard is source-agnostic. Pure and
- * synchronous so it's unit-testable without Android.
+ * Maps the backend's Nightscout data slice into the Room entities the BLE plugins
+ * also write, so the dashboard is source-agnostic. Pure and synchronous so it's
+ * unit-testable without Android.
  *
- * Source attribution (AC4): every row carries `source = "nightscout-source"`
- * (cgm_readings, basal_readings, and bolus_events all have a `source` column).
- * Cross-source coexistence (AC5) is last-writer-wins by timestamp: the unique
- * `timestampMs` (cgm/basal) and `(units, timestampMs)` (bolus) indexes mean a
- * Nightscout row and a BLE row at the same timestamp collapse to one row (the
- * later write wins and its `source` is what's kept) -- they do not both persist.
+ * Source attribution: every row carries `source = "nightscout-source"` (cgm_readings,
+ * basal_readings, and bolus_events all have a `source` column).
+ *
+ * Cross-source coexistence: a Nightscout row and a BLE row at the same timestamp
+ * collapse to a single row via the unique `timestampMs` (cgm/basal) and
+ * `(units, timestampMs)` (bolus) indexes -- they never both persist. The kept row
+ * depends on the DAO's conflict strategy: cgm_readings/basal_readings batch inserts
+ * use `IGNORE` (the existing row wins -- first writer), while bolus_events uses
+ * `REPLACE` (the new row wins -- last writer). Either way there is no double-counting.
  *
  * Validation: out-of-range values from the backend are dropped at this ingestion
  * boundary (rather than throwing, which would abort a whole page) so the local DB
- * never stores physiologically impossible readings. The bounds mirror the domain
- * models' own invariants ([CgmReading] requires 20..500 mg/dL; [BolusEvent] caps
- * units at [BolusEvent.MAX_BOLUS_UNITS]); without this, such rows would be written
- * and then silently discarded again when the entity is mapped back to its domain
- * model on read.
+ * never stores physiologically impossible readings. The bounds mirror the platform's
+ * own invariants ([CgmReading] requires 20..500 mg/dL; [BolusEvent] caps units at
+ * [BolusEvent.MAX_BOLUS_UNITS]; basal rate is capped at the [SafetyLimits] absolute
+ * ceiling); without this, such rows would be written and then silently discarded
+ * again when the entity is mapped back to its domain model on read.
  */
 object NightscoutDataMapper {
 
@@ -33,6 +37,9 @@ object NightscoutDataMapper {
 
     /** Physiologically valid CGM range, matching [CgmReading]'s own invariant. */
     private val GLUCOSE_RANGE = CgmReading.MIN_MG_DL..CgmReading.MAX_MG_DL
+
+    /** Hard upper bound for a basal rate (U/hr), reusing the platform safety ceiling. */
+    private const val MAX_BASAL_RATE_U_HR = SafetyLimits.ABSOLUTE_MAX_BASAL_MILLIUNITS / 1000f
 
     /**
      * event_type values that map to a discrete insulin bolus. `combo_bolus` is
@@ -74,7 +81,8 @@ object NightscoutDataMapper {
 
     fun toBasalEntities(data: NightscoutDataDto): List<BasalReadingEntity> =
         data.pumpEvents
-            .filter { it.eventType == "basal" && it.units != null && it.units >= 0f && it.units.isFinite() }
+            // `in 0f..MAX` also rejects NaN/Infinity (out-of-range comparisons are false).
+            .filter { it.eventType == "basal" && it.units != null && it.units in 0f..MAX_BASAL_RATE_U_HR }
             .map { e ->
                 BasalReadingEntity(
                     rate = e.units!!,

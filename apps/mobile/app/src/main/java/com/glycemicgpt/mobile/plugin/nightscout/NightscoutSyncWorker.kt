@@ -6,6 +6,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import kotlinx.coroutines.CancellationException
 import timber.log.Timber
 
 /**
@@ -23,6 +24,10 @@ class NightscoutSyncWorker @AssistedInject constructor(
     override suspend fun doWork(): Result {
         val outcome = try {
             engine.syncOnce()
+        } catch (e: CancellationException) {
+            // Cooperative cancellation (e.g. WorkManager stopping the work) must propagate, not be
+            // swallowed into a retry.
+            throw e
         } catch (e: Exception) {
             Timber.e(e, "Nightscout sync worker crashed; will retry")
             return Result.retry()
