@@ -72,17 +72,37 @@ class NightscoutDataMapperTest {
     }
 
     @Test
-    fun `non-delivery and unit-less events are excluded from bolus and basal`() {
+    fun `non-delivery, unit-less, and combo_bolus events are excluded from bolus`() {
         val out = NightscoutDataMapper.toBolusEntities(
             data(
                 events = listOf(
                     event("note", "2026-03-01T12:00:00Z", null),
                     event("bg_reading", "2026-03-01T12:01:00Z", null),
                     event("bolus", "2026-03-01T12:02:00Z", null), // bolus but no units
+                    // combo_bolus is excluded: its units can be an AAPS extended-emulated TBR portion.
+                    event("combo_bolus", "2026-03-01T12:03:00Z", 1.5f),
                 )
             )
         )
         assertTrue(out.isEmpty())
+    }
+
+    @Test
+    fun `unit-less basal events are excluded from basal`() {
+        val out = NightscoutDataMapper.toBasalEntities(
+            data(events = listOf(event("basal", "2026-03-01T12:00:00Z", null)))
+        )
+        assertTrue(out.isEmpty())
+    }
+
+    @Test
+    fun `a correction is automated even when the upload omits the automated flag`() {
+        val out = NightscoutDataMapper.toBolusEntities(
+            data(events = listOf(event("correction", "2026-03-01T12:00:00Z", 0.5f, automated = false)))
+        )
+        assertEquals(1, out.size)
+        assertTrue(out[0].isCorrection)
+        assertTrue(out[0].isAutomated)
     }
 
     @Test

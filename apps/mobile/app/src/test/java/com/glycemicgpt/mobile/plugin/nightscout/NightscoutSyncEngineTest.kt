@@ -45,6 +45,19 @@ class NightscoutSyncEngineTest {
         val outcome = engine.syncOnce(nowMs = 1000L)
 
         assertEquals(SyncOutcome.NoConnection, outcome)
+        assertEquals(NightscoutSyncStatus.NO_CONNECTION, store.state.value.status)
+        coVerify(exactly = 0) { api.getNightscoutData(any(), any(), any()) }
+    }
+
+    @Test
+    fun `a selected-but-inactive connection is not silently swapped for another`() = runTest {
+        store.enabled = true
+        backing.putString(NightscoutSyncStore.KEY_SELECTED_CONNECTION, "conn-gone")
+        coEvery { api.listNightscoutConnections() } returns Response.success(
+            NightscoutConnectionListDto(listOf(connection("conn-1"))),
+        )
+
+        assertEquals(SyncOutcome.NoConnection, engine.syncOnce(nowMs = 1L))
         coVerify(exactly = 0) { api.getNightscoutData(any(), any(), any()) }
     }
 
@@ -74,8 +87,52 @@ class NightscoutSyncEngineTest {
         coVerify(exactly = 1) { dao.insertBasalBatch(any()) }
         // A short page is the end of data: it must not re-fetch the inclusive boundary forever.
         coVerify(exactly = 1) { api.getNightscoutData(connId, any(), any()) }
-        assertEquals(Instant.parse(T1).toEpochMilli(), store.lastSyncCursorMs)
-        assertEquals(9999L, store.lastSyncAtMs.value)
+        assertEquals(Instant.parse(T1).toEpochMilli(), store.getCursor(connId))
+        assertEquals(NightscoutSyncStatus.OK, store.state.value.status)
+        assertEquals(9999L, store.state.value.lastSuccessAtMs)
+    }
+
+    @Test
+    fun `a full events stream alongside a short glucose stream advances safely and terminates`() = runTest {
+        // Regression for the asymmetric-truncation path: the backend pages each array independently,
+        // so a short glucose array is fully drained even when events are still truncated. The cursor
+        // must follow the lagging full stream (events) without skipping or looping.
+        store.enabled = true
+        coEvery { api.listNightscoutConnections() } returns
+            Response.success(NightscoutConnectionListDto(listOf(connection(connId))))
+        coEvery { api.getNightscoutData(connId, null, 500) } returns Response.success(
+            data(
+                limit = 2,
+                glucose = listOf(glucose(120, T0)),
+                events = listOf(event("bolus", T0, 1.0f), event("bolus", T1, 2.0f)),
+            ),
+        )
+        coEvery { api.getNightscoutData(connId, Instant.parse(T1).toString(), 500) } returns
+            Response.success(data(limit = 2, events = listOf(event("bolus", T2, 3.0f))))
+
+        val outcome = engine.syncOnce(nowMs = 1L)
+
+        assertTrue(outcome is SyncOutcome.Success)
+        assertEquals(2, (outcome as SyncOutcome.Success).pages)
+        assertEquals(Instant.parse(T2).toEpochMilli(), store.getCursor(connId))
+    }
+
+    @Test
+    fun `cursors are tracked per connection`() = runTest {
+        // A cursor for one connection must not leak into a different connection's backfill.
+        store.enabled = true
+        store.setCursor("conn-1", Instant.parse(T2).toEpochMilli())
+        backing.putString(NightscoutSyncStore.KEY_SELECTED_CONNECTION, "conn-2")
+        coEvery { api.listNightscoutConnections() } returns Response.success(
+            NightscoutConnectionListDto(listOf(connection("conn-1"), connection("conn-2"))),
+        )
+        coEvery { api.getNightscoutData("conn-2", null, 500) } returns
+            Response.success(data(limit = 500))
+
+        engine.syncOnce(nowMs = 1L)
+
+        // conn-2 starts a fresh backfill (since=null), unaffected by conn-1's cursor.
+        coVerify(exactly = 1) { api.getNightscoutData("conn-2", null, 500) }
     }
 
     @Test
@@ -97,7 +154,7 @@ class NightscoutSyncEngineTest {
         assertEquals(2, (outcome as SyncOutcome.Success).pages)
         coVerify(exactly = 1) { api.getNightscoutData(connId, null, 500) }
         coVerify(exactly = 1) { api.getNightscoutData(connId, Instant.parse(T1).toString(), 500) }
-        assertEquals(Instant.parse(T2).toEpochMilli(), store.lastSyncCursorMs)
+        assertEquals(Instant.parse(T2).toEpochMilli(), store.getCursor(connId))
     }
 
     @Test
@@ -128,6 +185,7 @@ class NightscoutSyncEngineTest {
             Response.error(401, "unauthorized".toResponseBody(null))
 
         assertEquals(SyncOutcome.AuthError, engine.syncOnce(nowMs = 1L))
+        assertEquals(NightscoutSyncStatus.AUTH_ERROR, store.state.value.status)
     }
 
     @Test
@@ -137,6 +195,7 @@ class NightscoutSyncEngineTest {
             Response.error(503, "down".toResponseBody(null))
 
         assertEquals(SyncOutcome.Transient, engine.syncOnce(nowMs = 1L))
+        assertEquals(NightscoutSyncStatus.ERROR, store.state.value.status)
     }
 
     // -- Fixtures -------------------------------------------------------------

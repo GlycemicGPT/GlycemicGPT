@@ -17,8 +17,6 @@ data class NightscoutConnectionDto(
     val id: String,
     val name: String,
     @Json(name = "is_active") val isActive: Boolean = true,
-    /** The user's chosen Nightscout sync interval (minutes). Informs the worker's cadence (AC3). */
-    @Json(name = "sync_interval_minutes") val syncIntervalMinutes: Int = 0,
 )
 
 /**

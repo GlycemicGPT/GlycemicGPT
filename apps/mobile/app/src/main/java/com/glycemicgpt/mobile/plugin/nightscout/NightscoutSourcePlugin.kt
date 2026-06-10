@@ -18,6 +18,7 @@ import com.glycemicgpt.mobile.domain.plugin.ui.PluginIcon
 import com.glycemicgpt.mobile.domain.plugin.ui.PluginSettingsDescriptor
 import com.glycemicgpt.mobile.domain.plugin.ui.PluginSettingsSection
 import com.glycemicgpt.mobile.domain.plugin.ui.SettingDescriptor
+import com.glycemicgpt.mobile.domain.plugin.ui.UiColor
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
@@ -53,7 +54,11 @@ class NightscoutSourcePlugin(
     override val capabilities: Set<PluginCapability> = setOf(PluginCapability.DATA_SYNC)
 
     override fun initialize(context: PluginContext) {
-        // No resources to set up: the sync manager + store are injected ready-to-use.
+        // Intentionally does not use context.settingsStore. The sync worker is constructed by
+        // WorkManager's HiltWorkerFactory outside this plugin's lifecycle, so it can't receive the
+        // PluginContext; instead the worker, this plugin, and the manager all share one Hilt-injected
+        // NightscoutSyncStore. It is backed by the same PluginSettingsStoreImpl(pluginId) file the
+        // platform hands out here, so the detail-screen connection picker and the worker stay in sync.
     }
 
     override fun shutdown() {
@@ -70,7 +75,6 @@ class NightscoutSourcePlugin(
         syncManager.disable()
     }
 
-    @Suppress("UNCHECKED_CAST")
     override fun <T : PluginCapabilityInterface> getCapability(type: KClass<T>): T? = null
 
     override fun settingsDescriptor(): PluginSettingsDescriptor = PluginSettingsDescriptor(
@@ -90,7 +94,7 @@ class NightscoutSourcePlugin(
     )
 
     override fun observeDashboardCards(): Flow<List<DashboardCardDescriptor>> =
-        store.lastSyncAtMs.map { listOf(buildCard(it)) }
+        store.state.map { listOf(buildCard(it)) }
 
     override fun observeDetailScreen(cardId: String): Flow<DetailScreenDescriptor>? {
         if (cardId != CARD_ID) return null
@@ -103,21 +107,16 @@ class NightscoutSourcePlugin(
         }
     }
 
-    private fun buildCard(lastSyncAtMs: Long?): DashboardCardDescriptor = DashboardCardDescriptor(
+    private fun buildCard(state: NightscoutSyncState): DashboardCardDescriptor = DashboardCardDescriptor(
         id = CARD_ID,
         title = "Nightscout",
         priority = CARD_PRIORITY,
         hasDetail = true,
-        elements = listOf(
-            CardElement.IconValue(
-                icon = PluginIcon.SYNC,
-                value = "Cloud source",
-            ),
-            CardElement.Label(
-                text = formatLastSync(lastSyncAtMs),
-                style = LabelStyle.CAPTION,
-            ),
-        ),
+        elements = buildList {
+            add(CardElement.IconValue(icon = PluginIcon.SYNC, value = "Cloud source"))
+            add(CardElement.Label(formatLastSync(state.lastSuccessAtMs), LabelStyle.CAPTION))
+            statusBadge(state.status)?.let { add(it) }
+        },
     )
 
     private suspend fun buildDetailScreen(): DetailScreenDescriptor {
@@ -128,14 +127,16 @@ class NightscoutSourcePlugin(
             emptyList()
         }
         val activeConnections = connections.filter { it.isActive }
+        val state = store.state.value
 
         val elements = buildList {
             add(DetailElement.SectionHeader("Nightscout sync"))
             add(
                 DetailElement.Display(
-                    CardElement.Label(formatLastSync(store.lastSyncAtMs.value), LabelStyle.BODY),
+                    CardElement.Label(formatLastSync(state.lastSuccessAtMs), LabelStyle.BODY),
                 ),
             )
+            statusBadge(state.status)?.let { add(DetailElement.Display(it)) }
             // Only offer a picker when there is an actual choice to make.
             if (activeConnections.size > 1) {
                 add(
@@ -187,5 +188,16 @@ class NightscoutSourcePlugin(
             } else {
                 "Last sync: ${LAST_SYNC_FORMAT.format(Instant.ofEpochMilli(lastSyncAtMs))}"
             }
+
+        /** A user-facing badge for the latest sync outcome, or null when nothing is worth flagging. */
+        internal fun statusBadge(status: NightscoutSyncStatus): CardElement.StatusBadge? = when (status) {
+            NightscoutSyncStatus.OK, NightscoutSyncStatus.NEVER -> null
+            NightscoutSyncStatus.NO_CONNECTION ->
+                CardElement.StatusBadge("No active Nightscout connection", UiColor.WARNING)
+            NightscoutSyncStatus.AUTH_ERROR ->
+                CardElement.StatusBadge("Reconnect needed", UiColor.ERROR)
+            NightscoutSyncStatus.ERROR ->
+                CardElement.StatusBadge("Sync error — will retry", UiColor.WARNING)
+        }
     }
 }

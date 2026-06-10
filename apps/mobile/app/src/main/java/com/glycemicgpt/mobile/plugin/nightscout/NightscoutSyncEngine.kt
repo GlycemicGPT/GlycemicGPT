@@ -38,7 +38,8 @@ sealed interface SyncOutcome {
  * idempotent DAO inserts (unique `timestampMs` / `(units, timestampMs)` indexes) absorb the
  * boundary-row duplicates the backend warns about -- there is no separate ns_id dedupe pass.
  *
- * Logging is counts + connection id only -- never glucose/insulin values (PHI).
+ * Logging is row counts + HTTP status only -- never glucose/insulin values or connection
+ * credentials (PHI).
  */
 @Singleton
 class NightscoutSyncEngine @Inject constructor(
@@ -51,33 +52,45 @@ class NightscoutSyncEngine @Inject constructor(
         if (!store.enabled) return SyncOutcome.Disabled
         return try {
             val connections = api.listNightscoutConnections().bodyOrThrow().connections
-            val connection = resolveConnection(connections) ?: return SyncOutcome.NoConnection
-            runSync(connection, nowMs)
+            val connection = resolveConnection(connections)
+            if (connection == null) {
+                store.recordStatus(NightscoutSyncStatus.NO_CONNECTION)
+                return SyncOutcome.NoConnection
+            }
+            runSync(connection, nowMs) // records success internally
         } catch (e: SyncAuthError) {
             Timber.w("Nightscout sync gave up (http %d)", e.code)
+            store.recordStatus(NightscoutSyncStatus.AUTH_ERROR)
             SyncOutcome.AuthError
         } catch (e: SyncTransientError) {
             Timber.w("Nightscout sync transient error: %s", e.message)
+            store.recordStatus(NightscoutSyncStatus.ERROR)
             SyncOutcome.Transient
         } catch (e: IOException) {
             Timber.w(e, "Nightscout sync network error")
+            store.recordStatus(NightscoutSyncStatus.ERROR)
             SyncOutcome.Transient
         }
     }
 
     /**
-     * Pick the connection to sync: the user-selected one if it is still present and active,
-     * otherwise the first active connection.
+     * Pick the connection to sync. An explicit user selection is honored only while it is still
+     * active -- if the selected connection was deleted/deactivated we return null (surfaced as
+     * NO_CONNECTION) rather than silently syncing a *different* connection into the same tables.
+     * With no selection, fall back to the first active connection.
      */
     private fun resolveConnection(connections: List<NightscoutConnectionDto>): NightscoutConnectionDto? {
         val active = connections.filter { it.isActive }
         val selectedId = store.selectedConnectionId
-        return active.firstOrNull { selectedId.isNotEmpty() && it.id == selectedId }
-            ?: active.firstOrNull()
+        return if (selectedId.isNotEmpty()) {
+            active.firstOrNull { it.id == selectedId }
+        } else {
+            active.firstOrNull()
+        }
     }
 
     private suspend fun runSync(connection: NightscoutConnectionDto, nowMs: Long): SyncOutcome {
-        var cursorMs = store.lastSyncCursorMs
+        var cursorMs = store.getCursor(connection.id)
         var pages = 0
         var cgmTotal = 0
         var bolusTotal = 0
@@ -112,10 +125,12 @@ class NightscoutSyncEngine @Inject constructor(
                 cursorMs = overallMax
                 break
             }
-            // At least one stream is truncated; advance only as far as the lagging full stream so
-            // its un-fetched tail is never skipped. The other stream's re-fetched boundary rows are
-            // harmless (idempotent inserts). A cursor that can't move forward (all rows share the
-            // boundary timestamp) stops the loop.
+            // At least one stream is truncated. The backend pages each array independently as
+            // `ts >= since ORDER BY ts ASC LIMIT n`, so a *short* array is fully drained for this
+            // `since` -- only a *full* array may have more rows. Advance only as far as the lagging
+            // full stream so its un-fetched tail is never skipped; the other stream's re-fetched
+            // boundary rows are harmless (idempotent inserts). A cursor that can't move forward (all
+            // rows share the boundary timestamp) stops the loop.
             val next = listOfNotNull(
                 glucoseMax.takeIf { glucoseFull },
                 eventsMax.takeIf { eventsFull },
@@ -124,8 +139,8 @@ class NightscoutSyncEngine @Inject constructor(
             cursorMs = next
         }
 
-        store.lastSyncCursorMs = cursorMs
-        store.recordSyncCompleted(nowMs)
+        store.setCursor(connection.id, cursorMs)
+        store.recordSuccess(nowMs)
         Timber.i(
             "Nightscout sync ok: pages=%d cgm=%d bolus=%d basal=%d",
             pages, cgmTotal, bolusTotal, basalTotal,

@@ -98,7 +98,7 @@ interface GlycemicGptApi {
     @GET("/api/integrations/nightscout/{connectionId}/data")
     suspend fun getNightscoutData(
         @Path("connectionId") connectionId: String,
-        @Query("since") since: String? = null,
-        @Query("limit") limit: Int = 500,
+        @Query("since") since: String?,
+        @Query("limit") limit: Int,
     ): Response<NightscoutDataDto>
 }
