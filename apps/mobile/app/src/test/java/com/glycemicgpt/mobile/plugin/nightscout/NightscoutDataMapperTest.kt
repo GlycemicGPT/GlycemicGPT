@@ -106,6 +106,44 @@ class NightscoutDataMapperTest {
     }
 
     @Test
+    fun `out-of-range glucose readings are dropped`() {
+        val out = NightscoutDataMapper.toCgmEntities(
+            data(
+                glucose = listOf(
+                    glucose(10, "2026-03-01T12:00:00Z"),  // below 20
+                    glucose(95, "2026-03-01T12:05:00Z"),  // valid
+                    glucose(600, "2026-03-01T12:10:00Z"), // above 500
+                )
+            )
+        )
+        assertEquals(1, out.size)
+        assertEquals(95, out[0].glucoseMgDl)
+    }
+
+    @Test
+    fun `negative and over-cap boluses are dropped`() {
+        val out = NightscoutDataMapper.toBolusEntities(
+            data(
+                events = listOf(
+                    event("bolus", "2026-03-01T12:00:00Z", -1.0f),  // negative
+                    event("bolus", "2026-03-01T12:05:00Z", 4.0f),   // valid
+                    event("bolus", "2026-03-01T12:10:00Z", 99.0f),  // over the 25U hard cap
+                )
+            )
+        )
+        assertEquals(1, out.size)
+        assertEquals(4.0f, out[0].units)
+    }
+
+    @Test
+    fun `negative basal rates are dropped`() {
+        val out = NightscoutDataMapper.toBasalEntities(
+            data(events = listOf(event("basal", "2026-03-01T12:00:00Z", -0.5f)))
+        )
+        assertTrue(out.isEmpty())
+    }
+
+    @Test
     fun `basal events map to basal readings with rate`() {
         val out = NightscoutDataMapper.toBasalEntities(
             data(events = listOf(event("basal", "2026-03-01T12:00:00Z", 0.65f, automated = true)))
