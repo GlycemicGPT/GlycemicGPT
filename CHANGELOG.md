@@ -1,5 +1,109 @@
 # Changelog
 
+## 2026-06-10
+
+### 📱 Mobile
+
+#### ✨ New Features
+
+- feat(mobile): Nightscout cloud-source plugin [@jlengelbrecht](https://github.com/jlengelbrecht) ([#712](https://github.com/GlycemicGPT/GlycemicGPT/pull/712))
+- feat(medtronic): advertise-and-wait pairing UX + driver kill-switch [@jlengelbrecht](https://github.com/jlengelbrecht) ([#704](https://github.com/GlycemicGPT/GlycemicGPT/pull/704))
+- feat(medtronic): render pump connection notes in settings card [@jlengelbrecht](https://github.com/jlengelbrecht) ([#703](https://github.com/GlycemicGPT/GlycemicGPT/pull/703))
+- feat(medtronic): poll/persist/push pipeline integration with single-flight reads [@jlengelbrecht](https://github.com/jlengelbrecht) ([#702](https://github.com/GlycemicGPT/GlycemicGPT/pull/702))
+- feat(medtronic): on-device BluetoothGatt-client read transport [@jlengelbrecht](https://github.com/jlengelbrecht) ([#701](https://github.com/GlycemicGPT/GlycemicGPT/pull/701))
+- feat(medtronic): capability delegates + DevicePlugin + Hilt/:app wiring [@jlengelbrecht](https://github.com/jlengelbrecht) ([#700](https://github.com/GlycemicGPT/GlycemicGPT/pull/700))
+- feat(medtronic): IDD status + history/RACP read-only readers [@jlengelbrecht](https://github.com/jlengelbrecht) ([#699](https://github.com/GlycemicGPT/GlycemicGPT/pull/699))
+- feat(medtronic): session-read framework + CGM/SG, Device Info, and Battery readers [@jlengelbrecht](https://github.com/jlengelbrecht) ([#698](https://github.com/GlycemicGPT/GlycemicGPT/pull/698))
+- feat(medtronic): peripheral-mode BLE connection manager with SAKE session and reconnect [@jlengelbrecht](https://github.com/jlengelbrecht) ([#697](https://github.com/GlycemicGPT/GlycemicGPT/pull/697))
+- feat(medtronic): read-only BLE driver module with SAKE session and protocol constants [@jlengelbrecht](https://github.com/jlengelbrecht) ([#694](https://github.com/GlycemicGPT/GlycemicGPT/pull/694))
+- feat(mobile): wire Sentry crash/error reporting into the Android app [@jlengelbrecht](https://github.com/jlengelbrecht) ([#693](https://github.com/GlycemicGPT/GlycemicGPT/pull/693))
+
+#### 🐛 Bug Fixes
+
+- fix(tandem): remove cloud-upload feature [@jlengelbrecht](https://github.com/jlengelbrecht) ([#668](https://github.com/GlycemicGPT/GlycemicGPT/pull/668))
+
+#### 📝 Other Changes
+
+- chore: sync release 0.8.2 from main to develop [@glycemicgpt-merge](https://github.com/glycemicgpt-merge) ([#666](https://github.com/GlycemicGPT/GlycemicGPT/pull/666))
+
+### 🌐 Web
+
+#### ✨ New Features
+
+- feat: cross-source CGM dedupe + primary-source picker (Story 43.10) [@jlengelbrecht](https://github.com/jlengelbrecht) ([#711](https://github.com/GlycemicGPT/GlycemicGPT/pull/711))
+- feat(integrations): make Omnipod/Glooko EU region a first-class option [@jlengelbrecht](https://github.com/jlengelbrecht) ([#690](https://github.com/GlycemicGPT/GlycemicGPT/pull/690))
+- feat(integrations): Omnipod cloud sync via Glooko [@jlengelbrecht](https://github.com/jlengelbrecht) ([#689](https://github.com/GlycemicGPT/GlycemicGPT/pull/689))
+- feat(integrations): Medtronic CareLink Connect autonomous cloud sync [@jlengelbrecht](https://github.com/jlengelbrecht) ([#686](https://github.com/GlycemicGPT/GlycemicGPT/pull/686))
+- feat(web): server-side-only Sentry error monitoring (disabled by default) [@jlengelbrecht](https://github.com/jlengelbrecht) ([#677](https://github.com/GlycemicGPT/GlycemicGPT/pull/677))
+- feat: Medtronic CareLink manual historical import [@jlengelbrecht](https://github.com/jlengelbrecht) ([#671](https://github.com/GlycemicGPT/GlycemicGPT/pull/671))
+- feat(tandem): Cloud Sync card with per-user sync, availability, and manual import [@jlengelbrecht](https://github.com/jlengelbrecht) ([#669](https://github.com/GlycemicGPT/GlycemicGPT/pull/669))
+- feat(web): forecast picker + dotted-line overlay (43.12 PR 4) [@jlengelbrecht](https://github.com/jlengelbrecht) ([#636](https://github.com/GlycemicGPT/GlycemicGPT/pull/636))
+
+#### 🐛 Bug Fixes
+
+- fix(integrations): refresh Glooko card status after a failed sync/import [@jlengelbrecht](https://github.com/jlengelbrecht) ([#691](https://github.com/GlycemicGPT/GlycemicGPT/pull/691))
+- fix(web): stop the glucose SSE proxy from leaking aborts into Sentry [@jlengelbrecht](https://github.com/jlengelbrecht) ([#688](https://github.com/GlycemicGPT/GlycemicGPT/pull/688))
+
+#### 📝 Other Changes
+
+- chore(deps): clear Dependabot dev/build advisories before release [@jlengelbrecht](https://github.com/jlengelbrecht) ([#714](https://github.com/GlycemicGPT/GlycemicGPT/pull/714))
+- chore(deps): update dependency postcss to v8.5.15 [@glycemicgpt-renovate](https://github.com/glycemicgpt-renovate) ([#607](https://github.com/GlycemicGPT/GlycemicGPT/pull/607))
+- chore(deps): update dependency recharts to v3.8.1 [@glycemicgpt-renovate](https://github.com/glycemicgpt-renovate) ([#559](https://github.com/GlycemicGPT/GlycemicGPT/pull/559))
+
+### 📡 API
+
+#### ✨ New Features
+
+- feat(api): cross-source pump-event dedupe via content hash (Story 43.11) [@jlengelbrecht](https://github.com/jlengelbrecht) ([#710](https://github.com/GlycemicGPT/GlycemicGPT/pull/710))
+- feat(api): add Sentry error monitoring (disabled by default) [@jlengelbrecht](https://github.com/jlengelbrecht) ([#672](https://github.com/GlycemicGPT/GlycemicGPT/pull/672))
+
+#### 🐛 Bug Fixes
+
+- fix(api): bump pyjwt to 2.13.0 to clear PYSEC-2026 advisories [@jlengelbrecht](https://github.com/jlengelbrecht) ([#705](https://github.com/GlycemicGPT/GlycemicGPT/pull/705))
+- fix(caregiver): resolve 500 on invitation creation [@jlengelbrecht](https://github.com/jlengelbrecht) ([#685](https://github.com/GlycemicGPT/GlycemicGPT/pull/685))
+- fix(deps): patch starlette PYSEC-2026-161 and harden the ecdsa OSV exception [@jlengelbrecht](https://github.com/jlengelbrecht) ([#674](https://github.com/GlycemicGPT/GlycemicGPT/pull/674))
+
+#### 📝 Other Changes
+
+- chore(api): harden Sentry URL scrubbing and refresh privacy status [@jlengelbrecht](https://github.com/jlengelbrecht) ([#675](https://github.com/GlycemicGPT/GlycemicGPT/pull/675))
+- Fix Tandem cloud upload silent-success + scheduler diagnostics [@jlengelbrecht](https://github.com/jlengelbrecht) ([#667](https://github.com/GlycemicGPT/GlycemicGPT/pull/667))
+- chore(deps): lock file maintenance [@glycemicgpt-renovate](https://github.com/glycemicgpt-renovate) ([#557](https://github.com/GlycemicGPT/GlycemicGPT/pull/557))
+
+### 🤖 Sidecar
+
+#### ✨ New Features
+
+- feat(sidecar): add Sentry error monitoring (disabled by default) [@jlengelbrecht](https://github.com/jlengelbrecht) ([#676](https://github.com/GlycemicGPT/GlycemicGPT/pull/676))
+
+#### 📝 Other Changes
+
+- chore(deps): update dependency express to v4.22.2 [@glycemicgpt-renovate](https://github.com/glycemicgpt-renovate) ([#653](https://github.com/GlycemicGPT/GlycemicGPT/pull/653))
+
+### 🏗️ Infrastructure
+
+#### ✨ New Features
+
+- feat(medtronic): offline peripheral-BLE + SAKE handshake de-risk spike [@jlengelbrecht](https://github.com/jlengelbrecht) ([#692](https://github.com/GlycemicGPT/GlycemicGPT/pull/692))
+- feat(k8s): wire Sentry DSN env passthrough for api/sidecar/web [@jlengelbrecht](https://github.com/jlengelbrecht) ([#678](https://github.com/GlycemicGPT/GlycemicGPT/pull/678))
+
+#### 🐛 Bug Fixes
+
+- fix(ci): green develop after Medtronic Connect merge (helper-src context + x/sys CVE) [@jlengelbrecht](https://github.com/jlengelbrecht) ([#687](https://github.com/GlycemicGPT/GlycemicGPT/pull/687))
+
+#### 📝 Other Changes
+
+- chore: sync changelog update from main to develop [@glycemicgpt-merge](https://github.com/glycemicgpt-merge) ([#665](https://github.com/GlycemicGPT/GlycemicGPT/pull/665))
+
+### 📚 Documentation
+
+- docs(readme): add Medtronic 700-series + web dashboard demo + trim badges [@jlengelbrecht](https://github.com/jlengelbrecht) ([#709](https://github.com/GlycemicGPT/GlycemicGPT/pull/709))
+- docs(medtronic): OpenMinimed attribution, GPL-3.0 licensing, and BLE pairing guide [@jlengelbrecht](https://github.com/jlengelbrecht) ([#706](https://github.com/GlycemicGPT/GlycemicGPT/pull/706))
+- docs(roadmap): name the shared memory layer under AI Engine 2.0 [@jlengelbrecht](https://github.com/jlengelbrecht) ([#684](https://github.com/GlycemicGPT/GlycemicGPT/pull/684))
+- docs: add Sentry for Good sponsor and privacy posture [@jlengelbrecht](https://github.com/jlengelbrecht) ([#670](https://github.com/GlycemicGPT/GlycemicGPT/pull/670))
+
+<!-- changelog-cutoff:2026-06-10T18:20:27Z -->
+
+
 ## 2026-05-18
 
 ### 📱 Mobile
