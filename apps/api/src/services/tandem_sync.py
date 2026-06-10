@@ -9,7 +9,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from tconnectsync.api.common import ApiException
@@ -29,6 +29,7 @@ from src.models.integration import (
 )
 from src.models.pump_data import PumpActivityMode, PumpEvent, PumpEventType
 from src.models.pump_profile import PumpProfile
+from src.services.pump_event_dedupe import compute_pump_event_dedupe_hash
 
 logger = get_logger(__name__)
 
@@ -508,11 +509,19 @@ def fetch_with_retry(
         last_error = None
         for attempt in range(max_retries):
             try:
+                # fetch_all_event_types=False asks Tandem to return only the
+                # report-relevant event IDs (the library's DEFAULT_EVENT_IDS),
+                # instead of the full ~256-type history log. Every event type
+                # we actually store (_EVENT_ID_TYPE_MAP: 3/16/279/280) is in
+                # that set, so this is lossless for our data -- but it cuts the
+                # fetch/parse volume dramatically (a 30-day window dropped from
+                # ~120k raw events to a fraction), which is what made a manual
+                # import slow enough to time out the HTTP proxy.
                 events_gen = api.pump_events(
                     device_id,
                     min_date=min_date_str,
                     max_date=max_date_str,
-                    fetch_all_event_types=True,
+                    fetch_all_event_types=False,
                 )
                 # Consume generator and normalize events
                 raw_count = 0
@@ -686,17 +695,213 @@ async def _store_pump_settings(
     return profiles_stored
 
 
+async def _authenticate_tandem_api(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    credential: IntegrationCredential,
+    *,
+    persist_status: bool = True,
+) -> TandemSourceApi:
+    """Decrypt credentials, resolve the stored region to a cloud bucket, and
+    return an authenticated ``TandemSourceApi``.
+
+    Shared by ``sync_tandem_for_user`` and ``get_tandem_availability``. Raises
+    the matching Tandem*Error on failure so the router can map it to the right
+    HTTP status.
+
+    ``persist_status`` controls the side effect: sync passes True so a real
+    failure marks the credential ERROR; the read-only availability check passes
+    False so a transient blip doesn't flip the user's integration to ERROR.
+    """
+
+    async def _mark_error(error_msg: str) -> None:
+        if not persist_status:
+            return
+        # Avoid churning updated_at when the row already says exactly this.
+        if (
+            credential.status == IntegrationStatus.ERROR
+            and credential.last_error == error_msg
+        ):
+            return
+        credential.status = IntegrationStatus.ERROR
+        credential.last_error = error_msg
+        await db.commit()
+
+    # Decrypt credentials
+    try:
+        username = decrypt_credential(credential.encrypted_username)
+        password = decrypt_credential(credential.encrypted_password)
+    except ValueError as e:
+        logger.error(
+            "Failed to decrypt Tandem credentials",
+            user_id=str(user_id),
+            error=str(e),
+        )
+        await _mark_error("Credential decryption failed")
+        raise TandemSyncError("Failed to decrypt credentials") from e
+
+    # Resolve stored region into a Tandem cloud bucket (US or EU). Legacy
+    # "EU" rows raise TandemLegacyRegionError -> bubble up as
+    # TandemNeedsCountryError so the router can return a 409 prompting
+    # the user to re-select their country.
+    try:
+        country, cloud = resolve_country_or_raise(credential.region or "US")
+    except TandemLegacyRegionError as e:
+        message = str(e)
+        logger.warning(
+            "Tandem auth blocked: legacy region requires re-select",
+            user_id=str(user_id),
+            stored_region=credential.region,
+        )
+        await _mark_error(message)
+        raise TandemNeedsCountryError(message) from e
+
+    # Connect to Tandem (cloud is "US" or "EU", which is what tconnectsync
+    # expects). TandemSourceApi.__init__ performs a blocking login() (network
+    # I/O), so run it in a thread to avoid stalling the event loop.
+    try:
+        return await asyncio.to_thread(
+            TandemSourceApi, email=username, password=password, region=cloud
+        )
+    except ValueError as e:
+        logger.warning(
+            "Tandem invalid region",
+            user_id=str(user_id),
+            country=country,
+            cloud=cloud,
+            error=str(e),
+        )
+        await _mark_error("Invalid region configuration")
+        raise TandemAuthError("Invalid region") from e
+    except ApiException as e:
+        error_str = str(e).lower()
+        if "login" in error_str or "credential" in error_str or "401" in error_str:
+            logger.warning(
+                "Tandem authentication failed",
+                user_id=str(user_id),
+                error=str(e),
+            )
+            await _mark_error("Authentication failed - check credentials")
+            raise TandemAuthError("Invalid Tandem credentials") from e
+        logger.error(
+            "Failed to connect to Tandem",
+            user_id=str(user_id),
+            error=str(e),
+        )
+        await _mark_error(f"Connection failed: {str(e)}")
+        raise TandemConnectionError(f"Failed to connect: {str(e)}") from e
+    except Exception as e:
+        logger.error(
+            "Unexpected error connecting to Tandem",
+            user_id=str(user_id),
+            error=str(e),
+        )
+        await _mark_error(f"Connection failed: {str(e)}")
+        raise TandemConnectionError(f"Failed to connect: {str(e)}") from e
+
+
+def _parse_tandem_datetime(value: object) -> datetime | None:
+    """Parse a Tandem ISO date string (e.g. ``2026-04-15T01:35:01.687``) to an
+    aware UTC datetime. Returns None for missing/unparseable values."""
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
+
+
+async def get_tandem_availability(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+) -> dict:
+    """Query the date range of pump data available in the user's t:connect
+    cloud, so the UI can bound a manual-import date picker.
+
+    Returns ``{"earliest": dt|None, "latest": dt|None, "pump_count": int}``:
+    - ``earliest`` = the oldest ``minDateWithEvents`` across the user's pumps.
+    - ``latest`` = the newest ``lastUpload.lastUploadedAt`` (the real "last
+      data" marker; Tandem's ``maxDateWithEvents`` is unreliable -- it returns
+      a bogus far-future date -- so we deliberately ignore it).
+
+    Raises the same Tandem*Error types as ``sync_tandem_for_user`` (mapped to
+    HTTP statuses by the router). Read-only: never writes events.
+    """
+    result = await db.execute(
+        select(IntegrationCredential).where(
+            IntegrationCredential.user_id == user_id,
+            IntegrationCredential.integration_type == IntegrationType.TANDEM,
+        )
+    )
+    credential = result.scalar_one_or_none()
+    if not credential:
+        raise TandemNotConfiguredError("Tandem integration not configured")
+    if credential.status == IntegrationStatus.DISCONNECTED:
+        raise TandemNotConfiguredError("Tandem integration is disconnected")
+
+    # Read-only check: don't flip the integration to ERROR on a transient
+    # availability failure (this auto-fires from the UI).
+    api = await _authenticate_tandem_api(db, user_id, credential, persist_status=False)
+
+    try:
+        metadata = await asyncio.to_thread(api.pump_event_metadata)
+    except ApiException as e:
+        logger.warning(
+            "Tandem availability fetch failed", user_id=str(user_id), error=str(e)
+        )
+        raise TandemConnectionError("Failed to read pump metadata") from e
+
+    # Normalize metadata to a list of pump dicts (mirrors fetch_with_retry).
+    if isinstance(metadata, dict):
+        if "tconnectDeviceId" in metadata:
+            metadata = [metadata]
+        else:
+            for key in ("pumps", "devices", "data"):
+                if isinstance(metadata.get(key), list):
+                    metadata = metadata[key]
+                    break
+            else:
+                metadata = []
+    if not metadata:
+        return {"earliest": None, "latest": None, "pump_count": 0}
+
+    earliest: datetime | None = None
+    latest: datetime | None = None
+    for pump in metadata:
+        if not isinstance(pump, dict):
+            continue
+        min_dt = _parse_tandem_datetime(pump.get("minDateWithEvents"))
+        if min_dt and (earliest is None or min_dt < earliest):
+            earliest = min_dt
+        last_upload = pump.get("lastUpload") or {}
+        up_dt = _parse_tandem_datetime(last_upload.get("lastUploadedAt"))
+        if up_dt and (latest is None or up_dt > latest):
+            latest = up_dt
+
+    return {"earliest": earliest, "latest": latest, "pump_count": len(metadata)}
+
+
 async def sync_tandem_for_user(
     db: AsyncSession,
     user_id: uuid.UUID,
     hours_back: int | None = None,
+    *,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
 ) -> dict:
     """Sync Tandem pump data for a specific user.
 
     Args:
         db: Database session
         user_id: User ID to sync for
-        hours_back: Hours of history to fetch (default from settings)
+        hours_back: Hours of history to fetch ending now (default from
+            settings). Ignored when an explicit ``start_date``/``end_date``
+            range is given.
+        start_date / end_date: Explicit window for a manual custom-range
+            import. Both must be provided together; they override
+            ``hours_back``. The idempotent upsert means re-importing an
+            overlapping range is safe.
 
     Returns:
         Dict with sync results (events_fetched, events_stored, last_event)
@@ -707,13 +912,19 @@ async def sync_tandem_for_user(
         TandemConnectionError: If connection fails
         TandemSyncError: For other sync errors
     """
+    # Explicit range is both-or-neither: a lone bound is a programming error
+    # (it would otherwise be silently dropped in favor of hours_back).
+    if (start_date is None) != (end_date is None):
+        raise TandemSyncError("start_date and end_date must be provided together")
+    explicit_range = start_date is not None and end_date is not None
     if hours_back is None:
         hours_back = getattr(settings, "tandem_sync_hours_back", 24)
 
     logger.info(
         "Starting Tandem sync for user",
         user_id=str(user_id),
-        hours_back=hours_back,
+        hours_back=None if explicit_range else hours_back,
+        explicit_range=explicit_range,
     )
 
     # Get user's Tandem credentials
@@ -733,98 +944,14 @@ async def sync_tandem_for_user(
         logger.warning("Tandem integration is disconnected", user_id=str(user_id))
         raise TandemNotConfiguredError("Tandem integration is disconnected")
 
-    # Decrypt credentials
-    try:
-        username = decrypt_credential(credential.encrypted_username)
-        password = decrypt_credential(credential.encrypted_password)
-    except ValueError as e:
-        logger.error(
-            "Failed to decrypt Tandem credentials",
-            user_id=str(user_id),
-            error=str(e),
-        )
-        credential.status = IntegrationStatus.ERROR
-        credential.last_error = "Credential decryption failed"
-        await db.commit()
-        raise TandemSyncError("Failed to decrypt credentials") from e
+    # Decrypt + resolve region + authenticate (shared with availability).
+    api = await _authenticate_tandem_api(db, user_id, credential)
 
-    # Resolve stored region into a Tandem cloud bucket (US or EU). Legacy
-    # "EU" rows raise TandemLegacyRegionError -> bubble up as
-    # TandemNeedsCountryError so the router can return a 409 prompting
-    # the user to re-select their country.
-    try:
-        country, cloud = resolve_country_or_raise(credential.region or "US")
-    except TandemLegacyRegionError as e:
-        # Avoid rewriting the credential row on every scheduler tick when the
-        # state is already exactly what we'd set it to -- otherwise legacy
-        # users churn ``updated_at`` and produce a steady warning every minute
-        # until they re-select.
-        message = str(e)
-        already_marked = (
-            credential.status == IntegrationStatus.ERROR
-            and credential.last_error == message
-        )
-        if not already_marked:
-            logger.warning(
-                "Tandem sync blocked: legacy region requires re-select",
-                user_id=str(user_id),
-                stored_region=credential.region,
-            )
-            credential.status = IntegrationStatus.ERROR
-            credential.last_error = message
-            await db.commit()
-        raise TandemNeedsCountryError(message) from e
-
-    # Connect to Tandem (cloud is "US" or "EU", which is what tconnectsync expects)
-    try:
-        api = TandemSourceApi(email=username, password=password, region=cloud)
-    except ValueError as e:
-        logger.warning(
-            "Tandem invalid region",
-            user_id=str(user_id),
-            country=country,
-            cloud=cloud,
-            error=str(e),
-        )
-        credential.status = IntegrationStatus.ERROR
-        credential.last_error = "Invalid region configuration"
-        await db.commit()
-        raise TandemAuthError("Invalid region") from e
-    except ApiException as e:
-        error_str = str(e).lower()
-        if "login" in error_str or "credential" in error_str or "401" in error_str:
-            logger.warning(
-                "Tandem authentication failed",
-                user_id=str(user_id),
-                error=str(e),
-            )
-            credential.status = IntegrationStatus.ERROR
-            credential.last_error = "Authentication failed - check credentials"
-            await db.commit()
-            raise TandemAuthError("Invalid Tandem credentials") from e
-        logger.error(
-            "Failed to connect to Tandem",
-            user_id=str(user_id),
-            error=str(e),
-        )
-        credential.status = IntegrationStatus.ERROR
-        credential.last_error = f"Connection failed: {str(e)}"
-        await db.commit()
-        raise TandemConnectionError(f"Failed to connect: {str(e)}") from e
-    except Exception as e:
-        logger.error(
-            "Unexpected error connecting to Tandem",
-            user_id=str(user_id),
-            error=str(e),
-        )
-        credential.status = IntegrationStatus.ERROR
-        credential.last_error = f"Connection failed: {str(e)}"
-        await db.commit()
-        raise TandemConnectionError(f"Failed to connect: {str(e)}") from e
-
-    # Calculate date range
-    end_date = datetime.now(UTC)
-    start_date = end_date - timedelta(hours=hours_back)
+    # Date range: explicit (manual custom-range import) overrides the
+    # now-anchored hours_back window.
+    if not explicit_range:
+        end_date = datetime.now(UTC)
+        start_date = end_date - timedelta(hours=hours_back)
 
     # Fetch events from Tandem with retry logic
     try:
@@ -871,7 +998,12 @@ async def sync_tandem_for_user(
     if not events:
         logger.info("No new events from Tandem", user_id=str(user_id))
         credential.status = IntegrationStatus.CONNECTED
-        credential.last_sync_at = datetime.now(UTC)
+        # Only advance the recency cursor for "catch up to now" syncs. A manual
+        # explicit-range import (often historical) must not make the user look
+        # freshly-synced -- that would mislead "Last sync" and suppress the next
+        # scheduled pull of recent data.
+        if not explicit_range:
+            credential.last_sync_at = datetime.now(UTC)
         credential.last_error = None
         await db.commit()
         return {
@@ -881,10 +1013,15 @@ async def sync_tandem_for_user(
             "last_event": None,
         }
 
-    # Store events (using upsert to handle duplicates)
+    # Build rows, then bulk-upsert in chunks. A manual import can span tens
+    # of thousands of events; inserting one row per round-trip made a 30-day
+    # import take ~90s (and time out the HTTP layer), so we batch instead.
     now = datetime.now(UTC)
-    stored_count = 0
     last_event = None
+    # De-duplicate on the conflict key (event_timestamp, event_type) keeping
+    # the first occurrence, so a single multi-row INSERT can't hit an
+    # intra-statement conflict on the unique index.
+    rows_by_key: dict[tuple, dict] = {}
 
     for event_data in events:
         # Extract timestamp
@@ -958,41 +1095,37 @@ async def sync_tandem_for_user(
                 except (ValueError, TypeError):
                     pass
 
-        # Use PostgreSQL upsert (INSERT ON CONFLICT DO NOTHING)
-        stmt = (
-            insert(PumpEvent)
-            .values(
-                id=uuid.uuid4(),
-                user_id=user_id,
-                event_type=parsed.event_type,
-                event_timestamp=event_time,
-                units=units,
-                duration_minutes=duration_minutes,
-                is_automated=parsed.is_automated,
-                control_iq_reason=parsed.control_iq_reason,
-                pump_activity_mode=parsed.pump_activity_mode.value
+        key = (event_time, parsed.event_type)
+        if key not in rows_by_key:
+            rows_by_key[key] = {
+                "id": uuid.uuid4(),
+                "user_id": user_id,
+                "event_type": parsed.event_type,
+                "event_timestamp": event_time,
+                "units": units,
+                "duration_minutes": duration_minutes,
+                "is_automated": parsed.is_automated,
+                "control_iq_reason": parsed.control_iq_reason,
+                "pump_activity_mode": parsed.pump_activity_mode.value
                 if parsed.pump_activity_mode
                 else None,
-                basal_adjustment_pct=parsed.basal_adjustment_pct,
-                iob_at_event=iob,
-                cob_at_event=cob,
-                bg_at_event=bg,
-                received_at=now,
-                source="tandem",
-            )
-            .on_conflict_do_nothing(
-                index_elements=["user_id", "event_timestamp", "event_type"],
-                # The (user_id, event_timestamp, event_type) unique
-                # index is partial: applies only to direct-integration
-                # rows (`ns_id IS NULL`). Tandem direct sync writes
-                # ns_id=NULL so the partial index applies.
-                index_where=text("ns_id IS NULL"),
-            )
-        )
-
-        result = await db.execute(stmt)
-        if result.rowcount > 0:
-            stored_count += 1
+                "basal_adjustment_pct": parsed.basal_adjustment_pct,
+                "iob_at_event": iob,
+                "cob_at_event": cob,
+                "bg_at_event": bg,
+                "received_at": now,
+                "source": "tandem",
+                # Cross-source dedupe key (Story 43.11) so a Tandem-cloud
+                # delivery collapses against the same physical bolus
+                # relayed via Loop-over-Nightscout.
+                "dedupe_hash": compute_pump_event_dedupe_hash(
+                    user_id=user_id,
+                    event_type=parsed.event_type,
+                    event_timestamp=event_time,
+                    units=units,
+                    duration_minutes=duration_minutes,
+                ),
+            }
 
         # Track the most recent event
         if last_event is None or event_time > last_event["timestamp"]:
@@ -1006,9 +1139,36 @@ async def sync_tandem_for_user(
                 else None,
             }
 
-    # Update integration status
+    # Chunked bulk upsert (INSERT ... ON CONFLICT DO NOTHING). The bare
+    # DO NOTHING (no explicit conflict target) is REQUIRED now that
+    # pump_events has two unique indexes a row can violate: the natural-key
+    # `(user_id, event_timestamp, event_type)` WHERE ns_id IS NULL and the
+    # cross-source `(user_id, dedupe_hash)` WHERE dedupe_hash IS NOT NULL
+    # (Story 43.11). A *targeted* clause arbitrates only its named index and
+    # raises a unique_violation on the other; the bare form skips a conflict
+    # on either. Postgres also collapses within-statement duplicates under
+    # DO NOTHING, so no application-side pre-dedupe is needed. RETURNING
+    # gives a reliable inserted count per chunk -- rowcount is unreliable
+    # under ON CONFLICT DO NOTHING (asyncpg can report -1), which would
+    # under-count events_stored and stall the import progress counter.
+    rows = list(rows_by_key.values())
+    stored_count = 0
+    chunk_size = 500
+    for start in range(0, len(rows), chunk_size):
+        stmt = (
+            insert(PumpEvent)
+            .values(rows[start : start + chunk_size])
+            .on_conflict_do_nothing()
+            .returning(PumpEvent.id)
+        )
+        result = await db.execute(stmt)
+        stored_count += len(result.scalars().all())
+
+    # Update integration status. As above, don't advance the recency cursor
+    # for an explicit-range (manual) import -- it isn't a "current" sync.
     credential.status = IntegrationStatus.CONNECTED
-    credential.last_sync_at = now
+    if not explicit_range:
+        credential.last_sync_at = now
     credential.last_error = None
     await db.commit()
 

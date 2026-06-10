@@ -24,6 +24,7 @@ data class BasalReadingEntity(
     val rate: Float,
     val isAutomated: Boolean,
     val activityMode: String,
+    @ColumnInfo(defaultValue = "") val source: String = "",
     val timestampMs: Long,
 )
 
@@ -75,5 +76,6 @@ data class CgmReadingEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val glucoseMgDl: Int,
     val trendArrow: String,
+    @ColumnInfo(defaultValue = "") val source: String = "",
     val timestampMs: Long,
 )

@@ -80,6 +80,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.glycemicgpt.mobile.data.local.AlertSoundCategory
 import com.glycemicgpt.mobile.domain.plugin.PluginMetadata
 import com.glycemicgpt.mobile.plugin.RuntimePluginInfo
+import com.glycemicgpt.mobile.presentation.plugin.PluginSettingsRenderer
 import com.glycemicgpt.mobile.presentation.theme.ThemeMode
 import com.glycemicgpt.mobile.wear.WatchFaceVariant
 import java.io.File
@@ -715,9 +716,10 @@ private fun PluginsSection(
     onShowRemovePlugin: (String) -> Unit,
     onClearPluginInstallError: () -> Unit,
 ) {
-    // Only show pump pairing card when the Tandem plugin is active.
-    // Uses literal ID to avoid importing TandemDevicePlugin into the UI layer.
-    if ("com.glycemicgpt.tandem" in state.activePluginIds) {
+    // Show the pump pairing card whenever any pump DevicePlugin is active (the registry resolves the
+    // active PUMP_STATUS/INSULIN_SOURCE plugin generically into activePumpPluginId), so it works for
+    // every pump driver -- Tandem, Medtronic, or a future one -- without hardcoding a vendor id.
+    if (state.activePumpPluginId != null) {
         PumpSection(
             state = state,
             onNavigateToPairing = onNavigateToPairing,
@@ -985,6 +987,18 @@ private fun PumpSection(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+            }
+
+            // Pump-specific connection notes (e.g. Medtronic's single-peer limitation) declared by the
+            // active plugin's settings descriptor. The card chrome above/below owns live pairing status
+            // and the pair/unpair actions; the ViewModel has already reduced this to informational
+            // notes only, so no settings store is needed here.
+            val pumpNotes = state.activePumpSettingsDescriptor
+            if (pumpNotes != null) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Column(modifier = Modifier.testTag("pump_settings_notes")) {
+                    PluginSettingsRenderer(descriptor = pumpNotes)
                 }
             }
 

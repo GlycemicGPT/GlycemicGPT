@@ -41,6 +41,19 @@ spec:
             # Disable Next.js telemetry
             - name: NEXT_TELEMETRY_DISABLED
               value: "1"
+            # Sentry error monitoring -- SERVER-SIDE only; optional, empty/absent = disabled.
+            - name: GLYCEMICGPT_WEB_SENTRY_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: glycemicgpt-secrets
+                  key: GLYCEMICGPT_WEB_SENTRY_DSN
+                  optional: true
+            - name: GLYCEMICGPT_WEB_SENTRY_ENVIRONMENT
+              valueFrom:
+                configMapKeyRef:
+                  name: glycemicgpt-config
+                  key: SENTRY_ENVIRONMENT
+                  optional: true
           resources:
             requests:
               memory: "256Mi"

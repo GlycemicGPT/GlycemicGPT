@@ -3,47 +3,103 @@
 API endpoints for managing third-party integrations (Dexcom, Tandem) and data sync.
 """
 
+import json
 import math
+import secrets
+import time
 import uuid
 import zoneinfo
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import (
+    APIRouter,
+    Cookie,
+    Depends,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    status,
+)
+from fastapi.responses import FileResponse, PlainTextResponse
 from pydexcom import Dexcom
 from pydexcom import errors as dexcom_errors
-from sqlalchemy import and_, case, func, select, text
+from sqlalchemy import and_, case, delete, func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from tconnectsync.api.common import ApiException
 from tconnectsync.api.tandemsource import TandemSourceApi
 
-from src.core.auth import CurrentUser, DiabeticOrAdminUser
-from src.core.encryption import encrypt_credential
+from src.config import settings
+from src.core.auth import (
+    CurrentUser,
+    DiabeticOrAdminUser,
+    get_current_user,
+    require_diabetic_or_admin,
+)
+from src.core.connect_install_bundle import (
+    get_install_bundle,
+    store_install_bundle,
+)
+from src.core.encryption import decrypt_credential, encrypt_credential
+from src.core.medtronic_regions import resolve_region_base_url
 from src.core.tandem_regions import (
-    TandemLegacyRegionError,
     country_to_cloud,
     is_legacy_tandem_region,
 )
+from src.core.token_blacklist import consume_token_once, is_token_blacklisted
 from src.database import get_db
 from src.logging_config import get_logger
 from src.middleware.rate_limit import limiter
+from src.models.glooko_sync_state import (
+    STATUS_CONNECTED as GLOOKO_STATUS_CONNECTED,
+)
+from src.models.glooko_sync_state import (
+    STATUS_DISCONNECTED as GLOOKO_STATUS_DISCONNECTED,
+)
+from src.models.glooko_sync_state import (
+    GlookoSyncState,
+)
 from src.models.glucose import GlucoseReading
 from src.models.integration import (
     IntegrationCredential,
     IntegrationStatus,
     IntegrationType,
 )
+from src.models.medtronic_connect_state import (
+    STATUS_CONNECTED,
+    STATUS_DISCONNECTED,
+    MedtronicConnectState,
+)
 from src.models.pump_data import PumpEvent, PumpEventType
-from src.models.pump_hardware_info import PumpHardwareInfo
-from src.models.pump_raw_event import PumpRawEvent
-from src.models.tandem_upload_state import TandemUploadState
+from src.models.tandem_sync_state import (
+    SYNC_INTERVAL_DEFAULT_MINUTES,
+    TandemSyncState,
+)
+from src.models.user import User
 from src.schemas.auth import ErrorResponse
+from src.schemas.cgm import (
+    CgmPrimaryResponse,
+    CgmPrimaryUpdate,
+    CgmSourceItem,
+    CgmSourcesResponse,
+)
 from src.schemas.forecast import (
     ForecastPayload,
     ForecastReadResponse,
     ForecastSourcePreferenceResponse,
     ForecastSourcePreferenceUpdate,
     curves_from_jsonb,
+)
+from src.schemas.glooko import (
+    GlookoAvailabilityResponse,
+    GlookoConnectRequest,
+    GlookoStatusResponse,
+    GlookoSyncResponse,
+    GlookoSyncSettingsRequest,
 )
 from src.schemas.glucose import (
     AGPBucket,
@@ -67,6 +123,22 @@ from src.schemas.integration import (
     IntegrationResponse,
     TandemCredentialsRequest,
 )
+from src.schemas.medtronic import (
+    CARELINK_TOKEN_HEADER,
+    MAX_TOKEN_LEN,
+    MedtronicAvailabilityRequest,
+    MedtronicAvailabilityResponse,
+    MedtronicConnectAuthUrlResponse,
+    MedtronicConnectExchangeRequest,
+    MedtronicConnectInstallRequest,
+    MedtronicConnectInstallResponse,
+    MedtronicConnectPairResponse,
+    MedtronicConnectSettingsRequest,
+    MedtronicConnectStatusResponse,
+    MedtronicConnectSyncResponse,
+    MedtronicImportRequest,
+    MedtronicImportResponse,
+)
 from src.schemas.pump import (
     BolusReviewItem,
     BolusReviewResponse,
@@ -83,12 +155,19 @@ from src.schemas.pump import (
     PumpStatusBattery,
     PumpStatusReservoir,
     PumpStatusResponse,
+    TandemAvailabilityResponse,
+    TandemImportRequest,
     TandemSyncResponse,
+    TandemSyncSettingsRequest,
     TandemSyncStatusResponse,
-    TandemUploadResetResponse,
-    TandemUploadSettingsRequest,
-    TandemUploadStatusResponse,
-    TandemUploadTriggerResponse,
+)
+from src.services.cgm_source import (
+    CGM_ROLE_PRIMARY,
+    default_cgm_role_for_new_source,
+    get_excluded_cgm_sources,
+    glucose_source_exclusion_clause,
+    list_cgm_sources,
+    set_primary_cgm_source,
 )
 from src.services.dexcom_sync import (
     DexcomAuthError,
@@ -105,8 +184,46 @@ from src.services.forecast_reader import (
     resolve_effective_source,
     set_forecast_source,
 )
+from src.services.integrations.glooko.auth import glooko_login
+from src.services.integrations.glooko.errors import (
+    GlookoAuthError,
+    GlookoNetworkError,
+)
+from src.services.integrations.glooko.sync import (
+    GlookoSyncRunError,
+    import_glooko_history_for_user,
+    probe_glooko_availability,
+    sync_glooko_for_user,
+)
+from src.services.integrations.medtronic.client import (
+    CareLinkAuthError,
+    CareLinkClient,
+    CareLinkError,
+    CareLinkReportTimeoutError,
+)
+from src.services.integrations.medtronic.connect_auth import (
+    ConnectTokenError,
+    build_authorize_url,
+    exchange_code_for_tokens,
+    generate_pkce,
+    get_region,
+)
+from src.services.integrations.medtronic.connect_pairing import (
+    CONNECT_PAIR_TOKEN_HEADER,
+    PAIR_TOKEN_TTL_SECONDS,
+    PairingTokenError,
+    decode_pairing_token,
+    issue_pairing_token,
+    pairing_token_jti,
+)
+from src.services.integrations.medtronic.connect_sync import (
+    ConnectSyncError,
+    sync_connect_for_user,
+)
+from src.services.integrations.medtronic.sync import sync_carelink_for_user
 from src.services.iob_projection import get_iob_projection, get_user_dia
 from src.services.loop_state_extractor import get_latest_loop_state
+from src.services.pump_event_dedupe import compute_pump_event_dedupe_hash
 from src.services.tandem_sync import (
     TandemAuthError,
     TandemConnectionError,
@@ -117,6 +234,7 @@ from src.services.tandem_sync import (
     get_latest_pump_event,
     get_latest_pump_status,
     get_pump_events,
+    get_tandem_availability,
     sync_tandem_for_user,
 )
 from src.services.target_glucose_range import get_or_create_range
@@ -377,7 +495,9 @@ async def connect_dexcom(
         existing.updated_at = datetime.now(UTC)
         credential = existing
     else:
-        # Create new credential
+        # Create new credential. Cross-source CGM role (Story 43.10): primary
+        # if the user has no existing primary CGM source, else secondary.
+        cgm_role = await default_cgm_role_for_new_source(db, current_user.id)
         credential = IntegrationCredential(
             user_id=current_user.id,
             integration_type=IntegrationType.DEXCOM,
@@ -385,6 +505,7 @@ async def connect_dexcom(
             encrypted_password=encrypt_credential(request.password),
             region=request.region,
             status=IntegrationStatus.CONNECTED,
+            cgm_role=cgm_role,
         )
         db.add(credential)
 
@@ -535,8 +656,6 @@ async def connect_tandem(
     if existing:
         # Update existing credentials. region column stores the country code
         # for Tandem (see model comment in src/models/integration.py).
-        previous_country = existing.region or ""
-        country_changed = previous_country != request.country
         existing.encrypted_username = encrypt_credential(request.username)
         existing.encrypted_password = encrypt_credential(request.password)
         existing.region = request.country
@@ -544,29 +663,6 @@ async def connect_tandem(
         existing.last_error = None
         existing.updated_at = datetime.now(UTC)
         credential = existing
-
-        # If the country (and therefore the Tandem cloud bucket) changed, the
-        # cached OAuth token is bound to the old cloud and will fail with an
-        # opaque 401 against the new endpoints. Clear it so the next upload
-        # re-authenticates fresh.
-        if country_changed:
-            state_result = await db.execute(
-                select(TandemUploadState).where(
-                    TandemUploadState.user_id == current_user.id
-                )
-            )
-            state = state_result.scalar_one_or_none()
-            if state is not None:
-                state.tandem_access_token = None
-                state.tandem_refresh_token = None
-                state.tandem_token_expires_at = None
-                state.tandem_pumper_id = None
-                logger.info(
-                    "Cleared cached Tandem auth on country change",
-                    user_id=str(current_user.id),
-                    old_country=previous_country,
-                    new_country=request.country,
-                )
     else:
         credential = IntegrationCredential(
             user_id=current_user.id,
@@ -577,6 +673,10 @@ async def connect_tandem(
             status=IntegrationStatus.CONNECTED,
         )
         db.add(credential)
+
+    # (TandemUploadState cache-clear on reconnect was removed alongside the
+    # Tandem cloud-upload feature in PR1c. The download direction uses
+    # tconnectsync's own session, which authenticates fresh each sync.)
 
     await db.commit()
     await db.refresh(credential)
@@ -818,12 +918,22 @@ async def get_sync_status(
 async def get_current_glucose(
     current_user: DiabeticOrAdminUser,
     db: AsyncSession = Depends(get_db),
+    include_secondary: bool = Query(
+        default=False,
+        description="Include secondary CGM sources (Story 43.10). Off by default.",
+    ),
 ) -> CurrentGlucoseResponse:
     """Get the current (most recent) glucose reading.
 
     Returns the latest glucose value with trend and staleness indicator.
+    By default reads from the primary CGM source only (Story 43.10).
     """
-    latest = await get_latest_glucose_reading(db, current_user.id)
+    excluded = await get_excluded_cgm_sources(
+        db, current_user.id, include_secondary=include_secondary
+    )
+    latest = await get_latest_glucose_reading(
+        db, current_user.id, excluded_sources=excluded
+    )
 
     if not latest:
         raise HTTPException(
@@ -873,6 +983,10 @@ async def get_glucose_history(
     end: datetime | None = Query(
         default=None, description="End of date range (ISO 8601, UTC)"
     ),
+    include_secondary: bool = Query(
+        default=False,
+        description="Include secondary CGM sources (Story 43.10). Off by default.",
+    ),
 ) -> GlucoseHistoryResponse:
     """Get glucose reading history.
 
@@ -882,15 +996,28 @@ async def get_glucose_history(
     downsampling (e.g., LTTB) for chart rendering.
 
     When start and end are provided, they override the minutes parameter.
+    By default reads from the primary CGM source only (Story 43.10).
     """
+    excluded = await get_excluded_cgm_sources(
+        db, current_user.id, include_secondary=include_secondary
+    )
     date_range = _validate_date_range(start, end)
     if date_range is not None:
         readings = await get_glucose_readings(
-            db, current_user.id, limit=limit, start=date_range[0], end=date_range[1]
+            db,
+            current_user.id,
+            limit=limit,
+            start=date_range[0],
+            end=date_range[1],
+            excluded_sources=excluded,
         )
     else:
         readings = await get_glucose_readings(
-            db, current_user.id, minutes=minutes, limit=limit
+            db,
+            current_user.id,
+            minutes=minutes,
+            limit=limit,
+            excluded_sources=excluded,
         )
 
     return GlucoseHistoryResponse(
@@ -928,6 +1055,10 @@ async def get_time_in_range(
     end: datetime | None = Query(
         default=None, description="End of date range (ISO 8601, UTC)"
     ),
+    include_secondary: bool = Query(
+        default=False,
+        description="Include secondary CGM sources (Story 43.10). Off by default.",
+    ),
 ) -> TimeInRangeResponse | TimeInRangeDetailResponse:
     """Get time-in-range statistics for the specified period.
 
@@ -939,8 +1070,12 @@ async def get_time_in_range(
     comparison data.
 
     When start and end are provided, they override the minutes parameter.
+    By default counts the primary CGM source only (Story 43.10).
     """
     date_range = _validate_date_range(start, end)
+    excluded = await get_excluded_cgm_sources(
+        db, current_user.id, include_secondary=include_secondary
+    )
 
     # Fetch user's target range thresholds
     target_range = await get_or_create_range(current_user.id, db)
@@ -970,6 +1105,7 @@ async def get_time_in_range(
                 GlucoseReading.reading_timestamp < now,
                 GlucoseReading.value >= 20,
                 GlucoseReading.value <= 500,
+                *glucose_source_exclusion_clause(excluded),
             )
         )
         row = result.one()
@@ -1021,6 +1157,7 @@ async def get_time_in_range(
         low_threshold,
         high_threshold,
         urgent_high,
+        excluded_sources=excluded,
     )
 
     # Previous period: same duration ending at cutoff
@@ -1034,6 +1171,7 @@ async def get_time_in_range(
         low_threshold,
         high_threshold,
         urgent_high,
+        excluded_sources=excluded,
     )
 
     previous_buckets = None
@@ -1079,11 +1217,14 @@ async def _query_5_buckets(
     low: float,
     high: float,
     urgent_high: float,
+    *,
+    excluded_sources: list[str] | None = None,
 ) -> dict:
     """Query 5-bucket TIR counts for a time window.
 
     Filters to physiologically plausible glucose values (20-500 mg/dL)
     to prevent sensor errors or corrupt data from skewing percentages.
+    ``excluded_sources`` drops secondary/off CGM sources (Story 43.10).
     """
     result = await db.execute(
         select(
@@ -1136,6 +1277,7 @@ async def _query_5_buckets(
             GlucoseReading.reading_timestamp < end,
             GlucoseReading.value >= 20,
             GlucoseReading.value <= 500,
+            *glucose_source_exclusion_clause(excluded_sources),
         )
     )
     row = result.one()
@@ -1354,7 +1496,11 @@ async def get_tandem_sync_status(
 ) -> TandemSyncStatusResponse:
     """Get the current Tandem sync status.
 
-    Returns the integration status, last sync time, and latest event.
+    Returns integration status + freshness (from the credential) and the
+    per-user sync control (enabled / interval / cumulative pulls, from
+    ``TandemSyncState``). When no state row exists, a connected user
+    defaults to enabled at the default interval -- backward-compatible with
+    the prior global sync that synced every connected user.
     """
     # Get integration status
     result = await db.execute(
@@ -1377,12 +1523,1765 @@ async def get_tandem_sync_status(
     if latest:
         latest_response = PumpEventResponse.model_validate(latest)
 
+    # Per-user sync control. Absent row => effective enabled@default.
+    state_result = await db.execute(
+        select(TandemSyncState).where(TandemSyncState.user_id == current_user.id)
+    )
+    state = state_result.scalar_one_or_none()
+
+    # Legacy-region detection: a stored "EU"-style bucket can't be resolved
+    # to a country, so sync would 409. Surface it so the UI can prompt a
+    # reconnect instead of silently showing "enabled" that never runs.
+    needs_country = bool(
+        credential and credential.region and is_legacy_tandem_region(credential.region)
+    )
+
+    # A user with no Tandem credential has nothing to sync -- report
+    # enabled=False so the response isn't misleading (the "no row =>
+    # enabled@default" rule only applies to *connected* users).
+    if credential is None:
+        effective_enabled = False
+    elif state is not None:
+        effective_enabled = state.enabled
+    else:
+        effective_enabled = True
+
     return TandemSyncStatusResponse(
         integration_status=credential.status.value if credential else "not_configured",
         last_sync_at=credential.last_sync_at if credential else None,
         last_error=credential.last_error if credential else None,
         events_available=events_count,
         latest_event=latest_response,
+        enabled=effective_enabled,
+        sync_interval_minutes=(
+            state.sync_interval_minutes if state else SYNC_INTERVAL_DEFAULT_MINUTES
+        ),
+        events_pulled_total=state.events_pulled_total if state else 0,
+        needs_country_reselect=needs_country,
+    )
+
+
+@router.put(
+    "/tandem/sync/settings",
+    response_model=TandemSyncStatusResponse,
+    responses={
+        200: {"description": "Settings updated"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        403: {"model": ErrorResponse, "description": "Permission denied"},
+        404: {"model": ErrorResponse, "description": "Tandem not configured"},
+        409: {
+            "model": ErrorResponse,
+            "description": "Country re-selection required (legacy region value)",
+        },
+    },
+)
+async def update_tandem_sync_settings(
+    body: TandemSyncSettingsRequest,
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> TandemSyncStatusResponse:
+    """Update the per-user Tandem sync toggle + interval.
+
+    Upserts the user's ``TandemSyncState`` row. Guards:
+    - 404 if Tandem isn't connected (nothing to sync).
+    - 409 only when *enabling* sync on a legacy-region credential (it would
+      just 409 on every tick). Disabling is always allowed -- a legacy-region
+      user must be able to turn sync off without first reconnecting.
+    """
+    cred_result = await db.execute(
+        select(IntegrationCredential).where(
+            IntegrationCredential.user_id == current_user.id,
+            IntegrationCredential.integration_type == IntegrationType.TANDEM,
+        )
+    )
+    credential = cred_result.scalar_one_or_none()
+    if not credential:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tandem integration not configured",
+        )
+    if (
+        body.enabled
+        and credential.region
+        and is_legacy_tandem_region(credential.region)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Your Tandem integration uses a legacy region setting. "
+                "Reconnect with your country selected before enabling sync."
+            ),
+        )
+
+    # Upsert-then-lock: insert the row if missing (ON CONFLICT DO NOTHING),
+    # then SELECT ... FOR UPDATE so a concurrent settings change or the
+    # scheduler's events_pulled_total bump can't race the field writes.
+    await db.execute(
+        pg_insert(TandemSyncState)
+        .values(
+            user_id=current_user.id,
+            enabled=body.enabled,
+            sync_interval_minutes=body.sync_interval_minutes,
+        )
+        .on_conflict_do_nothing(index_elements=["user_id"])
+    )
+    state_result = await db.execute(
+        select(TandemSyncState)
+        .where(TandemSyncState.user_id == current_user.id)
+        .with_for_update()
+    )
+    state = state_result.scalar_one()
+    state.enabled = body.enabled
+    state.sync_interval_minutes = body.sync_interval_minutes
+    await db.commit()
+
+    logger.info(
+        "Tandem sync settings updated",
+        user_id=str(current_user.id),
+        enabled=body.enabled,
+        interval_minutes=body.sync_interval_minutes,
+    )
+
+    # Re-read freshness for the response.
+    count_result = await db.execute(
+        select(func.count(PumpEvent.id)).where(PumpEvent.user_id == current_user.id)
+    )
+    events_count = count_result.scalar() or 0
+    latest = await get_latest_pump_event(db, current_user.id)
+    latest_response = PumpEventResponse.model_validate(latest) if latest else None
+
+    # A legacy-region user can reach here by *disabling* (the enable path
+    # 409s above), so compute the flag rather than hardcoding False.
+    needs_country = bool(
+        credential.region and is_legacy_tandem_region(credential.region)
+    )
+
+    return TandemSyncStatusResponse(
+        integration_status=credential.status.value,
+        last_sync_at=credential.last_sync_at,
+        last_error=credential.last_error,
+        events_available=events_count,
+        latest_event=latest_response,
+        enabled=state.enabled,
+        sync_interval_minutes=state.sync_interval_minutes,
+        events_pulled_total=state.events_pulled_total,
+        needs_country_reselect=needs_country,
+    )
+
+
+@router.get(
+    "/tandem/sync/availability",
+    response_model=TandemAvailabilityResponse,
+    responses={
+        200: {"description": "Available data date range"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        403: {"model": ErrorResponse, "description": "Permission denied"},
+        404: {"model": ErrorResponse, "description": "Tandem not configured"},
+        409: {"model": ErrorResponse, "description": "Country re-selection required"},
+        503: {"model": ErrorResponse, "description": "Tandem service unavailable"},
+    },
+)
+@limiter.limit("10/minute")
+async def get_tandem_sync_availability(
+    request: Request,
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> TandemAvailabilityResponse:
+    """Report the date range of pump data available in the user's t:connect
+    cloud, to bound the manual-import date picker.
+
+    Authenticates to Tandem (live call), so it's rate-limited and maps the
+    same Tandem*Error types to HTTP statuses as the sync endpoint.
+    """
+    try:
+        result = await get_tandem_availability(db, current_user.id)
+    except TandemNotConfiguredError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tandem integration not configured",
+        ) from e
+    except TandemNeedsCountryError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+    except TandemAuthError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid Tandem credentials. Please reconnect your account.",
+        ) from e
+    except TandemConnectionError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to reach Tandem. Please try again later.",
+        ) from e
+    except TandemSyncError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Could not read availability: {str(e)}",
+        ) from e
+
+    return TandemAvailabilityResponse(
+        earliest=result["earliest"],
+        latest=result["latest"],
+        pump_count=result["pump_count"],
+    )
+
+
+@router.post(
+    "/tandem/sync/import",
+    response_model=TandemSyncResponse,
+    responses={
+        200: {"description": "Import completed"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        403: {"model": ErrorResponse, "description": "Permission denied"},
+        404: {"model": ErrorResponse, "description": "Tandem not configured"},
+        409: {"model": ErrorResponse, "description": "Country re-selection required"},
+        422: {"model": ErrorResponse, "description": "Invalid date range"},
+        503: {"model": ErrorResponse, "description": "Tandem service unavailable"},
+    },
+)
+@limiter.limit("5/minute")
+async def import_tandem_range(
+    body: TandemImportRequest,
+    request: Request,
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> TandemSyncResponse:
+    """One-time manual import of a user-chosen date range from t:connect.
+
+    Unlike the scheduled sync (which pulls a recent window ending now), this
+    fetches exactly the requested range -- the way to backfill history or fill
+    a gap after sync was off. Idempotent (ON CONFLICT DO NOTHING), so an
+    overlapping re-import is safe. Rate-limited; authenticates live.
+    """
+    try:
+        result = await sync_tandem_for_user(
+            db,
+            current_user.id,
+            start_date=body.start_date,
+            end_date=body.end_date,
+        )
+    except TandemNotConfiguredError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tandem integration not configured",
+        ) from e
+    except TandemNeedsCountryError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+    except TandemAuthError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid Tandem credentials. Please reconnect your account.",
+        ) from e
+    except TandemConnectionError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to reach Tandem. Please try again later.",
+        ) from e
+    except TandemSyncError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Import failed: {str(e)}",
+        ) from e
+
+    # Count imported events toward the cumulative counter, matching the
+    # scheduler. Atomic upsert-increment; does NOT touch last_attempt_at
+    # (that's the scheduler's pacing cursor -- a manual import shouldn't
+    # reset it). Best-effort: the events are already committed inside
+    # sync_tandem_for_user, so a failure here must NOT turn a successful
+    # import into a 500 (which would invite pointless retries against Tandem).
+    if result["events_stored"]:
+        try:
+            await db.execute(
+                pg_insert(TandemSyncState)
+                .values(
+                    user_id=current_user.id,
+                    events_pulled_total=result["events_stored"],
+                )
+                .on_conflict_do_update(
+                    index_elements=["user_id"],
+                    set_={
+                        "events_pulled_total": TandemSyncState.events_pulled_total
+                        + result["events_stored"]
+                    },
+                )
+            )
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            logger.warning(
+                "Tandem import succeeded but the events_pulled_total update "
+                "failed (non-fatal)",
+                user_id=str(current_user.id),
+                exc_info=True,
+            )
+
+    last_event = None
+    if result["last_event"]:
+        last_event = PumpEventResponse(
+            event_type=result["last_event"]["event_type"],
+            event_timestamp=result["last_event"]["timestamp"],
+            units=result["last_event"]["units"],
+            is_automated=result["last_event"]["is_automated"],
+            received_at=datetime.now(UTC),
+            source="tandem",
+        )
+
+    return TandemSyncResponse(
+        message="Import completed successfully",
+        events_fetched=result["events_fetched"],
+        events_stored=result["events_stored"],
+        profiles_stored=result.get("profiles_stored", 0),
+        last_event=last_event,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Medtronic CareLink -- manual historical import (feature B)
+#
+# Stateless: the request carries the captured auth_tmp_token bearer (the user
+# grabs it via the bookmarklet capture flow). We build a COOKIE-LESS
+# CareLinkClient (bearer header only -- verified sufficient for /patient/*),
+# import within the token's ~50-min life, and NEVER store the token. No
+# credential row / scheduler / sync-state (manual, on-demand).
+# ---------------------------------------------------------------------------
+
+
+def _build_carelink_client(region: str, token: str) -> CareLinkClient:
+    """Cookie-less CareLink client authed by the captured bearer only.
+
+    Region is normally validated by the request schema (-> 422); this guards the
+    helper directly too so a bad region can never surface as an uncaught 500.
+    """
+    try:
+        base_url = resolve_region_base_url(region)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+
+    async def _bearer() -> str:
+        return token
+
+    return CareLinkClient(bearer_provider=_bearer, base_url=base_url)
+
+
+def _carelink_token_or_422(token: str | None) -> str:
+    """Validate the captured token from the X-CareLink-Token header. The error
+    message never echoes the token value (it must not land in logs/responses)."""
+    if not token or not (1 <= len(token) <= MAX_TOKEN_LEN):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Missing or malformed CareLink token.",
+        )
+    return token
+
+
+@router.post(
+    "/medtronic/availability",
+    response_model=MedtronicAvailabilityResponse,
+    responses={
+        200: {"description": "Available data date range"},
+        401: {"model": ErrorResponse, "description": "CareLink token invalid/expired"},
+        422: {"model": ErrorResponse, "description": "Invalid region or token"},
+        503: {"model": ErrorResponse, "description": "CareLink unavailable"},
+    },
+)
+@limiter.limit("10/minute")
+async def get_medtronic_availability(
+    body: MedtronicAvailabilityRequest,
+    request: Request,
+    current_user: DiabeticOrAdminUser,
+    carelink_token: str = Header(alias=CARELINK_TOKEN_HEADER),
+    db: AsyncSession = Depends(get_db),
+) -> MedtronicAvailabilityResponse:
+    """Validate the captured CareLink token and report the available data range
+    (to bound the manual-import date picker). Stateless -- the token (sent in the
+    X-CareLink-Token header, never the body) is used for this call only and never
+    stored.
+    """
+    token = _carelink_token_or_422(carelink_token)
+    client = _build_carelink_client(body.region, token)
+    try:
+        await client.get_patient_id()  # validates the bearer early
+        avail = await client.get_availability()
+    except CareLinkAuthError as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="CareLink session is invalid or expired. Reconnect and try again.",
+        ) from e
+    except CareLinkError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to reach CareLink. Please try again later.",
+        ) from e
+    finally:
+        await client.aclose()
+
+    return MedtronicAvailabilityResponse(start=avail.start, end=avail.end)
+
+
+@router.post(
+    "/medtronic/import",
+    response_model=MedtronicImportResponse,
+    responses={
+        200: {"description": "Import completed"},
+        401: {"model": ErrorResponse, "description": "CareLink token invalid/expired"},
+        422: {
+            "model": ErrorResponse,
+            "description": "Invalid region, date range, timezone, or token",
+        },
+        503: {"model": ErrorResponse, "description": "CareLink unavailable"},
+        504: {"model": ErrorResponse, "description": "CareLink report timed out"},
+    },
+)
+@limiter.limit("5/minute")
+async def import_medtronic_range(
+    body: MedtronicImportRequest,
+    request: Request,
+    current_user: DiabeticOrAdminUser,
+    carelink_token: str = Header(alias=CARELINK_TOKEN_HEADER),
+    db: AsyncSession = Depends(get_db),
+) -> MedtronicImportResponse:
+    """One-time manual import of a user-chosen CareLink date range. Builds a
+    cookie-less client from the captured bearer, exports the CSV, maps it, and
+    stores it idempotently (upsert on natural keys -- overlapping re-imports are
+    safe). The token (sent in the X-CareLink-Token header, never the body) is
+    used only here and never persisted.
+    """
+    token = _carelink_token_or_422(carelink_token)
+    client = _build_carelink_client(body.region, token)
+    try:
+        result = await sync_carelink_for_user(
+            db,
+            current_user.id,
+            start_date=body.start_date,
+            end_date=body.end_date,
+            client=client,
+            tz=zoneinfo.ZoneInfo(body.tz),
+        )
+    except CareLinkAuthError as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="CareLink session is invalid or expired. Reconnect and try again.",
+        ) from e
+    except CareLinkReportTimeoutError as e:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="CareLink took too long to generate the report. Try a smaller range.",
+        ) from e
+    except CareLinkError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to reach CareLink. Please try again later.",
+        ) from e
+    finally:
+        await client.aclose()
+
+    return MedtronicImportResponse(
+        message="Import completed successfully",
+        glucose_fetched=result.glucose_fetched,
+        glucose_stored=result.glucose_stored,
+        events_fetched=result.events_fetched,
+        events_stored=result.events_stored,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Medtronic CareLink CarePartner (Connect) -- autonomous sync (feature A)
+#
+# Disabled by default until the mapping is validated on a live pump. The
+# one-time CarePartner login captures an Auth0 auth code; the backend exchanges
+# it for a refresh token, stores it encrypted, and the scheduler renews + pulls
+# the recent (~24h) follower snapshot on a per-user cadence (Tandem parity).
+# Because the only allowed interactive grant redirects to a mobile-app custom
+# scheme, the login + capture is driven by a local helper CLI, which
+# authenticates here with a short-lived pairing token (see connect_pairing).
+# ---------------------------------------------------------------------------
+
+
+async def get_connect_actor(
+    request: Request,
+    pair_token: str | None = Header(default=None, alias=CONNECT_PAIR_TOKEN_HEADER),
+    session_token: str | None = Cookie(default=None, alias=settings.jwt_cookie_name),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Resolve the acting user for the Connect handshake from EITHER a pairing
+    token (the local login-helper CLI) OR the normal session/Bearer/API-key
+    auth (the web UI). Scoped to the handshake endpoints only -- the pairing
+    token cannot authenticate anything else."""
+    if pair_token:
+        try:
+            user_id = decode_pairing_token(pair_token)
+        except PairingTokenError as e:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired pairing token. Reissue it from GlycemicGPT.",
+            ) from e
+        user = (
+            await db.execute(select(User).where(User.id == user_id))
+        ).scalar_one_or_none()
+        if user is None or not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
+            )
+        await require_diabetic_or_admin(request, user)
+        return user
+    # No pairing token -> normal auth (cookie/Bearer/API-key) + role check.
+    user = await get_current_user(request, session_token, db)
+    await require_diabetic_or_admin(request, user)
+    return user
+
+
+@router.post(
+    "/medtronic/connect/pair",
+    response_model=MedtronicConnectPairResponse,
+    responses={
+        200: {"description": "Pairing token issued"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+    },
+)
+@limiter.limit("10/minute")
+async def pair_medtronic_connect(
+    request: Request,
+    current_user: DiabeticOrAdminUser,
+) -> MedtronicConnectPairResponse:
+    """Mint a short-lived pairing token for the local login-helper CLI. Only a
+    logged-in web user can mint one (for their own account)."""
+    token, expires_at = issue_pairing_token(current_user.id)
+    logger.info("Medtronic Connect pairing token issued", user_id=str(current_user.id))
+    return MedtronicConnectPairResponse(pairing_token=token, expires_at=expires_at)
+
+
+# ---------------------------------------------------------------------------
+# Helper-binary distribution (gated by the pair token)
+#
+# These endpoints serve the small native Go helper (chromedp-driven CarePartner
+# login + 302 capture) that runs on the user's PC during a one-time setup.
+# They are intentionally gated by the SAME short-lived pair token used for the
+# rest of the handshake -- i.e., they only respond when a user has actively
+# clicked "Connect with the desktop helper" in the web UI, and they go dark
+# again the moment `/exchange` consumes the token (or it expires). This is the
+# explicit "not constantly exposed" property we want: no helper download
+# surface exists outside an active pairing window.
+#
+# All failures return 404 (not 401/403) so the endpoints look indistinguishable
+# from "not there" when no active pairing is in progress.
+# ---------------------------------------------------------------------------
+
+#: Where the API container has the per-OS/arch helper binaries baked in by the
+#: multi-stage Dockerfile. In dev (no Go builder ran) the files are absent and
+#: the binary endpoint just returns 404 -- power users fall back to the Python
+#: CLI.
+_CONNECT_HELPER_DIST_ROOT = Path("/app/connect-helper-dist")
+
+#: Allowlist of (os, arch) the binary endpoint will serve. Anything else 404s.
+_CONNECT_HELPER_PLATFORMS: set[tuple[str, str]] = {
+    ("linux", "amd64"),
+    ("linux", "arm64"),
+    ("darwin", "amd64"),
+    ("darwin", "arm64"),
+    ("windows", "amd64"),
+}
+
+
+async def _pair_token_or_404(pair: str | None) -> str:
+    """Validate a pair token for helper-download endpoints. Returns the jti.
+
+    Returns 404 (not 401) on ANY failure -- a probe should not be able to
+    distinguish "no active pairing" from "wrong token" from "endpoint exists."
+    """
+    not_found = HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    if not pair:
+        raise not_found
+    try:
+        jti = pairing_token_jti(pair)
+    except PairingTokenError as e:
+        raise not_found from e
+    # Once /exchange consumed the token, the helper download must go dark too.
+    if await is_token_blacklisted(f"medtronic_pair:{jti}"):
+        raise not_found
+    return jti
+
+
+def _bash_q(value: str) -> str:
+    """POSIX single-quote a value for safe embedding in a bash script."""
+    return "'" + value.replace("'", "'\\''") + "'"
+
+
+def _ps_q(value: str) -> str:
+    """PowerShell single-quote a value for safe embedding in a .ps1 script."""
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _validate_helper_inputs(
+    api: str, region: str, username: str
+) -> tuple[str, str, str]:
+    """Common boundary checks for helper.sh / helper.ps1. 404s on any failure."""
+    not_found = HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    api_stripped = (api or "").strip()
+    if not api_stripped or not api_stripped.startswith(("https://", "http://")):
+        raise not_found
+    if len(api_stripped) > 1024 or any(c in api_stripped for c in "\r\n\0"):
+        raise not_found
+    try:
+        get_region(region)  # validates against the live regions allowlist
+    except ValueError as e:
+        raise not_found from e
+    user_stripped = (username or "").strip()
+    if not (1 <= len(user_stripped) <= 256) or any(
+        c in user_stripped for c in "\r\n\0"
+    ):
+        raise not_found
+    return api_stripped, region.upper(), user_stripped
+
+
+_HELPER_SH_TEMPLATE = """#!/bin/bash
+# GlycemicGPT Medtronic CareLink CarePartner Connect helper installer.
+# This script is auto-generated by your GlycemicGPT instance and is only
+# valid for a single pairing window (~15 minutes, single-use).
+set -eu
+
+API={api}
+PAIR={pair}
+USERNAME={username}
+REGION={region}
+
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m)
+case "$ARCH" in
+  x86_64|amd64) ARCH=amd64 ;;
+  arm64|aarch64) ARCH=arm64 ;;
+esac
+case "$OS:$ARCH" in
+  linux:amd64|linux:arm64|darwin:amd64|darwin:arm64) ;;
+  *) echo "Unsupported OS/arch: $OS/$ARCH" >&2; exit 1 ;;
+esac
+
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+BIN="$TMP/glycemicgpt-connect"
+
+echo "Downloading helper for $OS/$ARCH from $API..."
+curl -fsSL -H "X-Connect-Pair-Token: $PAIR" "$API/api/integrations/medtronic/connect/helper-binary?os=$OS&arch=$ARCH" -o "$BIN"
+chmod +x "$BIN"
+
+echo "Launching browser; sign in to CareLink to complete setup."
+"$BIN" --api "$API" --pair "$PAIR" --username "$USERNAME" --region "$REGION"
+"""
+
+
+_HELPER_PS1_TEMPLATE = """# GlycemicGPT Medtronic CareLink CarePartner Connect helper installer.
+# Auto-generated by your GlycemicGPT instance; valid for one pairing window.
+$ErrorActionPreference = 'Stop'
+
+$API = {api}
+$PAIR = {pair}
+$USERNAME = {username}
+$REGION = {region}
+
+if (-not [Environment]::Is64BitProcess) {{
+    Write-Error '32-bit Windows is not supported.'
+    exit 1
+}}
+$OS = 'windows'
+$ARCH = 'amd64'
+
+$BIN = Join-Path ([System.IO.Path]::GetTempPath()) 'glycemicgpt-connect.exe'
+Write-Host "Downloading helper for $OS/$ARCH from $API..."
+Invoke-WebRequest -Headers @{{ 'X-Connect-Pair-Token' = $PAIR }} -Uri "$API/api/integrations/medtronic/connect/helper-binary?os=$OS&arch=$ARCH" -OutFile $BIN -UseBasicParsing
+
+Write-Host 'Launching browser; sign in to CareLink to complete setup.'
+& $BIN --api $API --pair $PAIR --username $USERNAME --region $REGION
+"""
+
+
+@router.get(
+    "/medtronic/connect/helper.sh",
+    response_class=PlainTextResponse,
+    include_in_schema=False,
+)
+async def medtronic_connect_helper_sh(
+    request: Request,
+    pair: str = Query(default=""),
+    api: str = Query(default=""),
+    username: str = Query(default=""),
+    region: str = Query(default="US"),
+) -> PlainTextResponse:
+    """Render the bash helper-installer script, pre-filled and gated by the pair token."""
+    await _pair_token_or_404(pair)
+    api_v, region_v, username_v = _validate_helper_inputs(api, region, username)
+    body = _HELPER_SH_TEMPLATE.format(
+        api=_bash_q(api_v),
+        pair=_bash_q(pair),
+        username=_bash_q(username_v),
+        region=_bash_q(region_v),
+    )
+    # Prevent any intermediate cache from serving a stale + tokenised script.
+    return PlainTextResponse(
+        body,
+        media_type="text/x-shellscript; charset=utf-8",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.get(
+    "/medtronic/connect/helper.ps1",
+    response_class=PlainTextResponse,
+    include_in_schema=False,
+)
+async def medtronic_connect_helper_ps1(
+    request: Request,
+    pair: str = Query(default=""),
+    api: str = Query(default=""),
+    username: str = Query(default=""),
+    region: str = Query(default="US"),
+) -> PlainTextResponse:
+    """Render the PowerShell helper-installer script, pre-filled and gated by the pair token."""
+    await _pair_token_or_404(pair)
+    api_v, region_v, username_v = _validate_helper_inputs(api, region, username)
+    body = _HELPER_PS1_TEMPLATE.format(
+        api=_ps_q(api_v),
+        pair=_ps_q(pair),
+        username=_ps_q(username_v),
+        region=_ps_q(region_v),
+    )
+    return PlainTextResponse(
+        body,
+        media_type="text/plain; charset=utf-8",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.get(
+    "/medtronic/connect/helper-binary",
+    include_in_schema=False,
+)
+async def medtronic_connect_helper_binary(
+    request: Request,
+    os: str = Query(default=""),
+    arch: str = Query(default=""),
+    pair: str = Header(default="", alias="X-Connect-Pair-Token"),
+) -> FileResponse:
+    """Stream the right Go helper binary for the requested OS/arch.
+
+    The pair token is taken from the ``X-Connect-Pair-Token`` header (not the
+    query string) so it can't leak through reverse-proxy access logs, browser
+    history, or endpoint telemetry. The generated installer scripts send it via
+    ``curl -H`` / ``Invoke-WebRequest -Headers``.
+
+    Binaries are baked into the API image by the multi-stage Dockerfile; in dev
+    (no Go builder ran) the files are absent and we 404, which falls through to
+    the Python CLI as the advanced/dev path.
+    """
+    await _pair_token_or_404(pair)
+    key = (os.lower(), arch.lower())
+    if key not in _CONNECT_HELPER_PLATFORMS:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    bin_name = "glycemicgpt-connect" + (".exe" if key[0] == "windows" else "")
+    path = _CONNECT_HELPER_DIST_ROOT / key[0] / key[1] / bin_name
+    if not path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    return FileResponse(
+        path,
+        media_type="application/octet-stream",
+        filename=bin_name,
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Short-handle install URLs
+#
+# The long-form helper.sh URL carries the Fernet pair token (~272 chars) in
+# the query string -- a 540-char copy-paste line in the web UI. These
+# endpoints introduce an 8-byte (16-hex-char) opaque handle that indexes a
+# server-side bundle containing the same {pair, api, username, region}; the
+# user only ever sees the handle. Same single-use gate as the long form:
+# the bundle's pair-token jti is checked against the blacklist on every
+# render, so the install URL goes dark the instant /exchange consumes it.
+#
+# 16 hex chars = 64 bits of entropy. Inside the 15-min TTL, even at 10^5
+# guesses/sec brute-force, the success probability is ~5e-11. The /install
+# minter is rate-limited at 10/min behind cookie+CSRF auth, so an
+# unauthenticated attacker can't even bulk-enumerate handles to test.
+# ---------------------------------------------------------------------------
+
+#: How many random bytes a handle encodes. 8 bytes -> 16 hex chars.
+_INSTALL_HANDLE_BYTES = 8
+
+
+def _new_install_handle() -> str:
+    """Cryptographically random 16-hex-char handle for install bundles."""
+    return secrets.token_hex(_INSTALL_HANDLE_BYTES)
+
+
+async def _install_bundle_or_404(handle: str) -> tuple[str, str, str, str]:
+    """Resolve a handle to (pair_token, api, username, region) or 404.
+
+    Same posture as `_pair_token_or_404`: any failure (unknown handle,
+    expired bundle, malformed payload, or a pair-token jti already on the
+    blacklist) returns 404, so the endpoint is indistinguishable from
+    "not there" without a live pairing window.
+    """
+    not_found = HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    bundle = await get_install_bundle(handle)
+    if not bundle:
+        raise not_found
+    pair = bundle.get("pair")
+    api = bundle.get("api")
+    username = bundle.get("username")
+    region = bundle.get("region")
+    if not all(isinstance(v, str) and v for v in (pair, api, username, region)):
+        raise not_found
+    # If the underlying pair token has been consumed by /exchange (or
+    # expired), the install URL must go dark too.
+    try:
+        jti = pairing_token_jti(pair)
+    except PairingTokenError as e:
+        raise not_found from e
+    if await is_token_blacklisted(f"medtronic_pair:{jti}"):
+        raise not_found
+    return pair, api, username, region
+
+
+@router.post(
+    "/medtronic/connect/install",
+    response_model=MedtronicConnectInstallResponse,
+    responses={
+        200: {"description": "Install bundle minted; handle returned"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        422: {"model": ErrorResponse, "description": "Invalid api_url/username/region"},
+    },
+)
+@limiter.limit("10/minute")
+async def install_medtronic_connect(
+    request: Request,
+    payload: MedtronicConnectInstallRequest,
+    current_user: DiabeticOrAdminUser,
+) -> MedtronicConnectInstallResponse:
+    """Mint a single-use install bundle for the desktop helper.
+
+    The bundle holds the pair token + the three "what to tell the helper"
+    fields the long URL used to carry as query string. Returns only the
+    opaque handle + expiry; the web card builds the actual install URL
+    from its own origin (so a reverse-proxy hostname is honored).
+    """
+    token, expires_at = issue_pairing_token(current_user.id)
+    handle = _new_install_handle()
+    await store_install_bundle(
+        handle,
+        {
+            "pair": token,
+            "api": payload.api_url,
+            "username": payload.username,
+            "region": payload.region,
+        },
+        ttl_seconds=PAIR_TOKEN_TTL_SECONDS,
+    )
+    logger.info(
+        "Medtronic Connect install bundle issued",
+        user_id=str(current_user.id),
+        region=payload.region,
+    )
+    return MedtronicConnectInstallResponse(
+        handle=handle, pairing_token=token, expires_at=expires_at
+    )
+
+
+@router.get(
+    "/medtronic/connect/install/{handle}.sh",
+    response_class=PlainTextResponse,
+    include_in_schema=False,
+)
+async def medtronic_connect_install_sh(
+    request: Request,
+    handle: str,
+) -> PlainTextResponse:
+    """Render the bash helper-installer for a short-handle bundle.
+
+    Same output as ``/helper.sh?pair=…&api=…&username=…&region=…`` but the
+    bundle's values come from Redis under the handle rather than the
+    query string.
+    """
+    pair, api, username, region = await _install_bundle_or_404(handle)
+    body = _HELPER_SH_TEMPLATE.format(
+        api=_bash_q(api),
+        pair=_bash_q(pair),
+        username=_bash_q(username),
+        region=_bash_q(region),
+    )
+    return PlainTextResponse(
+        body,
+        media_type="text/x-shellscript; charset=utf-8",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.get(
+    "/medtronic/connect/install/{handle}.ps1",
+    response_class=PlainTextResponse,
+    include_in_schema=False,
+)
+async def medtronic_connect_install_ps1(
+    request: Request,
+    handle: str,
+) -> PlainTextResponse:
+    """Render the PowerShell helper-installer for a short-handle bundle."""
+    pair, api, username, region = await _install_bundle_or_404(handle)
+    body = _HELPER_PS1_TEMPLATE.format(
+        api=_ps_q(api),
+        pair=_ps_q(pair),
+        username=_ps_q(username),
+        region=_ps_q(region),
+    )
+    return PlainTextResponse(
+        body,
+        media_type="text/plain; charset=utf-8",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+async def _store_connect_state(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    *,
+    region_key: str,
+    username: str,
+    refresh_token: str,
+    role: str,
+    patient_id: str | None,
+) -> MedtronicConnectState:
+    """Upsert-then-lock the Connect state row with a fresh (encrypted) credential.
+
+    Used by both connect paths (direct header handshake + PKCE exchange). The
+    refresh token is encrypted at rest and never returned to the client.
+    """
+    enc_username = encrypt_credential(username)
+    enc_refresh = encrypt_credential(refresh_token)
+    enc_patient = encrypt_credential(patient_id) if patient_id else None
+
+    await db.execute(
+        pg_insert(MedtronicConnectState)
+        .values(
+            user_id=user_id,
+            region=region_key,
+            encrypted_username=enc_username,
+            encrypted_refresh_token=enc_refresh,
+            role=role,
+            encrypted_patient_id=enc_patient,
+            enabled=True,
+            status=STATUS_CONNECTED,
+        )
+        .on_conflict_do_nothing(index_elements=["user_id"])
+    )
+    state = (
+        await db.execute(
+            select(MedtronicConnectState)
+            .where(MedtronicConnectState.user_id == user_id)
+            .with_for_update()
+        )
+    ).scalar_one()
+    # Overwrite (covers the existing-row / reconnect case).
+    state.region = region_key
+    state.encrypted_username = enc_username
+    state.encrypted_refresh_token = enc_refresh
+    state.role = role
+    state.encrypted_patient_id = enc_patient
+    state.enabled = True
+    state.status = STATUS_CONNECTED
+    state.last_error = None
+    await db.commit()
+    return state
+
+
+def _connect_status_response(
+    state: MedtronicConnectState | None,
+) -> MedtronicConnectStatusResponse:
+    """Build the status response from a state row (never exposes the token)."""
+    if state is None:
+        return MedtronicConnectStatusResponse(
+            connected=False,
+            status="not_configured",
+            enabled=False,
+        )
+    return MedtronicConnectStatusResponse(
+        connected=state.status == STATUS_CONNECTED,
+        status=state.status,
+        enabled=state.enabled,
+        region=state.region,
+        role=state.role,
+        sync_interval_minutes=state.sync_interval_minutes,
+        last_sync_at=state.last_sync_at,
+        last_error=state.last_error,
+        readings_synced_total=state.readings_synced_total,
+    )
+
+
+# How long a started PKCE login stays valid before the user must restart it.
+_PKCE_SESSION_TTL_SECONDS = 900
+
+
+@router.get(
+    "/medtronic/connect/authorize-url",
+    response_model=MedtronicConnectAuthUrlResponse,
+    responses={
+        200: {"description": "Authorize URL + opaque PKCE session"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        422: {"model": ErrorResponse, "description": "Invalid region"},
+    },
+)
+@limiter.limit("10/minute")
+async def get_medtronic_connect_authorize_url(
+    request: Request,
+    region: str = Query(description="CarePartner region: US or EU"),
+    current_user: User = Depends(get_connect_actor),
+) -> MedtronicConnectAuthUrlResponse:
+    """Start the one-time CarePartner PKCE login.
+
+    Returns the Auth0 ``/authorize`` URL (the user opens it, logs in, solves the
+    captcha) plus an opaque, encrypted ``pkce_session`` that carries the
+    code_verifier server-side -- the verifier never reaches the browser in the
+    clear. The frontend round-trips ``pkce_session`` to ``/connect/exchange``.
+    """
+    try:
+        reg = get_region(region)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
+        ) from e
+
+    verifier, challenge = generate_pkce()
+    state = secrets.token_urlsafe(16)
+    authorize_url = build_authorize_url(reg, code_challenge=challenge, state=state)
+    # Encrypt the verifier + binding into an opaque blob (Fernet). It carries no
+    # usable secret in the clear and is bound to this user + a freshness stamp.
+    pkce_session = encrypt_credential(
+        json.dumps(
+            {
+                "v": verifier,
+                "r": reg.key,
+                "s": state,
+                "u": str(current_user.id),
+                "ts": int(time.time()),
+            }
+        )
+    )
+    return MedtronicConnectAuthUrlResponse(
+        authorize_url=authorize_url, pkce_session=pkce_session, state=state
+    )
+
+
+@router.post(
+    "/medtronic/connect/exchange",
+    response_model=MedtronicConnectStatusResponse,
+    responses={
+        200: {"description": "Connected"},
+        401: {"model": ErrorResponse, "description": "Authorization code rejected"},
+        422: {
+            "model": ErrorResponse,
+            "description": "Invalid/expired session or unparseable redirect",
+        },
+        503: {"model": ErrorResponse, "description": "CareLink auth unavailable"},
+    },
+)
+@limiter.limit("5/minute")
+async def exchange_medtronic_connect_code(
+    body: MedtronicConnectExchangeRequest,
+    request: Request,
+    current_user: User = Depends(get_connect_actor),
+    pair_token: str | None = Header(default=None, alias=CONNECT_PAIR_TOKEN_HEADER),
+    db: AsyncSession = Depends(get_db),
+) -> MedtronicConnectStatusResponse:
+    """Finish the login: parse the captured redirect for the ``code`` + ``state``,
+    exchange them for a refresh token, and store it (encrypted). The authorization
+    code is single-use and useless without the server-held verifier.
+
+    When authenticated by a pairing token (the local helper CLI), the token's
+    ``jti`` is consumed once -- AFTER the Auth0 code exchange succeeds but BEFORE
+    storing -- so (a) a transient failure (bad/expired code, network) does NOT
+    burn a still-valid token (the CLI can retry in the same window), and (b) a
+    replayed token still can't overwrite the stored credential with a different
+    CareLink account."""
+    try:
+        session = json.loads(decrypt_credential(body.pkce_session))
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid connect session. Please restart the CarePartner login.",
+        ) from e
+
+    # Bind the session to this user + enforce freshness (replay/staleness guard).
+    if session.get("u") != str(current_user.id):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Connect session does not belong to this account.",
+        )
+    if int(time.time()) - int(session.get("ts", 0)) > _PKCE_SESSION_TTL_SECONDS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Connect login expired. Please restart the CarePartner login.",
+        )
+
+    try:
+        reg = get_region(session["r"])
+    except (ValueError, KeyError) as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid connect session region.",
+        ) from e
+
+    # Parse the pasted redirect (custom scheme -> still urlparse-able).
+    parsed = urlparse(body.redirect_url.strip())
+    qs = parse_qs(parsed.query)
+    code = (qs.get("code") or [None])[0]
+    returned_state = (qs.get("state") or [None])[0]
+    if not code:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Could not find an authorization code in the pasted URL. Copy the "
+                "full address you were redirected to after signing in."
+            ),
+        )
+    # CSRF/mix-up guard: the returned state must match the one we issued.
+    if returned_state != session.get("s"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Connect login could not be verified. Please try again.",
+        )
+
+    try:
+        token_result = await exchange_code_for_tokens(reg, code, session["v"])
+    except ConnectTokenError as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=(
+                "Could not complete the CareLink login. Please sign in again "
+                "and paste the redirect promptly (the code is short-lived)."
+            ),
+        ) from e
+    except ValueError as e:  # untrusted host (defensive)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
+        ) from e
+
+    # Auth0 exchange succeeded -> now consume the pairing token (single-use)
+    # BEFORE storing, so a replayed token can't overwrite the credential. A
+    # transient failure above left the token unconsumed, so the CLI can retry.
+    if pair_token is not None:
+        try:
+            jti = pairing_token_jti(pair_token)
+        except PairingTokenError as e:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired pairing token.",
+            ) from e
+        if not await consume_token_once(
+            f"medtronic_pair:{jti}", PAIR_TOKEN_TTL_SECONDS
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=(
+                    "This pairing token was already used. Start a new connection "
+                    "from GlycemicGPT to get a fresh one."
+                ),
+            )
+
+    state = await _store_connect_state(
+        db,
+        current_user.id,
+        region_key=reg.key,
+        username=body.username,
+        refresh_token=token_result.refresh_token,
+        role=body.role,
+        patient_id=body.patient_id,
+    )
+    logger.info(
+        "Medtronic Connect connected (PKCE)",
+        user_id=str(current_user.id),
+        region=reg.key,
+        role=body.role,
+    )
+    return _connect_status_response(state)
+
+
+@router.get(
+    "/medtronic/connect/status",
+    response_model=MedtronicConnectStatusResponse,
+    responses={
+        200: {"description": "Connect status"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+    },
+)
+async def get_medtronic_connect_status(
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> MedtronicConnectStatusResponse:
+    """Report the user's Medtronic Connect sync status (no token exposed)."""
+    state = (
+        await db.execute(
+            select(MedtronicConnectState).where(
+                MedtronicConnectState.user_id == current_user.id
+            )
+        )
+    ).scalar_one_or_none()
+    return _connect_status_response(state)
+
+
+@router.put(
+    "/medtronic/connect/settings",
+    response_model=MedtronicConnectStatusResponse,
+    responses={
+        200: {"description": "Settings updated"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        404: {"model": ErrorResponse, "description": "Connect not configured"},
+    },
+)
+async def update_medtronic_connect_settings(
+    body: MedtronicConnectSettingsRequest,
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> MedtronicConnectStatusResponse:
+    """Update the per-user Connect sync toggle + interval. 404 if not connected
+    (there is no row to control until the user completes the handshake)."""
+    state = (
+        await db.execute(
+            select(MedtronicConnectState)
+            .where(MedtronicConnectState.user_id == current_user.id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if state is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Medtronic Connect is not configured. Connect it first.",
+        )
+    state.enabled = body.enabled
+    state.sync_interval_minutes = body.sync_interval_minutes
+    await db.commit()
+    logger.info(
+        "Medtronic Connect settings updated",
+        user_id=str(current_user.id),
+        enabled=body.enabled,
+        interval_minutes=body.sync_interval_minutes,
+    )
+    return _connect_status_response(state)
+
+
+@router.post(
+    "/medtronic/connect/disconnect",
+    responses={
+        200: {"description": "Disconnected"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+    },
+)
+async def disconnect_medtronic_connect(
+    request: Request,
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    """Disconnect Medtronic Connect: delete the state row (and its encrypted
+    refresh token). Idempotent."""
+    await db.execute(
+        delete(MedtronicConnectState).where(
+            MedtronicConnectState.user_id == current_user.id
+        )
+    )
+    await db.commit()
+    logger.info("Medtronic Connect disconnected", user_id=str(current_user.id))
+    return {"message": "Medtronic Connect disconnected"}
+
+
+@router.post(
+    "/medtronic/connect/sync",
+    response_model=MedtronicConnectSyncResponse,
+    responses={
+        200: {"description": "Sync completed"},
+        401: {"model": ErrorResponse, "description": "Refresh token expired"},
+        404: {"model": ErrorResponse, "description": "Connect not configured"},
+        503: {"model": ErrorResponse, "description": "CareLink unavailable"},
+    },
+)
+@limiter.limit("5/minute")
+async def sync_medtronic_connect_now(
+    request: Request,
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> MedtronicConnectSyncResponse:
+    """Manually trigger a Connect sync now (in addition to the scheduler)."""
+    state = (
+        await db.execute(
+            select(MedtronicConnectState).where(
+                MedtronicConnectState.user_id == current_user.id
+            )
+        )
+    ).scalar_one_or_none()
+    if state is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Medtronic Connect is not configured. Connect it first.",
+        )
+    try:
+        result = await sync_connect_for_user(db, state)
+    except ConnectSyncError as e:
+        # The orchestrator already recorded the failure on the row. A dead
+        # refresh token surfaces as 401 (user must re-login); anything else 503.
+        if state.status == STATUS_DISCONNECTED:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=(
+                    "Your CareLink login expired. Please complete the "
+                    "CarePartner sign-in again to reconnect."
+                ),
+            ) from e
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to reach CareLink. Please try again later.",
+        ) from e
+
+    return MedtronicConnectSyncResponse(
+        message="Sync completed successfully",
+        glucose_fetched=result.glucose_fetched,
+        glucose_stored=result.glucose_stored,
+        events_fetched=result.events_fetched,
+        events_stored=result.events_stored,
+    )
+
+
+# ============================================================================
+# Glooko (Omnipod Cloud Sync) -- autonomous sync (connect/sync API endpoints)
+#
+# Credential-based like Tandem (the user's own Glooko email + password), but --
+# like Medtronic Connect -- everything lives on a dedicated GlookoSyncState row
+# (encrypted credentials + control + freshness), so these endpoints mirror the
+# Medtronic Connect URL shape. Connect records an explicit acknowledgment that
+# this is an unofficial Glooko connection; credentials are Fernet-encrypted and
+# NEVER logged or returned.
+# ============================================================================
+
+
+async def _store_glooko_state(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    *,
+    region: str,
+    email: str,
+    password: str,
+    patient_slug: str | None,
+    patient_oid: str | None,
+) -> GlookoSyncState:
+    """Upsert-then-lock the Glooko state row with fresh (encrypted) credentials.
+
+    Stamps the consent acknowledgment with the connect time (server-side, never a
+    client value) and (re)enables sync -- reconnecting is an explicit intent to
+    use the integration. Reconnecting with the SAME Glooko patient preserves the
+    sync interval, cursors, and counters so continuity isn't lost; reconnecting
+    with a DIFFERENT patient resets the per-stream cursors and freshness so the
+    next sync can't resume from the prior account's position and mis-associate
+    medical data. The credentials are encrypted at rest and never returned.
+    """
+    enc_email = encrypt_credential(email)
+    enc_password = encrypt_credential(password)
+    now = datetime.now(UTC)
+
+    await db.execute(
+        pg_insert(GlookoSyncState)
+        .values(
+            user_id=user_id,
+            region=region,
+            encrypted_email=enc_email,
+            encrypted_password=enc_password,
+            status=GLOOKO_STATUS_CONNECTED,
+            enabled=True,
+            consent_acknowledged_at=now,
+            patient_slug=patient_slug,
+            patient_oid=patient_oid,
+        )
+        .on_conflict_do_nothing(index_elements=["user_id"])
+    )
+    state = (
+        await db.execute(
+            select(GlookoSyncState)
+            .where(GlookoSyncState.user_id == user_id)
+            .with_for_update()
+        )
+    ).scalar_one()
+    # Detect an account switch BEFORE overwriting: if the discovered patient
+    # differs from the stored one, the existing cursors point into a different
+    # account's data and must not be reused.
+    patient_changed = (state.patient_slug or None) != (patient_slug or None) or (
+        state.patient_oid or None
+    ) != (patient_oid or None)
+    # Overwrite (covers the existing-row / reconnect case).
+    state.region = region
+    state.encrypted_email = enc_email
+    state.encrypted_password = enc_password
+    state.status = GLOOKO_STATUS_CONNECTED
+    state.enabled = True
+    state.consent_acknowledged_at = now
+    state.last_error = None
+    state.patient_slug = patient_slug
+    state.patient_oid = patient_oid
+    if patient_changed:
+        # Fresh account -> drop sync progress so the next sync starts clean.
+        state.stream_cursors = None
+        state.last_sync_at = None
+        state.last_cgm_window_end = None
+        state.readings_synced_total = 0
+    await db.commit()
+    return state
+
+
+def _glooko_status_response(
+    state: GlookoSyncState | None,
+) -> GlookoStatusResponse:
+    """Build the status response from a state row (never exposes credentials)."""
+    if state is None:
+        return GlookoStatusResponse(
+            connected=False,
+            status="not_configured",
+            enabled=False,
+        )
+    return GlookoStatusResponse(
+        connected=state.status == GLOOKO_STATUS_CONNECTED,
+        status=state.status,
+        enabled=state.enabled,
+        region=state.region,
+        sync_interval_minutes=state.sync_interval_minutes,
+        last_sync_at=state.last_sync_at,
+        last_error=state.last_error,
+        readings_synced_total=state.readings_synced_total,
+        consent_acknowledged_at=state.consent_acknowledged_at,
+    )
+
+
+@router.post(
+    "/glooko",
+    response_model=GlookoStatusResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        201: {"description": "Glooko connected successfully"},
+        400: {"model": ErrorResponse, "description": "Invalid Glooko credentials"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        403: {"model": ErrorResponse, "description": "Permission denied"},
+        422: {
+            "model": ErrorResponse,
+            "description": "Validation error (consent not acknowledged, "
+            "unsupported region, or malformed body)",
+        },
+        503: {"model": ErrorResponse, "description": "Glooko service unavailable"},
+    },
+)
+@limiter.limit("5/minute")
+async def connect_glooko(
+    body: GlookoConnectRequest,
+    request: Request,
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> GlookoStatusResponse:
+    """Connect a Glooko account: validate credentials live, then store them
+    encrypted and record the consent acknowledgment.
+
+    A live login proves the credentials work (fail fast rather than storing a
+    bad credential that only fails on the first scheduled sync) and discovers the
+    patient identifiers. The acknowledgment (``accept_risk``) is enforced by the
+    request schema -- the user must acknowledge this is an unofficial Glooko
+    connection before we store anything.
+    """
+    try:
+        session = await glooko_login(body.email, body.password, body.region)
+    except GlookoAuthError as e:
+        logger.warning(
+            "Glooko connection rejected (bad credentials)",
+            user_id=str(current_user.id),
+            region=body.region,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid Glooko email or password.",
+        ) from e
+    except GlookoNetworkError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to reach Glooko. Please try again later.",
+        ) from e
+    except ValueError as e:  # unsupported region (defensive; schema validates)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
+        ) from e
+
+    state = await _store_glooko_state(
+        db,
+        current_user.id,
+        region=body.region,
+        email=body.email,
+        password=body.password,
+        patient_slug=session.patient_slug,
+        patient_oid=session.patient_oid,
+    )
+    logger.info(
+        "Glooko connected successfully",
+        user_id=str(current_user.id),
+        region=body.region,
+    )
+    return _glooko_status_response(state)
+
+
+@router.get(
+    "/glooko/status",
+    response_model=GlookoStatusResponse,
+    responses={
+        200: {"description": "Glooko sync status"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+    },
+)
+async def get_glooko_status(
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> GlookoStatusResponse:
+    """Report the user's Glooko sync status (no credentials exposed). Returns a
+    ``not_configured`` status (rather than 404) when there is no row, so the
+    Cloud Sync card can render an honest disconnected state."""
+    state = (
+        await db.execute(
+            select(GlookoSyncState).where(GlookoSyncState.user_id == current_user.id)
+        )
+    ).scalar_one_or_none()
+    return _glooko_status_response(state)
+
+
+@router.delete(
+    "/glooko",
+    responses={
+        200: {"description": "Glooko disconnected"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+    },
+)
+async def disconnect_glooko(
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    """Disconnect Glooko: delete the state row (and its encrypted credentials +
+    consent record). Idempotent -- a no-op if the user was never connected."""
+    await db.execute(
+        delete(GlookoSyncState).where(GlookoSyncState.user_id == current_user.id)
+    )
+    await db.commit()
+    logger.info("Glooko disconnected", user_id=str(current_user.id))
+    return {"message": "Glooko disconnected"}
+
+
+@router.post(
+    "/glooko/sync",
+    response_model=GlookoSyncResponse,
+    responses={
+        200: {"description": "Sync completed"},
+        400: {"model": ErrorResponse, "description": "Glooko login no longer valid"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        404: {"model": ErrorResponse, "description": "Glooko not configured"},
+        503: {"model": ErrorResponse, "description": "Glooko service unavailable"},
+    },
+)
+@limiter.limit("5/minute")
+async def sync_glooko_now(
+    request: Request,
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> GlookoSyncResponse:
+    """Manually trigger an incremental Glooko sync now (in addition to the
+    scheduler). Resumes each stream from its stored cursor."""
+    state = (
+        await db.execute(
+            select(GlookoSyncState).where(GlookoSyncState.user_id == current_user.id)
+        )
+    ).scalar_one_or_none()
+    if state is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Glooko is not configured. Connect it first.",
+        )
+    try:
+        result = await sync_glooko_for_user(db, state)
+    except GlookoSyncRunError as e:
+        # The orchestrator already recorded the failure on the row. Bad
+        # credentials surface as disconnected (the user must reconnect);
+        # anything else is transient.
+        if state.status == GLOOKO_STATUS_DISCONNECTED:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Your Glooko login is no longer valid. Please reconnect.",
+            ) from e
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to sync from Glooko. Please try again later.",
+        ) from e
+
+    return GlookoSyncResponse(
+        message="Sync completed successfully",
+        glucose_fetched=result.glucose_fetched,
+        glucose_stored=result.glucose_stored,
+        events_fetched=result.events_fetched,
+        events_stored=result.events_stored,
+    )
+
+
+@router.put(
+    "/glooko/sync/settings",
+    response_model=GlookoStatusResponse,
+    responses={
+        200: {"description": "Settings updated"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        404: {"model": ErrorResponse, "description": "Glooko not configured"},
+    },
+)
+async def update_glooko_sync_settings(
+    body: GlookoSyncSettingsRequest,
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> GlookoStatusResponse:
+    """Update the per-user Glooko sync toggle + interval. 404 if not connected
+    (there is no row to control until the user completes the connect)."""
+    state = (
+        await db.execute(
+            select(GlookoSyncState)
+            .where(GlookoSyncState.user_id == current_user.id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if state is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Glooko is not configured. Connect it first.",
+        )
+    state.enabled = body.enabled
+    state.sync_interval_minutes = body.sync_interval_minutes
+    await db.commit()
+    logger.info(
+        "Glooko sync settings updated",
+        user_id=str(current_user.id),
+        enabled=body.enabled,
+        interval_minutes=body.sync_interval_minutes,
+    )
+    return _glooko_status_response(state)
+
+
+@router.get(
+    "/glooko/sync/availability",
+    response_model=GlookoAvailabilityResponse,
+    responses={
+        200: {"description": "Reachable Glooko CGM data"},
+        400: {"model": ErrorResponse, "description": "Glooko login no longer valid"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        404: {"model": ErrorResponse, "description": "Glooko not configured"},
+        503: {"model": ErrorResponse, "description": "Glooko service unavailable"},
+    },
+)
+@limiter.limit("10/minute")
+async def get_glooko_sync_availability(
+    request: Request,
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> GlookoAvailabilityResponse:
+    """Report whether CGM data is reachable in the user's Glooko cloud, to let the
+    Cloud Sync card be honest about what will sync.
+
+    A live, READ-ONLY probe: it authenticates and walks the CGM window but does
+    NOT mutate the sync-state row (the Tandem #669 ``persist_status=False``
+    contract), so a probe failure never flips the stored status/last_error.
+    """
+    state = (
+        await db.execute(
+            select(GlookoSyncState).where(GlookoSyncState.user_id == current_user.id)
+        )
+    ).scalar_one_or_none()
+    if state is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Glooko is not configured. Connect it first.",
+        )
+    try:
+        result = await probe_glooko_availability(state)
+    except GlookoAuthError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Your Glooko login is no longer valid. Please reconnect.",
+        ) from e
+    except GlookoNetworkError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to reach Glooko. Please try again later.",
+        ) from e
+    except ValueError as e:
+        # A bad stored region or an undecryptable credential (e.g. a rotated
+        # Fernet key) -- both are recovered by reconnecting, so give the same
+        # remediation the rest of the integration does rather than an opaque 500.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Your Glooko connection needs to be re-established. "
+            "Please reconnect.",
+        ) from e
+
+    return GlookoAvailabilityResponse(
+        connected=state.status == GLOOKO_STATUS_CONNECTED,
+        cgm_available=result.cgm_available,
+        earliest=result.earliest,
+        latest=result.latest,
+    )
+
+
+@router.post(
+    "/glooko/sync/import",
+    response_model=GlookoSyncResponse,
+    responses={
+        200: {"description": "Import completed"},
+        400: {"model": ErrorResponse, "description": "Glooko login no longer valid"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        404: {"model": ErrorResponse, "description": "Glooko not configured"},
+        503: {"model": ErrorResponse, "description": "Glooko service unavailable"},
+    },
+)
+@limiter.limit("5/minute")
+async def import_glooko_history(
+    request: Request,
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> GlookoSyncResponse:
+    """One-time historical backfill from Glooko.
+
+    Unlike the incremental sync (which pulls a recent window ending now), this
+    paginates each pump stream from the start and walks the CGM window back over a
+    bounded span -- the way to backfill history after connecting. It does NOT
+    advance the incremental cursors or ``last_sync_at`` (it fills the past). Safe
+    to re-run: storage is idempotent.
+    """
+    state = (
+        await db.execute(
+            select(GlookoSyncState).where(GlookoSyncState.user_id == current_user.id)
+        )
+    ).scalar_one_or_none()
+    if state is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Glooko is not configured. Connect it first.",
+        )
+    try:
+        result = await import_glooko_history_for_user(db, state)
+    except GlookoSyncRunError as e:
+        if state.status == GLOOKO_STATUS_DISCONNECTED:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Your Glooko login is no longer valid. Please reconnect.",
+            ) from e
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to import from Glooko. Please try again later.",
+        ) from e
+
+    return GlookoSyncResponse(
+        message="Import completed successfully",
+        glucose_fetched=result.glucose_fetched,
+        glucose_stored=result.glucose_stored,
+        events_fetched=result.events_fetched,
+        events_stored=result.events_stored,
     )
 
 
@@ -1627,6 +3526,81 @@ async def update_forecast_source(
     )
 
 
+# ---------------------------------------------------------------------------
+# Story 43.10 -- cross-source CGM primary-source picker
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/cgm",
+    response_model=CgmSourcesResponse,
+    responses={
+        200: {
+            "description": (
+                "The user's CGM-providing integrations (Dexcom + Nightscout), "
+                "which one is primary, and whether the picker should render."
+            )
+        },
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        403: {"model": ErrorResponse, "description": "Permission denied"},
+    },
+)
+async def get_cgm_sources(
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> CgmSourcesResponse:
+    """List the user's CGM sources for the primary-source picker.
+
+    Read-only -- never mutates roles. The picker hides itself when fewer
+    than two sources exist (`multiple_sources=False`): a single source is
+    always primary and there is nothing to dedupe.
+    """
+    sources = await list_cgm_sources(db, current_user.id)
+    primary = next((s.source for s in sources if s.role == CGM_ROLE_PRIMARY), None)
+    return CgmSourcesResponse(
+        sources=[
+            CgmSourceItem(source=s.source, label=s.label, role=s.role, kind=s.kind)
+            for s in sources
+        ],
+        primary_source=primary,
+        multiple_sources=len(sources) > 1,
+    )
+
+
+@router.put(
+    "/cgm/source",
+    response_model=CgmPrimaryResponse,
+    responses={
+        200: {"description": "Primary CGM source updated."},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        403: {"model": ErrorResponse, "description": "Permission denied"},
+        404: {
+            "model": ErrorResponse,
+            "description": "`source` is not one of the user's CGM sources.",
+        },
+    },
+)
+async def update_primary_cgm_source(
+    body: CgmPrimaryUpdate,
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> CgmPrimaryResponse:
+    """Promote the chosen CGM source to primary; demote the rest to secondary.
+
+    Atomic across the user's CGM sources -- the chosen source becomes the
+    one that drives charts/stats; the others are kept for audit but stop
+    driving widgets by default.
+    """
+    ok = await set_primary_cgm_source(db, current_user.id, body.source)
+    if not ok:
+        raise HTTPException(
+            status_code=404,
+            detail="That source is not one of your CGM sources.",
+        )
+    await db.commit()
+    return CgmPrimaryResponse(primary_source=body.source)
+
+
 @router.get(
     "/tandem/control-iq/activity",
     response_model=ControlIQActivityResponse,
@@ -1737,6 +3711,12 @@ async def get_iob_projection_endpoint(
 # Story 16.5: Mobile Pump Push Endpoint
 # ============================================================================
 
+# RFC 9745 Deprecation header value for the legacy ``raw_events`` /
+# ``pump_info`` fields on ``/pump/push``. Format is ``@<unix-timestamp>``
+# (Structured Field Date item). 1779148800 == 2026-05-19 00:00:00 UTC,
+# the date PR1c removed the consuming cloud-upload feature.
+_PUMP_PUSH_RAW_FIELDS_DEPRECATED_AT = "@1779148800"
+
 
 @router.post(
     "/pump/push",
@@ -1750,6 +3730,7 @@ async def get_iob_projection_endpoint(
 async def push_pump_events(
     body: PumpPushRequest,
     request: Request,
+    response: Response,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> PumpPushResponse:
@@ -1757,6 +3738,12 @@ async def push_pump_events(
 
     Uses PostgreSQL ON CONFLICT DO NOTHING on the existing unique index
     (user_id, event_timestamp, event_type) for idempotent inserts.
+
+    The ``raw_events`` / ``pump_info`` fields are kept for back-compat with
+    older mobile builds but are discarded server-side. When either field
+    is present on the request, an IETF ``Deprecation`` response header is
+    set so clients have a protocol-level signal to detect and remove the
+    capture logic.
     """
     now = datetime.now(UTC)
     rows = []
@@ -1778,412 +3765,80 @@ async def push_pump_events(
                 "bg_at_event": item.bg_at_event,
                 "received_at": now,
                 "source": body.source,
+                # Cross-source dedupe key (Story 43.11): a mobile BLE
+                # delivery collapses against the same physical bolus
+                # relayed via Loop-over-Nightscout.
+                "dedupe_hash": compute_pump_event_dedupe_hash(
+                    user_id=current_user.id,
+                    event_type=item.event_type,
+                    event_timestamp=ts,
+                    units=item.units,
+                    duration_minutes=item.duration_minutes,
+                ),
             }
         )
 
+    submitted = len(rows)
+
+    # Bare ON CONFLICT DO NOTHING (no explicit conflict target) is REQUIRED
+    # now that pump_events carries two unique indexes a row can violate: the
+    # natural-key `(user_id, event_timestamp, event_type)` WHERE ns_id IS
+    # NULL and the cross-source `(user_id, dedupe_hash)` WHERE dedupe_hash IS
+    # NOT NULL (Story 43.11). A targeted clause arbitrates only its named
+    # index and raises a unique_violation on the other; the bare form skips a
+    # conflict on either (and Postgres also collapses within-statement
+    # duplicates under DO NOTHING). RETURNING gives a reliable inserted count
+    # -- rowcount is unreliable under ON CONFLICT DO NOTHING (asyncpg).
     stmt = (
         pg_insert(PumpEvent)
         .values(rows)
-        .on_conflict_do_nothing(
-            index_elements=["user_id", "event_timestamp", "event_type"],
-            # The (user_id, event_timestamp, event_type) unique index
-            # is partial -- it applies only to direct-integration rows
-            # (`ns_id IS NULL`). Including the WHERE clause here is
-            # required for PostgreSQL to recognize the partial index
-            # as the ON CONFLICT target.
-            index_where=text("ns_id IS NULL"),
-        )
+        .on_conflict_do_nothing()
+        .returning(PumpEvent.id)
     )
     result = await db.execute(stmt)
 
-    accepted = max(result.rowcount, 0)
-    duplicates = len(rows) - accepted
+    accepted = len(result.scalars().all())
+    # Everything the client sent that didn't insert -- a same-row resubmit, a
+    # cross-source near-match collapsed by the dedupe hash, or a within-batch
+    # duplicate -- counts as a duplicate.
+    duplicates = submitted - accepted
 
-    # Store raw events for Tandem cloud upload (Story 16.6)
-    raw_accepted = 0
-    raw_duplicates = 0
-    if body.raw_events:
-        raw_rows = [
-            {
-                "user_id": current_user.id,
-                "sequence_number": item.sequence_number,
-                "raw_bytes_b64": item.raw_bytes_b64,
-                "event_type_id": item.event_type_id,
-                "pump_time_seconds": item.pump_time_seconds,
-            }
-            for item in body.raw_events
-        ]
-        raw_stmt = (
-            pg_insert(PumpRawEvent)
-            .values(raw_rows)
-            .on_conflict_do_nothing(
-                constraint="uq_pump_raw_event_user_seq",
-            )
+    # ``body.raw_events`` and ``body.pump_info`` are accepted for backward
+    # compatibility with mobile clients that still send them, but no longer
+    # persisted -- the cloud upload feature that consumed them was removed
+    # (see PR1c). The response reports zero raw_accepted/raw_duplicates so
+    # the mobile client's success path still works without changes.
+    #
+    # RFC 9745 specifies the ``Deprecation`` header as a Structured Field
+    # Date item: ``@<unix-timestamp>``. The timestamp marks the moment
+    # the resource (in this case, *these specific request fields*) was
+    # deprecated. We use 2026-05-19 00:00:00 UTC, the date PR1c landed.
+    # Paired with ``Sunset`` (RFC 8594) -- a far-future date because we
+    # still need to accept the fields from older mobile builds in the
+    # field for a long tail -- and a ``Link`` to the deprecation docs.
+    if body.raw_events is not None or body.pump_info is not None:
+        response.headers["Deprecation"] = _PUMP_PUSH_RAW_FIELDS_DEPRECATED_AT
+        response.headers["Sunset"] = "Mon, 31 Dec 2029 23:59:59 GMT"
+        response.headers["Link"] = (
+            "<https://glycemicgpt.org/docs/daily-use/connecting-tandem-cloud>; "
+            'rel="deprecation"; type="text/html"'
         )
-        raw_result = await db.execute(raw_stmt)
-        raw_accepted = max(raw_result.rowcount, 0)
-        raw_duplicates = len(raw_rows) - raw_accepted
-
-    # Upsert pump hardware info (Story 16.6)
-    if body.pump_info:
-        hw_stmt = (
-            pg_insert(PumpHardwareInfo)
-            .values(
-                user_id=current_user.id,
-                serial_number=body.pump_info.serial_number,
-                model_number=body.pump_info.model_number,
-                part_number=body.pump_info.part_number,
-                pump_rev=body.pump_info.pump_rev,
-                arm_sw_ver=body.pump_info.arm_sw_ver,
-                msp_sw_ver=body.pump_info.msp_sw_ver,
-                config_a_bits=body.pump_info.config_a_bits,
-                config_b_bits=body.pump_info.config_b_bits,
-                pcba_sn=body.pump_info.pcba_sn,
-                pcba_rev=body.pump_info.pcba_rev,
-                pump_features=body.pump_info.pump_features,
-            )
-            .on_conflict_do_update(
-                index_elements=["user_id"],
-                set_={
-                    "serial_number": body.pump_info.serial_number,
-                    "model_number": body.pump_info.model_number,
-                    "part_number": body.pump_info.part_number,
-                    "pump_rev": body.pump_info.pump_rev,
-                    "arm_sw_ver": body.pump_info.arm_sw_ver,
-                    "msp_sw_ver": body.pump_info.msp_sw_ver,
-                    "config_a_bits": body.pump_info.config_a_bits,
-                    "config_b_bits": body.pump_info.config_b_bits,
-                    "pcba_sn": body.pump_info.pcba_sn,
-                    "pcba_rev": body.pump_info.pcba_rev,
-                    "pump_features": body.pump_info.pump_features,
-                    "updated_at": now,
-                },
-            )
-        )
-        await db.execute(hw_stmt)
 
     await db.commit()
 
     logger.info(
         "Mobile pump push",
         user_id=str(current_user.id),
-        total=len(rows),
+        total=submitted,
         accepted=accepted,
         duplicates=duplicates,
-        raw_accepted=raw_accepted,
-        raw_duplicates=raw_duplicates,
     )
 
     return PumpPushResponse(
         accepted=accepted,
         duplicates=duplicates,
-        raw_accepted=raw_accepted,
-        raw_duplicates=raw_duplicates,
-    )
-
-
-# ============================================================================
-# Story 16.6: Tandem Cloud Upload Endpoints
-# ============================================================================
-
-
-@router.get(
-    "/tandem/cloud-upload/status",
-    response_model=TandemUploadStatusResponse,
-    responses={
-        200: {"description": "Tandem upload status"},
-        401: {"model": ErrorResponse, "description": "Not authenticated"},
-    },
-)
-async def get_tandem_upload_status(
-    current_user: CurrentUser,
-    db: AsyncSession = Depends(get_db),
-) -> TandemUploadStatusResponse:
-    """Get the Tandem cloud upload status for the current user."""
-    result = await db.execute(
-        select(TandemUploadState).where(TandemUploadState.user_id == current_user.id)
-    )
-    state = result.scalar_one_or_none()
-
-    # Count pending raw events
-    pending_result = await db.execute(
-        select(func.count(PumpRawEvent.id)).where(
-            PumpRawEvent.user_id == current_user.id,
-            PumpRawEvent.uploaded_to_tandem.is_(False),
-        )
-    )
-    pending_count = pending_result.scalar() or 0
-
-    # Resolve stored country and legacy flag from the Tandem credential.
-    cred_result = await db.execute(
-        select(IntegrationCredential).where(
-            IntegrationCredential.user_id == current_user.id,
-            IntegrationCredential.integration_type == IntegrationType.TANDEM,
-        )
-    )
-    credential = cred_result.scalar_one_or_none()
-    stored = credential.region if credential else None
-    needs_country = bool(stored) and is_legacy_tandem_region(stored)
-
-    if not state:
-        return TandemUploadStatusResponse(
-            enabled=False,
-            upload_interval_minutes=15,
-            pending_raw_events=pending_count,
-            country=stored if not needs_country else None,
-            needs_country_reselect=needs_country,
-        )
-
-    return TandemUploadStatusResponse(
-        enabled=state.enabled,
-        upload_interval_minutes=state.upload_interval_minutes,
-        last_upload_at=state.last_upload_at,
-        last_upload_status=state.last_upload_status,
-        last_error=state.last_error,
-        max_event_index_uploaded=state.max_event_index_uploaded,
-        pending_raw_events=pending_count,
-        country=stored if not needs_country else None,
-        needs_country_reselect=needs_country,
-    )
-
-
-@router.put(
-    "/tandem/cloud-upload/settings",
-    response_model=TandemUploadStatusResponse,
-    responses={
-        200: {"description": "Settings updated"},
-        401: {"model": ErrorResponse, "description": "Not authenticated"},
-        404: {
-            "model": ErrorResponse,
-            "description": "Tandem not configured (only raised when enabling)",
-        },
-        409: {
-            "model": ErrorResponse,
-            "description": "Legacy region requires country re-selection before enable",
-        },
-    },
-)
-async def update_tandem_upload_settings(
-    request: TandemUploadSettingsRequest,
-    current_user: CurrentUser,
-    db: AsyncSession = Depends(get_db),
-) -> TandemUploadStatusResponse:
-    """Enable/disable Tandem cloud upload and set interval.
-
-    Refuses to enable when the user's stored Tandem region is legacy
-    (e.g. ``"EU"``) — they must re-select their country first via the
-    ``POST /api/integrations/tandem`` connect endpoint.
-    """
-    cred_result = await db.execute(
-        select(IntegrationCredential).where(
-            IntegrationCredential.user_id == current_user.id,
-            IntegrationCredential.integration_type == IntegrationType.TANDEM,
-        )
-    )
-    credential = cred_result.scalar_one_or_none()
-    stored = credential.region if credential else None
-    needs_country = bool(stored) and is_legacy_tandem_region(stored)
-
-    # Allow disable always (users should be able to turn the feature off even
-    # if they're stuck on a legacy region or have no credential at all). Only
-    # enable requires a healthy credential + non-legacy region.
-    if request.enabled:
-        if credential is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=(
-                    "Tandem integration not configured. Please connect your "
-                    "Tandem account before enabling cloud upload."
-                ),
-            )
-        if needs_country:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=(
-                    "Your Tandem integration uses a legacy region value and "
-                    "must be re-connected with your country selected before "
-                    "uploads can be enabled."
-                ),
-            )
-
-    result = await db.execute(
-        select(TandemUploadState).where(TandemUploadState.user_id == current_user.id)
-    )
-    state = result.scalar_one_or_none()
-
-    if state:
-        state.enabled = request.enabled
-        state.upload_interval_minutes = request.interval_minutes
-    else:
-        state = TandemUploadState(
-            user_id=current_user.id,
-            enabled=request.enabled,
-            upload_interval_minutes=request.interval_minutes,
-        )
-        db.add(state)
-
-    await db.commit()
-    await db.refresh(state)
-
-    # Count pending raw events
-    pending_result = await db.execute(
-        select(func.count(PumpRawEvent.id)).where(
-            PumpRawEvent.user_id == current_user.id,
-            PumpRawEvent.uploaded_to_tandem.is_(False),
-        )
-    )
-    pending_count = pending_result.scalar() or 0
-
-    logger.info(
-        "Tandem upload settings updated",
-        user_id=str(current_user.id),
-        enabled=request.enabled,
-        interval=request.interval_minutes,
-    )
-
-    return TandemUploadStatusResponse(
-        enabled=state.enabled,
-        upload_interval_minutes=state.upload_interval_minutes,
-        last_upload_at=state.last_upload_at,
-        last_upload_status=state.last_upload_status,
-        last_error=state.last_error,
-        max_event_index_uploaded=state.max_event_index_uploaded,
-        pending_raw_events=pending_count,
-        country=stored if not needs_country else None,
-        needs_country_reselect=needs_country,
-    )
-
-
-@router.post(
-    "/tandem/cloud-upload/trigger",
-    response_model=TandemUploadTriggerResponse,
-    responses={
-        200: {"description": "Upload triggered"},
-        401: {"model": ErrorResponse, "description": "Not authenticated"},
-        404: {"model": ErrorResponse, "description": "Tandem not configured"},
-        409: {"model": ErrorResponse, "description": "Integration disconnected"},
-        429: {"model": ErrorResponse, "description": "Rate limit exceeded"},
-        500: {"model": ErrorResponse, "description": "Upload failed"},
-    },
-)
-@limiter.limit("5/minute")
-async def trigger_tandem_upload(
-    request: Request,
-    current_user: CurrentUser,
-    db: AsyncSession = Depends(get_db),
-) -> TandemUploadTriggerResponse:
-    """Manually trigger a Tandem cloud upload.
-
-    Uploads pending raw events to the Tandem cloud immediately. Rate-limited
-    to 5/minute per IP -- the scheduler handles steady-state uploads on its
-    own interval; this endpoint is a manual override.
-    """
-    # Verify Tandem credentials exist and are not disconnected.
-    cred_result = await db.execute(
-        select(IntegrationCredential).where(
-            IntegrationCredential.user_id == current_user.id,
-            IntegrationCredential.integration_type == IntegrationType.TANDEM,
-        )
-    )
-    credential = cred_result.scalar_one_or_none()
-    if not credential:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tandem integration not configured. Please connect your Tandem account first.",
-        )
-    if credential.status == IntegrationStatus.DISCONNECTED:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Tandem integration is disconnected. Reconnect Tandem first.",
-        )
-
-    # Import here to avoid circular imports
-    from src.services.tandem_upload import upload_to_tandem
-
-    try:
-        result = await upload_to_tandem(db, current_user.id)
-    except TandemLegacyRegionError as e:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=str(e),
-        ) from e
-    except Exception as e:
-        logger.error(
-            "Tandem upload trigger failed",
-            user_id=str(current_user.id),
-            error=str(e),
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Upload failed. Please try again later.",
-        ) from e
-
-    return TandemUploadTriggerResponse(
-        message=result.get("message", "Upload complete"),
-        events_uploaded=result.get("events_uploaded", 0),
-        status=result.get("status", "success"),
-    )
-
-
-@router.post(
-    "/tandem/cloud-upload/reset",
-    response_model=TandemUploadResetResponse,
-    responses={
-        200: {"description": "Upload state reset"},
-        401: {"model": ErrorResponse, "description": "Not authenticated"},
-        404: {"model": ErrorResponse, "description": "Tandem not configured"},
-        409: {"model": ErrorResponse, "description": "Integration disconnected"},
-        429: {"model": ErrorResponse, "description": "Rate limit exceeded"},
-    },
-)
-@limiter.limit("5/minute")
-async def reset_tandem_upload(
-    request: Request,
-    current_user: CurrentUser,
-    db: AsyncSession = Depends(get_db),
-) -> TandemUploadResetResponse:
-    """Reset the Tandem upload high-water mark and re-queue all stored events.
-
-    Recovery action for cases where the local state has drifted out of sync
-    with reality -- e.g. after a pump re-pair, sequence-counter reset, or
-    when migrating off the legacy incremental-sync logic that silently
-    filtered queued events.
-
-    Rate-limited to 5/minute per IP: the reset is a heavy ``UPDATE`` over
-    every ``pump_raw_events`` row for the user and takes a row-lock on the
-    upload state -- a tight loop could saturate the connection pool for
-    legitimate uploads. Idempotent: safe to call repeatedly within the
-    limit.
-    """
-    cred_result = await db.execute(
-        select(IntegrationCredential).where(
-            IntegrationCredential.user_id == current_user.id,
-            IntegrationCredential.integration_type == IntegrationType.TANDEM,
-        )
-    )
-    credential = cred_result.scalar_one_or_none()
-    if not credential:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tandem integration not configured.",
-        )
-    # Respect the user's "off" decision: a disconnected integration should
-    # not be re-armed by the reset path. The user must reconnect first.
-    if credential.status == IntegrationStatus.DISCONNECTED:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "Tandem integration is disconnected. Reconnect Tandem "
-                "before resetting the upload state."
-            ),
-        )
-
-    from src.services.tandem_upload import reset_tandem_upload_state
-
-    result = await reset_tandem_upload_state(db, current_user.id)
-    return TandemUploadResetResponse(
-        message=result.get("message", "Reset complete"),
-        events_requeued=result.get("events_requeued", 0),
+        raw_accepted=0,
+        raw_duplicates=0,
     )
 
 
@@ -2282,6 +3937,10 @@ async def get_glucose_stats(
     end: datetime | None = Query(
         default=None, description="End of date range (ISO 8601, UTC)"
     ),
+    include_secondary: bool = Query(
+        default=False,
+        description="Include secondary CGM sources (Story 43.10). Off by default.",
+    ),
 ) -> GlucoseStatsResponse:
     """Get aggregate glucose statistics: mean, SD, CV%, GMI, CGM active%.
 
@@ -2291,8 +3950,12 @@ async def get_glucose_stats(
     CGM active % assumes 5-minute reading intervals (standard for Dexcom G6/G7).
 
     When start and end are provided, they override the minutes parameter.
+    By default aggregates the primary CGM source only (Story 43.10).
     """
     date_range = _validate_date_range(start, end)
+    excluded = await get_excluded_cgm_sources(
+        db, current_user.id, include_secondary=include_secondary
+    )
     if date_range is not None:
         cutoff = date_range[0]
         upper = date_range[1]
@@ -2310,6 +3973,7 @@ async def get_glucose_stats(
     ]
     if upper is not None:
         conditions.append(GlucoseReading.reading_timestamp < upper)
+    conditions.extend(glucose_source_exclusion_clause(excluded))
 
     result = await db.execute(
         select(
@@ -2377,12 +4041,17 @@ async def get_glucose_percentiles(
         max_length=50,
         description="IANA timezone for hour grouping (e.g. America/Chicago)",
     ),
+    include_secondary: bool = Query(
+        default=False,
+        description="Include secondary CGM sources (Story 43.10). Off by default.",
+    ),
 ) -> GlucosePercentilesResponse:
     """Get AGP (Ambulatory Glucose Profile) percentile bands.
 
     Returns 10th, 25th, 50th, 75th, and 90th percentile glucose values
     grouped by hour of day in the specified timezone.
     Requires at least 7 days of data.
+    By default profiles the primary CGM source only (Story 43.10).
     """
     # Validate timezone
     try:
@@ -2394,6 +4063,9 @@ async def get_glucose_percentiles(
         ) from e
 
     cutoff = datetime.now(UTC) - timedelta(days=days)
+    excluded = await get_excluded_cgm_sources(
+        db, current_user.id, include_secondary=include_secondary
+    )
 
     # Fetch readings with a hard row cap to prevent memory issues
     result = await db.execute(
@@ -2406,6 +4078,7 @@ async def get_glucose_percentiles(
             GlucoseReading.reading_timestamp >= cutoff,
             GlucoseReading.value >= 20,
             GlucoseReading.value <= 500,
+            *glucose_source_exclusion_clause(excluded),
         )
         .order_by(GlucoseReading.reading_timestamp)
         .limit(_AGP_MAX_ROWS)

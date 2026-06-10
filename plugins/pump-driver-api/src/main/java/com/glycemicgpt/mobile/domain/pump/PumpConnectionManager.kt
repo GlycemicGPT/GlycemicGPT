@@ -1,6 +1,8 @@
 package com.glycemicgpt.mobile.domain.pump
 
 import com.glycemicgpt.mobile.domain.model.ConnectionState
+import com.glycemicgpt.mobile.domain.plugin.PairingFault
+import com.glycemicgpt.mobile.domain.plugin.PairingProfile
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -22,6 +24,12 @@ interface PumpConnectionManager {
 
     /** Observable connection state. */
     val connectionState: StateFlow<ConnectionState>
+
+    /** How the active pump pairs (central-scan vs advertise-and-wait), reflecting the BLE topology. */
+    val pairingProfile: StateFlow<PairingProfile>
+
+    /** Why an advertise-and-wait pairing is stalled/failed, or `null`. Central-scan pumps stay `null`. */
+    val pairingFault: StateFlow<PairingFault?>
 
     /**
      * Connect to a pump at the given address.

@@ -18,6 +18,10 @@ from src.schemas.ai_response import AIMessage
 from src.schemas.daily_brief import DailyBriefMetrics, InsulinBreakdown
 from src.services.ai_client import get_ai_client
 from src.services.brief_notifier import notify_user_of_brief
+from src.services.cgm_source import (
+    get_excluded_cgm_sources,
+    glucose_source_exclusion_clause,
+)
 from src.services.diabetes_context import (
     format_iob_for_prompt,
     format_pump_profile_for_prompt,
@@ -117,6 +121,8 @@ async def calculate_metrics(
     db: AsyncSession,
     period_start: datetime,
     period_end: datetime,
+    *,
+    excluded_sources: list[str] | None = None,
 ) -> DailyBriefMetrics:
     """Calculate glucose and pump metrics for a time period.
 
@@ -125,16 +131,20 @@ async def calculate_metrics(
         db: Database session.
         period_start: Start of analysis period.
         period_end: End of analysis period.
+        excluded_sources: CGM ``source`` strings to exclude from the glucose
+            metrics (Story 43.10 secondary/off sources). The caller resolves
+            these once via ``get_excluded_cgm_sources`` so the brief's
+            TIR/metrics aren't doubled when two sources report the same sensor.
 
     Returns:
         Calculated metrics for the period.
     """
-    # Query glucose readings for the period
     readings_result = await db.execute(
         select(GlucoseReading.value).where(
             GlucoseReading.user_id == user_id,
             GlucoseReading.reading_timestamp >= period_start,
             GlucoseReading.reading_timestamp < period_end,
+            *glucose_source_exclusion_clause(excluded_sources),
         )
     )
     values = [row[0] for row in readings_result.all()]
@@ -311,8 +321,12 @@ async def generate_daily_brief(
     period_end = datetime.now(UTC)
     period_start = period_end - timedelta(hours=hours)
 
-    # Calculate metrics
-    metrics = await calculate_metrics(user.id, db, period_start, period_end)
+    # Resolve the primary-CGM exclusion once (Story 43.10) and thread it into
+    # the metrics so the brief reflects the primary source only.
+    excluded = await get_excluded_cgm_sources(db, user.id)
+    metrics = await calculate_metrics(
+        user.id, db, period_start, period_end, excluded_sources=excluded
+    )
 
     if metrics.readings_count < MIN_READINGS:
         raise HTTPException(

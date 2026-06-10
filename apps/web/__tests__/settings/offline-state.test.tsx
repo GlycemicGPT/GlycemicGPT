@@ -81,6 +81,20 @@ jest.mock("../../src/lib/api", () => {
     syncNightscoutConnection: jest.fn().mockRejectedValue(networkError),
     deleteNightscoutConnection: jest.fn().mockRejectedValue(networkError),
     patchNightscoutConnection: jest.fn().mockRejectedValue(networkError),
+    // Medtronic CareLink Connect (autonomous sync)
+    getMedtronicConnectStatus: jest.fn().mockRejectedValue(networkError),
+    installMedtronicConnect: jest.fn().mockRejectedValue(networkError),
+    syncMedtronicConnectNow: jest.fn().mockRejectedValue(networkError),
+    updateMedtronicConnectSettings: jest.fn().mockRejectedValue(networkError),
+    disconnectMedtronicConnect: jest.fn().mockRejectedValue(networkError),
+    // Omnipod via Glooko (autonomous sync)
+    getGlookoStatus: jest.fn().mockRejectedValue(networkError),
+    connectGlooko: jest.fn().mockRejectedValue(networkError),
+    syncGlookoNow: jest.fn().mockRejectedValue(networkError),
+    updateGlookoSyncSettings: jest.fn().mockRejectedValue(networkError),
+    getGlookoSyncAvailability: jest.fn().mockRejectedValue(networkError),
+    importGlookoHistory: jest.fn().mockRejectedValue(networkError),
+    disconnectGlooko: jest.fn().mockRejectedValue(networkError),
     // Telegram
     getTelegramStatus: jest.fn().mockRejectedValue(networkError),
     generateTelegramCode: jest.fn().mockRejectedValue(networkError),

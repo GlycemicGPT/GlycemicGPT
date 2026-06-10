@@ -15,6 +15,8 @@ import com.glycemicgpt.mobile.data.local.AlertSoundStore
 import com.glycemicgpt.mobile.data.local.AnalyticsSettingsStore
 import com.glycemicgpt.mobile.data.local.AppSettingsStore
 import com.glycemicgpt.mobile.domain.plugin.PluginMetadata
+import com.glycemicgpt.mobile.domain.plugin.ui.PluginSettingsDescriptor
+import com.glycemicgpt.mobile.domain.plugin.ui.SettingDescriptor
 import com.glycemicgpt.mobile.plugin.PluginRegistry
 import com.glycemicgpt.mobile.plugin.RuntimePluginInfo
 import com.glycemicgpt.mobile.data.local.GlucoseRangeStore
@@ -147,6 +149,9 @@ data class SettingsUiState(
     val activePluginIds: Set<String> = emptySet(),
     val activePumpPluginName: String? = null,
     val activePumpProtocolDisplay: String? = null,
+    // Active pump plugin's informational connection notes (e.g. Medtronic's single-peer limitation),
+    // rendered under the pump card. Null when the active pump declares no notes.
+    val activePumpSettingsDescriptor: PluginSettingsDescriptor? = null,
     // Sync
     val backendSyncEnabled: Boolean = true,
     val dataRetentionDays: Int = 7,
@@ -229,14 +234,48 @@ class SettingsViewModel @Inject constructor(
 
     /** Copy active pump plugin display fields from the registry into the state. */
     private fun SettingsUiState.withActivePumpFields(): SettingsUiState {
-        val meta = pluginRegistry.activePumpPlugin.value?.metadata
+        val plugin = pluginRegistry.activePumpPlugin.value
+        // Both reads cross the plugin boundary, so a misbehaving (e.g. runtime) plugin must not crash
+        // settings via a throwing getter or a linkage Error (AbstractMethodError / NoClassDefFoundError);
+        // catch Throwable on each (mirrors the SentryInitializer init guard). They are guarded
+        // separately on purpose: a descriptor failure drops only the notes and keeps the pump card,
+        // whereas losing metadata necessarily drops the card (its id/name are required).
+        val meta = plugin?.let {
+            try {
+                it.metadata
+            } catch (t: Throwable) {
+                Timber.w(t, "Failed to read metadata for active pump plugin")
+                null
+            }
+        }
+        val notes = plugin?.let {
+            try {
+                it.settingsDescriptor().infoNotesOnly()
+            } catch (t: Throwable) {
+                Timber.w(t, "Failed to read settings descriptor for active pump plugin")
+                null
+            }
+        }
         return copy(
             activePumpPluginId = meta?.id,
             activePumpPluginName = meta?.name,
             activePumpProtocolDisplay = meta?.let { m ->
                 m.protocolName?.let { "$it v${m.version}" }
             },
+            activePumpSettingsDescriptor = notes,
         )
+    }
+
+    /**
+     * Reduce a plugin's settings descriptor to its informational notes (e.g. Medtronic's single-peer
+     * limitation). The generic pump card owns live pairing status and the pair/unpair actions, so
+     * interactive settings never belong on it; returns null when there are no notes to show.
+     */
+    private fun PluginSettingsDescriptor.infoNotesOnly(): PluginSettingsDescriptor? {
+        val noteSections = sections
+            .map { it.copy(items = it.items.filterIsInstance<SettingDescriptor.InfoText>()) }
+            .filter { it.items.isNotEmpty() }
+        return if (noteSections.isEmpty()) null else PluginSettingsDescriptor(noteSections)
     }
 
     /** Observable auth state for UI-level session expiry handling. */

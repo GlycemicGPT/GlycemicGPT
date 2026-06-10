@@ -16,6 +16,7 @@ from fastapi.responses import StreamingResponse
 from src.core.auth import DiabeticOrAdminUser
 from src.database import get_db_session
 from src.logging_config import get_logger
+from src.services.cgm_source import get_excluded_cgm_sources
 from src.services.dexcom_sync import get_latest_glucose_reading
 from src.services.iob_projection import get_iob_projection, get_user_dia
 from src.services.predictive_alerts import get_active_alerts
@@ -92,8 +93,13 @@ async def generate_glucose_stream(
                 try:
                     # Create fresh database session for each query (Issue 4 fix)
                     async with get_db_session() as db:
-                        # Get latest glucose reading
-                        latest = await get_latest_glucose_reading(db, user_id)
+                        # Get latest glucose reading from the primary CGM
+                        # source only (Story 43.10) so the live tile doesn't
+                        # flip between two sources reporting the same sensor.
+                        excluded = await get_excluded_cgm_sources(db, user_id)
+                        latest = await get_latest_glucose_reading(
+                            db, user_id, excluded_sources=excluded
+                        )
 
                         if latest:
                             now = datetime.now(UTC)

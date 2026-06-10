@@ -7,7 +7,7 @@ GlycemicGPT exists because of work that came before it. This page acknowledges t
 
 ## Pump and CGM library credits
 
-This project's diabetes-device integrations are built on top of -- or directly informed by -- several MIT-licensed open-source libraries. The categorization below distinguishes "runtime dependency" (we ship and consume the library directly) from "architectural reference" (we studied the work to build our own, no code is imported).
+This project's diabetes-device integrations are built on top of -- or directly informed by -- several open-source libraries (MIT- and GPL-licensed). The categorization below distinguishes "runtime dependency" (we ship and consume the library directly) from "architectural reference" (we studied the work to build our own, no code is imported).
 
 ### James Woglom ([@jwoglom](https://github.com/jwoglom))
 
@@ -15,7 +15,7 @@ Three of jwoglom's open-source projects directly inform our Tandem support:
 
 - **[pumpX2](https://github.com/jwoglom/pumpx2)** -- *architectural reference, not a runtime dependency.* Java library implementing a reverse-engineered Bluetooth protocol for Tandem t:slim X2 / Mobi pumps. GlycemicGPT's Tandem mobile-app driver is an independent Kotlin port informed by pumpX2's protocol documentation, opcodes, message formats, and EC-JPAKE authentication flow. We do not import pumpX2; we use its test vectors to validate parser correctness in our own code. Crediting this work is required by the MIT license and matters: without pumpX2's published reverse-engineering, this project's pump driver would not exist.
 - **[controlX2](https://github.com/jwoglom/controlx2)** -- *architectural reference, not a runtime dependency.* Android / Wear OS reference app built on pumpX2. We studied its BLE service lifecycle, reconnection state machines, and pairing flow patterns. No code is imported.
-- **[tconnectsync](https://github.com/jwoglom/tconnectsync)** -- ***runtime dependency.*** Python library for talking to Tandem's t:connect cloud (`TandemSourceApi`). Consumed via `apps/api/pyproject.toml` as `tconnectsync>=2.3.0`. Used by `tandem_sync.py` (cloud download) and for OAuth token acquisition in `tandem_upload.py` (cloud upload).
+- **[tconnectsync](https://github.com/jwoglom/tconnectsync)** -- ***runtime dependency.*** Python library for talking to Tandem's t:connect cloud (`TandemSourceApi`). Consumed via `apps/api/pyproject.toml` as `tconnectsync>=2.3.0`. Used by `tandem_sync.py` to pull pump history from the t:connect cloud (download direction).
 
 All three are MIT-licensed by James Woglom. Per-library attribution lives in:
 
@@ -32,6 +32,26 @@ If you're using GlycemicGPT's Tandem integration, you're benefiting from years o
 
 MIT-licensed by Gage Benne. Credit lives in [`apps/api/THIRD_PARTY_LICENSES.md`](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/apps/api/THIRD_PARTY_LICENSES.md).
 
+### xDrip+ contributors / Nightscout Foundation
+
+- **[xDrip+ `carelinkfollow`](https://github.com/NightscoutFoundation/xDrip/tree/master/app/src/main/java/com/eveningoutpost/dexdrip/cgm/carelinkfollow)** -- *architectural reference, not a runtime dependency.* GlycemicGPT's Medtronic CareLink **CarePartner (Connect)** autonomous-sync feature is an independent Python implementation informed by xDrip+'s reverse-engineering of the CarePartner follower cloud: the `display/message` endpoint shape, the `RecentData` / `Marker` / `SensorGlucose` field semantics, and the device-vs-server clock-skew time-correction algorithm. No xDrip+ source code is imported or vendored -- we re-implemented the protocol from what its source documents. Without xDrip+'s published reverse-engineering, this feature would not exist.
+
+xDrip+ is **GPL-3.0**-licensed; GlycemicGPT is also GPL-3.0, so the two are license-compatible and this project remains GPL-3.0 accordingly. API-side credit lives in [`apps/api/THIRD_PARTY_LICENSES.md`](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/apps/api/THIRD_PARTY_LICENSES.md), and the `connect_mapper.py` and `connect_client.py` source files reference it in their module docstrings. (xDrip+ also appears below under the diabetes-OSS movement for its broader influence on the category.)
+
+### palmarci ([@palmarci](https://github.com/palmarci)) and the OpenMinimed project
+
+The Medtronic MiniMed **on-device Bluetooth** driver (which talks to a 680G / 770G / 780G pump directly, no cloud) exists because of [OpenMinimed](https://github.com/OpenMinimed) -- a community project that reverse-engineered the MiniMed 700-series BLE protocol, including the SAKE authenticated key exchange and the read-only data surface (sensor glucose, insulin-on-board, basal, bolus history, reservoir, battery).
+
+This is the **one place GlycemicGPT differs from its Tandem posture.** Where the Tandem driver is an independent reimplementation that imports no upstream code, the Medtronic BLE driver is a **direct vendor / port** of OpenMinimed:
+
+- **[JavaSake](https://github.com/OpenMinimed/JavaSake)** -- ***runtime dependency.*** OpenMinimed's production-grade SAKE handshake is vendored verbatim (package `org.openminimed.sake`) and compiled into the app, driven through `MedtronicSakeSession`.
+- **[PythonPumpConnector](https://github.com/OpenMinimed/PythonPumpConnector)** -- ***ported, not merely referenced.*** The CGM, IDD-status, history, device-info, and battery readers are ported line-for-line into Kotlin from this project.
+- **[PythonSake](https://github.com/OpenMinimed/PythonSake)** and **[JavaPumpConnector](https://github.com/OpenMinimed/JavaPumpConnector)** -- the SAKE reference and the Android BLE peripheral scaffolding that informed the connection manager.
+
+This is possible because **OpenMinimed is GPL-3.0 and GlycemicGPT is itself GPL-3.0**, so the licenses are compatible and copyleft propagation is a non-issue. The work is used **with the explicit permission of the author, palmarci (Pál Marci)**, who relicensed OpenMinimed to GPL-3.0 for this purpose. Upstream copyright and GPL-3.0 notices are retained verbatim in every vendored and ported file, and in-source headers cite the specific upstream source file each port derives from. The project credits **palmarci** as primary author and reverse-engineer, contributors **drfubar**, **Morten Fyhn Amundsen**, and **Stenium**, and the original `medtronic-bt-decrypt` proof-of-concept by **[@planiitis](https://github.com/planiitis)**. The Android/JVM ports of JavaSake and JavaPumpConnector are maintained by the GlycemicGPT project lead under [jlengelbrecht](https://github.com/jlengelbrecht).
+
+Without OpenMinimed's published reverse-engineering, the Medtronic on-device driver would not exist. Mobile-side per-package credit lives in [`apps/mobile/THIRD_PARTY_LICENSES.md`](https://github.com/GlycemicGPT/GlycemicGPT/blob/main/apps/mobile/THIRD_PARTY_LICENSES.md). (This BLE driver is separate from the Medtronic **CareLink / CarePartner cloud** sync credited above under xDrip+; the two are different data paths.)
+
 ## The diabetes-OSS movement
 
 GlycemicGPT is part of a much larger #WeAreNotWaiting tradition that has been building open-source diabetes tools collaboratively since around 2013. The projects below predate this one by years; in many cases by a decade. We're listed alongside them, not above them.
@@ -40,7 +60,7 @@ GlycemicGPT is part of a much larger #WeAreNotWaiting tradition that has been bu
 - **[OpenAPS](https://openaps.org/)** and Dana Lewis -- the project that started the closed-loop branch of #WeAreNotWaiting. GlycemicGPT does not do closed-loop and never will, but the broader tradition of "T1s building safety-critical software for themselves" comes from here.
 - **[Loop](https://loopkit.github.io/loopdocs/)** and the LoopKit / Pete Schwamb -- the iOS closed-loop project that brought thousands of T1s and parents into the DIY closed-loop world. GlycemicGPT respects the legal and architectural posture (forks-as-personal-medical-device) that Loop established.
 - **[AndroidAPS / AAPS](https://androidaps.readthedocs.io/)** -- the Android closed-loop project that supports the broadest pump matrix in the open-source space. The plugin architecture in GlycemicGPT's mobile app borrows conceptual framing from AAPS's pump-driver model.
-- **[xDrip+](https://github.com/NightscoutFoundation/xDrip)** -- the Android CGM relay-and-dashboard that supports more sensors than anything else. The "what should a CGM-companion app on Android even look like" question is largely answered by xDrip+; we benefit from the answer.
+- **[xDrip+](https://github.com/NightscoutFoundation/xDrip)** -- the Android CGM relay-and-dashboard that supports more sensors than anything else. The "what should a CGM-companion app on Android even look like" question is largely answered by xDrip+; we benefit from the answer. (xDrip+ is also credited above under "Pump and CGM library credits" as the architectural reference for our Medtronic CarePartner integration.)
 - **[Tidepool](https://www.tidepool.org/)** -- a nonprofit cloud platform for uploading and reporting on diabetes data, and the FDA-cleared variant of Loop ([Tidepool Loop](https://www.tidepool.org/tidepool-loop)). The "free, open, vendor-neutral diabetes data layer" pattern is something GlycemicGPT learns from.
 
 ## AI

@@ -1,0 +1,9 @@
+# Raw API captures contain the operator's own PHI (glucose, insulin, timestamps).
+# NEVER commit them. Default output dir of capture.py:
+.captures/
+*.json
+
+# Any local credential file (never committed; prefer `op run` over a file).
+.env
+.env.*
+*.env

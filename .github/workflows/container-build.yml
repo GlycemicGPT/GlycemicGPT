@@ -107,6 +107,12 @@ jobs:
         with:
           context: ./apps/api
           file: ./apps/api/Dockerfile
+          # The Medtronic Connect Go-helper sources live outside the API build
+          # context (at repo root), so expose them as a named additional build
+          # context. Mirrors docker-compose.yml api.build.additional_contexts;
+          # the Dockerfile's connect-helper-builder stage COPYs --from=helper-src.
+          build-contexts: |
+            helper-src=./tools/connect-helper
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}

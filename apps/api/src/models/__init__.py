@@ -21,6 +21,7 @@ from src.models.escalation_event import (
     EscalationTier,
     NotificationStatus,
 )
+from src.models.glooko_sync_state import GlookoSyncState
 from src.models.glucose import GlucoseReading, TrendDirection
 from src.models.insulin_config import InsulinConfig
 from src.models.integration import (
@@ -30,17 +31,16 @@ from src.models.integration import (
 )
 from src.models.knowledge_chunk import KnowledgeChunk
 from src.models.meal_analysis import MealAnalysis
+from src.models.medtronic_connect_state import MedtronicConnectState
 from src.models.plugin_declaration import PluginDeclaration
 from src.models.pump_data import PumpEvent, PumpEventType
-from src.models.pump_hardware_info import PumpHardwareInfo
 from src.models.pump_profile import PumpProfile
-from src.models.pump_raw_event import PumpRawEvent
 from src.models.research_source import ResearchSource
 from src.models.safety_limits import SafetyLimits
 from src.models.safety_log import SafetyLog
 from src.models.security_audit_log import SecurityAuditLog
 from src.models.suggestion_response import SuggestionResponse
-from src.models.tandem_upload_state import TandemUploadState
+from src.models.tandem_sync_state import TandemSyncState
 from src.models.target_glucose_range import TargetGlucoseRange
 from src.models.telegram_link import TelegramLink
 from src.models.telegram_verification import TelegramVerificationCode
@@ -72,6 +72,7 @@ __all__ = [
     "EscalationConfig",
     "EscalationEvent",
     "EscalationTier",
+    "GlookoSyncState",
     "GlucoseReading",
     "InsulinConfig",
     "InvitationStatus",
@@ -80,19 +81,18 @@ __all__ = [
     "IntegrationType",
     "KnowledgeChunk",
     "MealAnalysis",
+    "MedtronicConnectState",
     "NotificationStatus",
     "PluginDeclaration",
     "PumpEvent",
     "PumpEventType",
-    "PumpHardwareInfo",
     "PumpProfile",
-    "PumpRawEvent",
     "ResearchSource",
     "SafetyLimits",
     "SafetyLog",
     "SecurityAuditLog",
     "SuggestionResponse",
-    "TandemUploadState",
+    "TandemSyncState",
     "TargetGlucoseRange",
     "TelegramLink",
     "TelegramVerificationCode",

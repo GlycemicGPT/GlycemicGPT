@@ -41,11 +41,15 @@ import kotlin.math.roundToInt
 /**
  * Renders a [PluginSettingsDescriptor] as Material 3 UI components.
  * Reads/writes values through the plugin's [PluginSettingsStore].
+ *
+ * [settingsStore] may be null for read-only/informational contexts (e.g. the pump settings card,
+ * which renders only [SettingDescriptor.InfoText] notes). Store-backed input items are omitted when
+ * no store is provided, since they cannot be read or persisted without one.
  */
 @Composable
 fun PluginSettingsRenderer(
     descriptor: PluginSettingsDescriptor,
-    settingsStore: PluginSettingsStore,
+    settingsStore: PluginSettingsStore? = null,
     onAction: (key: String) -> Unit = {},
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -70,14 +74,15 @@ fun PluginSettingsRenderer(
 @Composable
 internal fun SettingItem(
     descriptor: SettingDescriptor,
-    store: PluginSettingsStore,
+    store: PluginSettingsStore?,
     onAction: (String) -> Unit,
 ) {
     when (descriptor) {
-        is SettingDescriptor.TextInput -> TextInputSetting(descriptor, store)
-        is SettingDescriptor.Toggle -> ToggleSetting(descriptor, store)
-        is SettingDescriptor.Slider -> SliderSetting(descriptor, store)
-        is SettingDescriptor.Dropdown -> DropdownSetting(descriptor, store)
+        // Input items need a store to read/persist their value; skip them when none is available.
+        is SettingDescriptor.TextInput -> if (store != null) TextInputSetting(descriptor, store)
+        is SettingDescriptor.Toggle -> if (store != null) ToggleSetting(descriptor, store)
+        is SettingDescriptor.Slider -> if (store != null) SliderSetting(descriptor, store)
+        is SettingDescriptor.Dropdown -> if (store != null) DropdownSetting(descriptor, store)
         is SettingDescriptor.ActionButton -> ActionButtonSetting(descriptor, onAction)
         is SettingDescriptor.InfoText -> InfoTextSetting(descriptor)
     }

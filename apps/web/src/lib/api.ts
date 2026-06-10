@@ -1788,8 +1788,8 @@ export interface IntegrationResponse {
   updated_at: string;
   /**
    * Per-integration region/locale stored on the credential.
-   *  - Tandem: ISO-3166-1 alpha-2 country code (or legacy "EU" -- in which
-   *    case `TandemUploadStatusResponse.needs_country_reselect` will be true).
+   *  - Tandem: ISO-3166-1 alpha-2 country code (or legacy "EU" from an
+   *    older schema version, which is no longer supported).
    *  - Dexcom: pydexcom region ("US" | "OUS" | "JP").
    */
   region: string | null;
@@ -2308,125 +2308,6 @@ export async function applyNightscoutOnboarding(
       await _readErrorDetail(response, "Failed to apply Nightscout onboarding")
     );
   }
-  return response.json();
-}
-
-// ============================================================================
-// Story 18.3: Tandem Cloud Upload
-// ============================================================================
-
-export interface TandemUploadStatusResponse {
-  enabled: boolean;
-  upload_interval_minutes: number;
-  last_upload_at: string | null;
-  last_upload_status: string | null;
-  last_error: string | null;
-  max_event_index_uploaded: number;
-  pending_raw_events: number;
-  /** ISO-3166-1 alpha-2 country code currently configured (or null when legacy). */
-  country: string | null;
-  /**
-   * True when the stored Tandem region is a legacy bucket label (e.g. "EU")
-   * that can no longer be resolved to a country -- the user must re-connect
-   * with their country selected before uploads can be enabled.
-   */
-  needs_country_reselect: boolean;
-}
-
-export interface TandemUploadTriggerResponse {
-  message: string;
-  events_uploaded: number;
-  status: string;
-}
-
-export interface TandemUploadResetResponse {
-  message: string;
-  events_requeued: number;
-}
-
-/**
- * Get the Tandem cloud upload status for the current user.
- */
-export async function getTandemUploadStatus(): Promise<TandemUploadStatusResponse> {
-  const response = await apiFetch(
-    `${API_BASE_URL}/api/integrations/tandem/cloud-upload/status`
-  );
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(
-      error.detail || `Failed to fetch upload status: ${response.status}`
-    );
-  }
-
-  return response.json();
-}
-
-/**
- * Update Tandem cloud upload settings (enable/disable, interval).
- */
-export async function updateTandemUploadSettings(data: {
-  enabled: boolean;
-  interval_minutes: number;
-}): Promise<TandemUploadStatusResponse> {
-  const response = await apiFetch(
-    `${API_BASE_URL}/api/integrations/tandem/cloud-upload/settings`,
-    {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    }
-  );
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(
-      error.detail || `Failed to update upload settings: ${response.status}`
-    );
-  }
-
-  return response.json();
-}
-
-/**
- * Trigger an immediate Tandem cloud upload.
- */
-export async function triggerTandemUpload(): Promise<TandemUploadTriggerResponse> {
-  const response = await apiFetch(
-    `${API_BASE_URL}/api/integrations/tandem/cloud-upload/trigger`,
-    { method: "POST" }
-  );
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(
-      error.detail || `Failed to trigger upload: ${response.status}`
-    );
-  }
-
-  return response.json();
-}
-
-/**
- * Reset the Tandem upload high-water mark and re-queue every stored raw event.
- *
- * Use this when uploads appear stuck despite pending events being reported --
- * e.g. after a pump re-pair, sequence-counter reset, or to recover from the
- * legacy incremental-sync bug that silently filtered queued events.
- */
-export async function resetTandemUpload(): Promise<TandemUploadResetResponse> {
-  const response = await apiFetch(
-    `${API_BASE_URL}/api/integrations/tandem/cloud-upload/reset`,
-    { method: "POST" }
-  );
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(
-      error.detail || `Failed to reset upload state: ${response.status}`
-    );
-  }
-
   return response.json();
 }
 
@@ -3071,6 +2952,164 @@ export async function getPumpStatus(): Promise<PumpStatusResponse> {
 }
 
 // ============================================================================
+// Forecast (Story 43.12 PR 3 backend, PR 4 frontend)
+// ============================================================================
+//
+// `source` enums mirror the backend Pydantic `Literal` types
+// (apps/api/src/schemas/forecast.py). Keep these unions in sync if the
+// backend's allowed set ever expands -- a frontend that accepts a
+// broader string than the backend emits is a quiet contract bug.
+
+/** Picker preference values, including the picker-only states. */
+export type ForecastSourcePreference =
+  | "auto"
+  | "none"
+  | "loop"
+  | "aaps"
+  | "trio"
+  | "oref0"
+  | "iaps"
+  | "glycemicgpt";
+
+/** Subset that can actually drive a forecast (excludes picker-only states). */
+export type ForecastEngine =
+  | "loop"
+  | "aaps"
+  | "trio"
+  | "oref0"
+  | "iaps"
+  | "glycemicgpt";
+
+/** Why no forecast is rendering. Null = happy path. */
+export type ForecastUnavailableReason =
+  | "opted_out"
+  | "needs_pick"
+  | "no_sources"
+  | "source_silent"
+  | "stale";
+
+/** Mg/dL curves keyed by curve name. Loop populates `main`; OpenAPS
+ * family populates any subset of `IOB`/`COB`/`UAM`/`ZT`. */
+export interface ForecastCurves {
+  main?: number[] | null;
+  IOB?: number[] | null;
+  COB?: number[] | null;
+  UAM?: number[] | null;
+  ZT?: number[] | null;
+}
+
+export interface ForecastPayload {
+  source_engine: ForecastEngine;
+  source_uploader: string | null;
+  /** ISO 8601. When the loop *emitted* the forecast. */
+  issued_at: string;
+  /** ISO 8601. t=0 of the curve. */
+  start_at: string;
+  step_minutes: number;
+  horizon_minutes: number;
+  curves_mgdl: ForecastCurves;
+  default_curve_name: string;
+}
+
+export interface ForecastReadResponse {
+  source_preference: ForecastSourcePreference;
+  effective_source: ForecastEngine | null;
+  available_sources: ForecastEngine[];
+  forecast: ForecastPayload | null;
+  /** Null on the happy path; specific reason when `forecast` is null
+   * so the UI can dispatch the right empty-state message. */
+  forecast_unavailable_reason: ForecastUnavailableReason | null;
+}
+
+export async function getForecast(): Promise<ForecastReadResponse> {
+  const response = await apiFetch(`${API_BASE_URL}/api/integrations/forecast`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to fetch forecast: ${response.status}`
+    );
+  }
+  return response.json();
+}
+
+export async function updateForecastSource(
+  source: ForecastSourcePreference
+): Promise<{ source_preference: ForecastSourcePreference }> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/forecast/source`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source }),
+    }
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to update forecast source: ${response.status}`
+    );
+  }
+  return response.json();
+}
+
+// ============================================================================
+// CGM primary-source picker (Story 43.10)
+// ============================================================================
+// Backend: GET /api/integrations/cgm + PUT /api/integrations/cgm/source
+// (apps/api/src/schemas/cgm.py). Keep these shapes in sync.
+
+export type CgmRole = "primary" | "secondary" | "off";
+
+export interface CgmSourceItem {
+  /** glucose_readings.source string -- the stable key. */
+  source: string;
+  /** Human-readable name for the picker. */
+  label: string;
+  role: CgmRole;
+  /** "dexcom" | "nightscout". */
+  kind: string;
+}
+
+export interface CgmSourcesResponse {
+  sources: CgmSourceItem[];
+  /** The source currently marked primary, or null. */
+  primary_source: string | null;
+  /** True only when more than one CGM source exists (picker renders then). */
+  multiple_sources: boolean;
+}
+
+export async function getCgmSources(): Promise<CgmSourcesResponse> {
+  const response = await apiFetch(`${API_BASE_URL}/api/integrations/cgm`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to fetch CGM sources: ${response.status}`
+    );
+  }
+  return response.json();
+}
+
+export async function updatePrimaryCgmSource(
+  source: string
+): Promise<{ primary_source: string | null }> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/cgm/source`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source }),
+    }
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to update primary CGM source: ${response.status}`
+    );
+  }
+  return response.json();
+}
+
+// ============================================================================
 // Safety Limits (Phase 3)
 // ============================================================================
 
@@ -3592,6 +3631,506 @@ export async function getBolusReviewByDateRange(
     throw new Error(
       error.detail || `Failed to fetch bolus review: ${response.status}`
     );
+  }
+  return response.json();
+}
+
+// ============================================================================
+// Per-user Tandem cloud sync (download direction)
+// ============================================================================
+
+export interface TandemSyncStatusResponse {
+  integration_status: string;
+  last_sync_at: string | null;
+  last_error: string | null;
+  events_available: number;
+  /** Whether scheduled sync runs for this user. */
+  enabled: boolean;
+  /** Minutes between scheduled syncs (15-1440). */
+  sync_interval_minutes: number;
+  /** Cumulative count of events stored across all syncs (display only). */
+  events_pulled_total: number;
+  /**
+   * True when the stored Tandem region is a legacy bucket label (e.g. "EU")
+   * that can no longer be resolved to a country -- the user must reconnect
+   * with their country selected before sync can run.
+   */
+  needs_country_reselect: boolean;
+}
+
+export interface TandemSyncSettingsRequest {
+  enabled: boolean;
+  sync_interval_minutes: number;
+}
+
+export interface TandemSyncResponse {
+  message: string;
+  events_fetched: number;
+  events_stored: number;
+  profiles_stored: number;
+}
+
+/** Get the per-user Tandem cloud-sync status + control. */
+export async function getTandemSyncStatus(): Promise<TandemSyncStatusResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/tandem/sync/status`
+  );
+  if (!response.ok) {
+    throw new Error(
+      await _readErrorDetail(response, "Failed to load Tandem sync status")
+    );
+  }
+  return response.json();
+}
+
+/** Update the per-user Tandem sync toggle + interval. */
+export async function updateTandemSyncSettings(
+  body: TandemSyncSettingsRequest
+): Promise<TandemSyncStatusResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/tandem/sync/settings`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }
+  );
+  if (!response.ok) {
+    throw new Error(
+      await _readErrorDetail(response, "Failed to update Tandem sync settings")
+    );
+  }
+  return response.json();
+}
+
+/** Manually trigger a Tandem sync ("Sync now"). */
+export async function triggerTandemSync(): Promise<TandemSyncResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/tandem/sync`,
+    { method: "POST" }
+  );
+  if (!response.ok) {
+    throw new Error(
+      await _readErrorDetail(response, "Failed to trigger Tandem sync")
+    );
+  }
+  return response.json();
+}
+
+export interface TandemAvailabilityResponse {
+  /** Oldest date with data available to pull (ISO), or null. */
+  earliest: string | null;
+  /** Most recent date with data — the last upload to t:connect (ISO), or null. */
+  latest: string | null;
+  pump_count: number;
+}
+
+/** Query the date range of pump data available in the t:connect cloud. */
+export async function getTandemSyncAvailability(): Promise<TandemAvailabilityResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/tandem/sync/availability`
+  );
+  if (!response.ok) {
+    throw new Error(
+      await _readErrorDetail(response, "Failed to read available data range")
+    );
+  }
+  return response.json();
+}
+
+/** One-time manual import of a chosen date range from t:connect. */
+export async function importTandemRange(
+  startDate: string,
+  endDate: string
+): Promise<TandemSyncResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/tandem/sync/import`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ start_date: startDate, end_date: endDate }),
+    }
+  );
+  if (!response.ok) {
+    throw new Error(
+      await _readErrorDetail(response, "Failed to import data range")
+    );
+  }
+  return response.json();
+}
+
+// ============================================================================
+// Medtronic CareLink manual import (stateless -- token captured client-side)
+// ============================================================================
+
+export interface MedtronicAvailabilityResponse {
+  /** Oldest date with data in the user's CareLink cloud (ISO), or null. */
+  start: string | null;
+  /** Most recent date with data (ISO), or null. */
+  end: string | null;
+}
+
+export interface MedtronicImportResponse {
+  message: string;
+  glucose_fetched: number;
+  glucose_stored: number;
+  events_fetched: number;
+  events_stored: number;
+}
+
+/** Trim the captured token and fail fast if empty (avoids sending whitespace
+ * that would cause an avoidable auth failure). */
+function _normalizeCareLinkToken(token: string): string {
+  const t = token.trim();
+  if (!t) throw new Error("CareLink token is required");
+  return t;
+}
+
+/** Validate the captured CareLink token and read the available data range. */
+export async function getMedtronicAvailability(
+  region: string,
+  token: string
+): Promise<MedtronicAvailabilityResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/medtronic/availability`,
+    {
+      method: "POST",
+      // Token goes in a header, never the JSON body, so it can't land in a
+      // body-validation error echo or request-body logging.
+      headers: {
+        "Content-Type": "application/json",
+        "X-CareLink-Token": _normalizeCareLinkToken(token),
+      },
+      body: JSON.stringify({ region }),
+    }
+  );
+  if (!response.ok) {
+    throw new Error(
+      await _readErrorDetail(response, "Failed to read available data range")
+    );
+  }
+  return response.json();
+}
+
+/** One-time manual import of a chosen CareLink date range. */
+export async function importMedtronicRange(
+  region: string,
+  token: string,
+  startDate: string,
+  endDate: string,
+  tz: string
+): Promise<MedtronicImportResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/medtronic/import`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CareLink-Token": _normalizeCareLinkToken(token),
+      },
+      body: JSON.stringify({
+        region,
+        start_date: startDate,
+        end_date: endDate,
+        tz,
+      }),
+    }
+  );
+  if (!response.ok) {
+    throw new Error(
+      await _readErrorDetail(response, "Failed to import data range")
+    );
+  }
+  return response.json();
+}
+
+// ============================================================================
+// Medtronic CareLink CarePartner (Connect) -- autonomous sync
+// The one-time CarePartner login is done by a LOCAL desktop helper CLI (the
+// login redirects to a mobile-app scheme a web app can't receive). The web UI
+// only mints a short-lived pairing token for that CLI and shows status. The
+// refresh token is exchanged + stored server-side; it never reaches the browser.
+// ============================================================================
+
+export interface MedtronicConnectStatus {
+  connected: boolean;
+  status: string;
+  enabled: boolean;
+  // The not-configured response only includes connected/status/enabled; the
+  // rest are present only once connected.
+  region?: string | null;
+  role?: string | null;
+  sync_interval_minutes?: number | null;
+  last_sync_at?: string | null;
+  last_error?: string | null;
+  readings_synced_total?: number;
+}
+
+export interface MedtronicConnectInstall {
+  handle: string;
+  pairing_token: string;
+  expires_at: string;
+}
+
+export interface MedtronicConnectSyncResult {
+  message: string;
+  glucose_fetched: number;
+  glucose_stored: number;
+  events_fetched: number;
+  events_stored: number;
+}
+
+/** Read the user's Medtronic Connect autonomous-sync status. */
+export async function getMedtronicConnectStatus(): Promise<MedtronicConnectStatus> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/medtronic/connect/status`
+  );
+  if (!response.ok) {
+    throw new Error(
+      await _readErrorDetail(response, "Failed to read Connect status")
+    );
+  }
+  return response.json();
+}
+
+/** Mint a short-handle install bundle for the desktop helper one-liner.
+ * The handle indexes a server-side bundle (pair token + api/username/region)
+ * so the copy-paste command stays compact instead of carrying the long
+ * Fernet pair token in the URL. Same TTL + single-use gate as the long form. */
+export async function installMedtronicConnect(params: {
+  apiUrl: string;
+  username: string;
+  region: string;
+}): Promise<MedtronicConnectInstall> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/medtronic/connect/install`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        api_url: params.apiUrl,
+        username: params.username,
+        region: params.region,
+      }),
+    }
+  );
+  if (!response.ok) {
+    throw new Error(
+      await _readErrorDetail(response, "Failed to start install")
+    );
+  }
+  return response.json();
+}
+
+/** Update the Connect sync toggle + interval. */
+export async function updateMedtronicConnectSettings(
+  enabled: boolean,
+  syncIntervalMinutes: number
+): Promise<MedtronicConnectStatus> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/medtronic/connect/settings`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        enabled,
+        sync_interval_minutes: syncIntervalMinutes,
+      }),
+    }
+  );
+  if (!response.ok) {
+    throw new Error(
+      await _readErrorDetail(response, "Failed to update Connect settings")
+    );
+  }
+  return response.json();
+}
+
+/** Disconnect Medtronic Connect (deletes the stored refresh token). */
+export async function disconnectMedtronicConnect(): Promise<void> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/medtronic/connect/disconnect`,
+    { method: "POST" }
+  );
+  if (!response.ok) {
+    throw new Error(
+      await _readErrorDetail(response, "Failed to disconnect Medtronic Connect")
+    );
+  }
+}
+
+/** Trigger a Connect sync now (in addition to the schedule). */
+export async function syncMedtronicConnectNow(): Promise<MedtronicConnectSyncResult> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/medtronic/connect/sync`,
+    { method: "POST" }
+  );
+  if (!response.ok) {
+    throw new Error(await _readErrorDetail(response, "Failed to sync now"));
+  }
+  return response.json();
+}
+
+// ============================================================================
+// Omnipod via Glooko -- autonomous cloud sync
+// Omnipod 5 uploads to Glooko only (Insulet mandates Glooko as the sole data
+// system), so Glooko is the onramp. Unlike Medtronic Connect's mobile-app login
+// (which needs a desktop helper), Glooko authenticates with a plain web session,
+// so the user connects directly with their Glooko email + password. The
+// credentials are encrypted at rest on the backend and never returned here.
+// ============================================================================
+
+export interface GlookoStatus {
+  connected: boolean;
+  /** Server-side row status; `not_configured` when the user has never connected.
+   * Mirrors the backend `GlookoSyncState.status` vocabulary. */
+  status:
+    | "not_configured"
+    | "pending"
+    | "connected"
+    | "error"
+    | "disconnected";
+  enabled: boolean;
+  region?: string | null;
+  /** Minutes between scheduled syncs (15-1440). */
+  sync_interval_minutes?: number;
+  last_sync_at?: string | null;
+  last_error?: string | null;
+  readings_synced_total?: number;
+  /** When the user acknowledged the unofficial-connection notice, or null.
+   * Returned by the API; not yet surfaced in the UI. */
+  consent_acknowledged_at?: string | null;
+}
+
+export interface GlookoSyncResult {
+  message: string;
+  glucose_fetched: number;
+  glucose_stored: number;
+  events_fetched: number;
+  events_stored: number;
+}
+
+export interface GlookoAvailability {
+  connected: boolean;
+  /**
+   * Whether CGM (sensor glucose) data is reachable in the account. Omnipod 5
+   * only streams integrated CGM to Glooko on some setups, so this can be false
+   * even when pump data syncs fine -- the card stays honest about it.
+   */
+  cgm_available: boolean;
+  /** Oldest CGM datapoint reachable (ISO), or null. */
+  earliest?: string | null;
+  /** Most recent CGM datapoint reachable (ISO), or null. */
+  latest?: string | null;
+}
+
+/** Connect a Glooko account: validates credentials live, then stores them
+ * encrypted server-side and records the consent acknowledgment. `acceptRisk`
+ * must be true -- the backend refuses to store credentials without it. */
+export async function connectGlooko(params: {
+  email: string;
+  password: string;
+  region: string;
+  acceptRisk: boolean;
+}): Promise<GlookoStatus> {
+  const response = await apiFetch(`${API_BASE_URL}/api/integrations/glooko`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      email: params.email,
+      password: params.password,
+      region: params.region,
+      accept_risk: params.acceptRisk,
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(await _readErrorDetail(response, "Failed to connect Glooko"));
+  }
+  return response.json();
+}
+
+/** Read the user's Glooko sync status (no credentials exposed). Returns a
+ * `not_configured` status rather than 404 when never connected. */
+export async function getGlookoStatus(): Promise<GlookoStatus> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/glooko/status`
+  );
+  if (!response.ok) {
+    throw new Error(await _readErrorDetail(response, "Failed to read Glooko status"));
+  }
+  return response.json();
+}
+
+/** Disconnect Glooko (deletes the stored credentials + consent record). */
+export async function disconnectGlooko(): Promise<void> {
+  const response = await apiFetch(`${API_BASE_URL}/api/integrations/glooko`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    throw new Error(await _readErrorDetail(response, "Failed to disconnect Glooko"));
+  }
+}
+
+/** Trigger an incremental Glooko sync now (in addition to the schedule). */
+export async function syncGlookoNow(): Promise<GlookoSyncResult> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/glooko/sync`,
+    { method: "POST" }
+  );
+  if (!response.ok) {
+    throw new Error(await _readErrorDetail(response, "Failed to sync Glooko"));
+  }
+  return response.json();
+}
+
+/** Update the Glooko sync toggle + interval. */
+export async function updateGlookoSyncSettings(
+  enabled: boolean,
+  syncIntervalMinutes: number
+): Promise<GlookoStatus> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/glooko/sync/settings`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        enabled,
+        sync_interval_minutes: syncIntervalMinutes,
+      }),
+    }
+  );
+  if (!response.ok) {
+    throw new Error(
+      await _readErrorDetail(response, "Failed to update Glooko settings")
+    );
+  }
+  return response.json();
+}
+
+/** Read-only probe of what CGM data is reachable in the user's Glooko cloud.
+ * Does not mutate the sync-state row, so it is safe to call to drive honest
+ * CGM-availability messaging. */
+export async function getGlookoSyncAvailability(): Promise<GlookoAvailability> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/glooko/sync/availability`
+  );
+  if (!response.ok) {
+    throw new Error(
+      await _readErrorDetail(response, "Failed to read available Glooko data")
+    );
+  }
+  return response.json();
+}
+
+/** One-time historical backfill from Glooko (no body; fills the past without
+ * advancing the incremental cursors). Safe to re-run -- storage is idempotent. */
+export async function importGlookoHistory(): Promise<GlookoSyncResult> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/integrations/glooko/sync/import`,
+    { method: "POST" }
+  );
+  if (!response.ok) {
+    throw new Error(await _readErrorDetail(response, "Failed to import Glooko history"));
   }
   return response.json();
 }

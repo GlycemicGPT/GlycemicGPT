@@ -49,6 +49,10 @@ services:
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       SIDECAR_API_KEY: ${SIDECAR_API_KEY:-}
+      # Sentry error monitoring (own project) -- empty default = disabled.
+      # Runtime-only; never baked into the image (see PRIVACY.md).
+      GLYCEMICGPT_SIDECAR_SENTRY_DSN: ${GLYCEMICGPT_SIDECAR_SENTRY_DSN:-}
+      GLYCEMICGPT_SIDECAR_SENTRY_ENVIRONMENT: ${GLYCEMICGPT_SIDECAR_SENTRY_ENVIRONMENT:-production}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3456/health"]
       interval: 15s
@@ -70,6 +74,10 @@ services:
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
       AI_SIDECAR_URL: http://ai-sidecar:3456
       AI_SIDECAR_API_KEY: ${SIDECAR_API_KEY:-}
+      # Sentry error monitoring (Sentry for Good) -- empty default = disabled.
+      # Set only in the project's own dev/CI/staging; never in a distributed build.
+      GLYCEMICGPT_SENTRY_DSN: ${GLYCEMICGPT_SENTRY_DSN:-}
+      GLYCEMICGPT_SENTRY_ENVIRONMENT: ${GLYCEMICGPT_SENTRY_ENVIRONMENT:-production}
     depends_on:
       db:
         condition: service_healthy
@@ -91,6 +99,10 @@ services:
       - "${WEB_PORT:-3000}:3000"
     environment:
       API_URL: http://api:8000
+      # Sentry error monitoring (own project, SERVER-SIDE only) -- empty = disabled.
+      # Runtime-only; never baked into the image or browser bundle (see PRIVACY.md).
+      GLYCEMICGPT_WEB_SENTRY_DSN: ${GLYCEMICGPT_WEB_SENTRY_DSN:-}
+      GLYCEMICGPT_WEB_SENTRY_ENVIRONMENT: ${GLYCEMICGPT_WEB_SENTRY_ENVIRONMENT:-production}
     depends_on:
       api:
         condition: service_healthy

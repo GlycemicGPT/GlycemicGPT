@@ -116,6 +116,21 @@ class PumpEvent(Base):
             "meal_event_id",
             postgresql_where=text("meal_event_id IS NOT NULL"),
         ),
+        # Cross-source dedupe (Story 43.11). The same physical bolus /
+        # basal change reported by two integrations (e.g. Tandem cloud +
+        # Loop-via-Nightscout) shares a coarse content hash so the
+        # near-match collapses to one row. Partial -- only events that
+        # carry a `dedupe_hash` (insulin-bearing, post-migration)
+        # participate; notes/site-changes and pre-migration rows are
+        # NULL and opt out. Mirrors the `ix_pump_events_source_nsid`
+        # partial-unique pattern.
+        Index(
+            "ix_pump_events_user_dedupe_hash",
+            "user_id",
+            "dedupe_hash",
+            unique=True,
+            postgresql_where=text("dedupe_hash IS NOT NULL"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -239,6 +254,18 @@ class PumpEvent(Base):
     # `ix_pump_events_source_nsid` on (source, ns_id) WHERE ns_id IS
     # NOT NULL handles the dedupe.
     ns_id: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    # Coarse cross-source dedupe key (Story 43.11). Computed at write
+    # time by `compute_pump_event_dedupe_hash` from
+    # (user_id, event_type, timestamp-rounded-to-30s, units-rounded-to-0.1,
+    # duration). Collapses the same physical delivery reported by two
+    # integrations. NULL for events with no `units` (notes, site/sensor
+    # changes) and for rows that pre-date the column; those opt out of
+    # the `ix_pump_events_user_dedupe_hash` partial unique index.
+    dedupe_hash: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
     )

@@ -15,6 +15,12 @@
  *   POST /auth/revoke         - revoke stored auth
  */
 
+// Sentry must be imported before express/http so it can instrument them; no-op
+// unless GLYCEMICGPT_SIDECAR_SENTRY_DSN is set.
+import "./instrument.js";
+import * as Sentry from "@sentry/node";
+import { isSentryEnabled } from "./observability.js";
+
 import express from "express";
 import { randomUUID } from "node:crypto";
 import { healthHandler } from "./health.js";
@@ -240,6 +246,7 @@ app.post("/v1/chat/completions", async (req, res) => {
       res.write("data: [DONE]\n\n");
       res.end();
     } catch (err) {
+      Sentry.captureException(err);
       const message = err instanceof Error ? err.message : "Unknown error";
       res.write(
         `data: ${JSON.stringify({ error: { message, type: "server_error" } })}\n\n`,
@@ -279,11 +286,18 @@ app.post("/v1/chat/completions", async (req, res) => {
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     const status = message.includes("not authenticated") ? 401 : 500;
+    if (status === 500) Sentry.captureException(err);
     res.status(status).json({
       error: { message, type: "server_error" },
     });
   }
 });
+
+// Capture errors that propagate to Express (registered after the routes).
+// No-op when Sentry is disabled (no DSN).
+if (isSentryEnabled()) {
+  Sentry.setupExpressErrorHandler(app);
+}
 
 // --- Start ---
 
