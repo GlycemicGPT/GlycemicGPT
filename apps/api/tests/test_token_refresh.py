@@ -180,28 +180,32 @@ class TestMobileRefreshEndpoint:
 
     async def test_refresh_token_without_jti_returns_401(self):
         """A refresh token lacking a jti cannot be consumed once, so it must
-        be rejected rather than skipping replay protection."""
+        be rejected rather than skipping replay protection. Use a real,
+        active user so the 401 can only come from the missing-jti gate, not
+        from the later user-existence check."""
         from datetime import UTC, datetime, timedelta
 
         from jose import jwt
 
         from src.config import settings
 
-        payload = {
-            "sub": str(uuid.uuid4()),
-            "email": "nojti@test.com",
-            "role": "diabetic",
-            "exp": datetime.now(UTC) + timedelta(days=1),
-            "iat": datetime.now(UTC),
-            "type": "refresh",
-            # no "jti"
-        }
-        token = jwt.encode(
-            payload, settings.secret_key, algorithm=settings.jwt_algorithm
-        )
+        email = _email()
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"
         ) as c:
+            login_body = await _register_and_mobile_login(c, email)
+            payload = {
+                "sub": login_body["user"]["id"],
+                "email": email,
+                "role": "diabetic",
+                "exp": datetime.now(UTC) + timedelta(days=1),
+                "iat": datetime.now(UTC),
+                "type": "refresh",
+                # no "jti"
+            }
+            token = jwt.encode(
+                payload, settings.secret_key, algorithm=settings.jwt_algorithm
+            )
             resp = await c.post(
                 "/api/auth/mobile/refresh",
                 json={"refresh_token": token},
