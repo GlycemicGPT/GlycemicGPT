@@ -81,6 +81,27 @@ def test_init_treats_unknown_release_as_none(monkeypatch):
     assert mock_init.call_args.kwargs["release"] is None
 
 
+def test_init_excludes_503_from_error_reporting(monkeypatch):
+    """503 is a deliberate retryable degradation response (e.g. token refresh
+    during a Redis outage), so it must not be reported as a Sentry error event
+    -- but other 5xx must still be captured."""
+    monkeypatch.setattr(settings, "glycemicgpt_sentry_dsn", _FAKE_DSN)
+    with patch("sentry_sdk.init") as mock_init:
+        init_sentry()
+
+    integrations = mock_init.call_args.kwargs["integrations"]
+    codes_per_integration = [
+        i.failed_request_status_codes
+        for i in integrations
+        if hasattr(i, "failed_request_status_codes")
+    ]
+    assert codes_per_integration, "expected request integrations to be configured"
+    for codes in codes_per_integration:
+        assert 503 not in codes
+        assert 500 in codes
+        assert 504 in codes
+
+
 def test_scrub_text_redacts_secrets_and_identifiers():
     # Assert BOTH that the marker appears AND that the original secret is gone,
     # so a buggy scrubber that only appends a marker (without removing the
