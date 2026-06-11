@@ -4,8 +4,12 @@
  * Uses direct function calls against the app (no HTTP server needed).
  */
 
-import { describe, it, expect, vi, beforeAll } from "vitest";
+import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
 import express from "express";
+
+// The unauthenticated suite below requires no key in the environment; a
+// developer's exported SIDECAR_API_KEY would otherwise 401 every request.
+delete process.env.SIDECAR_API_KEY;
 
 // Mock singleton providers
 const mockClaudeComplete = vi.fn().mockResolvedValue({
@@ -65,6 +69,7 @@ async function injectRequest(
   method: "get" | "post",
   path: string,
   body?: unknown,
+  extraHeaders?: Record<string, string>,
 ): Promise<{ status: number; body: unknown; headers: Record<string, string> }> {
   return new Promise((resolve) => {
     const req = {
@@ -72,7 +77,11 @@ async function injectRequest(
       url: path,
       path,
       ip: "127.0.0.1",
-      headers: { "content-type": "application/json", host: "localhost:3456" },
+      headers: {
+        "content-type": "application/json",
+        host: "localhost:3456",
+        ...extraHeaders,
+      },
       params: {},
       body,
       get: () => undefined,
@@ -326,5 +335,61 @@ describe("Server endpoints", () => {
       expect(result.headers["x-content-type-options"]).toBe("nosniff");
       expect(result.headers["x-frame-options"]).toBe("DENY");
     });
+  });
+});
+
+describe("Bearer authentication (SIDECAR_API_KEY set)", () => {
+  let authedApp: express.Express;
+  const TEST_KEY = "test-sidecar-key";
+
+  beforeAll(async () => {
+    vi.resetModules();
+    vi.stubEnv("SIDECAR_API_KEY", TEST_KEY);
+    const mod = await import("../src/server.js");
+    authedApp = mod.app;
+  });
+
+  afterAll(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("rejects requests without an Authorization header", async () => {
+    const result = await injectRequest(authedApp, "get", "/v1/models");
+    expect(result.status).toBe(401);
+    const body = result.body as { error: { type: string } };
+    expect(body.error.type).toBe("authentication_error");
+  });
+
+  it("rejects requests with a wrong bearer token", async () => {
+    const result = await injectRequest(authedApp, "get", "/v1/models", undefined, {
+      authorization: "Bearer wrong-key",
+    });
+    expect(result.status).toBe(401);
+  });
+
+  it("rejects a token of different length without throwing", async () => {
+    const result = await injectRequest(authedApp, "get", "/v1/models", undefined, {
+      authorization: `Bearer ${TEST_KEY}-and-more`,
+    });
+    expect(result.status).toBe(401);
+  });
+
+  it("accepts requests with the correct bearer token", async () => {
+    const result = await injectRequest(authedApp, "get", "/v1/models", undefined, {
+      authorization: `Bearer ${TEST_KEY}`,
+    });
+    expect(result.status).toBe(200);
+  });
+
+  it("rejects auth-route requests without a token", async () => {
+    const result = await injectRequest(authedApp, "post", "/auth/revoke", {
+      provider: "claude",
+    });
+    expect(result.status).toBe(401);
+  });
+
+  it("leaves /health reachable without a token (Docker healthcheck)", async () => {
+    const result = await injectRequest(authedApp, "get", "/health");
+    expect(result.status).toBe(200);
   });
 });

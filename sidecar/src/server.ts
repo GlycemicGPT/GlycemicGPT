@@ -13,6 +13,10 @@
  *   POST /auth/start          - return auth method info for a provider
  *   POST /auth/token          - accept token submission
  *   POST /auth/revoke         - revoke stored auth
+ *
+ * Every endpoint except /health requires `Authorization: Bearer $SIDECAR_API_KEY`.
+ * The server refuses to start without a key unless SIDECAR_ALLOW_UNAUTHENTICATED=true
+ * is set explicitly (isolated local development only).
  */
 
 // Sentry must be imported before express/http so it can instrument them; no-op
@@ -22,7 +26,9 @@ import * as Sentry from "@sentry/node";
 import { isSentryEnabled } from "./observability.js";
 
 import express from "express";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import { realpathSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import { healthHandler } from "./health.js";
 import { authRouter } from "./auth/oauth-server.js";
 import { claude, codex } from "./providers/index.js";
@@ -32,6 +38,10 @@ const app = express();
 const PORT = parseInt(process.env.SIDECAR_PORT || "3456", 10);
 const BIND_HOST = process.env.SIDECAR_BIND_HOST || "0.0.0.0";
 const SIDECAR_API_KEY = process.env.SIDECAR_API_KEY || "";
+// Explicit opt-out for isolated local development only. Without a key the
+// AI proxy and token-store write/revoke endpoints accept any caller, so an
+// empty key must never be a silent default -- startup fails without this flag.
+const ALLOW_UNAUTHENTICATED = process.env.SIDECAR_ALLOW_UNAUTHENTICATED === "true";
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "http://localhost:3000")
   .split(",")
   .map((o) => o.trim())
@@ -85,13 +95,20 @@ app.use((req, _res, next) => {
   next();
 });
 
+/** Constant-time string comparison; hashing both sides equalizes lengths. */
+function safeEqual(a: string, b: string): boolean {
+  const digestA = createHash("sha256").update(a).digest();
+  const digestB = createHash("sha256").update(b).digest();
+  return timingSafeEqual(digestA, digestB);
+}
+
 // Bearer token authentication (skip /health for Docker healthchecks)
 app.use((req, res, next) => {
   if (req.path === "/health") return next();
 
   if (SIDECAR_API_KEY) {
     const auth = req.headers.authorization;
-    if (!auth || auth !== `Bearer ${SIDECAR_API_KEY}`) {
+    if (!auth || !safeEqual(auth, `Bearer ${SIDECAR_API_KEY}`)) {
       res.status(401).json({
         error: { message: "Unauthorized", type: "authentication_error" },
       });
@@ -301,11 +318,39 @@ if (isSentryEnabled()) {
 
 // --- Start ---
 
-app.listen(PORT, BIND_HOST, () => {
-  console.log(`AI Sidecar listening on ${BIND_HOST}:${PORT}`);
-  if (!SIDECAR_API_KEY) {
-    console.warn("WARNING: SIDECAR_API_KEY not set. Endpoints are unauthenticated.");
+// Only start listening when executed directly (node dist/server.js); tests
+// import { app } and must not bind a socket or trip the startup guard.
+// realpath both sides: Node resolves symlinks in import.meta.url for the ESM
+// entry but leaves process.argv[1] as given.
+const isMainModule = (() => {
+  if (process.argv[1] === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
   }
-});
+})();
+
+if (isMainModule) {
+  if (!SIDECAR_API_KEY && !ALLOW_UNAUTHENTICATED) {
+    console.error(
+      "FATAL: SIDECAR_API_KEY is not set. Generate one with `openssl rand -hex 32` " +
+        "and set it for both the sidecar (SIDECAR_API_KEY) and the API (AI_SIDECAR_API_KEY). " +
+        "For isolated local development only, set SIDECAR_ALLOW_UNAUTHENTICATED=true to " +
+        "run without authentication.",
+    );
+    process.exit(1);
+  }
+
+  app.listen(PORT, BIND_HOST, () => {
+    console.log(`AI Sidecar listening on ${BIND_HOST}:${PORT}`);
+    if (!SIDECAR_API_KEY) {
+      console.warn(
+        "WARNING: running unauthenticated (SIDECAR_ALLOW_UNAUTHENTICATED=true). " +
+          "All endpoints accept any caller.",
+      );
+    }
+  });
+}
 
 export { app };

@@ -21,7 +21,7 @@ That guide also covers Docker installation, `.env` hardening for any non-laptop 
 ```bash
 cp .env.example .env
 # Edit .env: set DOMAIN, ACME_EMAIL, and generate POSTGRES_PASSWORD,
-# REDIS_PASSWORD, and SECRET_KEY with: openssl rand -hex 32
+# REDIS_PASSWORD, SECRET_KEY, and SIDECAR_API_KEY with: openssl rand -hex 32
 docker compose up -d
 ```
 

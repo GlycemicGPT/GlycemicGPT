@@ -40,6 +40,10 @@ services:
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       SIDECAR_API_KEY: ${SIDECAR_API_KEY:-}
+      # Dev-only escape hatch: lets the sidecar start with an empty key since
+      # it is not published to the host here. Production templates require a
+      # key; setting SIDECAR_API_KEY above enforces auth regardless of this.
+      SIDECAR_ALLOW_UNAUTHENTICATED: ${SIDECAR_ALLOW_UNAUTHENTICATED:-true}
       # Sentry error monitoring (own project) -- empty default = disabled.
       # Runtime-only; never baked into the image (see PRIVACY.md).
       GLYCEMICGPT_SIDECAR_SENTRY_DSN: ${GLYCEMICGPT_SIDECAR_SENTRY_DSN:-}
