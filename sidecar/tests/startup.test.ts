@@ -7,11 +7,14 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const sidecarRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const tsxCli = path.join(sidecarRoot, "node_modules", "tsx", "dist", "cli.mjs");
+// Resolve through the package exports map so hoisted/workspace installs work;
+// "tsx/dist/cli.mjs" is not an exported subpath.
+const tsxCli = createRequire(import.meta.url).resolve("tsx/cli");
 
 const children: ChildProcess[] = [];
 
