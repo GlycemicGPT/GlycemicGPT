@@ -21,9 +21,11 @@ token (e.g. a user pasting the helper command somewhere public) from later being
 replayed to attach a different CareLink account. ``/authorize-url`` does not
 consume the token (it only returns an authorize URL and is harmless to repeat).
 The token itself is stateless (Fernet) apart from that one consumed marker.
-Single-use is enforced via Redis and is **best-effort**: ``consume_token_once``
-fails open if Redis is unavailable, so during a Redis outage replay protection
-degrades to the short TTL + user binding alone (we don't lock users out).
+Single-use is enforced via Redis and **fails closed**: ``consume_token_once``
+raises if Redis is unavailable and the exchange returns a retryable 503
+(the token is not consumed, so the same helper command works once Redis is
+back) rather than degrading replay protection to the short TTL + user
+binding alone.
 """
 
 from __future__ import annotations
