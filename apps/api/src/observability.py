@@ -204,6 +204,14 @@ def init_sentry() -> None:
     if release in ("", "unknown"):
         release = None
 
+    # Report 5xx as errors EXCEPT 503: we raise 503 deliberately as a
+    # retryable "service temporarily unavailable" response (e.g. token refresh
+    # during a Redis outage). Those are expected degradation, not defects, and
+    # would otherwise flood Sentry with error-grade events during an outage and
+    # mask real issues. The underlying cause still surfaces via the
+    # logger.error breadcrumb/event from the failing component.
+    failed_request_status_codes = set(range(500, 600)) - {503}
+
     sentry_sdk.init(
         dsn=dsn,
         environment=settings.glycemicgpt_sentry_environment,
@@ -217,8 +225,14 @@ def init_sentry() -> None:
         # Route patterns (not raw paths) in transaction names, so path-param
         # values (potential PHI) don't land in transaction names / issue titles.
         integrations=[
-            StarletteIntegration(transaction_style="endpoint"),
-            FastApiIntegration(transaction_style="endpoint"),
+            StarletteIntegration(
+                transaction_style="endpoint",
+                failed_request_status_codes=failed_request_status_codes,
+            ),
+            FastApiIntegration(
+                transaction_style="endpoint",
+                failed_request_status_codes=failed_request_status_codes,
+            ),
         ],
         # --- products we deliberately never enable ---
         enable_logs=False,

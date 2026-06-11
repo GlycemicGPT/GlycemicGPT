@@ -50,7 +50,11 @@ from src.core.tandem_regions import (
     country_to_cloud,
     is_legacy_tandem_region,
 )
-from src.core.token_blacklist import consume_token_once, is_token_blacklisted
+from src.core.token_blacklist import (
+    TokenConsumeUnavailableError,
+    consume_token_once,
+    is_token_blacklisted,
+)
 from src.database import get_db
 from src.logging_config import get_logger
 from src.middleware.rate_limit import limiter
@@ -2675,9 +2679,21 @@ async def exchange_medtronic_connect_code(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid or expired pairing token.",
             ) from e
-        if not await consume_token_once(
-            f"medtronic_pair:{jti}", PAIR_TOKEN_TTL_SECONDS
-        ):
+        try:
+            consumed = await consume_token_once(
+                f"medtronic_pair:{jti}", PAIR_TOKEN_TTL_SECONDS
+            )
+        except TokenConsumeUnavailableError:
+            # Fail-closed, but retryable: the token was NOT consumed, so the
+            # same helper command works once the token service is back.
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "Pairing service temporarily unavailable. Try again in a "
+                    "few minutes; your pairing token is still valid."
+                ),
+            ) from None
+        if not consumed:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail=(

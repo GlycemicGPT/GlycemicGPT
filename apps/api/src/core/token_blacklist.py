@@ -3,21 +3,40 @@
 Provides a Redis-backed token blacklist with TTL matching token expiry.
 Tokens are blacklisted on logout, password change, and token refresh.
 
-Graceful degradation: if Redis is unavailable, tokens are allowed through
-with an error log (fail-open to avoid locking users out).
+Degradation policy when Redis is unavailable (split deliberately):
+
+- ``is_token_blacklisted`` fails OPEN (token allowed, error logged): it guards
+  short-lived access tokens on every authenticated request, so failing closed
+  would lock every user out for the duration of an outage.
+- ``consume_token_once`` fails CLOSED by raising
+  ``TokenConsumeUnavailableError``: it is the only thing standing between a
+  captured refresh token (30-day lifetime) or pairing token and unlimited
+  replay. Single-use cannot be proven without Redis, so consumption must not
+  proceed -- but the outage is surfaced as a distinct error (not a False
+  "replayed" result) so endpoints can return a retryable 503 instead of a 401
+  that clients treat as revocation.
 
 During tests, an in-memory dict is used instead of Redis so that the
 blacklist logic is actually exercised by tests.
 """
 
-import logging
 import time
 
 import redis.asyncio as aioredis
 
 from src.config import settings
+from src.logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
+
+
+class TokenConsumeUnavailableError(Exception):
+    """Single-use consumption could not be performed because Redis is down.
+
+    Distinct from a ``False`` return (genuine replay) so callers can respond
+    with a retryable status instead of treating the token as revoked.
+    """
+
 
 _BLACKLIST_PREFIX = "token:blacklist:"
 
@@ -58,9 +77,7 @@ async def blacklist_token(jti: str, ttl_seconds: int) -> None:
         client = _get_redis()
         await client.setex(f"{_BLACKLIST_PREFIX}{jti}", ttl_seconds, "1")
     except aioredis.RedisError:
-        logger.error(
-            "Failed to blacklist token (Redis unavailable)", extra={"jti": jti}
-        )
+        logger.error("Failed to blacklist token (Redis unavailable)", jti=jti)
 
 
 async def consume_token_once(jti: str, ttl_seconds: int) -> bool:
@@ -77,6 +94,12 @@ async def consume_token_once(jti: str, ttl_seconds: int) -> bool:
     Returns:
         True if the token was successfully consumed (first caller wins).
         False if the token was already consumed (replay attempt).
+
+    Raises:
+        TokenConsumeUnavailableError: if Redis is unavailable. Single-use
+        cannot be proven, so consumption must be denied (fail-closed), but
+        callers should respond with a retryable status -- the token has NOT
+        been consumed and remains valid for a retry after the outage.
     """
     ttl_seconds = max(1, ttl_seconds)
 
@@ -93,12 +116,14 @@ async def consume_token_once(jti: str, ttl_seconds: int) -> bool:
             f"{_BLACKLIST_PREFIX}{jti}", "1", ex=ttl_seconds, nx=True
         )
         return result is not None
-    except aioredis.RedisError:
+    except aioredis.RedisError as e:
         logger.error(
-            "Redis unavailable for token consumption; allowing (fail-open)",
-            extra={"jti": jti},
+            "Redis unavailable for token consumption; denying (fail-closed)",
+            jti=jti,
         )
-        return True  # Fail-open: allow the refresh
+        raise TokenConsumeUnavailableError(
+            "Redis unavailable; single-use consumption denied"
+        ) from e
 
 
 async def is_token_blacklisted(jti: str) -> bool:
@@ -128,6 +153,6 @@ async def is_token_blacklisted(jti: str) -> bool:
     except aioredis.RedisError:
         logger.error(
             "Redis unavailable for blacklist check; allowing token (fail-open)",
-            extra={"jti": jti},
+            jti=jti,
         )
         return False

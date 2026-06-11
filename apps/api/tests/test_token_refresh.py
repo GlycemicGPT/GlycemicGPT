@@ -137,6 +137,77 @@ class TestMobileRefreshEndpoint:
             )
         assert resp.status_code == 401
 
+    async def test_refresh_token_replay_returns_401(self):
+        """Rotation: a refresh token that was already exchanged is rejected."""
+        email = _email()
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as c:
+            login_body = await _register_and_mobile_login(c, email)
+            refresh_token = login_body["refresh_token"]
+
+            first = await c.post(
+                "/api/auth/mobile/refresh",
+                json={"refresh_token": refresh_token},
+            )
+            replay = await c.post(
+                "/api/auth/mobile/refresh",
+                json={"refresh_token": refresh_token},
+            )
+        assert first.status_code == 200
+        assert replay.status_code == 401
+
+    async def test_refresh_returns_503_when_consumption_unavailable(self, monkeypatch):
+        """A Redis outage must map to a retryable 503, not a 401 -- mobile
+        clients treat refresh-401 as revocation and delete their token."""
+        from src.core.token_blacklist import TokenConsumeUnavailableError
+        from src.routers import auth as auth_router
+
+        async def _unavailable(jti: str, ttl_seconds: int) -> bool:
+            raise TokenConsumeUnavailableError("redis down")
+
+        email = _email()
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as c:
+            login_body = await _register_and_mobile_login(c, email)
+            monkeypatch.setattr(auth_router, "consume_token_once", _unavailable)
+            resp = await c.post(
+                "/api/auth/mobile/refresh",
+                json={"refresh_token": login_body["refresh_token"]},
+            )
+        assert resp.status_code == 503
+
+    async def test_refresh_token_without_jti_returns_401(self):
+        """A refresh token lacking a jti cannot be consumed once, so it must
+        be rejected rather than skipping replay protection."""
+        from datetime import UTC, datetime, timedelta
+
+        from jose import jwt
+
+        from src.config import settings
+
+        payload = {
+            "sub": str(uuid.uuid4()),
+            "email": "nojti@test.com",
+            "role": "diabetic",
+            "exp": datetime.now(UTC) + timedelta(days=1),
+            "iat": datetime.now(UTC),
+            "type": "refresh",
+            # no "jti"
+        }
+        token = jwt.encode(
+            payload, settings.secret_key, algorithm=settings.jwt_algorithm
+        )
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as c:
+            resp = await c.post(
+                "/api/auth/mobile/refresh",
+                json={"refresh_token": token},
+            )
+        assert resp.status_code == 401
+
 
 class TestRefreshTokenFunctions:
     def test_create_and_decode_refresh_token(self):
