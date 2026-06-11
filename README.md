@@ -135,7 +135,7 @@ docker compose up --build -d
 
 # Verify services
 curl localhost:8000/health   # API
-curl localhost:3456/health   # AI sidecar
+docker compose exec api curl -s http://ai-sidecar:3456/health   # AI sidecar (not published to the host)
 # Web UI at http://localhost:3000
 ```
 

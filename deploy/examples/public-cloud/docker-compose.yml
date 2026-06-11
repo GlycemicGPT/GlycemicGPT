@@ -72,7 +72,7 @@ services:
       - sidecar_codex:/home/sidecar/.codex
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      SIDECAR_API_KEY: ${SIDECAR_API_KEY:-}
+      SIDECAR_API_KEY: "${SIDECAR_API_KEY:?SIDECAR_API_KEY is required -- generate with openssl rand -hex 32}"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3456/health"]
       interval: 15s
@@ -90,7 +90,7 @@ services:
       LOG_FORMAT: ${LOG_FORMAT:-json}
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required (generate with: openssl rand -hex 32)}
       AI_SIDECAR_URL: http://ai-sidecar:3456
-      AI_SIDECAR_API_KEY: ${SIDECAR_API_KEY:-}
+      AI_SIDECAR_API_KEY: "${SIDECAR_API_KEY:?SIDECAR_API_KEY is required -- generate with openssl rand -hex 32}"
       CORS_ORIGINS: '["https://${DOMAIN}"]'
       COOKIE_SECURE: "true"
       ALLOW_PRIVATE_AI_URLS: "false"
