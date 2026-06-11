@@ -27,14 +27,26 @@ spec:
           ports:
             - containerPort: 6379
               name: redis
+          env:
+            # Inject a non-empty REDIS_PASSWORD (and matching credentials in the
+            # REDIS_URL secret) to require auth. Optional so the manifest still
+            # applies before the secret is populated; populate it in production.
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: glycemicgpt-secrets
+                  key: REDIS_PASSWORD
+                  optional: true
           command:
-            - redis-server
-            - --appendonly
-            - "yes"
-            - --maxmemory
-            - "128mb"
-            - --maxmemory-policy
-            - "allkeys-lru"
+            - sh
+            - -c
+            # Enable --requirepass only when REDIS_PASSWORD is non-empty.
+            - |
+              if [ -n "$REDIS_PASSWORD" ]; then
+                exec redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru --requirepass "$REDIS_PASSWORD"
+              else
+                exec redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+              fi
           resources:
             requests:
               memory: "64Mi"
@@ -45,8 +57,12 @@ spec:
           livenessProbe:
             exec:
               command:
-                - redis-cli
-                - ping
+                - sh
+                - -c
+                # Authenticate only when a password is set; an empty
+                # REDISCLI_AUTH makes redis-cli attempt AUTH against a
+                # passwordless server (noisy stderr).
+                - if [ -n "$REDIS_PASSWORD" ]; then export REDISCLI_AUTH="$REDIS_PASSWORD"; fi; redis-cli ping | grep -q PONG
             initialDelaySeconds: 10
             periodSeconds: 10
             timeoutSeconds: 5
@@ -54,8 +70,9 @@ spec:
           readinessProbe:
             exec:
               command:
-                - redis-cli
-                - ping
+                - sh
+                - -c
+                - if [ -n "$REDIS_PASSWORD" ]; then export REDISCLI_AUTH="$REDIS_PASSWORD"; fi; redis-cli ping | grep -q PONG
             initialDelaySeconds: 5
             periodSeconds: 5
             timeoutSeconds: 3

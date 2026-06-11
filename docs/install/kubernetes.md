@@ -57,22 +57,24 @@ cd GlycemicGPT
 
 ### 2. Generate secrets
 
-You need three random secrets:
+You need four random secrets:
 
 ```bash
 echo "POSTGRES_PASSWORD=$(openssl rand -hex 32)"
 echo "SECRET_KEY=$(openssl rand -hex 32)"
 echo "SIDECAR_API_KEY=$(openssl rand -hex 32)"
+echo "REDIS_PASSWORD=$(openssl rand -hex 32)"
 ```
 
-Open `k8s/base/secret.yaml` in your editor and paste the values into the `stringData` block:
+Open `k8s/base/secret.yaml` in your editor and paste the values into the `stringData` block. The Redis Deployment enables `--requirepass` only when `REDIS_PASSWORD` is non-empty, and `REDIS_URL` must carry that password:
 
 ```yaml
 stringData:
   DATABASE_PASSWORD: "<the POSTGRES_PASSWORD value>"
   SECRET_KEY: "<the SECRET_KEY value>"
   DATABASE_URL: "postgresql+asyncpg://glycemicgpt:<the POSTGRES_PASSWORD value>@glycemicgpt-db:5432/glycemicgpt"
-  REDIS_URL: "redis://glycemicgpt-redis:6379/0"
+  REDIS_PASSWORD: "<the REDIS_PASSWORD value>"
+  REDIS_URL: "redis://:<the REDIS_PASSWORD value>@glycemicgpt-redis:6379/0"
   SIDECAR_API_KEY: "<the SIDECAR_API_KEY value>"
 ```
 
@@ -197,3 +199,9 @@ kubectl create secret docker-registry regcred \
   --docker-password=<token> \
   -n glycemicgpt
 ```
+
+> **API crash-looping with a Redis `NOAUTH`/`AUTH` error?** `REDIS_PASSWORD` and
+> `REDIS_URL` must agree. If you set `REDIS_PASSWORD`, the `REDIS_URL` secret must
+> embed the same password (`redis://:<the REDIS_PASSWORD value>@glycemicgpt-redis:6379/0`).
+> If you leave `REDIS_PASSWORD` empty, `REDIS_URL` must NOT contain one. The same
+> pairing applies to `DATABASE_PASSWORD` and `DATABASE_URL`.

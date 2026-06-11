@@ -12,12 +12,14 @@
 
 services:
   db:
+    # Loopback-only, like the base compose -- compose replaces (not merges)
+    # the ports list, so the bind host must be repeated here.
     ports:
-      - "5433:5432"
+      - "${DB_BIND_HOST:-127.0.0.1}:5433:5432"
 
   redis:
     ports:
-      - "6380:6379"
+      - "${REDIS_BIND_HOST:-127.0.0.1}:6380:6379"
 
   ai-sidecar:
     # Sidecar uses default config — no ports exposed to host

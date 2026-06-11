@@ -9,7 +9,9 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      # Loopback-only: reachable from host dev tools, never from the LAN.
+      # Override the bind host via env if you need remote access.
+      - "${DB_BIND_HOST:-127.0.0.1}:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-glycemicgpt}"]
       interval: 10s
@@ -19,12 +21,21 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    # Optional auth (off by default for local dev). Set REDIS_PASSWORD to
+    # require it; mirrors docker-compose.prod.yml.
+    command: >
+      sh -c '[ -n "$$REDIS_PASSWORD" ] && exec redis-server --requirepass "$$REDIS_PASSWORD" || exec redis-server'
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
     ports:
-      - "6379:6379"
+      # Loopback-only: reachable from host dev tools, never from the LAN.
+      - "${REDIS_BIND_HOST:-127.0.0.1}:6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      # Only authenticate when a password is set; an empty REDISCLI_AUTH makes
+      # redis-cli attempt AUTH against a passwordless server (noisy stderr).
+      test: ["CMD-SHELL", "if [ -n \"$$REDIS_PASSWORD\" ]; then export REDISCLI_AUTH=\"$$REDIS_PASSWORD\"; fi; redis-cli ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -71,7 +82,9 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-glycemicgpt}:${POSTGRES_PASSWORD:-glycemicgpt}@db:5432/${POSTGRES_DB:-glycemicgpt}
-      REDIS_URL: redis://redis:6379/0
+      # When REDIS_PASSWORD is set, override REDIS_URL in .env:
+      # REDIS_URL=redis://:<your-redis-password>@redis:6379/0
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       LOG_FORMAT: ${LOG_FORMAT:-json}
       SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
       AI_SIDECAR_URL: http://ai-sidecar:3456
