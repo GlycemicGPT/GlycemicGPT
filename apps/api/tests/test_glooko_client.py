@@ -96,6 +96,34 @@ async def test_glooko_login_runs_full_devise_flow_and_discovers_patient():
     assert session.region == "US"
 
 
+async def test_glooko_login_post_sends_html_accept_header():
+    # US live finding (2026-06-12): Glooko's edge content-negotiates the login POST
+    # by Accept. Without an HTML-admitting Accept it routes to the JSON API tier and
+    # 421s before checking credentials, so the login can never succeed. Pin that the
+    # POST advertises text/html (the GET already does).
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if request.method == "POST" and path == "/users/sign_in":
+            seen["accept"] = request.headers.get("accept")
+            return httpx.Response(
+                200,
+                headers={
+                    "set-cookie": f"{SESSION_COOKIE_NAME}=authed; Domain=glooko.com; Path=/"
+                },
+            )
+        if path == "/api/v3/session/users":
+            return httpx.Response(200, json=_SESSION_USERS_BODY)
+        return httpx.Response(200, html='<meta name="csrf-token" content="t" />')
+
+    async with _mock_client(handler) as http:
+        await glooko_login("user@example.com", "pw", "US", client=http)
+
+    assert seen["accept"] is not None
+    assert "text/html" in seen["accept"].lower()
+
+
 async def test_glooko_login_bad_credentials_raises_auth_error():
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/api/v3/session/users":
