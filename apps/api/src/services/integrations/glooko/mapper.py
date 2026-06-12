@@ -7,8 +7,9 @@ Pure functions (no DB) -- they turn captured Glooko payloads into neutral typed
 live capture of the Glooko protocol, not from any third-party source.
 
 Coverage (confirmed in the live capture): CGM glucose (v3 graph ``cgm*`` series), scheduled
-basal, normal bolus (carrying IOB/carbs/BG context), and pod-lifecycle / suspend
-/ resume events. Pump modes + alarms are out of scope here (informational only).
+basal, normal bolus (carrying IOB/carbs/BG context), pod-lifecycle / suspend
+/ resume events, and smart-pen insulin doses (``insulins`` stream -- NovoPen 6 /
+Echo Plus + manual logs). Pump modes + alarms are out of scope here (informational only).
 
 Clean-room attribution: the Tidepool ``deviceEvent`` data model (BSD-2-Clause)
 informed the pod-change/reservoir modeling; ``nightscout-connect`` and the
@@ -240,12 +241,70 @@ def map_events(records: list[dict]) -> list[MappedPumpEvent]:
     return out
 
 
+def map_insulins(records: list[dict]) -> list[MappedPumpEvent]:
+    """Map ``insulins`` (smart-pen doses + manual insulin logs) -> BOLUS events.
+
+    Live finding (NovoPen 6 / Echo Plus capture): the record ``timestamp`` is
+    genuine UTC -- verified against known dose times on a CEST wall clock --
+    unlike the pump streams' local-with-fake-``Z`` footgun, so the strict UTC
+    parser applies and there is no offset field to consult.
+
+    Skipped (refuse rather than mis-model a medical record):
+
+    * soft-deleted -- same reasoning as every other stream
+    * priming shots (``suspectedPrime`` / ``acceptedPrime``) -- pen actuations
+      that never enter the body; ingesting them inflates dose totals and IoB
+    * ``incomplete`` -- Glooko marks the dose value unconfirmed
+    * non-``bolus`` ``insulinType`` -- long-acting pen doses don't fit the
+      BASAL event's rate (U/h) semantics; deferred like ``extended_boluses``
+      (add modeling + mapping together, never one without the other)
+    """
+    out: list[MappedPumpEvent] = []
+    for r in records:
+        if not isinstance(r, dict) or _is_soft_deleted(r):
+            continue
+        if r.get("suspectedPrime") or r.get("acceptedPrime"):
+            continue
+        if r.get("incomplete"):
+            continue
+        if str(r.get("insulinType", "")).lower() != "bolus":
+            continue
+        ts = _parse_utc(r.get("timestamp"))
+        value = r.get("value")
+        # Negative doses are impossible -- same guard as map_normal_boluses.
+        if ts is None or not isinstance(value, (int, float)) or value < 0:
+            continue
+        metadata: dict = {"glooko_stream": "insulins"}
+        medication = _str_or_none(r.get("name")) or _str_or_none(
+            r.get("medicationGuid")
+        )
+        if medication:
+            metadata["medication"] = medication
+        pen_device = _str_or_none(r.get("deviceShortDisplayName"))
+        if pen_device:
+            metadata["pen_device"] = pen_device
+        # False = the dose was typed into the Glooko app by hand, not read from
+        # a pen -- preserved so downstream can weigh device-read vs manual data.
+        metadata["device_delivered"] = bool(r.get("deviceDelivered"))
+        out.append(
+            MappedPumpEvent(
+                event_type=PumpEventType.BOLUS,
+                timestamp=ts,
+                ns_id=_str_or_none(r.get("guid")),
+                units=float(value),
+                metadata_json=metadata,
+            )
+        )
+    return out
+
+
 def map_glooko(
     *,
     cgm_points: list[dict] | None = None,
     scheduled_basals: list[dict] | None = None,
     normal_boluses: list[dict] | None = None,
     events: list[dict] | None = None,
+    insulins: list[dict] | None = None,
 ) -> MappedRecords:
     """Map any combination of the captured Glooko series into one MappedRecords."""
     records = MappedRecords()
@@ -257,6 +316,8 @@ def map_glooko(
         records.pump_events.extend(map_normal_boluses(normal_boluses))
     if events:
         records.pump_events.extend(map_events(events))
+    if insulins:
+        records.pump_events.extend(map_insulins(insulins))
     return records
 
 
