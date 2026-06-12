@@ -109,6 +109,26 @@ async def test_glooko_login_bad_credentials_raises_auth_error():
             await glooko_login("user@example.com", "wrong", "US", client=http)
 
 
+async def test_glooko_login_421_is_network_error_not_auth_error():
+    # 421 = wrong host (account re-homed), not bad creds -- must stay retryable,
+    # never a permanent disconnect with a "check email/password" message.
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v3/session/users":
+            return httpx.Response(421)
+        if request.method == "POST":
+            return httpx.Response(
+                200,
+                headers={
+                    "set-cookie": f"{SESSION_COOKIE_NAME}=authed; Domain=glooko.com; Path=/"
+                },
+            )
+        return httpx.Response(200, html='<meta name="csrf-token" content="t" />')
+
+    async with _mock_client(handler) as http:
+        with pytest.raises(GlookoNetworkError):
+            await glooko_login("user@example.com", "pw", "EU", client=http)
+
+
 async def test_glooko_login_missing_session_cookie_raises_auth_error():
     # session/users says 200 but no _logbook-web_session cookie was ever set.
     def handler(request: httpx.Request) -> httpx.Response:
@@ -325,6 +345,14 @@ def test_client_rejects_session_host_outside_allowlist():
         "https://us.my.glooko.com",  # legit web host, but NOT a data host
         "https://api.glooko.com",  # apex, not a per-cluster host
         "http://us.api.glooko.com",  # right host, no TLS
+        # A bare origin is required: the client builds URLs as api_host + path,
+        # so userinfo/port/path/query/fragment would corrupt every data call.
+        "https://user:pass@us.api.glooko.com",
+        "https://us.api.glooko.com:9999",
+        "https://us.api.glooko.com/",
+        "https://us.api.glooko.com/some/path",
+        "https://us.api.glooko.com?q=1",
+        "https://us.api.glooko.com#frag",
     ):
         with pytest.raises(ValueError):
             GlookoClient(_session(api_host=bad))
@@ -488,6 +516,47 @@ async def test_second_401_after_reauth_raises_auth_error():
     async with _mock_client(handler) as http:
         client = GlookoClient(_session(), reauth=reauth, client=http)
         with pytest.raises(GlookoAuthError):
+            await client.fetch_stream("normal_boluses")
+
+
+async def test_reauth_on_421_re_derives_cluster_host_and_recovers():
+    # Mid-session cluster re-home: re-auth re-derives the host and the SAME
+    # data call succeeds there in-cycle -- no failed sync tick.
+    state = {"reauths": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "eu.api.glooko.com":
+            return httpx.Response(421)
+        assert request.url.host == "de-fr.api.glooko.com"
+        return httpx.Response(
+            200,
+            json=_page("normalBoluses", [{"insulinDelivered": 1.5}], last_page=True),
+        )
+
+    async def reauth() -> GlookoSession:
+        state["reauths"] += 1
+        return _session(region="EU", api_host="https://de-fr.api.glooko.com")
+
+    async with _mock_client(handler) as http:
+        client = GlookoClient(_session(region="EU"), reauth=reauth, client=http)
+        page = await client.fetch_stream("normal_boluses")
+
+    assert state["reauths"] == 1
+    assert page.records == [{"insulinDelivered": 1.5}]
+
+
+async def test_persistent_421_after_reauth_is_network_error_not_auth_error():
+    # 421 surviving re-auth = Glooko routing problem -- retryable, not a
+    # disconnect.
+    async def reauth() -> GlookoSession:
+        return _session(region="EU")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(421)
+
+    async with _mock_client(handler) as http:
+        client = GlookoClient(_session(region="EU"), reauth=reauth, client=http)
+        with pytest.raises(GlookoNetworkError):
             await client.fetch_stream("normal_boluses")
 
 

@@ -114,12 +114,23 @@ def validate_glooko_api_host(url: str) -> str:
     Stricter than ``validate_glooko_host`` (which also admits the ``*.my.*``
     web hosts that the login flow legitimately touches): the authenticated
     session cookie must only ever be replayed against an API host, over TLS.
+    The value must be a bare origin -- no userinfo, port, path, query, or
+    fragment -- because the client builds request URLs as ``api_host + path``,
+    where any trailing component would silently corrupt every data call.
     Raises ``ValueError`` on anything else -- fail closed, same posture as
     ``resolve_region``.
     """
     parsed = urlparse(url)
     name = (parsed.hostname or "").lower()
-    if parsed.scheme != "https" or not _CLUSTER_API_HOST_RE.match(name):
+    if (
+        parsed.scheme != "https"
+        or not _CLUSTER_API_HOST_RE.match(name)
+        or parsed.netloc.lower() != name  # rejects userinfo@ and :port
+        or parsed.path
+        or parsed.params
+        or parsed.query
+        or parsed.fragment
+    ):
         raise ValueError(
             f"Refusing Glooko data host {url!r}; expected https://<cluster>.api.glooko.com"
         )
@@ -310,6 +321,18 @@ async def glooko_login(
 
         if verify.status_code in (401, 403):
             raise GlookoAuthError("Glooko login rejected -- check email/password")
+        if verify.status_code == 421:
+            # Misdirected Request: the credentials are fine, the HOST is wrong --
+            # the account lives on a cluster we didn't resolve (e.g. Glooko changed
+            # the sub-cluster redirect shape and we fell back to the region map).
+            # That is a routing problem, not bad credentials: surfacing it as an
+            # auth error would permanently disconnect the user with a misleading
+            # "check email/password" message, when retrying (or a code update)
+            # is the actual remedy.
+            raise GlookoNetworkError(
+                f"Glooko session check misdirected (421) on {api_host}; the "
+                "account may have been re-homed to a cluster we did not resolve"
+            )
         if 500 <= verify.status_code < 600:
             # A server-side error during the session check is transient, not an
             # auth failure -- the orchestrator should retry, not mark for re-auth.
