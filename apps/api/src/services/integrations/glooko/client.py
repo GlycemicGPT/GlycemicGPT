@@ -39,10 +39,13 @@ ZERO_GUID = "00000000-0000-0000-0000-000000000000"
 #: A cursor instant safely before any Glooko data -- walks the full history.
 EPOCH_CURSOR = "2015-01-01T00:00:00.000Z"
 
-#: Pump streams: name -> (path, response array key). All keyset-cursor endpoints
+#: Cursor streams: name -> (path, response array key). All keyset-cursor endpoints
 #: confirmed live. (``alarms`` records are snake_case while the rest are
 #: camelCase, but the envelope keys are consistent -- the mapper handles record
 #: casing; the cursor mechanics here are identical.)
+#: ``insulins`` is NOT under the ``/pumps`` namespace -- it carries smart-pen
+#: doses (NovoPen 6 / Echo Plus, confirmed live) and manually logged insulin,
+#: but uses the exact same cursor envelope as the pump streams.
 PUMP_STREAMS: dict[str, tuple[str, str]] = {
     "scheduled_basals": ("/api/v2/pumps/scheduled_basals", "scheduledBasals"),
     "normal_boluses": ("/api/v2/pumps/normal_boluses", "normalBoluses"),
@@ -52,6 +55,7 @@ PUMP_STREAMS: dict[str, tuple[str, str]] = {
     "alarms": ("/api/v2/pumps/alarms", "alarms"),
     "cgm_readings": ("/api/v2/cgm/readings", "readings"),
     "cgm_egvs": ("/api/v2/cgm/egvs", "egvs"),
+    "insulins": ("/api/v2/insulins", "insulins"),
 }
 
 _GRAPH_STATS_PATH = "/api/v3/graph/statistics/overall"

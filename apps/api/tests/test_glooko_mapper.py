@@ -106,15 +106,54 @@ def test_map_events_pod_suspend_resume_and_unknown_skipped():
     assert events[0].ns_id == "33333333-0000-0000-0000-000000000001"
 
 
+# =============================== mapper: pen insulins =========================
+
+
+def test_map_insulins_pen_doses_and_safety_skips():
+    events = mapper.map_insulins(_load("insulins.json"))
+    # 7 fixture records -> 2 ingested: the device-read pen dose and the manual
+    # log. Skipped: prime (never entered the body), soft-deleted, incomplete
+    # (unconfirmed value), basal-type Tresiba (no BASAL rate semantics for a
+    # long-acting injection -- deferred), negative value (impossible).
+    assert len(events) == 2
+    pen, manual = events
+
+    assert pen.event_type is PumpEventType.BOLUS
+    assert pen.units == 3.0
+    assert pen.ns_id == "44444444-0000-0000-0000-000000000001"
+    # Pen `timestamp` is genuine UTC (live-verified) -- no local-offset footgun.
+    assert pen.timestamp == datetime(2023, 9, 3, 8, 25, 2, tzinfo=UTC)
+    assert pen.is_automated is False
+    assert pen.metadata_json == {
+        "glooko_stream": "insulins",
+        "medication": "Novorapid®",
+        "pen_device": "Novo Nordisk NovoPen® 6/Echo Plus",
+        "device_delivered": True,
+    }
+
+    # Hand-typed Glooko log: still a dose, but flagged as not device-read.
+    assert manual.units == 6.0
+    assert manual.metadata_json["device_delivered"] is False
+    assert "pen_device" not in manual.metadata_json
+
+
+def test_map_insulins_skips_accepted_prime():
+    base = _load("insulins.json")[0]
+    accepted = {**base, "suspectedPrime": False, "acceptedPrime": True}
+    assert mapper.map_insulins([accepted]) == []
+
+
 def test_map_glooko_combines_all_series():
     rec = mapper.map_glooko(
         cgm_points=_load("cgm_points.json"),
         scheduled_basals=_load("scheduled_basals.json"),
         normal_boluses=_load("normal_boluses.json"),
         events=_load("events.json"),
+        insulins=_load("insulins.json"),
     )
     assert len(rec.glucose) == 5
-    assert len(rec.pump_events) == 2 + 2 + 4  # basals + boluses + events
+    # basals + boluses + events + pen insulins
+    assert len(rec.pump_events) == 2 + 2 + 4 + 2
 
 
 def test_map_pump_ts_refuses_missing_offset():
