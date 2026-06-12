@@ -30,7 +30,7 @@ from dataclasses import dataclass
 
 import httpx
 
-from .auth import GlookoSession, resolve_region, validate_glooko_host
+from .auth import GlookoSession, resolve_region, validate_glooko_api_host
 from .errors import GlookoAuthError, GlookoNetworkError, GlookoSyncError
 
 #: First-page sentinel for the keyset cursor. The literal "0" yields a 500; an
@@ -115,10 +115,11 @@ class GlookoClient:
 
         EU accounts are re-homed to country sub-clusters (e.g.
         ``de-fr.api.glooko.com``); the ``eu.*`` hosts 421 every data call. The
-        session value is SSRF-validated like the region hosts.
+        session value must be a TLS API host (``https://<cluster>.api.glooko.com``)
+        -- the authenticated cookie is never replayed against a web host.
         """
         if session.api_host:
-            return validate_glooko_host(session.api_host)
+            return validate_glooko_api_host(session.api_host)
         return self._region.api_host
 
     def _apply_cookies(self) -> None:

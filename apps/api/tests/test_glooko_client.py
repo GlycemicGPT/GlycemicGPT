@@ -218,15 +218,23 @@ async def test_glooko_login_redirect_to_foreign_host_falls_back_to_region():
                 },
             )
         if host == "attacker.example.com":
+            # The redirect-following GET itself is browser-equivalent and
+            # unavoidable with follow_redirects -- what must NEVER happen is the
+            # .glooko.com-scoped session cookie travelling along with it.
+            foreign_cookie_headers.append(request.headers.get("cookie"))
             return httpx.Response(200, html="<html>not glooko</html>")
         if path == "/api/v3/session/users":
             assert host == "eu.api.glooko.com"
             return httpx.Response(200, json=_SESSION_USERS_BODY)
         return httpx.Response(200, html='<meta name="csrf-token" content="t" />')
 
+    foreign_cookie_headers: list[str | None] = []
     async with _mock_client(handler) as http:
         session = await glooko_login("user@example.com", "pw", "EU", client=http)
 
+    # No session cookie ever reached the foreign host, and data calls fell back
+    # to the region API host instead of following the rogue redirect.
+    assert foreign_cookie_headers == [None]
     assert session.api_host == "https://eu.api.glooko.com"
 
 
@@ -308,10 +316,18 @@ async def test_client_replays_on_session_sub_cluster_host():
 
 
 def test_client_rejects_session_host_outside_allowlist():
-    # Defense in depth: a session host outside glooko.com is a config/programming
-    # error and must fail closed at construction (same posture as resolve_region).
-    with pytest.raises(ValueError):
-        GlookoClient(_session(api_host="https://evil.example.com"))
+    # Defense in depth: the session data host must be exactly
+    # https://<cluster>.api.glooko.com -- anything else (foreign host, a
+    # *.my.* WEB host, plain http) is a config/programming error and must
+    # fail closed at construction (same posture as resolve_region).
+    for bad in (
+        "https://evil.example.com",
+        "https://us.my.glooko.com",  # legit web host, but NOT a data host
+        "https://api.glooko.com",  # apex, not a per-cluster host
+        "http://us.api.glooko.com",  # right host, no TLS
+    ):
+        with pytest.raises(ValueError):
+            GlookoClient(_session(api_host=bad))
 
 
 async def test_fetch_stream_paginates_until_last_page_and_advances_cursor():

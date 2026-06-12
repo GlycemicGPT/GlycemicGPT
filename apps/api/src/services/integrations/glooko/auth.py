@@ -105,6 +105,26 @@ _CLUSTER_WEB_HOST_RE = re.compile(
     r"^(?P<cluster>[a-z0-9-]+)\.my\.glooko\.com$", re.IGNORECASE
 )
 
+_CLUSTER_API_HOST_RE = re.compile(r"^[a-z0-9-]+\.api\.glooko\.com$", re.IGNORECASE)
+
+
+def validate_glooko_api_host(url: str) -> str:
+    """SSRF-validate a DATA host: must be ``https://<cluster>.api.glooko.com``.
+
+    Stricter than ``validate_glooko_host`` (which also admits the ``*.my.*``
+    web hosts that the login flow legitimately touches): the authenticated
+    session cookie must only ever be replayed against an API host, over TLS.
+    Raises ``ValueError`` on anything else -- fail closed, same posture as
+    ``resolve_region``.
+    """
+    parsed = urlparse(url)
+    name = (parsed.hostname or "").lower()
+    if parsed.scheme != "https" or not _CLUSTER_API_HOST_RE.match(name):
+        raise ValueError(
+            f"Refusing Glooko data host {url!r}; expected https://<cluster>.api.glooko.com"
+        )
+    return url
+
 
 def derive_api_host(web_url: str) -> str | None:
     """Map a (post-redirect) web URL to its cluster API host, or ``None``.
