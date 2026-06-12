@@ -143,6 +143,106 @@ async def test_glooko_login_requires_credentials():
         await glooko_login("", "", "US")
 
 
+# ====================== auth: EU sub-cluster redirect =========================
+# Live finding: the EU login 302s to a country sub-cluster web host
+# (eu.my -> de-fr.my), and only the matching sub-cluster API host accepts
+# session/data calls -- the eu.* hosts answer 421 Misdirected Request.
+
+
+async def test_glooko_login_eu_follows_sub_cluster_redirect():
+    def handler(request: httpx.Request) -> httpx.Response:
+        host, path = request.url.host, request.url.path
+        if request.method == "GET" and path == "/users/sign_in":
+            assert host == "eu.my.glooko.com"
+            return httpx.Response(
+                200, html='<meta name="csrf-token" content="csrf-tok-eu" />'
+            )
+        if request.method == "POST" and path == "/users/sign_in":
+            assert host == "eu.my.glooko.com"
+            return httpx.Response(
+                302,
+                headers={
+                    "location": "https://de-fr.my.glooko.com",
+                    "set-cookie": f"{SESSION_COOKIE_NAME}=authed; Domain=glooko.com; Path=/",
+                },
+            )
+        if request.method == "GET" and host == "de-fr.my.glooko.com" and path == "/":
+            return httpx.Response(200, html="<html>landing</html>")
+        if path == "/api/v3/session/users":
+            # Reality check: only the sub-cluster API host works; eu.* 421s.
+            if host == "de-fr.api.glooko.com":
+                return httpx.Response(200, json=_SESSION_USERS_BODY)
+            return httpx.Response(421)
+        raise AssertionError(f"unexpected {request.method} {request.url}")
+
+    async with _mock_client(handler) as http:
+        session = await glooko_login("user@example.com", "pw", "EU", client=http)
+
+    assert session.is_authenticated
+    assert session.api_host == "https://de-fr.api.glooko.com"
+    assert session.patient_slug == "adjective-noun-1234"
+    assert session.region == "EU"
+
+
+async def test_glooko_login_without_redirect_derives_region_host():
+    # US flow: no sub-cluster redirect; the derived host equals the region host.
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v3/session/users":
+            return httpx.Response(200, json=_SESSION_USERS_BODY)
+        if request.method == "POST":
+            return httpx.Response(
+                200,
+                headers={
+                    "set-cookie": f"{SESSION_COOKIE_NAME}=authed; Domain=glooko.com; Path=/"
+                },
+            )
+        return httpx.Response(200, html='<meta name="csrf-token" content="t" />')
+
+    async with _mock_client(handler) as http:
+        session = await glooko_login("user@example.com", "pw", "US", client=http)
+
+    assert session.api_host == "https://us.api.glooko.com"
+
+
+async def test_glooko_login_redirect_to_foreign_host_falls_back_to_region():
+    # A redirect outside *.my.glooko.com must NOT steer data calls there: the
+    # derivation returns None and the verify call uses the region default.
+    def handler(request: httpx.Request) -> httpx.Response:
+        host, path = request.url.host, request.url.path
+        if request.method == "POST" and path == "/users/sign_in":
+            return httpx.Response(
+                302,
+                headers={
+                    "location": "https://attacker.example.com",
+                    "set-cookie": f"{SESSION_COOKIE_NAME}=authed; Domain=glooko.com; Path=/",
+                },
+            )
+        if host == "attacker.example.com":
+            return httpx.Response(200, html="<html>not glooko</html>")
+        if path == "/api/v3/session/users":
+            assert host == "eu.api.glooko.com"
+            return httpx.Response(200, json=_SESSION_USERS_BODY)
+        return httpx.Response(200, html='<meta name="csrf-token" content="t" />')
+
+    async with _mock_client(handler) as http:
+        session = await glooko_login("user@example.com", "pw", "EU", client=http)
+
+    assert session.api_host == "https://eu.api.glooko.com"
+
+
+def test_derive_api_host_shapes():
+    from src.services.integrations.glooko.auth import derive_api_host
+
+    assert (
+        derive_api_host("https://de-fr.my.glooko.com/dashboard")
+        == "https://de-fr.api.glooko.com"
+    )
+    assert derive_api_host("https://us.my.glooko.com") == "https://us.api.glooko.com"
+    assert derive_api_host("https://api.glooko.com") is None
+    assert derive_api_host("https://evil.example.com") is None
+    assert derive_api_host("/relative/path") is None
+
+
 # =============================== client: cursor ===============================
 
 
@@ -185,6 +285,33 @@ async def test_fetch_stream_single_page_returns_records_and_cursor():
     assert page.pages_fetched == 1
     assert page.last_page is True
     assert page.records == [{"insulinDelivered": 1.0}]
+
+
+async def test_client_replays_on_session_sub_cluster_host():
+    # A session carrying a sub-cluster api_host (EU live finding) must steer
+    # every data call there, not to the static region host.
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.host == "de-fr.api.glooko.com"
+        return httpx.Response(
+            200,
+            json=_page("normalBoluses", [{"insulinDelivered": 2.0}], last_page=True),
+        )
+
+    async with _mock_client(handler) as http:
+        client = GlookoClient(
+            _session(region="EU", api_host="https://de-fr.api.glooko.com"),
+            client=http,
+        )
+        page = await client.fetch_stream("normal_boluses")
+
+    assert page.records == [{"insulinDelivered": 2.0}]
+
+
+def test_client_rejects_session_host_outside_allowlist():
+    # Defense in depth: a session host outside glooko.com is a config/programming
+    # error and must fail closed at construction (same posture as resolve_region).
+    with pytest.raises(ValueError):
+        GlookoClient(_session(api_host="https://evil.example.com"))
 
 
 async def test_fetch_stream_paginates_until_last_page_and_advances_cursor():

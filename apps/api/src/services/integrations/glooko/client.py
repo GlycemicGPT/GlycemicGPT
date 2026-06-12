@@ -30,7 +30,7 @@ from dataclasses import dataclass
 
 import httpx
 
-from .auth import GlookoSession, resolve_region
+from .auth import GlookoSession, resolve_region, validate_glooko_host
 from .errors import GlookoAuthError, GlookoNetworkError, GlookoSyncError
 
 #: First-page sentinel for the keyset cursor. The literal "0" yields a 500; an
@@ -102,12 +102,24 @@ class GlookoClient:
     ) -> None:
         self._region = resolve_region(session.region)  # also SSRF-validates the host
         self._session = session
+        self._api_host = self._resolve_api_host(session)
         self._reauth = reauth
         self._owns_client = client is None
         self._client = client or httpx.AsyncClient(
             timeout=httpx.Timeout(timeout_seconds)
         )
         self._apply_cookies()
+
+    def _resolve_api_host(self, session: GlookoSession) -> str:
+        """Prefer the sub-cluster host discovered at login over the region default.
+
+        EU accounts are re-homed to country sub-clusters (e.g.
+        ``de-fr.api.glooko.com``); the ``eu.*`` hosts 421 every data call. The
+        session value is SSRF-validated like the region hosts.
+        """
+        if session.api_host:
+            return validate_glooko_host(session.api_host)
+        return self._region.api_host
 
     def _apply_cookies(self) -> None:
         # The session is stored as ``{_logbook-web_session: value}``; its real domain
@@ -143,7 +155,7 @@ class GlookoClient:
         retry only fires on ``attempt == 0``), so the loop always returns; the trailing
         raise is an explicit unreachable guard rather than a fall-through ``return``.
         """
-        url = self._region.api_host + path
+        url = self._api_host + path
         for attempt in range(_MAX_RETRIES_429 + 1):
             try:
                 resp = await self._client.get(
@@ -199,6 +211,7 @@ class GlookoClient:
                 f"Glooko session expired on {path} and no reauth provider is configured"
             )
         self._session = await self._reauth()
+        self._api_host = self._resolve_api_host(self._session)
         self._apply_cookies()
         resp = await self._send(path, params)
         if resp.status_code in (401, 403):
