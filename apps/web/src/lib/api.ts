@@ -3991,6 +3991,9 @@ export interface GlookoStatus {
     | "error"
     | "disconnected";
   enabled: boolean;
+  /** Whether Glooko's CGM trace is ingested. False = doses-only source
+   * (skip CGM, keep insulin doses) when a direct CGM already provides glucose. */
+  cgm_sync_enabled?: boolean;
   region?: string | null;
   /** Minutes between scheduled syncs (15-1440). */
   sync_interval_minutes?: number;
@@ -4083,10 +4086,11 @@ export async function syncGlookoNow(): Promise<GlookoSyncResult> {
   return response.json();
 }
 
-/** Update the Glooko sync toggle + interval. */
+/** Update the Glooko sync toggle + interval + CGM-ingestion toggle. */
 export async function updateGlookoSyncSettings(
   enabled: boolean,
-  syncIntervalMinutes: number
+  syncIntervalMinutes: number,
+  cgmSyncEnabled: boolean
 ): Promise<GlookoStatus> {
   const response = await apiFetch(
     `${API_BASE_URL}/api/integrations/glooko/sync/settings`,
@@ -4095,6 +4099,7 @@ export async function updateGlookoSyncSettings(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         enabled,
+        cgm_sync_enabled: cgmSyncEnabled,
         sync_interval_minutes: syncIntervalMinutes,
       }),
     }

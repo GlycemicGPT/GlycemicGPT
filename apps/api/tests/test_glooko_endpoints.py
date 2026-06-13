@@ -284,6 +284,55 @@ async def test_settings_update_and_404_when_not_configured():
         assert data["sync_interval_minutes"] == 120
 
 
+async def test_settings_toggle_cgm_sync_enabled():
+    async with _client() as client:
+        cookies = await _login(client)
+        await _connect(client, cookies)
+        # Default on after connect (server_default).
+        assert (await client.get(STATUS, cookies=cookies)).json()[
+            "cgm_sync_enabled"
+        ] is True
+
+        # Flip CGM ingestion off (doses-only) -- response + later status reflect it.
+        r = await client.put(
+            SETTINGS,
+            json={
+                "enabled": True,
+                "cgm_sync_enabled": False,
+                "sync_interval_minutes": 30,
+            },
+            cookies=cookies,
+        )
+        assert r.status_code == 200
+        assert r.json()["cgm_sync_enabled"] is False
+        assert (await client.get(STATUS, cookies=cookies)).json()[
+            "cgm_sync_enabled"
+        ] is False
+
+
+async def test_settings_cgm_sync_enabled_defaults_true_when_omitted():
+    # Back-compat: a client that only sends enabled + interval leaves CGM on.
+    async with _client() as client:
+        cookies = await _login(client)
+        await _connect(client, cookies)
+        await client.put(
+            SETTINGS,
+            json={
+                "enabled": True,
+                "cgm_sync_enabled": False,
+                "sync_interval_minutes": 30,
+            },
+            cookies=cookies,
+        )
+        r = await client.put(
+            SETTINGS,
+            json={"enabled": True, "sync_interval_minutes": 30},
+            cookies=cookies,
+        )
+        assert r.status_code == 200
+        assert r.json()["cgm_sync_enabled"] is True
+
+
 async def test_settings_out_of_range_422():
     async with _client() as client:
         cookies = await _login(client)
