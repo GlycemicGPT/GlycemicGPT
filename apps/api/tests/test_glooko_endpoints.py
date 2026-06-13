@@ -315,7 +315,7 @@ async def test_settings_cgm_sync_enabled_defaults_true_when_omitted():
     async with _client() as client:
         cookies = await _login(client)
         await _connect(client, cookies)
-        await client.put(
+        r0 = await client.put(
             SETTINGS,
             json={
                 "enabled": True,
@@ -324,6 +324,10 @@ async def test_settings_cgm_sync_enabled_defaults_true_when_omitted():
             },
             cookies=cookies,
         )
+        # Assert the precondition took: otherwise a no-op first PUT would let the
+        # "defaults true when omitted" assertion below pass for the wrong reason.
+        assert r0.status_code == 200
+        assert r0.json()["cgm_sync_enabled"] is False
         r = await client.put(
             SETTINGS,
             json={"enabled": True, "sync_interval_minutes": 30},
