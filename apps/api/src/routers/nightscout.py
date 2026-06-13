@@ -60,6 +60,7 @@ from src.services.integrations.nightscout.connection_test import (
 from src.services.integrations.nightscout.evaluate import (
     evaluate_nightscout_for_connection,
 )
+from src.services.integrations.nightscout.models import NIGHTSCOUT_SOURCE_PREFIX
 from src.services.integrations.nightscout.onboarding_derive import (
     derive_onboarding_proposals,
 )
@@ -1132,7 +1133,7 @@ async def read_connection_data(
     so callers don't have to track the cap.
     """
     conn = await _load_owned(db, connection_id, current_user.id)
-    source_tag = f"nightscout:{conn.id}"
+    source_tag = f"{NIGHTSCOUT_SOURCE_PREFIX}{conn.id}"
 
     # Defend against naive datetimes from clients: PostgreSQL's TIMESTAMP
     # WITH TIME ZONE compares against naive values using the session's
