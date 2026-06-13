@@ -10,11 +10,21 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import {
+  flattenVisionRequest,
+  InvalidImageError,
+  VisionUnavailableError,
+  writeImagesToTempDir,
+} from "./image-utils.js";
+import { runCapture } from "./subprocess.js";
 import type {
   AIProvider,
   ChatMessage,
+  MultimodalMessage,
   ProviderAuthState,
   ProviderResult,
+  VisionCompleteOptions,
+  VisionRunner,
 } from "./types.js";
 
 const CODEX_HOME = process.env.CODEX_HOME || join(
@@ -123,7 +133,81 @@ function cleanupChild(child: ChildProcess, timer: ReturnType<typeof setTimeout>)
   if (!child.killed) child.kill();
 }
 
-export class CodexProvider implements AIProvider {
+/**
+ * Run the official `codex` CLI to analyze image files via its native vision
+ * support: `codex exec --image <path> "<prompt>"` (the `--image` flag is
+ * repeatable, PNG/JPEG). The image is delivered to the model as vision input by
+ * the CLI itself — no credential impersonation. Drives the official client the
+ * same way the text path does.
+ *
+ * Note: non-interactive `--image` had bugs fixed in late 2025 (openai/codex
+ * #2323, #5773); deployments must pin a current codex version.
+ */
+async function runCodexVision(
+  prompt: string,
+  cliModel: string,
+  imagePaths: string[],
+  imageDir: string,
+): Promise<ProviderResult> {
+  const env: Record<string, string> = { ...process.env } as Record<string, string>;
+  env.CODEX_HOME = CODEX_HOME;
+
+  // Read-only sandbox: the run analyzes the images, it does not modify anything.
+  const args = ["exec", "--model", cliModel, "--sandbox", "read-only"];
+  for (const path of imagePaths) {
+    args.push("--image", path);
+  }
+  // End-of-options: the prompt is positional and never parsed as a flag.
+  args.push("--", prompt);
+
+  const { stdout, code } = await runCapture("codex", args, {
+    env,
+    cwd: imageDir,
+    timeoutMs: SUBPROCESS_TIMEOUT_MS,
+    maxBufferBytes: MAX_BUFFER_BYTES,
+    label: "Codex",
+  });
+  if (code !== 0) {
+    throw new Error("AI provider returned an error");
+  }
+  return { content: stdout.trim(), model: cliModel };
+}
+
+export class CodexProvider implements AIProvider, VisionRunner {
+  /**
+   * Vision is served via the Codex CLI when any Codex credential is configured.
+   * `getAuthState()` treats both a ChatGPT-subscription token (`auth.json`) and
+   * a raw `OPENAI_API_KEY` as authenticated; the CLI uses whichever it finds.
+   */
+  supportsVision(): boolean {
+    return getAuthState().authenticated;
+  }
+
+  async completeVision(
+    messages: MultimodalMessage[],
+    options: VisionCompleteOptions = {},
+  ): Promise<ProviderResult> {
+    if (!getAuthState().authenticated) {
+      throw new VisionUnavailableError();
+    }
+    // Note: options.maxTokens is not enforced on this CLI subscription path —
+    // `codex exec` has no output-token cap; the model self-limits.
+    const { systemText, userText, images } = flattenVisionRequest(messages);
+    if (images.length === 0) {
+      throw new InvalidImageError("no image provided for a vision request");
+    }
+    const prompt = [systemText, userText].filter(Boolean).join("\n\n");
+    if (prompt.length > MAX_PROMPT_LENGTH) {
+      throw new Error(`Prompt too long (${prompt.length} chars, max ${MAX_PROMPT_LENGTH})`);
+    }
+    const temp = writeImagesToTempDir(images);
+    try {
+      return await runCodexVision(prompt, resolveModel(options.model), temp.paths, temp.dir);
+    } finally {
+      temp.cleanup();
+    }
+  }
+
   async checkAuth(): Promise<ProviderAuthState> {
     const { authenticated } = getAuthState();
     return {
