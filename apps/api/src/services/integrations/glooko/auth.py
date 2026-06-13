@@ -12,7 +12,8 @@ one open productionization risk):
 
     1. GET  {web_host}/users/sign_in            -> pre-auth session cookie + CSRF <meta>
     2. POST {web_host}/users/sign_in?id=login_form  (form-urlencoded:
-           authenticity_token, user[email], user[password], commit, language, redirect_to)
+           authenticity_token, user[email], user[password], commit, language, redirect_to;
+           MUST send ``Accept: text/html`` -- see the US edge finding below)
        -> 302; rotates `_logbook-web_session` to an AUTHENTICATED cookie (domain .glooko.com)
     3. GET  {api_host}/api/v3/session/users      -> confirms the session + yields the
            patient slug (the param all data calls key on).
@@ -20,6 +21,16 @@ one open productionization risk):
 The resulting ``_logbook-web_session`` cookie (domain ``.glooko.com``) is replayed
 by ``GlookoClient`` on the region API host. There is no reliable session TTL from a
 single capture window, so we treat a later data-call 401 as "expired, re-login".
+
+US edge content-negotiation (live finding, 2026-06-12): Glooko's US web edge began
+routing the login POST by its ``Accept`` header. A request that admits HTML reaches
+the Devise handler (302/422 as expected); a request with ``*/*`` (httpx's default)
+or ``application/json`` is handed to the JSON API tier, which answers ``421
+Misdirected Request`` *before* checking credentials -- so the login never completes
+and the EU sub-cluster derivation below never runs. The fix is to send ``Accept:
+text/html`` on the POST (the GET already does). A real browser login confirmed US
+stays on ``us.my.glooko.com`` with no sub-cluster redirect, so this is purely an
+edge content-negotiation change, not a re-homing like EU's.
 
 EU sub-cluster routing (live finding, German account): the EU login POST 302s to a
 COUNTRY SUB-CLUSTER web host (e.g. ``de-fr.my.glooko.com``), and the ``eu.*`` /
@@ -114,12 +125,23 @@ def validate_glooko_api_host(url: str) -> str:
     Stricter than ``validate_glooko_host`` (which also admits the ``*.my.*``
     web hosts that the login flow legitimately touches): the authenticated
     session cookie must only ever be replayed against an API host, over TLS.
+    The value must be a bare origin -- no userinfo, port, path, query, or
+    fragment -- because the client builds request URLs as ``api_host + path``,
+    where any trailing component would silently corrupt every data call.
     Raises ``ValueError`` on anything else -- fail closed, same posture as
     ``resolve_region``.
     """
     parsed = urlparse(url)
     name = (parsed.hostname or "").lower()
-    if parsed.scheme != "https" or not _CLUSTER_API_HOST_RE.match(name):
+    if (
+        parsed.scheme != "https"
+        or not _CLUSTER_API_HOST_RE.match(name)
+        or parsed.netloc.lower() != name  # rejects userinfo@ and :port
+        or parsed.path
+        or parsed.params
+        or parsed.query
+        or parsed.fragment
+    ):
         raise ValueError(
             f"Refusing Glooko data host {url!r}; expected https://<cluster>.api.glooko.com"
         )
@@ -281,6 +303,18 @@ async def glooko_login(
                 headers={
                     "Content-Type": "application/x-www-form-urlencoded",
                     "Origin": reg.web_host,
+                    # ``Accept: text/html`` is REQUIRED (US live finding, 2026-06-12).
+                    # Glooko's edge now content-negotiates this POST: a request whose
+                    # Accept admits HTML (``text/html`` / ``application/xhtml+xml``)
+                    # reaches the Devise web handler (302 on success, 422 with the
+                    # "Invalid password or email" flash on bad creds); a request with
+                    # ``*/*`` (httpx's default) or ``application/json`` is routed to the
+                    # JSON API handler, which 421s ("Client tried to access the API
+                    # without proper credentials") before any credential check. Confirmed
+                    # against a real browser login (stays on us.my.glooko.com, no
+                    # sub-cluster redirect) -- so the EU ``derive_api_host`` path can't
+                    # help here; the login POST itself must look like a browser nav.
+                    "Accept": "text/html",
                 },
             )
             if 500 <= login.status_code < 600:
@@ -310,6 +344,18 @@ async def glooko_login(
 
         if verify.status_code in (401, 403):
             raise GlookoAuthError("Glooko login rejected -- check email/password")
+        if verify.status_code == 421:
+            # Misdirected Request: the credentials are fine, the HOST is wrong --
+            # the account lives on a cluster we didn't resolve (e.g. Glooko changed
+            # the sub-cluster redirect shape and we fell back to the region map).
+            # That is a routing problem, not bad credentials: surfacing it as an
+            # auth error would permanently disconnect the user with a misleading
+            # "check email/password" message, when retrying (or a code update)
+            # is the actual remedy.
+            raise GlookoNetworkError(
+                f"Glooko session check misdirected (421) on {api_host}; the "
+                "account may have been re-homed to a cluster we did not resolve"
+            )
         if 500 <= verify.status_code < 600:
             # A server-side error during the session check is transient, not an
             # auth failure -- the orchestrator should retry, not mark for re-auth.

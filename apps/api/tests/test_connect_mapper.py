@@ -287,11 +287,22 @@ def test_implausible_sg_values_are_dropped():
             sgs=[
                 {"sg": 5000, "datetime": "2025-01-31T12:00:00-05:00"},  # absurd high
                 {"sg": 3, "datetime": "2025-01-31T12:05:00-05:00"},  # absurd low
-                {"sg": 120, "datetime": "2025-01-31T12:10:00-05:00"},  # valid
+                {"sg": 19, "datetime": "2025-01-31T12:10:00-05:00"},  # <20 -> drop
+                {
+                    "sg": 20,
+                    "datetime": "2025-01-31T12:15:00-05:00",
+                },  # lower bound -> keep
+                {
+                    "sg": 500,
+                    "datetime": "2025-01-31T12:20:00-05:00",
+                },  # upper bound -> keep
+                {"sg": 501, "datetime": "2025-01-31T12:25:00-05:00"},  # >500 -> drop
+                {"sg": 120, "datetime": "2025-01-31T12:30:00-05:00"},  # valid
             ]
         )
     )
-    assert [g.value_mgdl for g in rec.glucose] == [120]
+    # Bounds match the platform-wide 20-500 glucose invariant (treatment_safety).
+    assert [g.value_mgdl for g in rec.glucose] == [20, 500, 120]
 
 
 def test_large_negative_skew_is_not_applied():

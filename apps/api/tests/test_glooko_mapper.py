@@ -36,9 +36,10 @@ def _load(name: str) -> list[dict]:
 
 def test_map_cgm_points_value_unit_and_utc():
     points = mapper.map_cgm_points(_load("cgm_points.json"))
-    # 204/180/69 valid; the 10 and 600 mg/dL records exercise the exact lower and
-    # upper sensor bounds (both kept); 700 (>600), 9 (<10), and null are dropped.
-    assert [p.value_mgdl for p in points] == [204, 180, 69, 10, 600]
+    # 204/180/69 valid; 20 and 500 mg/dL exercise the exact lower/upper safety
+    # bounds (both kept); 19 (<20), 501 (>500), 700 (>>500), and null are dropped.
+    # Bounds match the platform-wide 20-500 glucose invariant (treatment_safety).
+    assert [p.value_mgdl for p in points] == [204, 180, 69, 20, 500]
     first = points[0]
     assert first.timestamp == datetime(
         2023, 6, 1, 0, 2, 8, tzinfo=UTC
@@ -141,6 +142,90 @@ def test_map_insulins_skips_accepted_prime():
     base = _load("insulins.json")[0]
     accepted = {**base, "suspectedPrime": False, "acceptedPrime": True}
     assert mapper.map_insulins([accepted]) == []
+
+
+def test_map_insulins_rejects_implausible_doses_and_foreign_units():
+    base = _load("insulins.json")[0]
+    cases = {
+        # Above the largest single pen actuation (60 U) -- corrupt/unit-confused.
+        "oversized": {**base, "value": 950.0, "currentValue": 950.0},
+        # Zero: a pen's smallest real actuation is 0.5 U, and unlike a pump's
+        # 0-delivered suggested bolus there is no carb/BG context worth keeping.
+        "zero": {**base, "value": 0, "currentValue": 0},
+        # bool is an int in Python; a True dose must not become 1.0 U.
+        "bool": {**base, "value": True, "currentValue": None},
+        # NaN slips through </> bounds (every comparison on it is False).
+        "nan": {**base, "value": float("nan"), "currentValue": float("nan")},
+        # A present-but-foreign unit of measure must refuse, not mis-ingest.
+        "foreign units": {**base, "units": "mL"},
+    }
+    for label, corrupt in cases.items():
+        assert mapper.map_insulins([corrupt]) == [], label
+    # Bound edge: exactly 60 U (largest single actuation) is a real dose.
+    assert (
+        mapper.map_insulins([{**base, "value": 60.0, "currentValue": 60.0}])[0].units
+        == 60.0
+    )
+    # An absent units field stays ingestible (observed records always carry it,
+    # but its absence is not evidence of a foreign unit); casing is folded.
+    no_units = {k: v for k, v in base.items() if k != "units"}
+    assert mapper.map_insulins([no_units])[0].units == 3.0
+    assert mapper.map_insulins([{**base, "units": "Units"}])[0].units == 3.0
+
+
+def test_map_insulins_prefers_current_value_over_original():
+    base = _load("insulins.json")[0]
+    # An edited dose: Glooko keeps the original in `value` and the correction
+    # in `currentValue` -- the corrected number must win.
+    edited = {**base, "value": 3.0, "currentValue": 9.0, "overrideValue": 9.0}
+    assert mapper.map_insulins([edited])[0].units == 9.0
+    # currentValue absent -> fall back to value.
+    absent = {**base, "currentValue": None}
+    assert mapper.map_insulins([absent])[0].units == 3.0
+    # currentValue PRESENT but implausible -> refuse the record outright rather
+    # than fall back to the possibly-stale pre-edit value.
+    implausible = {**base, "value": 3.0, "currentValue": 950.0}
+    assert mapper.map_insulins([implausible]) == []
+
+
+def test_map_normal_boluses_bounds_dose_but_keeps_zero():
+    base = _load("normal_boluses.json")[0]
+    # Above the single-dose bound: corrupt/unit-confused, rejected.
+    assert mapper.map_normal_boluses([{**base, "insulinDelivered": 950.0}]) == []
+    # bool must not become a 1.0 U dose; NaN slips through </> bounds.
+    assert mapper.map_normal_boluses([{**base, "insulinDelivered": True}]) == []
+    assert mapper.map_normal_boluses([{**base, "insulinDelivered": float("nan")}]) == []
+    # Zero stays ingestible for pumps: a suggested bolus fully reduced by IoB
+    # records 0 delivered while still carrying the meal's carb/BG context.
+    zero = mapper.map_normal_boluses([{**base, "insulinDelivered": 0}])
+    assert len(zero) == 1
+    assert zero[0].units == 0.0
+
+
+def test_map_context_and_basal_fields_reject_bool_and_nan():
+    bolus = _load("normal_boluses.json")[0]
+    # A bool context field must become None, not 1.0/True-as-number.
+    mapped = mapper.map_normal_boluses(
+        [
+            {
+                **bolus,
+                "insulinOnBoard": True,
+                "carbsInput": True,
+                "bloodGlucoseInput": True,
+            }
+        ]
+    )[0]
+    assert mapped.iob_at_event is None
+    assert mapped.cob_at_event is None
+    assert mapped.bg_at_event is None
+
+    basal = _load("scheduled_basals.json")[0]
+    # rate=True must not become a 1.0 U/h basal; NaN rate is corrupt.
+    assert mapper.map_scheduled_basals([{**basal, "rate": True}]) == []
+    assert mapper.map_scheduled_basals([{**basal, "rate": float("nan")}]) == []
+    # A NaN duration must drop the duration, not crash the mapper (int(nan) raises).
+    nan_duration = mapper.map_scheduled_basals([{**basal, "duration": float("nan")}])[0]
+    assert nan_duration.duration_minutes is None
 
 
 def test_map_glooko_combines_all_series():
