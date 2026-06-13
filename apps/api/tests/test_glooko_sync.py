@@ -48,6 +48,7 @@ def _state(**overrides) -> GlookoSyncState:
         "encrypted_email": encrypt_credential("user@example.com"),
         "encrypted_password": encrypt_credential("SecurePass123"),
         "enabled": True,
+        "cgm_sync_enabled": True,
         "sync_interval_minutes": 30,
         "status": "pending",
         "readings_synced_total": 0,
@@ -179,6 +180,24 @@ async def test_success_updates_state_and_advances_cursor(patched):
     assert map_kwargs["normal_boluses"] == [{"stream": "normal_boluses"}]
     assert map_kwargs["events"] == [{"stream": "events"}]
     assert map_kwargs["cgm_points"] == [{"y": 120, "timestamp": "2025-01-31T12:00:00Z"}]
+
+
+async def test_cgm_disabled_skips_cgm_fetch_on_tick(patched):
+    # cgm_sync_enabled=False -> Glooko is a doses-only source: no CGM is fetched
+    # or mapped, but the dose/pump streams still sync (issue #727).
+    state = _state(cgm_sync_enabled=False)
+    db = _FakeDB()
+
+    result = await sync_glooko_for_user(db, state, now=_NOW)
+
+    assert patched["cgm_windows"] == []
+    assert patched["map_kwargs"]["cgm_points"] == []
+    # Dose/pump streams are still fetched.
+    assert [c["stream"] for c in patched["fetch_calls"]] == list(gs.SYNC_PUMP_STREAMS)
+    assert result.events_stored == 3
+    # Per O2 the CGM high-water mark is NOT frozen -- it still advances to "now",
+    # so re-enabling resumes from a bounded recent window (not the disabled span).
+    assert state.last_cgm_window_end == _NOW
 
 
 async def test_first_sync_uses_recent_window_not_epoch(patched):
@@ -375,6 +394,22 @@ async def test_import_does_not_bump_sync_or_cursor(patched):
     assert state.last_attempt_at is None
     assert state.stream_cursors == {"events": {}}
     assert state.last_cgm_window_end is None
+
+
+async def test_cgm_disabled_skips_cgm_on_import(patched):
+    # The maintainer's explicitly-required test: the one-time import has its own
+    # fetch plan, so the flag must gate it too -- no CGM fetched/mapped, doses do.
+    state = _state(cgm_sync_enabled=False)
+    db = _FakeDB()
+
+    await import_glooko_history_for_user(db, state, now=_NOW)
+
+    assert patched["cgm_windows"] == []
+    assert patched["map_kwargs"]["cgm_points"] == []
+    pump_calls = [
+        c for c in patched["fetch_calls"] if c["stream"] in gs.SYNC_PUMP_STREAMS
+    ]
+    assert pump_calls  # dose/pump streams still backfilled
 
 
 async def test_import_paginates_from_epoch(patched):

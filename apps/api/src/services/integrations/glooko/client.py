@@ -13,9 +13,10 @@ CGM is NOT in the v2 cursor for an Omnipod-5 account:
     raw per-reading series (``graph/data?series[]=...``) is deferred to a follow-up.
 
 The ``_logbook-web_session`` cookie from ``auth.glooko_login`` is replayed on the
-region API host. A data-call 401 means the session expired; if a ``reauth``
-callback is supplied the client re-logs-in once and retries, else it raises
-``GlookoAuthError`` so the orchestrator can mark the connection for re-auth.
+cluster API host. A data-call 401/403 means the session expired and a 421 means
+the account was re-homed to another cluster; if a ``reauth`` callback is supplied
+the client re-logs-in once (re-deriving the cluster host) and retries, else it
+raises ``GlookoAuthError`` so the orchestrator can mark the connection for re-auth.
 
 Clean-room: endpoints/params observed first-hand (live capture), not copied from
 the AGPL-3.0 nightscout-connect / jpollock Glooko sources.
@@ -30,7 +31,7 @@ from dataclasses import dataclass
 
 import httpx
 
-from .auth import GlookoSession, resolve_region
+from .auth import GlookoSession, resolve_region, validate_glooko_api_host
 from .errors import GlookoAuthError, GlookoNetworkError, GlookoSyncError
 
 #: First-page sentinel for the keyset cursor. The literal "0" yields a 500; an
@@ -39,10 +40,13 @@ ZERO_GUID = "00000000-0000-0000-0000-000000000000"
 #: A cursor instant safely before any Glooko data -- walks the full history.
 EPOCH_CURSOR = "2015-01-01T00:00:00.000Z"
 
-#: Pump streams: name -> (path, response array key). All keyset-cursor endpoints
+#: Cursor streams: name -> (path, response array key). All keyset-cursor endpoints
 #: confirmed live. (``alarms`` records are snake_case while the rest are
 #: camelCase, but the envelope keys are consistent -- the mapper handles record
 #: casing; the cursor mechanics here are identical.)
+#: ``insulins`` is NOT under the ``/pumps`` namespace -- it carries smart-pen
+#: doses (NovoPen 6 / Echo Plus, confirmed live) and manually logged insulin,
+#: but uses the exact same cursor envelope as the pump streams.
 PUMP_STREAMS: dict[str, tuple[str, str]] = {
     "scheduled_basals": ("/api/v2/pumps/scheduled_basals", "scheduledBasals"),
     "normal_boluses": ("/api/v2/pumps/normal_boluses", "normalBoluses"),
@@ -52,6 +56,7 @@ PUMP_STREAMS: dict[str, tuple[str, str]] = {
     "alarms": ("/api/v2/pumps/alarms", "alarms"),
     "cgm_readings": ("/api/v2/cgm/readings", "readings"),
     "cgm_egvs": ("/api/v2/cgm/egvs", "egvs"),
+    "insulins": ("/api/v2/insulins", "insulins"),
 }
 
 _GRAPH_STATS_PATH = "/api/v3/graph/statistics/overall"
@@ -86,10 +91,11 @@ class CursorPage:
 
 
 class GlookoClient:
-    """Replays a ``GlookoSession`` against the region API host.
+    """Replays a ``GlookoSession`` against the cluster API host.
 
     ``reauth`` (optional) returns a fresh authenticated session; the client uses
-    it to recover from a single 401 (the sync orchestrator supplies it from stored creds).
+    it to recover from a single auth-recoverable response (401/403/421 -- the
+    sync orchestrator supplies it from stored creds).
     """
 
     def __init__(
@@ -102,12 +108,25 @@ class GlookoClient:
     ) -> None:
         self._region = resolve_region(session.region)  # also SSRF-validates the host
         self._session = session
+        self._api_host = self._resolve_api_host(session)
         self._reauth = reauth
         self._owns_client = client is None
         self._client = client or httpx.AsyncClient(
             timeout=httpx.Timeout(timeout_seconds)
         )
         self._apply_cookies()
+
+    def _resolve_api_host(self, session: GlookoSession) -> str:
+        """Prefer the sub-cluster host discovered at login over the region default.
+
+        EU accounts are re-homed to country sub-clusters (e.g.
+        ``de-fr.api.glooko.com``); the ``eu.*`` hosts 421 every data call. The
+        session value must be a TLS API host (``https://<cluster>.api.glooko.com``)
+        -- the authenticated cookie is never replayed against a web host.
+        """
+        if session.api_host:
+            return validate_glooko_api_host(session.api_host)
+        return self._region.api_host
 
     def _apply_cookies(self) -> None:
         # The session is stored as ``{_logbook-web_session: value}``; its real domain
@@ -143,7 +162,7 @@ class GlookoClient:
         retry only fires on ``attempt == 0``), so the loop always returns; the trailing
         raise is an explicit unreachable guard rather than a fall-through ``return``.
         """
-        url = self._region.api_host + path
+        url = self._api_host + path
         for attempt in range(_MAX_RETRIES_429 + 1):
             try:
                 resp = await self._client.get(
@@ -170,10 +189,16 @@ class GlookoClient:
         return min(2.0 * (2**attempt), 30.0) + random.random()
 
     async def _get_json(self, path: str, params: Params) -> dict:
-        """GET returning parsed JSON, recovering from a single 401 via ``reauth``."""
+        """GET returning parsed JSON, recovering from a single 401/403/421 via ``reauth``.
+
+        421 (Misdirected Request) joins the re-auth triggers because it means the
+        account was re-homed to a different cluster mid-session (the EU sub-cluster
+        live finding): a fresh login re-derives the cluster host from the redirect,
+        so the recovery path is identical to an expired session.
+        """
         resp = await self._send(path, params)
-        if resp.status_code in (401, 403):
-            resp = await self._reauth_and_retry(path, params)
+        if resp.status_code in (401, 403, 421):
+            resp = await self._reauth_and_retry(path, params, trigger=resp.status_code)
         # A 5xx (or a 429 that survived the retry budget) is transient -> the typed
         # GlookoNetworkError tells the orchestrator to retry with backoff, not to mark
         # the connection for re-auth. Genuine 4xx/shape problems are GlookoSyncError.
@@ -193,17 +218,28 @@ class GlookoClient:
             )
         return body
 
-    async def _reauth_and_retry(self, path: str, params: Params) -> httpx.Response:
+    async def _reauth_and_retry(
+        self, path: str, params: Params, *, trigger: int
+    ) -> httpx.Response:
         if self._reauth is None:
             raise GlookoAuthError(
-                f"Glooko session expired on {path} and no reauth provider is configured"
+                f"Glooko auth-recoverable response ({trigger}) on {path} and no "
+                "reauth provider is configured"
             )
         self._session = await self._reauth()
+        self._api_host = self._resolve_api_host(self._session)
         self._apply_cookies()
         resp = await self._send(path, params)
         if resp.status_code in (401, 403):
             raise GlookoAuthError(
                 f"Glooko re-auth did not recover the session on {path}"
+            )
+        if resp.status_code == 421:
+            # Still misdirected after re-deriving the host: transient posture
+            # (see the 421 rationale in auth.glooko_login).
+            raise GlookoNetworkError(
+                f"Glooko GET {path} still misdirected (421) after re-auth on "
+                f"{self._api_host}"
             )
         return resp
 

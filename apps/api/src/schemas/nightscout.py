@@ -557,7 +557,7 @@ class NightscoutDiscoveryReport(BaseModel):
     # Treated as a HINT, not source-of-truth: a multi-uploader
     # sample (e.g. legacy Loop records still in retention plus
     # current Trio uploads) reports the first match across the
-    # `_LOOP_UPLOADERS` preference order. The wizard surfaces this
+    # `LOOP_UPLOADERS` preference order. The wizard surfaces this
     # for UI flavor / freshness expectations only.
     active_pump_loop: str | None = None
     # Names of upstream resources that a per-resource probe

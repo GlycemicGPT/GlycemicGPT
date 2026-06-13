@@ -57,15 +57,17 @@ from .storage import GlookoStoreResult, store_glooko_records
 
 logger = get_logger(__name__)
 
-# Pump streams this orchestrator ingests: scheduled basal, normal bolus, and
-# pod-lifecycle/suspend events -- the three the mapper translates today.
+# Cursor streams this orchestrator ingests: scheduled basal, normal bolus,
+# pod-lifecycle/suspend events, and smart-pen insulin doses (``insulins`` --
+# NovoPen 6 / Echo Plus + manually logged insulin; not under the ``/pumps``
+# namespace but cursor-identical) -- the four the mapper translates today.
 # Intentionally deferred (the client can fetch them, but ``mapper`` has no
 # translation yet, so syncing them would just discard the records):
 #   * ``extended_boluses`` -- square/dual-wave bolus modeling (follow-up story).
 #   * ``modes`` / ``alarms`` -- informational, not part of the glucose/insulin model.
 # Tracked as follow-up issues ("help wanted"); add the
 # stream here together with its mapper support, never one without the other.
-SYNC_PUMP_STREAMS = ("scheduled_basals", "normal_boluses", "events")
+SYNC_PUMP_STREAMS = ("scheduled_basals", "normal_boluses", "events", "insulins")
 
 # --- Incremental tuning ---
 # First incremental sync (no stored cursor) pulls only the recent window so a
@@ -256,6 +258,7 @@ async def _execute_cycle(
             scheduled_basals=stream_records.get("scheduled_basals"),
             normal_boluses=stream_records.get("normal_boluses"),
             events=stream_records.get("events"),
+            insulins=stream_records.get("insulins"),
         )
         return await store_glooko_records(
             db, state.user_id, records, now=now, commit=False
@@ -296,7 +299,11 @@ async def _sync_glooko_for_user_locked(
                 "last_updated_at": page.last_updated_at,
                 "last_guid": page.last_guid,
             }
-        cgm_points = await client.fetch_cgm_points(_iso_z(cgm_start), _iso_z(cgm_end))
+        cgm_points = (
+            await client.fetch_cgm_points(_iso_z(cgm_start), _iso_z(cgm_end))
+            if state.cgm_sync_enabled
+            else []
+        )
         return stream_records, cgm_points
 
     store = await _execute_cycle(db, state, now, _fetch)
@@ -361,7 +368,9 @@ async def _import_glooko_history_locked(
             stream_records[stream] = page.records
             if not page.last_page:
                 truncated.append(stream)
-        cgm_points = await _import_cgm_points(client, now)
+        cgm_points = (
+            await _import_cgm_points(client, now) if state.cgm_sync_enabled else []
+        )
         return stream_records, cgm_points
 
     store = await _execute_cycle(db, state, now, _fetch)

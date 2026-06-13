@@ -1640,3 +1640,89 @@ class TestSourceFilteringAndDedup:
         # Both rows render -- source no longer filters at the read layer.
         assert data["total_count"] == 2
         assert len(data["boluses"]) == 2
+
+
+@pytest.mark.asyncio
+class TestPenDoseDisplayBound:
+    """The display/stats bound matches the ingestion bound (60U, NovoPen 6
+    max actuation) so a large but legitimate pen dose accepted at ingest is
+    not silently hidden from the history table / TDD while it still counts in
+    IoB and safety totals.
+
+    Pre-fix: the bound was 25U (Tandem max bolus), so a 30U pen dose stored
+    via Glooko (#726) was excluded from `/bolus/review` and `/insulin/summary`
+    yet counted everywhere else -- the displayed TDD disagreed with the safety
+    engine.
+    """
+
+    async def _seed(self, db: AsyncSession, user_id: str) -> None:
+        uid = uuid.UUID(user_id)
+        ts = _stable_test_ts(days=1)
+        # 30U: above the old 25U bound, within the 60U pen bound -> must show.
+        db.add(
+            PumpEvent(
+                user_id=uid,
+                event_type=PumpEventType.BOLUS,
+                event_timestamp=ts,
+                units=30.0,
+                is_automated=False,
+                received_at=ts,
+                source="glooko",
+            )
+        )
+        # 70U: above the 60U pen bound -> corrupt/unit-confused, still excluded.
+        # Kept 1s before the 30U dose so it stays inside the days=1 window even
+        # when the test runs near the UTC boundary -- the exclusion must be the
+        # bound doing the work, not the time filter.
+        db.add(
+            PumpEvent(
+                user_id=uid,
+                event_type=PumpEventType.BOLUS,
+                event_timestamp=ts - timedelta(seconds=1),
+                units=70.0,
+                is_automated=False,
+                received_at=ts,
+                source="glooko",
+            )
+        )
+        await db.commit()
+
+    async def test_large_pen_dose_appears_in_bolus_review(self):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie, user_id = await register_and_login(client)
+            async for db in get_db():
+                await self._seed(db, user_id)
+                break
+
+            resp = await client.get(
+                "/api/integrations/bolus/review?days=1&limit=10",
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        units = sorted(b["units"] for b in data["boluses"])
+        assert units == [30.0], f"expected only the 30U dose, got {units}"
+        assert data["total_count"] == 1
+
+    async def test_large_pen_dose_counted_in_summary(self):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            cookie, user_id = await register_and_login(client)
+            async for db in get_db():
+                await self._seed(db, user_id)
+                break
+
+            resp = await client.get(
+                "/api/integrations/insulin/summary?days=1",
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        # Only the 30U dose is a valid bolus; the 70U row is excluded.
+        assert data["bolus_count"] == 1
+        # bolus_units reflects the 30U dose (per-day divisor may scale it, but
+        # it must be well above the old 25U ceiling and not include the 70U row).
+        assert data["bolus_units"] >= 30.0

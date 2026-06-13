@@ -161,6 +161,19 @@ def _is_real_number(value: Any) -> bool:
 # Source attribution
 # ---------------------------------------------------------------------------
 
+# Table-level `source` prefix for every row a Nightscout connection writes
+# (`nightscout:<connection_id>`, built by the translator's `_build_source`).
+# Readers that classify rows by origin (cgm_source, iob_projection) match
+# on this prefix -- import it instead of re-declaring the literal.
+NIGHTSCOUT_SOURCE_PREFIX = "nightscout:"
+
+# Closed-loop uploader labels among `detect_uploader`'s return values.
+# Ordered by preference for consumers that pick one (evaluate.py surfaces
+# the first match as `active_pump_loop`); membership tests treat it as a
+# set. xdrip+ / xdrip4ios / spike / tidepool are data uploaders, not
+# loops, and stay out of this list.
+LOOP_UPLOADERS: tuple[str, ...] = ("loop", "aaps", "trio", "oref0")
+
 
 def detect_uploader(entered_by: str | None, device: str | None) -> str:
     """Identify the upstream uploader from `enteredBy` + `device` strings.

@@ -78,7 +78,11 @@ from src.models.medtronic_connect_state import (
     STATUS_DISCONNECTED,
     MedtronicConnectState,
 )
-from src.models.pump_data import PumpEvent, PumpEventType
+from src.models.pump_data import (
+    MAX_INSULIN_DOSE_UNITS,
+    PumpEvent,
+    PumpEventType,
+)
 from src.models.tandem_sync_state import (
     SYNC_INTERVAL_DEFAULT_MINUTES,
     TandemSyncState,
@@ -2956,11 +2960,13 @@ def _glooko_status_response(
             connected=False,
             status="not_configured",
             enabled=False,
+            cgm_sync_enabled=True,
         )
     return GlookoStatusResponse(
         connected=state.status == GLOOKO_STATUS_CONNECTED,
         status=state.status,
         enabled=state.enabled,
+        cgm_sync_enabled=state.cgm_sync_enabled,
         region=state.region,
         sync_interval_minutes=state.sync_interval_minutes,
         last_sync_at=state.last_sync_at,
@@ -3169,12 +3175,14 @@ async def update_glooko_sync_settings(
             detail="Glooko is not configured. Connect it first.",
         )
     state.enabled = body.enabled
+    state.cgm_sync_enabled = body.cgm_sync_enabled
     state.sync_interval_minutes = body.sync_interval_minutes
     await db.commit()
     logger.info(
         "Glooko sync settings updated",
         user_id=str(current_user.id),
         enabled=body.enabled,
+        cgm_sync_enabled=body.cgm_sync_enabled,
         interval_minutes=body.sync_interval_minutes,
     )
     return _glooko_status_response(state)
@@ -3862,8 +3870,15 @@ async def push_pump_events(
 
 # Maximum rows to load into memory for percentile calculation
 _AGP_MAX_ROWS = 50_000
-# Hard safety cap for insulin units (Tandem X2/Mobi max single bolus = 25U)
-_MAX_BOLUS_UNITS = 25
+# Hard safety cap for displayed/aggregated insulin units. Shares the platform
+# `MAX_INSULIN_DOSE_UNITS` bound (NovoPen 6 max actuation = 60U) with the
+# ingestion mappers so a legitimate large single dose -- e.g. a >25U pen dose,
+# routine for insulin-resistant users -- that was accepted at ingest is also
+# shown in the bolus-history table and counted in displayed TDD. Pump-commanded
+# boluses cap lower (Tandem 25U), but pump_events also holds smart-pen/manual
+# doses since #726; bounding the display at 25U silently hid them while IoB and
+# safety totals still counted them. The bound excludes only corrupt rows.
+_MAX_BOLUS_UNITS = MAX_INSULIN_DOSE_UNITS
 # Maximum basal rate (Tandem X2/Mobi max = 15 U/hr)
 _MAX_BASAL_RATE = 15.0
 # Maximum gap between basal records before capping (handles disconnections).

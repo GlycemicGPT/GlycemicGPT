@@ -114,6 +114,17 @@ class GlookoSyncState(Base, TimestampMixin):
         server_default="true",
     )
 
+    # Whether to ingest Glooko's CGM trace. Default on; set false to run Glooko as
+    # a doses-only source when a direct CGM (e.g. Dexcom) already provides glucose --
+    # Glooko's retrospectively-smoothed copy diverges from the real-time stream and
+    # can't be deduped against it (issue #727). Doses/events sync regardless.
+    cgm_sync_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default="true",
+    )
+
     sync_interval_minutes: Mapped[int] = mapped_column(
         Integer,
         nullable=False,

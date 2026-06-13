@@ -9,7 +9,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from src.models.pump_data import PumpEventType
+from src.models.pump_data import MAX_INSULIN_DOSE_UNITS, PumpEventType
 
 
 class PumpEventResponse(BaseModel):
@@ -470,7 +470,10 @@ class BolusReviewItem(BaseModel):
 
     event_timestamp: datetime
     units: float = Field(
-        ..., ge=0, le=25, description="Bolus units (hard safety cap 25U)"
+        ...,
+        ge=0,
+        le=MAX_INSULIN_DOSE_UNITS,
+        description="Bolus units (hard safety cap = platform max single dose, 60U)",
     )
     is_automated: bool = False
     control_iq_reason: str | None = None
