@@ -2960,11 +2960,13 @@ def _glooko_status_response(
             connected=False,
             status="not_configured",
             enabled=False,
+            cgm_sync_enabled=True,
         )
     return GlookoStatusResponse(
         connected=state.status == GLOOKO_STATUS_CONNECTED,
         status=state.status,
         enabled=state.enabled,
+        cgm_sync_enabled=state.cgm_sync_enabled,
         region=state.region,
         sync_interval_minutes=state.sync_interval_minutes,
         last_sync_at=state.last_sync_at,
@@ -3173,12 +3175,14 @@ async def update_glooko_sync_settings(
             detail="Glooko is not configured. Connect it first.",
         )
     state.enabled = body.enabled
+    state.cgm_sync_enabled = body.cgm_sync_enabled
     state.sync_interval_minutes = body.sync_interval_minutes
     await db.commit()
     logger.info(
         "Glooko sync settings updated",
         user_id=str(current_user.id),
         enabled=body.enabled,
+        cgm_sync_enabled=body.cgm_sync_enabled,
         interval_minutes=body.sync_interval_minutes,
     )
     return _glooko_status_response(state)

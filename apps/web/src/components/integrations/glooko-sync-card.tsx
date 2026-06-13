@@ -58,6 +58,7 @@ export function GlookoSyncCard({ isOffline }: { isOffline: boolean }) {
   // Settings + actions state.
   const [interval, setIntervalMinutes] = useState<number>(30);
   const [enabled, setEnabled] = useState<boolean>(true);
+  const [cgmSyncEnabled, setCgmSyncEnabled] = useState<boolean>(true);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
@@ -77,6 +78,7 @@ export function GlookoSyncCard({ isOffline }: { isOffline: boolean }) {
   const applyStatus = useCallback((s: GlookoStatus) => {
     setStatus(s);
     setEnabled(s.enabled);
+    setCgmSyncEnabled(s.cgm_sync_enabled ?? true);
     if (s.sync_interval_minutes) setIntervalMinutes(s.sync_interval_minutes);
   }, []);
 
@@ -146,13 +148,15 @@ export function GlookoSyncCard({ isOffline }: { isOffline: boolean }) {
     setError(null);
     setIsSavingSettings(true);
     try {
-      applyStatus(await updateGlookoSyncSettings(enabled, interval));
+      applyStatus(
+        await updateGlookoSyncSettings(enabled, interval, cgmSyncEnabled)
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save settings");
     } finally {
       setIsSavingSettings(false);
     }
-  }, [enabled, interval, applyStatus]);
+  }, [enabled, interval, cgmSyncEnabled, applyStatus]);
 
   const syncNow = useCallback(async () => {
     setError(null);
@@ -486,6 +490,19 @@ export function GlookoSyncCard({ isOffline }: { isOffline: boolean }) {
                 className="h-4 w-4"
               />
               Automatic sync enabled
+            </label>
+            <label
+              className="flex items-center gap-2 text-sm text-slate-300"
+              title="Turn off to keep insulin doses but skip Glooko's CGM trace -- use when a direct CGM (e.g. Dexcom) already provides your glucose."
+            >
+              <input
+                type="checkbox"
+                checked={cgmSyncEnabled}
+                onChange={(e) => setCgmSyncEnabled(e.target.checked)}
+                disabled={isOffline || isSavingSettings}
+                className="h-4 w-4"
+              />
+              Sync CGM from Glooko
             </label>
             <div>
               <label

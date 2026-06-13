@@ -91,6 +91,7 @@ class GlookoStatusResponse(BaseModel):
     connected: bool
     status: str
     enabled: bool
+    cgm_sync_enabled: bool = True
     region: str | None = None
     sync_interval_minutes: int = SYNC_INTERVAL_DEFAULT_MINUTES
     last_sync_at: datetime | None = None
@@ -101,6 +102,7 @@ class GlookoStatusResponse(BaseModel):
 
 class GlookoSyncSettingsRequest(BaseModel):
     enabled: bool
+    cgm_sync_enabled: bool = True
     sync_interval_minutes: int = Field(
         default=SYNC_INTERVAL_DEFAULT_MINUTES,
         ge=SYNC_INTERVAL_MIN_MINUTES,

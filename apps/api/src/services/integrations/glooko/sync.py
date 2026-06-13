@@ -299,7 +299,11 @@ async def _sync_glooko_for_user_locked(
                 "last_updated_at": page.last_updated_at,
                 "last_guid": page.last_guid,
             }
-        cgm_points = await client.fetch_cgm_points(_iso_z(cgm_start), _iso_z(cgm_end))
+        cgm_points = (
+            await client.fetch_cgm_points(_iso_z(cgm_start), _iso_z(cgm_end))
+            if state.cgm_sync_enabled
+            else []
+        )
         return stream_records, cgm_points
 
     store = await _execute_cycle(db, state, now, _fetch)
@@ -364,7 +368,9 @@ async def _import_glooko_history_locked(
             stream_records[stream] = page.records
             if not page.last_page:
                 truncated.append(stream)
-        cgm_points = await _import_cgm_points(client, now)
+        cgm_points = (
+            await _import_cgm_points(client, now) if state.cgm_sync_enabled else []
+        )
         return stream_records, cgm_points
 
     store = await _execute_cycle(db, state, now, _fetch)
