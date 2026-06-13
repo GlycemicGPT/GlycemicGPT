@@ -72,6 +72,19 @@ class IoBProjection:
 INSULIN_DIA_HOURS = 4.0  # Duration of Insulin Action
 INSULIN_PEAK_HOURS = 1.0  # Time to peak activity
 
+# Defensive ceiling on a single dose's contribution to projected IoB (units).
+# The engine sums `pump_events.units` read straight from the table; a corrupt
+# or unit-confused row (e.g. a future source without its own ingestion bound)
+# would otherwise propagate unbounded into projected IoB and silently suppress
+# a needed correction. 60 U is the largest single actuation of any supported
+# device -- the NovoPen 6; pumps cap lower (Tandem 25 U, Omnipod 30 U) -- so
+# this clips only implausible values, never a real single dose. Mirrors the
+# Glooko ingestion bound (`glooko.mapper._MAX_BOLUS_DOSE_U`) and the platform
+# single-bolus safety limit (`treatment_safety.MAX_BOLUS_DOSE_MILLIUNITS`),
+# applied here as defense-in-depth at the point of use. Concentrated insulin
+# (U-200/U-500) is out of scope until the platform models concentration.
+_MAX_SINGLE_DOSE_UNITS = 60.0
+
 # The ONLY event types this engine sums as insulin doses (test-pinned).
 # Basal-family types must never enter dose summation -- BASAL is already
 # captured in the pump's IoB snapshot, and a future long-acting type
@@ -413,7 +426,10 @@ def _sum_iob_from_doses(
     """Compute total IoB at a given time from a list of insulin doses.
 
     For each dose, applies the decay curve based on elapsed time and sums
-    the remaining insulin across all doses.
+    the remaining insulin across all doses. Each dose's units are clamped
+    to ``_MAX_SINGLE_DOSE_UNITS`` first, so a single corrupt row can't push
+    projected IoB to an implausible value that would suppress a needed
+    correction (defense-in-depth -- ingestion mappers already bound doses).
 
     Args:
         doses: List of (event_timestamp, units) tuples.
@@ -428,8 +444,9 @@ def _sum_iob_from_doses(
         elapsed = (at_time - event_time).total_seconds() / 3600
         if elapsed < 0:
             continue  # dose is in the future relative to at_time
+        bounded_units = min(units, _MAX_SINGLE_DOSE_UNITS)
         remaining = calculate_insulin_remaining(elapsed, dia_hours)
-        total += units * remaining
+        total += bounded_units * remaining
     return total
 
 

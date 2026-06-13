@@ -16,6 +16,7 @@ from src.models.pump_data import PumpEvent, PumpEventType
 from src.models.user import User, UserRole
 from src.services.iob_projection import (
     _DOSE_EVENT_TYPES,
+    _MAX_SINGLE_DOSE_UNITS,
     INSULIN_DIA_HOURS,
     _AnchorVisibility,
     _classify_anchor_visibility,
@@ -248,6 +249,21 @@ class TestSumIoBFromDoses:
         doses = [(now, 3.0)]
         iob = _sum_iob_from_doses(doses, now)
         assert iob == pytest.approx(3.0, rel=0.01)
+
+    def test_plausible_max_dose_not_clamped(self):
+        """A real 60 U single dose (NovoPen 6 max) is summed in full."""
+        now = datetime.now(UTC)
+        doses = [(now, _MAX_SINGLE_DOSE_UNITS)]
+        iob = _sum_iob_from_doses(doses, now)
+        assert iob == pytest.approx(_MAX_SINGLE_DOSE_UNITS, rel=0.01)
+
+    def test_corrupt_dose_units_are_clamped(self):
+        """A corrupt/implausible units value can't poison projected IoB."""
+        now = datetime.now(UTC)
+        doses = [(now, 9999.0)]
+        iob = _sum_iob_from_doses(doses, now)
+        # Clamped to the physiological single-dose ceiling, not 9999.
+        assert iob == pytest.approx(_MAX_SINGLE_DOSE_UNITS, rel=0.01)
 
 
 class TestDoseEventTypePin:
