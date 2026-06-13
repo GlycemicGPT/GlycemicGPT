@@ -48,6 +48,10 @@ Update the following in `secret.yaml`:
 - `DATABASE_PASSWORD`: Strong password for PostgreSQL
 - `SECRET_KEY`: Random string for session encryption
 - `DATABASE_URL`: Update password in connection string
+- `REDIS_PASSWORD`: Strong password for Redis (the Redis Deployment enables
+  `--requirepass` only when this is non-empty)
+- `REDIS_URL`: Include the password as the URL password component — `redis://:<the REDIS_PASSWORD value>@glycemicgpt-redis:6379/0`
+- `SIDECAR_API_KEY`: Shared API↔sidecar key (the sidecar refuses to start without it)
 
 Optional — Sentry error monitoring (leave empty to keep it OFF; set a per-service
 project DSN to enable, and override `SENTRY_ENVIRONMENT` in the ConfigMap if the

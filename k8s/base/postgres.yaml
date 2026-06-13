@@ -42,7 +42,11 @@ spec:
     spec:
       containers:
         - name: postgres
-          image: postgres:16-alpine
+          # The Postgres server must be the pgvector image (NOT plain
+          # postgres): migration 048 runs CREATE EXTENSION vector for the
+          # knowledge-base embeddings, which fails on stock postgres. (The
+          # backup CronJob stays on stock postgres -- it only runs pg_dump.)
+          image: pgvector/pgvector:pg16
           ports:
             - containerPort: 5432
               name: postgres
