@@ -1,14 +1,22 @@
 """Persist mapped CareLink records into glucose_readings + pump_events.
 
-Batched, idempotent bulk upserts using the same conflict targets the other
-direct integrations use:
+Batched, idempotent bulk upserts:
 - glucose: ``ON CONFLICT (user_id, reading_timestamp) DO NOTHING`` (as Dexcom)
-- pump events: ``ON CONFLICT (user_id, event_timestamp, event_type) WHERE
-  ns_id IS NULL DO NOTHING`` (as Tandem)
+- pump events: a *bare* ``ON CONFLICT DO NOTHING`` (no explicit target) so a row
+  is arbitrated against whichever partial unique index it violates: the
+  natural-key ``(user_id, event_timestamp, event_type) WHERE ns_id IS NULL``
+  (re-import idempotency, as Tandem) and the cross-source ``(user_id,
+  dedupe_hash) WHERE dedupe_hash IS NOT NULL`` (Story 43.11 -- the same physical
+  dose reported by CareLink AND relayed via Nightscout careportal collapses to
+  one row instead of double-counting in IoB / TDD). A *targeted* clause would
+  arbitrate only its named index and raise unique_violation on the other, so the
+  bare form is required -- same mechanism Tandem sync, mobile push, the
+  Nightscout translator, and Glooko use.
 
-so re-importing an overlapping range is safe. Rows are de-duplicated on those
-keys within each batch first, so a single multi-row INSERT can't hit an
-intra-statement conflict.
+Re-importing an overlapping range is therefore safe. Rows are de-duplicated on
+the natural key within each batch first, so a single multi-row INSERT can't hit
+an intra-statement conflict; Postgres also collapses remaining within-statement
+duplicates (incl. dedupe-hash near-matches) under DO NOTHING.
 
 Timezone note: CareLink CSV timestamps are naive *pump-local* time (the export
 carries no offset). Localizing them to UTC correctly requires the user's
@@ -24,12 +32,12 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.glucose import GlucoseReading, TrendDirection
 from src.models.pump_data import PumpEvent
+from src.services.pump_event_dedupe import compute_pump_event_dedupe_hash
 
 from .carelink_mapper import MappedRecords
 
@@ -99,9 +107,13 @@ async def store_carelink_records(
             insert(GlucoseReading)
             .values(g_rows[start : start + _CHUNK])
             .on_conflict_do_nothing(index_elements=["user_id", "reading_timestamp"])
+            # RETURNING yields one row per ACTUAL insert (conflicts return
+            # nothing), so the count is exact regardless of driver rowcount
+            # support -- rowcount is unreliable under ON CONFLICT DO NOTHING.
+            .returning(GlucoseReading.id)
         )
         res = await db.execute(stmt)
-        result.glucose_stored += max(res.rowcount, 0)
+        result.glucose_stored += len(res.fetchall())
 
     # --- Pump events: dedupe on (event_timestamp, event_type), keep first ---
     events_by_key: dict[tuple, dict] = {}
@@ -124,19 +136,34 @@ async def store_carelink_records(
             "bg_at_event": e.bg_at_event,
             "received_at": now,
             "source": e.source,
+            # Cross-source dedupe key (Story 43.11): a CareLink dose collapses
+            # against the same physical dose relayed via Nightscout careportal /
+            # a direct integration. The helper returns None for non-delivery
+            # events (suspend/resume, telemetry), so only BOLUS/CORRECTION/BASAL
+            # rows participate in the index.
+            "dedupe_hash": compute_pump_event_dedupe_hash(
+                user_id=user_id,
+                event_type=e.event_type,
+                event_timestamp=ts,
+                units=e.units,
+                duration_minutes=e.duration_minutes,
+            ),
         }
     e_rows = list(events_by_key.values())
     for start in range(0, len(e_rows), _CHUNK):
+        # Bare ON CONFLICT DO NOTHING (see module docstring): a row may violate
+        # the natural-key OR the (user_id, dedupe_hash) partial unique index, and
+        # only the untargeted form skips a conflict on either rather than raising
+        # unique_violation on the unnamed one. RETURNING gives a reliable insert
+        # count -- rowcount is unreliable under ON CONFLICT DO NOTHING (asyncpg).
         stmt = (
             insert(PumpEvent)
             .values(e_rows[start : start + _CHUNK])
-            .on_conflict_do_nothing(
-                index_elements=["user_id", "event_timestamp", "event_type"],
-                index_where=text("ns_id IS NULL"),
-            )
+            .on_conflict_do_nothing()
+            .returning(PumpEvent.id)
         )
         res = await db.execute(stmt)
-        result.events_stored += max(res.rowcount, 0)
+        result.events_stored += len(res.fetchall())
 
     if commit:
         await db.commit()
