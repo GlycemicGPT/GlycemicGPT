@@ -36,9 +36,10 @@ def _load(name: str) -> list[dict]:
 
 def test_map_cgm_points_value_unit_and_utc():
     points = mapper.map_cgm_points(_load("cgm_points.json"))
-    # 204/180/69 valid; the 10 and 600 mg/dL records exercise the exact lower and
-    # upper sensor bounds (both kept); 700 (>600), 9 (<10), and null are dropped.
-    assert [p.value_mgdl for p in points] == [204, 180, 69, 10, 600]
+    # 204/180/69 valid; 20 and 500 mg/dL exercise the exact lower/upper safety
+    # bounds (both kept); 19 (<20), 501 (>500), 700 (>>500), and null are dropped.
+    # Bounds match the platform-wide 20-500 glucose invariant (treatment_safety).
+    assert [p.value_mgdl for p in points] == [204, 180, 69, 20, 500]
     first = points[0]
     assert first.timestamp == datetime(
         2023, 6, 1, 0, 2, 8, tzinfo=UTC

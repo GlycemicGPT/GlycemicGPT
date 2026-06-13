@@ -27,10 +27,15 @@ from src.models.pump_data import PumpEventType
 
 SOURCE = "glooko"
 
-# Physiologic CGM bounds (mg/dL). Drop anything outside so a corrupt/unit-confused
-# value can't poison TIR/alerts/AI context (same defensive stance as Medtronic).
-_SG_MIN_MGDL = 10
-_SG_MAX_MGDL = 600
+# CGM bounds (mg/dL). Drop anything outside so a corrupt/unit-confused value can't
+# poison TIR/alerts/AI context. 20-500 is the platform-wide glucose safety
+# invariant: ``core.treatment_safety.models`` (MIN/MAX_GLUCOSE_MGDL = 20/500) and
+# the AI-context / TIR / stats read filters in ``routers.integrations`` (all clamp
+# to 20..500), plus the ``GlucoseReading`` storage ``ge=20`` floor. A wider
+# Glooko-only bound would just admit values those consumers silently drop, so keep
+# this source consistent with where the data is actually validated and used.
+_SG_MIN_MGDL = 20
+_SG_MAX_MGDL = 500
 
 # Sanity bound on basal rate (U/h) -- reject implausible rates a TDD calc would
 # multiply into a catastrophic daily total.
