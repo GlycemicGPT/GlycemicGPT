@@ -124,7 +124,7 @@ jobs:
               // text ("non-breaking change which fixes an issue") would
               // false-positive on every templated PR (it mislabelled #725/#726).
               // The `(^|\n)\s*` anchor keeps "non-breaking change" from matching.
-              const breakingFooter = /(^|\n)\s*BREAKING[ -]CHANGE:/i.test(prBody);
+              const breakingFooter = /(^|\n)\s*BREAKING[ \-]CHANGE:/i.test(prBody);
               if (prTitle.includes('!:') || breakingFooter) {
                 labelsToAdd.add('breaking-change');
               }
