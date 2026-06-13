@@ -15,7 +15,11 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import desc, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models.pump_data import PumpEvent, PumpEventType
+from src.models.pump_data import (
+    MAX_INSULIN_DOSE_UNITS,
+    PumpEvent,
+    PumpEventType,
+)
 from src.services.integrations.glooko.mapper import SOURCE as GLOOKO_SOURCE
 from src.services.integrations.nightscout.models import (
     LOOP_UPLOADERS,
@@ -78,12 +82,13 @@ INSULIN_PEAK_HOURS = 1.0  # Time to peak activity
 # would otherwise propagate unbounded into projected IoB and silently suppress
 # a needed correction. 60 U is the largest single actuation of any supported
 # device -- the NovoPen 6; pumps cap lower (Tandem 25 U, Omnipod 30 U) -- so
-# this clips only implausible values, never a real single dose. Mirrors the
-# Glooko ingestion bound (`glooko.mapper._MAX_BOLUS_DOSE_U`) and the platform
-# single-bolus safety limit (`treatment_safety.MAX_BOLUS_DOSE_MILLIUNITS`),
-# applied here as defense-in-depth at the point of use. Concentrated insulin
+# this clips only implausible values, never a real single dose. Shares the
+# platform `MAX_INSULIN_DOSE_UNITS` bound (the same constant the ingestion
+# mappers and display/stats filters use) -- distinct from the lower
+# delivery-command safety limit (`treatment_safety.MAX_BOLUS_DOSE_MILLIUNITS`)
+# -- applied here as defense-in-depth at the point of use. Concentrated insulin
 # (U-200/U-500) is out of scope until the platform models concentration.
-_MAX_SINGLE_DOSE_UNITS = 60.0
+_MAX_SINGLE_DOSE_UNITS = MAX_INSULIN_DOSE_UNITS
 
 # The ONLY event types this engine sums as insulin doses (test-pinned).
 # Basal-family types must never enter dose summation -- BASAL is already

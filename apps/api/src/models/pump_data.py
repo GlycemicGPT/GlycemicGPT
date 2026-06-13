@@ -6,6 +6,7 @@ Models for storing pump data from Tandem t:connect with pump activity tracking.
 import enum
 import uuid
 from datetime import datetime
+from typing import Final
 
 from sqlalchemy import (
     Boolean,
@@ -72,6 +73,21 @@ class PumpActivityMode(str, enum.Enum):
 
 # Backwards-compat alias -- remove once all consumers migrate
 ControlIQMode = PumpActivityMode
+
+
+# Platform-wide upper bound (U) on a single insulin dose any supported device
+# can record. The largest single actuation of any supported device is the
+# NovoPen 6 at 60 U (pumps cap lower: Tandem 25 U, Omnipod 30 U); anything above
+# is a corrupt or unit-confused record. This is the canonical bound -- consumers
+# import it instead of hard-coding 60: the Glooko ingestion mapper, the
+# IoB-projection dose clamp, the display/stats read filters in
+# `routers.integrations`, and the `BolusReviewItem` response-schema validator --
+# so a legitimate large pen dose accepted at ingest is not silently dropped or
+# hidden downstream, and a corrupt record is rejected uniformly. This is the
+# device-recording bound; the *delivery-command* safety limit is lower and lives
+# in `core.treatment_safety` (`MAX_BOLUS_DOSE_MILLIUNITS` = 25 U) -- we never
+# command a pump to deliver 60 U.
+MAX_INSULIN_DOSE_UNITS: Final[float] = 60.0
 
 
 class PumpEvent(Base):

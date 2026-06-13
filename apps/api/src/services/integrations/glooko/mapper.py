@@ -23,7 +23,7 @@ import math
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta, timezone
 
-from src.models.pump_data import PumpEventType
+from src.models.pump_data import MAX_INSULIN_DOSE_UNITS, PumpEventType
 
 SOURCE = "glooko"
 
@@ -41,14 +41,15 @@ _SG_MAX_MGDL = 500
 # multiply into a catastrophic daily total.
 _MAX_BASAL_RATE_UH = 35.0
 
-# Sanity bound on a single bolus/pen dose (U). The largest single actuation of
-# any supported device is the NovoPen 6 at 60 U (pumps cap lower: Tandem 25 U,
-# Omnipod 30 U); anything above is a corrupt or unit-confused record that would
-# poison IoB projection and safety totals (same stance as the basal/CGM bounds).
-# Manual Glooko logs share the bound as corrupt-record protection -- logging
-# concentrated (U-200/U-500) doses above 60 U is out of scope until the
-# platform models insulin concentration.
-_MAX_BOLUS_DOSE_U = 60.0
+# Sanity bound on a single bolus/pen dose (U). The platform-wide
+# ``MAX_INSULIN_DOSE_UNITS`` (NovoPen 6 max actuation = 60 U; pumps cap lower);
+# anything above is a corrupt or unit-confused record that would poison IoB
+# projection and safety totals (same stance as the basal/CGM bounds). Manual
+# Glooko logs share the bound as corrupt-record protection -- logging
+# concentrated (U-200/U-500) doses above 60 U is out of scope until the platform
+# models insulin concentration. Aliased locally to keep the bounds-checking
+# helpers reading in single-letter units.
+_MAX_BOLUS_DOSE_U = MAX_INSULIN_DOSE_UNITS
 
 
 # Glooko pump-events ``type`` -> our PumpEventType. Pod/cartridge/prime lifecycle
