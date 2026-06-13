@@ -7,11 +7,13 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from httpx import ASGITransport, AsyncClient
+from httpx import ASGITransport, AsyncClient, Response
 
 from src.config import settings
+from src.core.security import hash_password
 from src.main import app
-from src.models.pump_data import PumpEventType
+from src.models.pump_data import PumpEvent, PumpEventType
+from src.models.user import User, UserRole
 from src.services.iob_projection import (
     _DOSE_EVENT_TYPES,
     INSULIN_DIA_HOURS,
@@ -39,6 +41,39 @@ def _unique_ns_id(prefix: str) -> str:
     rows across runs, so a hardcoded ns_id collides on re-run.
     """
     return f"{prefix}-{uuid.uuid4().hex[:8]}"
+
+
+async def _create_user(db_session, prefix: str) -> tuple[User, str, str]:
+    """Create a user directly in the database; returns (user, email, password)."""
+    email = unique_email(prefix)
+    password = "SecurePass123"
+    user = User(
+        email=email,
+        hashed_password=hash_password(password),
+        role=UserRole.DIABETIC,
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+    return user, email, password
+
+
+async def _fetch_projection(email: str, password: str) -> Response:
+    """Login and GET the IoB projection endpoint; returns the response."""
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        login_response = await client.post(
+            "/api/auth/login",
+            json={"email": email, "password": password},
+        )
+        assert login_response.status_code == 200, login_response.text
+        session_cookie = login_response.cookies.get(settings.jwt_cookie_name)
+        return await client.get(
+            "/api/integrations/tandem/iob/projection",
+            cookies={settings.jwt_cookie_name: session_cookie},
+        )
 
 
 class TestInsulinDecayCurve:
@@ -215,533 +250,6 @@ class TestSumIoBFromDoses:
         assert iob == pytest.approx(3.0, rel=0.01)
 
 
-@pytest.mark.asyncio
-class TestIoBProjectionEndpoint:
-    """Tests for the IoB projection API endpoint."""
-
-    async def test_iob_projection_requires_auth(self):
-        """IoB projection endpoint requires authentication."""
-        async with AsyncClient(
-            transport=ASGITransport(app=app),
-            base_url="http://test",
-        ) as client:
-            response = await client.get("/api/integrations/tandem/iob/projection")
-
-        assert response.status_code == 401
-
-    async def test_iob_projection_no_data(self):
-        """IoB projection returns 404 when no data available."""
-        email = unique_email("iob_no_data")
-        password = "SecurePass123"
-
-        async with AsyncClient(
-            transport=ASGITransport(app=app),
-            base_url="http://test",
-        ) as client:
-            # Register and login
-            await client.post(
-                "/api/auth/register",
-                json={"email": email, "password": password},
-            )
-
-            login_response = await client.post(
-                "/api/auth/login",
-                json={"email": email, "password": password},
-            )
-
-            session_cookie = login_response.cookies.get(settings.jwt_cookie_name)
-
-            response = await client.get(
-                "/api/integrations/tandem/iob/projection",
-                cookies={settings.jwt_cookie_name: session_cookie},
-            )
-
-        assert response.status_code == 404
-        assert "No IoB data" in response.json()["detail"]
-
-    async def test_iob_projection_with_data(self, db_session):
-        """IoB projection returns data when pump events exist."""
-        from src.core.security import hash_password
-        from src.models.pump_data import PumpEvent, PumpEventType
-        from src.models.user import User, UserRole
-
-        email = unique_email("iob_with_data")
-        password = "SecurePass123"
-
-        # Create user directly in the database
-        user = User(
-            email=email,
-            hashed_password=hash_password(password),
-            role=UserRole.DIABETIC,
-        )
-        db_session.add(user)
-        await db_session.commit()
-        await db_session.refresh(user)
-
-        # Create a pump event with IoB data
-        now = datetime.now(UTC)
-        pump_event = PumpEvent(
-            user_id=user.id,
-            event_type=PumpEventType.BOLUS,
-            event_timestamp=now - timedelta(minutes=30),
-            units=2.0,
-            iob_at_event=2.5,
-            received_at=now,
-        )
-        db_session.add(pump_event)
-        await db_session.commit()
-
-        async with AsyncClient(
-            transport=ASGITransport(app=app),
-            base_url="http://test",
-        ) as client:
-            login_response = await client.post(
-                "/api/auth/login",
-                json={"email": email, "password": password},
-            )
-
-            session_cookie = login_response.cookies.get(settings.jwt_cookie_name)
-
-            response = await client.get(
-                "/api/integrations/tandem/iob/projection",
-                cookies={settings.jwt_cookie_name: session_cookie},
-            )
-
-        assert response.status_code == 200
-
-        data = response.json()
-        assert data["confirmed_iob"] == 2.5
-        assert "projected_iob" in data
-        assert "projected_30min" in data
-        assert "projected_60min" in data
-        assert data["is_stale"] is False
-        assert data["stale_warning"] is None
-        assert data["is_estimated"] is False
-
-    async def test_iob_projection_stale_data(self, db_session):
-        """IoB projection shows stale warning for old data."""
-        from src.core.security import hash_password
-        from src.models.pump_data import PumpEvent, PumpEventType
-        from src.models.user import User, UserRole
-
-        email = unique_email("iob_stale")
-        password = "SecurePass123"
-
-        # Create user directly in the database
-        user = User(
-            email=email,
-            hashed_password=hash_password(password),
-            role=UserRole.DIABETIC,
-        )
-        db_session.add(user)
-        await db_session.commit()
-        await db_session.refresh(user)
-
-        # Create a pump event with IoB data from 3 hours ago
-        now = datetime.now(UTC)
-        pump_event = PumpEvent(
-            user_id=user.id,
-            event_type=PumpEventType.BOLUS,
-            event_timestamp=now - timedelta(hours=3),
-            units=2.0,
-            iob_at_event=2.5,
-            received_at=now - timedelta(hours=3),
-        )
-        db_session.add(pump_event)
-        await db_session.commit()
-
-        async with AsyncClient(
-            transport=ASGITransport(app=app),
-            base_url="http://test",
-        ) as client:
-            login_response = await client.post(
-                "/api/auth/login",
-                json={"email": email, "password": password},
-            )
-
-            session_cookie = login_response.cookies.get(settings.jwt_cookie_name)
-
-            response = await client.get(
-                "/api/integrations/tandem/iob/projection",
-                cookies={settings.jwt_cookie_name: session_cookie},
-            )
-
-        assert response.status_code == 200
-
-        data = response.json()
-        assert data["is_stale"] is True
-        assert data["stale_warning"] is not None
-        assert "unreliable" in data["stale_warning"].lower()
-
-    async def test_iob_projection_decay_over_time(self, db_session):
-        """IoB projection correctly applies decay curve."""
-        from src.core.security import hash_password
-        from src.models.pump_data import PumpEvent, PumpEventType
-        from src.models.user import User, UserRole
-
-        email = unique_email("iob_decay")
-        password = "SecurePass123"
-
-        # Create user directly in the database
-        user = User(
-            email=email,
-            hashed_password=hash_password(password),
-            role=UserRole.DIABETIC,
-        )
-        db_session.add(user)
-        await db_session.commit()
-        await db_session.refresh(user)
-
-        # Create a pump event with IoB data from 2 hours ago
-        now = datetime.now(UTC)
-        pump_event = PumpEvent(
-            user_id=user.id,
-            event_type=PumpEventType.BOLUS,
-            event_timestamp=now - timedelta(hours=2),
-            units=2.0,
-            iob_at_event=4.0,
-            received_at=now - timedelta(hours=2),
-        )
-        db_session.add(pump_event)
-        await db_session.commit()
-
-        async with AsyncClient(
-            transport=ASGITransport(app=app),
-            base_url="http://test",
-        ) as client:
-            login_response = await client.post(
-                "/api/auth/login",
-                json={"email": email, "password": password},
-            )
-
-            session_cookie = login_response.cookies.get(settings.jwt_cookie_name)
-
-            response = await client.get(
-                "/api/integrations/tandem/iob/projection",
-                cookies={settings.jwt_cookie_name: session_cookie},
-            )
-
-        assert response.status_code == 200
-
-        data = response.json()
-        # After 2 hours, ~75% should remain (4.0 * 0.75 = 3.0)
-        assert data["projected_iob"] == pytest.approx(3.0, rel=0.1)
-        # 30 min ahead should be less
-        assert data["projected_30min"] < data["projected_iob"]
-        # 60 min ahead should be even less
-        assert data["projected_60min"] < data["projected_30min"]
-
-    async def test_iob_includes_post_confirmation_bolus(self, db_session):
-        """Boluses delivered after the pump's IoB snapshot increase IoB."""
-        from src.core.security import hash_password
-        from src.models.pump_data import PumpEvent, PumpEventType
-        from src.models.user import User, UserRole
-
-        email = unique_email("iob_hybrid")
-        password = "SecurePass123"
-
-        user = User(
-            email=email,
-            hashed_password=hash_password(password),
-            role=UserRole.DIABETIC,
-        )
-        db_session.add(user)
-        await db_session.commit()
-        await db_session.refresh(user)
-
-        now = datetime.now(UTC)
-
-        # Pump-confirmed IoB snapshot: 2.0u at 1 hour ago
-        snapshot_event = PumpEvent(
-            user_id=user.id,
-            event_type=PumpEventType.CORRECTION,
-            event_timestamp=now - timedelta(hours=1),
-            units=0.5,
-            iob_at_event=2.0,
-            received_at=now - timedelta(hours=1),
-        )
-        # A 3.0u bolus delivered 30 minutes AFTER the snapshot
-        post_bolus = PumpEvent(
-            user_id=user.id,
-            event_type=PumpEventType.BOLUS,
-            event_timestamp=now - timedelta(minutes=30),
-            units=3.0,
-            iob_at_event=None,
-            received_at=now - timedelta(minutes=30),
-        )
-        db_session.add_all([snapshot_event, post_bolus])
-        await db_session.commit()
-
-        async with AsyncClient(
-            transport=ASGITransport(app=app),
-            base_url="http://test",
-        ) as client:
-            login_response = await client.post(
-                "/api/auth/login",
-                json={"email": email, "password": password},
-            )
-            session_cookie = login_response.cookies.get(settings.jwt_cookie_name)
-            response = await client.get(
-                "/api/integrations/tandem/iob/projection",
-                cookies={settings.jwt_cookie_name: session_cookie},
-            )
-
-        assert response.status_code == 200
-        data = response.json()
-
-        # pump_component: 2.0 * remaining(1h, 4h) = 2.0 * 0.9375 = 1.875
-        # post_component: 3.0 * remaining(0.5h, 4h) = 3.0 * 0.984375 = 2.953
-        # total ≈ 4.83
-        # Without the fix, this would just be 1.875 (ignoring the 3.0u bolus)
-        assert data["projected_iob"] > 4.0
-        assert data["projected_iob"] == pytest.approx(4.83, rel=0.1)
-        assert data["confirmed_iob"] == 2.0
-
-    async def test_iob_no_double_counting(self, db_session):
-        """Doses before the pump confirmation are NOT double-counted."""
-        from src.core.security import hash_password
-        from src.models.pump_data import PumpEvent, PumpEventType
-        from src.models.user import User, UserRole
-
-        email = unique_email("iob_nodup")
-        password = "SecurePass123"
-
-        user = User(
-            email=email,
-            hashed_password=hash_password(password),
-            role=UserRole.DIABETIC,
-        )
-        db_session.add(user)
-        await db_session.commit()
-        await db_session.refresh(user)
-
-        now = datetime.now(UTC)
-
-        # A bolus from 2 hours ago (units=5.0)
-        old_bolus = PumpEvent(
-            user_id=user.id,
-            event_type=PumpEventType.BOLUS,
-            event_timestamp=now - timedelta(hours=2),
-            units=5.0,
-            iob_at_event=None,
-            received_at=now - timedelta(hours=2),
-        )
-        # Pump snapshot 1 hour ago already includes the old bolus's IoB
-        snapshot = PumpEvent(
-            user_id=user.id,
-            event_type=PumpEventType.CORRECTION,
-            event_timestamp=now - timedelta(hours=1),
-            units=0.5,
-            iob_at_event=3.0,  # pump's total IoB at that point
-            received_at=now - timedelta(hours=1),
-        )
-        db_session.add_all([old_bolus, snapshot])
-        await db_session.commit()
-
-        async with AsyncClient(
-            transport=ASGITransport(app=app),
-            base_url="http://test",
-        ) as client:
-            login_response = await client.post(
-                "/api/auth/login",
-                json={"email": email, "password": password},
-            )
-            session_cookie = login_response.cookies.get(settings.jwt_cookie_name)
-            response = await client.get(
-                "/api/integrations/tandem/iob/projection",
-                cookies={settings.jwt_cookie_name: session_cookie},
-            )
-
-        assert response.status_code == 200
-        data = response.json()
-
-        # pump_component: 3.0 * remaining(1h, 4h) = 3.0 * 0.9375 = 2.8125
-        # post_component: 0 (old_bolus is BEFORE snapshot, so excluded)
-        # total ≈ 2.81
-        # If double-counted, it would be 2.81 + 5.0*0.75 = 6.56 (wrong!)
-        assert data["projected_iob"] == pytest.approx(2.81, rel=0.1)
-
-    async def test_iob_dose_only_fallback(self, db_session):
-        """When no pump confirmation exists, uses pure dose summation."""
-        from src.core.security import hash_password
-        from src.models.pump_data import PumpEvent, PumpEventType
-        from src.models.user import User, UserRole
-
-        email = unique_email("iob_fallback")
-        password = "SecurePass123"
-
-        user = User(
-            email=email,
-            hashed_password=hash_password(password),
-            role=UserRole.DIABETIC,
-        )
-        db_session.add(user)
-        await db_session.commit()
-        await db_session.refresh(user)
-
-        now = datetime.now(UTC)
-
-        # Bolus with no pump IoB snapshot
-        bolus = PumpEvent(
-            user_id=user.id,
-            event_type=PumpEventType.BOLUS,
-            event_timestamp=now - timedelta(hours=1),
-            units=4.0,
-            iob_at_event=None,
-            received_at=now - timedelta(hours=1),
-        )
-        db_session.add(bolus)
-        await db_session.commit()
-
-        async with AsyncClient(
-            transport=ASGITransport(app=app),
-            base_url="http://test",
-        ) as client:
-            login_response = await client.post(
-                "/api/auth/login",
-                json={"email": email, "password": password},
-            )
-            session_cookie = login_response.cookies.get(settings.jwt_cookie_name)
-            response = await client.get(
-                "/api/integrations/tandem/iob/projection",
-                cookies={settings.jwt_cookie_name: session_cookie},
-            )
-
-        assert response.status_code == 200
-        data = response.json()
-
-        # Pure dose sum: 4.0 * remaining(1h, 4h) = 4.0 * 0.9375 = 3.75
-        assert data["projected_iob"] == pytest.approx(3.75, rel=0.1)
-        assert data["is_estimated"] is True
-        assert "estimated" in data["stale_warning"].lower()
-
-    async def test_iob_same_timestamp_not_double_counted(self, db_session):
-        """A dose at the exact same timestamp as the snapshot is not double-counted."""
-        from src.core.security import hash_password
-        from src.models.pump_data import PumpEvent, PumpEventType
-        from src.models.user import User, UserRole
-
-        email = unique_email("iob_same_ts")
-        password = "SecurePass123"
-
-        user = User(
-            email=email,
-            hashed_password=hash_password(password),
-            role=UserRole.DIABETIC,
-        )
-        db_session.add(user)
-        await db_session.commit()
-        await db_session.refresh(user)
-
-        now = datetime.now(UTC)
-        snapshot_time = now - timedelta(hours=1)
-
-        # Bolus and IoB snapshot at the exact same timestamp
-        event = PumpEvent(
-            user_id=user.id,
-            event_type=PumpEventType.BOLUS,
-            event_timestamp=snapshot_time,
-            units=5.0,
-            iob_at_event=3.0,  # pump's IoB already includes this bolus
-            received_at=snapshot_time,
-        )
-        db_session.add(event)
-        await db_session.commit()
-
-        async with AsyncClient(
-            transport=ASGITransport(app=app),
-            base_url="http://test",
-        ) as client:
-            login_response = await client.post(
-                "/api/auth/login",
-                json={"email": email, "password": password},
-            )
-            session_cookie = login_response.cookies.get(settings.jwt_cookie_name)
-            response = await client.get(
-                "/api/integrations/tandem/iob/projection",
-                cookies={settings.jwt_cookie_name: session_cookie},
-            )
-
-        assert response.status_code == 200
-        data = response.json()
-
-        # Should only be the decayed snapshot (3.0 * 0.9375 = 2.81)
-        # NOT snapshot + dose (which would be 2.81 + 5.0*0.9375 = 7.5)
-        assert data["projected_iob"] == pytest.approx(2.81, rel=0.1)
-
-    async def test_iob_fetch_excludes_non_bolus_events(self, db_session):
-        """Basal and other non-bolus events are excluded from dose summation."""
-        from src.core.security import hash_password
-        from src.models.pump_data import PumpEvent, PumpEventType
-        from src.models.user import User, UserRole
-
-        email = unique_email("iob_excl")
-        password = "SecurePass123"
-
-        user = User(
-            email=email,
-            hashed_password=hash_password(password),
-            role=UserRole.DIABETIC,
-        )
-        db_session.add(user)
-        await db_session.commit()
-        await db_session.refresh(user)
-
-        now = datetime.now(UTC)
-
-        # Pump snapshot 2 hours ago
-        snapshot = PumpEvent(
-            user_id=user.id,
-            event_type=PumpEventType.CORRECTION,
-            event_timestamp=now - timedelta(hours=2),
-            units=0.5,
-            iob_at_event=1.0,
-            received_at=now - timedelta(hours=2),
-        )
-        # Basal event after snapshot (should NOT be added to IoB)
-        basal = PumpEvent(
-            user_id=user.id,
-            event_type=PumpEventType.BASAL,
-            event_timestamp=now - timedelta(hours=1),
-            units=0.8,
-            iob_at_event=None,
-            received_at=now - timedelta(hours=1),
-        )
-        # Suspend event after snapshot (should NOT be added)
-        suspend = PumpEvent(
-            user_id=user.id,
-            event_type=PumpEventType.SUSPEND,
-            event_timestamp=now - timedelta(minutes=30),
-            units=None,
-            iob_at_event=None,
-            received_at=now - timedelta(minutes=30),
-        )
-        db_session.add_all([snapshot, basal, suspend])
-        await db_session.commit()
-
-        async with AsyncClient(
-            transport=ASGITransport(app=app),
-            base_url="http://test",
-        ) as client:
-            login_response = await client.post(
-                "/api/auth/login",
-                json={"email": email, "password": password},
-            )
-            session_cookie = login_response.cookies.get(settings.jwt_cookie_name)
-            response = await client.get(
-                "/api/integrations/tandem/iob/projection",
-                cookies={settings.jwt_cookie_name: session_cookie},
-            )
-
-        assert response.status_code == 200
-        data = response.json()
-
-        # Should only be decayed snapshot: 1.0 * remaining(2h, 4h) = 1.0 * 0.75 = 0.75
-        # Basal and suspend events should NOT contribute
-        assert data["projected_iob"] == pytest.approx(0.75, rel=0.1)
-        assert data["is_estimated"] is False
-
-
 class TestDoseEventTypePin:
     """Pin the event types the IoB engine is allowed to sum as doses.
 
@@ -757,11 +265,6 @@ class TestDoseEventTypePin:
             PumpEventType.CORRECTION,
         }
 
-    def test_future_basal_injection_type_never_summed(self):
-        """Explicit tripwire for issue #728's planned BASAL_INJECTION type."""
-        basal_injection = getattr(PumpEventType, "BASAL_INJECTION", None)
-        assert basal_injection is None or basal_injection not in _DOSE_EVENT_TYPES
-
 
 class TestAnchorVisibilityClassification:
     """Tests for the pump-anchor visibility discriminator."""
@@ -772,6 +275,17 @@ class TestAnchorVisibilityClassification:
             "glooko", {"glooko_stream": "insulins", "device_delivered": True}
         )
         assert visibility is _AnchorVisibility.NEVER
+
+    def test_insulins_marker_requires_glooko_source(self):
+        """The insulins-stream marker is only trusted on Glooko rows.
+
+        A future writer passing client-supplied metadata through must not
+        be able to flip a pump bolus into an always-counted dose.
+        """
+        visibility = _classify_anchor_visibility(
+            "mobile", {"glooko_stream": "insulins"}
+        )
+        assert visibility is _AnchorVisibility.PUMP
 
     def test_glooko_pump_stream_is_pump_visible(self):
         """Glooko pump-stream boluses are pump deliveries (anchor cut applies)."""
@@ -813,14 +327,29 @@ class TestAnchorVisibilityClassification:
             )
             assert visibility is _AnchorVisibility.PUMP, uploader
 
-    def test_nightscout_missing_metadata_is_nightscout_only(self):
-        """An NS row with no metadata cannot be proven loop-uploaded.
+    def test_nightscout_tidepool_bolus_is_pump_visible(self):
+        """Tidepool mirrors pump uploads -- treating its boluses as manual
+        would double-count them against a pump-hardware anchor."""
+        visibility = _classify_anchor_visibility(
+            "nightscout:abc123",
+            {"source_uploader": "tidepool", "bolus_subtype": "normal"},
+        )
+        assert visibility is _AnchorVisibility.PUMP
 
-        Conservative within Nightscout: without uploader attribution we
-        treat it as manual (still excluded against a Nightscout anchor).
-        """
-        visibility = _classify_anchor_visibility("nightscout:abc123", None)
-        assert visibility is _AnchorVisibility.NIGHTSCOUT_ONLY
+    def test_nightscout_missing_metadata_is_pump_visible(self):
+        """An NS row with no uploader attribution cannot be positively
+        identified as manual -- it degrades to the pre-fix anchor cut
+        (understatement) rather than risking double-counting."""
+        assert (
+            _classify_anchor_visibility("nightscout:abc123", None)
+            is _AnchorVisibility.PUMP
+        )
+        assert (
+            _classify_anchor_visibility(
+                "nightscout:abc123", {"bolus_subtype": "normal"}
+            )
+            is _AnchorVisibility.PUMP
+        )
 
 
 class TestSurvivesAnchorCut:
@@ -870,39 +399,295 @@ class TestSurvivesAnchorCut:
         assert _survives_anchor_cut(dose, self.ANCHOR_AT, True) is True
 
 
-async def _create_user(db_session, prefix: str) -> tuple:
-    """Create a user directly in the database; returns (user, email, password)."""
-    from src.core.security import hash_password
-    from src.models.user import User, UserRole
+@pytest.mark.asyncio
+class TestIoBProjectionEndpoint:
+    """Tests for the IoB projection API endpoint."""
 
-    email = unique_email(prefix)
-    password = "SecurePass123"
-    user = User(
-        email=email,
-        hashed_password=hash_password(password),
-        role=UserRole.DIABETIC,
-    )
-    db_session.add(user)
-    await db_session.commit()
-    await db_session.refresh(user)
-    return user, email, password
+    async def test_iob_projection_requires_auth(self):
+        """IoB projection endpoint requires authentication."""
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            response = await client.get("/api/integrations/tandem/iob/projection")
 
+        assert response.status_code == 401
 
-async def _fetch_projection(email: str, password: str):
-    """Login and GET the IoB projection endpoint; returns the response."""
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test",
-    ) as client:
-        login_response = await client.post(
-            "/api/auth/login",
-            json={"email": email, "password": password},
+    async def test_iob_projection_no_data(self):
+        """IoB projection returns 404 when no data available."""
+        email = unique_email("iob_no_data")
+        password = "SecurePass123"
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            await client.post(
+                "/api/auth/register",
+                json={"email": email, "password": password},
+            )
+
+        response = await _fetch_projection(email, password)
+
+        assert response.status_code == 404
+        assert "No IoB data" in response.json()["detail"]
+
+    async def test_iob_projection_with_data(self, db_session):
+        """IoB projection returns data when pump events exist."""
+        user, email, password = await _create_user(db_session, "iob_with_data")
+
+        # Create a pump event with IoB data
+        now = datetime.now(UTC)
+        pump_event = PumpEvent(
+            user_id=user.id,
+            event_type=PumpEventType.BOLUS,
+            event_timestamp=now - timedelta(minutes=30),
+            units=2.0,
+            iob_at_event=2.5,
+            received_at=now,
         )
-        session_cookie = login_response.cookies.get(settings.jwt_cookie_name)
-        return await client.get(
-            "/api/integrations/tandem/iob/projection",
-            cookies={settings.jwt_cookie_name: session_cookie},
+        db_session.add(pump_event)
+        await db_session.commit()
+
+        response = await _fetch_projection(email, password)
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data["confirmed_iob"] == 2.5
+        assert "projected_iob" in data
+        assert "projected_30min" in data
+        assert "projected_60min" in data
+        assert data["is_stale"] is False
+        assert data["stale_warning"] is None
+        assert data["is_estimated"] is False
+
+    async def test_iob_projection_stale_data(self, db_session):
+        """IoB projection shows stale warning for old data."""
+        user, email, password = await _create_user(db_session, "iob_stale")
+
+        # Create a pump event with IoB data from 3 hours ago
+        now = datetime.now(UTC)
+        pump_event = PumpEvent(
+            user_id=user.id,
+            event_type=PumpEventType.BOLUS,
+            event_timestamp=now - timedelta(hours=3),
+            units=2.0,
+            iob_at_event=2.5,
+            received_at=now - timedelta(hours=3),
         )
+        db_session.add(pump_event)
+        await db_session.commit()
+
+        response = await _fetch_projection(email, password)
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data["is_stale"] is True
+        assert data["stale_warning"] is not None
+        assert "unreliable" in data["stale_warning"].lower()
+
+    async def test_iob_projection_decay_over_time(self, db_session):
+        """IoB projection correctly applies decay curve."""
+        user, email, password = await _create_user(db_session, "iob_decay")
+
+        # Create a pump event with IoB data from 2 hours ago
+        now = datetime.now(UTC)
+        pump_event = PumpEvent(
+            user_id=user.id,
+            event_type=PumpEventType.BOLUS,
+            event_timestamp=now - timedelta(hours=2),
+            units=2.0,
+            iob_at_event=4.0,
+            received_at=now - timedelta(hours=2),
+        )
+        db_session.add(pump_event)
+        await db_session.commit()
+
+        response = await _fetch_projection(email, password)
+        assert response.status_code == 200
+
+        data = response.json()
+        # After 2 hours, ~75% should remain (4.0 * 0.75 = 3.0)
+        assert data["projected_iob"] == pytest.approx(3.0, rel=0.1)
+        # 30 min ahead should be less
+        assert data["projected_30min"] < data["projected_iob"]
+        # 60 min ahead should be even less
+        assert data["projected_60min"] < data["projected_30min"]
+
+    async def test_iob_includes_post_confirmation_bolus(self, db_session):
+        """Boluses delivered after the pump's IoB snapshot increase IoB."""
+        user, email, password = await _create_user(db_session, "iob_hybrid")
+
+        now = datetime.now(UTC)
+
+        # Pump-confirmed IoB snapshot: 2.0u at 1 hour ago
+        snapshot_event = PumpEvent(
+            user_id=user.id,
+            event_type=PumpEventType.CORRECTION,
+            event_timestamp=now - timedelta(hours=1),
+            units=0.5,
+            iob_at_event=2.0,
+            received_at=now - timedelta(hours=1),
+        )
+        # A 3.0u bolus delivered 30 minutes AFTER the snapshot
+        post_bolus = PumpEvent(
+            user_id=user.id,
+            event_type=PumpEventType.BOLUS,
+            event_timestamp=now - timedelta(minutes=30),
+            units=3.0,
+            iob_at_event=None,
+            received_at=now - timedelta(minutes=30),
+        )
+        db_session.add_all([snapshot_event, post_bolus])
+        await db_session.commit()
+
+        response = await _fetch_projection(email, password)
+        assert response.status_code == 200
+        data = response.json()
+
+        # pump_component: 2.0 * remaining(1h, 4h) = 2.0 * 0.9375 = 1.875
+        # post_component: 3.0 * remaining(0.5h, 4h) = 3.0 * 0.984375 = 2.953
+        # total ≈ 4.83
+        # Without the fix, this would just be 1.875 (ignoring the 3.0u bolus)
+        assert data["projected_iob"] > 4.0
+        assert data["projected_iob"] == pytest.approx(4.83, rel=0.1)
+        assert data["confirmed_iob"] == 2.0
+
+    async def test_iob_no_double_counting(self, db_session):
+        """Doses before the pump confirmation are NOT double-counted."""
+        user, email, password = await _create_user(db_session, "iob_nodup")
+
+        now = datetime.now(UTC)
+
+        # A bolus from 2 hours ago (units=5.0)
+        old_bolus = PumpEvent(
+            user_id=user.id,
+            event_type=PumpEventType.BOLUS,
+            event_timestamp=now - timedelta(hours=2),
+            units=5.0,
+            iob_at_event=None,
+            received_at=now - timedelta(hours=2),
+        )
+        # Pump snapshot 1 hour ago already includes the old bolus's IoB
+        snapshot = PumpEvent(
+            user_id=user.id,
+            event_type=PumpEventType.CORRECTION,
+            event_timestamp=now - timedelta(hours=1),
+            units=0.5,
+            iob_at_event=3.0,  # pump's total IoB at that point
+            received_at=now - timedelta(hours=1),
+        )
+        db_session.add_all([old_bolus, snapshot])
+        await db_session.commit()
+
+        response = await _fetch_projection(email, password)
+        assert response.status_code == 200
+        data = response.json()
+
+        # pump_component: 3.0 * remaining(1h, 4h) = 3.0 * 0.9375 = 2.8125
+        # post_component: 0 (old_bolus is BEFORE snapshot, so excluded)
+        # total ≈ 2.81
+        # If double-counted, it would be 2.81 + 5.0*0.75 = 6.56 (wrong!)
+        assert data["projected_iob"] == pytest.approx(2.81, rel=0.1)
+
+    async def test_iob_dose_only_fallback(self, db_session):
+        """When no pump confirmation exists, uses pure dose summation."""
+        user, email, password = await _create_user(db_session, "iob_fallback")
+
+        now = datetime.now(UTC)
+
+        # Bolus with no pump IoB snapshot
+        bolus = PumpEvent(
+            user_id=user.id,
+            event_type=PumpEventType.BOLUS,
+            event_timestamp=now - timedelta(hours=1),
+            units=4.0,
+            iob_at_event=None,
+            received_at=now - timedelta(hours=1),
+        )
+        db_session.add(bolus)
+        await db_session.commit()
+
+        response = await _fetch_projection(email, password)
+        assert response.status_code == 200
+        data = response.json()
+
+        # Pure dose sum: 4.0 * remaining(1h, 4h) = 4.0 * 0.9375 = 3.75
+        assert data["projected_iob"] == pytest.approx(3.75, rel=0.1)
+        assert data["is_estimated"] is True
+        assert "estimated" in data["stale_warning"].lower()
+
+    async def test_iob_same_timestamp_not_double_counted(self, db_session):
+        """A dose at the exact same timestamp as the snapshot is not double-counted."""
+        user, email, password = await _create_user(db_session, "iob_same_ts")
+
+        now = datetime.now(UTC)
+        snapshot_time = now - timedelta(hours=1)
+
+        # Bolus and IoB snapshot at the exact same timestamp
+        event = PumpEvent(
+            user_id=user.id,
+            event_type=PumpEventType.BOLUS,
+            event_timestamp=snapshot_time,
+            units=5.0,
+            iob_at_event=3.0,  # pump's IoB already includes this bolus
+            received_at=snapshot_time,
+        )
+        db_session.add(event)
+        await db_session.commit()
+
+        response = await _fetch_projection(email, password)
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should only be the decayed snapshot (3.0 * 0.9375 = 2.81)
+        # NOT snapshot + dose (which would be 2.81 + 5.0*0.9375 = 7.5)
+        assert data["projected_iob"] == pytest.approx(2.81, rel=0.1)
+
+    async def test_iob_fetch_excludes_non_bolus_events(self, db_session):
+        """Basal and other non-bolus events are excluded from dose summation."""
+        user, email, password = await _create_user(db_session, "iob_excl")
+
+        now = datetime.now(UTC)
+
+        # Pump snapshot 2 hours ago
+        snapshot = PumpEvent(
+            user_id=user.id,
+            event_type=PumpEventType.CORRECTION,
+            event_timestamp=now - timedelta(hours=2),
+            units=0.5,
+            iob_at_event=1.0,
+            received_at=now - timedelta(hours=2),
+        )
+        # Basal event after snapshot (should NOT be added to IoB)
+        basal = PumpEvent(
+            user_id=user.id,
+            event_type=PumpEventType.BASAL,
+            event_timestamp=now - timedelta(hours=1),
+            units=0.8,
+            iob_at_event=None,
+            received_at=now - timedelta(hours=1),
+        )
+        # Suspend event after snapshot (should NOT be added)
+        suspend = PumpEvent(
+            user_id=user.id,
+            event_type=PumpEventType.SUSPEND,
+            event_timestamp=now - timedelta(minutes=30),
+            units=None,
+            iob_at_event=None,
+            received_at=now - timedelta(minutes=30),
+        )
+        db_session.add_all([snapshot, basal, suspend])
+        await db_session.commit()
+
+        response = await _fetch_projection(email, password)
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should only be decayed snapshot: 1.0 * remaining(2h, 4h) = 1.0 * 0.75 = 0.75
+        # Basal and suspend events should NOT contribute
+        assert data["projected_iob"] == pytest.approx(0.75, rel=0.1)
+        assert data["is_estimated"] is False
 
 
 @pytest.mark.asyncio
@@ -922,8 +707,6 @@ class TestNonPumpDoseProjection:
         anchor, the pen dose predates it. Pre-fix the pen dose contributed
         zero; post-fix it decays independently and adds on top.
         """
-        from src.models.pump_data import PumpEvent, PumpEventType
-
         user, email, password = await _create_user(db_session, "iob_pen_before")
         now = datetime.now(UTC)
 
@@ -935,7 +718,7 @@ class TestNonPumpDoseProjection:
             iob_at_event=2.0,
             received_at=now,
             source="glooko",
-            ns_id=_unique_ns_id("glooko-pump-bolus-1"),
+            ns_id=_unique_ns_id("glooko-pump-bolus"),
         )
         pen_dose = PumpEvent(
             user_id=user.id,
@@ -945,7 +728,7 @@ class TestNonPumpDoseProjection:
             iob_at_event=None,
             received_at=now,
             source="glooko",
-            ns_id=_unique_ns_id("glooko-pen-dose-1"),
+            ns_id=_unique_ns_id("glooko-pen-dose"),
             metadata_json={"glooko_stream": "insulins", "device_delivered": True},
         )
         db_session.add_all([anchor_bolus, pen_dose])
@@ -963,8 +746,6 @@ class TestNonPumpDoseProjection:
     async def test_pen_dose_exactly_at_anchor_counts(self, db_session):
         """A pen dose at the exact anchor timestamp still counts -- the
         anchor cannot include it no matter the timing."""
-        from src.models.pump_data import PumpEvent, PumpEventType
-
         user, email, password = await _create_user(db_session, "iob_pen_at")
         now = datetime.now(UTC)
         anchor_time = now - timedelta(hours=1)
@@ -986,7 +767,7 @@ class TestNonPumpDoseProjection:
             iob_at_event=None,
             received_at=now,
             source="glooko",
-            ns_id=_unique_ns_id("glooko-pen-dose-2"),
+            ns_id=_unique_ns_id("glooko-pen-dose"),
             metadata_json={"glooko_stream": "insulins", "device_delivered": True},
         )
         db_session.add_all([anchor, pen_dose])
@@ -1001,8 +782,6 @@ class TestNonPumpDoseProjection:
 
     async def test_pen_dose_older_than_dia_contributes_zero(self, db_session):
         """A pen dose beyond the DIA window is fully decayed -- no effect."""
-        from src.models.pump_data import PumpEvent, PumpEventType
-
         user, email, password = await _create_user(db_session, "iob_pen_old")
         now = datetime.now(UTC)
 
@@ -1023,7 +802,7 @@ class TestNonPumpDoseProjection:
             iob_at_event=None,
             received_at=now,
             source="glooko",
-            ns_id=_unique_ns_id("glooko-pen-dose-3"),
+            ns_id=_unique_ns_id("glooko-pen-dose"),
             metadata_json={"glooko_stream": "insulins", "device_delivered": True},
         )
         db_session.add_all([anchor, stale_pen_dose])
@@ -1040,8 +819,6 @@ class TestNonPumpDoseProjection:
         """DOUBLE-COUNT REGRESSION: a Glooko PUMP-stream bolus before the
         anchor is already inside the pump's IoB snapshot and must stay cut.
         Only the `insulins` stream is anchor-blind."""
-        from src.models.pump_data import PumpEvent, PumpEventType
-
         user, email, password = await _create_user(db_session, "iob_nodup_glooko")
         now = datetime.now(UTC)
 
@@ -1053,7 +830,7 @@ class TestNonPumpDoseProjection:
             iob_at_event=None,
             received_at=now,
             source="glooko",
-            ns_id=_unique_ns_id("glooko-pump-bolus-2"),
+            ns_id=_unique_ns_id("glooko-pump-bolus"),
         )
         anchor_bolus = PumpEvent(
             user_id=user.id,
@@ -1063,7 +840,7 @@ class TestNonPumpDoseProjection:
             iob_at_event=3.0,  # pump total -- already includes the 5.0u bolus
             received_at=now,
             source="glooko",
-            ns_id=_unique_ns_id("glooko-pump-bolus-3"),
+            ns_id=_unique_ns_id("glooko-pump-bolus"),
         )
         db_session.add_all([old_pump_bolus, anchor_bolus])
         await db_session.commit()
@@ -1079,8 +856,6 @@ class TestNonPumpDoseProjection:
     async def test_pen_dose_after_anchor_counted_once(self, db_session):
         """A pen dose after the anchor passes both the timestamp rule and
         the anchor-blind rule -- it must still be summed exactly once."""
-        from src.models.pump_data import PumpEvent, PumpEventType
-
         user, email, password = await _create_user(db_session, "iob_pen_once")
         now = datetime.now(UTC)
 
@@ -1101,7 +876,7 @@ class TestNonPumpDoseProjection:
             iob_at_event=None,
             received_at=now,
             source="glooko",
-            ns_id=_unique_ns_id("glooko-pen-dose-4"),
+            ns_id=_unique_ns_id("glooko-pen-dose"),
             metadata_json={"glooko_stream": "insulins", "device_delivered": True},
         )
         db_session.add_all([anchor, pen_dose])
@@ -1117,8 +892,6 @@ class TestNonPumpDoseProjection:
 
     async def test_ns_manual_dose_with_pump_anchor_counts(self, db_session):
         """A Care Portal manual entry is invisible to a pump-hardware anchor."""
-        from src.models.pump_data import PumpEvent, PumpEventType
-
         user, email, password = await _create_user(db_session, "iob_ns_manual")
         now = datetime.now(UTC)
 
@@ -1139,7 +912,7 @@ class TestNonPumpDoseProjection:
             iob_at_event=None,
             received_at=now,
             source="nightscout:11111111-1111-1111-1111-111111111111",
-            ns_id=_unique_ns_id("ns-careportal-1"),
+            ns_id=_unique_ns_id("ns-careportal"),
             metadata_json={"source_uploader": "unknown", "bolus_subtype": "normal"},
         )
         db_session.add_all([anchor, careportal_dose])
@@ -1157,8 +930,6 @@ class TestNonPumpDoseProjection:
         devicestatus IoB), NS manual entries keep the anchor cut -- AAPS
         NS-sync can import them into the loop's own IoB, so adding them
         here would risk double-counting."""
-        from src.models.pump_data import PumpEvent, PumpEventType
-
         user, email, password = await _create_user(db_session, "iob_ns_anchor")
         now = datetime.now(UTC)
         ns_source = "nightscout:22222222-2222-2222-2222-222222222222"
@@ -1171,7 +942,7 @@ class TestNonPumpDoseProjection:
             iob_at_event=2.5,
             received_at=now,
             source=ns_source,
-            ns_id=_unique_ns_id("ns-devicestatus-1"),
+            ns_id=_unique_ns_id("ns-devicestatus"),
         )
         careportal_dose = PumpEvent(
             user_id=user.id,
@@ -1181,7 +952,7 @@ class TestNonPumpDoseProjection:
             iob_at_event=None,
             received_at=now,
             source=ns_source,
-            ns_id=_unique_ns_id("ns-careportal-2"),
+            ns_id=_unique_ns_id("ns-careportal"),
             metadata_json={"source_uploader": "unknown", "bolus_subtype": "normal"},
         )
         db_session.add_all([ns_anchor, careportal_dose])
@@ -1197,8 +968,6 @@ class TestNonPumpDoseProjection:
     async def test_ns_loop_bolus_before_pump_anchor_excluded(self, db_session):
         """A loop-uploaded NS bolus records a pump delivery -- it is inside
         the pump's IoB snapshot and must stay behind the anchor cut."""
-        from src.models.pump_data import PumpEvent, PumpEventType
-
         user, email, password = await _create_user(db_session, "iob_ns_loop")
         now = datetime.now(UTC)
 
@@ -1219,7 +988,7 @@ class TestNonPumpDoseProjection:
             iob_at_event=None,
             received_at=now,
             source="nightscout:33333333-3333-3333-3333-333333333333",
-            ns_id=_unique_ns_id("ns-loop-bolus-1"),
+            ns_id=_unique_ns_id("ns-loop-bolus"),
             metadata_json={"source_uploader": "loop", "bolus_subtype": "normal"},
         )
         db_session.add_all([anchor, loop_bolus])
@@ -1232,10 +1001,55 @@ class TestNonPumpDoseProjection:
         # Anchor only: 2.0 * remaining(0.5h) = 1.96875
         assert data["projected_iob"] == pytest.approx(1.97, rel=0.05)
 
+    async def test_ns_backfilled_bolus_is_not_the_anchor(self, db_session):
+        """An NS bolus whose iob_at_event was backfilled from an older
+        devicestatus snapshot must not anchor the projection: its IoB
+        value predates its own timestamp. The devicestatus-derived
+        BATTERY row anchors instead, and the bolus -- now after that
+        anchor -- contributes via the timestamp rule."""
+        user, email, password = await _create_user(db_session, "iob_ns_backfill")
+        now = datetime.now(UTC)
+        ns_source = "nightscout:44444444-4444-4444-4444-444444444444"
+
+        battery_anchor = PumpEvent(
+            user_id=user.id,
+            event_type=PumpEventType.BATTERY,
+            event_timestamp=now - timedelta(minutes=40),
+            units=None,
+            iob_at_event=1.0,
+            received_at=now,
+            source=ns_source,
+            ns_id=_unique_ns_id("ns-devicestatus"),
+        )
+        # Newest row with iob_at_event -- but it's a backfilled bolus
+        # (translator copied 1.0 from the 40-min-old devicestatus).
+        backfilled_bolus = PumpEvent(
+            user_id=user.id,
+            event_type=PumpEventType.BOLUS,
+            event_timestamp=now - timedelta(minutes=30),
+            units=2.0,
+            iob_at_event=1.0,
+            received_at=now,
+            source=ns_source,
+            ns_id=_unique_ns_id("ns-careportal"),
+            metadata_json={"source_uploader": "unknown", "bolus_subtype": "normal"},
+        )
+        db_session.add_all([battery_anchor, backfilled_bolus])
+        await db_session.commit()
+
+        response = await _fetch_projection(email, password)
+        assert response.status_code == 200
+        data = response.json()
+
+        # Anchor = BATTERY row: 1.0 * remaining(40min) = 0.9722
+        # Bolus is AFTER that anchor: 2.0 * remaining(30min) = 1.96875
+        # Anchoring on the backfilled bolus instead would yield only
+        # 1.0 * remaining(30min) = 0.984 (the bolus cut against itself).
+        assert data["confirmed_iob"] == 1.0
+        assert data["projected_iob"] == pytest.approx(2.94, rel=0.05)
+
     async def test_pen_only_user_unaffected(self, db_session):
         """Pen-only users (no anchor) keep the honest is_estimated path."""
-        from src.models.pump_data import PumpEvent, PumpEventType
-
         user, email, password = await _create_user(db_session, "iob_pen_only")
         now = datetime.now(UTC)
 
@@ -1247,7 +1061,7 @@ class TestNonPumpDoseProjection:
             iob_at_event=None,
             received_at=now,
             source="glooko",
-            ns_id=_unique_ns_id("glooko-pen-dose-5"),
+            ns_id=_unique_ns_id("glooko-pen-dose"),
             metadata_json={"glooko_stream": "insulins", "device_delivered": True},
         )
         db_session.add(pen_dose)

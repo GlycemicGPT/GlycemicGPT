@@ -40,6 +40,7 @@ from src.models.integration import (
     IntegrationType,
 )
 from src.models.nightscout_connection import NightscoutConnection
+from src.services.integrations.nightscout.models import NIGHTSCOUT_SOURCE_PREFIX
 
 CGM_ROLE_PRIMARY = "primary"
 CGM_ROLE_SECONDARY = "secondary"
@@ -50,7 +51,6 @@ CGM_ROLE_SECONDARY = "secondary"
 CGM_ROLE_OFF = "off"
 
 DEXCOM_SOURCE = "dexcom"
-_NS_SOURCE_PREFIX = "nightscout:"
 
 
 def nightscout_source(connection_id: uuid.UUID | str) -> str:
@@ -60,7 +60,7 @@ def nightscout_source(connection_id: uuid.UUID | str) -> str:
     keeps the two in sync so the dedupe filter never silently stops
     matching real rows if the format changes.
     """
-    return f"{_NS_SOURCE_PREFIX}{connection_id}"
+    return f"{NIGHTSCOUT_SOURCE_PREFIX}{connection_id}"
 
 
 def glucose_source_exclusion_clause(excluded: list[str] | None) -> list:

@@ -12,10 +12,15 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import desc, select
+from sqlalchemy import desc, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.pump_data import PumpEvent, PumpEventType
+from src.services.integrations.glooko.mapper import SOURCE as GLOOKO_SOURCE
+from src.services.integrations.nightscout.models import (
+    LOOP_UPLOADERS,
+    NIGHTSCOUT_SOURCE_PREFIX,
+)
 
 
 async def get_user_dia(db: AsyncSession, user_id: uuid.UUID) -> float:
@@ -67,25 +72,24 @@ class IoBProjection:
 INSULIN_DIA_HOURS = 4.0  # Duration of Insulin Action
 INSULIN_PEAK_HOURS = 1.0  # Time to peak activity
 
-# The ONLY event types this engine sums as insulin doses. Pinned by test
-# (`TestDoseEventTypePin`): basal-family types must never enter dose
-# summation -- BASAL is already captured in the pump's IoB snapshot, and a
-# future long-acting type (e.g. BASAL_INJECTION, issue #728) follows a
-# multi-hour absorption profile this rapid-acting decay curve would badly
-# misrepresent. Add new types here only together with a matching curve.
+# The ONLY event types this engine sums as insulin doses (test-pinned).
+# Basal-family types must never enter dose summation -- BASAL is already
+# captured in the pump's IoB snapshot, and a future long-acting type
+# (e.g. BASAL_INJECTION, issue #728) follows a multi-hour absorption
+# profile this rapid-acting decay curve would badly misrepresent. Add new
+# types here only together with a matching curve.
 _DOSE_EVENT_TYPES: tuple[PumpEventType, ...] = (
     PumpEventType.BOLUS,
     PumpEventType.CORRECTION,
 )
 
-# Nightscout-sourced rows carry `source = "nightscout:<connection_id>"`.
-_NIGHTSCOUT_SOURCE_PREFIX = "nightscout:"
-
-# Closed-loop uploaders whose Nightscout BOLUS/CORRECTION treatments record
-# insulin the loop's pump actually delivered. Anything else writing a bolus
-# treatment (Care Portal UI, xDrip+/Spike/Tidepool manual logs, unknown) is
-# a human logging insulin by hand.
-_NS_LOOP_UPLOADERS = frozenset({"loop", "aaps", "trio", "oref0"})
+# Nightscout uploaders whose BOLUS/CORRECTION treatments record insulin a
+# device actually delivered (and which a pump IoB anchor therefore already
+# reflects): the closed loops, plus Tidepool, which mirrors pump uploads
+# rather than logging by hand. Anything else writing a bolus treatment
+# (Care Portal UI, xDrip+/xDrip4iOS/Spike, unrecognized) is a human
+# logging insulin manually.
+_NS_PUMP_VISIBLE_UPLOADERS = frozenset(LOOP_UPLOADERS) | {"tidepool"}
 
 
 class _AnchorVisibility(enum.Enum):
@@ -96,12 +100,19 @@ class _AnchorVisibility(enum.Enum):
     assumption only holds for insulin the anchor's writer knew about:
 
     - PUMP: pump-delivered insulin (direct integrations, Glooko/Medtronic
-      pump streams, loop-uploaded Nightscout boluses). Reflected in every
-      IoB anchor for that pump -- the anchor-timestamp cut applies.
+      pump streams, loop- or Tidepool-uploaded Nightscout boluses).
+      Reflected in every IoB anchor for that pump -- the anchor-timestamp
+      cut applies.
     - NEVER: Glooko ``insulins``-stream rows (smart-pen doses + manual
       Glooko logs). No anchor writer can see these: pump hardware only
       knows its own deliveries, and Nightscout loops have no Glooko link.
-      They must survive the cut regardless of anchor age.
+      They must survive the cut regardless of anchor age. Known residual:
+      a user who hand-logs the same pen dose into their loop app AND syncs
+      the pen via Glooko has created a genuine upstream duplicate; the
+      loop copy is inside the Nightscout anchor while the Glooko copy
+      counts here. That is a data-entry duplication this engine cannot
+      distinguish from two real doses (the source-blind treatment-safety
+      totals double it the same way).
     - NIGHTSCOUT_ONLY: manually-recorded Nightscout treatments (External
       Insulin, Care Portal / non-loop-uploader boluses). Invisible to pump
       hardware anchors, but possibly visible to a Nightscout-derived anchor:
@@ -110,7 +121,12 @@ class _AnchorVisibility(enum.Enum):
       the anchor is NOT Nightscout-derived; against a Nightscout anchor we
       conservatively keep the cut, because double-counting (overstated IoB,
       withheld corrections) is the failure mode that would make this
-      classification dangerous if wrong.
+      classification dangerous if wrong. Known limitation: a Loop user's
+      Care Portal entries are NOT actually imported by Loop, so for an
+      NS-only Loop user those doses still fall to the cut (pre-fix
+      behavior); distinguishing Loop from AAPS anchors needs uploader
+      attribution on devicestatus-derived anchor rows, which they don't
+      carry today.
     """
 
     PUMP = "pump"
@@ -132,18 +148,23 @@ def _classify_anchor_visibility(
 ) -> _AnchorVisibility:
     """Classify a dose row by which IoB anchors could already include it.
 
-    Conservative by construction: anything not positively identified as a
-    non-pump dose is treated as pump-delivered (subject to the anchor cut),
-    so an unexpected source/metadata shape degrades to the pre-fix behavior
-    (possible understatement) rather than risking double-counting.
+    Conservative by construction: a row is only treated as non-pump on a
+    positive marker its writer is known to set -- the Glooko ``insulins``
+    stream tag, or a Nightscout row whose recorded uploader is a non-device
+    one (Care Portal usernames detect as "unknown") / whose bolus subtype
+    is External Insulin. Anything else -- unexpected sources, absent
+    metadata, absent uploader attribution -- is treated as pump-delivered,
+    degrading to the pre-fix behavior (possible understatement) rather
+    than risking double-counting (overstated IoB, withheld corrections).
     """
     metadata = metadata_json or {}
-    if metadata.get("glooko_stream") == "insulins":
+    if source == GLOOKO_SOURCE and metadata.get("glooko_stream") == "insulins":
         return _AnchorVisibility.NEVER
-    if source.startswith(_NIGHTSCOUT_SOURCE_PREFIX):
+    if source.startswith(NIGHTSCOUT_SOURCE_PREFIX):
         if metadata.get("bolus_subtype") == "external":
             return _AnchorVisibility.NIGHTSCOUT_ONLY
-        if metadata.get("source_uploader") not in _NS_LOOP_UPLOADERS:
+        uploader = metadata.get("source_uploader")
+        if uploader is not None and uploader not in _NS_PUMP_VISIBLE_UPLOADERS:
             return _AnchorVisibility.NIGHTSCOUT_ONLY
     return _AnchorVisibility.PUMP
 
@@ -155,9 +176,12 @@ def _survives_anchor_cut(
 
     Doses after the anchor always count (the anchor predates them). At or
     before the anchor, only doses the anchor's writer could not have known
-    about count -- see `_AnchorVisibility`. Exactly-at-anchor pump doses are
-    excluded (the snapshot is assumed to include them; pinned by
-    `test_iob_same_timestamp_not_double_counted`).
+    about count -- see `_AnchorVisibility`. Exactly-at-anchor pump doses
+    are excluded: the snapshot is assumed to include them (test-pinned).
+    For Glooko bolus rows, whose `insulinOnBoard` may be the bolus
+    calculator's pre-delivery reading, that assumption is unverified
+    against live capture -- excluding remains the conservative choice
+    (understatement, never double-count).
     """
     if dose.timestamp > anchor_at:
         return True
@@ -273,12 +297,35 @@ def project_iob(
     return confirmed_iob * remaining_fraction
 
 
+@dataclass(frozen=True)
+class IobAnchor:
+    """The most recent pump-confirmed IoB snapshot for a user.
+
+    `source` is the anchor row's integration source -- needed to decide
+    which non-pump doses the anchor could already include (see
+    `_AnchorVisibility`).
+    """
+
+    iob: float
+    at: datetime
+    source: str
+
+
 async def get_last_iob(
     db: AsyncSession,
     user_id: uuid.UUID,
     max_hours: float | None = None,
-) -> tuple[float | None, datetime | None, str | None]:
+) -> IobAnchor | None:
     """Get the most recent IoB value for a user.
+
+    Nightscout-sourced BOLUS/CORRECTION rows are excluded from anchor
+    candidacy: loops post bolus treatments WITHOUT in-band IoB, so any
+    `iob_at_event` on those rows was backfilled by the translator from a
+    devicestatus snapshot up to 15 minutes older than the bolus
+    (`_backfill_bolus_context`). Anchoring on one would start the decay
+    clock at the bolus timestamp with a pre-bolus IoB value AND cut the
+    bolus itself. The devicestatus-derived BATTERY rows -- whose IoB and
+    timestamp genuinely belong together -- remain the Nightscout anchor.
 
     Args:
         db: Database session
@@ -287,10 +334,7 @@ async def get_last_iob(
                    Defaults to the user's configured DIA (up to 8h).
 
     Returns:
-        Tuple of (iob_value, timestamp, source) or (None, None, None)
-        if no data. `source` is the anchor row's integration source --
-        needed to decide which non-pump doses the anchor could already
-        include (see `_AnchorVisibility`).
+        The newest qualifying anchor, or None if no data.
     """
     if max_hours is None:
         max_hours = await get_user_dia(db, user_id)
@@ -302,15 +346,22 @@ async def get_last_iob(
             PumpEvent.user_id == user_id,
             PumpEvent.iob_at_event.isnot(None),
             PumpEvent.event_timestamp >= cutoff,
+            or_(
+                ~PumpEvent.source.startswith(NIGHTSCOUT_SOURCE_PREFIX),
+                PumpEvent.event_type.notin_(_DOSE_EVENT_TYPES),
+            ),
         )
-        .order_by(desc(PumpEvent.event_timestamp))
+        # `id` tiebreak so two rows at the same second (e.g. a tandem
+        # BG_READING and an NS BATTERY) anchor deterministically across
+        # calls instead of flipping value and source classification.
+        .order_by(desc(PumpEvent.event_timestamp), desc(PumpEvent.id))
         .limit(1)
     )
 
     row = result.first()
     if row:
-        return row[0], row[1], row[2]
-    return None, None, None
+        return IobAnchor(iob=row[0], at=row[1], source=row[2])
+    return None
 
 
 async def _fetch_insulin_doses(
@@ -406,38 +457,33 @@ async def get_iob_projection(
     now = datetime.now(UTC)
 
     # Step 1: Get last pump-confirmed IoB (any age within DIA window)
-    last_confirmed_iob, last_confirmed_at, anchor_source = await get_last_iob(
-        db, user_id, max_hours=dia_hours
-    )
+    anchor = await get_last_iob(db, user_id, max_hours=dia_hours)
 
     # Step 2: Fetch all bolus/correction doses within DIA window
     all_doses = await _fetch_insulin_doses(db, user_id, dia_hours, now)
 
     # No data at all
-    if last_confirmed_iob is None and not all_doses:
+    if anchor is None and not all_doses:
         return None
 
     # Step 3: Keep the doses the anchor cannot already include
     # (post-anchor doses + anchor-blind non-pump doses)
-    if last_confirmed_at is not None:
-        anchor_is_nightscout = (anchor_source or "").startswith(
-            _NIGHTSCOUT_SOURCE_PREFIX
-        )
-        counted_doses = [
-            (d.timestamp, d.units)
+    if anchor is not None:
+        anchor_is_nightscout = anchor.source.startswith(NIGHTSCOUT_SOURCE_PREFIX)
+        kept_doses = [
+            d
             for d in all_doses
-            if _survives_anchor_cut(d, last_confirmed_at, anchor_is_nightscout)
+            if _survives_anchor_cut(d, anchor.at, anchor_is_nightscout)
         ]
     else:
-        counted_doses = [(d.timestamp, d.units) for d in all_doses]
+        kept_doses = all_doses
+    counted_doses = [(d.timestamp, d.units) for d in kept_doses]
 
     # Step 4: Compute IoB at now, +30min, +60min
     def _compute_at(at_time: datetime) -> float:
         pump_component = 0.0
-        if last_confirmed_iob is not None and last_confirmed_at is not None:
-            pump_component = project_iob(
-                last_confirmed_iob, last_confirmed_at, at_time, dia_hours
-            )
+        if anchor is not None:
+            pump_component = project_iob(anchor.iob, anchor.at, at_time, dia_hours)
         dose_component = _sum_iob_from_doses(counted_doses, at_time, dia_hours)
         return max(0.0, pump_component + dose_component)
 
@@ -446,10 +492,13 @@ async def get_iob_projection(
     iob_60 = _compute_at(now + timedelta(minutes=60))
 
     # Step 5: Determine if this is a fallback (no pump confirmation)
-    is_estimated = last_confirmed_at is None
+    is_estimated = anchor is None
     if is_estimated:
         last_confirmed_iob = round(current_iob, 2)
         last_confirmed_at = now
+    else:
+        last_confirmed_iob = anchor.iob
+        last_confirmed_at = anchor.at
 
     # Step 6: Staleness check (based on last pump confirmation)
     elapsed_since = now - last_confirmed_at

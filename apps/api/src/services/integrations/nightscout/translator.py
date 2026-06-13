@@ -93,6 +93,7 @@ from src.services.integrations.nightscout._pump_status_extractor import (
     fetch_initial_last_state,
 )
 from src.services.integrations.nightscout.models import (
+    NIGHTSCOUT_SOURCE_PREFIX,
     NightscoutDeviceStatus,
     NightscoutEntry,
     NightscoutProfile,
@@ -135,7 +136,7 @@ class TranslateOutcome:
 
 def _build_source(connection_id: str) -> str:
     """Build the `source` column value for this connection."""
-    return f"nightscout:{connection_id}"
+    return f"{NIGHTSCOUT_SOURCE_PREFIX}{connection_id}"
 
 
 # ---------------------------------------------------------------------------
@@ -355,7 +356,7 @@ async def translate_devicestatuses(
         parsed,
         key=lambda ds: ds.created_at or _NULL_CREATED_AT_SENTINEL,
     )
-    source = f"nightscout:{connection_id}"
+    source = _build_source(connection_id)
     # Wrap pump-event promotion in a SAVEPOINT so a DB-level error
     # here (constraint violation, connection hiccup, schema drift)
     # rolls back ONLY the pump-events work. Without the savepoint,

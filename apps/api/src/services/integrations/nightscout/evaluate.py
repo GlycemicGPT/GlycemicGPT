@@ -30,7 +30,7 @@ from src.schemas.nightscout import (
 
 from .client import NightscoutClient
 from .connection_test import test_connection
-from .models import NightscoutProfile, detect_uploader
+from .models import LOOP_UPLOADERS, NightscoutProfile, detect_uploader
 
 logger = get_logger(__name__)
 
@@ -44,11 +44,6 @@ _ENTRIES_RECENT_PROBE_COUNT = 2500
 _ENTRIES_OLDEST_PROBE_COUNT = 1000  # for earliest_entry_at lookup
 _TREATMENTS_PROBE_COUNT = 200
 _DEVICESTATUS_PROBE_COUNT = 50
-# Closed-loop labels we surface as `active_pump_loop`. Order is
-# preference -- if multiple are present in the uploader sample, the
-# first match wins. Anchors on the "real" loops; xdrip+ / xdrip4ios
-# are CGM uploaders, not loops, and stay out of this list.
-_LOOP_UPLOADERS = ("loop", "aaps", "trio", "oref0")
 
 
 async def evaluate_nightscout_for_connection(
@@ -208,7 +203,7 @@ async def evaluate_nightscout_for_connection(
 
     uploaders_detected = _detect_uploaders(recent_entries, treatments, devicestatuses)
     active_pump_loop = next(
-        (u for u in _LOOP_UPLOADERS if u in uploaders_detected), None
+        (u for u in LOOP_UPLOADERS if u in uploaders_detected), None
     )
 
     has_profile, profile_summary = _summarize_profile(profile_records)
