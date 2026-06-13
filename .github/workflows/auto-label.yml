@@ -116,8 +116,16 @@ jobs:
               if (typeLabels[commitType]) {
                 labelsToAdd.add(typeLabels[commitType]);
               }
-              // Breaking change detection
-              if (prTitle.includes('!:') || prBody.toLowerCase().includes('breaking change')) {
+              // Breaking change detection: a `!:` title marker (e.g. `feat!:`)
+              // or a Conventional Commits `BREAKING CHANGE:` footer in the body.
+              // A *checked* "Breaking change" template checkbox is handled
+              // separately below. We deliberately avoid a loose
+              // `includes('breaking change')` -- the PR template's own descriptor
+              // text ("non-breaking change which fixes an issue") would
+              // false-positive on every templated PR (it mislabelled #725/#726).
+              // The `(^|\n)\s*` anchor keeps "non-breaking change" from matching.
+              const breakingFooter = /(^|\n)\s*BREAKING[ \-]CHANGE:/i.test(prBody);
+              if (prTitle.includes('!:') || breakingFooter) {
                 labelsToAdd.add('breaking-change');
               }
             }
