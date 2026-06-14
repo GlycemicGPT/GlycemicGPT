@@ -4,6 +4,7 @@ import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from httpx import ASGITransport, AsyncClient
 
 from src.config import settings
@@ -94,6 +95,43 @@ class TestCheckDangerousContent:
         """Test that specific dose instructions are flagged."""
         assert _check_dangerous_content("Take 10 units before your meal")
         assert _check_dangerous_content("Bolus 15 units now")
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "You should add 2 units at breakfast.",
+            "I suggest 5 units of rapid-acting insulin.",
+            "Your correction should be 3 units.",
+            "You may need an extra 2 units.",
+            "Consider increasing by 2 units.",
+            "Take six units before dinner.",
+            "Bump it up by 3 units.",
+            "Increase the bolus to 12 units.",
+            "Try 6 units next time.",
+            "Give 0.5 units for the correction.",
+        ],
+    )
+    def test_verb_independent_specific_dose_detected(self, text):
+        """Specific insulin doses must be flagged regardless of the verb or
+        phrasing -- not only the imperative 'take/bolus/inject/give N units'."""
+        assert _check_dangerous_content(text)
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            # Descriptive / historical mentions of insulin amounts are NOT
+            # dosing instructions and must stay un-flagged (no over-blocking).
+            "Control-IQ delivered 2.5 units of automated correction overnight.",
+            "Your average breakfast bolus was 6 units.",
+            "Automated corrections totaled 3.2 units.",
+            "Your total daily dose is around 24 units.",
+            "Your last bolus delivered 4 units automatically.",
+            "You logged 10 boluses across 5 meals.",
+            "Sensor glucose averaged 154 mg/dL.",
+        ],
+    )
+    def test_descriptive_insulin_mentions_not_flagged(self, text):
+        assert not _check_dangerous_content(text)
 
     def test_empty_text_not_flagged(self):
         """Test that empty text is not flagged."""

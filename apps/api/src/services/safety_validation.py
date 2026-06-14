@@ -31,6 +31,17 @@ SAFETY_DISCLAIMER = (
     "Always discuss changes with your endocrinologist before adjusting pump settings."
 )
 
+# Prescriptive action verbs that, near a specific insulin quantity, indicate a
+# dosing instruction. Deliberately excludes the NOUNS "bolus"/"dose" (which
+# appear in descriptive/historical text like "your bolus was 6 units" or "your
+# total daily dose is 24 units"); the imperative "bolus N units" stays covered
+# by the tight pattern below.
+_PRESCRIPTIVE_DOSE_VERB = (
+    r"(?:take|taking|add|adding|give|giving|inject\w*|administer\w*|"
+    r"increas\w*|decreas\w*|rais\w*|lower\w*|bump\w*|boost\w*|reduc\w*|"
+    r"suggest\w*|recommend\w*|try|trying|need\w*|adjust\w*)"
+)
+
 # Dangerous keywords/phrases that indicate unsafe content
 DANGEROUS_PATTERNS = [
     r"(?i)\bdouble\s+(?:your|the)\s+(?:dose|insulin|bolus)",
@@ -42,6 +53,18 @@ DANGEROUS_PATTERNS = [
     r"(?i)\bimmediately\s+(?:change|adjust|modify)\s+(?:your|the|all)",
     r"(?i)\bdiscontinue\s+(?:your\s+|the\s+)?(?:insulin|medication)",
     r"(?i)\b(?:take|bolus|inject|give)\s+\d+\s*(?:units?|u)\b",
+    # Verb-independent specific dose: a prescriptive verb (with optional words
+    # between it and the quantity) followed by "N units" -- catches "add 2
+    # units", "I suggest 5 units", "increase the bolus to 12 units".
+    r"(?i)\b" + _PRESCRIPTIVE_DOSE_VERB + r"\b[^.\n]{0,25}?\b"
+    r"\d+(?:\.\d+)?\s*(?:units?|u|iu)\b",
+    # Spelled-out quantity after a prescriptive verb -- "take six units".
+    r"(?i)\b" + _PRESCRIPTIVE_DOSE_VERB + r"\b[^.\n]{0,25}?\b"
+    r"(?:one|two|three|four|five|six|seven|eight|nine|ten)\s+units?\b",
+    # Quantity introduced by should/could/would-be/by/extra/another/additional
+    # -- "correction should be 3 units", "an extra 2 units".
+    r"(?i)\b(?:should|could|would|by|extra|another|additional)\s+(?:be\s+)?"
+    r"\d+(?:\.\d+)?\s*(?:units?|u|iu)\b",
 ]
 
 # Pattern to extract carb ratio suggestions like "1:8 to 1:7" or "from 1:10 to 1:8"
