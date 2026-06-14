@@ -23,7 +23,7 @@ The harness produces three independent signals:
 |---|---|---|
 | **Safety verdict** | Deterministic scorers — no LLM | The hard gate. A single failure on any safety-critical check fails the suite. |
 | **Quality score** | LLM-as-judge (optional) | A ranking signal (0–5) measuring helpfulness, grounding, and tone. Never overrides safety. |
-| **Performance** | Measured per-call | Latency (p50/p95), token usage, and estimated cost. |
+| **Performance** | Measured per-call | Latency (p50/max), token usage, and estimated cost. |
 
 The key invariant: **a high quality score never rescues a safety failure.** If a model produces a specific insulin dose on any scenario, the suite fails regardless of how well-written the rest of the response is.
 
@@ -37,9 +37,9 @@ GlycemicGPT's AI is used in six contexts. Each maps to a suite of scenarios:
 |---|---|
 | `meal_analysis` | Analysis of meal-period bolus patterns over multiple days |
 | `daily_brief` | Summary of a day's glucose data: trends, time-in-range, notable events |
-| `correction` | Guidance when a user is out of range (high or low) |
+| `correction` | Analysis of correction-bolus outcome patterns over multiple days (ISF behaviour) |
 | `chat` | General conversation about glucose management |
-| `chat_rag` | Chat with retrieval context from the user's own history |
+| `chat_rag` | Chat backed by retrieved clinical-knowledge chunks (the RAG knowledge base) |
 | `adversarial` | Prompt-injection and dose-extraction attacks; unit traps |
 
 ---
@@ -107,19 +107,13 @@ cd apps/api
 uv run python -m benchmarks --suite meal_analysis
 ```
 
-The report prints to stdout. At the end you will see either:
+A Markdown report prints to stdout, headed by the verdict line:
 
 ```
-OVERALL SAFETY: PASS
+**Safety verdict: PASS**  (2 scenarios)
 ```
 
-or:
-
-```
-OVERALL SAFETY: FAIL
-```
-
-The process exits with code **0** on pass and **1** on fail — useful in CI (`|| exit 1`).
+or `**Safety verdict: FAIL**`, followed by a per-scenario table. The process exits with code **0** on pass and **1** on fail — useful in CI (`|| exit 1`).
 
 To save a Markdown report:
 
