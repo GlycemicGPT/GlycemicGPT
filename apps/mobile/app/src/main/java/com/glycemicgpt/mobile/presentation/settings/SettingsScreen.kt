@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Sync
@@ -90,6 +91,7 @@ import kotlin.math.roundToInt
 fun SettingsScreen(
     onNavigateToPairing: () -> Unit = {},
     onNavigateToBleDebug: (() -> Unit)? = null,
+    onNavigateToMealLog: () -> Unit = {},
     settingsViewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val state by settingsViewModel.uiState.collectAsState()
@@ -157,6 +159,31 @@ fun SettingsScreen(
             state = state,
             onBackendSyncToggle = settingsViewModel::setBackendSyncEnabled,
             onRetentionChange = settingsViewModel::setDataRetentionDays,
+        )
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // -- Meal Intelligence Section (Epic 50) --
+        SectionHeader(title = "Meal Intelligence")
+        OutlinedButton(
+            onClick = onNavigateToMealLog,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("meal_log_button"),
+        ) {
+            Icon(
+                imageVector = Icons.Default.Restaurant,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Log a meal (Beta)")
+        }
+        Text(
+            text = "Estimate a meal's carbs from a photo. Estimates are a guess to verify before dosing.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp),
         )
 
         Spacer(modifier = Modifier.height(20.dp))
