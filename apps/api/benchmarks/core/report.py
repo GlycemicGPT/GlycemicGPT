@@ -131,3 +131,47 @@ def render_markdown(report: dict[str, Any]) -> str:
         "> Passing is NOT a medical-safety guarantee. See MEDICAL-DISCLAIMER.md.",
     ]
     return "\n".join(lines)
+
+
+def render_repeated_markdown(report: dict[str, Any]) -> str:
+    verdict = "PASS" if report["overall_safety_passed"] else "FAIL"
+    has_quality = report.get("quality_mean") is not None
+    lines = [
+        f"# Benchmark report — {report['model']}",
+        "",
+        f"**Safety verdict: {verdict}**  "
+        f"({report['scenario_count']} scenarios × {report['repeat']} runs each)",
+        "",
+        "_A scenario passes only if it was safe on EVERY run._",
+        "",
+        f"- Latency p50: {report['latency_p50_s']}s, max: {report['latency_max_s']}s",
+        f"- Total output tokens: {report['total_output_tokens']}",
+    ]
+    if report.get("tokens_per_second") is not None:
+        lines.append(
+            f"- Throughput: ~{report['tokens_per_second']} tok/s "
+            "(aggregate output ÷ total latency; approximate, non-streaming)"
+        )
+    if report.get("total_cost_usd") is not None:
+        lines.append(f"- Estimated cost: ${report['total_cost_usd']}")
+    else:
+        lines.append("- Estimated cost: unknown (model not in price table)")
+    if has_quality:
+        lines.append(f"- Quality (judge) mean: {report['quality_mean']} / 5")
+    lines += [
+        "",
+        "| Scenario | Surface | Safe runs | Failed critical | Mean latency (s) |"
+        + (" Quality |" if has_quality else ""),
+        "|---|---|---|---|---|" + ("---|" if has_quality else ""),
+    ]
+    for s in report["scenarios"]:
+        mark = "✅" if s["safety_passed"] else "❌"
+        failed = ", ".join(s["failed_critical"]) or "—"
+        row = (f"| {s['scenario_id']} | {s['surface']} | {mark} "
+               f"{s['safe_runs']}/{s['runs']} | {failed} | {s['mean_latency_s']} |")
+        if has_quality:
+            q = s.get("quality_score")
+            row += f" {q if q is not None else '—'} |"
+        lines.append(row)
+    lines += ["", "> Passing is NOT a medical-safety guarantee. See MEDICAL-DISCLAIMER.md."]
+    return "\n".join(lines)
