@@ -108,12 +108,23 @@ def _build_prompt(scenario: Scenario) -> tuple[str, str]:
     raise NotImplementedError(f"Surface not supported: {scenario.surface}")
 
 
-async def run_scenario(scenario: Scenario, client: BaseAIClient) -> RunResult:
+async def run_scenario(
+    scenario: Scenario,
+    client: BaseAIClient,
+    max_tokens: int | None = None,
+) -> RunResult:
     system_prompt, user_prompt = _build_prompt(scenario)
+    # Thinking models (Qwen3, DeepSeek-R1, ...) spend output tokens on internal
+    # reasoning before the visible answer; the default budget can truncate them
+    # to an empty response. `max_tokens` lets a caller raise the budget, mirroring
+    # the app's per-user max_response_tokens setting (issue #554). None = the
+    # client's own default.
+    extra = {"max_tokens": max_tokens} if max_tokens is not None else {}
     started = time.perf_counter()
     response = await client.generate(
         messages=[AIMessage(role="user", content=user_prompt)],
         system_prompt=system_prompt,
+        **extra,
     )
     latency_s = time.perf_counter() - started
     return RunResult(

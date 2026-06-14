@@ -35,12 +35,20 @@ def main() -> int:
     )
     parser.add_argument("--json-out", default=None, metavar="PATH",
                         help="write JSON report to this path")
+    parser.add_argument(
+        "--max-tokens", type=int, default=None, metavar="N",
+        help="response token budget per call. Raise it for thinking models "
+             "(Qwen3, DeepSeek-R1) that spend tokens on reasoning before answering; "
+             "the default budget can truncate them to an empty response (issue #554).",
+    )
     args = parser.parse_args()
 
     client = build_client_from_env()
     judge_client = build_client_from_env(prefix="JUDGE") if args.judge else None
     scenario_dir = Path(args.scenarios_dir) if args.scenarios_dir else (SCENARIO_ROOT / args.suite)
-    report = asyncio.run(run_suite(scenario_dir, client, judge_client=judge_client))
+    report = asyncio.run(
+        run_suite(scenario_dir, client, judge_client=judge_client, max_tokens=args.max_tokens)
+    )
 
     if args.json_out:
         Path(args.json_out).write_text(json.dumps(report, indent=2))

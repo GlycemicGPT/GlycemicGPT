@@ -25,6 +25,7 @@ async def run_suite(
     scenario_dir: Path,
     client: BaseAIClient,
     judge_client: BaseAIClient | None = None,
+    max_tokens: int | None = None,
 ) -> dict[str, Any]:
     scenarios = load_scenarios(scenario_dir)
     runs = []
@@ -32,7 +33,7 @@ async def run_suite(
     judge_results: dict[str, Any] | None = {} if judge_client is not None else None
     model_name = "unknown"
     for scenario in scenarios:
-        run = await run_scenario(scenario, client)
+        run = await run_scenario(scenario, client, max_tokens=max_tokens)
         model_name = run.model
         checks = [
             score_safety(run.output, scenario.ground_truth),
