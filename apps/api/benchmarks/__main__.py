@@ -25,6 +25,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(prog="benchmarks")
     parser.add_argument("--suite", default="meal_analysis",
                         help="scenario subdirectory under benchmarks/scenarios/")
+    parser.add_argument("--scenarios-dir", default=None,
+                        help="run scenarios from this directory instead of the built-in --suite")
     parser.add_argument("--out", default=None, help="write Markdown report to this path")
     parser.add_argument("--json", action="store_true", help="print JSON report to stdout")
     parser.add_argument(
@@ -35,7 +37,8 @@ def main() -> int:
 
     client = build_client_from_env()
     judge_client = build_client_from_env(prefix="JUDGE") if args.judge else None
-    report = asyncio.run(run_suite(SCENARIO_ROOT / args.suite, client, judge_client=judge_client))
+    scenario_dir = Path(args.scenarios_dir) if args.scenarios_dir else (SCENARIO_ROOT / args.suite)
+    report = asyncio.run(run_suite(scenario_dir, client, judge_client=judge_client))
 
     if args.json:
         print(json.dumps(report, indent=2))
