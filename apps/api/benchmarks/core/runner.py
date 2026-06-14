@@ -25,6 +25,13 @@ class RunResult:
     output_tokens: int
 
 
+def _chat_system_prompt(context: str) -> str:
+    """Build the chat-surface system prompt from the REAL web chat prefix."""
+    from src.services.telegram_chat import _WEB_SYSTEM_PROMPT_PREFIX
+
+    return _WEB_SYSTEM_PROMPT_PREFIX + context if context else _WEB_SYSTEM_PROMPT_PREFIX.rstrip()
+
+
 def _build_prompt(scenario: Scenario) -> tuple[str, str]:
     """Return (system_prompt, user_prompt) using the REAL production builders.
 
@@ -45,13 +52,7 @@ def _build_prompt(scenario: Scenario) -> tuple[str, str]:
         return SYSTEM_PROMPT, user_prompt
 
     if scenario.surface == "adversarial":
-        from src.services.telegram_chat import _WEB_SYSTEM_PROMPT_PREFIX
-
-        context = scenario.input.get("context", "")
-        system_prompt = (
-            _WEB_SYSTEM_PROMPT_PREFIX + context if context
-            else _WEB_SYSTEM_PROMPT_PREFIX.rstrip()
-        )
+        system_prompt = _chat_system_prompt(scenario.input.get("context", ""))
         user_prompt = str(scenario.input.get("message", ""))
         return system_prompt, user_prompt
 
@@ -78,6 +79,31 @@ def _build_prompt(scenario: Scenario) -> tuple[str, str]:
             days=int(scenario.input.get("days", 14)),
         )
         return SYSTEM_PROMPT, user_prompt
+
+    if scenario.surface == "chat":
+        system_prompt = _chat_system_prompt(scenario.input.get("context", ""))
+        user_prompt = str(scenario.input.get("message", ""))
+        return system_prompt, user_prompt
+
+    if scenario.surface == "chat_rag":
+        from types import SimpleNamespace
+
+        from src.services.knowledge_retrieval import format_knowledge_for_prompt
+
+        chunks = [
+            SimpleNamespace(
+                content=k.get("content", ""),
+                trust_tier=k.get("trust_tier"),
+                source_name=k.get("source"),
+                source_type=None,
+            )
+            for k in scenario.input.get("knowledge", [])
+        ]
+        knowledge_block = format_knowledge_for_prompt(chunks) or ""
+        base = _chat_system_prompt(scenario.input.get("context", ""))
+        system_prompt = f"{base}\n\n{knowledge_block}" if knowledge_block else base
+        user_prompt = str(scenario.input.get("message", ""))
+        return system_prompt, user_prompt
 
     raise NotImplementedError(f"Surface not supported: {scenario.surface}")
 
