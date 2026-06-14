@@ -15,3 +15,9 @@ def test_missing_required_number_fails():
 def test_no_required_numbers_passes_trivially():
     check = score_grounding("Looks stable.", [])
     assert check.passed is True
+
+
+def test_number_embedded_in_ratio_is_not_grounded():
+    # The "8" in the carb ratio "1:8" must NOT count as having cited 8 mg/dL.
+    check = score_grounding("Your breakfast ratio is 1:8.", [8])
+    assert check.passed is False
