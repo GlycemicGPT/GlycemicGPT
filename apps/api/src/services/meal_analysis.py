@@ -90,7 +90,7 @@ def _classify_meal_period(hour: int) -> str:
     return "snack"
 
 
-def _build_meal_prompt(
+def build_meal_prompt(
     meal_periods: list[MealPeriodData],
     total_boluses: int,
     days: int,
@@ -135,6 +135,10 @@ def _build_meal_prompt(
     )
 
     return "\n".join(lines)
+
+
+# Backwards-compatible private alias (kept so existing callers/tests don't break)
+_build_meal_prompt = build_meal_prompt
 
 
 async def analyze_post_meal_patterns(
@@ -314,7 +318,7 @@ async def generate_meal_analysis(
         )
 
     # Build prompt and generate
-    user_prompt = _build_meal_prompt(meal_periods, total_boluses, days, profile_summary)
+    user_prompt = build_meal_prompt(meal_periods, total_boluses, days, profile_summary)
 
     logger.info(
         "Generating meal pattern analysis",
