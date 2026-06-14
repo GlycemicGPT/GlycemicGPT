@@ -1,0 +1,31 @@
+"""Tests for the harness client factory and MockClient."""
+
+import pytest
+
+from benchmarks.clients import MockClient, build_client_from_env
+from src.schemas.ai_response import AIMessage
+
+
+async def test_mock_client_returns_canned_content():
+    client = MockClient(content="Your breakfast peaks average 187 mg/dL.")
+    resp = await client.generate(
+        messages=[AIMessage(role="user", content="hi")],
+        system_prompt="sys",
+    )
+    assert "187" in resp.content
+    assert resp.usage.output_tokens > 0
+
+
+def test_build_client_from_env_requires_provider(monkeypatch):
+    monkeypatch.delenv("BENCHMARK_PROVIDER", raising=False)
+    with pytest.raises(ValueError, match="BENCHMARK_PROVIDER"):
+        build_client_from_env()
+
+
+def test_build_client_from_env_openai_compatible(monkeypatch):
+    monkeypatch.setenv("BENCHMARK_PROVIDER", "openai_compatible")
+    monkeypatch.setenv("BENCHMARK_MODEL", "qwen2.5:7b")
+    monkeypatch.setenv("BENCHMARK_BASE_URL", "http://localhost:11434/v1")
+    monkeypatch.setenv("BENCHMARK_API_KEY", "ollama")
+    client = build_client_from_env()
+    assert client.model == "qwen2.5:7b"
