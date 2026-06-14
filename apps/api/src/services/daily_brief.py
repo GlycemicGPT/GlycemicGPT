@@ -57,7 +57,7 @@ correction factors, and carb ratios when discussing patterns
 """
 
 
-def _build_analysis_prompt(
+def build_analysis_prompt(
     metrics: DailyBriefMetrics,
     hours: int,
     profile_context: str | None = None,
@@ -114,6 +114,9 @@ def _build_analysis_prompt(
     )
 
     return "\n".join(lines)
+
+
+_build_analysis_prompt = build_analysis_prompt
 
 
 async def calculate_metrics(
@@ -364,7 +367,7 @@ async def generate_daily_brief(
         )
 
     # Build prompt and generate
-    user_prompt = _build_analysis_prompt(metrics, hours, profile_context, iob_context)
+    user_prompt = build_analysis_prompt(metrics, hours, profile_context, iob_context)
 
     logger.info(
         "Generating daily brief",

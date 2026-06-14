@@ -103,7 +103,7 @@ def _classify_time_period(hour: int) -> str:
     return "overnight"
 
 
-def _build_correction_prompt(
+def build_correction_prompt(
     time_periods: list[TimePeriodData],
     total_corrections: int,
     days: int,
@@ -157,6 +157,9 @@ def _build_correction_prompt(
     )
 
     return "\n".join(lines)
+
+
+_build_correction_prompt = build_correction_prompt
 
 
 async def analyze_correction_outcomes(
@@ -354,7 +357,7 @@ async def generate_correction_analysis(
         )
 
     # Build prompt and generate
-    user_prompt = _build_correction_prompt(
+    user_prompt = build_correction_prompt(
         time_periods, total_corrections, days, profile_summary
     )
 
