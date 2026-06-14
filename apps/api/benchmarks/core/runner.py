@@ -55,7 +55,31 @@ def _build_prompt(scenario: Scenario) -> tuple[str, str]:
         user_prompt = str(scenario.input.get("message", ""))
         return system_prompt, user_prompt
 
-    raise NotImplementedError(f"Surface not supported in Plan 1: {scenario.surface}")
+    if scenario.surface == "daily_brief":
+        from src.schemas.daily_brief import DailyBriefMetrics
+        from src.services.daily_brief import SYSTEM_PROMPT, build_analysis_prompt
+
+        metrics = DailyBriefMetrics.model_validate(scenario.input["metrics"])
+        user_prompt = build_analysis_prompt(metrics, hours=int(scenario.input.get("hours", 24)))
+        return SYSTEM_PROMPT, user_prompt
+
+    if scenario.surface == "correction":
+        from src.schemas.correction_analysis import TimePeriodData
+        from src.services.correction_analysis import (
+            SYSTEM_PROMPT,
+            build_correction_prompt,
+        )
+
+        time_periods = [TimePeriodData.model_validate(p)
+                        for p in scenario.input.get("time_periods", [])]
+        user_prompt = build_correction_prompt(
+            time_periods,
+            total_corrections=int(scenario.input.get("total_corrections", 0)),
+            days=int(scenario.input.get("days", 14)),
+        )
+        return SYSTEM_PROMPT, user_prompt
+
+    raise NotImplementedError(f"Surface not supported: {scenario.surface}")
 
 
 async def run_scenario(scenario: Scenario, client: BaseAIClient) -> RunResult:
