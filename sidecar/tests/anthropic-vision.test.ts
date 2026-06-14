@@ -109,6 +109,21 @@ describe("AnthropicVisionProvider", () => {
       });
     });
 
+    it("merges consecutive same-role messages into one alternating turn", async () => {
+      const mockFetch = okFetch();
+      vi.stubGlobal("fetch", mockFetch);
+      await provider.completeVision([
+        { role: "user", content: "first" },
+        ...imageMessage("second"),
+      ]);
+      const sent = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+      // Both user turns collapse into a single user message (no non-alternating
+      // sequence reaches the Anthropic API).
+      expect(sent.messages).toHaveLength(1);
+      expect(sent.messages[0].role).toBe("user");
+      expect(sent.messages[0].content.some((b: { type: string }) => b.type === "image")).toBe(true);
+    });
+
     it("resolves model aliases and defaults unknown models to sonnet", async () => {
       const mockFetch = okFetch();
       vi.stubGlobal("fetch", mockFetch);

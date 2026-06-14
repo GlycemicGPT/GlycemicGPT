@@ -128,7 +128,16 @@ function toAnthropicRequest(messages: MultimodalMessage[]): {
         }
       }
     }
-    anthropicMessages.push({ role: message.role, content: blocks });
+    // The Messages API requires alternating user/assistant turns. OpenAI allows
+    // consecutive same-role messages, so merge them into the previous turn
+    // rather than emitting a non-alternating sequence (which the API rejects
+    // with a 400, surfacing as a generic 500 here).
+    const last = anthropicMessages[anthropicMessages.length - 1];
+    if (last && last.role === message.role) {
+      last.content.push(...blocks);
+    } else {
+      anthropicMessages.push({ role: message.role, content: blocks });
+    }
   }
 
   return { systemTexts, anthropicMessages };
