@@ -1,0 +1,160 @@
+"""Food record model for meal-photo carb estimation.
+
+A ``food_record`` is a persistent, structured log of a photographed meal: the
+AI's carbohydrate *range* estimate, a confidence signal, visible nutrition, and
+the photo reference. It is net-new and deliberately distinct from
+``pump_events.carbs_grams`` (pump-sourced delivery data) and ``meal_analyses``
+(post-hoc carb-ratio pattern analysis).
+
+Safety posture (NON-NEGOTIABLE): a food record is a descriptive observation,
+never a dose. Carbs are stored as a low/high range plus confidence, never a
+confident point integer, and nothing in this model is ever read by IoB,
+treatment_safety, or carb-ratio math.
+"""
+
+import enum
+import uuid
+from datetime import datetime
+
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    Enum,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    func,
+)
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.orm import Mapped, mapped_column
+
+from src.models.base import Base
+from src.vision.carb_contract import CARB_GRAMS_MAX, CARB_GRAMS_MIN
+
+
+class FoodRecordSource(str, enum.Enum):
+    """Provenance of a food record's carbohydrate values.
+
+    Kept explicit so later changes can distinguish an untouched model estimate
+    from a user-corrected one and from an externally-grounded one without a
+    schema rewrite.
+    """
+
+    AI_ESTIMATE = "ai_estimate"  # Raw vision-model estimate (default).
+    USER_CORRECTED = "user_corrected"  # User fixed the estimate.
+    EXTERNAL_GROUNDED = "external_grounded"  # Grounded against a published source.
+
+
+class FoodRecord(Base):
+    """A logged meal photo plus its structured carb/nutrition estimate.
+
+    The AI estimate columns (``carbs_low`` / ``carbs_high`` / ``confidence`` /
+    ``nutrition_json``) are the *original* model output and are never overwritten
+    by a correction: the later correction flow writes the user's values into the
+    separate ``corrected_*`` columns and flips ``source`` to ``USER_CORRECTED``,
+    so the original estimate is always preserved for accuracy tracking and
+    grounding.
+    """
+
+    __tablename__ = "food_records"
+
+    __table_args__ = (
+        Index("ix_food_records_user_meal_timestamp", "user_id", "meal_timestamp"),
+        # Defense-in-depth bounds mirroring the reject-not-clamp validation in
+        # `vision.carb_contract` so an ORM insert can never store an out-of-range
+        # or inverted range. (See `schemas/safety_limits.py` for the convention.)
+        CheckConstraint(
+            f"carbs_low >= {CARB_GRAMS_MIN:g} AND carbs_high <= {CARB_GRAMS_MAX:g} "
+            "AND carbs_low <= carbs_high",
+            name="ck_food_records_carb_range",
+        ),
+        CheckConstraint(
+            "(corrected_carbs_low IS NULL AND corrected_carbs_high IS NULL) OR "
+            f"(corrected_carbs_low >= {CARB_GRAMS_MIN:g} "
+            f"AND corrected_carbs_high <= {CARB_GRAMS_MAX:g} "
+            "AND corrected_carbs_low <= corrected_carbs_high)",
+            name="ck_food_records_corrected_carb_range",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=func.gen_random_uuid(),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    # --- Photo reference (mirrors user_documents; file lives on the uploads
+    # volume, is owner-scoped, and is never web-served) ---
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    file_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    file_size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    storage_path: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # When the meal was eaten / logged (defaults to upload time).
+    meal_timestamp: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    # --- Original AI estimate (immutable once written) ---
+    food_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    carbs_low: Mapped[float] = mapped_column(Float, nullable=False)
+    carbs_high: Mapped[float] = mapped_column(Float, nullable=False)
+    confidence: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    nutrition_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
+    ai_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    ai_provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
+    source: Mapped[FoodRecordSource] = mapped_column(
+        Enum(
+            FoodRecordSource,
+            name="foodrecordsource",
+            create_type=False,
+            values_callable=lambda e: [member.value for member in e],
+        ),
+        nullable=False,
+        default=FoodRecordSource.AI_ESTIMATE,
+        server_default=FoodRecordSource.AI_ESTIMATE.value,
+    )
+
+    # --- Correction seam (the later correction flow populates these; original
+    # estimate above is preserved) ---
+    corrected_carbs_low: Mapped[float | None] = mapped_column(Float, nullable=True)
+    corrected_carbs_high: Mapped[float | None] = mapped_column(Float, nullable=True)
+    corrected_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    # Optional link to a saved common food. A later change creates the
+    # ``common_foods`` table and adds the FK constraint; stored now as a plain
+    # nullable UUID so the column (the schema seam) already exists.
+    common_food_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        nullable=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<FoodRecord(id={self.id}, user_id={self.user_id}, "
+            f"carbs={self.carbs_low}-{self.carbs_high}g, source={self.source.value})>"
+        )

@@ -8,7 +8,7 @@ Tests cover:
 """
 
 import uuid
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from pydantic import ValidationError
@@ -82,7 +82,7 @@ class TestPurgeAllUserData:
 
     @pytest.mark.asyncio
     async def test_deletes_all_categories(self):
-        """Verify all 9 data categories are deleted."""
+        """Verify all data categories are deleted."""
         from src.services.data_purge import purge_all_user_data
 
         user_id = uuid.uuid4()
@@ -90,18 +90,25 @@ class TestPurgeAllUserData:
 
         mock_result = MagicMock()
         mock_result.rowcount = 10
+        # food_records uses DELETE ... RETURNING, so its count comes from the
+        # returned rows (10 photo paths here), not rowcount.
+        mock_result.all.return_value = [("/uploads/food/u/x.jpg",)] * 10
         db.execute.return_value = mock_result
 
-        result = await purge_all_user_data(user_id, db)
+        with patch("src.services.data_purge.delete_stored_image") as mock_unlink:
+            result = await purge_all_user_data(user_id, db)
 
-        # 13 delete calls (glucose, pump, brief, meal, correction,
-        # suggestion, safety, escalation, alert, chat_messages,
-        # knowledge_chunks, user_documents, research_sources)
-        assert db.execute.call_count == 13
+        # 14 execute calls: 13 row deletes (glucose, pump, brief, meal,
+        # correction, suggestion, safety, escalation, alert, chat_messages,
+        # knowledge_chunks, user_documents, research_sources) plus the single
+        # food_records DELETE ... RETURNING.
+        assert db.execute.call_count == 14
         assert db.commit.call_count == 1
+        # Photos are unlinked only after the commit, one per returned row.
+        assert mock_unlink.call_count == 10
 
-        # All 13 categories should be in result
-        assert len(result) == 13
+        # All 14 categories should be in result
+        assert len(result) == 14
         assert result["glucose_readings"] == 10
         assert result["pump_events"] == 10
         assert result["daily_briefs"] == 10
@@ -111,6 +118,7 @@ class TestPurgeAllUserData:
         assert result["safety_logs"] == 10
         assert result["escalation_events"] == 10
         assert result["alerts"] == 10
+        assert result["food_records"] == 10
 
     @pytest.mark.asyncio
     async def test_returns_zero_counts_when_empty(self):

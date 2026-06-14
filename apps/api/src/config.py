@@ -143,6 +143,17 @@ class Settings(BaseSettings):
     ai_sidecar_url: str = "http://ai-sidecar:3456"
     ai_sidecar_api_key: str = ""  # SIDECAR_API_KEY for inter-service auth
 
+    # Food-photo uploads (meal-photo carb estimation)
+    # Private, owner-scoped storage volume for meal photos. Never web-served;
+    # files are re-encoded on upload (EXIF stripped). 5 MB cap mirrors the
+    # sidecar's image limit. Vision carb estimation is opt-in behind this flag.
+    upload_dir: str = "/uploads"
+    food_image_max_bytes: int = Field(default=5 * 1024 * 1024, ge=1)
+    meal_intelligence_enabled: bool = False
+    # Timeout (seconds) for the sidecar vision call; longer than the text
+    # timeout because a CLI vision provider can take tens of seconds.
+    vision_request_timeout_seconds: float = Field(default=120.0, gt=0)
+
     # Device & API key limits (Story 28.7)
     max_devices_per_user: int = Field(default=10, ge=1)
     debug_device_limit: int = Field(default=50, ge=1)
