@@ -11,11 +11,21 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import {
+  flattenVisionRequest,
+  InvalidImageError,
+  VisionUnavailableError,
+  writeImagesToTempDir,
+} from "./image-utils.js";
+import { runCapture } from "./subprocess.js";
 import type {
   AIProvider,
   ChatMessage,
+  MultimodalMessage,
   ProviderAuthState,
   ProviderResult,
+  VisionCompleteOptions,
+  VisionRunner,
 } from "./types.js";
 
 const TOKEN_DIR = process.env.TOKEN_DIR || "/home/sidecar/.config/sidecar";
@@ -34,7 +44,9 @@ const MODEL_MAP: Record<string, string> = {
   "claude-sonnet-4": "sonnet",
   "claude-haiku-4": "haiku",
   "claude-opus-4-6": "opus",
+  "claude-sonnet-4-5": "sonnet",
   "claude-sonnet-4-5-20250929": "sonnet",
+  "claude-haiku-4-5": "haiku",
   "claude-haiku-4-5-20251001": "haiku",
   // Allow bare aliases
   opus: "opus",
@@ -171,7 +183,99 @@ function cleanupChild(child: ChildProcess, timer: ReturnType<typeof setTimeout>)
   if (!child.killed) child.kill();
 }
 
-export class ClaudeProvider implements AIProvider {
+/**
+ * Build the prompt for the CLI vision path. The model is told the meal photo(s)
+ * are on disk and instructed to read them; the system + user text follow.
+ */
+function buildVisionPrompt(
+  systemText: string,
+  userText: string,
+  imagePaths: string[],
+): string {
+  const lines: string[] = [];
+  if (systemText) lines.push(systemText);
+  lines.push(
+    imagePaths.length === 1
+      ? `A meal photo has been provided as the file ${imagePaths[0]}. Read that image file and analyze the food shown in it.`
+      : `Meal photos have been provided as the files ${imagePaths.join(", ")}. ` +
+          "Read those image files and analyze the food shown in them.",
+  );
+  if (userText) lines.push(userText);
+  return lines.join("\n\n");
+}
+
+/**
+ * Run the official `claude` CLI in read-only plan mode to analyze image files.
+ * Plan mode renders the image via the Read tool but cannot Write/Edit/Bash, and
+ * the only directory granted is the private temp dir holding the images. This is
+ * the sanctioned subscription vision path — no credential impersonation.
+ */
+async function runClaudeVision(
+  prompt: string,
+  cliModel: string,
+  imageDir: string,
+): Promise<ProviderResult> {
+  const token = getToken();
+  const env: Record<string, string> = { ...process.env } as Record<string, string>;
+  if (token) env.CLAUDE_CODE_OAUTH_TOKEN = token;
+
+  const { stdout, code } = await runCapture(
+    "claude",
+    [
+      "--print",
+      // Don't retain the image prompt in session storage (matches the text path).
+      "--no-session-persistence",
+      "--model",
+      cliModel,
+      "--add-dir",
+      imageDir,
+      // Read-only: Read renders the image; Write/Edit/Bash are blocked.
+      "--permission-mode",
+      "plan",
+      // End-of-options: the prompt is positional and never parsed as a flag.
+      "--",
+      prompt,
+    ],
+    { env, cwd: imageDir, timeoutMs: SUBPROCESS_TIMEOUT_MS, maxBufferBytes: MAX_BUFFER_BYTES, label: "Claude" },
+  );
+  if (code !== 0) {
+    throw new Error("AI provider returned an error");
+  }
+  return { content: stdout.trim(), model: `claude-${cliModel}` };
+}
+
+export class ClaudeProvider implements AIProvider, VisionRunner {
+  /** Vision is served via the subscription CLI when a token is configured. */
+  supportsVision(): boolean {
+    return getToken() !== null;
+  }
+
+  async completeVision(
+    messages: MultimodalMessage[],
+    options: VisionCompleteOptions = {},
+  ): Promise<ProviderResult> {
+    if (getToken() === null) {
+      throw new VisionUnavailableError();
+    }
+    // Note: options.maxTokens is not enforced on this CLI subscription path —
+    // `claude --print` has no output-token cap; the model self-limits. (The
+    // Anthropic API-key path honors max_tokens.)
+    const { systemText, userText, images } = flattenVisionRequest(messages);
+    if (images.length === 0) {
+      throw new InvalidImageError("no image provided for a vision request");
+    }
+    const temp = writeImagesToTempDir(images);
+    try {
+      const prompt = buildVisionPrompt(systemText, userText, temp.paths);
+      if (prompt.length > MAX_PROMPT_LENGTH) {
+        throw new Error(`Prompt too long (${prompt.length} chars, max ${MAX_PROMPT_LENGTH})`);
+      }
+      return await runClaudeVision(prompt, resolveModel(options.model), temp.dir);
+    } finally {
+      temp.cleanup();
+    }
+  }
+
   async checkAuth(): Promise<ProviderAuthState> {
     const token = getToken();
     return {
