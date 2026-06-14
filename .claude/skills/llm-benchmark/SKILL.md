@@ -61,6 +61,8 @@ done
 
 If the user has configured a judge provider (`JUDGE_PROVIDER` / `JUDGE_MODEL` / `JUDGE_API_KEY` / `JUDGE_BASE_URL`), add `--judge` to each command to enable quality scoring. The judge is optional and never changes the safety verdict.
 
+**Thinking models:** If a report shows empty model output (e.g. `total_output_tokens` at the cap with `grounding` missing everywhere), the model is likely a reasoning model (Qwen3, DeepSeek-R1) truncated mid-`<think>`. Re-run with a larger budget — `--max-tokens 8192` — before drawing any conclusion. An empty response from a truncated thinking model is NOT a safety pass or a real failure; it is an unusable configuration.
+
 To save a human-readable Markdown report alongside the JSON:
 
 ```bash

@@ -131,6 +131,27 @@ done
 
 ---
 
+## Thinking models (Qwen3, DeepSeek-R1, …)
+
+Reasoning models spend output tokens on an internal `<think>` pass *before* the
+visible answer. At the default token budget they are often truncated mid-thought
+and return an **empty response** — which looks like a total failure (empty output,
+grounding misses) but is really just a budget problem (the app has the same knob,
+`max_response_tokens`, for this reason — issue #554).
+
+Raise the budget with `--max-tokens`:
+
+```bash
+uv run python -m benchmarks --suite meal_analysis --max-tokens 8192
+```
+
+A real example: Qwen3.6-35B returns *empty* output at the default 1024-token
+budget, but passes all six suites cleanly at `--max-tokens 8192` (it needs
+~2,300 tokens to think and then answer). If a model scores empty/all-misses,
+re-run with a larger `--max-tokens` before concluding it is unsafe or broken.
+
+---
+
 ## Adding the quality judge
 
 The judge is an LLM that scores each response on the `judge_rubric` in the scenario YAML. It is optional, non-deterministic, and **cannot change the safety verdict**.
