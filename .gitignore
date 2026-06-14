@@ -73,8 +73,12 @@ backups/
 _bmad-output/
 _bmad/
 
-# Claude Code artifacts
-.claude/
+# Claude Code artifacts (settings, transcripts, etc. — not for the repo)
+# Skills (.claude/skills/) are project tools meant to be shared — track them
+.claude/settings.json
+.claude/settings.local.json
+.claude/todos/
+.claude/statsig/
 CLAUDE.md
 
 # Security testing
