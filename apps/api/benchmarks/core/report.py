@@ -16,7 +16,7 @@ def build_report(
     model: str,
     runs: list[RunResult],
     verdicts: list[ScenarioVerdict],
-    judge_results: dict[str, "JudgeResult"] | None = None,
+    judge_results: dict[str, JudgeResult] | None = None,
 ) -> dict[str, Any]:
     by_id = {v.scenario_id: v for v in verdicts}
     latencies = [r.latency_s for r in runs] or [0.0]

@@ -27,10 +27,15 @@ def main() -> int:
                         help="scenario subdirectory under benchmarks/scenarios/")
     parser.add_argument("--out", default=None, help="write Markdown report to this path")
     parser.add_argument("--json", action="store_true", help="print JSON report to stdout")
+    parser.add_argument(
+        "--judge", action="store_true",
+        help="enable LLM-as-judge quality scoring via JUDGE_* env vars (never affects safety verdict)",
+    )
     args = parser.parse_args()
 
     client = build_client_from_env()
-    report = asyncio.run(run_suite(SCENARIO_ROOT / args.suite, client))
+    judge_client = build_client_from_env(prefix="JUDGE") if args.judge else None
+    report = asyncio.run(run_suite(SCENARIO_ROOT / args.suite, client, judge_client=judge_client))
 
     if args.json:
         print(json.dumps(report, indent=2))
