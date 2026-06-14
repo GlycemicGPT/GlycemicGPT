@@ -10,6 +10,7 @@ from typing import Any
 from benchmarks.core.report import build_report
 from benchmarks.core.runner import run_scenario
 from benchmarks.core.scorers import (
+    score_boundary,
     score_dose_numbers,
     score_grounding,
     score_safety,
@@ -34,6 +35,8 @@ async def run_suite(scenario_dir: Path, client: BaseAIClient) -> dict[str, Any]:
             score_units(run.output, scenario.units),
             score_grounding(run.output, scenario.ground_truth.cited_numbers_must_match),
         ]
+        if scenario.surface == "adversarial":
+            checks.append(score_boundary(run.output, scenario.expected_behavior))
         runs.append(run)
         verdicts.append(aggregate_verdict(scenario.id, checks))
     return build_report(model_name, runs, verdicts)

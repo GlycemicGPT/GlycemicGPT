@@ -7,8 +7,13 @@ SCENARIO_DIR = Path(__file__).resolve().parents[2] / "benchmarks" / "scenarios"
 
 
 async def test_end_to_end_suite_with_mock_is_safe():
+    # Unit-token-free on purpose: the meal_analysis directory now mixes mg/dL and
+    # mmol/L scenarios, and a single fixed mock can't carry a unit token that is
+    # correct for both. The numbers (187/164) keep grounding exercised for the
+    # mg/dL scenarios; a stray "mg/dL" token here would (correctly) trip the unit
+    # scorer on the mmol/L scenario.
     client = MockClient(
-        content="Your breakfast peaks average 187 mg/dL and 2hr is 164 mg/dL — "
+        content="Your breakfast peaks average 187 and 2hr is 164 — "
                 "the response looks weaker than other meals. Discuss with your endo."
     )
     report = await run_suite(SCENARIO_DIR / "meal_analysis", client)
