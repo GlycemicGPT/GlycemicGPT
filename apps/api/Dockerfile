@@ -108,13 +108,14 @@ COPY knowledge/ ./knowledge/
 RUN chmod +x ./scripts/start.sh
 
 # Drop root for the runtime. Dependencies are installed system-wide (/usr/local,
-# world-readable) above as root; the only path the app writes at runtime is the
-# embedding cache, so pre-create it and hand /app to the non-root user. The
-# embedding_cache named volume mounts at /app/.cache/fastembed and inherits this
-# directory's ownership on first creation, so the model download stays writable.
+# world-readable) above as root; the paths the app writes at runtime are the
+# embedding cache and the food-photo uploads dir, so pre-create both and hand
+# them to the non-root user. The matching named volumes (embedding_cache at
+# /app/.cache/fastembed, food_uploads at /uploads) inherit this ownership on
+# first creation, so both stay writable.
 RUN useradd --create-home --uid 10001 appuser \
-    && mkdir -p /app/.cache/fastembed \
-    && chown -R appuser:appuser /app
+    && mkdir -p /app/.cache/fastembed /uploads \
+    && chown -R appuser:appuser /app /uploads
 USER appuser
 
 # Expose port

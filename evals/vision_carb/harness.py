@@ -212,11 +212,15 @@ def run(args: argparse.Namespace) -> int:
             continue
 
         est = contract.parse_estimate(raw)
+        # Only feed carb values into the metrics when the estimate parsed
+        # cleanly; an unparseable estimate must not distort the benchmark.
+        low = est.carbs_low if est.parse_ok else None
+        high = est.carbs_high if est.parse_ok else None
         score = metrics.score_item(
             item_id,
             truth,
-            est.carbs_low,
-            est.carbs_high,
+            low,
+            high,
             est.confidence,
             note=est.parse_error or "",
         )

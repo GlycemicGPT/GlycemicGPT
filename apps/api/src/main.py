@@ -33,6 +33,7 @@ from src.routers import (
     disclaimer,
     emergency_contacts,
     escalation,
+    food_records,
     glucose_stream,
     health,
     insights,
@@ -198,6 +199,7 @@ app.include_router(glucose_stream.router)
 app.include_router(ai.router)
 app.include_router(briefs.router)
 app.include_router(meal_analysis.router)
+app.include_router(food_records.router)
 app.include_router(correction_analysis.router)
 app.include_router(safety.router)
 app.include_router(insights.router)
