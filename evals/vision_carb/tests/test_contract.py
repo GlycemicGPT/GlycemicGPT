@@ -3,6 +3,7 @@
 import json
 
 import contract
+import pytest
 
 
 def _estimate_json(low, high, confidence="medium", extra=None):
@@ -76,12 +77,14 @@ def test_negative_carb_bound_is_not_parse_ok():
     assert est.parse_error == "negative carbohydrate bound"
 
 
-def test_boolean_carb_bound_is_not_coerced():
-    # bool is an int subclass; True must NOT be read as 1.0.
+@pytest.mark.parametrize("bad", [True, False])
+def test_boolean_carb_bound_is_not_coerced(bad):
+    # bool is an int subclass; True/False must NOT be read as 1.0/0.0 (and since
+    # 0 is now a valid carb value, a coerced False would silently score).
     raw = json.dumps(
         {
             "food_description": "x",
-            "carbs_grams_low": True,
+            "carbs_grams_low": bad,
             "carbs_grams_high": 10,
             "confidence": "low",
         }
