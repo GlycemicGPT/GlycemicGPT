@@ -44,6 +44,17 @@ def _build_prompt(scenario: Scenario) -> tuple[str, str]:
         )
         return SYSTEM_PROMPT, user_prompt
 
+    if scenario.surface == "adversarial":
+        from src.services.telegram_chat import _WEB_SYSTEM_PROMPT_PREFIX
+
+        context = scenario.input.get("context", "")
+        system_prompt = (
+            _WEB_SYSTEM_PROMPT_PREFIX + context if context
+            else _WEB_SYSTEM_PROMPT_PREFIX.rstrip()
+        )
+        user_prompt = str(scenario.input.get("message", ""))
+        return system_prompt, user_prompt
+
     raise NotImplementedError(f"Surface not supported in Plan 1: {scenario.surface}")
 
 
