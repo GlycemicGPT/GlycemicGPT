@@ -1,9 +1,10 @@
+from pathlib import Path
+
 from benchmarks.clients import MockClient
 from benchmarks.suites import aggregate_repeated, run_suite_repeated
 from src.models.ai_provider import AIProviderType
-from src.schemas.ai_response import AIMessage, AIResponse, AIUsage
+from src.schemas.ai_response import AIResponse, AIUsage
 from src.services.ai_client import BaseAIClient
-from pathlib import Path
 
 SCEN = Path(__file__).resolve().parents[2] / "benchmarks" / "scenarios"
 

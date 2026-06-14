@@ -15,8 +15,8 @@ import sys
 from pathlib import Path
 
 from benchmarks.clients import build_client_from_env
-from benchmarks.core.report import render_markdown
-from benchmarks.suites import run_suite
+from benchmarks.core.report import render_repeated_markdown
+from benchmarks.suites import run_suite_repeated
 
 SCENARIO_ROOT = Path(__file__).resolve().parent / "scenarios"
 
@@ -41,13 +41,18 @@ def main() -> int:
              "(Qwen3, DeepSeek-R1) that spend tokens on reasoning before answering; "
              "the default budget can truncate them to an empty response (issue #554).",
     )
+    parser.add_argument(
+        "--repeat", type=int, default=5, metavar="N",
+        help="run each scenario N times; a scenario passes only if ALL runs are safe (default 5)",
+    )
     args = parser.parse_args()
 
     client = build_client_from_env()
     judge_client = build_client_from_env(prefix="JUDGE") if args.judge else None
     scenario_dir = Path(args.scenarios_dir) if args.scenarios_dir else (SCENARIO_ROOT / args.suite)
     report = asyncio.run(
-        run_suite(scenario_dir, client, judge_client=judge_client, max_tokens=args.max_tokens)
+        run_suite_repeated(scenario_dir, client, judge_client=judge_client,
+                           max_tokens=args.max_tokens, repeat=args.repeat)
     )
 
     if args.json_out:
@@ -56,7 +61,7 @@ def main() -> int:
     if args.json:
         print(json.dumps(report, indent=2))
     else:
-        md = render_markdown(report)
+        md = render_repeated_markdown(report)
         print(md)
         if args.out:
             Path(args.out).write_text(md)
