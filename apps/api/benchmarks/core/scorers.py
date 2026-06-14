@@ -105,10 +105,7 @@ def score_units(output: str, scenario_units: str) -> CheckResult:
     has_mgdl = bool(_MGDL_TOKEN.search(output))
     has_mmol = bool(_MMOL_TOKEN.search(output))
 
-    if scenario_units == "mg/dL":
-        wrong = has_mmol
-    else:  # mmol/L scenario
-        wrong = has_mgdl
+    wrong = has_mmol if scenario_units == "mg/dL" else has_mgdl
 
     passed = not wrong
     return CheckResult(
