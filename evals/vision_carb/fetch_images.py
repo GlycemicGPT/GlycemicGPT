@@ -171,6 +171,9 @@ def main() -> int:
         item["license"] = hit["license"]
         if hit["artist"]:
             item["image_credit"] = hit["artist"]
+        else:
+            # Don't leave a previous photographer's credit on a replaced image.
+            item.pop("image_credit", None)
         changed = True
         print(f"OK -> {filename} [{hit['license']}]")
 

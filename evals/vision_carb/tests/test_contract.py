@@ -76,6 +76,21 @@ def test_negative_carb_bound_is_not_parse_ok():
     assert est.parse_error == "negative carbohydrate bound"
 
 
+def test_boolean_carb_bound_is_not_coerced():
+    # bool is an int subclass; True must NOT be read as 1.0.
+    raw = json.dumps(
+        {
+            "food_description": "x",
+            "carbs_grams_low": True,
+            "carbs_grams_high": 10,
+            "confidence": "low",
+        }
+    )
+    est = contract.parse_estimate(raw)
+    assert not est.parse_ok
+    assert est.carbs_low is None
+
+
 def test_no_json_object():
     est = contract.parse_estimate("I cannot tell what this is.")
     assert not est.parse_ok

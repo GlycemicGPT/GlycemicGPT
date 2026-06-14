@@ -94,8 +94,10 @@ export function parseImageDataUrl(url: string): VisionImage {
   ) {
     throw new InvalidImageError("image data is not canonically base64-encoded");
   }
-  // base64 decodes to ~3/4 of its length in bytes.
-  if (Math.floor((normalized.length * 3) / 4) > MAX_IMAGE_BYTES) {
+  // Length is a multiple of 4 (validated above), so the exact decoded byte
+  // count is (length / 4) * 3 minus the padding ('=') bytes.
+  const padding = normalized.endsWith("==") ? 2 : normalized.endsWith("=") ? 1 : 0;
+  if ((normalized.length / 4) * 3 - padding > MAX_IMAGE_BYTES) {
     throw new InvalidImageError("image exceeds the maximum allowed size");
   }
   return { mediaType, data: normalized };

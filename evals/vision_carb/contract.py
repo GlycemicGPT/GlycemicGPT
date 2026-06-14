@@ -144,6 +144,9 @@ def _extract_json_object(text: str) -> str | None:
 
 
 def _coerce_number(value: object) -> float | None:
+    # bool is a subclass of int; reject it so True/False aren't read as 1/0.
+    if isinstance(value, bool):
+        return None
     if isinstance(value, (int, float)):
         return float(value)
     if isinstance(value, str):

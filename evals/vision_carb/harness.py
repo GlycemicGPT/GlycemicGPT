@@ -149,12 +149,14 @@ def run(args: argparse.Namespace) -> int:
             truth = float(item["known_carbs_grams"])
         except (KeyError, TypeError, ValueError):
             truth = -1.0
-        if truth <= 0:
+        # A legitimate 0-carb food (e.g. eggs, plain meat) is valid; only a
+        # missing or negative label is bad (missing coerces to -1.0 above).
+        if truth < 0:
             print(f"[{idx}/{len(items)}] {item_id} ... BAD LABEL", file=sys.stderr)
             records.append(
                 {
                     "id": item_id,
-                    "error": "known_carbs_grams missing or not a positive number",
+                    "error": "known_carbs_grams missing or negative",
                 }
             )
             continue
@@ -167,6 +169,19 @@ def run(args: argparse.Namespace) -> int:
                 )
             )
             records.append({"id": item_id, "error": "manifest item is missing 'image'"})
+            continue
+        # Constrain to a bare filename inside images_dir: a crafted manifest must
+        # not be able to read arbitrary files via "../" or an absolute path.
+        if Path(image_name).name != image_name:
+            print(
+                f"[{idx}/{len(items)}] {item_id} ... UNSAFE IMAGE PATH", file=sys.stderr
+            )
+            records.append(
+                {
+                    "id": item_id,
+                    "error": "image must be a bare filename (no path components)",
+                }
+            )
             continue
         image_path = images_dir / image_name
         print(
