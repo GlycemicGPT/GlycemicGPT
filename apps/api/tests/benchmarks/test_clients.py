@@ -29,3 +29,12 @@ def test_build_client_from_env_openai_compatible(monkeypatch):
     monkeypatch.setenv("BENCHMARK_API_KEY", "ollama")
     client = build_client_from_env()
     assert client.model == "qwen2.5:7b"
+
+
+def test_build_client_from_env_supports_custom_prefix(monkeypatch):
+    monkeypatch.setenv("JUDGE_PROVIDER", "openai_compatible")
+    monkeypatch.setenv("JUDGE_MODEL", "judge-model")
+    monkeypatch.setenv("JUDGE_BASE_URL", "http://localhost:11434/v1")
+    monkeypatch.setenv("JUDGE_API_KEY", "x")
+    client = build_client_from_env(prefix="JUDGE")
+    assert client.model == "judge-model"

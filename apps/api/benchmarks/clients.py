@@ -52,18 +52,23 @@ class MockClient(BaseAIClient):
         )
 
 
-def build_client_from_env() -> BaseAIClient:
-    """Construct a real provider client from BENCHMARK_* env vars."""
-    provider = os.environ.get("BENCHMARK_PROVIDER")
+def build_client_from_env(prefix: str = "BENCHMARK") -> BaseAIClient:
+    """Construct a real provider client from ``{prefix}_*`` env vars.
+
+    The default prefix is ``BENCHMARK``, so existing callers are unaffected.
+    Pass ``prefix="JUDGE"`` to read ``JUDGE_PROVIDER``, ``JUDGE_MODEL``, etc.
+    """
+    provider_key = f"{prefix}_PROVIDER"
+    provider = os.environ.get(provider_key)
     if not provider:
-        raise ValueError("BENCHMARK_PROVIDER is not set")
+        raise ValueError(f"{provider_key} is not set")
     if provider not in _PROVIDER_MAP:
-        raise ValueError(f"Unsupported BENCHMARK_PROVIDER: {provider}")
+        raise ValueError(f"Unsupported {provider_key}: {provider}")
 
     provider_type = _PROVIDER_MAP[provider]
-    model = os.environ.get("BENCHMARK_MODEL", "")
-    api_key = os.environ.get("BENCHMARK_API_KEY", "benchmark")
-    base_url = os.environ.get("BENCHMARK_BASE_URL") or None
+    model = os.environ.get(f"{prefix}_MODEL", "")
+    api_key = os.environ.get(f"{prefix}_API_KEY", "benchmark")
+    base_url = os.environ.get(f"{prefix}_BASE_URL") or None
 
     # Local imports keep heavy SDKs out of import-time for tests that only use MockClient.
     from src.integrations.claude import ClaudeClient
@@ -76,7 +81,7 @@ def build_client_from_env() -> BaseAIClient:
             provider_type=provider_type,
         )
     if not model:
-        raise ValueError("BENCHMARK_MODEL is required for openai_* providers")
+        raise ValueError(f"{prefix}_MODEL is required for openai_* providers")
     return OpenAIClient(
         api_key=api_key,
         model=model,
