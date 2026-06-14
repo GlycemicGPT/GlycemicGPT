@@ -130,6 +130,26 @@ describe("CodexProvider", () => {
     expect(state.authenticated).toBe(true);
   });
 
+  it("reports authenticated for a ChatGPT-account auth.json (tokens.access_token)", async () => {
+    delete process.env.OPENAI_API_KEY;
+    writeFileSync(
+      join(tempDir, "auth.json"),
+      JSON.stringify({
+        auth_mode: "chatgpt",
+        OPENAI_API_KEY: null,
+        tokens: {
+          access_token: "dummy-access",
+          id_token: "dummy-id",
+          refresh_token: "dummy-refresh",
+          account_id: "acct_dummy",
+        },
+      }),
+    );
+    const { CodexProvider } = await import("../src/providers/codex.js");
+    const state = await new CodexProvider().checkAuth();
+    expect(state.authenticated).toBe(true);
+  });
+
   it("reports unauthenticated when auth.json token is expired", async () => {
     delete process.env.OPENAI_API_KEY;
     writeFileSync(

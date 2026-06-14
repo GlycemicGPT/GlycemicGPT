@@ -51,7 +51,7 @@ active provider's mechanism.
 | 1 | **Claude / Anthropic API key** | Direct Messages API, `x-api-key`, base64 `image` blocks | **WORKING** — confirmed |
 | 2 | **OpenAI / Codex API key** | Standard OpenAI vision (`image_url` / base64) via the API | **WORKING** — standard OpenAI multimodal; the harness request shape is exactly this |
 | 3 | **Claude Pro / Max subscription** | Official `claude` CLI, read-only plan mode, reads the image off disk via its Read tool | **WORKING** — confirmed live, end-to-end through the sidecar |
-| 4 | **Codex / ChatGPT subscription** | Official `codex` CLI: `codex exec --model <m> --sandbox read-only --image <path> -- "<prompt>"` (native vision) | **WORKING — mechanism verified on pinned `@openai/codex@0.139.0`** (flags + argv + read-only sandbox + image attach all accepted; the sidecar routes a GPT-model image request → spawns the real CLI). The authenticated image→description inference was **not run** here — no OpenAI/ChatGPT credential in this environment; the run reaches inference and stops at `401 Unauthorized` |
+| 4 | **Codex / ChatGPT subscription** | Official `codex` CLI: `codex exec --sandbox read-only --skip-git-repo-check --image <path> -- "<prompt>"` (native vision) | **WORKING — confirmed live end-to-end on a real ChatGPT subscription** (pinned `@openai/codex@0.139.0`, model `gpt-5.5`). See "Codex live verification" below |
 | 5 | **Local AI** | OpenAI-compatible multimodal (`image_url` / base64) against the user's local endpoint | **WORKING** — same request shape the harness uses; which local models clear the accuracy bar is the local-model benchmark |
 
 ### The Claude-subscription path — the open question, settled empirically
@@ -90,6 +90,32 @@ hardcoded Claude Code system-prompt preamble (the preamble defeats a "disguised
 gate (Anthropic restricted subscription OAuth to official clients in Feb 2026)
 and must not ship. The subscription path uses the official `claude` CLI instead
 (row 3). The Anthropic API-key path (row 1) uses `x-api-key` and is unaffected.
+
+### Codex live verification (ChatGPT subscription)
+
+Confirmed end-to-end against a real ChatGPT-account Codex login (`auth.json` with
+`tokens.access_token`; `codex login status` → "Logged in using ChatGPT"), pinned
+`@openai/codex@0.139.0`:
+
+- **Direct CLI** — `codex exec --sandbox read-only --image banana.jpg -- "<carb
+  prompt>"` (model `gpt-5.5`): the model saw the image (*"One medium-sized whole
+  banana … about 7–8 inches long"*) and returned a parseable estimate —
+  `carbs_grams_low: 23, carbs_grams_high: 30, confidence: high` (banana ground
+  truth ≈ 27 g, covered; 0 dosing violations).
+- **End-to-end through the sidecar** — `POST /v1/chat/completions` with an inline
+  base64 banana image routed `gpt-4o` → the Codex provider → `runCodexVision` →
+  HTTP 200 with `carbs_grams_low: 27, carbs_grams_high: 35, confidence: high`.
+- **Read-only sandbox engaged** — a write-probe under `--sandbox read-only` was
+  blocked (the file was never created; codex wrapped the command in bubblewrap).
+
+Three things the live run required (now in the code):
+1. `getAuthState()` reads the current `auth.json` shape (`tokens.access_token`),
+   not a legacy top-level `accessToken`, so a ChatGPT login is detected.
+2. No `--model` is forced — a ChatGPT-account Codex rejects API model names like
+   `gpt-4o` ("not supported when using Codex with a ChatGPT account") and picks
+   its own default.
+3. `--skip-git-repo-check`, because the sidecar runs codex from a private temp
+   dir (not a git repo), which codex otherwise refuses.
 
 ## Routing & fallback contract
 
@@ -135,14 +161,11 @@ local model," never as a transient error to retry.
   persist service that calls the confirmed vision route for the user's active
   provider, persists the structured range/confidence/nutrition, enforces sane
   carb bounds, and strips EXIF.
-- **Codex authenticated inference:** the `codex exec --image` mechanism is
-  verified on pinned `@openai/codex@0.139.0` (flags, argv, read-only sandbox,
-  image attach, sidecar spawn), but the credentialed image→description run needs
-  an OpenAI API key or a ChatGPT login — neither exists in this environment.
-  Two deployment notes from the verification: (1) `CODEX_HOME` must not live
-  under `/tmp` (codex refuses to create helper binaries there — the sidecar's
-  `/home/sidecar/.codex` is fine); (2) `--sandbox read-only` uses **bubblewrap**
-  and needs user-namespace access, so the sidecar container must permit it.
+- **Codex deployment notes** (from the live verification): pin a current
+  `@openai/codex` (≥ 0.139.0); mount the ChatGPT `auth.json` at `CODEX_HOME`
+  (not under `/tmp` — codex refuses to create helper binaries there; the
+  sidecar's `/home/sidecar/.codex` is fine); and `--sandbox read-only` uses
+  **bubblewrap**, so the sidecar container must permit user namespaces.
 - **Local-model benchmark:** reuse this harness verbatim
   (`--base-url` at Ollama, `--model` at a local vision model) to decide which
   local models clear a pass bar. Same eval set, same metric.

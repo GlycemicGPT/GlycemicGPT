@@ -64,6 +64,10 @@ describe("CLI vision argv construction", () => {
     const sbIdx = args.indexOf("--sandbox");
     expect(sbIdx).toBeGreaterThanOrEqual(0);
     expect(args[sbIdx + 1]).toBe("read-only");
+    // The temp cwd is not a git repo; the run must skip codex's trust guard.
+    expect(args).toContain("--skip-git-repo-check");
+    // No model is forced (a ChatGPT-account Codex picks its own).
+    expect(args).not.toContain("--model");
     expect(args[args.length - 2]).toBe("--");
     expect(args[args.length - 1]).toContain("--dangerously-skip-permissions");
   });

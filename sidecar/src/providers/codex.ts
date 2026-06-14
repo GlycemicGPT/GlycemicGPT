@@ -59,7 +59,7 @@ export function resolveModel(model?: string): string {
   return resolved;
 }
 
-/** Check if Codex auth.json exists and contains a valid access token */
+/** Check whether a Codex credential (ChatGPT account or API key) is configured. */
 function getAuthState(): { authenticated: boolean } {
   if (process.env.OPENAI_API_KEY) {
     return { authenticated: true };
@@ -68,7 +68,17 @@ function getAuthState(): { authenticated: boolean } {
   try {
     if (existsSync(AUTH_FILE)) {
       const data = JSON.parse(readFileSync(AUTH_FILE, "utf-8"));
-      if (data.accessToken) {
+      // ChatGPT-account login (current codex): tokens.access_token. The CLI
+      // refreshes the access token itself, so presence is sufficient.
+      if (data?.tokens?.access_token) {
+        return { authenticated: true };
+      }
+      // An API key stored in auth.json.
+      if (data?.OPENAI_API_KEY) {
+        return { authenticated: true };
+      }
+      // Legacy shape: a top-level accessToken with an optional expiry.
+      if (data?.accessToken) {
         if (data.expiresAt && Date.now() / 1000 > data.expiresAt) {
           return { authenticated: false };
         }
@@ -145,7 +155,6 @@ function cleanupChild(child: ChildProcess, timer: ReturnType<typeof setTimeout>)
  */
 async function runCodexVision(
   prompt: string,
-  cliModel: string,
   imagePaths: string[],
   imageDir: string,
 ): Promise<ProviderResult> {
@@ -153,7 +162,12 @@ async function runCodexVision(
   env.CODEX_HOME = CODEX_HOME;
 
   // Read-only sandbox: the run analyzes the images, it does not modify anything.
-  const args = ["exec", "--model", cliModel, "--sandbox", "read-only"];
+  // --skip-git-repo-check: the cwd is a private temp dir (not a git repo), so
+  // codex's interactive "trusted directory" guard would otherwise abort.
+  // No --model: a ChatGPT-account Codex only accepts its own models (e.g.
+  // gpt-5.5) and rejects API model names like gpt-4o, so we let the CLI pick the
+  // account-appropriate default rather than forcing one that may be unsupported.
+  const args = ["exec", "--sandbox", "read-only", "--skip-git-repo-check"];
   for (const path of imagePaths) {
     args.push("--image", path);
   }
@@ -170,7 +184,7 @@ async function runCodexVision(
   if (code !== 0) {
     throw new Error("AI provider returned an error");
   }
-  return { content: stdout.trim(), model: cliModel };
+  return { content: stdout.trim(), model: "codex" };
 }
 
 export class CodexProvider implements AIProvider, VisionRunner {
@@ -185,13 +199,14 @@ export class CodexProvider implements AIProvider, VisionRunner {
 
   async completeVision(
     messages: MultimodalMessage[],
-    options: VisionCompleteOptions = {},
+    _options: VisionCompleteOptions = {},
   ): Promise<ProviderResult> {
     if (!getAuthState().authenticated) {
       throw new VisionUnavailableError();
     }
-    // Note: options.maxTokens is not enforced on this CLI subscription path —
-    // `codex exec` has no output-token cap; the model self-limits.
+    // Note: neither the requested model nor maxTokens is forwarded on this CLI
+    // subscription path — a ChatGPT-account Codex picks its own model and has no
+    // output-token cap; the model self-limits.
     const { systemText, userText, images } = flattenVisionRequest(messages);
     if (images.length === 0) {
       throw new InvalidImageError("no image provided for a vision request");
@@ -202,7 +217,7 @@ export class CodexProvider implements AIProvider, VisionRunner {
     }
     const temp = writeImagesToTempDir(images);
     try {
-      return await runCodexVision(prompt, resolveModel(options.model), temp.paths, temp.dir);
+      return await runCodexVision(prompt, temp.paths, temp.dir);
     } finally {
       temp.cleanup();
     }
