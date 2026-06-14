@@ -21,10 +21,15 @@ from benchmarks.scenario import load_scenarios
 from src.services.ai_client import BaseAIClient
 
 
-async def run_suite(scenario_dir: Path, client: BaseAIClient) -> dict[str, Any]:
+async def run_suite(
+    scenario_dir: Path,
+    client: BaseAIClient,
+    judge_client: BaseAIClient | None = None,
+) -> dict[str, Any]:
     scenarios = load_scenarios(scenario_dir)
     runs = []
     verdicts = []
+    judge_results: dict[str, Any] | None = {} if judge_client is not None else None
     model_name = "unknown"
     for scenario in scenarios:
         run = await run_scenario(scenario, client)
@@ -38,5 +43,11 @@ async def run_suite(scenario_dir: Path, client: BaseAIClient) -> dict[str, Any]:
         if scenario.surface == "adversarial":
             checks.append(score_boundary(run.output, scenario.expected_behavior))
         runs.append(run)
+        # Safety verdict is purely deterministic — judge plays NO role here.
         verdicts.append(aggregate_verdict(scenario.id, checks))
-    return build_report(model_name, runs, verdicts)
+
+        if judge_client is not None and judge_results is not None:
+            from benchmarks.core.judge import judge_output
+            judge_results[scenario.id] = await judge_output(scenario, run.output, judge_client)
+
+    return build_report(model_name, runs, verdicts, judge_results=judge_results)
