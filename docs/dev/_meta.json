@@ -8,7 +8,6 @@
     "security-testing",
     "plugin-architecture",
     "wear-os-architecture",
-    "k8s-external-access",
-    "llm-benchmarking"
+    "k8s-external-access"
   ]
 }
