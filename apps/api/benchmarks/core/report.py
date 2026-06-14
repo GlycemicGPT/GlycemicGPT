@@ -5,6 +5,7 @@ from __future__ import annotations
 from statistics import mean, median
 from typing import TYPE_CHECKING, Any
 
+from benchmarks.core.pricing import estimate_cost_usd
 from benchmarks.core.runner import RunResult
 from benchmarks.core.verdict import ScenarioVerdict, suite_safety_passed
 
@@ -36,11 +37,17 @@ def build_report(
             "latency_s": round(run.latency_s, 3),
             "input_tokens": run.input_tokens,
             "output_tokens": run.output_tokens,
+            "cost_usd": estimate_cost_usd(run.model, run.input_tokens, run.output_tokens),
         }
         if judge_results is not None:
             jr = judge_results.get(run.scenario_id)
             scenario_dict["quality_score"] = jr.score if jr else None
         scenarios.append(scenario_dict)
+
+    # Aggregate cost: None if all scenarios have no price; else sum non-None values.
+    costs = [s["cost_usd"] for s in scenarios]
+    known_costs = [c for c in costs if c is not None]
+    total_cost_usd = round(sum(known_costs), 6) if known_costs else None
 
     report: dict[str, Any] = {
         "model": model,
@@ -49,6 +56,7 @@ def build_report(
         "latency_p50_s": round(median(latencies), 3),
         "latency_max_s": round(max(latencies), 3),
         "total_output_tokens": sum(r.output_tokens for r in runs),
+        "total_cost_usd": total_cost_usd,
         "scenarios": scenarios,
     }
 
@@ -71,6 +79,11 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"- Latency p50: {report['latency_p50_s']}s, max: {report['latency_max_s']}s",
         f"- Total output tokens: {report['total_output_tokens']}",
     ]
+
+    if report.get("total_cost_usd") is not None:
+        lines.append(f"- Estimated cost: ${report['total_cost_usd']}")
+    else:
+        lines.append("- Estimated cost: unknown (model not in price table)")
 
     if has_quality:
         lines.append(f"- Quality (judge) mean: {report['quality_mean']} / 5")

@@ -34,6 +34,26 @@ def test_render_markdown_contains_verdict_and_latency():
     assert "2.5" in md
 
 
+def test_report_cost_when_model_priced(monkeypatch):
+    from benchmarks.core import pricing
+    monkeypatch.setitem(pricing.PRICE_TABLE, "mock-model", (0.001, 0.002))
+    runs = [_run()]  # input_tokens=100, output_tokens=40, model="mock-model"
+    verdicts = [aggregate_verdict("meal-001", [CheckResult("safety", True, False, "ok")])]
+    report = build_report("mock-model", runs, verdicts)
+    # 100/1000*0.001 + 40/1000*0.002 = 0.0001 + 0.00008 = 0.00018
+    assert report["total_cost_usd"] == 0.00018
+    assert report["scenarios"][0]["cost_usd"] == 0.00018
+    assert "$" in render_markdown(report)
+
+
+def test_report_cost_unknown_model_is_none():
+    runs = [_run()]
+    verdicts = [aggregate_verdict("meal-001", [CheckResult("safety", True, False, "ok")])]
+    report = build_report("mock-model", runs, verdicts)
+    assert report["total_cost_usd"] is None
+    assert "unknown" in render_markdown(report).lower()
+
+
 def test_report_includes_quality_when_judge_results_present():
     from benchmarks.core.judge import JudgeResult
     runs = [_run()]
