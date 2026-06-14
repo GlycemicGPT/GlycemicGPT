@@ -19,6 +19,8 @@ If you don't want to read the whole page, here's the short version:
 
 You can change your mind any time without losing data. Full details, privacy implications, and the subscription-token reliability discussion are below.
 
+> **Not sure a model is good enough?** Because you bring your own AI, model quality is on you — and a model that invents an insulin dose or confuses mg/dL with mmol/L is dangerous. You can **benchmark a candidate model** against GlycemicGPT's real prompts and safety checks before trusting it. See [Benchmarking your AI model](../benchmarking/user-guide.md). This matters most for Option 5 (local / OpenAI-compatible models), which the project does not test for you.
+
 ## Why we built it this way
 
 GlycemicGPT routes AI requests through a credential **you provide** -- either an existing subscription you already pay for, an API key, an AI router service like OpenRouter, or a local model running on your own hardware. The project itself does not host or charge for AI.
