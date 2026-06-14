@@ -98,17 +98,17 @@ class TestPurgeAllUserData:
         with patch("src.services.data_purge.delete_stored_image") as mock_unlink:
             result = await purge_all_user_data(user_id, db)
 
-        # 14 execute calls: 13 row deletes (glucose, pump, brief, meal,
+        # 15 execute calls: 13 row deletes (glucose, pump, brief, meal,
         # correction, suggestion, safety, escalation, alert, chat_messages,
-        # knowledge_chunks, user_documents, research_sources) plus the single
-        # food_records DELETE ... RETURNING.
-        assert db.execute.call_count == 14
+        # knowledge_chunks, user_documents, research_sources), the single
+        # food_records DELETE ... RETURNING, and the common_foods delete.
+        assert db.execute.call_count == 15
         assert db.commit.call_count == 1
         # Photos are unlinked only after the commit, one per returned row.
         assert mock_unlink.call_count == 10
 
-        # All 14 categories should be in result
-        assert len(result) == 14
+        # All 15 categories should be in result
+        assert len(result) == 15
         assert result["glucose_readings"] == 10
         assert result["pump_events"] == 10
         assert result["daily_briefs"] == 10
@@ -119,6 +119,31 @@ class TestPurgeAllUserData:
         assert result["escalation_events"] == 10
         assert result["alerts"] == 10
         assert result["food_records"] == 10
+        assert result["common_foods"] == 10
+
+    @pytest.mark.asyncio
+    async def test_photo_unlink_failure_does_not_abort_purge(self):
+        """A failed photo unlink is logged and skipped, not propagated."""
+        from src.services.data_purge import purge_all_user_data
+
+        user_id = uuid.uuid4()
+        db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.rowcount = 1
+        mock_result.all.return_value = [("/uploads/food/u/a.jpg",), ("/u/b.jpg",)]
+        db.execute.return_value = mock_result
+
+        with patch(
+            "src.services.data_purge.delete_stored_image",
+            side_effect=OSError("disk gone"),
+        ) as mock_unlink:
+            result = await purge_all_user_data(user_id, db)
+
+        # Both unlinks were attempted despite the first raising; the function
+        # still committed and returned its counts.
+        assert mock_unlink.call_count == 2
+        assert db.commit.call_count == 1
+        assert result["common_foods"] == 1
 
     @pytest.mark.asyncio
     async def test_returns_zero_counts_when_empty(self):
