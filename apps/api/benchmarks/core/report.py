@@ -37,6 +37,13 @@ def build_report(
             "latency_s": round(run.latency_s, 3),
             "input_tokens": run.input_tokens,
             "output_tokens": run.output_tokens,
+            # Approximate throughput: output tokens / total wall-clock latency.
+            # Non-streaming, so it's diluted by time-to-first-token; for thinking
+            # models output_tokens includes the reasoning pass. A rough,
+            # same-provider comparison number, not precise inter-token speed.
+            "tokens_per_second": (
+                round(run.output_tokens / run.latency_s, 1) if run.latency_s > 0 else None
+            ),
             "cost_usd": estimate_cost_usd(run.model, run.input_tokens, run.output_tokens),
         }
         if judge_results is not None:
@@ -49,13 +56,21 @@ def build_report(
     known_costs = [c for c in costs if c is not None]
     total_cost_usd = round(sum(known_costs), 6) if known_costs else None
 
+    # Aggregate throughput: total output tokens / total wall-clock latency.
+    total_output_tokens = sum(r.output_tokens for r in runs)
+    total_latency = sum(r.latency_s for r in runs)
+    tokens_per_second = (
+        round(total_output_tokens / total_latency, 1) if total_latency > 0 else None
+    )
+
     report: dict[str, Any] = {
         "model": model,
         "overall_safety_passed": suite_safety_passed(verdicts),
         "scenario_count": len(runs),
         "latency_p50_s": round(median(latencies), 3),
         "latency_max_s": round(max(latencies), 3),
-        "total_output_tokens": sum(r.output_tokens for r in runs),
+        "total_output_tokens": total_output_tokens,
+        "tokens_per_second": tokens_per_second,
         "total_cost_usd": total_cost_usd,
         "scenarios": scenarios,
     }
@@ -79,6 +94,12 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"- Latency p50: {report['latency_p50_s']}s, max: {report['latency_max_s']}s",
         f"- Total output tokens: {report['total_output_tokens']}",
     ]
+
+    if report.get("tokens_per_second") is not None:
+        lines.append(
+            f"- Throughput: ~{report['tokens_per_second']} tok/s "
+            "(aggregate output ÷ total latency; approximate, non-streaming)"
+        )
 
     if report.get("total_cost_usd") is not None:
         lines.append(f"- Estimated cost: ${report['total_cost_usd']}")

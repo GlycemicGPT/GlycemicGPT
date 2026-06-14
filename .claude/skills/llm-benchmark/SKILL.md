@@ -91,6 +91,7 @@ Key JSON fields to read per report:
 - `overall_safety_passed` — boolean, the hard gate
 - `quality_mean` — float or null, quality ranking signal only
 - `latency_p50_s`, `latency_max_s` — latency in seconds
+- `tokens_per_second` — approximate aggregate throughput (output tokens ÷ total latency; non-streaming, so report it as rough)
 - `total_cost_usd` — estimated cost or null (null → "unknown"; the price table ships empty)
 - `scenario_count` — how many scenarios ran
 - `scenarios[]` — per-scenario objects; each has `scenario_id`, `safety_passed`, and `failed_critical` (the scorer names that fired). Collect the scenarios where `safety_passed` is false.

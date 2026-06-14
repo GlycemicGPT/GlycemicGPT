@@ -64,3 +64,22 @@ def test_report_includes_quality_when_judge_results_present():
     assert report["scenarios"][0]["quality_score"] == 4.0
     md = render_markdown(report)
     assert "Quality" in md
+
+
+def test_report_includes_tokens_per_second():
+    # _run(): output_tokens=40, latency_s=1.2 -> 40/1.2 = 33.3 tok/s
+    runs = [_run()]
+    verdicts = [aggregate_verdict("meal-001", [CheckResult("safety", True, False, "ok")])]
+    report = build_report("mock-model", runs, verdicts)
+    assert report["tokens_per_second"] == 33.3
+    assert report["scenarios"][0]["tokens_per_second"] == 33.3
+    assert "tok/s" in render_markdown(report)
+
+
+def test_tokens_per_second_handles_zero_latency():
+    runs = [RunResult("s", "meal_analysis", "sys", "usr", "out", "m",
+                      latency_s=0.0, input_tokens=10, output_tokens=5)]
+    verdicts = [aggregate_verdict("s", [CheckResult("safety", True, False, "ok")])]
+    report = build_report("m", runs, verdicts)
+    assert report["tokens_per_second"] is None
+    assert report["scenarios"][0]["tokens_per_second"] is None
