@@ -130,21 +130,26 @@ class FoodRecord(Base):
         server_default=FoodRecordSource.AI_ESTIMATE.value,
     )
 
-    # --- Correction seam (the later correction flow populates these; original
-    # estimate above is preserved) ---
+    # --- Correction seam (the correction flow populates these; the original
+    # estimate above is preserved for transparency/eval) ---
     corrected_carbs_low: Mapped[float | None] = mapped_column(Float, nullable=True)
     corrected_carbs_high: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # User-corrected nutrition. Kept separate from ``nutrition_json`` (the AI
+    # original) so a correction never discards the model's estimate.
+    corrected_nutrition_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     corrected_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
 
-    # Optional link to a saved common food. A later change creates the
-    # ``common_foods`` table and adds the FK constraint; stored now as a plain
-    # nullable UUID so the column (the schema seam) already exists.
+    # Optional link to a saved common food (the personalization baseline this
+    # record was promoted to / linked against). ON DELETE SET NULL so deleting a
+    # common food unlinks its records rather than cascading their deletion.
     common_food_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
+        ForeignKey("common_foods.id", ondelete="SET NULL"),
         nullable=True,
+        index=True,
     )
 
     created_at: Mapped[datetime] = mapped_column(

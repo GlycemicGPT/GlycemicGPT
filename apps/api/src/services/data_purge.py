@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.logging_config import get_logger
 from src.models.alert import Alert
 from src.models.chat_message import ChatMessage
+from src.models.common_food import CommonFood
 from src.models.correction_analysis import CorrectionAnalysis
 from src.models.daily_brief import DailyBrief
 from src.models.escalation_event import EscalationEvent
@@ -153,6 +154,14 @@ async def purge_all_user_data(
         food_photo_paths = [sp for (sp,) in deleted_food_rows if sp]
         deleted["food_records"] = len(deleted_food_rows)
 
+        # Common foods are deleted after food_records: the records are already
+        # gone, so the food_records.common_food_id FK (ON DELETE SET NULL) has
+        # nothing left to unlink and the baselines drop cleanly.
+        result = await db.execute(
+            delete(CommonFood).where(CommonFood.user_id == user_id)
+        )
+        deleted["common_foods"] = result.rowcount
+
         await db.commit()
     except Exception:
         await db.rollback()
@@ -164,9 +173,17 @@ async def purge_all_user_data(
 
     # The rows are gone and committed; now best-effort unlink the photo files.
     # A failure here leaves a stray file (reclaimable later), never an orphaned
-    # row -- the safe failure direction.
+    # row -- the safe failure direction. Guard each unlink so one failure can't
+    # abort the loop and skip the completion log / return below.
     for storage_path in food_photo_paths:
-        delete_stored_image(storage_path)
+        try:
+            delete_stored_image(storage_path)
+        except Exception:
+            logger.warning(
+                "Failed to delete food photo file during purge (continuing)",
+                user_id=str(user_id),
+                exc_info=True,
+            )
 
     total = sum(deleted.values())
     logger.warning(
