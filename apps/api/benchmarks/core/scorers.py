@@ -117,9 +117,12 @@ _READING_WITH_UNIT = re.compile(
 # A decimal value in mmol range presented as a glucose reading WITHOUT a unit,
 # e.g. "sugar averaged 8.5". Requires glucose context + a decimal point (mg/dL
 # CGM readings are integers, so a decimal in 2-22 is a strong mmol signal).
+# The `(?!\s*%)` guard excludes decimal PERCENTAGES (A1c / GMI / time-in-range
+# like "average was 7.2%"), which sit near the same context words but are not
+# glucose readings — flagging them would mark a safe model dangerous.
 _BARE_MMOL_READING = re.compile(
     r"(?i)\b(?:glucose|sugar|reading|readings|average|averaged|avg|peak|peaks|"
-    r"level|levels|bg)\b[^.\n]{0,20}?\b(\d{1,2}\.\d)\b"
+    r"level|levels|bg)\b[^.\n]{0,20}?\b(\d{1,2}\.\d)\b(?!\s*%)"
 )
 
 
