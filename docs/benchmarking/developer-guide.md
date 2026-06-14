@@ -143,7 +143,9 @@ catch) **and precision** cases (benign text it must *not* flag).
 - `core/report.py::build_report(model, runs, verdicts, judge_results=None)` returns a
   JSON-serializable dict: `overall_safety_passed`, per-scenario `safety_passed` /
   `failed_critical` / `checks`, `latency_p50_s` / `latency_max_s`, token totals,
-  optional `quality_mean` / per-scenario `quality_score`, and `cost_usd` /
+  `tokens_per_second` (approximate aggregate throughput — output tokens ÷ total
+  latency; non-streaming, so it's diluted by time-to-first-token), optional
+  `quality_mean` / per-scenario `quality_score`, and `cost_usd` /
   `total_cost_usd` (None → rendered "unknown").
 - `render_markdown(report)` produces the human report (verdict line, table, the
   medical-disclaimer footer). Quality and Cost columns appear only when present.

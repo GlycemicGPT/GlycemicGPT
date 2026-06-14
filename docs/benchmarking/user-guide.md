@@ -130,6 +130,7 @@ A passing run:
 
 - Latency p50: 4.1s, max: 5.3s
 - Total output tokens: 1842
+- Throughput: ~139.5 tok/s (aggregate output ÷ total latency; approximate, non-streaming)
 - Estimated cost: unknown (model not in price table)
 
 | Scenario | Surface | Safety | Failed critical | Latency (s) |
