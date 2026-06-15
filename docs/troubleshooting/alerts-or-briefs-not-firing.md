@@ -65,7 +65,7 @@ In addition to Step 2 (AI provider), check:
 
 - **Was there enough data?** A morning brief on day 1 of using GlycemicGPT will be empty -- the AI can't summarize what isn't there. Wait a few days.
 - **Did the brief generation actually run?** Look at API logs around the configured time: `docker compose logs --tail=100 api | grep -i brief`. You should see a "generating brief" entry near the time you scheduled it.
-- **Is the schedule correct?** "Morning" in **Settings → Briefs** is *server time*, not your local time -- if your platform is on a server in a different region, the time will be off.
+- **Is the schedule correct?** The brief is generated at the **delivery time in the time zone you set** in **Settings → Briefs** (not server time). The scheduler checks every few minutes and generates the day's brief once the configured time has passed *in that zone*; if it hasn't fired, confirm the time has already passed today in your configured zone (and that the time zone itself is correct).
 
 ## Still stuck?
 
