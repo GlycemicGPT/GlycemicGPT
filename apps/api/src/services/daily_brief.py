@@ -12,6 +12,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.config import settings
 from src.database import get_session_maker
 from src.logging_config import get_logger
 from src.models.brief_delivery_config import BriefDeliveryConfig
@@ -33,6 +34,7 @@ from src.services.cgm_source import (
 )
 from src.services.diabetes_context import (
     format_iob_for_prompt,
+    format_meals_for_brief,
     format_pump_profile_for_prompt,
     get_pump_profile_summary,
 )
@@ -59,6 +61,9 @@ Guidelines:
 - When pump profile data is provided, reference the user's actual basal rates, \
 correction factors, and carb ratios when discussing patterns
 - When IoB data is provided, factor current insulin on board into your analysis
+- When logged meals are provided, you may reflect them back and ask how they \
+went, but treat the carb figures as rough estimates to verify -- never as \
+dosing inputs, and never suggest a dose for a meal
 - Use encouraging, non-judgmental language
 - Do NOT recommend specific insulin dose changes (that is for their endocrinologist)
 - Focus on actionable observations the user can discuss with their care team
@@ -71,6 +76,7 @@ def _build_analysis_prompt(
     hours: int,
     profile_context: str | None = None,
     iob_context: str | None = None,
+    meals_context: str | None = None,
 ) -> str:
     """Build the user prompt with glucose and pump metrics.
 
@@ -79,6 +85,9 @@ def _build_analysis_prompt(
         hours: Number of hours analyzed.
         profile_context: Optional pump profile text block.
         iob_context: Optional IoB text block.
+        meals_context: Optional logged-meals text block (Story 50.F1). Carries
+            the reflect-and-ask, verify-before-dosing framing; never a dosing
+            input.
 
     Returns:
         Formatted prompt string for the AI provider.
@@ -120,6 +129,10 @@ def _build_analysis_prompt(
     if iob_context:
         lines.append("")
         lines.append(iob_context)
+
+    if meals_context:
+        lines.append("")
+        lines.append(meals_context)
 
     lines.append("")
     lines.append(
@@ -411,8 +424,25 @@ async def generate_daily_brief(
             exc_info=True,
         )
 
+    # Logged meals for the period (Story 50.F1) -- gated on the meal-intelligence
+    # feature so the brief stays unchanged while the flag is off.
+    meals_context = None
+    if settings.meal_intelligence_enabled:
+        try:
+            meals_context = await format_meals_for_brief(
+                db, user.id, period_start, period_end
+            )
+        except Exception:
+            logger.warning(
+                "Failed to fetch logged meals for daily brief",
+                user_id=str(user.id),
+                exc_info=True,
+            )
+
     # Build prompt and generate
-    user_prompt = _build_analysis_prompt(metrics, hours, profile_context, iob_context)
+    user_prompt = _build_analysis_prompt(
+        metrics, hours, profile_context, iob_context, meals_context
+    )
 
     logger.info(
         "Generating daily brief",
