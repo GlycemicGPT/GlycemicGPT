@@ -1762,7 +1762,7 @@ class TestBasalInjectionSurfacing:
                     PumpEvent(
                         user_id=uid,
                         event_type=PumpEventType.BOLUS,
-                        event_timestamp=ts - timedelta(seconds=1),
+                        event_timestamp=ts,
                         units=6.0,
                         is_automated=False,
                         received_at=ts,
@@ -1813,7 +1813,7 @@ class TestBasalInjectionSurfacing:
                     PumpEvent(
                         user_id=uid,
                         event_type=PumpEventType.BOLUS,
-                        event_timestamp=ts - timedelta(seconds=1),
+                        event_timestamp=ts,
                         units=90.0,
                         is_automated=False,
                         received_at=ts,

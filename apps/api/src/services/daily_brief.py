@@ -284,12 +284,13 @@ async def calculate_metrics(
     # units -- NOT a rate -- so they sum directly (no time integration). Counts
     # toward basal for the therapy picture but kept as its own line. Bounded to
     # the basal-injection limit (corrupt-record guard) -- the lower bolus bound
-    # would clip a legitimate large basal dose. Like the bolus/correction sums
-    # above, this path intentionally does NOT cross-source dedupe (that lives in
-    # the display `/insulin/summary` query); the daily brief mirrors its
-    # neighbours here rather than diverging.
-    basal_inj_result = await db.execute(
-        select(func.count(), func.coalesce(func.sum(PumpEvent.units), 0.0)).where(
+    # would clip a legitimate large basal dose. Deduplicated by
+    # (event_timestamp, units) -- matching the `/insulin/summary` query -- so the
+    # same dose imported from both Glooko and Nightscout isn't double-counted in
+    # the total fed to the AI brief.
+    basal_inj_subq = (
+        select(PumpEvent.event_timestamp, PumpEvent.units)
+        .where(
             PumpEvent.user_id == user_id,
             PumpEvent.event_timestamp >= period_start,
             PumpEvent.event_timestamp < period_end,
@@ -297,6 +298,14 @@ async def calculate_metrics(
             PumpEvent.units.is_not(None),
             PumpEvent.units > 0,
             PumpEvent.units <= MAX_BASAL_INJECTION_UNITS,
+        )
+        .group_by(PumpEvent.event_timestamp, PumpEvent.units)
+        .subquery()
+    )
+    basal_inj_result = await db.execute(
+        select(
+            func.count(basal_inj_subq.c.units),
+            func.coalesce(func.sum(basal_inj_subq.c.units), 0.0),
         )
     )
     basal_inj_row = basal_inj_result.one()
