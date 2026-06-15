@@ -5,11 +5,11 @@ import com.glycemicgpt.mobile.data.meal.FoodRecord
 import com.glycemicgpt.mobile.data.meal.MealException
 import com.glycemicgpt.mobile.data.meal.toDomain
 import com.glycemicgpt.mobile.data.remote.GlycemicGptApi
-import com.glycemicgpt.mobile.data.remote.dto.ApiErrorBody
 import com.glycemicgpt.mobile.data.remote.dto.CommonFoodUpdateRequest
 import com.glycemicgpt.mobile.data.remote.dto.FoodRecordCorrectionRequest
 import com.glycemicgpt.mobile.data.remote.dto.SaveAsCommonFoodRequest
 import com.squareup.moshi.Moshi
+import com.squareup.moshi.Types
 import kotlinx.coroutines.CancellationException
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -34,7 +34,12 @@ class MealRepository @Inject constructor(
     @Named("chat") private val chatApi: GlycemicGptApi,
     moshi: Moshi,
 ) {
-    private val errorAdapter = moshi.adapter(ApiErrorBody::class.java)
+    // The FastAPI error envelope is parsed as a raw object map rather than a codegen DTO: its
+    // `detail` is a plain string for our HTTPExceptions but a list of objects for Pydantic
+    // request-validation failures, so a fixed-shape adapter can't model it.
+    private val errorBodyAdapter = moshi.adapter<Map<String, Any?>>(
+        Types.newParameterizedType(Map::class.java, String::class.java, Any::class.java),
+    )
 
     /** Upload a compressed JPEG and return the persisted estimate. */
     suspend fun uploadPhoto(jpegBytes: ByteArray): Result<FoodRecord> {
@@ -126,8 +131,8 @@ class MealRepository @Inject constructor(
     /** Extract the human message from a FastAPI error body, tolerating both the string and the
      *  Pydantic list-of-objects shapes of `detail`. */
     private fun detailOf(errorBody: ResponseBody?): String? = try {
-        val parsed = errorBody?.string()?.takeIf { it.isNotBlank() }?.let { errorAdapter.fromJson(it) }
-        when (val detail = parsed?.detail) {
+        val parsed = errorBody?.string()?.takeIf { it.isNotBlank() }?.let { errorBodyAdapter.fromJson(it) }
+        when (val detail = parsed?.get("detail")) {
             is String -> detail
             is List<*> -> (detail.firstOrNull() as? Map<*, *>)?.get("msg") as? String
             else -> null
@@ -174,7 +179,9 @@ class MealRepository @Inject constructor(
         // Substrings of the backend's `detail` copy (apps/api/src/routers/_meal_intelligence.py
         // and food_records.py). The MealRepositoryTest cases pin these exact strings.
         const val DETAIL_FEATURE_OFF = "not enabled"
-        const val DETAIL_NO_PROVIDER = "provider"
+        // Specific enough to match "No AI provider configured." / "...for your AI provider."
+        // without catching an unrelated 404 whose copy merely mentions a "provider".
+        const val DETAIL_NO_PROVIDER = "ai provider"
         const val DETAIL_VISION = "vision"
     }
 }

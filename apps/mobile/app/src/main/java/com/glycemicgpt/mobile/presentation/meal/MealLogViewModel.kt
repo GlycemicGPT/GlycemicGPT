@@ -14,6 +14,7 @@ import com.glycemicgpt.mobile.data.repository.MealRepository
 import com.glycemicgpt.mobile.di.IoDispatcher
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -107,7 +108,23 @@ class MealLogViewModel @Inject constructor(
                 withContext(ioDispatcher) {
                     ImageCompressor.compress(context.contentResolver, uri)
                 }
-            } catch (e: IOException) {
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: OutOfMemoryError) {
+                // A very large source can exhaust heap during decode/scale; recover instead of
+                // leaving the upload spinner stuck (or crashing).
+                Timber.w(e, "Out of memory compressing meal photo")
+                _uiState.update {
+                    it.copy(
+                        isUploading = false,
+                        errorMessage = "That photo is too large to process. Try a smaller one.",
+                    )
+                }
+                return@launch
+            } catch (e: Exception) {
+                // IOException plus the unchecked IllegalArgument/IllegalState that
+                // BitmapFactory/createScaledBitmap can throw on a malformed image -- caught so the
+                // spinner can never get permanently stuck.
                 Timber.w(e, "Failed to read meal photo")
                 _uiState.update {
                     it.copy(isUploading = false, errorMessage = "Couldn't read that photo. Try another one.")

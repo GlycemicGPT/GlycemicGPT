@@ -390,8 +390,9 @@ private fun CorrectionEditor(
     onSubmit: (String, String) -> Unit,
     onCancel: () -> Unit,
 ) {
-    var lowText by remember { mutableStateOf(formatEditableGrams(initialLow)) }
-    var highText by remember { mutableStateOf(formatEditableGrams(initialHigh)) }
+    // Key on the seed values so the fields reset if the editor reopens for a different estimate.
+    var lowText by remember(initialLow, initialHigh) { mutableStateOf(formatEditableGrams(initialLow)) }
+    var highText by remember(initialLow, initialHigh) { mutableStateOf(formatEditableGrams(initialHigh)) }
 
     Card(
         modifier = Modifier

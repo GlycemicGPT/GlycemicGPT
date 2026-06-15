@@ -182,6 +182,38 @@ class MealLogViewModelTest {
     }
 
     @Test
+    fun `a non-IO compression failure recovers instead of leaving the spinner stuck`() =
+        runTest(testDispatcher) {
+            stubAvailable()
+            // BitmapFactory / createScaledBitmap can throw unchecked exceptions on a bad image.
+            every { ImageCompressor.compress(any(), any(), any(), any()) } throws
+                IllegalArgumentException("bad bitmap dimensions")
+            val vm = viewModel()
+            advanceUntilIdle()
+
+            vm.onImagePicked(uri)
+            advanceUntilIdle()
+
+            assertFalse(vm.uiState.value.isUploading)
+            assertTrue(vm.uiState.value.errorMessage!!.contains("Couldn't read"))
+        }
+
+    @Test
+    fun `out-of-memory during compression recovers with a smaller-photo hint`() =
+        runTest(testDispatcher) {
+            stubAvailable()
+            every { ImageCompressor.compress(any(), any(), any(), any()) } throws OutOfMemoryError()
+            val vm = viewModel()
+            advanceUntilIdle()
+
+            vm.onImagePicked(uri)
+            advanceUntilIdle()
+
+            assertFalse(vm.uiState.value.isUploading)
+            assertTrue(vm.uiState.value.errorMessage!!.contains("too large"))
+        }
+
+    @Test
     fun `correction rejects an inverted range without calling the API`() = runTest(testDispatcher) {
         stubAvailable()
         every { ImageCompressor.compress(any(), any(), any(), any()) } returns ByteArray(8)

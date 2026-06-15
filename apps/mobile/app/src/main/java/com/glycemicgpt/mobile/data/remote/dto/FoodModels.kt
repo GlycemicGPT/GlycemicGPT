@@ -69,13 +69,3 @@ data class CommonFoodUpdateRequest(
     @Json(name = "carbs_low") val carbsLow: Double? = null,
     @Json(name = "carbs_high") val carbsHigh: Double? = null,
 )
-
-/**
- * FastAPI error envelope. `detail` is a plain string for our hand-raised [HTTPException]s, but a
- * list of validation objects for Pydantic request-validation failures -- so it is typed [Any] and
- * narrowed at the call site.
- */
-@JsonClass(generateAdapter = true)
-data class ApiErrorBody(
-    val detail: Any? = null,
-)

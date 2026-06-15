@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.Fastfood
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Notifications
@@ -85,7 +86,7 @@ sealed class Screen(val route: String, val label: String, val icon: ImageVector)
     data object BolusHistory : Screen("bolus_history", "Bolus History", Icons.Default.History)
     data object MealLog : Screen("meal_log", "Log a Meal", Icons.Default.Restaurant)
     data object MealHistory : Screen("meal_history", "Meal History", Icons.Default.History)
-    data object CommonFoods : Screen("common_foods", "Common Foods", Icons.Default.Restaurant)
+    data object CommonFoods : Screen("common_foods", "Common Foods", Icons.Default.Fastfood)
 }
 
 private val bottomNavItems = listOf(Screen.Home, Screen.AiChat, Screen.Alerts, Screen.Settings)

@@ -179,9 +179,10 @@ private fun EditCommonFoodDialog(
     onSave: (name: String, low: String, high: String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var name by remember { mutableStateOf(food.name) }
-    var lowText by remember { mutableStateOf(formatEditableGrams(food.carbs.lowGrams)) }
-    var highText by remember { mutableStateOf(formatEditableGrams(food.carbs.highGrams)) }
+    // Key on the food id so the fields re-initialize if the dialog is reused for a different food.
+    var name by remember(food.id) { mutableStateOf(food.name) }
+    var lowText by remember(food.id) { mutableStateOf(formatEditableGrams(food.carbs.lowGrams)) }
+    var highText by remember(food.id) { mutableStateOf(formatEditableGrams(food.carbs.highGrams)) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
