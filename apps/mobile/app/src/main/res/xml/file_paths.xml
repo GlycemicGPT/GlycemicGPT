@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
     <cache-path name="apk_updates" path="apk_updates/" />
+    <!-- Transient meal photos handed to the camera app for capture, then deleted after upload. -->
+    <cache-path name="meal_photos" path="meal_photos/" />
 </paths>

@@ -6,6 +6,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import com.glycemicgpt.mobile.domain.model.BolusCategory
 
 // Matches the web app's dark theme palette
@@ -75,6 +76,41 @@ fun GlycemicGptTheme(
         colorScheme = colorScheme,
         content = content,
     )
+}
+
+/**
+ * Palette for the "Estimate — verify before dosing" qualifier strip. Deliberately a soft amber
+ * "calm caution" treatment, never the red error color, so a standing safety note is not mistaken
+ * for an alarm. Light/dark values per the mobile Meal Intelligence UX spec (§8).
+ */
+data class SafetyPalette(val background: Color, val foreground: Color, val icon: Color)
+
+private val SafetyLight = SafetyPalette(
+    background = Color(0xFFFFF8E1),
+    foreground = Color(0xFF5D4200),
+    icon = Color(0xFFB26A00),
+)
+private val SafetyDark = SafetyPalette(
+    background = Color(0xFF3A2E07),
+    foreground = Color(0xFFFCEFC7),
+    icon = Color(0xFFF2C14E),
+)
+
+/**
+ * Theme-aware safety palette. Darkness is read off the active scheme (which tracks forced
+ * [ThemeMode] too, unlike `isSystemInDarkTheme`); the two schemes sit far from the 0.5 threshold
+ * (Slate950 vs Slate50), so the split is unambiguous.
+ */
+@Composable
+fun safetyPalette(): SafetyPalette =
+    if (MaterialTheme.colorScheme.background.luminance() < 0.5f) SafetyDark else SafetyLight
+
+// Confidence-bar colors for carb estimates (§7): green = high, amber = medium/low. Medium and Low
+// intentionally share the amber hue; ConfidenceBar distinguishes them by length, not color alone.
+object MealConfidenceColors {
+    val High = Green500
+    val Medium = Yellow500
+    val Low = Yellow500
 }
 
 // Semantic colors for glucose ranges -- constant across themes

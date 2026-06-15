@@ -15,9 +15,11 @@ import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.Fastfood
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.automirrored.filled.ShowChart
@@ -52,6 +54,9 @@ import com.glycemicgpt.mobile.data.local.AppSettingsStore
 import com.glycemicgpt.mobile.presentation.alerts.AlertsScreen
 import com.glycemicgpt.mobile.presentation.chat.AiChatScreen
 import com.glycemicgpt.mobile.presentation.home.HomeScreen
+import com.glycemicgpt.mobile.presentation.meal.CommonFoodsScreen
+import com.glycemicgpt.mobile.presentation.meal.MealHistoryScreen
+import com.glycemicgpt.mobile.presentation.meal.MealLogScreen
 import com.glycemicgpt.mobile.BuildConfig
 import com.glycemicgpt.mobile.presentation.debug.BleDebugScreen
 import com.glycemicgpt.mobile.presentation.detail.AlertHistoryScreen
@@ -79,6 +84,9 @@ sealed class Screen(val route: String, val label: String, val icon: ImageVector)
     data object InsulinDetail : Screen("insulin_detail", "Insulin", Icons.Default.Science)
     data object AlertHistory : Screen("alert_history", "Alert History", Icons.Default.History)
     data object BolusHistory : Screen("bolus_history", "Bolus History", Icons.Default.History)
+    data object MealLog : Screen("meal_log", "Log a Meal", Icons.Default.Restaurant)
+    data object MealHistory : Screen("meal_history", "Meal History", Icons.Default.History)
+    data object CommonFoods : Screen("common_foods", "Common Foods", Icons.Default.Fastfood)
 }
 
 private val bottomNavItems = listOf(Screen.Home, Screen.AiChat, Screen.Alerts, Screen.Settings)
@@ -93,6 +101,9 @@ private val spokeRoutes = setOf(
     Screen.PluginDetail.route,
     Screen.Pairing.route,
     Screen.BleDebug.route,
+    Screen.MealLog.route,
+    Screen.MealHistory.route,
+    Screen.CommonFoods.route,
 )
 
 @Composable
@@ -204,6 +215,8 @@ fun GlycemicGptNavHost(appSettingsStore: AppSettingsStore, authTokenStore: AuthT
                         onNavigateToInsulinDetail = { navController.navigate(Screen.InsulinDetail.route) },
                         onNavigateToAlertHistory = { navController.navigate(Screen.AlertHistory.route) },
                         onNavigateToBolusHistory = { navController.navigate(Screen.BolusHistory.route) },
+                        onNavigateToMealLog = { navController.navigate(Screen.MealLog.route) },
+                        onNavigateToMealHistory = { navController.navigate(Screen.MealHistory.route) },
                     )
                 }
                 composable(Screen.AiChat.route) { AiChatScreen() }
@@ -219,7 +232,21 @@ fun GlycemicGptNavHost(appSettingsStore: AppSettingsStore, authTokenStore: AuthT
                         } else {
                             null
                         },
+                        onNavigateToMealLog = { navController.navigate(Screen.MealLog.route) },
                     )
+                }
+                composable(Screen.MealLog.route) {
+                    MealLogScreen(
+                        onBack = { navController.popBackStack() },
+                        onNavigateToHistory = { navController.navigate(Screen.MealHistory.route) },
+                        onNavigateToCommonFoods = { navController.navigate(Screen.CommonFoods.route) },
+                    )
+                }
+                composable(Screen.MealHistory.route) {
+                    MealHistoryScreen(onBack = { navController.popBackStack() })
+                }
+                composable(Screen.CommonFoods.route) {
+                    CommonFoodsScreen(onBack = { navController.popBackStack() })
                 }
                 composable(Screen.Pairing.route) {
                     PairingScreen(

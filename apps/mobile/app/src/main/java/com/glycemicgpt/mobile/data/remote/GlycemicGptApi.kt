@@ -20,11 +20,22 @@ import com.glycemicgpt.mobile.data.remote.dto.NightscoutConnectionListDto
 import com.glycemicgpt.mobile.data.remote.dto.NightscoutDataDto
 import com.glycemicgpt.mobile.data.remote.dto.PumpPushResponse
 import com.glycemicgpt.mobile.data.remote.dto.RefreshTokenRequest
+import com.glycemicgpt.mobile.data.remote.dto.CommonFoodListResponse
+import com.glycemicgpt.mobile.data.remote.dto.CommonFoodResponse
+import com.glycemicgpt.mobile.data.remote.dto.CommonFoodUpdateRequest
+import com.glycemicgpt.mobile.data.remote.dto.FoodRecordCorrectionRequest
+import com.glycemicgpt.mobile.data.remote.dto.FoodRecordListResponse
+import com.glycemicgpt.mobile.data.remote.dto.FoodRecordResponse
+import com.glycemicgpt.mobile.data.remote.dto.SaveAsCommonFoodRequest
+import okhttp3.MultipartBody
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
+import retrofit2.http.Multipart
+import retrofit2.http.PATCH
 import retrofit2.http.POST
+import retrofit2.http.Part
 import retrofit2.http.Query
 import retrofit2.http.PUT
 import retrofit2.http.Path
@@ -101,4 +112,47 @@ interface GlycemicGptApi {
         @Query("since") since: String?,
         @Query("limit") limit: Int,
     ): Response<NightscoutDataDto>
+
+    // Meal Intelligence (Epic 50). All endpoints return 404 when the
+    // meal_intelligence_enabled feature flag is off; the upload returns 422 when
+    // the user's AI provider has no vision route.
+    @Multipart
+    @POST("/api/food-records")
+    suspend fun uploadFoodPhoto(@Part file: MultipartBody.Part): Response<FoodRecordResponse>
+
+    @GET("/api/food-records")
+    suspend fun listFoodRecords(
+        @Query("limit") limit: Int = 50,
+        @Query("offset") offset: Int = 0,
+    ): Response<FoodRecordListResponse>
+
+    @DELETE("/api/food-records/{recordId}")
+    suspend fun deleteFoodRecord(@Path("recordId") recordId: String): Response<Unit>
+
+    @POST("/api/food-records/{recordId}/correct")
+    suspend fun correctFoodRecord(
+        @Path("recordId") recordId: String,
+        @Body request: FoodRecordCorrectionRequest,
+    ): Response<FoodRecordResponse>
+
+    @POST("/api/food-records/{recordId}/save-as-common-food")
+    suspend fun saveRecordAsCommonFood(
+        @Path("recordId") recordId: String,
+        @Body request: SaveAsCommonFoodRequest,
+    ): Response<CommonFoodResponse>
+
+    @GET("/api/common-foods")
+    suspend fun listCommonFoods(
+        @Query("limit") limit: Int = 50,
+        @Query("offset") offset: Int = 0,
+    ): Response<CommonFoodListResponse>
+
+    @PATCH("/api/common-foods/{commonFoodId}")
+    suspend fun updateCommonFood(
+        @Path("commonFoodId") commonFoodId: String,
+        @Body request: CommonFoodUpdateRequest,
+    ): Response<CommonFoodResponse>
+
+    @DELETE("/api/common-foods/{commonFoodId}")
+    suspend fun deleteCommonFood(@Path("commonFoodId") commonFoodId: String): Response<Unit>
 }
