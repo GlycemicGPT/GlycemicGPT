@@ -294,6 +294,38 @@ class TestBuildAnalysisPrompt:
 
         assert "48-hour" in prompt
 
+    def _metrics(self) -> DailyBriefMetrics:
+        return DailyBriefMetrics(
+            time_in_range_pct=80.0,
+            average_glucose=130.0,
+            low_count=0,
+            high_count=3,
+            readings_count=100,
+            correction_count=1,
+            total_insulin=None,
+        )
+
+    def test_prompt_includes_meals_context_when_provided(self):
+        """Story 50.F1: a provided meals block is embedded in the prompt."""
+        meals = "[Logged meals this period]\n- pasta: ~60-80g carbs (estimate)"
+        prompt = _build_analysis_prompt(self._metrics(), 24, meals_context=meals)
+
+        assert "Logged meals this period" in prompt
+        assert "pasta" in prompt
+
+    def test_prompt_omits_meals_block_when_absent(self):
+        prompt = _build_analysis_prompt(self._metrics(), 24)
+        assert "Logged meals" not in prompt
+
+    def test_system_prompt_frames_meals_as_reflect_not_dose(self):
+        """AC3/AC4: the brief's system prompt forbids dosing for meals."""
+        from src.services.daily_brief import SYSTEM_PROMPT
+
+        lowered = SYSTEM_PROMPT.lower()
+        assert "logged meals" in lowered
+        assert "never as dosing inputs" in lowered
+        assert "never suggest a dose" in lowered
+
 
 class TestGenerateDailyBrief:
     """Tests for the generate_daily_brief service function."""
