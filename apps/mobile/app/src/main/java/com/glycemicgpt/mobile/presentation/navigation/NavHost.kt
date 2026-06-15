@@ -215,6 +215,8 @@ fun GlycemicGptNavHost(appSettingsStore: AppSettingsStore, authTokenStore: AuthT
                         onNavigateToInsulinDetail = { navController.navigate(Screen.InsulinDetail.route) },
                         onNavigateToAlertHistory = { navController.navigate(Screen.AlertHistory.route) },
                         onNavigateToBolusHistory = { navController.navigate(Screen.BolusHistory.route) },
+                        onNavigateToMealLog = { navController.navigate(Screen.MealLog.route) },
+                        onNavigateToMealHistory = { navController.navigate(Screen.MealHistory.route) },
                     )
                 }
                 composable(Screen.AiChat.route) { AiChatScreen() }

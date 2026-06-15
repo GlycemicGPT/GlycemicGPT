@@ -4,19 +4,24 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -39,6 +44,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.glycemicgpt.mobile.data.meal.CarbConfidence
 import com.glycemicgpt.mobile.data.meal.CommonFood
 import com.glycemicgpt.mobile.presentation.detail.DetailScaffold
 
@@ -49,6 +55,7 @@ fun CommonFoodsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    var reLogging by remember { mutableStateOf<CommonFood?>(null) }
 
     LaunchedEffect(uiState.actionError) {
         uiState.actionError?.let {
@@ -99,6 +106,7 @@ fun CommonFoodsScreen(
                             items(uiState.items, key = { it.id }) { food ->
                                 CommonFoodItem(
                                     food = food,
+                                    onReLog = { reLogging = food },
                                     onEdit = { viewModel.startEdit(food) },
                                     onDelete = { viewModel.delete(food.id) },
                                 )
@@ -124,10 +132,19 @@ fun CommonFoodsScreen(
             onDismiss = viewModel::cancelEdit,
         )
     }
+
+    reLogging?.let { food ->
+        ReLogDialog(food = food, onDismiss = { reLogging = null })
+    }
 }
 
 @Composable
-private fun CommonFoodItem(food: CommonFood, onEdit: () -> Unit, onDelete: () -> Unit) {
+private fun CommonFoodItem(
+    food: CommonFood,
+    onReLog: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -137,7 +154,7 @@ private fun CommonFoodItem(food: CommonFood, onEdit: () -> Unit, onDelete: () ->
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(start = 16.dp, top = 8.dp, bottom = 8.dp, end = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
@@ -152,6 +169,19 @@ private fun CommonFoodItem(food: CommonFood, onEdit: () -> Unit, onDelete: () ->
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.testTag("common_food_carbs"),
                 )
+            }
+            FilledTonalButton(
+                onClick = onReLog,
+                contentPadding = PaddingValues(horizontal = 12.dp),
+                modifier = Modifier.testTag("common_food_relog"),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(4.dp))
+                Text("Re-log")
             }
             IconButton(onClick = onEdit, modifier = Modifier.testTag("common_food_edit")) {
                 Icon(
@@ -169,6 +199,39 @@ private fun CommonFoodItem(food: CommonFood, onEdit: () -> Unit, onDelete: () ->
             }
         }
     }
+}
+
+/**
+ * Re-log surface for v1. The API has no create-record-from-common-food path (a record needs a photo
+ * upload), so this read-only sheet surfaces the saved carb range to verify, without persisting a new
+ * record. Lays the seam for record creation when the backend supports it.
+ */
+@Composable
+private fun ReLogDialog(food: CommonFood, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(food.name) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                VerifyBeforeDosingQualifier()
+                CarbEstimateContent(
+                    range = food.carbs,
+                    confidence = CarbConfidence.UNKNOWN,
+                )
+                Text(
+                    text = "Your saved estimate for this food. Use it to verify before dosing — " +
+                        "no new photo needed.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss, modifier = Modifier.testTag("common_food_relog_close")) {
+                Text("Close")
+            }
+        },
+    )
 }
 
 @Composable

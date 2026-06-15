@@ -116,6 +116,7 @@ class MealLogViewModelTest {
         advanceUntilIdle()
 
         assertEquals(record, vm.uiState.value.record)
+        assertEquals(uri, vm.uiState.value.photoUri)
         assertFalse(vm.uiState.value.isUploading)
         coVerify { repository.uploadPhoto(any()) }
     }

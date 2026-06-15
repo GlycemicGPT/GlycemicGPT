@@ -1,7 +1,9 @@
 package com.glycemicgpt.mobile.presentation.meal
 
 import android.Manifest
+import android.content.ContentResolver
 import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -20,16 +22,22 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.LocalCafe
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -37,6 +45,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -44,6 +53,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
@@ -54,6 +67,10 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.glycemicgpt.mobile.data.meal.FoodRecord
 import com.glycemicgpt.mobile.data.meal.MealPhotoFiles
 import com.glycemicgpt.mobile.presentation.detail.DetailScaffold
+import androidx.compose.foundation.shape.RoundedCornerShape
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlin.math.max
 
 @Composable
 fun MealLogScreen(
@@ -124,8 +141,9 @@ fun MealLogScreen(
             when (uiState.pageState) {
                 MealLogPageState.Loading -> MealCenteredSpinner("Loading…")
                 MealLogPageState.Disabled -> MealUnavailableMessage(
-                    title = "Meal logging isn't available",
-                    body = "Meal intelligence is turned off for this server.",
+                    title = "Meal logging isn't turned on",
+                    body = "Meal intelligence is turned off for this server. " +
+                        "Ask your server admin to enable it to estimate carbs from a photo.",
                     tag = "meal_feature_disabled",
                 )
                 MealLogPageState.Offline -> OfflineRetry(onRetry = viewModel::checkAvailability)
@@ -256,6 +274,28 @@ private fun IdleContent(
         )
     }
 
+    // No-photo path: re-log a saved common food.
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
+        HorizontalDivider(modifier = Modifier.weight(1f))
+        Text(
+            text = "OR",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 12.dp),
+        )
+        HorizontalDivider(modifier = Modifier.weight(1f))
+    }
+    FilledTonalButton(
+        onClick = onNavigateToCommonFoods,
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("meal_relog_common"),
+    ) {
+        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text("Re-log a common food")
+    }
+
     Spacer(Modifier.height(8.dp))
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
         OutlinedButton(
@@ -292,6 +332,8 @@ private fun ResultContent(
     onReset: () -> Unit,
 ) {
     var showSaveDialog by remember { mutableStateOf(false) }
+
+    uiState.photoUri?.let { MealPhotoThumbnail(uri = it) }
 
     Card(
         modifier = Modifier
@@ -557,7 +599,7 @@ private fun MealUnavailableMessage(title: String, body: String, tag: String) {
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Icon(
-                imageVector = Icons.Default.Restaurant,
+                imageVector = Icons.Default.LocalCafe,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(48.dp),
@@ -626,3 +668,41 @@ private fun ErrorBanner(message: String, onDismiss: () -> Unit) {
         }
     }
 }
+
+/**
+ * The just-captured/picked photo, shown above the result. Decoded off the main thread to a small
+ * thumbnail; renders nothing (rather than a broken box) if the image can't be read.
+ */
+@Composable
+private fun MealPhotoThumbnail(uri: Uri) {
+    val resolver = LocalContext.current.contentResolver
+    var thumbnail by remember(uri) { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(uri) {
+        thumbnail = withContext(Dispatchers.IO) { decodePhotoThumbnail(resolver, uri) }
+    }
+    thumbnail?.let { bitmap ->
+        Image(
+            bitmap = bitmap,
+            contentDescription = "Photo of your meal",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 9f)
+                .clip(RoundedCornerShape(12.dp))
+                .testTag("meal_result_photo"),
+        )
+    }
+}
+
+/** Decode [uri] to a downscaled [ImageBitmap] for preview, or null if it can't be read. */
+private fun decodePhotoThumbnail(resolver: ContentResolver, uri: Uri): ImageBitmap? = runCatching {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) } ?: return null
+    if (bounds.outWidth <= 0) return null
+    val options = BitmapFactory.Options().apply {
+        inSampleSize = Integer.highestOneBit(max(1, bounds.outWidth / THUMBNAIL_TARGET_PX))
+    }
+    resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }?.asImageBitmap()
+}.getOrNull()
+
+private const val THUMBNAIL_TARGET_PX = 1080

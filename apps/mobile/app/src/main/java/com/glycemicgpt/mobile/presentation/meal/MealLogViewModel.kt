@@ -51,6 +51,8 @@ data class MealLogUiState(
     val pageState: MealLogPageState = MealLogPageState.Loading,
     val isUploading: Boolean = false,
     val record: FoodRecord? = null,
+    /** The just-picked/captured image, shown as a thumbnail on the result. Null when none. */
+    val photoUri: Uri? = null,
     /** Set when the user's AI setup can't produce an estimate (vision-less or no provider). */
     val unavailableReason: MealUnavailableReason? = null,
     val errorMessage: String? = null,
@@ -93,17 +95,24 @@ class MealLogViewModel @Inject constructor(
 
     /** Compress and upload a captured/picked image, then surface the estimate. */
     fun onImagePicked(uri: Uri) {
+        val previousPhoto = _uiState.value.photoUri
         _uiState.update {
             it.copy(
                 isUploading = true,
                 errorMessage = null,
                 unavailableReason = null,
                 record = null,
+                photoUri = uri,
                 savedCommonFoodName = null,
                 isCorrecting = false,
             )
         }
         viewModelScope.launch {
+            // Drop the prior capture's original (scoped; no-op for gallery URIs). The current photo
+            // is kept so the result can show a thumbnail, and is swept on reset().
+            if (previousPhoto != null) {
+                withContext(ioDispatcher) { MealPhotoFiles.deleteCapture(context, previousPhoto) }
+            }
             val bytes = try {
                 withContext(ioDispatcher) {
                     ImageCompressor.compress(context.contentResolver, uri)
@@ -130,10 +139,6 @@ class MealLogViewModel @Inject constructor(
                     it.copy(isUploading = false, errorMessage = "Couldn't read that photo. Try another one.")
                 }
                 return@launch
-            } finally {
-                // Drop only this capture's full-resolution original; scoped so an overlapping
-                // capture's file is never swept. A no-op for gallery URIs we don't own.
-                withContext(ioDispatcher) { MealPhotoFiles.deleteCapture(context, uri) }
             }
 
             repository.uploadPhoto(bytes)
@@ -220,12 +225,13 @@ class MealLogViewModel @Inject constructor(
 
     /** Return to the idle capture state to log another meal. */
     fun reset() {
-        // No capture is in flight here, so sweep any orphaned originals from an earlier session.
+        // No capture is in flight here, so sweep the kept result thumbnail + any orphaned originals.
         viewModelScope.launch { withContext(ioDispatcher) { MealPhotoFiles.clearCaptures(context) } }
         _uiState.update {
             it.copy(
                 isUploading = false,
                 record = null,
+                photoUri = null,
                 unavailableReason = null,
                 errorMessage = null,
                 isCorrecting = false,

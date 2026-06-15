@@ -177,7 +177,7 @@ fun SettingsScreen(
                 modifier = Modifier.size(18.dp),
             )
             Spacer(modifier = Modifier.width(8.dp))
-            Text("Log a meal (Beta)")
+            Text("Log a meal")
         }
         Text(
             text = "Estimate a meal's carbs from a photo. Estimates are a guess to verify before dosing.",

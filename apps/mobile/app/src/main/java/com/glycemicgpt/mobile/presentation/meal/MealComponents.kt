@@ -1,10 +1,12 @@
 package com.glycemicgpt.mobile.presentation.meal
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,12 +24,17 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.glycemicgpt.mobile.data.meal.CarbConfidence
 import com.glycemicgpt.mobile.data.meal.CarbRange
+import com.glycemicgpt.mobile.presentation.theme.MealConfidenceColors
+import com.glycemicgpt.mobile.presentation.theme.safetyPalette
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -46,11 +53,13 @@ const val TAG_SAFETY_QUALIFIER = "meal_safety_qualifier"
  */
 @Composable
 fun VerifyBeforeDosingQualifier(modifier: Modifier = Modifier) {
+    // Soft-amber "calm caution" strip, never error red -- a standing note, not an alarm.
+    val palette = safetyPalette()
     Surface(
         modifier = modifier
             .fillMaxWidth()
             .testTag(TAG_SAFETY_QUALIFIER),
-        color = MaterialTheme.colorScheme.tertiaryContainer,
+        color = palette.background,
         shape = RoundedCornerShape(8.dp),
     ) {
         Row(
@@ -60,14 +69,14 @@ fun VerifyBeforeDosingQualifier(modifier: Modifier = Modifier) {
             Icon(
                 imageVector = Icons.Default.Info,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                tint = palette.icon,
                 modifier = Modifier.size(18.dp),
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = VERIFY_BEFORE_DOSING_TEXT,
                 style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                color = palette.foreground,
                 fontWeight = FontWeight.Medium,
             )
         }
@@ -86,7 +95,13 @@ fun CarbEstimateContent(
     isCorrected: Boolean = false,
     originalRange: CarbRange? = null,
 ) {
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    // The qualifier is announced as part of the value so it's never separable from the carbs (§12).
+    val description = "${carbRangeForSpeech(range)}, ${confidenceLabel(confidence).lowercase()}. " +
+        "$VERIFY_BEFORE_DOSING_TEXT."
+    Column(
+        modifier = modifier.semantics { contentDescription = description },
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
         Text(
             text = formatCarbRange(range),
             style = MaterialTheme.typography.headlineMedium,
@@ -100,6 +115,7 @@ fun CarbEstimateContent(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.testTag("meal_confidence"),
         )
+        ConfidenceBar(confidence)
         if (isCorrected && originalRange != null) {
             Text(
                 text = "You corrected this. AI estimated ${formatCarbRange(originalRange)}.",
@@ -108,6 +124,33 @@ fun CarbEstimateContent(
                 modifier = Modifier.testTag("meal_corrected_note"),
             )
         }
+    }
+}
+
+/** Confidence shown as a short colored bar (color + length, never color alone). Hidden when unknown. */
+@Composable
+private fun ConfidenceBar(confidence: CarbConfidence) {
+    val (fraction, color) = when (confidence) {
+        CarbConfidence.HIGH -> 1f to MealConfidenceColors.High
+        CarbConfidence.MEDIUM -> 0.6f to MealConfidenceColors.Medium
+        CarbConfidence.LOW -> 0.3f to MealConfidenceColors.Low
+        CarbConfidence.UNKNOWN -> return
+    }
+    Box(
+        modifier = Modifier
+            .width(120.dp)
+            .height(6.dp)
+            .clip(RoundedCornerShape(3.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .testTag("meal_confidence_bar"),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(fraction)
+                .fillMaxHeight()
+                .clip(RoundedCornerShape(3.dp))
+                .background(color),
+        )
     }
 }
 
@@ -126,6 +169,17 @@ fun formatCarbRange(range: CarbRange): String {
 
 private fun formatGrams(value: Double): String =
     if (value % 1.0 == 0.0) value.toInt().toString() else String.format(Locale.US, "%.1f", value)
+
+/** Spoken form of a carb range for screen readers (avoids reading "≈" / "–" literally). */
+private fun carbRangeForSpeech(range: CarbRange): String {
+    val low = formatGrams(range.lowGrams)
+    val high = formatGrams(range.highGrams)
+    return if (low == high) {
+        "Estimated $low grams of carbs"
+    } else {
+        "Estimated $low to $high grams of carbs"
+    }
+}
 
 fun confidenceLabel(confidence: CarbConfidence): String = when (confidence) {
     CarbConfidence.LOW -> "Low confidence"

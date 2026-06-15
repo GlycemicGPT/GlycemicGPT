@@ -1,6 +1,7 @@
 package com.glycemicgpt.mobile.presentation.home
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -37,6 +38,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
+import com.glycemicgpt.mobile.presentation.meal.MealFab
+import com.glycemicgpt.mobile.presentation.meal.RecentMealCard
 import com.glycemicgpt.mobile.domain.model.ConnectionState
 import com.glycemicgpt.mobile.presentation.plugin.PluginDashboardCardRenderer
 import com.glycemicgpt.mobile.presentation.theme.GlucoseColors
@@ -48,13 +53,19 @@ import java.time.Instant
 @Composable
 fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel(),
+    mealViewModel: HomeMealViewModel = hiltViewModel(),
     onPluginCardTap: (pluginId: String, cardId: String) -> Unit = { _, _ -> },
     onNavigateToChartDetail: (() -> Unit)? = null,
     onNavigateToTirDetail: () -> Unit = {},
     onNavigateToInsulinDetail: () -> Unit = {},
     onNavigateToAlertHistory: () -> Unit = {},
     onNavigateToBolusHistory: (() -> Unit)? = null,
+    onNavigateToMealLog: () -> Unit = {},
+    onNavigateToMealHistory: () -> Unit = {},
 ) {
+    val mealState by mealViewModel.uiState.collectAsState()
+    // Keep the Recent-meal glance fresh after logging a meal and returning Home.
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { mealViewModel.refresh() }
     val connectionState by viewModel.connectionState.collectAsState()
     val cgm by viewModel.cgm.collectAsState()
     val iob by viewModel.iob.collectAsState()
@@ -83,9 +94,13 @@ fun HomeScreen(
     val showPumpLabels by viewModel.showPumpLabels.collectAsState()
     val retentionDays by viewModel.dataRetentionDays.collectAsState()
 
+    Box(modifier = Modifier.fillMaxSize()) {
     PullToRefreshBox(
         isRefreshing = isRefreshing,
-        onRefresh = { viewModel.refreshData() },
+        onRefresh = {
+            viewModel.refreshData()
+            mealViewModel.refresh()
+        },
         modifier = Modifier.fillMaxSize(),
     ) {
         Column(
@@ -111,6 +126,12 @@ fun HomeScreen(
             )
 
             Spacer(modifier = Modifier.height(12.dp))
+
+            // Recent-meal glance (Epic 50): only once the user has logged at least one meal.
+            mealState.recentMeal?.let { recent ->
+                RecentMealCard(record = recent, onViewAll = onNavigateToMealHistory)
+                Spacer(modifier = Modifier.height(12.dp))
+            }
 
             // Glucose trend chart with IoB, basal, and bolus overlays
             GlucoseTrendChart(
@@ -201,6 +222,17 @@ fun HomeScreen(
                     color = MaterialTheme.colorScheme.tertiary,
                 )
             }
+        }
+    }
+
+        // Extended camera FAB (Epic 50) — hidden only when the server has the feature off.
+        if (mealState.mealLoggingAvailable) {
+            MealFab(
+                onClick = onNavigateToMealLog,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(16.dp),
+            )
         }
     }
 }
