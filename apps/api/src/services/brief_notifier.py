@@ -11,7 +11,9 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.logging_config import get_logger
+from src.models.brief_delivery_config import DeliveryChannel
 from src.models.daily_brief import DailyBrief
+from src.services.brief_delivery_config import get_or_create_config
 from src.services.telegram_bot import (
     TelegramBotError,
     get_telegram_link,
@@ -102,6 +104,16 @@ async def notify_user_of_brief(
     Returns:
         True if the message was sent successfully, False otherwise.
     """
+    # Respect the user's delivery channel: web_only means no Telegram push
+    # (the brief is still persisted and shown in the dashboard).
+    cfg = await get_or_create_config(user_id, db)
+    if cfg.channel == DeliveryChannel.WEB_ONLY:
+        logger.debug(
+            "Brief channel is web_only, skipping Telegram notification",
+            user_id=str(user_id),
+        )
+        return False
+
     link = await get_telegram_link(db, user_id)
     if link is None or not link.is_verified:
         logger.debug(

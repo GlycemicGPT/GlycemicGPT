@@ -280,6 +280,8 @@ class TestDoseEventTypePin:
             PumpEventType.BOLUS,
             PumpEventType.CORRECTION,
         }
+        # BASAL_INJECTION exists (issue #728) but must stay out of the allowlist.
+        assert PumpEventType.BASAL_INJECTION not in _DOSE_EVENT_TYPES
 
 
 class TestAnchorVisibilityClassification:
@@ -715,6 +717,45 @@ class TestNonPumpDoseProjection:
 
     # Decay reference (parabolic, DIA=4h): remaining(0.5h) = 0.984375,
     # remaining(1h) = 0.9375, remaining(2h) = 0.75.
+
+    async def test_basal_injection_does_not_enter_projected_iob(self, db_session):
+        """Behavioral pin: a long-acting BASAL_INJECTION must NOT contribute to
+        projected IoB (issue #728) -- the invariant the new event type relies on.
+        A 4 U bolus counts; a co-timed 20 U basal injection adds nothing, so the
+        projection stays in bolus range and never balloons toward ~24 U."""
+        user, email, password = await _create_user(db_session, "iob_basal_inj")
+        now = datetime.now(UTC)
+        bolus = PumpEvent(
+            user_id=user.id,
+            event_type=PumpEventType.BOLUS,
+            event_timestamp=now - timedelta(minutes=30),
+            units=4.0,
+            received_at=now,
+            source="glooko",
+            ns_id=_unique_ns_id("bolus"),
+        )
+        basal_injection = PumpEvent(
+            user_id=user.id,
+            event_type=PumpEventType.BASAL_INJECTION,
+            event_timestamp=now - timedelta(minutes=30),
+            units=20.0,
+            received_at=now,
+            source="glooko",
+            ns_id=_unique_ns_id("basal-inj"),
+            metadata_json={"glooko_stream": "insulins", "device_delivered": True},
+        )
+        db_session.add_all([bolus, basal_injection])
+        await db_session.commit()
+
+        response = await _fetch_projection(email, password)
+        assert response.status_code == 200
+        projected = response.json()["projected_iob"]
+        # Projected IoB is exactly the 4 U bolus decaying (parabolic, DIA=4h):
+        # 4.0 * remaining(0.5h) = 4.0 * 0.984375 = 3.9375. The 20 U basal
+        # injection contributes nothing -- if it had leaked into the rapid-acting
+        # model the total would balloon past 20, so pinning the bolus-only value
+        # guards both the exclusion and the bolus contribution itself.
+        assert projected == pytest.approx(3.9375, rel=0.02)
 
     async def test_pen_dose_before_pump_anchor_counts(self, db_session):
         """THE BUG: a pen dose at-or-before the anchor must not vanish.

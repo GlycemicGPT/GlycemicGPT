@@ -1,6 +1,8 @@
 """Story 35.1: Tests for shared diabetes context builders."""
 
 import uuid
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -10,6 +12,7 @@ from src.services.diabetes_context import (
     PumpProfileSummary,
     _sanitize_for_prompt,
     build_pump_profile_section,
+    build_pump_section,
     format_iob_for_prompt,
     format_pump_profile_for_prompt,
     get_pump_profile_summary,
@@ -284,3 +287,64 @@ class TestFormatIobForPrompt:
         assert result is not None
         assert "3.2 units" in result
         assert "2.5u" in result
+
+
+@pytest.mark.asyncio
+class TestBuildPumpSectionBasalInjection:
+    """A long-acting (basal) injection must surface in the AI pump section even
+    when it falls outside the short 6h pump-activity window (issue #728/#742),
+    so the model knows the active basal dose + timing for overnight analysis.
+    """
+
+    @staticmethod
+    def _mock_db_with_injections(injections: list) -> AsyncMock:
+        db = AsyncMock()
+        result = MagicMock()
+        result.scalars.return_value.all.return_value = injections
+        db.execute.return_value = result
+        return db
+
+    @patch("src.services.tandem_sync.get_pump_events")
+    async def test_basal_injection_lookback_renders(self, mock_get_events):
+        # No recent 6h pump activity, but a 24U basal injection 9h ago.
+        mock_get_events.return_value = []
+        now = datetime.now(UTC)
+        inj = SimpleNamespace(
+            event_timestamp=now - timedelta(hours=9),
+            units=24.0,
+            metadata_json={"medication": "Tresiba®"},
+        )
+        db = self._mock_db_with_injections([inj])
+
+        section = await build_pump_section(db, uuid.uuid4())
+
+        assert section is not None
+        assert "Long-acting (basal) injections" in section
+        assert "Tresiba®" in section
+        assert "24.0u" in section
+        assert "9h ago" in section
+
+    @patch("src.services.tandem_sync.get_pump_events")
+    async def test_insulin_type_used_when_no_medication(self, mock_get_events):
+        mock_get_events.return_value = []
+        now = datetime.now(UTC)
+        inj = SimpleNamespace(
+            event_timestamp=now - timedelta(hours=2),
+            units=18.0,
+            metadata_json={"insulin_type": "Lantus"},
+        )
+        db = self._mock_db_with_injections([inj])
+
+        section = await build_pump_section(db, uuid.uuid4())
+        assert section is not None
+        assert "Lantus" in section
+
+    @patch("src.services.tandem_sync.get_pump_events")
+    async def test_returns_none_when_no_activity_and_no_injections(
+        self, mock_get_events
+    ):
+        mock_get_events.return_value = []
+        db = self._mock_db_with_injections([])
+
+        section = await build_pump_section(db, uuid.uuid4())
+        assert section is None

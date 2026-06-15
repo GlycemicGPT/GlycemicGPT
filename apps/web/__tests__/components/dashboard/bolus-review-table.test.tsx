@@ -18,6 +18,7 @@ let mockHookReturn: {
   data: {
     boluses: Array<{
       event_timestamp: string;
+      event_type?: string;
       units: number;
       is_automated: boolean;
       control_iq_reason: string | null;
@@ -163,7 +164,7 @@ describe("BolusReviewTable", () => {
       mockHookReturn.error = "Server error";
       renderComponent();
       expect(
-        screen.getByRole("radiogroup", { name: /bolus review time period/i })
+        screen.getByRole("radiogroup", { name: /insulin review time period/i })
       ).toBeInTheDocument();
     });
   });
@@ -173,7 +174,7 @@ describe("BolusReviewTable", () => {
       mockHookReturn.data = null;
       renderComponent();
       expect(
-        screen.getByText("No bolus events recorded for this period.")
+        screen.getByText("No insulin events recorded for this period.")
       ).toBeInTheDocument();
     });
 
@@ -181,7 +182,7 @@ describe("BolusReviewTable", () => {
       mockHookReturn.data = makeData({ boluses: [], total_count: 0 });
       renderComponent();
       expect(
-        screen.getByText("No bolus events recorded for this period.")
+        screen.getByText("No insulin events recorded for this period.")
       ).toBeInTheDocument();
     });
   });
@@ -264,7 +265,29 @@ describe("BolusReviewTable", () => {
 
     it("shows heading text", () => {
       renderComponent();
-      expect(screen.getByText("Recent Boluses")).toBeInTheDocument();
+      expect(screen.getByText("Recent Insulin")).toBeInTheDocument();
+    });
+
+    it("renders a long-acting basal injection with its type badge and full units", () => {
+      mockHookReturn.data = makeData({
+        boluses: [
+          {
+            event_timestamp: "2026-03-01T07:00:00Z",
+            event_type: "basal_injection",
+            units: 90.0, // above the 50U bolus display cap -- must NOT show ">50"
+            is_automated: false,
+            control_iq_reason: null,
+            pump_activity_mode: null,
+            iob_at_event: null,
+            bg_at_event: null,
+          },
+        ],
+        total_count: 1,
+      });
+      renderComponent();
+      expect(screen.getByText("Basal injection")).toBeInTheDocument();
+      expect(screen.getByText("90.00 U")).toBeInTheDocument();
+      expect(screen.getByText("Long-acting (basal)")).toBeInTheDocument();
     });
 
     it("shows truncation notice when total > displayed", () => {
