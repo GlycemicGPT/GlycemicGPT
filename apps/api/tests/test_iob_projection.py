@@ -750,10 +750,12 @@ class TestNonPumpDoseProjection:
         response = await _fetch_projection(email, password)
         assert response.status_code == 200
         projected = response.json()["projected_iob"]
-        # The fresh 4 U bolus is most of the IoB; the 20 U basal injection is
-        # excluded, so the total stays well under 10 (it would exceed 20 if the
-        # basal injection had leaked into the rapid-acting decay model).
-        assert 0 < projected < 10
+        # Projected IoB is exactly the 4 U bolus decaying (parabolic, DIA=4h):
+        # 4.0 * remaining(0.5h) = 4.0 * 0.984375 = 3.9375. The 20 U basal
+        # injection contributes nothing -- if it had leaked into the rapid-acting
+        # model the total would balloon past 20, so pinning the bolus-only value
+        # guards both the exclusion and the bolus contribution itself.
+        assert projected == pytest.approx(3.9375, rel=0.02)
 
     async def test_pen_dose_before_pump_anchor_counts(self, db_session):
         """THE BUG: a pen dose at-or-before the anchor must not vanish.
