@@ -96,12 +96,17 @@ private val SafetyDark = SafetyPalette(
     icon = Color(0xFFF2C14E),
 )
 
-/** Theme-aware safety palette. Darkness is read off the active scheme so it tracks forced themes. */
+/**
+ * Theme-aware safety palette. Darkness is read off the active scheme (which tracks forced
+ * [ThemeMode] too, unlike `isSystemInDarkTheme`); the two schemes sit far from the 0.5 threshold
+ * (Slate950 vs Slate50), so the split is unambiguous.
+ */
 @Composable
 fun safetyPalette(): SafetyPalette =
     if (MaterialTheme.colorScheme.background.luminance() < 0.5f) SafetyDark else SafetyLight
 
-// Confidence-bar colors for carb estimates (§7): green = high, amber = medium/low.
+// Confidence-bar colors for carb estimates (§7): green = high, amber = medium/low. Medium and Low
+// intentionally share the amber hue; ConfidenceBar distinguishes them by length, not color alone.
 object MealConfidenceColors {
     val High = Green500
     val Medium = Yellow500

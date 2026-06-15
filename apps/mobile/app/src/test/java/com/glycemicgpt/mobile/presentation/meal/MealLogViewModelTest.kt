@@ -18,6 +18,7 @@ import io.mockk.justRun
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.unmockkObject
+import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -119,6 +120,39 @@ class MealLogViewModelTest {
         assertEquals(uri, vm.uiState.value.photoUri)
         assertFalse(vm.uiState.value.isUploading)
         coVerify { repository.uploadPhoto(any()) }
+    }
+
+    @Test
+    fun `a single upload keeps its photo for the result thumbnail`() = runTest(testDispatcher) {
+        stubAvailable()
+        every { ImageCompressor.compress(any(), any(), any(), any()) } returns ByteArray(8)
+        coEvery { repository.uploadPhoto(any()) } returns Result.success(record)
+        val vm = viewModel()
+        advanceUntilIdle()
+
+        vm.onImagePicked(uri)
+        advanceUntilIdle()
+
+        // The current capture must NOT be swept (the result needs it); cleanup is deferred to reset.
+        verify(exactly = 0) { MealPhotoFiles.deleteCapture(any(), uri) }
+    }
+
+    @Test
+    fun `a second pick sweeps the previous photo but keeps the new one`() = runTest(testDispatcher) {
+        stubAvailable()
+        every { ImageCompressor.compress(any(), any(), any(), any()) } returns ByteArray(8)
+        coEvery { repository.uploadPhoto(any()) } returns Result.success(record)
+        val secondUri = mockk<Uri>(relaxed = true)
+        val vm = viewModel()
+        advanceUntilIdle()
+
+        vm.onImagePicked(uri)
+        advanceUntilIdle()
+        vm.onImagePicked(secondUri)
+        advanceUntilIdle()
+
+        verify { MealPhotoFiles.deleteCapture(any(), uri) }
+        verify(exactly = 0) { MealPhotoFiles.deleteCapture(any(), secondUri) }
     }
 
     @Test

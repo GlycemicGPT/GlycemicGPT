@@ -99,7 +99,8 @@ fun CarbEstimateContent(
     val description = "${carbRangeForSpeech(range)}, ${confidenceLabel(confidence).lowercase()}. " +
         "$VERIFY_BEFORE_DOSING_TEXT."
     Column(
-        modifier = modifier.semantics { contentDescription = description },
+        // Merge so the carb value + confidence + qualifier are announced as one phrase, not three.
+        modifier = modifier.semantics(mergeDescendants = true) { contentDescription = description },
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Text(

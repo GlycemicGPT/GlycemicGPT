@@ -31,6 +31,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -64,8 +65,12 @@ fun HomeScreen(
     onNavigateToMealHistory: () -> Unit = {},
 ) {
     val mealState by mealViewModel.uiState.collectAsState()
-    // Keep the Recent-meal glance fresh after logging a meal and returning Home.
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { mealViewModel.refresh() }
+    // Refresh the Recent-meal glance when returning to Home (e.g. after logging a meal). Skip the
+    // first resume since the ViewModel already fetched in init, avoiding a redundant call.
+    var firstResume by remember { mutableStateOf(true) }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        if (firstResume) firstResume = false else mealViewModel.refresh()
+    }
     val connectionState by viewModel.connectionState.collectAsState()
     val cgm by viewModel.cgm.collectAsState()
     val iob by viewModel.iob.collectAsState()
@@ -94,7 +99,6 @@ fun HomeScreen(
     val showPumpLabels by viewModel.showPumpLabels.collectAsState()
     val retentionDays by viewModel.dataRetentionDays.collectAsState()
 
-    Box(modifier = Modifier.fillMaxSize()) {
     PullToRefreshBox(
         isRefreshing = isRefreshing,
         onRefresh = {
@@ -107,7 +111,8 @@ fun HomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp),
+                // Extra bottom space so the camera FAB never overlaps the last item.
+                .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 88.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             // Compact connection + sync status row
@@ -223,9 +228,9 @@ fun HomeScreen(
                 )
             }
         }
-    }
 
-        // Extended camera FAB (Epic 50) — hidden only when the server has the feature off.
+        // Extended camera FAB (Epic 50) — overlaid in the pull-to-refresh BoxScope, hidden only
+        // when the server has the feature off.
         if (mealState.mealLoggingAvailable) {
             MealFab(
                 onClick = onNavigateToMealLog,

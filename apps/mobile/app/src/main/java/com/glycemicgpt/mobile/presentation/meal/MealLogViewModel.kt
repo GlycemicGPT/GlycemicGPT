@@ -16,6 +16,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -73,6 +74,9 @@ class MealLogViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(MealLogUiState())
     val uiState: StateFlow<MealLogUiState> = _uiState.asStateFlow()
 
+    /** The in-flight compress+upload job, cancelled when a new photo supersedes it. */
+    private var uploadJob: Job? = null
+
     init {
         checkAvailability()
     }
@@ -95,6 +99,9 @@ class MealLogViewModel @Inject constructor(
 
     /** Compress and upload a captured/picked image, then surface the estimate. */
     fun onImagePicked(uri: Uri) {
+        // Cancel any in-flight compress/upload before superseding it, so the previous capture's
+        // file can't be deleted out from under an active read.
+        uploadJob?.cancel()
         val previousPhoto = _uiState.value.photoUri
         _uiState.update {
             it.copy(
@@ -107,7 +114,7 @@ class MealLogViewModel @Inject constructor(
                 isCorrecting = false,
             )
         }
-        viewModelScope.launch {
+        uploadJob = viewModelScope.launch {
             // Drop the prior capture's original (scoped; no-op for gallery URIs). The current photo
             // is kept so the result can show a thumbnail, and is swept on reset().
             if (previousPhoto != null) {

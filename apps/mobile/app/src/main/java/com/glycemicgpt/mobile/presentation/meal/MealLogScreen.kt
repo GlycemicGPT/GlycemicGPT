@@ -49,6 +49,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
@@ -82,7 +83,8 @@ fun MealLogScreen(
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
 
-    var pendingCaptureUri by remember { mutableStateOf<Uri?>(null) }
+    // rememberSaveable so a rotation while the camera app is open doesn't lose the capture URI.
+    var pendingCaptureUri by rememberSaveable { mutableStateOf<Uri?>(null) }
     var cameraPermissionDenied by remember { mutableStateOf(false) }
 
     val galleryLauncher = rememberLauncherForActivityResult(
@@ -705,4 +707,5 @@ private fun decodePhotoThumbnail(resolver: ContentResolver, uri: Uri): ImageBitm
     resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }?.asImageBitmap()
 }.getOrNull()
 
-private const val THUMBNAIL_TARGET_PX = 1080
+// Preview only (renders in a 16:9 strip), so a modest decode target keeps memory low.
+private const val THUMBNAIL_TARGET_PX = 720
