@@ -51,6 +51,13 @@ _MAX_BASAL_RATE_UH = 35.0
 # helpers reading in single-letter units.
 _MAX_BOLUS_DOSE_U = MAX_INSULIN_DOSE_UNITS
 
+# Sanity bound on a single long-acting (basal) pen INJECTION (U). Larger than the
+# bolus bound because once-daily basal doses are bigger: 160 U is the max single
+# injection of the Tresiba U-200 FlexTouch (the highest-capacity supported pen);
+# anything above is a corrupt or unit-confused record. This bounds the discrete
+# injected amount, NOT a U/h rate (that is _MAX_BASAL_RATE_UH).
+_MAX_BASAL_INJECTION_U = 160.0
+
 
 # Glooko pump-events ``type`` -> our PumpEventType. Pod/cartridge/prime lifecycle
 # events all become DEVICE_EVENT (the specific Glooko type is preserved in
@@ -156,18 +163,25 @@ def _finite_or_none(value: object) -> float | None:
     return float(value)
 
 
-def _dose_or_none(value: object, *, allow_zero: bool = False) -> float | None:
+def _dose_or_none(
+    value: object,
+    *,
+    allow_zero: bool = False,
+    max_units: float = _MAX_BOLUS_DOSE_U,
+) -> float | None:
     """A plausible insulin dose in units, else ``None``.
 
-    Bounds a finite number to ``(0, _MAX_BOLUS_DOSE_U]``. ``allow_zero`` admits
-    exactly 0: a suggested pump bolus fully reduced by IoB records 0 delivered
-    while still carrying the meal's carb/BG context worth keeping -- a pen
-    record has no such context and its smallest real actuation is 0.5 U.
+    Bounds a finite number to ``(0, max_units]`` (default the bolus/pen
+    actuation bound; long-acting injections pass ``_MAX_BASAL_INJECTION_U``).
+    ``allow_zero`` admits exactly 0: a suggested pump bolus fully reduced by IoB
+    records 0 delivered while still carrying the meal's carb/BG context worth
+    keeping -- a pen record has no such context and its smallest real actuation
+    is 0.5 U.
     """
     dose = _finite_or_none(value)
     if dose is None:
         return None
-    if 0 < dose <= _MAX_BOLUS_DOSE_U or (allow_zero and dose == 0):
+    if 0 < dose <= max_units or (allow_zero and dose == 0):
         return dose
     return None
 
@@ -280,7 +294,7 @@ def map_events(records: list[dict]) -> list[MappedPumpEvent]:
 
 
 def map_insulins(records: list[dict]) -> list[MappedPumpEvent]:
-    """Map ``insulins`` (smart-pen doses + manual insulin logs) -> BOLUS events.
+    """Map ``insulins`` (smart-pen doses + manual logs) -> BOLUS / BASAL_INJECTION.
 
     Live finding (NovoPen 6 / Echo Plus capture): the record ``timestamp`` is
     genuine UTC -- verified against known dose times on a CEST wall clock --
@@ -293,9 +307,9 @@ def map_insulins(records: list[dict]) -> list[MappedPumpEvent]:
     * priming shots (``suspectedPrime`` / ``acceptedPrime``) -- pen actuations
       that never enter the body; ingesting them inflates dose totals and IoB
     * ``incomplete`` -- Glooko marks the dose value unconfirmed
-    * non-``bolus`` ``insulinType`` -- long-acting pen doses don't fit the
-      BASAL event's rate (U/h) semantics; deferred like ``extended_boluses``
-      (add modeling + mapping together, never one without the other)
+    * an unrecognized ``insulinType`` -- ``bolus`` maps to BOLUS and ``basal``
+      (long-acting, e.g. Lantus/Tresiba) to BASAL_INJECTION (the injected
+      amount, NOT a U/h rate); any third value is skipped rather than guessed
     * a ``units`` field that is present but not ``"units"`` -- an unknown unit
       of measure would be mis-ingested as insulin units
     * non-positive or implausibly large doses (``_dose_or_none``; the 60 U
@@ -317,15 +331,24 @@ def map_insulins(records: list[dict]) -> list[MappedPumpEvent]:
             continue
         if r.get("incomplete"):
             continue
-        if str(r.get("insulinType", "")).lower() != "bolus":
-            continue
+        insulin_type = str(r.get("insulinType", "")).lower()
+        if insulin_type == "bolus":
+            event_type = PumpEventType.BOLUS
+            max_units = _MAX_BOLUS_DOSE_U
+        elif insulin_type == "basal":
+            event_type = PumpEventType.BASAL_INJECTION
+            max_units = _MAX_BASAL_INJECTION_U
+        else:
+            continue  # unrecognized insulinType -> skip, don't guess
         unit_of_measure = r.get("units")
         if unit_of_measure is not None and str(unit_of_measure).lower() != "units":
             continue
         ts = _parse_utc(r.get("timestamp"))
         # currentValue when present, else value (see docstring).
         current = r.get("currentValue")
-        dose = _dose_or_none(current if current is not None else r.get("value"))
+        dose = _dose_or_none(
+            current if current is not None else r.get("value"), max_units=max_units
+        )
         if ts is None or dose is None:
             continue
         metadata: dict = {"glooko_stream": "insulins"}
@@ -342,7 +365,7 @@ def map_insulins(records: list[dict]) -> list[MappedPumpEvent]:
         metadata["device_delivered"] = bool(r.get("deviceDelivered"))
         out.append(
             MappedPumpEvent(
-                event_type=PumpEventType.BOLUS,
+                event_type=event_type,
                 timestamp=ts,
                 ns_id=_str_or_none(r.get("guid")),
                 units=dose,
