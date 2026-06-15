@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from src.models.brief_delivery_config import DeliveryChannel
 from src.models.daily_brief import DailyBrief
 from src.services.brief_notifier import (
     _tir_emoji,
@@ -209,6 +210,33 @@ class TestFormatBriefMessage:
 # ---------------------------------------------------------------------------
 class TestNotifyUserOfBrief:
     """Tests for notify_user_of_brief delivery function."""
+
+    @pytest.fixture(autouse=True)
+    def channel_config(self):
+        """notify_user_of_brief now consults the delivery channel first. Patch it
+        to a non-web_only channel by default so the send-path tests proceed; a
+        test can flip ``channel_config.channel`` to assert the web_only skip."""
+        cfg = MagicMock()
+        cfg.channel = DeliveryChannel.BOTH
+        with patch(
+            "src.services.brief_notifier.get_or_create_config",
+            new=AsyncMock(return_value=cfg),
+        ):
+            yield cfg
+
+    @pytest.mark.asyncio
+    @patch("src.services.brief_notifier.send_message", new_callable=AsyncMock)
+    @patch("src.services.brief_notifier.get_telegram_link", new_callable=AsyncMock)
+    async def test_web_only_channel_skips_telegram(
+        self, mock_get_link, mock_send, channel_config
+    ):
+        channel_config.channel = DeliveryChannel.WEB_ONLY
+
+        result = await notify_user_of_brief(AsyncMock(), uuid.uuid4(), make_brief())
+
+        assert result is False
+        mock_get_link.assert_not_called()
+        mock_send.assert_not_called()
 
     @pytest.mark.asyncio
     @patch("src.services.brief_notifier.send_message", new_callable=AsyncMock)

@@ -30,6 +30,7 @@ from src.models.medtronic_connect_state import (
     MedtronicConnectState,
 )
 from src.models.tandem_sync_state import TandemSyncState
+from src.services.daily_brief import generate_briefs_all_users
 from src.services.dexcom_sync import DexcomSyncError, sync_dexcom_for_user
 from src.services.integrations.glooko.sync import (
     GlookoSyncRunError,
@@ -892,6 +893,21 @@ def start_scheduler() -> AsyncIOScheduler:
         logger.info(
             "Scheduled escalation check job",
             interval_minutes=settings.escalation_check_interval_minutes,
+        )
+
+    # Add daily brief auto-generation job if enabled (issue #741)
+    if settings.brief_scheduler_enabled:
+        scheduler.add_job(
+            generate_briefs_all_users,
+            trigger=IntervalTrigger(minutes=settings.brief_check_interval_minutes),
+            id="daily_brief",
+            name="Daily Brief Generation",
+            replace_existing=True,
+            max_instances=1,
+        )
+        logger.info(
+            "Scheduled daily brief job",
+            interval_minutes=settings.brief_check_interval_minutes,
         )
 
     # Add data retention enforcement job if enabled (Story 9.3)
