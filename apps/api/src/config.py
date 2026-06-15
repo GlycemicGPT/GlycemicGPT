@@ -131,7 +131,9 @@ class Settings(BaseSettings):
     escalation_check_enabled: bool = True  # Enable/disable automatic escalation
 
     # Daily brief auto-generation (issue #741)
-    brief_check_interval_minutes: int = 5  # Tick cadence; gates on per-user local time
+    # Bounded like the sync-tick intervals: the value feeds IntervalTrigger, which
+    # starves/crashes on zero/negative/absurd values.
+    brief_check_interval_minutes: int = Field(default=5, ge=1, le=60)
     brief_scheduler_enabled: bool = True  # Enable/disable automatic daily briefs
 
     # Data Retention (Story 9.3)

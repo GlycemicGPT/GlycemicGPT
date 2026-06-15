@@ -904,6 +904,7 @@ def start_scheduler() -> AsyncIOScheduler:
             name="Daily Brief Generation",
             replace_existing=True,
             max_instances=1,
+            coalesce=True,
         )
         logger.info(
             "Scheduled daily brief job",
