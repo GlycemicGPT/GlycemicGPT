@@ -23,7 +23,11 @@ import math
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta, timezone
 
-from src.models.pump_data import MAX_INSULIN_DOSE_UNITS, PumpEventType
+from src.models.pump_data import (
+    MAX_BASAL_INJECTION_UNITS,
+    MAX_INSULIN_DOSE_UNITS,
+    PumpEventType,
+)
 
 SOURCE = "glooko"
 
@@ -51,12 +55,12 @@ _MAX_BASAL_RATE_UH = 35.0
 # helpers reading in single-letter units.
 _MAX_BOLUS_DOSE_U = MAX_INSULIN_DOSE_UNITS
 
-# Sanity bound on a single long-acting (basal) pen INJECTION (U). Larger than the
-# bolus bound because once-daily basal doses are bigger: 160 U is the max single
-# injection of the Tresiba U-200 FlexTouch (the highest-capacity supported pen);
-# anything above is a corrupt or unit-confused record. This bounds the discrete
+# Sanity bound on a single long-acting (basal) pen INJECTION (U). Aliased from
+# the canonical platform bound to keep the bounds-checking helpers reading in
+# single-letter units; see ``MAX_BASAL_INJECTION_UNITS`` for the rationale (160 U
+# = Tresiba U-200 FlexTouch max single injection). This bounds the discrete
 # injected amount, NOT a U/h rate (that is _MAX_BASAL_RATE_UH).
-_MAX_BASAL_INJECTION_U = 160.0
+_MAX_BASAL_INJECTION_U = MAX_BASAL_INJECTION_UNITS
 
 
 # Glooko pump-events ``type`` -> our PumpEventType. Pod/cartridge/prime lifecycle

@@ -12,7 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.logging_config import get_logger
 from src.models.daily_brief import DailyBrief
 from src.models.glucose import GlucoseReading
-from src.models.pump_data import PumpEvent, PumpEventType
+from src.models.pump_data import (
+    MAX_BASAL_INJECTION_UNITS,
+    PumpEvent,
+    PumpEventType,
+)
 from src.models.user import User
 from src.schemas.ai_response import AIMessage
 from src.schemas.daily_brief import DailyBriefMetrics, InsulinBreakdown
@@ -96,6 +100,11 @@ def _build_analysis_prompt(
             f"  - Auto-corrections (Control-IQ): {bd.auto_correction_count} ({bd.auto_correction_units:.1f}u)"
         )
         lines.append(f"  - Basal delivery (estimated): {bd.basal_units:.1f}u")
+        if bd.basal_injection_count:
+            lines.append(
+                f"  - Long-acting injections: {bd.basal_injection_count} "
+                f"({bd.basal_injection_units:.1f}u)"
+            )
     elif metrics.total_insulin is not None:
         lines.append(f"- Total insulin delivered: {metrics.total_insulin:.1f} units")
 
@@ -271,8 +280,40 @@ async def calculate_metrics(
         duration_hours = min(duration_hours, 1.0)
         basal_units += rate * duration_hours
 
+    # Long-acting (basal) pen injections (MDI). Discrete injected amounts in
+    # units -- NOT a rate -- so they sum directly (no time integration). Counts
+    # toward basal for the therapy picture but kept as its own line. Bounded to
+    # the basal-injection limit (corrupt-record guard) -- the lower bolus bound
+    # would clip a legitimate large basal dose. Deduplicated by
+    # (event_timestamp, units) -- matching the `/insulin/summary` query -- so the
+    # same dose imported from both Glooko and Nightscout isn't double-counted in
+    # the total fed to the AI brief.
+    basal_inj_subq = (
+        select(PumpEvent.event_timestamp, PumpEvent.units)
+        .where(
+            PumpEvent.user_id == user_id,
+            PumpEvent.event_timestamp >= period_start,
+            PumpEvent.event_timestamp < period_end,
+            PumpEvent.event_type == PumpEventType.BASAL_INJECTION,
+            PumpEvent.units.is_not(None),
+            PumpEvent.units > 0,
+            PumpEvent.units <= MAX_BASAL_INJECTION_UNITS,
+        )
+        .group_by(PumpEvent.event_timestamp, PumpEvent.units)
+        .subquery()
+    )
+    basal_inj_result = await db.execute(
+        select(
+            func.count(basal_inj_subq.c.units),
+            func.coalesce(func.sum(basal_inj_subq.c.units), 0.0),
+        )
+    )
+    basal_inj_row = basal_inj_result.one()
+    basal_injection_count = basal_inj_row[0] or 0
+    basal_injection_units = float(basal_inj_row[1] or 0)
+
     total_bolus_corr = bolus_units + manual_corr_units + auto_corr_units
-    total_insulin = total_bolus_corr + basal_units
+    total_insulin = total_bolus_corr + basal_units + basal_injection_units
 
     breakdown = InsulinBreakdown(
         bolus_units=round(bolus_units, 1),
@@ -282,6 +323,8 @@ async def calculate_metrics(
         auto_correction_units=round(auto_corr_units, 1),
         auto_correction_count=auto_corr_count,
         basal_units=round(basal_units, 1),
+        basal_injection_units=round(basal_injection_units, 1),
+        basal_injection_count=basal_injection_count,
         total_units=round(total_insulin, 1),
     )
 

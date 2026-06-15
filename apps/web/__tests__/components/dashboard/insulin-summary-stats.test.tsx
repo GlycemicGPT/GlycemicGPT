@@ -18,6 +18,8 @@ let mockHookReturn: {
   data: {
     tdd: number;
     basal_units: number;
+    basal_injection_units?: number;
+    basal_injection_count?: number;
     bolus_units: number;
     correction_units: number;
     basal_pct: number;
@@ -184,6 +186,29 @@ describe("InsulinSummaryStats", () => {
       renderComponent();
       expect(screen.getByText("22.0 U")).toBeInTheDocument();
       expect(screen.getByText("52% of TDD")).toBeInTheDocument();
+    });
+
+    it("folds long-acting injection into the basal value with a distinct sub-line", () => {
+      // MDI user: no pump basal rate, all basal is a 24U injection.
+      mockHookReturn.data = makeData({
+        basal_units: 0,
+        basal_injection_units: 24.0,
+        basal_injection_count: 1,
+        bolus_units: 6.0,
+        correction_units: 0,
+        basal_pct: 80.0,
+        bolus_pct: 20.0,
+      });
+      renderComponent();
+      // Basal headline = pump basal (0) + injection (24) = 24.0 U
+      expect(screen.getByText("24.0 U")).toBeInTheDocument();
+      // ...with the distinct injection breakdown sub-line.
+      expect(screen.getByText("incl. 24.0 U injection")).toBeInTheDocument();
+    });
+
+    it("omits the injection sub-line when there are no injections", () => {
+      renderComponent();
+      expect(screen.queryByText(/incl\..*injection/)).not.toBeInTheDocument();
     });
 
     it("displays bolus units with percentage and split assessment", () => {

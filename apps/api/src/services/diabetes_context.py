@@ -25,6 +25,10 @@ logger = get_logger(__name__)
 GLUCOSE_CONTEXT_HOURS = 6
 PUMP_CONTEXT_HOURS = 6
 CONTROL_IQ_SUMMARY_HOURS = 24
+# Long-acting (basal) injections are typically once or twice daily, so the
+# short pump-activity window misses them most of the day. Look back far enough
+# to surface the active basal dose + timing for overnight-pattern analysis.
+BASAL_INJECTION_CONTEXT_HOURS = 30
 
 # Maximum readings to fetch for glucose context
 GLUCOSE_MAX_READINGS = 72  # ~6 hours of 5-min CGM readings
@@ -153,11 +157,32 @@ async def build_pump_section(
     user_id: uuid.UUID,
 ) -> str | None:
     """Build pump activity section from recent pump events."""
-    from src.models.pump_data import PumpEventType
+    from src.models.pump_data import PumpEvent, PumpEventType
     from src.services.tandem_sync import get_pump_events
 
     events = await get_pump_events(db, user_id, hours=PUMP_CONTEXT_HOURS, limit=500)
-    if not events:
+
+    # Long-acting (basal) injection lookback -- a once/twice-daily MDI dose
+    # falls outside the short pump-activity window most of the time, but the AI
+    # needs the active basal dose + timing for overnight-pattern analysis.
+    # Fetched over a wider window, independent of the 6h activity events above.
+    basal_inj_cutoff = datetime.now(UTC) - timedelta(
+        hours=BASAL_INJECTION_CONTEXT_HOURS
+    )
+    basal_inj_result = await db.execute(
+        select(PumpEvent)
+        .where(
+            PumpEvent.user_id == user_id,
+            PumpEvent.event_type == PumpEventType.BASAL_INJECTION,
+            PumpEvent.event_timestamp >= basal_inj_cutoff,
+            PumpEvent.units.is_not(None),
+        )
+        .order_by(PumpEvent.event_timestamp.desc())
+        .limit(5)
+    )
+    basal_injections = list(basal_inj_result.scalars().all())
+
+    if not events and not basal_injections:
         return None
 
     manual_bolus_count = 0
@@ -189,22 +214,42 @@ async def build_pump_section(
         elif event.event_type == PumpEventType.SUSPEND:
             suspend_count += 1
 
-    lines = [
-        f"[Pump Activity - last {PUMP_CONTEXT_HOURS}h]",
-        f"- Manual boluses: {manual_bolus_count} ({manual_bolus_units:.1f}u total)",
-        f"- Auto-corrections (Control-IQ): {auto_correction_count} ({auto_correction_units:.1f}u total)",
-        f"- Basal adjustments: {basal_increase_count} increases, {basal_decrease_count} decreases",
-    ]
-    if suspend_count:
-        lines.append(f"- Suspends: {suspend_count}")
-    if last_auto_correction:
-        minutes_ago = int(
-            (datetime.now(UTC) - last_auto_correction.event_timestamp).total_seconds()
-            / 60
+    lines: list[str] = []
+    if events:
+        lines.extend(
+            [
+                f"[Pump Activity - last {PUMP_CONTEXT_HOURS}h]",
+                f"- Manual boluses: {manual_bolus_count} ({manual_bolus_units:.1f}u total)",
+                f"- Auto-corrections (Control-IQ): {auto_correction_count} ({auto_correction_units:.1f}u total)",
+                f"- Basal adjustments: {basal_increase_count} increases, {basal_decrease_count} decreases",
+            ]
         )
+        if suspend_count:
+            lines.append(f"- Suspends: {suspend_count}")
+        if last_auto_correction:
+            minutes_ago = int(
+                (
+                    datetime.now(UTC) - last_auto_correction.event_timestamp
+                ).total_seconds()
+                / 60
+            )
+            lines.append(
+                f"- Last auto-correction: {last_auto_correction.units or 0:.1f}u ({minutes_ago}min ago)"
+            )
+
+    if basal_injections:
+        now = datetime.now(UTC)
         lines.append(
-            f"- Last auto-correction: {last_auto_correction.units or 0:.1f}u ({minutes_ago}min ago)"
+            f"[Long-acting (basal) injections - last {BASAL_INJECTION_CONTEXT_HOURS}h]"
         )
+        for inj in basal_injections:
+            hours_ago = (now - inj.event_timestamp).total_seconds() / 3600
+            # Glooko writes `medication`; Nightscout writes `insulin_type`.
+            meta = inj.metadata_json or {}
+            med = meta.get("medication") or meta.get("insulin_type")
+            med_label = f"{med} " if med else ""
+            lines.append(f"- {med_label}{inj.units or 0:.1f}u ({hours_ago:.0f}h ago)")
+
     return "\n".join(lines)
 
 

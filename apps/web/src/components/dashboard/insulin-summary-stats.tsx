@@ -70,10 +70,20 @@ interface StatCardProps {
   value: string;
   subtitle: string;
   subtitleColor?: string;
+  // Optional second subtitle line (e.g. a distinct basal-injection breakdown).
+  subtitle2?: string;
   ariaLabel: string;
 }
 
-function StatCard({ icon, label, value, subtitle, subtitleColor = "text-slate-500", ariaLabel }: StatCardProps) {
+function StatCard({
+  icon,
+  label,
+  value,
+  subtitle,
+  subtitleColor = "text-slate-500",
+  subtitle2,
+  ariaLabel,
+}: StatCardProps) {
   return (
     <div className="space-y-1" role="group" aria-label={ariaLabel}>
       <div className="flex items-center gap-2">
@@ -82,6 +92,9 @@ function StatCard({ icon, label, value, subtitle, subtitleColor = "text-slate-50
       </div>
       <p className="text-2xl font-bold text-slate-900 dark:text-white">{value}</p>
       <p className={`text-xs ${subtitleColor}`}>{subtitle}</p>
+      {subtitle2 ? (
+        <p className="text-xs text-slate-500 dark:text-slate-500">{subtitle2}</p>
+      ) : null}
     </div>
   );
 }
@@ -203,10 +216,20 @@ export function InsulinSummaryStats({ className }: InsulinSummaryStatsProps) {
           <StatCard
             icon={<Droplets className="h-4 w-4 text-sky-400" aria-hidden="true" />}
             label="Basal"
-            value={`${safeFixed1(data.basal_units)} U`}
+            // Basal therapy = pump basal rate + any long-acting (MDI) injection.
+            value={`${safeFixed1((data.basal_units ?? 0) + (data.basal_injection_units ?? 0))} U`}
             subtitle={`${safeRound(data.basal_pct)}% of TDD`}
             subtitleColor={splitAssessment?.color ?? "text-slate-500"}
-            ariaLabel={`Basal: ${safeFixed1(data.basal_units)} units per day, ${safeRound(data.basal_pct)} percent of TDD`}
+            subtitle2={
+              (data.basal_injection_units ?? 0) > 0
+                ? `incl. ${safeFixed1(data.basal_injection_units ?? 0)} U injection`
+                : undefined
+            }
+            ariaLabel={`Basal: ${safeFixed1((data.basal_units ?? 0) + (data.basal_injection_units ?? 0))} units per day, ${safeRound(data.basal_pct)} percent of TDD${
+              (data.basal_injection_units ?? 0) > 0
+                ? `, including ${safeFixed1(data.basal_injection_units ?? 0)} units long-acting injection`
+                : ""
+            }`}
           />
 
           <StatCard

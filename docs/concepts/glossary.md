@@ -35,6 +35,10 @@ A discrete dose of insulin you give yourself (or your pump delivers) for a meal 
 
 A continuous trickle of insulin your pump delivers throughout the day to maintain background insulin levels (in the absence of meals). Configured as a "basal rate" in units per hour, can vary by time of day.
 
+### Basal injection (long-acting)
+
+For people on multiple daily injections (MDI) rather than a pump, the background insulin is a once- or twice-daily injection of a long-acting insulin (e.g. Lantus, Tresiba, Levemir) instead of a pump basal rate. GlycemicGPT records these as a distinct **basal injection** -- the injected amount in units, counted toward your basal total and total daily dose, but kept out of the rapid-acting Insulin on Board calculation (long-acting insulin acts over ~24 hours).
+
 ### Carb ratio (I:C)
 
 How much insulin to dose per gram of carbohydrate. e.g., 1:10 means 1 unit of insulin per 10 grams of carbs. Set in your pump or calculated manually.

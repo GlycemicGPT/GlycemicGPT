@@ -286,6 +286,50 @@ class TestTreatmentsPath:
         assert ev.metadata_json["source_uploader"] == "loop"
 
     @pytest.mark.asyncio
+    async def test_long_acting_injection_routes_to_basal_injection(
+        self, translator_ctx
+    ):
+        """MDI long-acting pen dose -> BASAL_INJECTION, NOT a rapid bolus (#728).
+
+        Before this, a long-acting dose fell through to the has_insulin -> bolus
+        default and polluted rapid-acting IoB/TDD.
+        """
+        session, user_id, conn_id = translator_ctx
+        pump_outcome, _ = await translate_treatments(
+            [
+                {
+                    "_id": "basalinj0000000000000001",
+                    "eventType": "External Insulin",
+                    "insulin": 24.0,
+                    "insulinType": "Tresiba",
+                    "enteredBy": "Trio",
+                    "created_at": "2026-05-06T07:00:00Z",
+                }
+            ],
+            session=session,
+            user_id=str(user_id),
+            connection_id=str(conn_id),
+        )
+        await session.flush()
+        assert pump_outcome.inserted == 1
+
+        rows = (
+            (
+                await session.execute(
+                    select(PumpEvent).where(PumpEvent.user_id == user_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(rows) == 1
+        ev = rows[0]
+        assert ev.event_type == PumpEventType.BASAL_INJECTION
+        assert ev.units == 24.0
+        assert ev.is_automated is False  # a pen injection is never automated
+        assert ev.metadata_json["insulin_type"] == "Tresiba"
+
+    @pytest.mark.asyncio
     async def test_meal_bolus_pair_splits_into_two_linked_rows(self, translator_ctx):
         session, user_id, conn_id = translator_ctx
         await translate_treatments(

@@ -94,6 +94,18 @@ ControlIQMode = PumpActivityMode
 # command a pump to deliver 60 U.
 MAX_INSULIN_DOSE_UNITS: Final[float] = 60.0
 
+# Canonical sanity bound on a single long-acting (basal) pen INJECTION (U).
+# Larger than `MAX_INSULIN_DOSE_UNITS` because once-daily basal doses are
+# bigger: 160 U is the max single injection of the Tresiba U-200 FlexTouch (the
+# highest-capacity supported pen); anything above is a corrupt or unit-confused
+# record. This bounds the discrete injected amount carried on a BASAL_INJECTION
+# event -- NOT a U/h rate. Like `MAX_INSULIN_DOSE_UNITS`, consumers import it
+# instead of hard-coding 160: the Glooko + Nightscout ingestion mappers and the
+# display/stats read filters in `routers.integrations` -- so a legitimate large
+# basal injection accepted at ingest is not silently dropped or hidden behind
+# the lower bolus bound downstream.
+MAX_BASAL_INJECTION_UNITS: Final[float] = 160.0
+
 
 class PumpEvent(Base):
     """Stores pump events from Tandem t:connect.
