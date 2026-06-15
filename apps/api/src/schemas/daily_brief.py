@@ -28,6 +28,13 @@ class InsulinBreakdown(BaseModel):
         default=0.0,
         description="Estimated basal delivery (rate x time integration)",
     )
+    basal_injection_units: float = Field(
+        default=0.0,
+        description="Long-acting (basal) pen injections -- MDI, e.g. Lantus/Tresiba (units)",
+    )
+    basal_injection_count: int = Field(
+        default=0, description="Number of long-acting basal injections"
+    )
     total_units: float = Field(
         default=0.0, description="Total insulin delivered (all types)"
     )

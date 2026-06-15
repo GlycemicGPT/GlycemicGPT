@@ -3311,6 +3311,11 @@ export async function getGlucosePercentiles(
 export interface InsulinSummaryResponse {
   tdd: number;
   basal_units: number;
+  // Long-acting (basal) pen injections -- MDI, e.g. Lantus/Tresiba. Counted
+  // within basal_pct; add to basal_units for the basal total. Optional for
+  // backward compatibility with responses predating issue #742.
+  basal_injection_units?: number;
+  basal_injection_count?: number;
   bolus_units: number;
   correction_units: number;
   basal_pct: number;
@@ -3344,6 +3349,9 @@ export async function getInsulinSummary(
 
 export interface BolusReviewItem {
   event_timestamp: string;
+  // "bolus" | "correction" | "basal_injection". Optional for backward
+  // compatibility with responses predating issue #742 (treated as a bolus).
+  event_type?: string;
   units: number;
   is_automated: boolean;
   control_iq_reason: string | null;

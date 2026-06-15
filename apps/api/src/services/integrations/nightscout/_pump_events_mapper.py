@@ -218,6 +218,28 @@ def _map_bolus(treatment: NightscoutTreatment, base: dict[str, Any]) -> dict[str
     return base
 
 
+def _map_basal_injection(
+    treatment: NightscoutTreatment, base: dict[str, Any]
+) -> dict[str, Any]:
+    """MDI long-acting (basal) pen injection -- e.g. Lantus, Tresiba (#728).
+
+    `units` is the injected amount (NOT a U/h rate); the long-acting
+    `insulinType` is preserved in metadata. Stays manual (`is_automated`
+    defaults False) -- a pen injection is never pump-automated. Deliberately
+    excluded from rapid-acting IoB downstream.
+    """
+    extras: dict[str, Any] = {}
+    if treatment.insulin_type:
+        extras["insulin_type"] = treatment.insulin_type
+    base.update(
+        {
+            "units": treatment.insulin,
+            "metadata_json": _build_metadata(treatment, extra=extras),
+        }
+    )
+    return base
+
+
 def _map_carb_entry(
     treatment: NightscoutTreatment, base: dict[str, Any]
 ) -> dict[str, Any]:
@@ -492,6 +514,7 @@ def map_treatment_to_pump_events(
     # is special-cased below because it produces TWO rows.
     routing = {
         "bolus": (PumpEventType.BOLUS, _map_bolus),
+        "basal_injection": (PumpEventType.BASAL_INJECTION, _map_basal_injection),
         "carb_entry": (PumpEventType.CARBS, _map_carb_entry),
         "temp_basal": (PumpEventType.BASAL, _map_temp_basal),
         "temp_basal_suspend": (PumpEventType.SUSPEND, _map_temp_basal_suspend),
