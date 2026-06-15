@@ -36,12 +36,17 @@ class PumpEventType(str, enum.Enum):
     cloud-mediated integrations (carbs, overrides, profile switches,
     combo boluses, temp targets, notes, device events, APS-offline
     markers); type-specific extras that don't fit the column schema
-    land in `metadata_json`.
+    land in `metadata_json`. `basal_injection` is written by the Glooko
+    mapper for MDI long-acting pen injections (see below).
     """
 
-    BASAL = "basal"  # Basal insulin delivery
+    BASAL = "basal"  # Basal insulin delivery (pump rate, U/h)
     BOLUS = "bolus"  # Manual bolus
     CORRECTION = "correction"  # Control-IQ automated correction
+    # Long-acting (basal) insulin INJECTION from an MDI pen -- e.g. Lantus,
+    # Tresiba. ``units`` is the injected amount (U), NOT a U/h rate like BASAL,
+    # and it is deliberately excluded from rapid-acting IoB (issue #728).
+    BASAL_INJECTION = "basal_injection"
     SUSPEND = "suspend"  # Insulin delivery suspended
     RESUME = "resume"  # Insulin delivery resumed
     BG_READING = "bg_reading"  # CGM reading from pump (has IoB)
