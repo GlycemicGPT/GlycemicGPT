@@ -310,18 +310,39 @@ def _meal_carb_range(record: "FoodRecord") -> tuple[float, float, bool]:
     return record.carbs_low, record.carbs_high, False
 
 
+# Substrings that signal a prompt-injection attempt rather than a food name --
+# instruction-override phrasing, chat role markers, special-token / code-fence
+# delimiters. A real food description never contains these, so their presence is
+# treated as adversarial and the description is dropped to a neutral fallback.
+_PROMPT_INJECTION_MARKERS = (
+    "ignore previous",
+    "ignore all previous",
+    "ignore the above",
+    "disregard previous",
+    "system:",
+    "assistant:",
+    "developer:",
+    "<|",
+    "|>",
+    "```",
+)
+
+
 def _safe_meal_description(raw: str | None) -> str:
     """Sanitize a food description for embedding in an AI prompt.
 
     Defense-in-depth: a description is user/AI-controlled and lands in the system
     prompt. Persisted descriptions are already scrubbed of dosing language at
     write time (``food_vision``), but we re-check here -- if any dosing phrasing
-    slips through we drop the description to a neutral fallback rather than let it
-    reach the model (Epic 50 charter). Length is capped to keep the prompt lean
-    and the injection surface small.
+    or prompt-injection marker slips through we drop the description to a neutral
+    fallback rather than let it reach the model (Epic 50 charter). Length is
+    capped to keep the prompt lean and the injection surface small.
     """
     description = _sanitize_for_prompt(raw or "")
     if not description or find_dosing_violations(description):
+        return "logged meal"
+    lowered = description.lower()
+    if any(marker in lowered for marker in _PROMPT_INJECTION_MARKERS):
         return "logged meal"
     if len(description) > MEAL_DESCRIPTION_MAX_LEN:
         description = description[:MEAL_DESCRIPTION_MAX_LEN].rstrip() + "..."
