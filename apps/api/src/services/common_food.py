@@ -23,11 +23,13 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.config import settings
 from src.logging_config import get_logger
 from src.models.common_food import CommonFood, normalize_common_food_name
 from src.models.food_record import FoodRecord, FoodRecordSource
 from src.schemas.common_food import CommonFoodUpdateRequest
 from src.schemas.food_record import FoodRecordCorrectionRequest
+from src.services import meal_rag
 from src.vision.carb_contract import CarbBoundsError, validate_carb_range
 
 logger = get_logger(__name__)
@@ -72,6 +74,15 @@ async def correct_food_record(
 
     await db.commit()
     await db.refresh(record)
+
+    # Re-index own-history RAG so a future photo recalls the user's corrected
+    # value (the truth) rather than the original AI estimate. Best-effort -- a
+    # re-index failure must not fail the correction response.
+    if settings.meal_intelligence_enabled:
+        try:
+            await meal_rag.index_food_record(record)
+        except Exception:
+            logger.warning("RAG re-indexing failed for corrected record", exc_info=True)
     return record
 
 
@@ -166,6 +177,17 @@ async def promote_to_common_food(
     record.common_food_id = common_food.id
     await db.commit()
     await db.refresh(common_food)
+    await db.refresh(record)
+
+    # Index the named baseline (and re-index the now-linked record) into
+    # own-history RAG so a future photo of this food recalls the user's curated
+    # baseline. Best-effort -- an indexing failure must not fail the promotion.
+    if settings.meal_intelligence_enabled:
+        try:
+            await meal_rag.index_common_food(common_food)
+            await meal_rag.index_food_record(record)
+        except Exception:
+            logger.warning("RAG indexing failed for promotion", exc_info=True)
     return common_food
 
 

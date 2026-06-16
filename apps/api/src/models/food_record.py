@@ -45,7 +45,11 @@ class FoodRecordSource(str, enum.Enum):
 
     AI_ESTIMATE = "ai_estimate"  # Raw vision-model estimate (default).
     USER_CORRECTED = "user_corrected"  # User fixed the estimate.
-    EXTERNAL_GROUNDED = "external_grounded"  # Grounded against a published source.
+    # Reserved. Grounding (Story 50.E1) is *attribution only* -- it records the
+    # source in the grounding_* columns but never changes the persisted carb
+    # values, so `source` correctly stays AI_ESTIMATE/USER_CORRECTED. This member
+    # is kept for a hypothetical future where grounding overwrites the estimate.
+    EXTERNAL_GROUNDED = "external_grounded"
 
 
 class FoodRecord(Base):
@@ -151,6 +155,22 @@ class FoodRecord(Base):
         nullable=True,
         index=True,
     )
+
+    # --- Grounding attribution (Story 50.E1) ---
+    # Which source grounded this estimate, recorded for citation. Attribution
+    # only: the carb values stay in ``carbs_low`` / ``carbs_high`` (vision) and
+    # ``corrected_*`` (user truth). NULL = pure vision (ungrounded). These are
+    # never read by IoB / treatment_safety / carb-ratio math.
+    grounding_source: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    grounding_source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Trust-tier marker mirroring knowledge_chunks.trust_tier: USER_PROVIDED
+    # (own history) / RESEARCHED / AUTHORITATIVE (published nutrition facts).
+    grounding_trust_tier: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # NOTE: the estimation pipeline (food_vision) attaches a transient, non-mapped
+    # ``grounding`` attribute (a schemas.food_record.GroundingDetail) to a freshly
+    # created instance so the create response can carry the grounded range + note +
+    # disclaimer. It is never persisted -- only the flat grounding_* columns above
+    # are -- and is absent on instances loaded from the DB.
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
