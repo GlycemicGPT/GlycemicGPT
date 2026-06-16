@@ -161,9 +161,10 @@ class FoodRecord(Base):
     # The AI-identified name lives in ``food_description`` (preserved, like the
     # original carb estimate). These record the user's confirmation/correction of
     # *what the food is*, kept separate from the carb correction (50.C1). External
-    # authoritative grounding (USDA / OFF / restaurant) is applied ONLY when
-    # ``identity_confirmed`` is True, so a misidentified label is never certified
-    # with an authoritative citation. Never read by IoB / treatment_safety.
+    # authoritative grounding (USDA / Open Food Facts today; restaurant via 50.E2)
+    # is applied ONLY when ``identity_confirmed`` is True, so a misidentified label
+    # is never certified with an authoritative citation. Never read by
+    # IoB / treatment_safety.
     confirmed_food_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     identity_confirmed: Mapped[bool] = mapped_column(
         Boolean,

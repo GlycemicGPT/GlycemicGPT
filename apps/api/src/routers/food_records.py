@@ -270,9 +270,10 @@ async def confirm_food_identity(
     """Confirm or correct *what the food is* (Story 50.H2).
 
     Distinct from carb correction and never a dose. The confirmed identity opens
-    the grounding gate: only now is external authoritative nutrition (USDA / OFF /
-    restaurant) looked up, keyed on the confirmed name -- so a misidentified label
-    is never certified with an authoritative citation.
+    the grounding gate: only now is external authoritative nutrition (USDA / Open
+    Food Facts today; restaurant facts via 50.E2) looked up, keyed on the confirmed
+    name -- so a misidentified label is never certified with an authoritative
+    citation.
     """
     require_meal_intelligence()
     record = await _get_owned_record(record_id, current_user.id, db)
@@ -280,6 +281,8 @@ async def confirm_food_identity(
         record = await common_food_service.confirm_food_identity(
             db, record, identity.confirmed_food_name
         )
+    # Defence in depth: the schema already rejects a blank/oversized name (422),
+    # so this only fires for a non-HTTP caller -- mirrors the carb-correction path.
     except common_food_service.IdentityValidationError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)

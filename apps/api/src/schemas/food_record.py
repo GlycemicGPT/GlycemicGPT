@@ -218,7 +218,8 @@ class FoodRecordCorrectionRequest(BaseModel):
         return self
 
 
-# Cap a user-supplied identity at the schema boundary (the service caps again).
+# Cap a user-supplied identity at the schema boundary (the service caps again as
+# defence-in-depth; keep in sync with common_food._MAX_IDENTITY_CHARS).
 _MAX_IDENTITY_NAME_CHARS = 200
 
 
@@ -227,8 +228,9 @@ class FoodRecordIdentityRequest(BaseModel):
 
     Confirming identity is distinct from correcting carbs and never implies a
     dose. The confirmed name opens the grounding gate: external authoritative
-    nutrition (USDA / OFF / restaurant) is only looked up once an identity has
-    been confirmed, so a misidentified label is never certified with a citation.
+    nutrition (USDA / Open Food Facts today; restaurant facts via 50.E2) is only
+    looked up once an identity has been confirmed, so a misidentified label is
+    never certified with a citation.
     """
 
     model_config = {"extra": "forbid"}

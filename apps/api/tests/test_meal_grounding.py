@@ -850,3 +850,97 @@ class TestEstimatePipelineGrounding:
         assert record.identity_confirmed is True  # identity still confirmed
         assert record.grounding_source is None  # grounding degraded cleanly
         assert record.grounding is None
+
+    async def test_reconfirm_regrounds_and_clears_stale_citation(self):
+        # Re-confirming with a corrected identity that grounds to nothing must
+        # CLEAR the prior authoritative citation -- otherwise a stale citation
+        # from the first (wrong) identity would survive the correction, the exact
+        # misID-amplification H2 exists to prevent.
+        from src.services import common_food as common_food_service
+
+        desc = _uniq("reconfirm food")
+        async with get_session_maker()() as db:
+            user = await _user_with_provider(db)
+            with patch.object(
+                food_vision,
+                "_call_vision",
+                AsyncMock(return_value=_estimate_json(desc, 40, 50)),
+            ):
+                record = await food_vision.create_food_record_from_image(
+                    db=db, user=user, raw_image=_png_bytes()
+                )
+
+            usda = nutrition_sources.NutritionFact(
+                source_name="USDA FoodData Central",
+                source_url="https://fdc.nal.usda.gov/x",
+                trust_tier=KnowledgeChunk.TIER_AUTHORITATIVE,
+                name="pasta",
+                carbs_grams=43,
+                serving="per 100 g",
+                disclaimer=None,
+            )
+            # First confirm -> grounds to a USDA fact.
+            with (
+                patch.object(
+                    meal_rag, "recall_similar_meal", AsyncMock(return_value=None)
+                ),
+                patch.object(
+                    nutrition_sources,
+                    "lookup_published_nutrition",
+                    AsyncMock(return_value=(usda, None)),
+                ),
+            ):
+                record = await common_food_service.confirm_food_identity(
+                    db, record, "pasta"
+                )
+            assert record.grounding_source == "USDA FoodData Central"
+            assert record.grounding_trust_tier == KnowledgeChunk.TIER_AUTHORITATIVE
+
+            # Re-confirm with a corrected identity nothing matches -> citation
+            # must be cleared, not left stale.
+            with (
+                patch.object(
+                    meal_rag, "recall_similar_meal", AsyncMock(return_value=None)
+                ),
+                patch.object(
+                    nutrition_sources,
+                    "lookup_published_nutrition",
+                    AsyncMock(return_value=(None, None)),
+                ),
+            ):
+                record = await common_food_service.confirm_food_identity(
+                    db, record, "obscure nonfood item"
+                )
+
+        assert record.confirmed_food_name == "obscure nonfood item"
+        assert record.grounding_source is None
+        assert record.grounding_source_url is None
+        assert record.grounding_trust_tier is None
+        assert record.grounding is None
+
+    async def test_corrected_identity_feeds_future_suggestion(self):
+        # Correcting the identity re-indexes own-history RAG on the confirmed
+        # name, so the next photo of the same food suggests the user's truth, not
+        # the stale AI label -- closing the one-tap-confirm loop (AC4).
+        from src.services import common_food as common_food_service
+
+        ai_label = _uniq("ai mislabel soup")
+        corrected = _uniq("my homemade chili")
+        async with get_session_maker()() as db:
+            user = await _user_with_provider(db)
+            with patch.object(
+                food_vision,
+                "_call_vision",
+                AsyncMock(return_value=_estimate_json(ai_label, 40, 50)),
+            ):
+                record = await food_vision.create_food_record_from_image(
+                    db=db, user=user, raw_image=_png_bytes()
+                )
+            record = await common_food_service.confirm_food_identity(
+                db, record, corrected
+            )
+
+        # The corrected identity is now what own-history suggests...
+        assert await meal_grounding.suggest_identity(user.id, corrected) == corrected
+        # ...and the stale AI label no longer recalls this record.
+        assert await meal_grounding.suggest_identity(user.id, ai_label) is None

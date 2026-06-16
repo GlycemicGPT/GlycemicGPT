@@ -343,9 +343,11 @@ async def create_food_record_from_image(
         except Exception:
             logger.warning("RAG indexing failed for food record", exc_info=True)
 
-    # No grounding at create time (identity unconfirmed). Attach transient
-    # response detail: the multi-sample dispersion (Story 50.H1) and the suggested
-    # identity to confirm (Story 50.H2). Neither is a persisted column.
+    # No grounding at create time (identity unconfirmed) -- grounding actually
+    # happens later in ``common_food.confirm_food_identity`` once the user confirms
+    # the identity. Attach transient response detail: the multi-sample dispersion
+    # (Story 50.H1) and the suggested identity to confirm (Story 50.H2). Neither is
+    # a persisted column.
     record.grounding = None
     record.estimate_dispersion = _build_dispersion_detail(aggregate)
     record.suggested_identity = suggested_identity

@@ -240,11 +240,14 @@ def _record_effective_carbs(record: FoodRecord) -> tuple[float, float, bool]:
 async def index_food_record(record: FoodRecord) -> None:
     """Index a food record into own-history RAG (best-effort, owner-scoped).
 
-    Embeds the food description so a re-photograph of the same food recalls it.
-    A record with no description is skipped (nothing to match on). Reads the
-    record's already-loaded fields, then persists on its own session.
+    Embeds the food's identity so a re-photograph of the same food recalls it.
+    Prefers the user's **confirmed** identity (Story 50.H2) over the AI-identified
+    ``food_description`` -- so once the user corrects "soup" to "chili", a future
+    photo recalls/suggests the user's truth, not the stale AI label. A record with
+    no usable name is skipped. Reads already-loaded fields, persists on its own
+    session.
     """
-    description = (record.food_description or "").strip()
+    description = (record.confirmed_food_name or record.food_description or "").strip()
     if not description:
         return
     low, high, corrected = _record_effective_carbs(record)

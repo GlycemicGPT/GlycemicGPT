@@ -6,15 +6,20 @@ estimation pipeline:
   * ``correct_food_record`` applies a user's carb/nutrition correction to a
     record -- writing the ``corrected_*`` seams, flipping provenance to
     ``USER_CORRECTED``, and preserving the original AI estimate.
+  * ``confirm_food_identity`` confirms/corrects *what the food is* (Story 50.H2),
+    then -- and only then -- runs external grounding (USDA / Open Food Facts)
+    against the confirmed identity. This is the one function here that performs an
+    outbound nutrition lookup.
   * ``promote_to_common_food`` saves a record's (corrected, else AI) values as a
     user-named, deduped baseline and links the record to it.
   * ``link_record_to_common_food`` / ``update_common_food`` handle explicit
     linking and baseline edits.
 
-Safety posture (NON-NEGOTIABLE): a correction fixes a *description of the food*,
-never a dose. Nothing here returns or computes insulin, and neither corrected
-records nor common foods are ever read by IoB / treatment_safety / carb-ratio
-math. All work is scoped to the authenticated owner by the caller.
+Safety posture (NON-NEGOTIABLE): a correction or an identity confirmation fixes a
+*description of the food*, never a dose. Nothing here returns or computes insulin,
+and neither corrected records, confirmed identities, nor common foods are ever
+read by IoB / treatment_safety / carb-ratio math. All work is scoped to the
+authenticated owner by the caller.
 """
 
 from datetime import UTC, datetime
@@ -35,8 +40,9 @@ from src.vision.carb_contract import CarbBoundsError, validate_carb_range
 logger = get_logger(__name__)
 
 # Cap a user-supplied identity name before it's persisted / used as a grounding
-# query (it travels to USDA / OFF as a search term). Generous -- identities are
-# short food names, not prose.
+# query (it travels to USDA / OFF as a search term). Defence-in-depth for callers
+# that reach the service without the schema validation (e.g. the create/confirm
+# internal path); keep in sync with schemas.food_record._MAX_IDENTITY_NAME_CHARS.
 _MAX_IDENTITY_CHARS = 200
 
 
@@ -105,8 +111,9 @@ async def confirm_food_identity(
     Story 50.H2: the gate-opening action. The user-confirmed identity is
     persisted (the AI-identified ``food_description`` is preserved, like the
     original carb estimate), and only now -- on a user-owned identity -- is
-    external authoritative grounding (USDA / OFF / restaurant) allowed to run, so
-    a misidentified label is never silently certified with a citation. Confirming
+    external authoritative grounding (USDA / Open Food Facts today; restaurant via
+    50.E2) allowed to run, so a misidentified label is never silently certified
+    with a citation. Confirming
     is distinct from carb correction and never implies a dose. Re-confirming with
     a different name re-grounds against it.
     """
@@ -137,6 +144,18 @@ async def confirm_food_identity(
 
     await db.commit()
     await db.refresh(record)
+
+    # Re-index own-history RAG against the confirmed identity (best-effort), so a
+    # future photo of this food recalls/suggests the user's confirmed truth rather
+    # than the stale AI label -- mirrors the carb-correction re-index above and
+    # closes the one-tap-confirm loop (``suggest_identity`` reads this store).
+    if settings.meal_intelligence_enabled:
+        try:
+            await meal_rag.index_food_record(record)
+        except Exception:
+            logger.warning(
+                "RAG re-indexing failed after identity confirmation", exc_info=True
+            )
 
     # Transient grounding detail for the response (the grounded range + citation +
     # disclaimer); reads later carry only the flat grounding_* columns.
