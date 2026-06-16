@@ -541,7 +541,7 @@ private fun CorrectionEditor(
  * and a sample-level identity disagreement is surfaced as the reason to confirm.
  */
 @Composable
-private fun MealIdentitySection(
+internal fun MealIdentitySection(
     record: FoodRecord,
     uiState: MealLogUiState,
     onStartEdit: () -> Unit,
@@ -684,7 +684,7 @@ private fun IdentityEditor(
  * it. Descriptive only -- no dose, and no self-reported confidence.
  */
 @Composable
-private fun MealAuditSection(
+internal fun MealAuditSection(
     uiState: MealLogUiState,
     onLoad: () -> Unit,
     onHide: () -> Unit,
