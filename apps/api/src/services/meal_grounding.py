@@ -61,24 +61,36 @@ def _fact_detail(fact: nutrition_sources.NutritionFact) -> GroundingDetail:
 
 async def ground_estimate(
     user_id: uuid.UUID,
-    food_description: str | None,
+    identity: str | None,
+    *,
+    identity_confirmed: bool,
 ) -> GroundingDetail | None:
-    """Return the best grounding for a vision estimate, or None (pure vision).
+    """Return the best grounding for a *confirmed-identity* estimate, or None.
+
+    Story 50.H2 wraps the whole precedence ladder in a food-identity gate: food
+    misidentification is the dominant, upstream error, and grounding a
+    misidentified label to USDA / Open Food Facts / a restaurant page certifies a
+    confident-wrong answer with an authoritative citation. So nothing here runs
+    until the user has confirmed (or corrected) *what the food is*; an unconfirmed
+    vision label stays vision-only (range + empirical confidence) and is grounded
+    only after confirmation, against the confirmed ``identity``.
 
     Decoupled from any caller transaction: the own-history recall and the external
     lookups each manage their own DB sessions and each fails open to None
-    internally (``recall_similar_meal`` and ``lookup_published_nutrition`` never
-    raise), so this orchestrator stays free of redundant try/except layers. The
-    single hard fail-open boundary for any truly unexpected error is the caller
-    (``food_vision._ground_estimate``).
+    internally, so this orchestrator stays free of redundant try/except layers.
+    The single hard fail-open boundary is the caller (``food_vision``).
     """
-    # Defence in depth: the only caller is already flag-gated, but enforce the
+    # Defence in depth: the only callers are already flag-gated, but enforce the
     # feature flag at this boundary too so a future caller can't run grounding
     # (embedding + external fetch) while meal intelligence is off.
     if not settings.meal_intelligence_enabled:
         return None
 
-    description = (food_description or "").strip()
+    # The identity gate (AC3): never ground an unconfirmed / uncorrected label.
+    if not identity_confirmed:
+        return None
+
+    description = (identity or "").strip()
     if not description:
         return None
 
@@ -102,3 +114,24 @@ async def ground_estimate(
 
     # 5. Pure vision.
     return None
+
+
+async def suggest_identity(
+    user_id: uuid.UUID,
+    food_description: str | None,
+) -> str | None:
+    """Suggest a confirmable identity from the user's own history (Story 50.H2 AC4).
+
+    Read-only own-history RAG recall used to PRE-FILL the identity field ("looks
+    like your saved <X>") so a repeat food is a one-tap confirm. This is only a
+    suggestion -- it never grounds anything by itself (that waits for the user to
+    confirm); the safe fast path is the user confirming the suggestion. Returns
+    the recalled food name, or None when nothing close enough was logged before.
+    """
+    if not settings.meal_intelligence_enabled:
+        return None
+    description = (food_description or "").strip()
+    if not description:
+        return None
+    recall = await meal_rag.recall_similar_meal(user_id, description)
+    return recall.name if recall is not None else None

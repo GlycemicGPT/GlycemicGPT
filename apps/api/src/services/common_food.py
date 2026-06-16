@@ -29,10 +29,15 @@ from src.models.common_food import CommonFood, normalize_common_food_name
 from src.models.food_record import FoodRecord, FoodRecordSource
 from src.schemas.common_food import CommonFoodUpdateRequest
 from src.schemas.food_record import FoodRecordCorrectionRequest
-from src.services import meal_rag
+from src.services import meal_grounding, meal_rag
 from src.vision.carb_contract import CarbBoundsError, validate_carb_range
 
 logger = get_logger(__name__)
+
+# Cap a user-supplied identity name before it's persisted / used as a grounding
+# query (it travels to USDA / OFF as a search term). Generous -- identities are
+# short food names, not prose.
+_MAX_IDENTITY_CHARS = 200
 
 
 class CommonFoodError(Exception):
@@ -41,6 +46,10 @@ class CommonFoodError(Exception):
 
 class CarbValidationError(CommonFoodError):
     """A user-supplied carb range fell outside the reject-not-clamp bounds."""
+
+
+class IdentityValidationError(CommonFoodError):
+    """A user-supplied food identity was empty/unusable."""
 
 
 class DuplicateCommonFoodError(CommonFoodError):
@@ -83,6 +92,55 @@ async def correct_food_record(
             await meal_rag.index_food_record(record)
         except Exception:
             logger.warning("RAG re-indexing failed for corrected record", exc_info=True)
+    return record
+
+
+async def confirm_food_identity(
+    db: AsyncSession,
+    record: FoodRecord,
+    confirmed_name: str,
+) -> FoodRecord:
+    """Confirm/correct *what the food is*, then ground against that identity.
+
+    Story 50.H2: the gate-opening action. The user-confirmed identity is
+    persisted (the AI-identified ``food_description`` is preserved, like the
+    original carb estimate), and only now -- on a user-owned identity -- is
+    external authoritative grounding (USDA / OFF / restaurant) allowed to run, so
+    a misidentified label is never silently certified with a citation. Confirming
+    is distinct from carb correction and never implies a dose. Re-confirming with
+    a different name re-grounds against it.
+    """
+    name = (confirmed_name or "").strip()[:_MAX_IDENTITY_CHARS]
+    if not name:
+        raise IdentityValidationError("A food name is required to confirm identity.")
+
+    record.confirmed_food_name = name
+    record.identity_confirmed = True
+
+    # Identity is confirmed -> grounding may now run, keyed on the confirmed name.
+    # Best-effort: a failure leaves the estimate vision-only (grounding never
+    # alters the carb values or produces a dose). meal_grounding re-checks the
+    # gate as defence in depth.
+    grounding = None
+    if settings.meal_intelligence_enabled:
+        try:
+            grounding = await meal_grounding.ground_estimate(
+                record.user_id, name, identity_confirmed=True
+            )
+        except Exception:
+            logger.warning(
+                "Grounding after identity confirmation failed", exc_info=True
+            )
+    record.grounding_source = grounding.source if grounding else None
+    record.grounding_source_url = grounding.source_url if grounding else None
+    record.grounding_trust_tier = grounding.trust_tier if grounding else None
+
+    await db.commit()
+    await db.refresh(record)
+
+    # Transient grounding detail for the response (the grounded range + citation +
+    # disclaimer); reads later carry only the flat grounding_* columns.
+    record.grounding = grounding
     return record
 
 

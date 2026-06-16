@@ -125,6 +125,14 @@ class FoodRecordResponse(BaseModel):
     common_food_id: uuid.UUID | None = None
     ai_model: str | None = None
     ai_provider: str | None = None
+    # Food-identity confirmation (Story 50.H2). ``food_description`` is the
+    # AI-identified name; ``confirmed_food_name`` is the user's confirmed/corrected
+    # identity (null until confirmed); external grounding only runs once
+    # ``identity_confirmed`` is true. ``suggested_identity`` is a transient
+    # create-time own-history pre-fill ("looks like your saved X"); absent later.
+    confirmed_food_name: str | None = None
+    identity_confirmed: bool = False
+    suggested_identity: str | None = None
     # Grounding provenance (Story 50.E1). The flat fields are persisted on the
     # record and present on every read; ``grounding`` is the richer create-time
     # detail (grounded range + note + disclaimer) and is absent on later reads.
@@ -207,4 +215,29 @@ class FoodRecordCorrectionRequest(BaseModel):
             msg = "corrected_carbs_low must not exceed corrected_carbs_high"
             raise ValueError(msg)
         validate_nutrition(self.corrected_nutrition)
+        return self
+
+
+# Cap a user-supplied identity at the schema boundary (the service caps again).
+_MAX_IDENTITY_NAME_CHARS = 200
+
+
+class FoodRecordIdentityRequest(BaseModel):
+    """A user confirmation/correction of *what the food is* (Story 50.H2).
+
+    Confirming identity is distinct from correcting carbs and never implies a
+    dose. The confirmed name opens the grounding gate: external authoritative
+    nutrition (USDA / OFF / restaurant) is only looked up once an identity has
+    been confirmed, so a misidentified label is never certified with a citation.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    confirmed_food_name: str = Field(min_length=1, max_length=_MAX_IDENTITY_NAME_CHARS)
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> "FoodRecordIdentityRequest":
+        if not self.confirmed_food_name.strip():
+            msg = "confirmed_food_name must not be blank"
+            raise ValueError(msg)
         return self

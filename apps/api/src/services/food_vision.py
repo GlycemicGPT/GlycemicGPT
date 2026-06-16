@@ -36,7 +36,7 @@ from src.logging_config import get_logger
 from src.models.ai_provider import AIProviderConfig
 from src.models.food_record import FoodRecord, FoodRecordSource
 from src.models.user import User
-from src.schemas.food_record import EstimateDispersion, GroundingDetail
+from src.schemas.food_record import EstimateDispersion
 from src.services import food_image, meal_estimate_aggregate, meal_grounding, meal_rag
 from src.services.ai_client import DEFAULT_MODELS
 from src.vision.carb_contract import (
@@ -292,12 +292,13 @@ async def create_food_record_from_image(
     if food_description:
         food_description = food_description[:_MAX_DESCRIPTION_CHARS]
 
-    # Ground the descriptive estimate against the user's own history (RAG) and
-    # published nutrition (USDA / OFF), best-effort. Computed before persisting so
-    # the own-history recall sees only prior records, not this one. Any failure
-    # falls back to a vision-only (ungrounded) estimate -- grounding never blocks
-    # or alters the core estimate, and never produces a dose.
-    grounding = await _ground_estimate(user, food_description)
+    # Story 50.H2: identity is unconfirmed at creation (cold start), so external
+    # authoritative grounding is gated OFF here -- a fresh vision label is never
+    # silently certified with a USDA / restaurant citation. We only *suggest* an
+    # identity from the user's own history (RAG) so a repeat food is a one-tap
+    # confirm; grounding runs after the user confirms (the confirm-identity flow).
+    # The estimate itself stays vision-only (range + empirical confidence).
+    suggested_identity = await _suggest_identity(user, food_description)
 
     storage_path, size_bytes = food_image.store_image(user.id, processed)
     filename = Path(storage_path).name
@@ -318,9 +319,9 @@ async def create_food_record_from_image(
         ai_model=model,
         ai_provider=provider_label,
         source=FoodRecordSource.AI_ESTIMATE,
-        grounding_source=grounding.source if grounding else None,
-        grounding_source_url=grounding.source_url if grounding else None,
-        grounding_trust_tier=grounding.trust_tier if grounding else None,
+        # Identity is unconfirmed until the user confirms it; grounding_* stay
+        # NULL until then (the gate is enforced in meal_grounding too).
+        identity_confirmed=False,
     )
     db.add(record)
     try:
@@ -342,14 +343,12 @@ async def create_food_record_from_image(
         except Exception:
             logger.warning("RAG indexing failed for food record", exc_info=True)
 
-    # Attach the grounding detail (grounded range + citation + disclaimer) for the
-    # response. Transient -- not a persisted column; reads of the record later
-    # carry only the flat grounding_* attribution fields.
-    record.grounding = grounding
-    # Attach the multi-sample dispersion detail (empirical confidence + observed
-    # spread + visceral note) for the response. Transient -- 50.H3 adds durable
-    # audit retention of the raw samples; H1 keeps it create-time only.
+    # No grounding at create time (identity unconfirmed). Attach transient
+    # response detail: the multi-sample dispersion (Story 50.H1) and the suggested
+    # identity to confirm (Story 50.H2). Neither is a persisted column.
+    record.grounding = None
     record.estimate_dispersion = _build_dispersion_detail(aggregate)
+    record.suggested_identity = suggested_identity
     return record
 
 
@@ -412,14 +411,12 @@ def _build_dispersion_detail(
     )
 
 
-async def _ground_estimate(
-    user: User, food_description: str | None
-) -> GroundingDetail | None:
-    """Compute grounding for an estimate; never raise (fall back to vision-only)."""
+async def _suggest_identity(user: User, food_description: str | None) -> str | None:
+    """Suggest an identity from own history for one-tap confirm; never raise."""
     if not settings.meal_intelligence_enabled:
         return None
     try:
-        return await meal_grounding.ground_estimate(user.id, food_description)
+        return await meal_grounding.suggest_identity(user.id, food_description)
     except Exception:
-        logger.warning("Estimate grounding failed; using vision-only", exc_info=True)
+        logger.warning("Identity suggestion failed", exc_info=True)
         return None
