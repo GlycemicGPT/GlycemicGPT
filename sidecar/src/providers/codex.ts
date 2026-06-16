@@ -7,8 +7,8 @@
  * OPENAI_API_KEY env var as fallback for direct API usage.
  */
 
-import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   flattenVisionRequest,
@@ -109,38 +109,65 @@ function messagesToPrompt(messages: ChatMessage[]): string {
   return prompt;
 }
 
-/** Spawn the Codex CLI, passing prompt via stdin */
-function spawnCodex(prompt: string, model: string): ChildProcess {
-  const env: Record<string, string> = { ...process.env } as Record<
-    string,
-    string
-  >;
-  env.CODEX_HOME = CODEX_HOME;
-
-  const child = spawn(
-    "codex",
-    [
-      "--model",
-      model, // Already validated by resolveModel()
-      "--quiet",
-    ],
-    {
-      env,
-      stdio: ["pipe", "pipe", "pipe"],
-    },
-  );
-
-  // Write prompt to stdin and close
-  child.stdin?.write(prompt);
-  child.stdin?.end();
-
-  return child;
+/**
+ * Extract the assistant's final message from `codex exec --json` JSONL output.
+ * The clean reply is the text of each `agent_message` item; non-JSON lines
+ * (e.g. the CLI's "Reading additional input…" notice) are ignored.
+ */
+export function extractCodexMessage(stdout: string): string {
+  const parts: string[] = [];
+  for (const line of stdout.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const event = JSON.parse(trimmed);
+      if (
+        event?.type === "item.completed" &&
+        event?.item?.type === "agent_message" &&
+        typeof event.item.text === "string"
+      ) {
+        parts.push(event.item.text);
+      }
+    } catch {
+      // Not a JSON event line — skip.
+    }
+  }
+  return parts.join("\n").trim();
 }
 
-/** Kill a child process and clear its timeout */
-function cleanupChild(child: ChildProcess, timer: ReturnType<typeof setTimeout>): void {
-  clearTimeout(timer);
-  if (!child.killed) child.kill();
+/**
+ * Run the Codex CLI non-interactively for a text turn:
+ * `codex exec --json --sandbox read-only --skip-git-repo-check -- <prompt>`.
+ *
+ * Mirrors the vision path (runCodexVision): read-only sandbox, an end-of-options
+ * `--` before the (attacker-influenced) prompt, and NO forced `--model` — a
+ * ChatGPT-account Codex only accepts its own models (e.g. gpt-5.5) and rejects
+ * API names like gpt-4o. `--json` yields structured events so we return the
+ * agent's final message without the session preamble / token-usage noise that
+ * the plain text output carries.
+ */
+async function runCodexExec(prompt: string): Promise<ProviderResult> {
+  const env: Record<string, string> = { ...process.env } as Record<string, string>;
+  env.CODEX_HOME = CODEX_HOME;
+  const { stdout, code } = await runCapture(
+    "codex",
+    ["exec", "--json", "--sandbox", "read-only", "--skip-git-repo-check", "--", prompt],
+    {
+      env,
+      cwd: tmpdir(),
+      timeoutMs: SUBPROCESS_TIMEOUT_MS,
+      maxBufferBytes: MAX_BUFFER_BYTES,
+      label: "Codex",
+    },
+  );
+  if (code !== 0) {
+    throw new Error("AI provider returned an error");
+  }
+  const content = extractCodexMessage(stdout);
+  if (!content) {
+    throw new Error("AI provider returned no usable output");
+  }
+  return { content, model: "codex" };
 }
 
 /**
@@ -236,107 +263,23 @@ export class CodexProvider implements AIProvider, VisionRunner {
 
   async complete(
     messages: ChatMessage[],
-    model?: string,
+    _model?: string,
   ): Promise<ProviderResult> {
-    const prompt = messagesToPrompt(messages);
-    const cliModel = resolveModel(model);
-
-    return new Promise((resolve, reject) => {
-      const child = spawnCodex(prompt, cliModel);
-      let stdout = "";
-      let stdoutSize = 0;
-      let stderrSize = 0;
-
-      const timer = setTimeout(() => {
-        child.kill();
-        reject(new Error("AI provider request timed out"));
-      }, SUBPROCESS_TIMEOUT_MS);
-
-      child.stdout?.on("data", (chunk: Buffer) => {
-        stdoutSize += chunk.length;
-        if (stdoutSize > MAX_BUFFER_BYTES) {
-          cleanupChild(child, timer);
-          reject(new Error("AI provider response too large"));
-          return;
-        }
-        stdout += chunk.toString();
-      });
-      child.stderr?.on("data", (chunk: Buffer) => {
-        stderrSize += chunk.length;
-        if (stderrSize > MAX_BUFFER_BYTES) {
-          cleanupChild(child, timer);
-          reject(new Error("AI provider error output too large"));
-        }
-      });
-
-      child.on("error", (err) => {
-        clearTimeout(timer);
-        reject(new Error(`Codex CLI failed to start: ${err.message}`));
-      });
-
-      child.on("close", (code) => {
-        clearTimeout(timer);
-        if (code !== 0) {
-          reject(new Error("AI provider returned an error"));
-          return;
-        }
-        resolve({ content: stdout.trim(), model: cliModel });
-      });
-    });
+    // The prompt carries the system text inline (messagesToPrompt); authoritative
+    // persona delivery for codex is tracked separately (Epic 52 M4). The model is
+    // not forwarded — a ChatGPT-account Codex picks its own model (see runCodexExec).
+    return runCodexExec(messagesToPrompt(messages));
   }
 
   async stream(
     messages: ChatMessage[],
-    model?: string,
+    _model?: string,
     onChunk?: (text: string) => void,
   ): Promise<ProviderResult> {
-    const prompt = messagesToPrompt(messages);
-    const cliModel = resolveModel(model);
-
-    return new Promise((resolve, reject) => {
-      const child = spawnCodex(prompt, cliModel);
-      let content = "";
-      let totalSize = 0;
-      let stderrSize = 0;
-
-      const timer = setTimeout(() => {
-        child.kill();
-        reject(new Error("AI provider request timed out"));
-      }, SUBPROCESS_TIMEOUT_MS);
-
-      child.stdout?.on("data", (chunk: Buffer) => {
-        totalSize += chunk.length;
-        if (totalSize > MAX_BUFFER_BYTES) {
-          cleanupChild(child, timer);
-          reject(new Error("AI provider response too large"));
-          return;
-        }
-        const text = chunk.toString();
-        content += text;
-        onChunk?.(text);
-      });
-
-      child.stderr?.on("data", (chunk: Buffer) => {
-        stderrSize += chunk.length;
-        if (stderrSize > MAX_BUFFER_BYTES) {
-          cleanupChild(child, timer);
-          reject(new Error("AI provider error output too large"));
-        }
-      });
-
-      child.on("error", (err) => {
-        clearTimeout(timer);
-        reject(new Error(`Codex CLI failed to start: ${err.message}`));
-      });
-
-      child.on("close", (code) => {
-        clearTimeout(timer);
-        if (code !== 0 && !content) {
-          reject(new Error("AI provider returned an error"));
-          return;
-        }
-        resolve({ content: content.trim(), model: cliModel });
-      });
-    });
+    // `codex exec` returns a single final message rather than a token stream, so
+    // surface it as one chunk. (The web chat path uses complete(), not stream.)
+    const result = await runCodexExec(messagesToPrompt(messages));
+    onChunk?.(result.content);
+    return result;
   }
 }
