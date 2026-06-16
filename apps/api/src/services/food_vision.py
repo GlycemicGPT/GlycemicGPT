@@ -349,13 +349,14 @@ async def create_food_record_from_image(
         except Exception:
             logger.warning("RAG indexing failed for food record", exc_info=True)
 
-    # Persist the audit/provenance trail (Story 50.H3): the raw per-sample outputs
-    # + dispersion + the (vision-only) precedence. Best-effort -- auditability must
-    # never break the upload; the grounding decision is appended at confirm time.
-    try:
-        await meal_audit.record_estimate_audit(record.id, user.id, aggregate)
-    except Exception:
-        logger.warning("Estimate audit write failed", exc_info=True)
+        # Persist the audit/provenance trail (Story 50.H3): the raw per-sample
+        # outputs + dispersion + the (vision-only) precedence. Behind the same
+        # flag as the other best-effort side-effects so the flag stays a true
+        # kill switch; the grounding decision is appended at confirm time.
+        try:
+            await meal_audit.record_estimate_audit(record.id, user.id, aggregate)
+        except Exception:
+            logger.warning("Estimate audit write failed", exc_info=True)
 
     # No grounding at create time (identity unconfirmed) -- grounding actually
     # happens later in ``common_food.confirm_food_identity`` once the user confirms

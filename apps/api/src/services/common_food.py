@@ -157,18 +157,19 @@ async def confirm_food_identity(
                 "RAG re-indexing failed after identity confirmation", exc_info=True
             )
 
-    # Append the grounding decision to the audit trail (Story 50.H3): which source
-    # won (or vision-only) and the identity it was keyed on. Best-effort.
-    try:
-        await meal_audit.record_grounding_decision(
-            record.id,
-            record.user_id,
-            grounding=grounding,
-            identity=name,
-            identity_confirmed=True,
-        )
-    except Exception:
-        logger.warning("Grounding audit update failed", exc_info=True)
+        # Append the grounding decision to the audit trail (Story 50.H3): which
+        # source won (or vision-only) and the identity it was keyed on. Behind the
+        # same flag as the side-effects above; best-effort.
+        try:
+            await meal_audit.record_grounding_decision(
+                record.id,
+                record.user_id,
+                grounding=grounding,
+                identity=name,
+                identity_confirmed=True,
+            )
+        except Exception:
+            logger.warning("Grounding audit update failed", exc_info=True)
 
     # Transient grounding detail for the response (the grounded range + citation +
     # disclaimer); reads later carry only the flat grounding_* columns.

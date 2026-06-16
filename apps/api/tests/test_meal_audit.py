@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from PIL import Image
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from src.config import settings
 from src.database import get_session_maker
@@ -195,6 +195,33 @@ class TestGroundingDecisionAudit:
         assert audit.precedence_json["identity_confirmed"] is True
         assert audit.precedence_json["identity_used"] == "mystery dish"
 
+    async def test_confirm_preserves_create_time_samples(self):
+        # Re-confirm upserts only precedence -- the create-time raw samples and
+        # dispersion must survive (the on-conflict set_ must not clobber them).
+        desc = _uniq("preserve samples")
+        async with get_session_maker()() as db:
+            user = await _user_with_provider(db)
+            record = await _create(db, user, desc)
+            before = await _fetch_audit(record.id)
+            assert before.samples_json and len(before.samples_json) == 3
+            with (
+                patch.object(
+                    meal_rag, "recall_similar_meal", AsyncMock(return_value=None)
+                ),
+                patch.object(
+                    nutrition_sources,
+                    "lookup_published_nutrition",
+                    AsyncMock(return_value=(None, None)),
+                ),
+            ):
+                await common_food_service.confirm_food_identity(db, record, desc)
+
+        after = await _fetch_audit(record.id)
+        assert after.precedence_json["identity_confirmed"] is True
+        # Samples + dispersion were NOT clobbered by the precedence upsert.
+        assert after.samples_json and len(after.samples_json) == 3
+        assert after.dispersion_json is not None
+
 
 class TestAuditRetention:
     async def test_get_audit_is_owner_scoped(self):
@@ -229,3 +256,19 @@ class TestAuditRetention:
                 .where(FoodRecordAudit.food_record_id == record_id)
             )
         assert remaining == 0
+
+    async def test_bulk_delete_cascades_audit(self):
+        # The retention purge path is a Core bulk DELETE on food_records
+        # (data_purge.purge_all_user_data); it must also drop audit rows via the
+        # FK cascade, not just the ORM single-delete path (AC5).
+        async with get_session_maker()() as db:
+            user = await _user_with_provider(db)
+            record = await _create(db, user, _uniq("noodles"))
+            record_id = record.id
+        assert await _fetch_audit(record_id) is not None
+
+        async with get_session_maker()() as db:
+            await db.execute(delete(FoodRecord).where(FoodRecord.user_id == user.id))
+            await db.commit()
+
+        assert await _fetch_audit(record_id) is None

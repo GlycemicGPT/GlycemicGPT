@@ -153,6 +153,9 @@ async def purge_all_user_data(
         deleted_food_rows = result.all()
         food_photo_paths = [sp for (sp,) in deleted_food_rows if sp]
         deleted["food_records"] = len(deleted_food_rows)
+        # food_record_audits rows cascade from this delete (FK ON DELETE CASCADE,
+        # migration 071), so the audit trail is purged here with the records --
+        # no separate delete needed (Story 50.H3, AC5).
 
         # Common foods are deleted after food_records: the records are already
         # gone, so the food_records.common_food_id FK (ON DELETE SET NULL) has

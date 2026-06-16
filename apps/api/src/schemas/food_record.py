@@ -8,12 +8,15 @@ dose/insulin field. Nothing here computes or returns dosing guidance.
 import json
 import uuid
 from datetime import datetime
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
 from src.models.food_record import FoodRecordSource
 from src.vision.carb_contract import CARB_GRAMS_MAX, CARB_GRAMS_MIN
+
+if TYPE_CHECKING:
+    from src.models.food_record_audit import FoodRecordAudit
 
 
 class GroundingDetail(BaseModel):
@@ -182,6 +185,23 @@ class AuditSample(BaseModel):
     parse_ok: bool = False
 
 
+class AuditDispersion(BaseModel):
+    """The empirical dispersion summary surfaced in the audit trail (50.H3).
+
+    A typed allow-list (like ``AuditSample``) so the no-leak guarantee for the
+    discredited self-reported confidence is enforced structurally, not by
+    convention -- a future field added to the stored blob can't slip through.
+    """
+
+    confidence: str | None = None
+    coefficient_of_variation: float | None = None
+    samples_requested: int | None = None
+    samples_used: int | None = None
+    identity_agreement: bool | None = None
+    distinct_identities: list[str] = Field(default_factory=list)
+    wide_spread: bool | None = None
+
+
 class FoodRecordAuditResponse(BaseModel):
     """The "how was this estimated" provenance trail for a food record (50.H3).
 
@@ -191,15 +211,17 @@ class FoodRecordAuditResponse(BaseModel):
 
     food_record_id: uuid.UUID
     samples: list[AuditSample] = Field(default_factory=list)
-    dispersion: dict | None = None
+    dispersion: AuditDispersion | None = None
+    # The precedence decision is intentionally schema-loose (a raw dict): its
+    # shape is still settling pre-50.E2. It is built entirely by our own code
+    # (services.meal_audit) and never contains per-sample/self-reported data.
     precedence: dict | None = None
     created_at: datetime
     updated_at: datetime
 
     @classmethod
-    def from_audit(cls, audit: object) -> "FoodRecordAuditResponse":
+    def from_audit(cls, audit: "FoodRecordAudit") -> "FoodRecordAuditResponse":
         """Build from a ``FoodRecordAudit`` row, stripping internal-only fields."""
-        raw_samples = getattr(audit, "samples_json", None) or []
         samples = [
             AuditSample(
                 carbs_low=s.get("carbs_low"),
@@ -207,13 +229,18 @@ class FoodRecordAuditResponse(BaseModel):
                 identity=s.get("identity"),
                 parse_ok=bool(s.get("parse_ok")),
             )
-            for s in raw_samples
+            for s in (audit.samples_json or [])
             if isinstance(s, dict)
         ]
+        dispersion = (
+            AuditDispersion.model_validate(audit.dispersion_json)
+            if isinstance(audit.dispersion_json, dict)
+            else None
+        )
         return cls(
             food_record_id=audit.food_record_id,
             samples=samples,
-            dispersion=audit.dispersion_json,
+            dispersion=dispersion,
             precedence=audit.precedence_json,
             created_at=audit.created_at,
             updated_at=audit.updated_at,
