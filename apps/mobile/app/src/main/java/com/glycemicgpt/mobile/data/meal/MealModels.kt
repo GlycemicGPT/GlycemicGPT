@@ -1,6 +1,7 @@
 package com.glycemicgpt.mobile.data.meal
 
 import com.glycemicgpt.mobile.data.remote.dto.CommonFoodResponse
+import com.glycemicgpt.mobile.data.remote.dto.FoodRecordAuditResponse
 import com.glycemicgpt.mobile.data.remote.dto.FoodRecordResponse
 import java.time.Instant
 
@@ -90,6 +91,22 @@ enum class FoodRecordSource {
     }
 }
 
+/**
+ * How much the AI's repeated reads of one photo disagreed (Story 50.H1).
+ *
+ * The [confidence] on a [FoodRecord] is already the empirical band derived from
+ * this spread; this carries the visceral, human-readable detail. Present only on
+ * a fresh estimate (the create response); null on records loaded from history.
+ */
+data class MealDispersion(
+    /** Plain-language uncertainty note (already dosing-scrubbed server-side). */
+    val note: String?,
+    /** The reads disagreed enough to warrant a visible "rough guess" treatment. */
+    val wideSpread: Boolean,
+    /** Whether the reads agreed on *what the food is* (false => confirm identity). */
+    val identityAgreement: Boolean,
+)
+
 /** A persisted meal photo + carb estimate, optionally corrected by the user. */
 data class FoodRecord(
     val id: String,
@@ -104,12 +121,26 @@ data class FoodRecord(
     val correctedAt: Instant?,
     val commonFoodId: String?,
     val createdAt: Instant?,
+    /** Multi-sample dispersion detail (Story 50.H1). Null on history reads. */
+    val dispersion: MealDispersion? = null,
+    /**
+     * Food-identity confirmation (Story 50.H2). [foodDescription] is the AI's
+     * guess; [confirmedFoodName] is the user's confirmed/corrected identity (null
+     * until confirmed). External grounding only runs once [identityConfirmed].
+     */
+    val confirmedFoodName: String? = null,
+    val identityConfirmed: Boolean = false,
+    /** Own-history pre-fill ("looks like your saved X"); fresh estimate only. */
+    val suggestedIdentity: String? = null,
 ) {
     /** Whether the user has corrected the AI estimate. */
     val isCorrected: Boolean get() = correction != null
 
     /** The carb range to show as the headline value: the correction if present, else the estimate. */
     val displayRange: CarbRange get() = correction ?: estimate
+
+    /** The identity to show: the user's confirmed name if present, else the AI's guess. */
+    val displayIdentity: String? get() = confirmedFoodName?.takeIf { it.isNotBlank() } ?: foodDescription
 }
 
 /** A saved per-user food baseline that future estimates can be grounded against. */
@@ -157,8 +188,59 @@ fun FoodRecordResponse.toDomain(): FoodRecord {
         correctedAt = parseInstantOrNull(correctedAt),
         commonFoodId = commonFoodId,
         createdAt = parseInstantOrNull(createdAt),
+        dispersion = estimateDispersion?.let {
+            MealDispersion(
+                note = it.note?.takeIf { note -> note.isNotBlank() },
+                wideSpread = it.wideSpread,
+                identityAgreement = it.identityAgreement,
+            )
+        },
+        confirmedFoodName = confirmedFoodName,
+        identityConfirmed = identityConfirmed,
+        suggestedIdentity = suggestedIdentity?.takeIf { it.isNotBlank() },
     )
 }
+
+/**
+ * The "how was this estimated" provenance trail (Story 50.H3). Descriptive only;
+ * the model's self-reported confidence is intentionally not represented here.
+ */
+data class MealAudit(
+    val foodRecordId: String,
+    val samples: List<AuditSample>,
+    val confidence: CarbConfidence,
+    val samplesUsed: Int?,
+    val wideSpread: Boolean?,
+    val identityAgreement: Boolean?,
+    val grounded: Boolean,
+    val groundingSource: String?,
+    val identityUsed: String?,
+)
+
+/** One raw vision sample as shown in the audit trail. */
+data class AuditSample(
+    val carbs: CarbRange?,
+    val identity: String?,
+)
+
+fun FoodRecordAuditResponse.toDomain(): MealAudit = MealAudit(
+    foodRecordId = foodRecordId,
+    samples = samples.map {
+        val low = it.carbsLow
+        val high = it.carbsHigh
+        AuditSample(
+            carbs = if (low != null && high != null) CarbRange(low, high) else null,
+            identity = it.identity,
+        )
+    },
+    confidence = CarbConfidence.fromApi(dispersion?.confidence),
+    samplesUsed = dispersion?.samplesUsed,
+    wideSpread = dispersion?.wideSpread,
+    identityAgreement = dispersion?.identityAgreement,
+    grounded = precedence?.outcome == "grounded",
+    groundingSource = precedence?.chosenSource,
+    identityUsed = precedence?.identityUsed,
+)
 
 fun CommonFoodResponse.toDomain(): CommonFood = CommonFood(
     id = id,

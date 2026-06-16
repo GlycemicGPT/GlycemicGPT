@@ -2,9 +2,10 @@
  * Tests for the CLI vision argv construction (claude / codex).
  *
  * `runCapture` is mocked, so no subprocess is spawned. These assert the
- * security-critical argv shape: read-only mode, and a `--` end-of-options
- * separator immediately before the (attacker-influenced) positional prompt so a
- * prompt that looks like a flag can never be parsed as one.
+ * security-critical argv shape: read-only mode, a `--` end-of-options separator
+ * immediately before the (attacker-influenced) positional prompt so a prompt
+ * that looks like a flag can never be parsed as one, and (for claude) that the
+ * system prompt is installed authoritatively from a file rather than inlined.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -38,7 +39,7 @@ describe("CLI vision argv construction", () => {
     vi.unstubAllEnvs();
   });
 
-  it("claude: runs read-only plan mode with -- before the prompt", async () => {
+  it("claude: read-only plan mode, system prompt by file, -- before the prompt", async () => {
     vi.stubEnv("CLAUDE_CODE_OAUTH_TOKEN", "test-claude-token-dummy");
     await new ClaudeProvider().completeVision(flagInjection);
 
@@ -49,9 +50,15 @@ describe("CLI vision argv construction", () => {
     const pmIdx = args.indexOf("--permission-mode");
     expect(pmIdx).toBeGreaterThanOrEqual(0);
     expect(args[pmIdx + 1]).toBe("plan");
+    // The carb-contract system prompt is installed authoritatively from a file
+    // (its contents are never an argv value), replacing the CLI default prompt.
+    const spIdx = args.indexOf("--system-prompt-file");
+    expect(spIdx).toBeGreaterThanOrEqual(0);
+    expect(typeof args[spIdx + 1]).toBe("string");
     // the prompt is the last arg, and `--` is immediately before it
     expect(args[args.length - 2]).toBe("--");
-    expect(args[args.length - 1]).toContain("--dangerously-skip-permissions");
+    // The flag-looking system text never appears on argv — it lives in the file.
+    expect(args.some((a: string) => a.includes("--dangerously-skip-permissions"))).toBe(false);
   });
 
   it("codex: runs read-only sandbox with -- before the prompt", async () => {

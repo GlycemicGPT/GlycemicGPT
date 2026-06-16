@@ -2,11 +2,13 @@ package com.glycemicgpt.mobile.data.repository
 
 import com.glycemicgpt.mobile.data.meal.CommonFood
 import com.glycemicgpt.mobile.data.meal.FoodRecord
+import com.glycemicgpt.mobile.data.meal.MealAudit
 import com.glycemicgpt.mobile.data.meal.MealException
 import com.glycemicgpt.mobile.data.meal.toDomain
 import com.glycemicgpt.mobile.data.remote.GlycemicGptApi
 import com.glycemicgpt.mobile.data.remote.dto.CommonFoodUpdateRequest
 import com.glycemicgpt.mobile.data.remote.dto.FoodRecordCorrectionRequest
+import com.glycemicgpt.mobile.data.remote.dto.FoodRecordIdentityRequest
 import com.glycemicgpt.mobile.data.remote.dto.SaveAsCommonFoodRequest
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
@@ -75,6 +77,19 @@ class MealRepository @Inject constructor(
             ),
         )
     }.map { it.toDomain() }
+
+    /** Confirm/correct *what the food is* (Story 50.H2); opens the grounding gate. */
+    suspend fun confirmIdentity(recordId: String, confirmedFoodName: String): Result<FoodRecord> =
+        body {
+            api.confirmFoodIdentity(
+                recordId,
+                FoodRecordIdentityRequest(confirmedFoodName = confirmedFoodName.trim()),
+            )
+        }.map { it.toDomain() }
+
+    /** Fetch the "how was this estimated" provenance trail (Story 50.H3). */
+    suspend fun getAudit(recordId: String): Result<MealAudit> =
+        body { api.getFoodRecordAudit(recordId) }.map { it.toDomain() }
 
     suspend fun saveAsCommonFood(recordId: String, name: String): Result<CommonFood> =
         body { api.saveRecordAsCommonFood(recordId, SaveAsCommonFoodRequest(name = name)) }

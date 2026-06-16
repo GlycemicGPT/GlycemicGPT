@@ -32,12 +32,14 @@ from src.schemas.common_food import (
     SaveAsCommonFoodRequest,
 )
 from src.schemas.food_record import (
+    FoodRecordAuditResponse,
     FoodRecordCorrectionRequest,
+    FoodRecordIdentityRequest,
     FoodRecordListResponse,
     FoodRecordResponse,
 )
 from src.services import common_food as common_food_service
-from src.services import food_image, food_vision
+from src.services import food_image, food_vision, meal_audit
 
 logger = get_logger(__name__)
 
@@ -195,6 +197,37 @@ async def get_food_record(
     return FoodRecordResponse.model_validate(record)
 
 
+@router.get(
+    "/{record_id}/audit",
+    response_model=FoodRecordAuditResponse,
+    responses={
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        404: {"model": ErrorResponse, "description": "Audit trail not found"},
+    },
+)
+async def get_food_record_audit(
+    record_id: uuid.UUID,
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> FoodRecordAuditResponse:
+    """Get the "how was this estimated" provenance trail for a record (50.H3).
+
+    Owner-scoped (IDOR-safe): the record must belong to the caller, and the audit
+    fetch is itself scoped by user id. Descriptive only -- raw per-sample reads,
+    the empirical dispersion, and the precedence decision; never a dose.
+    """
+    require_meal_intelligence()
+    # 404 if the record isn't the caller's (ownership check) ...
+    await _get_owned_record(record_id, current_user.id, db)
+    # ... and the audit fetch is independently owner-scoped.
+    audit = await meal_audit.get_audit(db, record_id, current_user.id)
+    if audit is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Audit trail not found"
+        )
+    return FoodRecordAuditResponse.from_audit(audit)
+
+
 @router.delete(
     "/{record_id}",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -245,6 +278,44 @@ async def correct_food_record(
     try:
         record = await common_food_service.correct_food_record(db, record, correction)
     except common_food_service.CarbValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+    return FoodRecordResponse.model_validate(record)
+
+
+@router.post(
+    "/{record_id}/confirm-identity",
+    response_model=FoodRecordResponse,
+    responses={
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        404: {"model": ErrorResponse, "description": "Food record not found"},
+        422: {"model": ErrorResponse, "description": "Identity name invalid"},
+    },
+)
+async def confirm_food_identity(
+    record_id: uuid.UUID,
+    identity: FoodRecordIdentityRequest,
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> FoodRecordResponse:
+    """Confirm or correct *what the food is* (Story 50.H2).
+
+    Distinct from carb correction and never a dose. The confirmed identity opens
+    the grounding gate: only now is external authoritative nutrition (USDA / Open
+    Food Facts today; restaurant facts via 50.E2) looked up, keyed on the confirmed
+    name -- so a misidentified label is never certified with an authoritative
+    citation.
+    """
+    require_meal_intelligence()
+    record = await _get_owned_record(record_id, current_user.id, db)
+    try:
+        record = await common_food_service.confirm_food_identity(
+            db, record, identity.confirmed_food_name
+        )
+    # Defence in depth: the schema already rejects a blank/oversized name (422),
+    # so this only fires for a non-HTTP caller -- mirrors the carb-correction path.
+    except common_food_service.IdentityValidationError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc

@@ -33,6 +33,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.glycemicgpt.mobile.data.meal.CarbConfidence
 import com.glycemicgpt.mobile.data.meal.CarbRange
+import com.glycemicgpt.mobile.data.meal.MealDispersion
 import com.glycemicgpt.mobile.presentation.theme.MealConfidenceColors
 import com.glycemicgpt.mobile.presentation.theme.safetyPalette
 import java.time.Instant
@@ -94,10 +95,14 @@ fun CarbEstimateContent(
     modifier: Modifier = Modifier,
     isCorrected: Boolean = false,
     originalRange: CarbRange? = null,
+    dispersion: MealDispersion? = null,
 ) {
     // The qualifier is announced as part of the value so it's never separable from the carbs (§12).
+    // The dispersion note rides in the same merged phrase so a screen-reader hears the uncertainty
+    // alongside the number, never as a detached afterthought.
+    val dispersionSpeech = dispersion?.note?.let { " $it" }.orEmpty()
     val description = "${carbRangeForSpeech(range)}, ${confidenceLabel(confidence).lowercase()}. " +
-        "$VERIFY_BEFORE_DOSING_TEXT."
+        "$VERIFY_BEFORE_DOSING_TEXT.$dispersionSpeech"
     Column(
         // Merge so the carb value + confidence + qualifier are announced as one phrase, not three.
         modifier = modifier.semantics(mergeDescendants = true) { contentDescription = description },
@@ -117,12 +122,70 @@ fun CarbEstimateContent(
             modifier = Modifier.testTag("meal_confidence"),
         )
         ConfidenceBar(confidence)
+        // Story 50.H1: when present (fresh estimate only), surface how much the AI's repeated reads
+        // disagreed. A wide spread / identity disagreement gets a visceral caution treatment so a
+        // shaky guess never reads as calm and trustworthy; a confident read stays a quiet line.
+        if (dispersion != null && !dispersion.note.isNullOrBlank()) {
+            MealDispersionNote(dispersion)
+        }
         if (isCorrected && originalRange != null) {
             Text(
                 text = "You corrected this. AI estimated ${formatCarbRange(originalRange)}.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.testTag("meal_corrected_note"),
+            )
+        }
+    }
+}
+
+/**
+ * The multi-sample uncertainty note (Story 50.H1). A wide spread or an identity disagreement is
+ * shown viscerally -- a caution strip the eye can't skip -- so "the AI wasn't sure" lands; a
+ * tight, agreeing read is a plain quiet line. Consistency is NOT correctness, so even the quiet
+ * form never reads as "safe to dose": the standing verify-before-dosing qualifier carries that.
+ */
+@Composable
+private fun MealDispersionNote(dispersion: MealDispersion) {
+    val note = dispersion.note ?: return
+    val emphasize = dispersion.wideSpread || !dispersion.identityAgreement
+    if (!emphasize) {
+        Text(
+            text = note,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.testTag("meal_dispersion_note"),
+        )
+        return
+    }
+    val palette = safetyPalette()
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("meal_dispersion_note"),
+        color = palette.background,
+        shape = RoundedCornerShape(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Default.Info,
+                contentDescription = null,
+                tint = palette.icon,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = note,
+                style = MaterialTheme.typography.bodyMedium,
+                color = palette.foreground,
+                fontWeight = FontWeight.Medium,
+                // Flag the disagreement case for tests / downstream H2 identity affordance.
+                modifier = Modifier.testTag(
+                    if (!dispersion.identityAgreement) "meal_identity_disagreement" else "meal_wide_spread",
+                ),
             )
         }
     }

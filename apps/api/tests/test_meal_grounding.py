@@ -537,7 +537,9 @@ class TestPrecedence:
                 nutrition_sources, "lookup_published_nutrition", AsyncMock()
             ) as lookup,
         ):
-            detail = await meal_grounding.ground_estimate(uuid.uuid4(), "stew")
+            detail = await meal_grounding.ground_estimate(
+                uuid.uuid4(), "stew", identity_confirmed=True
+            )
         assert detail is not None
         assert detail.source == "Your meal history"
         assert detail.trust_tier == KnowledgeChunk.TIER_USER_PROVIDED
@@ -558,7 +560,9 @@ class TestPrecedence:
                 AsyncMock(return_value=(usda, off)),
             ),
         ):
-            detail = await meal_grounding.ground_estimate(uuid.uuid4(), "oatmeal")
+            detail = await meal_grounding.ground_estimate(
+                uuid.uuid4(), "oatmeal", identity_confirmed=True
+            )
         assert detail.source == "USDA FoodData Central"
         assert detail.carbs_low == 12
 
@@ -577,7 +581,9 @@ class TestPrecedence:
                 AsyncMock(return_value=(None, off)),
             ),
         ):
-            detail = await meal_grounding.ground_estimate(uuid.uuid4(), "cereal")
+            detail = await meal_grounding.ground_estimate(
+                uuid.uuid4(), "cereal", identity_confirmed=True
+            )
         assert detail.source == "Open Food Facts"
         assert detail.disclaimer  # OFF disclaimer carried through
 
@@ -595,7 +601,9 @@ class TestPrecedence:
                 AsyncMock(return_value=(None, None)),
             ),
         ):
-            detail = await meal_grounding.ground_estimate(uuid.uuid4(), "stew")
+            detail = await meal_grounding.ground_estimate(
+                uuid.uuid4(), "stew", identity_confirmed=True
+            )
         assert detail.source == "Your meal history"
 
     async def test_pure_vision_when_nothing_grounds(self):
@@ -607,11 +615,47 @@ class TestPrecedence:
                 AsyncMock(return_value=(None, None)),
             ),
         ):
-            assert await meal_grounding.ground_estimate(uuid.uuid4(), "x") is None
+            assert (
+                await meal_grounding.ground_estimate(
+                    uuid.uuid4(), "x", identity_confirmed=True
+                )
+                is None
+            )
 
     async def test_empty_description_is_ungrounded(self):
-        assert await meal_grounding.ground_estimate(uuid.uuid4(), "") is None
-        assert await meal_grounding.ground_estimate(uuid.uuid4(), None) is None
+        assert (
+            await meal_grounding.ground_estimate(
+                uuid.uuid4(), "", identity_confirmed=True
+            )
+            is None
+        )
+        assert (
+            await meal_grounding.ground_estimate(
+                uuid.uuid4(), None, identity_confirmed=True
+            )
+            is None
+        )
+
+    async def test_unconfirmed_identity_is_never_grounded(self):
+        # The H2 gate: even with a strong corrected own-history match and a
+        # published fact available, an UNCONFIRMED identity grounds to nothing.
+        with (
+            patch.object(
+                meal_rag,
+                "recall_similar_meal",
+                AsyncMock(return_value=self._recall(corrected=True)),
+            ) as recall,
+            patch.object(
+                nutrition_sources, "lookup_published_nutrition", AsyncMock()
+            ) as lookup,
+        ):
+            detail = await meal_grounding.ground_estimate(
+                uuid.uuid4(), "stew", identity_confirmed=False
+            )
+        assert detail is None
+        # The gate short-circuits before any recall or external lookup runs.
+        recall.assert_not_awaited()
+        lookup.assert_not_awaited()
 
 
 # --------------------------------------------------------------------------- #
@@ -697,7 +741,9 @@ class TestNoTherapyCoupling:
                 meal_rag, "recall_similar_meal", AsyncMock(return_value=recall)
             ),
         ):
-            detail = await meal_grounding.ground_estimate(uuid.uuid4(), "oatmeal")
+            detail = await meal_grounding.ground_estimate(
+                uuid.uuid4(), "oatmeal", identity_confirmed=True
+            )
         for field in (detail.source, detail.note, detail.serving):
             assert not find_dosing_violations(field or "")
 
@@ -719,7 +765,10 @@ class TestEstimatePipelineGrounding:
         monkeypatch.setattr(settings, "upload_dir", str(tmp_path / "uploads"))
         monkeypatch.setattr(settings, "meal_intelligence_enabled", True)
 
-    async def test_estimate_grounds_against_own_corrected_history(self):
+    async def test_create_is_vision_only_then_confirm_grounds(self):
+        # Story 50.H2: a fresh estimate is NOT grounded (identity unconfirmed);
+        # it surfaces a suggested identity from own history for a one-tap confirm,
+        # and grounding runs only after the user confirms.
         from src.services import common_food as common_food_service
 
         desc = _uniq("homemade lasagna")
@@ -749,39 +798,149 @@ class TestEstimatePipelineGrounding:
                     db=db, user=user, raw_image=_png_bytes()
                 )
 
-        # The persisted carbs stay the fresh vision estimate...
-        assert record.carbs_low == 45 and record.carbs_high == 60
-        # ...but it is grounded against the user's own corrected history.
+            # Create: vision-only, identity unconfirmed, but own history is
+            # suggested for confirmation (the safe fast path).
+            assert record.carbs_low == 45 and record.carbs_high == 60
+            assert record.identity_confirmed is False
+            assert record.grounding_source is None
+            assert record.grounding is None
+            assert record.suggested_identity is not None
+
+            # Confirm the identity -> NOW it grounds against the user's own
+            # corrected history.
+            record = await common_food_service.confirm_food_identity(db, record, desc)
+
+        assert record.identity_confirmed is True
+        assert record.confirmed_food_name == desc
+        assert record.carbs_low == 45 and record.carbs_high == 60  # carbs unchanged
         assert record.grounding_source == "Your meal history"
         assert record.grounding_trust_tier == KnowledgeChunk.TIER_USER_PROVIDED
         assert record.grounding is not None
         assert record.grounding.carbs_low == 70 and record.grounding.carbs_high == 80
         assert "logged this before" in (record.grounding.note or "")
-        # Safety: nothing in the grounding output is dosing guidance.
         assert not find_dosing_violations(record.grounding.note or "")
 
-    async def test_estimate_falls_back_to_vision_only_on_grounding_failure(self):
+    async def test_confirm_falls_back_to_vision_only_on_grounding_failure(self):
+        from src.services import common_food as common_food_service
+
         desc = _uniq("mystery casserole")
         async with get_session_maker()() as db:
             user = await _user_with_provider(db)
-            with (
-                patch.object(
-                    food_vision,
-                    "_call_vision",
-                    AsyncMock(return_value=_estimate_json(desc, 30, 45)),
-                ),
-                patch.object(
-                    meal_grounding,
-                    "ground_estimate",
-                    AsyncMock(side_effect=RuntimeError("source down")),
-                ),
+            with patch.object(
+                food_vision,
+                "_call_vision",
+                AsyncMock(return_value=_estimate_json(desc, 30, 45)),
             ):
                 record = await food_vision.create_food_record_from_image(
                     db=db, user=user, raw_image=_png_bytes()
                 )
 
-        # Estimate still persists; grounding degraded cleanly to vision-only.
+            # Confirm, but grounding blows up -> the confirmation still succeeds
+            # and the estimate degrades cleanly to vision-only (never a dose).
+            with patch.object(
+                meal_grounding,
+                "ground_estimate",
+                AsyncMock(side_effect=RuntimeError("source down")),
+            ):
+                record = await common_food_service.confirm_food_identity(
+                    db, record, "mystery casserole"
+                )
+
         assert record.carbs_low == 30 and record.carbs_high == 45
+        assert record.identity_confirmed is True  # identity still confirmed
+        assert record.grounding_source is None  # grounding degraded cleanly
+        assert record.grounding is None
+
+    async def test_reconfirm_regrounds_and_clears_stale_citation(self):
+        # Re-confirming with a corrected identity that grounds to nothing must
+        # CLEAR the prior authoritative citation -- otherwise a stale citation
+        # from the first (wrong) identity would survive the correction, the exact
+        # misID-amplification H2 exists to prevent.
+        from src.services import common_food as common_food_service
+
+        desc = _uniq("reconfirm food")
+        async with get_session_maker()() as db:
+            user = await _user_with_provider(db)
+            with patch.object(
+                food_vision,
+                "_call_vision",
+                AsyncMock(return_value=_estimate_json(desc, 40, 50)),
+            ):
+                record = await food_vision.create_food_record_from_image(
+                    db=db, user=user, raw_image=_png_bytes()
+                )
+
+            usda = nutrition_sources.NutritionFact(
+                source_name="USDA FoodData Central",
+                source_url="https://fdc.nal.usda.gov/x",
+                trust_tier=KnowledgeChunk.TIER_AUTHORITATIVE,
+                name="pasta",
+                carbs_grams=43,
+                serving="per 100 g",
+                disclaimer=None,
+            )
+            # First confirm -> grounds to a USDA fact.
+            with (
+                patch.object(
+                    meal_rag, "recall_similar_meal", AsyncMock(return_value=None)
+                ),
+                patch.object(
+                    nutrition_sources,
+                    "lookup_published_nutrition",
+                    AsyncMock(return_value=(usda, None)),
+                ),
+            ):
+                record = await common_food_service.confirm_food_identity(
+                    db, record, "pasta"
+                )
+            assert record.grounding_source == "USDA FoodData Central"
+            assert record.grounding_trust_tier == KnowledgeChunk.TIER_AUTHORITATIVE
+
+            # Re-confirm with a corrected identity nothing matches -> citation
+            # must be cleared, not left stale.
+            with (
+                patch.object(
+                    meal_rag, "recall_similar_meal", AsyncMock(return_value=None)
+                ),
+                patch.object(
+                    nutrition_sources,
+                    "lookup_published_nutrition",
+                    AsyncMock(return_value=(None, None)),
+                ),
+            ):
+                record = await common_food_service.confirm_food_identity(
+                    db, record, "obscure nonfood item"
+                )
+
+        assert record.confirmed_food_name == "obscure nonfood item"
         assert record.grounding_source is None
+        assert record.grounding_source_url is None
         assert record.grounding_trust_tier is None
         assert record.grounding is None
+
+    async def test_corrected_identity_feeds_future_suggestion(self):
+        # Correcting the identity re-indexes own-history RAG on the confirmed
+        # name, so the next photo of the same food suggests the user's truth, not
+        # the stale AI label -- closing the one-tap-confirm loop (AC4).
+        from src.services import common_food as common_food_service
+
+        ai_label = _uniq("ai mislabel soup")
+        corrected = _uniq("my homemade chili")
+        async with get_session_maker()() as db:
+            user = await _user_with_provider(db)
+            with patch.object(
+                food_vision,
+                "_call_vision",
+                AsyncMock(return_value=_estimate_json(ai_label, 40, 50)),
+            ):
+                record = await food_vision.create_food_record_from_image(
+                    db=db, user=user, raw_image=_png_bytes()
+                )
+            record = await common_food_service.confirm_food_identity(
+                db, record, corrected
+            )
+
+        # The corrected identity is now what own-history suggests...
+        assert await meal_grounding.suggest_identity(user.id, corrected) == corrected
+        # ...and the stale AI label no longer recalls this record.
+        assert await meal_grounding.suggest_identity(user.id, ai_label) is None

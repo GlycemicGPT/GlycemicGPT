@@ -644,6 +644,107 @@ class TestCorrection:
 
 
 # --------------------------------------------------------------------------- #
+# Food-identity confirmation gate (Story 50.H2)
+# --------------------------------------------------------------------------- #
+class TestIdentityConfirmation:
+    async def test_fresh_estimate_is_unconfirmed(self, auth_client):
+        client, _ = auth_client
+        created = await _create_record(client)
+        # A fresh estimate is never auto-grounded: identity unconfirmed, no
+        # grounding source attached.
+        assert created["identity_confirmed"] is False
+        assert created["confirmed_food_name"] is None
+        assert created["grounding_source"] is None
+
+    async def test_confirm_identity_persists_and_opens_gate(self, auth_client):
+        client, _ = auth_client
+        created = await _create_record(client)
+        record_id = created["id"]
+        resp = await client.post(
+            f"/api/food-records/{record_id}/confirm-identity",
+            json={"confirmed_food_name": "bowl of pasta"},
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["identity_confirmed"] is True
+        assert body["confirmed_food_name"] == "bowl of pasta"
+        # Carbs are untouched by an identity confirmation (never a dose).
+        assert body["carbs_low"] == created["carbs_low"]
+        assert body["carbs_high"] == created["carbs_high"]
+
+    async def test_confirm_identity_rejects_blank(self, auth_client):
+        client, _ = auth_client
+        created = await _create_record(client)
+        record_id = created["id"]
+        for bad in ({"confirmed_food_name": "   "}, {"confirmed_food_name": ""}, {}):
+            resp = await client.post(
+                f"/api/food-records/{record_id}/confirm-identity", json=bad
+            )
+            assert resp.status_code == 422, bad
+
+    async def test_confirm_identity_rejects_extra_fields(self, auth_client):
+        # extra=forbid: a smuggled dose field is rejected at the boundary.
+        client, _ = auth_client
+        created = await _create_record(client)
+        record_id = created["id"]
+        resp = await client.post(
+            f"/api/food-records/{record_id}/confirm-identity",
+            json={"confirmed_food_name": "pasta", "insulin_units": 5},
+        )
+        assert resp.status_code == 422
+
+    async def test_cannot_confirm_other_users_record(self, auth_client):
+        client, _ = auth_client
+        created = await _create_record(client)
+        record_id = created["id"]
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as other:
+            cookie = await _register_login(other)
+            other.cookies.set(settings.jwt_cookie_name, cookie)
+            resp = await other.post(
+                f"/api/food-records/{record_id}/confirm-identity",
+                json={"confirmed_food_name": "pasta"},
+            )
+        assert resp.status_code == 404
+
+
+# --------------------------------------------------------------------------- #
+# Estimate auditability & provenance (Story 50.H3)
+# --------------------------------------------------------------------------- #
+class TestEstimateAudit:
+    async def test_audit_endpoint_returns_provenance(self, auth_client):
+        client, _ = auth_client
+        created = await _create_record(client)
+        record_id = created["id"]
+        # Confirm identity so the precedence reflects a grounding decision.
+        await client.post(
+            f"/api/food-records/{record_id}/confirm-identity",
+            json={"confirmed_food_name": "bowl of pasta"},
+        )
+        resp = await client.get(f"/api/food-records/{record_id}/audit")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["food_record_id"] == record_id
+        assert body["samples"]  # raw per-sample reads present
+        assert body["precedence"]["identity_confirmed"] is True
+        # Self-reported confidence is internal-only -- never in the response.
+        assert "self_reported_confidence" not in resp.text
+
+    async def test_audit_endpoint_is_owner_scoped(self, auth_client):
+        client, _ = auth_client
+        created = await _create_record(client)
+        record_id = created["id"]
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as other:
+            cookie = await _register_login(other)
+            other.cookies.set(settings.jwt_cookie_name, cookie)
+            resp = await other.get(f"/api/food-records/{record_id}/audit")
+        assert resp.status_code == 404
+
+
+# --------------------------------------------------------------------------- #
 # Common foods: promotion, dedupe, linking, management (AC2/AC3)
 # --------------------------------------------------------------------------- #
 class TestCommonFoods:

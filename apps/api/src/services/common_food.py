@@ -6,15 +6,20 @@ estimation pipeline:
   * ``correct_food_record`` applies a user's carb/nutrition correction to a
     record -- writing the ``corrected_*`` seams, flipping provenance to
     ``USER_CORRECTED``, and preserving the original AI estimate.
+  * ``confirm_food_identity`` confirms/corrects *what the food is* (Story 50.H2),
+    then -- and only then -- runs external grounding (USDA / Open Food Facts)
+    against the confirmed identity. This is the one function here that performs an
+    outbound nutrition lookup.
   * ``promote_to_common_food`` saves a record's (corrected, else AI) values as a
     user-named, deduped baseline and links the record to it.
   * ``link_record_to_common_food`` / ``update_common_food`` handle explicit
     linking and baseline edits.
 
-Safety posture (NON-NEGOTIABLE): a correction fixes a *description of the food*,
-never a dose. Nothing here returns or computes insulin, and neither corrected
-records nor common foods are ever read by IoB / treatment_safety / carb-ratio
-math. All work is scoped to the authenticated owner by the caller.
+Safety posture (NON-NEGOTIABLE): a correction or an identity confirmation fixes a
+*description of the food*, never a dose. Nothing here returns or computes insulin,
+and neither corrected records, confirmed identities, nor common foods are ever
+read by IoB / treatment_safety / carb-ratio math. All work is scoped to the
+authenticated owner by the caller.
 """
 
 from datetime import UTC, datetime
@@ -29,10 +34,16 @@ from src.models.common_food import CommonFood, normalize_common_food_name
 from src.models.food_record import FoodRecord, FoodRecordSource
 from src.schemas.common_food import CommonFoodUpdateRequest
 from src.schemas.food_record import FoodRecordCorrectionRequest
-from src.services import meal_rag
+from src.services import meal_audit, meal_grounding, meal_rag
 from src.vision.carb_contract import CarbBoundsError, validate_carb_range
 
 logger = get_logger(__name__)
+
+# Cap a user-supplied identity name before it's persisted / used as a grounding
+# query (it travels to USDA / OFF as a search term). Defence-in-depth for callers
+# that reach the service without the schema validation (e.g. the create/confirm
+# internal path); keep in sync with schemas.food_record._MAX_IDENTITY_NAME_CHARS.
+_MAX_IDENTITY_CHARS = 200
 
 
 class CommonFoodError(Exception):
@@ -41,6 +52,10 @@ class CommonFoodError(Exception):
 
 class CarbValidationError(CommonFoodError):
     """A user-supplied carb range fell outside the reject-not-clamp bounds."""
+
+
+class IdentityValidationError(CommonFoodError):
+    """A user-supplied food identity was empty/unusable."""
 
 
 class DuplicateCommonFoodError(CommonFoodError):
@@ -83,6 +98,82 @@ async def correct_food_record(
             await meal_rag.index_food_record(record)
         except Exception:
             logger.warning("RAG re-indexing failed for corrected record", exc_info=True)
+    return record
+
+
+async def confirm_food_identity(
+    db: AsyncSession,
+    record: FoodRecord,
+    confirmed_name: str,
+) -> FoodRecord:
+    """Confirm/correct *what the food is*, then ground against that identity.
+
+    Story 50.H2: the gate-opening action. The user-confirmed identity is
+    persisted (the AI-identified ``food_description`` is preserved, like the
+    original carb estimate), and only now -- on a user-owned identity -- is
+    external authoritative grounding (USDA / Open Food Facts today; restaurant via
+    50.E2) allowed to run, so a misidentified label is never silently certified
+    with a citation. Confirming
+    is distinct from carb correction and never implies a dose. Re-confirming with
+    a different name re-grounds against it.
+    """
+    name = (confirmed_name or "").strip()[:_MAX_IDENTITY_CHARS]
+    if not name:
+        raise IdentityValidationError("A food name is required to confirm identity.")
+
+    record.confirmed_food_name = name
+    record.identity_confirmed = True
+
+    # Identity is confirmed -> grounding may now run, keyed on the confirmed name.
+    # Best-effort: a failure leaves the estimate vision-only (grounding never
+    # alters the carb values or produces a dose). meal_grounding re-checks the
+    # gate as defence in depth.
+    grounding = None
+    if settings.meal_intelligence_enabled:
+        try:
+            grounding = await meal_grounding.ground_estimate(
+                record.user_id, name, identity_confirmed=True
+            )
+        except Exception:
+            logger.warning(
+                "Grounding after identity confirmation failed", exc_info=True
+            )
+    record.grounding_source = grounding.source if grounding else None
+    record.grounding_source_url = grounding.source_url if grounding else None
+    record.grounding_trust_tier = grounding.trust_tier if grounding else None
+
+    await db.commit()
+    await db.refresh(record)
+
+    # Re-index own-history RAG against the confirmed identity (best-effort), so a
+    # future photo of this food recalls/suggests the user's confirmed truth rather
+    # than the stale AI label -- mirrors the carb-correction re-index above and
+    # closes the one-tap-confirm loop (``suggest_identity`` reads this store).
+    if settings.meal_intelligence_enabled:
+        try:
+            await meal_rag.index_food_record(record)
+        except Exception:
+            logger.warning(
+                "RAG re-indexing failed after identity confirmation", exc_info=True
+            )
+
+        # Append the grounding decision to the audit trail (Story 50.H3): which
+        # source won (or vision-only) and the identity it was keyed on. Behind the
+        # same flag as the side-effects above; best-effort.
+        try:
+            await meal_audit.record_grounding_decision(
+                record.id,
+                record.user_id,
+                grounding=grounding,
+                identity=name,
+                identity_confirmed=True,
+            )
+        except Exception:
+            logger.warning("Grounding audit update failed", exc_info=True)
+
+    # Transient grounding detail for the response (the grounded range + citation +
+    # disclaimer); reads later carry only the flat grounding_* columns.
+    record.grounding = grounding
     return record
 
 

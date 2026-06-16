@@ -9,7 +9,8 @@
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   flattenVisionRequest,
@@ -79,31 +80,95 @@ function getToken(): string | null {
   return null;
 }
 
-/** Flatten messages into a single prompt string for the CLI */
-function messagesToPrompt(messages: ChatMessage[]): string {
-  const prompt = messages
-    .map((m) => {
-      if (m.role === "system") return `[System]: ${m.content}`;
-      if (m.role === "user") return m.content;
-      return `[Assistant]: ${m.content}`;
-    })
-    .join("\n\n");
+interface TempSystemPrompt {
+  /** Absolute path of the written system-prompt file. */
+  path: string;
+  /** Remove the temp file and its directory. Call once the subprocess has
+   *  finished reading it (in a finally, or after the spawned CLI settles). */
+  cleanup: () => void;
+}
 
-  if (prompt.length > MAX_PROMPT_LENGTH) {
-    throw new Error(
-      `Prompt too long (${prompt.length} chars, max ${MAX_PROMPT_LENGTH})`,
-    );
+/**
+ * Write the caller's system prompt to a fresh, private temp file so it can be
+ * handed to the CLI via `--system-prompt-file`. The prompt is the app's
+ * GlycemicGPT instructions; delivering it as a real system prompt (not inline
+ * `[System]:` text in the user turn) is what makes the model actually adopt the
+ * persona instead of answering as the default Claude Code agent.
+ */
+function writeSystemPromptFile(systemPrompt: string): TempSystemPrompt {
+  const dir = mkdtempSync(join(tmpdir(), "gg-sys-"));
+  chmodSync(dir, 0o700); // private to this process, not reliant on umask
+  const path = join(dir, "system-prompt.txt");
+  try {
+    writeFileSync(path, systemPrompt, { mode: 0o600 });
+  } catch (err) {
+    rmSync(dir, { recursive: true, force: true });
+    throw err;
   }
-  return prompt;
+  return { path, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+}
+
+/**
+ * CLI flag that installs an authoritative system prompt from a file, replacing
+ * the CLI's default prompt (which carries Claude Code's identity and dynamic
+ * cwd/env sections) so only the app's persona drives the session. Returns no
+ * flags when there is no system prompt, leaving the CLI default in place. The
+ * prompt is passed by file path, never as an argv value, so its contents can't
+ * be parsed as flags.
+ */
+function systemPromptArgs(systemPromptFile: string | null): string[] {
+  return systemPromptFile ? ["--system-prompt-file", systemPromptFile] : [];
+}
+
+/**
+ * Split chat messages into the authoritative system prompt (delivered via
+ * `--system-prompt-file`) and the conversation turns (sent on stdin). System
+ * content is deliberately NOT inlined into the conversation: inline `[System]:`
+ * text is treated by the model as quoted user content it can disown, which is
+ * how the GlycemicGPT persona leaked back to the default Claude Code identity.
+ */
+function splitSystemPrompt(messages: ChatMessage[]): {
+  systemPrompt: string;
+  conversation: string;
+} {
+  const systemParts: string[] = [];
+  const turnParts: string[] = [];
+  for (const m of messages) {
+    if (m.role === "system") {
+      systemParts.push(m.content);
+    } else if (m.role === "assistant") {
+      turnParts.push(`[Assistant]: ${m.content}`);
+    } else {
+      turnParts.push(m.content);
+    }
+  }
+  const systemPrompt = systemParts.join("\n\n").trim();
+  const conversation = turnParts.join("\n\n");
+  // Bound the combined payload as the old inline flattening did: the system
+  // prompt now travels by file rather than on the user turn, but it still
+  // counts against the model's input budget, so cap system + conversation.
+  const total = systemPrompt.length + conversation.length;
+  if (total > MAX_PROMPT_LENGTH) {
+    throw new Error(`Prompt too long (${total} chars, max ${MAX_PROMPT_LENGTH})`);
+  }
+  return { systemPrompt, conversation };
 }
 
 /**
  * Spawn the Claude CLI as a child process.
  * Prompt is passed via stdin (not as a CLI argument) to prevent injection.
  *
+ * @param systemPromptFile Path to the app system prompt, installed via
+ *   `--system-prompt-file` so the model adopts the GlycemicGPT persona; null
+ *   leaves the CLI default in place.
  * @param extraArgs Additional CLI flags (e.g. output format overrides).
  */
-function spawnClaude(prompt: string, model: string, extraArgs: string[] = []): ChildProcess {
+function spawnClaude(
+  prompt: string,
+  model: string,
+  systemPromptFile: string | null,
+  extraArgs: string[] = [],
+): ChildProcess {
   const token = getToken();
   const env: Record<string, string> = { ...process.env } as Record<
     string,
@@ -118,6 +183,7 @@ function spawnClaude(prompt: string, model: string, extraArgs: string[] = []): C
       "--no-session-persistence",
       "--model",
       model, // Already validated by resolveModel()
+      ...systemPromptArgs(systemPromptFile),
       ...extraArgs,
       "-", // Read prompt from stdin
     ],
@@ -184,16 +250,13 @@ function cleanupChild(child: ChildProcess, timer: ReturnType<typeof setTimeout>)
 }
 
 /**
- * Build the prompt for the CLI vision path. The model is told the meal photo(s)
- * are on disk and instructed to read them; the system + user text follow.
+ * Build the positional prompt for the CLI vision path. The model is told the
+ * meal photo(s) are on disk and instructed to read them; the user text follows.
+ * The system prompt (the carb contract) is delivered separately via
+ * `--system-prompt-file`, not inlined here.
  */
-function buildVisionPrompt(
-  systemText: string,
-  userText: string,
-  imagePaths: string[],
-): string {
+function buildVisionPrompt(userText: string, imagePaths: string[]): string {
   const lines: string[] = [];
-  if (systemText) lines.push(systemText);
   lines.push(
     imagePaths.length === 1
       ? `A meal photo has been provided as the file ${imagePaths[0]}. Read that image file and analyze the food shown in it.`
@@ -214,6 +277,7 @@ async function runClaudeVision(
   prompt: string,
   cliModel: string,
   imageDir: string,
+  systemPromptFile: string | null,
 ): Promise<ProviderResult> {
   const token = getToken();
   const env: Record<string, string> = { ...process.env } as Record<string, string>;
@@ -232,6 +296,10 @@ async function runClaudeVision(
       // Read-only: Read renders the image; Write/Edit/Bash are blocked.
       "--permission-mode",
       "plan",
+      // Install the carb-contract system prompt authoritatively (by file path,
+      // never as an argv value) so the model follows it rather than the default
+      // Claude Code agent prompt.
+      ...systemPromptArgs(systemPromptFile),
       // End-of-options: the prompt is positional and never parsed as a flag.
       "--",
       prompt,
@@ -265,14 +333,21 @@ export class ClaudeProvider implements AIProvider, VisionRunner {
       throw new InvalidImageError("no image provided for a vision request");
     }
     const temp = writeImagesToTempDir(images);
+    // Allocate the system-prompt temp file inside the try: if it throws (e.g. a
+    // transient FS error), the finally still runs temp.cleanup() so the decoded
+    // meal-photo bytes never leak under /tmp. (writeImagesToTempDir self-cleans
+    // on its own throw, before temp is bound.)
+    let sys: TempSystemPrompt | null = null;
     try {
-      const prompt = buildVisionPrompt(systemText, userText, temp.paths);
+      sys = systemText ? writeSystemPromptFile(systemText) : null;
+      const prompt = buildVisionPrompt(userText, temp.paths);
       if (prompt.length > MAX_PROMPT_LENGTH) {
         throw new Error(`Prompt too long (${prompt.length} chars, max ${MAX_PROMPT_LENGTH})`);
       }
-      return await runClaudeVision(prompt, resolveModel(options.model), temp.dir);
+      return await runClaudeVision(prompt, resolveModel(options.model), temp.dir, sys?.path ?? null);
     } finally {
       temp.cleanup();
+      sys?.cleanup();
     }
   }
 
@@ -291,11 +366,12 @@ export class ClaudeProvider implements AIProvider, VisionRunner {
     messages: ChatMessage[],
     model?: string,
   ): Promise<ProviderResult> {
-    const prompt = messagesToPrompt(messages);
+    const { systemPrompt, conversation } = splitSystemPrompt(messages);
     const cliModel = resolveModel(model);
+    const sys = systemPrompt ? writeSystemPromptFile(systemPrompt) : null;
 
-    return new Promise((resolve, reject) => {
-      const child = spawnClaude(prompt, cliModel, [
+    return new Promise<ProviderResult>((resolve, reject) => {
+      const child = spawnClaude(conversation, cliModel, sys?.path ?? null, [
         "--output-format", "json",
       ]);
       let stdout = "";
@@ -348,6 +424,11 @@ export class ClaudeProvider implements AIProvider, VisionRunner {
           resolve({ content: stdout.trim(), model: `claude-${cliModel}` });
         }
       });
+    }).finally(() => {
+      // Cleanup runs after the Promise settles: the spawned CLI reads the
+      // system-prompt file asynchronously, so removing it earlier would race the
+      // subprocess. (completeVision uses a synchronous try/finally instead.)
+      sys?.cleanup();
     });
   }
 
@@ -356,11 +437,12 @@ export class ClaudeProvider implements AIProvider, VisionRunner {
     model?: string,
     onChunk?: (text: string) => void,
   ): Promise<ProviderResult> {
-    const prompt = messagesToPrompt(messages);
+    const { systemPrompt, conversation } = splitSystemPrompt(messages);
     const cliModel = resolveModel(model);
+    const sys = systemPrompt ? writeSystemPromptFile(systemPrompt) : null;
 
-    return new Promise((resolve, reject) => {
-      const child = spawnClaude(prompt, cliModel, [
+    return new Promise<ProviderResult>((resolve, reject) => {
+      const child = spawnClaude(conversation, cliModel, sys?.path ?? null, [
         "--output-format", "stream-json",
         "--verbose",
         "--include-partial-messages",
@@ -426,6 +508,11 @@ export class ClaudeProvider implements AIProvider, VisionRunner {
 
         resolve({ content, model: `claude-${cliModel}` });
       });
+    }).finally(() => {
+      // Cleanup runs after the Promise settles: the spawned CLI reads the
+      // system-prompt file asynchronously, so removing it earlier would race the
+      // subprocess. (completeVision uses a synchronous try/finally instead.)
+      sys?.cleanup();
     });
   }
 }

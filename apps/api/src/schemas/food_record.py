@@ -8,11 +8,15 @@ dose/insulin field. Nothing here computes or returns dosing guidance.
 import json
 import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
 from src.models.food_record import FoodRecordSource
 from src.vision.carb_contract import CARB_GRAMS_MAX, CARB_GRAMS_MIN
+
+if TYPE_CHECKING:
+    from src.models.food_record_audit import FoodRecordAudit
 
 
 class GroundingDetail(BaseModel):
@@ -57,12 +61,49 @@ class GroundingDetail(BaseModel):
         return self
 
 
+class EstimateDispersion(BaseModel):
+    """Multi-sample dispersion detail returned with a fresh estimate (Story 50.H1).
+
+    The same photo is sampled N times; ``confidence`` is derived from how much
+    those samples disagree (their coefficient of variation), NOT from the model's
+    self-reported confidence -- which research shows is uncorrelated with accuracy
+    and is therefore never surfaced as a safety signal. ``carbs_low`` / ``carbs_high``
+    on the record are the empirical band (the observed spread across samples).
+
+    This is computed at estimate time (the create path) and is transient: it is
+    not persisted by H1 (50.H3 adds durable audit retention), so reads of an
+    existing record do not carry it.
+
+    Safety: ``wide_spread`` and ``note`` exist to communicate uncertainty
+    viscerally, never to bless a number. Low dispersion is NOT "safe to dose" --
+    consistency is not correctness -- so callers keep the verify-before-dosing
+    qualifier dominant regardless of this value.
+    """
+
+    # Empirical, dispersion-derived band (constrained so a typo'd band can't pass
+    # this system boundary).
+    confidence: Literal["low", "medium", "high"]
+    coefficient_of_variation: float | None = None
+    # The configured target sample count (settings.meal_estimate_sample_count),
+    # not necessarily the number of network calls made; ``samples_used`` is how
+    # many produced a usable, in-bounds estimate.
+    samples_requested: int
+    samples_used: int
+    identity_agreement: bool
+    distinct_identities: list[str] = Field(default_factory=list)
+    wide_spread: bool = False
+    note: str | None = None
+
+
 class FoodRecordResponse(BaseModel):
     """A persisted food record returned to the client.
 
     ``carbs_low`` / ``carbs_high`` are the original AI estimate. When the record
     has been corrected, ``corrected_carbs_*`` carry the user's values and
     ``source`` is ``user_corrected``; the original estimate is kept.
+
+    ``confidence`` is the **empirical** dispersion-derived band (Story 50.H1), not
+    the model's self-reported confidence (which is no longer surfaced).
     """
 
     model_config = {"from_attributes": True}
@@ -87,6 +128,14 @@ class FoodRecordResponse(BaseModel):
     common_food_id: uuid.UUID | None = None
     ai_model: str | None = None
     ai_provider: str | None = None
+    # Food-identity confirmation (Story 50.H2). ``food_description`` is the
+    # AI-identified name; ``confirmed_food_name`` is the user's confirmed/corrected
+    # identity (null until confirmed); external grounding only runs once
+    # ``identity_confirmed`` is true. ``suggested_identity`` is a transient
+    # create-time own-history pre-fill ("looks like your saved X"); absent later.
+    confirmed_food_name: str | None = None
+    identity_confirmed: bool = False
+    suggested_identity: str | None = None
     # Grounding provenance (Story 50.E1). The flat fields are persisted on the
     # record and present on every read; ``grounding`` is the richer create-time
     # detail (grounded range + note + disclaimer) and is absent on later reads.
@@ -94,6 +143,9 @@ class FoodRecordResponse(BaseModel):
     grounding_source_url: str | None = None
     grounding_trust_tier: str | None = None
     grounding: GroundingDetail | None = None
+    # Multi-sample dispersion (Story 50.H1). Transient create-time detail
+    # (empirical confidence + observed spread); absent on later reads.
+    estimate_dispersion: EstimateDispersion | None = None
     created_at: datetime
 
     @model_validator(mode="after")
@@ -117,6 +169,82 @@ class FoodRecordListResponse(BaseModel):
 
     records: list[FoodRecordResponse]
     total: int
+
+
+class AuditSample(BaseModel):
+    """One raw vision sample, as surfaced in the audit trail (Story 50.H3).
+
+    Deliberately omits the model's self-reported confidence: that is retained in
+    storage for internal eval/triage only and is never surfaced as a user-facing
+    signal (the whole point of 50.H1).
+    """
+
+    carbs_low: float | None = None
+    carbs_high: float | None = None
+    identity: str | None = None
+    parse_ok: bool = False
+
+
+class AuditDispersion(BaseModel):
+    """The empirical dispersion summary surfaced in the audit trail (50.H3).
+
+    A typed allow-list (like ``AuditSample``) so the no-leak guarantee for the
+    discredited self-reported confidence is enforced structurally, not by
+    convention -- a future field added to the stored blob can't slip through.
+    """
+
+    confidence: str | None = None
+    coefficient_of_variation: float | None = None
+    samples_requested: int | None = None
+    samples_used: int | None = None
+    identity_agreement: bool | None = None
+    distinct_identities: list[str] = Field(default_factory=list)
+    wide_spread: bool | None = None
+
+
+class FoodRecordAuditResponse(BaseModel):
+    """The "how was this estimated" provenance trail for a food record (50.H3).
+
+    Descriptive only -- raw per-sample reads, the empirical dispersion summary,
+    and the precedence decision. No dose, and nothing here feeds dosing math.
+    """
+
+    food_record_id: uuid.UUID
+    samples: list[AuditSample] = Field(default_factory=list)
+    dispersion: AuditDispersion | None = None
+    # The precedence decision is intentionally schema-loose (a raw dict): its
+    # shape is still settling pre-50.E2. It is built entirely by our own code
+    # (services.meal_audit) and never contains per-sample/self-reported data.
+    precedence: dict | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_audit(cls, audit: "FoodRecordAudit") -> "FoodRecordAuditResponse":
+        """Build from a ``FoodRecordAudit`` row, stripping internal-only fields."""
+        samples = [
+            AuditSample(
+                carbs_low=s.get("carbs_low"),
+                carbs_high=s.get("carbs_high"),
+                identity=s.get("identity"),
+                parse_ok=bool(s.get("parse_ok")),
+            )
+            for s in (audit.samples_json or [])
+            if isinstance(s, dict)
+        ]
+        dispersion = (
+            AuditDispersion.model_validate(audit.dispersion_json)
+            if isinstance(audit.dispersion_json, dict)
+            else None
+        )
+        return cls(
+            food_record_id=audit.food_record_id,
+            samples=samples,
+            dispersion=dispersion,
+            precedence=audit.precedence_json,
+            created_at=audit.created_at,
+            updated_at=audit.updated_at,
+        )
 
 
 # Cap user-supplied nutrition so a correction can't store an unbounded JSON blob.
@@ -166,4 +294,31 @@ class FoodRecordCorrectionRequest(BaseModel):
             msg = "corrected_carbs_low must not exceed corrected_carbs_high"
             raise ValueError(msg)
         validate_nutrition(self.corrected_nutrition)
+        return self
+
+
+# Cap a user-supplied identity at the schema boundary (the service caps again as
+# defence-in-depth; keep in sync with common_food._MAX_IDENTITY_CHARS).
+_MAX_IDENTITY_NAME_CHARS = 200
+
+
+class FoodRecordIdentityRequest(BaseModel):
+    """A user confirmation/correction of *what the food is* (Story 50.H2).
+
+    Confirming identity is distinct from correcting carbs and never implies a
+    dose. The confirmed name opens the grounding gate: external authoritative
+    nutrition (USDA / Open Food Facts today; restaurant facts via 50.E2) is only
+    looked up once an identity has been confirmed, so a misidentified label is
+    never certified with a citation.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    confirmed_food_name: str = Field(min_length=1, max_length=_MAX_IDENTITY_NAME_CHARS)
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> "FoodRecordIdentityRequest":
+        if not self.confirmed_food_name.strip():
+            msg = "confirmed_food_name must not be blank"
+            raise ValueError(msg)
         return self

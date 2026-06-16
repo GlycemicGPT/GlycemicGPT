@@ -160,6 +160,11 @@ fun MealLogScreen(
                     onCancelCorrection = viewModel::cancelCorrection,
                     onSubmitCorrection = viewModel::submitCorrection,
                     onSaveAsCommonFood = viewModel::saveAsCommonFood,
+                    onStartIdentityEdit = viewModel::startIdentityEdit,
+                    onCancelIdentityEdit = viewModel::cancelIdentityEdit,
+                    onConfirmIdentity = viewModel::confirmIdentity,
+                    onLoadAudit = viewModel::loadAudit,
+                    onHideAudit = viewModel::hideAudit,
                     onReset = viewModel::reset,
                     onClearError = viewModel::clearError,
                 )
@@ -180,6 +185,11 @@ private fun ReadyContent(
     onCancelCorrection: () -> Unit,
     onSubmitCorrection: (String, String) -> Unit,
     onSaveAsCommonFood: (String) -> Unit,
+    onStartIdentityEdit: () -> Unit,
+    onCancelIdentityEdit: () -> Unit,
+    onConfirmIdentity: (String) -> Unit,
+    onLoadAudit: () -> Unit,
+    onHideAudit: () -> Unit,
     onReset: () -> Unit,
     onClearError: () -> Unit,
 ) {
@@ -215,6 +225,11 @@ private fun ReadyContent(
                     onCancelCorrection = onCancelCorrection,
                     onSubmitCorrection = onSubmitCorrection,
                     onSaveAsCommonFood = onSaveAsCommonFood,
+                    onStartIdentityEdit = onStartIdentityEdit,
+                    onCancelIdentityEdit = onCancelIdentityEdit,
+                    onConfirmIdentity = onConfirmIdentity,
+                    onLoadAudit = onLoadAudit,
+                    onHideAudit = onHideAudit,
                     onReset = onReset,
                 )
 
@@ -331,6 +346,11 @@ private fun ResultContent(
     onCancelCorrection: () -> Unit,
     onSubmitCorrection: (String, String) -> Unit,
     onSaveAsCommonFood: (String) -> Unit,
+    onStartIdentityEdit: () -> Unit,
+    onCancelIdentityEdit: () -> Unit,
+    onConfirmIdentity: (String) -> Unit,
+    onLoadAudit: () -> Unit,
+    onHideAudit: () -> Unit,
     onReset: () -> Unit,
 ) {
     var showSaveDialog by remember { mutableStateOf(false) }
@@ -349,18 +369,23 @@ private fun ResultContent(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            if (!record.foodDescription.isNullOrBlank()) {
-                Text(
-                    text = record.foodDescription,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-            }
+            // Food identity is a first-class, confirmable thing (Story 50.H2) --
+            // distinct from carb correction. Grounding only applies once it's
+            // confirmed, so a confident misidentification isn't certified.
+            MealIdentitySection(
+                record = record,
+                uiState = uiState,
+                onStartEdit = onStartIdentityEdit,
+                onCancelEdit = onCancelIdentityEdit,
+                onConfirm = onConfirmIdentity,
+            )
             CarbEstimateContent(
                 range = record.displayRange,
                 confidence = record.confidence,
                 isCorrected = record.isCorrected,
                 originalRange = record.estimate,
+                // Only the fresh-estimate surface carries dispersion (transient on create).
+                dispersion = record.dispersion,
             )
             Text(
                 text = formatMealTimestamp(record.mealTimestamp),
@@ -405,6 +430,13 @@ private fun ResultContent(
             modifier = Modifier.testTag("meal_saved_common_confirmation"),
         )
     }
+
+    // "How was this estimated" provenance (Story 50.H3) -- on demand, descriptive.
+    MealAuditSection(
+        uiState = uiState,
+        onLoad = onLoadAudit,
+        onHide = onHideAudit,
+    )
 
     TextButton(
         onClick = onReset,
@@ -498,6 +530,238 @@ private fun CorrectionEditor(
                         .testTag("meal_correct_save"),
                 ) { Text(if (isSaving) "Saving…" else "Save") }
             }
+        }
+    }
+}
+
+/**
+ * Food-identity confirmation (Story 50.H2). The AI's guess is shown as a
+ * confirmable thing -- distinct from carb correction. Confirming opens the
+ * grounding gate server-side; an own-history match pre-fills a one-tap confirm,
+ * and a sample-level identity disagreement is surfaced as the reason to confirm.
+ */
+@Composable
+internal fun MealIdentitySection(
+    record: FoodRecord,
+    uiState: MealLogUiState,
+    onStartEdit: () -> Unit,
+    onCancelEdit: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    if (uiState.isEditingIdentity) {
+        IdentityEditor(
+            initial = record.displayIdentity.orEmpty(),
+            isSaving = uiState.isSavingIdentity,
+            error = uiState.identityError,
+            onConfirm = onConfirm,
+            onCancel = onCancelEdit,
+        )
+        return
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            text = record.displayIdentity ?: "Unidentified food",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.testTag("meal_identity"),
+        )
+        if (record.identityConfirmed) {
+            Text(
+                text = "✓ You confirmed this food.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.testTag("meal_identity_confirmed"),
+            )
+            TextButton(
+                onClick = onStartEdit,
+                modifier = Modifier.testTag("meal_identity_edit"),
+            ) { Text("Change what this is") }
+        } else {
+            val disagreed = record.dispersion?.identityAgreement == false
+            Text(
+                text = when {
+                    disagreed ->
+                        "The AI wasn't sure what this is. Confirm it so we can look " +
+                            "up its nutrition."
+                    record.suggestedIdentity != null ->
+                        "Looks like your saved \"${record.suggestedIdentity}\" -- confirm?"
+                    else ->
+                        "Confirm what this food is so we can ground it against real " +
+                            "nutrition data."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = if (disagreed) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                modifier = Modifier.testTag(
+                    if (disagreed) "meal_identity_disagreement_cue" else "meal_identity_prompt",
+                ),
+            )
+            // One normalized candidate drives both the submitted value and the
+            // enable check, so a valid suggestion can't leave Confirm disabled.
+            val candidateIdentity = (record.suggestedIdentity ?: record.displayIdentity)
+                .orEmpty()
+                .trim()
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(
+                    onClick = { onConfirm(candidateIdentity) },
+                    enabled = !uiState.isSavingIdentity && candidateIdentity.isNotBlank(),
+                    modifier = Modifier.testTag("meal_identity_confirm"),
+                ) { Text(if (uiState.isSavingIdentity) "Confirming…" else "Confirm") }
+                OutlinedButton(
+                    onClick = onStartEdit,
+                    enabled = !uiState.isSavingIdentity,
+                    modifier = Modifier.testTag("meal_identity_correct"),
+                ) { Text("Correct") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun IdentityEditor(
+    initial: String,
+    isSaving: Boolean,
+    error: String?,
+    onConfirm: (String) -> Unit,
+    onCancel: () -> Unit,
+) {
+    var text by remember(initial) { mutableStateOf(initial) }
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("meal_identity_editor"),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = "What is this food?",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                label = { Text("Food name") },
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("meal_identity_input"),
+            )
+            if (error != null) {
+                Text(
+                    text = error,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            val normalized = text.trim()
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(
+                    onClick = onCancel,
+                    enabled = !isSaving,
+                    modifier = Modifier.weight(1f),
+                ) { Text("Cancel") }
+                Button(
+                    onClick = { onConfirm(normalized) },
+                    enabled = !isSaving && normalized.isNotBlank(),
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("meal_identity_save"),
+                ) { Text(if (isSaving) "Saving…" else "Confirm") }
+            }
+        }
+    }
+}
+
+/**
+ * "How was this estimated" provenance (Story 50.H3). Loaded on demand: the raw
+ * per-sample reads, how many reads there were, and which source (if any) grounded
+ * it. Descriptive only -- no dose, and no self-reported confidence.
+ */
+@Composable
+internal fun MealAuditSection(
+    uiState: MealLogUiState,
+    onLoad: () -> Unit,
+    onHide: () -> Unit,
+) {
+    val audit = uiState.audit
+    if (audit == null) {
+        TextButton(
+            onClick = onLoad,
+            enabled = !uiState.isLoadingAudit,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("meal_audit_button"),
+        ) { Text(if (uiState.isLoadingAudit) "Loading…" else "How was this estimated?") }
+        uiState.auditError?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.testTag("meal_audit_error"),
+            )
+        }
+        return
+    }
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("meal_audit_detail"),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                text = "How this estimate was reached",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = audit.samplesUsed?.let {
+                    "Read the photo $it time(s); the range reflects how much those " +
+                        "reads disagreed."
+                } ?: "Estimated from multiple reads of the photo.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            audit.samples.forEach { sample ->
+                val carbs = sample.carbs?.let {
+                    "${formatEditableGrams(it.lowGrams)}–${formatEditableGrams(it.highGrams)} g"
+                } ?: "—"
+                Text(
+                    text = "• ${sample.identity ?: "unnamed"}: $carbs",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Text(
+                text = if (audit.grounded) {
+                    "Grounded against ${audit.groundingSource ?: "a source"}" +
+                        (audit.identityUsed?.let { " (as \"$it\")" } ?: "") + "."
+                } else {
+                    "Vision-only -- not grounded against an external source."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.testTag("meal_audit_precedence"),
+            )
+            TextButton(
+                onClick = onHide,
+                modifier = Modifier.testTag("meal_audit_hide"),
+            ) { Text("Hide") }
         }
     }
 }

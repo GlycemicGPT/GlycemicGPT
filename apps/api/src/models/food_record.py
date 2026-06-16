@@ -17,6 +17,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     Enum,
@@ -154,6 +155,22 @@ class FoodRecord(Base):
         ForeignKey("common_foods.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
+    )
+
+    # --- Food-identity confirmation (Story 50.H2) ---
+    # The AI-identified name lives in ``food_description`` (preserved, like the
+    # original carb estimate). These record the user's confirmation/correction of
+    # *what the food is*, kept separate from the carb correction (50.C1). External
+    # authoritative grounding (USDA / Open Food Facts today; restaurant via 50.E2)
+    # is applied ONLY when ``identity_confirmed`` is True, so a misidentified label
+    # is never certified with an authoritative citation. Never read by
+    # IoB / treatment_safety.
+    confirmed_food_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    identity_confirmed: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default="false",
+        nullable=False,
     )
 
     # --- Grounding attribution (Story 50.E1) ---

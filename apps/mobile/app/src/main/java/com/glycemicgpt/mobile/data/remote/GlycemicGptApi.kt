@@ -23,7 +23,9 @@ import com.glycemicgpt.mobile.data.remote.dto.RefreshTokenRequest
 import com.glycemicgpt.mobile.data.remote.dto.CommonFoodListResponse
 import com.glycemicgpt.mobile.data.remote.dto.CommonFoodResponse
 import com.glycemicgpt.mobile.data.remote.dto.CommonFoodUpdateRequest
+import com.glycemicgpt.mobile.data.remote.dto.FoodRecordAuditResponse
 import com.glycemicgpt.mobile.data.remote.dto.FoodRecordCorrectionRequest
+import com.glycemicgpt.mobile.data.remote.dto.FoodRecordIdentityRequest
 import com.glycemicgpt.mobile.data.remote.dto.FoodRecordListResponse
 import com.glycemicgpt.mobile.data.remote.dto.FoodRecordResponse
 import com.glycemicgpt.mobile.data.remote.dto.SaveAsCommonFoodRequest
@@ -134,6 +136,21 @@ interface GlycemicGptApi {
         @Path("recordId") recordId: String,
         @Body request: FoodRecordCorrectionRequest,
     ): Response<FoodRecordResponse>
+
+    // Food-identity confirmation (Story 50.H2): confirming/correcting *what the
+    // food is* opens the grounding gate. Distinct from carb correction.
+    @POST("/api/food-records/{recordId}/confirm-identity")
+    suspend fun confirmFoodIdentity(
+        @Path("recordId") recordId: String,
+        @Body request: FoodRecordIdentityRequest,
+    ): Response<FoodRecordResponse>
+
+    // "How was this estimated" provenance trail (Story 50.H3). 404 until an
+    // audit exists for the record.
+    @GET("/api/food-records/{recordId}/audit")
+    suspend fun getFoodRecordAudit(
+        @Path("recordId") recordId: String,
+    ): Response<FoodRecordAuditResponse>
 
     @POST("/api/food-records/{recordId}/save-as-common-food")
     suspend fun saveRecordAsCommonFood(
