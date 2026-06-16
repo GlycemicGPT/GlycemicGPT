@@ -29,6 +29,14 @@ data class FoodRecordResponse(
     @Json(name = "corrected_carbs_high") val correctedCarbsHigh: Double? = null,
     @Json(name = "corrected_at") val correctedAt: String? = null,
     @Json(name = "common_food_id") val commonFoodId: String? = null,
+    // Food-identity confirmation (Story 50.H2). food_description is the
+    // AI-identified name; confirmed_food_name is the user's confirmed/corrected
+    // identity (null until confirmed); external grounding only runs once
+    // identity_confirmed is true. suggested_identity is a transient own-history
+    // pre-fill ("looks like your saved X"), present on a fresh estimate only.
+    @Json(name = "confirmed_food_name") val confirmedFoodName: String? = null,
+    @Json(name = "identity_confirmed") val identityConfirmed: Boolean = false,
+    @Json(name = "suggested_identity") val suggestedIdentity: String? = null,
     // Multi-sample dispersion detail (Story 50.H1). Present only on a fresh
     // estimate (create response); absent on later reads.
     @Json(name = "estimate_dispersion") val estimateDispersion: EstimateDispersionResponse? = null,
@@ -57,6 +65,48 @@ data class FoodRecordListResponse(
 data class FoodRecordCorrectionRequest(
     @Json(name = "corrected_carbs_low") val correctedCarbsLow: Double,
     @Json(name = "corrected_carbs_high") val correctedCarbsHigh: Double,
+)
+
+@JsonClass(generateAdapter = true)
+data class FoodRecordIdentityRequest(
+    @Json(name = "confirmed_food_name") val confirmedFoodName: String,
+)
+
+/**
+ * The "how was this estimated" provenance trail (Story 50.H3). Descriptive only.
+ * The model's self-reported confidence is intentionally NOT part of this contract
+ * (the server strips it). Only consumed fields are declared.
+ */
+@JsonClass(generateAdapter = true)
+data class FoodRecordAuditResponse(
+    @Json(name = "food_record_id") val foodRecordId: String,
+    val samples: List<AuditSampleResponse> = emptyList(),
+    val dispersion: AuditDispersionResponse? = null,
+    val precedence: AuditPrecedenceResponse? = null,
+    @Json(name = "created_at") val createdAt: String? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class AuditSampleResponse(
+    @Json(name = "carbs_low") val carbsLow: Double? = null,
+    @Json(name = "carbs_high") val carbsHigh: Double? = null,
+    val identity: String? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class AuditDispersionResponse(
+    val confidence: String? = null,
+    @Json(name = "samples_used") val samplesUsed: Int? = null,
+    @Json(name = "wide_spread") val wideSpread: Boolean? = null,
+    @Json(name = "identity_agreement") val identityAgreement: Boolean? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class AuditPrecedenceResponse(
+    val outcome: String? = null,
+    @Json(name = "chosen_source") val chosenSource: String? = null,
+    @Json(name = "identity_used") val identityUsed: String? = null,
+    @Json(name = "identity_confirmed") val identityConfirmed: Boolean? = null,
 )
 
 @JsonClass(generateAdapter = true)

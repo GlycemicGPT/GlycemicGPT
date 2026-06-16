@@ -8,6 +8,7 @@ import com.glycemicgpt.mobile.data.meal.CarbBounds
 import com.glycemicgpt.mobile.data.meal.CarbInputResult
 import com.glycemicgpt.mobile.data.meal.FoodRecord
 import com.glycemicgpt.mobile.data.meal.ImageCompressor
+import com.glycemicgpt.mobile.data.meal.MealAudit
 import com.glycemicgpt.mobile.data.meal.MealException
 import com.glycemicgpt.mobile.data.meal.MealPhotoFiles
 import com.glycemicgpt.mobile.data.repository.MealRepository
@@ -62,6 +63,14 @@ data class MealLogUiState(
     val correctionError: String? = null,
     val isSavingCommonFood: Boolean = false,
     val savedCommonFoodName: String? = null,
+    // Food-identity confirmation (Story 50.H2).
+    val isEditingIdentity: Boolean = false,
+    val isSavingIdentity: Boolean = false,
+    val identityError: String? = null,
+    // "How was this estimated" audit detail (Story 50.H3); loaded on demand.
+    val audit: MealAudit? = null,
+    val isLoadingAudit: Boolean = false,
+    val auditError: String? = null,
 )
 
 @HiltViewModel
@@ -230,6 +239,64 @@ class MealLogViewModel @Inject constructor(
         }
     }
 
+    // --- Food-identity confirmation (Story 50.H2) ---
+
+    fun startIdentityEdit() {
+        _uiState.update { it.copy(isEditingIdentity = true, identityError = null) }
+    }
+
+    fun cancelIdentityEdit() {
+        _uiState.update { it.copy(isEditingIdentity = false, identityError = null) }
+    }
+
+    /** Confirm (or correct) what the food is. Opens the grounding gate server-side. */
+    fun confirmIdentity(name: String) {
+        val record = _uiState.value.record ?: return
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) {
+            _uiState.update { it.copy(identityError = "Tell us what this food is.") }
+            return
+        }
+        _uiState.update { it.copy(isSavingIdentity = true, identityError = null) }
+        viewModelScope.launch {
+            repository.confirmIdentity(record.id, trimmed)
+                .onSuccess { updated ->
+                    // The grounding/precedence changed, so any loaded audit is stale.
+                    _uiState.update {
+                        it.copy(
+                            isSavingIdentity = false,
+                            isEditingIdentity = false,
+                            record = updated,
+                            audit = null,
+                        )
+                    }
+                }
+                .onFailure { e ->
+                    _uiState.update {
+                        it.copy(isSavingIdentity = false, identityError = messageFor(e))
+                    }
+                }
+        }
+    }
+
+    // --- "How was this estimated" audit (Story 50.H3) ---
+
+    fun loadAudit() {
+        val record = _uiState.value.record ?: return
+        _uiState.update { it.copy(isLoadingAudit = true, auditError = null) }
+        viewModelScope.launch {
+            repository.getAudit(record.id)
+                .onSuccess { a -> _uiState.update { it.copy(isLoadingAudit = false, audit = a) } }
+                .onFailure { e ->
+                    _uiState.update { it.copy(isLoadingAudit = false, auditError = messageFor(e)) }
+                }
+        }
+    }
+
+    fun hideAudit() {
+        _uiState.update { it.copy(audit = null, auditError = null) }
+    }
+
     /** Return to the idle capture state to log another meal. */
     fun reset() {
         // No capture is in flight here, so sweep the kept result thumbnail + any orphaned originals.
@@ -246,6 +313,12 @@ class MealLogViewModel @Inject constructor(
                 correctionError = null,
                 isSavingCommonFood = false,
                 savedCommonFoodName = null,
+                isEditingIdentity = false,
+                isSavingIdentity = false,
+                identityError = null,
+                audit = null,
+                isLoadingAudit = false,
+                auditError = null,
             )
         }
     }
