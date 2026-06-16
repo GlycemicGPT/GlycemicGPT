@@ -34,7 +34,7 @@ from src.models.common_food import CommonFood, normalize_common_food_name
 from src.models.food_record import FoodRecord, FoodRecordSource
 from src.schemas.common_food import CommonFoodUpdateRequest
 from src.schemas.food_record import FoodRecordCorrectionRequest
-from src.services import meal_grounding, meal_rag
+from src.services import meal_audit, meal_grounding, meal_rag
 from src.vision.carb_contract import CarbBoundsError, validate_carb_range
 
 logger = get_logger(__name__)
@@ -156,6 +156,19 @@ async def confirm_food_identity(
             logger.warning(
                 "RAG re-indexing failed after identity confirmation", exc_info=True
             )
+
+    # Append the grounding decision to the audit trail (Story 50.H3): which source
+    # won (or vision-only) and the identity it was keyed on. Best-effort.
+    try:
+        await meal_audit.record_grounding_decision(
+            record.id,
+            record.user_id,
+            grounding=grounding,
+            identity=name,
+            identity_confirmed=True,
+        )
+    except Exception:
+        logger.warning("Grounding audit update failed", exc_info=True)
 
     # Transient grounding detail for the response (the grounded range + citation +
     # disclaimer); reads later carry only the flat grounding_* columns.

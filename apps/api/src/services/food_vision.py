@@ -37,7 +37,13 @@ from src.models.ai_provider import AIProviderConfig
 from src.models.food_record import FoodRecord, FoodRecordSource
 from src.models.user import User
 from src.schemas.food_record import EstimateDispersion
-from src.services import food_image, meal_estimate_aggregate, meal_grounding, meal_rag
+from src.services import (
+    food_image,
+    meal_audit,
+    meal_estimate_aggregate,
+    meal_grounding,
+    meal_rag,
+)
 from src.services.ai_client import DEFAULT_MODELS
 from src.vision.carb_contract import (
     SYSTEM_PROMPT,
@@ -342,6 +348,14 @@ async def create_food_record_from_image(
             await meal_rag.index_food_record(record)
         except Exception:
             logger.warning("RAG indexing failed for food record", exc_info=True)
+
+    # Persist the audit/provenance trail (Story 50.H3): the raw per-sample outputs
+    # + dispersion + the (vision-only) precedence. Best-effort -- auditability must
+    # never break the upload; the grounding decision is appended at confirm time.
+    try:
+        await meal_audit.record_estimate_audit(record.id, user.id, aggregate)
+    except Exception:
+        logger.warning("Estimate audit write failed", exc_info=True)
 
     # No grounding at create time (identity unconfirmed) -- grounding actually
     # happens later in ``common_food.confirm_food_identity`` once the user confirms

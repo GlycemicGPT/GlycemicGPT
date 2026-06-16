@@ -32,13 +32,14 @@ from src.schemas.common_food import (
     SaveAsCommonFoodRequest,
 )
 from src.schemas.food_record import (
+    FoodRecordAuditResponse,
     FoodRecordCorrectionRequest,
     FoodRecordIdentityRequest,
     FoodRecordListResponse,
     FoodRecordResponse,
 )
 from src.services import common_food as common_food_service
-from src.services import food_image, food_vision
+from src.services import food_image, food_vision, meal_audit
 
 logger = get_logger(__name__)
 
@@ -194,6 +195,37 @@ async def get_food_record(
     require_meal_intelligence()
     record = await _get_owned_record(record_id, current_user.id, db)
     return FoodRecordResponse.model_validate(record)
+
+
+@router.get(
+    "/{record_id}/audit",
+    response_model=FoodRecordAuditResponse,
+    responses={
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        404: {"model": ErrorResponse, "description": "Audit trail not found"},
+    },
+)
+async def get_food_record_audit(
+    record_id: uuid.UUID,
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> FoodRecordAuditResponse:
+    """Get the "how was this estimated" provenance trail for a record (50.H3).
+
+    Owner-scoped (IDOR-safe): the record must belong to the caller, and the audit
+    fetch is itself scoped by user id. Descriptive only -- raw per-sample reads,
+    the empirical dispersion, and the precedence decision; never a dose.
+    """
+    require_meal_intelligence()
+    # 404 if the record isn't the caller's (ownership check) ...
+    await _get_owned_record(record_id, current_user.id, db)
+    # ... and the audit fetch is independently owner-scoped.
+    audit = await meal_audit.get_audit(db, record_id, current_user.id)
+    if audit is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Audit trail not found"
+        )
+    return FoodRecordAuditResponse.from_audit(audit)
 
 
 @router.delete(

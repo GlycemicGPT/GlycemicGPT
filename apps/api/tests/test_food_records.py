@@ -710,6 +710,41 @@ class TestIdentityConfirmation:
 
 
 # --------------------------------------------------------------------------- #
+# Estimate auditability & provenance (Story 50.H3)
+# --------------------------------------------------------------------------- #
+class TestEstimateAudit:
+    async def test_audit_endpoint_returns_provenance(self, auth_client):
+        client, _ = auth_client
+        created = await _create_record(client)
+        record_id = created["id"]
+        # Confirm identity so the precedence reflects a grounding decision.
+        await client.post(
+            f"/api/food-records/{record_id}/confirm-identity",
+            json={"confirmed_food_name": "bowl of pasta"},
+        )
+        resp = await client.get(f"/api/food-records/{record_id}/audit")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["food_record_id"] == record_id
+        assert body["samples"]  # raw per-sample reads present
+        assert body["precedence"]["identity_confirmed"] is True
+        # Self-reported confidence is internal-only -- never in the response.
+        assert "self_reported_confidence" not in resp.text
+
+    async def test_audit_endpoint_is_owner_scoped(self, auth_client):
+        client, _ = auth_client
+        created = await _create_record(client)
+        record_id = created["id"]
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as other:
+            cookie = await _register_login(other)
+            other.cookies.set(settings.jwt_cookie_name, cookie)
+            resp = await other.get(f"/api/food-records/{record_id}/audit")
+        assert resp.status_code == 404
+
+
+# --------------------------------------------------------------------------- #
 # Common foods: promotion, dedupe, linking, management (AC2/AC3)
 # --------------------------------------------------------------------------- #
 class TestCommonFoods:

@@ -168,6 +168,58 @@ class FoodRecordListResponse(BaseModel):
     total: int
 
 
+class AuditSample(BaseModel):
+    """One raw vision sample, as surfaced in the audit trail (Story 50.H3).
+
+    Deliberately omits the model's self-reported confidence: that is retained in
+    storage for internal eval/triage only and is never surfaced as a user-facing
+    signal (the whole point of 50.H1).
+    """
+
+    carbs_low: float | None = None
+    carbs_high: float | None = None
+    identity: str | None = None
+    parse_ok: bool = False
+
+
+class FoodRecordAuditResponse(BaseModel):
+    """The "how was this estimated" provenance trail for a food record (50.H3).
+
+    Descriptive only -- raw per-sample reads, the empirical dispersion summary,
+    and the precedence decision. No dose, and nothing here feeds dosing math.
+    """
+
+    food_record_id: uuid.UUID
+    samples: list[AuditSample] = Field(default_factory=list)
+    dispersion: dict | None = None
+    precedence: dict | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_audit(cls, audit: object) -> "FoodRecordAuditResponse":
+        """Build from a ``FoodRecordAudit`` row, stripping internal-only fields."""
+        raw_samples = getattr(audit, "samples_json", None) or []
+        samples = [
+            AuditSample(
+                carbs_low=s.get("carbs_low"),
+                carbs_high=s.get("carbs_high"),
+                identity=s.get("identity"),
+                parse_ok=bool(s.get("parse_ok")),
+            )
+            for s in raw_samples
+            if isinstance(s, dict)
+        ]
+        return cls(
+            food_record_id=audit.food_record_id,
+            samples=samples,
+            dispersion=audit.dispersion_json,
+            precedence=audit.precedence_json,
+            created_at=audit.created_at,
+            updated_at=audit.updated_at,
+        )
+
+
 # Cap user-supplied nutrition so a correction can't store an unbounded JSON blob.
 # Bound both the field count and the serialized size: the key count alone does
 # not stop a single key holding a deeply-nested / multi-MB value.
