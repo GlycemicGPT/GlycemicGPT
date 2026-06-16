@@ -600,12 +600,15 @@ internal fun MealIdentitySection(
                     if (disagreed) "meal_identity_disagreement_cue" else "meal_identity_prompt",
                 ),
             )
+            // One normalized candidate drives both the submitted value and the
+            // enable check, so a valid suggestion can't leave Confirm disabled.
+            val candidateIdentity = (record.suggestedIdentity ?: record.displayIdentity)
+                .orEmpty()
+                .trim()
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(
-                    onClick = {
-                        onConfirm(record.suggestedIdentity ?: record.displayIdentity.orEmpty())
-                    },
-                    enabled = !uiState.isSavingIdentity && !record.displayIdentity.isNullOrBlank(),
+                    onClick = { onConfirm(candidateIdentity) },
+                    enabled = !uiState.isSavingIdentity && candidateIdentity.isNotBlank(),
                     modifier = Modifier.testTag("meal_identity_confirm"),
                 ) { Text(if (uiState.isSavingIdentity) "Confirming…" else "Confirm") }
                 OutlinedButton(
@@ -660,6 +663,7 @@ private fun IdentityEditor(
                     color = MaterialTheme.colorScheme.error,
                 )
             }
+            val normalized = text.trim()
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
                 OutlinedButton(
                     onClick = onCancel,
@@ -667,8 +671,8 @@ private fun IdentityEditor(
                     modifier = Modifier.weight(1f),
                 ) { Text("Cancel") }
                 Button(
-                    onClick = { onConfirm(text) },
-                    enabled = !isSaving,
+                    onClick = { onConfirm(normalized) },
+                    enabled = !isSaving && normalized.isNotBlank(),
                     modifier = Modifier
                         .weight(1f)
                         .testTag("meal_identity_save"),

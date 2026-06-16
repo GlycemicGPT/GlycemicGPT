@@ -252,6 +252,9 @@ class MealLogViewModel @Inject constructor(
     /** Confirm (or correct) what the food is. Opens the grounding gate server-side. */
     fun confirmIdentity(name: String) {
         val record = _uiState.value.record ?: return
+        // Pin the record this request belongs to; a response that lands after the
+        // user switched photos must not overwrite the now-active record's state.
+        val requestRecordId = record.id
         val trimmed = name.trim()
         if (trimmed.isEmpty()) {
             _uiState.update { it.copy(identityError = "Tell us what this food is.") }
@@ -259,21 +262,24 @@ class MealLogViewModel @Inject constructor(
         }
         _uiState.update { it.copy(isSavingIdentity = true, identityError = null) }
         viewModelScope.launch {
-            repository.confirmIdentity(record.id, trimmed)
+            repository.confirmIdentity(requestRecordId, trimmed)
                 .onSuccess { updated ->
                     // The grounding/precedence changed, so any loaded audit is stale.
-                    _uiState.update {
-                        it.copy(
+                    _uiState.update { state ->
+                        if (state.record?.id != requestRecordId) return@update state
+                        state.copy(
                             isSavingIdentity = false,
                             isEditingIdentity = false,
                             record = updated,
                             audit = null,
+                            auditError = null,
                         )
                     }
                 }
                 .onFailure { e ->
-                    _uiState.update {
-                        it.copy(isSavingIdentity = false, identityError = messageFor(e))
+                    _uiState.update { state ->
+                        if (state.record?.id != requestRecordId) return@update state
+                        state.copy(isSavingIdentity = false, identityError = messageFor(e))
                     }
                 }
         }
@@ -283,12 +289,21 @@ class MealLogViewModel @Inject constructor(
 
     fun loadAudit() {
         val record = _uiState.value.record ?: return
+        val requestRecordId = record.id
         _uiState.update { it.copy(isLoadingAudit = true, auditError = null) }
         viewModelScope.launch {
-            repository.getAudit(record.id)
-                .onSuccess { a -> _uiState.update { it.copy(isLoadingAudit = false, audit = a) } }
+            repository.getAudit(requestRecordId)
+                .onSuccess { a ->
+                    _uiState.update { state ->
+                        if (state.record?.id != requestRecordId) return@update state
+                        state.copy(isLoadingAudit = false, audit = a)
+                    }
+                }
                 .onFailure { e ->
-                    _uiState.update { it.copy(isLoadingAudit = false, auditError = messageFor(e)) }
+                    _uiState.update { state ->
+                        if (state.record?.id != requestRecordId) return@update state
+                        state.copy(isLoadingAudit = false, auditError = messageFor(e))
+                    }
                 }
         }
     }

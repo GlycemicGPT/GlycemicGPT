@@ -164,8 +164,12 @@ def _largest_identity_cluster(
     for i, tokens in enumerate(token_sets):
         placed = False
         for cluster in clusters:
-            # Compare against the cluster's first member (single-link anchor).
-            if _jaccard(tokens, token_sets[cluster[0]]) >= _IDENTITY_AGREEMENT_JACCARD:
+            # True single-link: match if this sample is close to ANY member, so
+            # transitive matches (A≈B, B≈C) aren't split into false disagreement.
+            if any(
+                _jaccard(tokens, token_sets[idx]) >= _IDENTITY_AGREEMENT_JACCARD
+                for idx in cluster
+            ):
                 cluster.append(i)
                 placed = True
                 break

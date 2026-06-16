@@ -270,13 +270,12 @@ async def create_food_record_from_image(
         desc_violation = bool(
             sample.food_description and find_dosing_violations(sample.food_description)
         )
-        if sample.dosing_violations or desc_violation:
-            scrubbed += 1
         if desc_violation:
             sample.food_description = ""
+            scrubbed += 1
     if scrubbed:
         logger.warning(
-            "Dosing phrasing detected in vision sample(s); scrubbed",
+            "Dosing phrasing detected in vision sample description(s); scrubbed",
             sample_count=scrubbed,
         )
 
