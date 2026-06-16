@@ -159,6 +159,13 @@ class Settings(BaseSettings):
     # Timeout (seconds) for the sidecar vision call; longer than the text
     # timeout because a CLI vision provider can take tens of seconds.
     vision_request_timeout_seconds: float = Field(default=120.0, gt=0)
+    # Multi-sample estimation (Story 50.H1). One photo is sampled this many times
+    # in a single request; the confidence/range come from the observed spread,
+    # not the model's (discredited) self-reported confidence. Cost guardrail:
+    # ~N x vision tokens/estimate, so capped low (1 disables multi-sampling and
+    # yields a single, necessarily low-confidence draw). 50.H4's variance harness
+    # tunes the value against the accuracy-vs-cost curve.
+    meal_estimate_sample_count: int = Field(default=3, ge=1, le=7)
 
     # Nutrition grounding (Story 50.E1). Estimates are grounded against the
     # user's own logged history (RAG) and published nutrition facts. The external

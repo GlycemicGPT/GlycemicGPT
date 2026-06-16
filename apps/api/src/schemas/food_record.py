@@ -57,12 +57,44 @@ class GroundingDetail(BaseModel):
         return self
 
 
+class EstimateDispersion(BaseModel):
+    """Multi-sample dispersion detail returned with a fresh estimate (Story 50.H1).
+
+    The same photo is sampled N times; ``confidence`` is derived from how much
+    those samples disagree (their coefficient of variation), NOT from the model's
+    self-reported confidence -- which research shows is uncorrelated with accuracy
+    and is therefore never surfaced as a safety signal. ``carbs_low`` / ``carbs_high``
+    on the record are the empirical band (the observed spread across samples).
+
+    This is computed at estimate time (the create path) and is transient: it is
+    not persisted by H1 (50.H3 adds durable audit retention), so reads of an
+    existing record do not carry it.
+
+    Safety: ``wide_spread`` and ``note`` exist to communicate uncertainty
+    viscerally, never to bless a number. Low dispersion is NOT "safe to dose" --
+    consistency is not correctness -- so callers keep the verify-before-dosing
+    qualifier dominant regardless of this value.
+    """
+
+    confidence: str  # empirical band: high | medium | low (dispersion-derived)
+    coefficient_of_variation: float | None = None
+    samples_requested: int
+    samples_used: int
+    identity_agreement: bool
+    distinct_identities: list[str] = Field(default_factory=list)
+    wide_spread: bool = False
+    note: str | None = None
+
+
 class FoodRecordResponse(BaseModel):
     """A persisted food record returned to the client.
 
     ``carbs_low`` / ``carbs_high`` are the original AI estimate. When the record
     has been corrected, ``corrected_carbs_*`` carry the user's values and
     ``source`` is ``user_corrected``; the original estimate is kept.
+
+    ``confidence`` is the **empirical** dispersion-derived band (Story 50.H1), not
+    the model's self-reported confidence (which is no longer surfaced).
     """
 
     model_config = {"from_attributes": True}
@@ -94,6 +126,9 @@ class FoodRecordResponse(BaseModel):
     grounding_source_url: str | None = None
     grounding_trust_tier: str | None = None
     grounding: GroundingDetail | None = None
+    # Multi-sample dispersion (Story 50.H1). Transient create-time detail
+    # (empirical confidence + observed spread); absent on later reads.
+    estimate_dispersion: EstimateDispersion | None = None
     created_at: datetime
 
     @model_validator(mode="after")

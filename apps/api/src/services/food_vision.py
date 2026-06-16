@@ -23,6 +23,7 @@ and the persisted record is never read by IoB / treatment_safety / carb-ratio
 math.
 """
 
+import asyncio
 import base64
 from pathlib import Path
 
@@ -35,8 +36,8 @@ from src.logging_config import get_logger
 from src.models.ai_provider import AIProviderConfig
 from src.models.food_record import FoodRecord, FoodRecordSource
 from src.models.user import User
-from src.schemas.food_record import GroundingDetail
-from src.services import food_image, meal_grounding, meal_rag
+from src.schemas.food_record import EstimateDispersion, GroundingDetail
+from src.services import food_image, meal_estimate_aggregate, meal_grounding, meal_rag
 from src.services.ai_client import DEFAULT_MODELS
 from src.vision.carb_contract import (
     SYSTEM_PROMPT,
@@ -170,6 +171,46 @@ async def _call_vision(model: str, media_type: str, image_b64: str) -> str:
     return content
 
 
+async def _call_vision_samples(
+    model: str, media_type: str, image_b64: str, n: int
+) -> list[str]:
+    """Issue ``n`` concurrent vision samples of the same image (Story 50.H1).
+
+    Returns the raw text of every sample that succeeded. Per-sample failures are
+    tolerated -- multi-sampling exists to measure disagreement, so losing a sample
+    only narrows the evidence, it must not fail the request (AC6). If *no* sample
+    succeeds, the failure is re-raised so the caller surfaces the original, clear
+    error (``VisionUnavailableError`` when the provider has no vision route at
+    all -- deterministic across samples -- otherwise ``VisionServiceError``)
+    rather than a misleading "couldn't read the photo" parse error.
+    """
+    results = await asyncio.gather(
+        *(_call_vision(model, media_type, image_b64) for _ in range(max(n, 1))),
+        return_exceptions=True,
+    )
+    texts = [r for r in results if isinstance(r, str)]
+    if texts:
+        failures = len(results) - len(texts)
+        if failures:
+            logger.warning(
+                "Some vision samples failed; aggregating the rest",
+                requested=len(results),
+                succeeded=len(texts),
+            )
+        return texts
+
+    # No sample succeeded -- re-raise a representative error. Prefer a
+    # VisionUnavailableError (the actionable "your provider can't do vision"
+    # case) over a transient service error.
+    for r in results:
+        if isinstance(r, VisionUnavailableError):
+            raise r
+    for r in results:
+        if isinstance(r, BaseException):
+            raise r
+    raise VisionServiceError("AI vision service returned no usable output.")
+
+
 def _error_message(resp: httpx.Response) -> str | None:
     try:
         body = resp.json()
@@ -202,39 +243,52 @@ async def create_food_record_from_image(
     model, provider_label = await _resolve_model(user, db)
 
     image_b64 = base64.standard_b64encode(processed.data).decode("ascii")
-    raw_text = await _call_vision(model, processed.media_type, image_b64)
 
-    estimate = parse_estimate(raw_text)
-    if (
-        not estimate.parse_ok
-        or estimate.carbs_low is None
-        or estimate.carbs_high is None
-    ):
+    # Sample the same photo N times and aggregate the spread (Story 50.H1): the
+    # confidence and range come from how much the samples disagree with each
+    # other, not the model's self-reported confidence (which research shows is
+    # uncorrelated with accuracy). Per-sample failures are tolerated; the call
+    # only raises if *every* sample failed.
+    requested_n = settings.meal_estimate_sample_count
+    raw_texts = await _call_vision_samples(
+        model, processed.media_type, image_b64, requested_n
+    )
+    samples = [parse_estimate(text) for text in raw_texts]
+
+    # Per-sample dosing scrub BEFORE aggregation: a sample whose description
+    # smuggled in advice has that description nulled (its carb numbers stay
+    # usable), so the scrubbed text can never be chosen as the representative
+    # description. Count only -- never log the content.
+    scrubbed = 0
+    for sample in samples:
+        desc_violation = bool(
+            sample.food_description and find_dosing_violations(sample.food_description)
+        )
+        if sample.dosing_violations or desc_violation:
+            scrubbed += 1
+        if desc_violation:
+            sample.food_description = ""
+    if scrubbed:
+        logger.warning(
+            "Dosing phrasing detected in vision sample(s); scrubbed",
+            sample_count=scrubbed,
+        )
+
+    aggregate = meal_estimate_aggregate.aggregate_samples(
+        samples, samples_requested=requested_n
+    )
+    if aggregate is None:
         raise EstimateRejectedError(
             "Could not read a carbohydrate estimate from this photo."
         )
     try:
-        low, high = validate_carb_range(estimate.carbs_low, estimate.carbs_high)
+        low, high = validate_carb_range(aggregate.carbs_low, aggregate.carbs_high)
     except CarbBoundsError as exc:
         raise EstimateRejectedError(
             "The estimate was outside the supported range."
         ) from exc
 
-    # Defensive scrub: never persist any dosing/advice phrasing. We already drop
-    # the raw prose; null a food description that smuggled in advice and log it
-    # for monitoring (count only -- no content).
-    food_description: str | None = estimate.food_description or None
-    desc_violations = (
-        find_dosing_violations(food_description) if food_description else []
-    )
-    if estimate.dosing_violations or desc_violations:
-        logger.warning(
-            "Dosing phrasing detected in vision response; scrubbed",
-            violation_count=len(estimate.dosing_violations) + len(desc_violations),
-        )
-        if desc_violations:
-            food_description = None
-
+    food_description: str | None = aggregate.food_description or None
     if food_description:
         food_description = food_description[:_MAX_DESCRIPTION_CHARS]
 
@@ -257,8 +311,10 @@ async def create_food_record_from_image(
         food_description=food_description,
         carbs_low=low,
         carbs_high=high,
-        confidence=estimate.confidence,
-        nutrition_json=estimate.nutrition or None,
+        # Empirical, dispersion-derived band -- NOT the model's self-reported
+        # confidence (Story 50.H1), which is no longer surfaced to users.
+        confidence=aggregate.confidence,
+        nutrition_json=aggregate.nutrition or None,
         ai_model=model,
         ai_provider=provider_label,
         source=FoodRecordSource.AI_ESTIMATE,
@@ -290,7 +346,52 @@ async def create_food_record_from_image(
     # response. Transient -- not a persisted column; reads of the record later
     # carry only the flat grounding_* attribution fields.
     record.grounding = grounding
+    # Attach the multi-sample dispersion detail (empirical confidence + observed
+    # spread + visceral note) for the response. Transient -- 50.H3 adds durable
+    # audit retention of the raw samples; H1 keeps it create-time only.
+    record.estimate_dispersion = _build_dispersion_detail(aggregate)
     return record
+
+
+def _dispersion_note(
+    aggregate: meal_estimate_aggregate.AggregatedEstimate,
+) -> str:
+    """A plain-language note that communicates uncertainty viscerally.
+
+    Never blesses a number and never contains dosing language: a tight spread is
+    deliberately NOT described as trustworthy (consistency is not correctness),
+    and the persistent verify-before-dosing qualifier on every estimate surface
+    carries the safety framing regardless of what this says.
+    """
+    low, high = aggregate.carbs_low, aggregate.carbs_high
+    if not aggregate.identity_agreement:
+        return (
+            "The AI didn't consistently agree on what this food is, so this "
+            "estimate is uncertain -- confirm the food before relying on it."
+        )
+    if aggregate.wide_spread:
+        return (
+            f"Repeated looks at this photo disagreed (about {low:g} g to "
+            f"{high:g} g) -- treat this as a rough guess, not a measurement."
+        )
+    if aggregate.samples_ok <= 1:
+        return "Estimated from a single read of the photo, so confidence is low."
+    return f"Estimated from {aggregate.samples_ok} reads of the photo."
+
+
+def _build_dispersion_detail(
+    aggregate: meal_estimate_aggregate.AggregatedEstimate,
+) -> EstimateDispersion:
+    return EstimateDispersion(
+        confidence=aggregate.confidence,
+        coefficient_of_variation=aggregate.dispersion_cv,
+        samples_requested=aggregate.samples_requested,
+        samples_used=aggregate.samples_ok,
+        identity_agreement=aggregate.identity_agreement,
+        distinct_identities=aggregate.distinct_identities,
+        wide_spread=aggregate.wide_spread,
+        note=_dispersion_note(aggregate),
+    )
 
 
 async def _ground_estimate(
