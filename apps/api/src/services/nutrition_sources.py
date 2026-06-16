@@ -31,6 +31,7 @@ from urllib.parse import urlparse
 
 import httpx
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
@@ -179,7 +180,10 @@ async def _cache_put(
     """Store a fetched fact as a shared, cite-able cache chunk (best-effort).
 
     The chunk is not embedded: it is keyed by ``content_hash`` for cache reuse and
-    is excluded from clinical retrieval, so a vector is unnecessary.
+    is excluded from clinical retrieval, so a vector is unnecessary. Idempotent
+    upsert on the partial UNIQUE(content_hash, user_id) index (migration 050), so
+    two concurrent first-time lookups for the same query update rather than one
+    silently losing the write on an IntegrityError.
     """
     now = datetime.now(UTC)
     # A published nutrition name should never contain dosing/advice phrasing; if
@@ -189,29 +193,43 @@ async def _cache_put(
     content = (
         f"{fact.name}: ~{fact.carbs_grams:g} g carbohydrate {fact.serving} "
         f"({fact.source_name})"
+    )[:1000]
+    metadata = {
+        "query": normalized_query,
+        "name": fact.name,
+        "carbs_grams": fact.carbs_grams,
+        "serving": fact.serving,
+        "disclaimer": fact.disclaimer,
+    }
+    stmt = pg_insert(KnowledgeChunk).values(
+        user_id=None,
+        trust_tier=fact.trust_tier,
+        source_type=source_type,
+        source_url=fact.source_url,
+        source_name=fact.source_name,
+        content=content,
+        embedding=None,
+        content_hash=_cache_key(source_type, normalized_query),
+        retrieved_at=now,
+        injection_risk=injection_risk,
+        metadata_json=metadata,
+    )
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["content_hash", "user_id"],
+        index_where=KnowledgeChunk.content_hash.isnot(None),
+        set_={
+            "trust_tier": stmt.excluded.trust_tier,
+            "source_url": stmt.excluded.source_url,
+            "source_name": stmt.excluded.source_name,
+            "content": stmt.excluded.content,
+            "retrieved_at": stmt.excluded.retrieved_at,
+            "injection_risk": stmt.excluded.injection_risk,
+            "metadata_json": stmt.excluded.metadata_json,
+            "updated_at": now,
+        },
     )
     try:
-        db.add(
-            KnowledgeChunk(
-                user_id=None,
-                trust_tier=fact.trust_tier,
-                source_type=source_type,
-                source_url=fact.source_url,
-                source_name=fact.source_name,
-                content=content[:1000],
-                embedding=None,
-                content_hash=_cache_key(source_type, normalized_query),
-                retrieved_at=now,
-                injection_risk=injection_risk,
-                metadata_json={
-                    "query": normalized_query,
-                    "name": fact.name,
-                    "carbs_grams": fact.carbs_grams,
-                    "serving": fact.serving,
-                    "disclaimer": fact.disclaimer,
-                },
-            )
-        )
+        await db.execute(stmt)
         await db.commit()
     except Exception:
         await db.rollback()

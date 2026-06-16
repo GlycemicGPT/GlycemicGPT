@@ -328,6 +328,43 @@ class TestUsda:
             result = await nutrition_sources.lookup_usda(_uniq("bad"))
         assert result is None
 
+    async def test_cache_put_is_idempotent(self):
+        # Two writes for the same (source_type, query) -- e.g. concurrent
+        # first-time lookups -- must not raise on the unique index; the second
+        # upserts the latest value.
+        query = _uniq("idempotent food")
+        fact1 = nutrition_sources.NutritionFact(
+            source_name="USDA FoodData Central",
+            source_url="https://fdc.nal.usda.gov/x",
+            trust_tier=KnowledgeChunk.TIER_AUTHORITATIVE,
+            name="thing",
+            carbs_grams=12.0,
+            serving="per 100 g",
+            disclaimer=None,
+        )
+        fact2 = nutrition_sources.NutritionFact(
+            **{**fact1.__dict__, "carbs_grams": 20.0}
+        )
+        async with get_session_maker()() as db:
+            await nutrition_sources._cache_put(
+                db,
+                source_type=meal_rag.SOURCE_TYPE_USDA,
+                normalized_query=query,
+                fact=fact1,
+            )
+            await nutrition_sources._cache_put(
+                db,
+                source_type=meal_rag.SOURCE_TYPE_USDA,
+                normalized_query=query,
+                fact=fact2,
+            )
+            cached = await nutrition_sources._cache_get(
+                db, meal_rag.SOURCE_TYPE_USDA, query
+            )
+        assert (
+            cached is not None and cached.carbs_grams == 20.0
+        )  # updated, not rejected
+
 
 class TestOpenFoodFacts:
     def _payload(self):
@@ -727,7 +764,6 @@ class TestEstimatePipelineGrounding:
         desc = _uniq("mystery casserole")
         async with get_session_maker()() as db:
             user = await _user_with_provider(db)
-            user = await db.get(User, user.id)
             with (
                 patch.object(
                     food_vision,

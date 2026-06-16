@@ -132,9 +132,11 @@ async def recall_similar_meal(
                     KnowledgeChunk.source_type.in_(OWN_HISTORY_SOURCE_TYPES),
                     KnowledgeChunk.valid_to.is_(None),
                     KnowledgeChunk.embedding.is_not(None),
-                    # Only chunks carrying a usable carb range -- so the closest
-                    # match with metadata is chosen, not a closer-but-unusable row.
+                    # Only chunks carrying a usable carb range (BOTH bounds) -- so
+                    # the closest match with complete metadata is chosen, not a
+                    # closer-but-unusable row that would then return None.
                     KnowledgeChunk.metadata_json["carbs_low"].astext.isnot(None),
+                    KnowledgeChunk.metadata_json["carbs_high"].astext.isnot(None),
                     distance < RECALL_MAX_DISTANCE,
                 )
                 .order_by(distance)
