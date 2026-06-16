@@ -111,10 +111,23 @@ class TestAggregation:
         assert result.carbs_high == 60
 
     def test_moderate_spread_is_medium(self):
-        # Midpoints 45 / 55 / 50 -> CV ~0.08... tune inputs to land in [0.10,0.25).
-        samples = [_sample(30, 40), _sample(54, 64), _sample(42, 52)]
+        # Midpoints 38 / 52 / 45 -> sample stdev 7, mean 45 -> CV ~0.156, in the
+        # medium band [0.10, 0.25).
+        samples = [_sample(33, 43), _sample(47, 57), _sample(40, 50)]
         result = agg.aggregate_samples(samples, samples_requested=3)
         assert result.confidence == agg.CONFIDENCE_MEDIUM
+
+    def test_two_agreeing_samples_capped_at_medium(self):
+        # Two near-identical samples have CV ~0 but are weak evidence of
+        # stability -- "high" must require >= 3 usable samples (the lucky-draw
+        # problem one level up). A single tolerated partial failure routinely
+        # leaves exactly two, so this path is real.
+        result = agg.aggregate_samples(
+            [_sample(40, 50), _sample(41, 51)], samples_requested=3
+        )
+        assert result is not None
+        assert result.samples_ok == 2
+        assert result.confidence == agg.CONFIDENCE_MEDIUM  # NOT high
 
     def test_wide_spread_is_low_and_flagged(self):
         samples = [_sample(40, 50), _sample(120, 140), _sample(80, 100)]
@@ -153,6 +166,26 @@ class TestAggregation:
         ]
         result = agg.aggregate_samples(samples, samples_requested=3)
         assert result.identity_agreement is True
+
+    def test_scrubbed_description_not_counted_as_disagreement(self):
+        # An emptied (dosing-scrubbed) description carries no identity signal and
+        # must not count as a distinct disagreeing food, else the user is told
+        # "the AI couldn't agree what this is" when it actually did (M3).
+        samples = [
+            _sample(40, 50, "pasta"),
+            _sample(42, 52, "pasta"),
+            _sample(41, 51, ""),  # scrubbed empty
+        ]
+        result = agg.aggregate_samples(samples, samples_requested=3)
+        assert result.identity_agreement is True
+        assert result.distinct_identities == ["pasta"]
+
+    def test_all_descriptions_empty_is_not_disagreement(self):
+        samples = [_sample(40, 50, ""), _sample(42, 52, ""), _sample(41, 51, "")]
+        result = agg.aggregate_samples(samples, samples_requested=3)
+        # No description evidence at all -> we don't manufacture disagreement.
+        assert result.identity_agreement is True
+        assert result.distinct_identities == []
 
     def test_no_usable_samples_returns_none(self):
         samples = [_sample(None, None, parse_ok=False), _sample(10, 20, parse_ok=False)]
@@ -387,8 +420,23 @@ class TestSafety:
                 samples_ok=3,
                 wide_spread=False,
             ),
+            agg.AggregatedEstimate(
+                carbs_low=40,
+                carbs_high=60,
+                confidence="medium",
+                food_description="x",
+                nutrition={},
+                dispersion_cv=0.15,
+                identity_agreement=True,
+                distinct_identities=["a"],
+                samples_requested=3,
+                samples_ok=3,
+                wide_spread=False,
+            ),
         ]
         for case in cases:
-            note = food_vision._dispersion_note(case)
-            assert note
-            assert not find_dosing_violations(note)
+            # Assert on the value that actually reaches the response (production
+            # sink), not just the raw note helper.
+            detail = food_vision._build_dispersion_detail(case)
+            assert detail.note
+            assert not find_dosing_violations(detail.note)

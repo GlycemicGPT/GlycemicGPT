@@ -45,6 +45,12 @@ from src.vision.carb_contract import (
 _CV_HIGH_MAX = 0.10  # CV below this -> tight agreement -> "high"
 _CV_MEDIUM_MAX = 0.25  # CV below this -> "medium"; at/above -> "low"
 
+# A "high" band needs enough draws to be evidence of stability, not luck: two
+# agreeing samples is just the lucky/unlucky-draw problem one level up (and a
+# single tolerated partial failure routinely leaves exactly two). So "high"
+# requires at least this many usable samples; fewer caps at "medium".
+_MIN_SAMPLES_FOR_HIGH = 3
+
 # Confidence bands (mirror carb_contract.CONFIDENCE_LEVELS ordering).
 CONFIDENCE_HIGH = "high"
 CONFIDENCE_MEDIUM = "medium"
@@ -52,7 +58,7 @@ CONFIDENCE_LOW = "low"
 
 # Token-set Jaccard at or above this means two food descriptions name the same
 # food for agreement purposes. Below it (e.g. "creme brulee" vs "crema catalana",
-# disjoint tokens -> 0.0) the samples disagree on identity.
+# disjoint tokens -> 0.0) the samples disagree on identity. (50.H4 tunes this.)
 _IDENTITY_AGREEMENT_JACCARD = 0.5
 
 # Common filler words stripped before comparing food identities, so "a plate of
@@ -176,13 +182,15 @@ def _largest_identity_cluster(
 def _confidence_from_cv(cv: float | None, samples_ok: int) -> str:
     """Map sample dispersion to a confidence band.
 
-    A single usable sample cannot measure dispersion at all, so it can never earn
-    more than low confidence -- one draw is exactly the lucky/unlucky-draw problem
-    multi-sampling exists to expose.
+    A single usable sample cannot measure dispersion at all, and two agreeing
+    samples are weak evidence of stability, so "high" requires both tight
+    agreement AND at least ``_MIN_SAMPLES_FOR_HIGH`` usable samples -- the
+    lucky/unlucky-draw problem multi-sampling exists to expose. A 2-sample run
+    can reach at most "medium".
     """
     if samples_ok <= 1 or cv is None:
         return CONFIDENCE_LOW
-    if cv < _CV_HIGH_MAX:
+    if cv < _CV_HIGH_MAX and samples_ok >= _MIN_SAMPLES_FOR_HIGH:
         return CONFIDENCE_HIGH
     if cv < _CV_MEDIUM_MAX:
         return CONFIDENCE_MEDIUM
@@ -198,20 +206,17 @@ def _pick_representative(
     first) avoids letting a tail-outlier sample's prose stand in for the group.
     """
     cluster = [ok_samples[i] for i in cluster_indices] or ok_samples
-    midpoints = sorted(
-        (s for s in cluster if s.midpoint is not None),
-        key=lambda s: s.midpoint,  # type: ignore[arg-type, return-value]
-    )
-    if not midpoints:
+    with_midpoint = [s for s in cluster if s.midpoint is not None]
+    if not with_midpoint:
         return cluster[0]
-    return midpoints[len(midpoints) // 2]
+    with_midpoint.sort(key=lambda s: s.midpoint or 0.0)
+    return with_midpoint[len(with_midpoint) // 2]
 
 
 def aggregate_samples(
     samples: list[ParsedEstimate],
     *,
     samples_requested: int,
-    wide_spread_cv: float | None = None,
 ) -> AggregatedEstimate | None:
     """Aggregate N parsed vision samples into one empirical estimate.
 
@@ -248,29 +253,41 @@ def aggregate_samples(
     carbs_high = max(s.carbs_high for s in ok)  # type: ignore[type-var]
 
     # Dispersion is measured on the per-sample point estimates (midpoints): the
-    # run-to-run swing the study cares about. Needs >=2 samples and a non-zero
-    # mean to be meaningful.
+    # run-to-run swing the study cares about. Uses the unbiased sample stdev
+    # (N-1) -- these N draws are a *sample* of the model's output distribution,
+    # not the whole population, and at the small N this runs (2-3) the population
+    # stdev would understate the true spread and lean optimistic. Needs >=2
+    # samples and a non-zero mean to be meaningful.
     midpoints = [s.midpoint for s in ok if s.midpoint is not None]
     cv: float | None = None
     if len(midpoints) >= 2:
         mean = statistics.fmean(midpoints)
         if mean > 0:
-            cv = statistics.pstdev(midpoints) / mean
+            cv = statistics.stdev(midpoints) / mean
 
-    largest_cluster, distinct = _largest_identity_cluster(
-        [s.food_description for s in ok]
-    )
-    # Identity agrees when a strict majority of usable samples fall in one
-    # identity cluster. Disagreement is the dominant upstream error -- force low
-    # confidence and flag it so H2 requires confirmation before any grounding.
-    identity_agreement = len(largest_cluster) * 2 > len(ok)
+    # Identity agreement is judged ONLY over samples that still have a usable
+    # description: a description emptied by the dosing scrub carries no identity
+    # signal, so it must not count as a distinct "disagreeing" food (which would
+    # surface a misleading "the AI couldn't agree what this is" to the user).
+    described_indices = [i for i, s in enumerate(ok) if s.food_description.strip()]
+    if described_indices:
+        local_cluster, distinct = _largest_identity_cluster(
+            [ok[i].food_description for i in described_indices]
+        )
+        largest_cluster = [described_indices[j] for j in local_cluster]
+        # A strict majority of *described* samples sharing one identity = agreement.
+        identity_agreement = len(largest_cluster) * 2 > len(described_indices)
+    else:
+        # No description survived to compare -- no evidence of disagreement.
+        largest_cluster = []
+        distinct = []
+        identity_agreement = True
 
     confidence = _confidence_from_cv(cv, len(ok))
     if not identity_agreement:
         confidence = CONFIDENCE_LOW
 
-    threshold = wide_spread_cv if wide_spread_cv is not None else _CV_MEDIUM_MAX
-    wide_spread = (cv is not None and cv >= threshold) or not identity_agreement
+    wide_spread = (cv is not None and cv >= _CV_MEDIUM_MAX) or not identity_agreement
 
     representative = _pick_representative(ok, largest_cluster)
 

@@ -353,6 +353,12 @@ async def create_food_record_from_image(
     return record
 
 
+# Fallback if a composed dispersion note ever trips the dosing scan (it cannot
+# today -- every branch is fixed prose + numbers -- but the guard keeps the
+# user-facing sink safe if a future edit interpolates model text into the note).
+_SAFE_DISPERSION_NOTE = "This is an estimate from a photo -- treat it as approximate."
+
+
 def _dispersion_note(
     aggregate: meal_estimate_aggregate.AggregatedEstimate,
 ) -> str:
@@ -369,19 +375,31 @@ def _dispersion_note(
             "The AI didn't consistently agree on what this food is, so this "
             "estimate is uncertain -- confirm the food before relying on it."
         )
-    if aggregate.wide_spread:
-        return (
-            f"Repeated looks at this photo disagreed (about {low:g} g to "
-            f"{high:g} g) -- treat this as a rough guess, not a measurement."
-        )
     if aggregate.samples_ok <= 1:
         return "Estimated from a single read of the photo, so confidence is low."
+    if aggregate.wide_spread:
+        return (
+            f"Repeated looks at this photo disagreed a lot (about {low:g} g to "
+            f"{high:g} g) -- treat this as a rough guess, not a measurement."
+        )
+    if aggregate.confidence != meal_estimate_aggregate.CONFIDENCE_HIGH:
+        # Medium band: real variation between reads, just not wild -- name the
+        # spread rather than offering a reassuring "estimated from N reads".
+        return (
+            f"Reads of this photo varied somewhat (about {low:g} g to {high:g} g) "
+            "-- treat this as approximate."
+        )
     return f"Estimated from {aggregate.samples_ok} reads of the photo."
 
 
 def _build_dispersion_detail(
     aggregate: meal_estimate_aggregate.AggregatedEstimate,
 ) -> EstimateDispersion:
+    note = _dispersion_note(aggregate)
+    # Defence in depth at the user-facing sink: never surface dosing phrasing.
+    if find_dosing_violations(note):
+        logger.warning("Dispersion note tripped dosing scan; using safe fallback")
+        note = _SAFE_DISPERSION_NOTE
     return EstimateDispersion(
         confidence=aggregate.confidence,
         coefficient_of_variation=aggregate.dispersion_cv,
@@ -390,7 +408,7 @@ def _build_dispersion_detail(
         identity_agreement=aggregate.identity_agreement,
         distinct_identities=aggregate.distinct_identities,
         wide_spread=aggregate.wide_spread,
-        note=_dispersion_note(aggregate),
+        note=note,
     )
 
 

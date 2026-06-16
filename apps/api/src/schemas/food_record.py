@@ -8,6 +8,7 @@ dose/insulin field. Nothing here computes or returns dosing guidance.
 import json
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -76,8 +77,13 @@ class EstimateDispersion(BaseModel):
     qualifier dominant regardless of this value.
     """
 
-    confidence: str  # empirical band: high | medium | low (dispersion-derived)
+    # Empirical, dispersion-derived band (constrained so a typo'd band can't pass
+    # this system boundary).
+    confidence: Literal["low", "medium", "high"]
     coefficient_of_variation: float | None = None
+    # The configured target sample count (settings.meal_estimate_sample_count),
+    # not necessarily the number of network calls made; ``samples_used`` is how
+    # many produced a usable, in-bounds estimate.
     samples_requested: int
     samples_used: int
     identity_agreement: bool
