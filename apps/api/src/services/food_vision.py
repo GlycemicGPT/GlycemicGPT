@@ -35,7 +35,8 @@ from src.logging_config import get_logger
 from src.models.ai_provider import AIProviderConfig
 from src.models.food_record import FoodRecord, FoodRecordSource
 from src.models.user import User
-from src.services import food_image
+from src.schemas.food_record import GroundingDetail
+from src.services import food_image, meal_grounding, meal_rag
 from src.services.ai_client import DEFAULT_MODELS
 from src.vision.carb_contract import (
     SYSTEM_PROMPT,
@@ -237,6 +238,13 @@ async def create_food_record_from_image(
     if food_description:
         food_description = food_description[:_MAX_DESCRIPTION_CHARS]
 
+    # Ground the descriptive estimate against the user's own history (RAG) and
+    # published nutrition (USDA / OFF), best-effort. Computed before persisting so
+    # the own-history recall sees only prior records, not this one. Any failure
+    # falls back to a vision-only (ungrounded) estimate -- grounding never blocks
+    # or alters the core estimate, and never produces a dose.
+    grounding = await _ground_estimate(user, food_description)
+
     storage_path, size_bytes = food_image.store_image(user.id, processed)
     filename = Path(storage_path).name
 
@@ -254,6 +262,9 @@ async def create_food_record_from_image(
         ai_model=model,
         ai_provider=provider_label,
         source=FoodRecordSource.AI_ESTIMATE,
+        grounding_source=grounding.source if grounding else None,
+        grounding_source_url=grounding.source_url if grounding else None,
+        grounding_trust_tier=grounding.trust_tier if grounding else None,
     )
     db.add(record)
     try:
@@ -264,4 +275,32 @@ async def create_food_record_from_image(
         food_image.delete_stored_image(storage_path)
         raise
     await db.refresh(record)
+
+    # Index this record into own-history RAG so a future photo of the same food
+    # recalls it. Best-effort and after commit -- it must never fail the upload,
+    # so guard the call site too (index_food_record is already internally
+    # best-effort; this also covers anything raised before its own try).
+    if settings.meal_intelligence_enabled:
+        try:
+            await meal_rag.index_food_record(record)
+        except Exception:
+            logger.warning("RAG indexing failed for food record", exc_info=True)
+
+    # Attach the grounding detail (grounded range + citation + disclaimer) for the
+    # response. Transient -- not a persisted column; reads of the record later
+    # carry only the flat grounding_* attribution fields.
+    record.grounding = grounding
     return record
+
+
+async def _ground_estimate(
+    user: User, food_description: str | None
+) -> GroundingDetail | None:
+    """Compute grounding for an estimate; never raise (fall back to vision-only)."""
+    if not settings.meal_intelligence_enabled:
+        return None
+    try:
+        return await meal_grounding.ground_estimate(user.id, food_description)
+    except Exception:
+        logger.warning("Estimate grounding failed; using vision-only", exc_info=True)
+        return None

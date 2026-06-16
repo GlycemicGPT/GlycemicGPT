@@ -15,6 +15,48 @@ from src.models.food_record import FoodRecordSource
 from src.vision.carb_contract import CARB_GRAMS_MAX, CARB_GRAMS_MIN
 
 
+class GroundingDetail(BaseModel):
+    """Grounding detail returned alongside a fresh estimate (Story 50.E1).
+
+    Describes *which* source grounded the estimate and the grounded carb range it
+    suggests. This is a descriptive, cite-able reference -- never a dose. The
+    persisted record keeps its own vision estimate in ``carbs_low`` / ``carbs_high``;
+    this object carries the supplementary grounded figure + citation for the UI.
+
+    It is computed at estimate time (the create path) and is not persisted beyond
+    the attribution fields (``grounding_source`` / ``grounding_source_url`` /
+    ``grounding_trust_tier``), so reads of an existing record carry those flat
+    fields but not this object.
+    """
+
+    source: str
+    source_url: str | None = None
+    trust_tier: str
+    # Grounded carb range from the source (own-history prior value, or the
+    # published per-serving/per-100g figure). May be absent if the source only
+    # confirms identity without a usable number.
+    carbs_low: float | None = Field(default=None, ge=CARB_GRAMS_MIN, le=CARB_GRAMS_MAX)
+    carbs_high: float | None = Field(default=None, ge=CARB_GRAMS_MIN, le=CARB_GRAMS_MAX)
+    # The basis of the grounded figure (e.g. "per 100 g", "your last log").
+    serving: str | None = None
+    # Human-readable note ("You've logged this before (~45g)").
+    note: str | None = None
+    # Source licence / non-medical disclaimer to surface (e.g. Open Food Facts).
+    disclaimer: str | None = None
+
+    @model_validator(mode="after")
+    def validate_carb_ordering(self) -> "GroundingDetail":
+        """Carb low must not exceed high when both are present (reject inversion)."""
+        if (
+            self.carbs_low is not None
+            and self.carbs_high is not None
+            and self.carbs_low > self.carbs_high
+        ):
+            msg = "carbs_low must not exceed carbs_high"
+            raise ValueError(msg)
+        return self
+
+
 class FoodRecordResponse(BaseModel):
     """A persisted food record returned to the client.
 
@@ -45,6 +87,13 @@ class FoodRecordResponse(BaseModel):
     common_food_id: uuid.UUID | None = None
     ai_model: str | None = None
     ai_provider: str | None = None
+    # Grounding provenance (Story 50.E1). The flat fields are persisted on the
+    # record and present on every read; ``grounding`` is the richer create-time
+    # detail (grounded range + note + disclaimer) and is absent on later reads.
+    grounding_source: str | None = None
+    grounding_source_url: str | None = None
+    grounding_trust_tier: str | None = None
+    grounding: GroundingDetail | None = None
     created_at: datetime
 
     @model_validator(mode="after")

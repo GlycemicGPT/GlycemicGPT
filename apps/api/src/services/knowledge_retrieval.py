@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.logging_config import get_logger
 from src.models.knowledge_chunk import KnowledgeChunk
 from src.services.embedding import embed_text
+from src.services.meal_rag import FOOD_GROUNDING_SOURCE_TYPES
 
 logger = get_logger(__name__)
 
@@ -74,6 +75,12 @@ async def retrieve_knowledge(
                     KnowledgeChunk.injection_risk.is_(False),
                     KnowledgeChunk.trust_tier == KnowledgeChunk.TIER_AUTHORITATIVE,
                 ),
+                # Keep meal-grounding chunks (own-history + USDA/OFF cache, Story
+                # 50.E1) out of clinical retrieval -- they are a separate
+                # mechanism with their own retrieval path, and must never leak
+                # into a clinical knowledge prompt. (sorted() -> deterministic SQL
+                # text for statement-cache stability.)
+                KnowledgeChunk.source_type.not_in(sorted(FOOD_GROUNDING_SOURCE_TYPES)),
                 # Must have an embedding
                 KnowledgeChunk.embedding.is_not(None),
                 # Only sufficiently relevant chunks

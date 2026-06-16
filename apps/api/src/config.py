@@ -160,6 +160,22 @@ class Settings(BaseSettings):
     # timeout because a CLI vision provider can take tens of seconds.
     vision_request_timeout_seconds: float = Field(default=120.0, gt=0)
 
+    # Nutrition grounding (Story 50.E1). Estimates are grounded against the
+    # user's own logged history (RAG) and published nutrition facts. The external
+    # sources below are cacheable/redistributable (USDA = CC0/public domain; Open
+    # Food Facts = ODbL) and fail open: a lookup error falls back to vision-only.
+    # USDA FoodData Central needs a free data.gov API key, per-deployment (BYO or
+    # bundled). Empty key -> USDA grounding is skipped (no error). 1k req/hr per
+    # IP is plenty for a self-hoster.
+    usda_fdc_api_key: str = ""
+    usda_fdc_base_url: str = "https://api.nal.usda.gov/fdc/v1"
+    # Open Food Facts needs no key (ODbL). Disable to opt out entirely.
+    open_food_facts_enabled: bool = True
+    open_food_facts_base_url: str = "https://world.openfoodfacts.org"
+    # Hard per-call timeout for an external nutrition lookup; kept short so a slow
+    # source never stalls the estimate path (it falls back to vision-only).
+    nutrition_grounding_timeout_seconds: float = Field(default=6.0, gt=0)
+
     # Device & API key limits (Story 28.7)
     max_devices_per_user: int = Field(default=10, ge=1)
     debug_device_limit: int = Field(default=50, ge=1)
