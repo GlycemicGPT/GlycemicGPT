@@ -143,8 +143,9 @@ app.use((req, res, next) => {
 function isCodexModel(model?: string): boolean {
   if (!model) return false;
   const lower = model.toLowerCase();
-  // Only models the Codex provider actually resolves (see codex.ts MODEL_MAP):
-  // gpt-*, codex, and o3-mini. (No o1 alias is supported.)
+  // Provider-selection heuristic: gpt-*, codex, and o3 names route to the Codex
+  // CLI (which then picks the account-appropriate model itself; we don't forward
+  // a model name). No o1 alias is supported.
   return lower.includes("gpt") || lower.includes("codex") || lower.includes("o3");
 }
 

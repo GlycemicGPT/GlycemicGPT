@@ -37,26 +37,24 @@ const AUTH_FILE = join(CODEX_HOME, "auth.json");
 const SUBPROCESS_TIMEOUT_MS = 120_000;
 /** Maximum buffer size (10 MB) */
 const MAX_BUFFER_BYTES = 10 * 1024 * 1024;
-/** Maximum prompt length (100 KB) */
+/**
+ * Maximum prompt size, in UTF-8 bytes. The prompt is passed to the codex CLI as
+ * a single positional argv element, and the Linux kernel caps one argument at
+ * MAX_ARG_STRLEN (128 KB) regardless of the much larger total ARG_MAX — so this
+ * must be measured in bytes, not JS string length, to stay safely under it.
+ */
 const MAX_PROMPT_LENGTH = 100_000;
 
-/** Strict allowlist of model names */
-const MODEL_MAP: Record<string, string> = {
-  "gpt-4o": "gpt-4o",
-  "gpt-4": "gpt-4",
-  "gpt-4-turbo": "gpt-4-turbo",
-  "o3-mini": "o3-mini",
-  "chatgpt-subscription": "gpt-4o",
-};
-
-/** Resolve model name. Rejects unknown models. */
-export function resolveModel(model?: string): string {
-  if (!model) return "gpt-4o";
-  const resolved = MODEL_MAP[model];
-  if (!resolved) {
-    throw new Error(`Unsupported model: ${model}`);
+/**
+ * Reject a prompt that would exceed the single-argv byte limit. Measured on
+ * UTF-8 bytes (not `.length`, which counts UTF-16 code units) so multibyte text
+ * cannot slip past the guard and trip an opaque E2BIG at spawn.
+ */
+function assertPromptWithinLimit(prompt: string): void {
+  const bytes = Buffer.byteLength(prompt, "utf8");
+  if (bytes > MAX_PROMPT_LENGTH) {
+    throw new Error(`Prompt too long (${bytes} bytes, max ${MAX_PROMPT_LENGTH})`);
   }
-  return resolved;
 }
 
 /** Check whether a Codex credential (ChatGPT account or API key) is configured. */
@@ -101,11 +99,7 @@ function messagesToPrompt(messages: ChatMessage[]): string {
     })
     .join("\n\n");
 
-  if (prompt.length > MAX_PROMPT_LENGTH) {
-    throw new Error(
-      `Prompt too long (${prompt.length} chars, max ${MAX_PROMPT_LENGTH})`,
-    );
-  }
+  assertPromptWithinLimit(prompt);
   return prompt;
 }
 
@@ -239,9 +233,7 @@ export class CodexProvider implements AIProvider, VisionRunner {
       throw new InvalidImageError("no image provided for a vision request");
     }
     const prompt = [systemText, userText].filter(Boolean).join("\n\n");
-    if (prompt.length > MAX_PROMPT_LENGTH) {
-      throw new Error(`Prompt too long (${prompt.length} chars, max ${MAX_PROMPT_LENGTH})`);
-    }
+    assertPromptWithinLimit(prompt);
     const temp = writeImagesToTempDir(images);
     try {
       return await runCodexVision(prompt, temp.paths, temp.dir);
