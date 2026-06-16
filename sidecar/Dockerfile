@@ -6,8 +6,14 @@
 
 FROM node:22-slim AS base
 
-# Install curl for healthcheck
-RUN apt-get update && apt-get install -y --no-install-recommends curl && \
+# curl: healthcheck. ca-certificates: the Rust `codex` binary uses the system
+# trust store for TLS (unlike the Node-based `claude`, which bundles its own CA
+# roots), and node:*-slim ships no CA bundle — without this, every codex HTTPS
+# call to OpenAI fails and ChatGPT subscription can't authenticate or run.
+# (codex's read-only sandbox uses a bundled bubblewrap; we deliberately do NOT
+# apt-install bubblewrap, which would need user-namespace perms and can fail in
+# unprivileged containers.)
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
 # Install Claude Code CLI and Codex CLI globally
