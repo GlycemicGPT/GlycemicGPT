@@ -90,6 +90,22 @@ enum class FoodRecordSource {
     }
 }
 
+/**
+ * How much the AI's repeated reads of one photo disagreed (Story 50.H1).
+ *
+ * The [confidence] on a [FoodRecord] is already the empirical band derived from
+ * this spread; this carries the visceral, human-readable detail. Present only on
+ * a fresh estimate (the create response); null on records loaded from history.
+ */
+data class MealDispersion(
+    /** Plain-language uncertainty note (already dosing-scrubbed server-side). */
+    val note: String?,
+    /** The reads disagreed enough to warrant a visible "rough guess" treatment. */
+    val wideSpread: Boolean,
+    /** Whether the reads agreed on *what the food is* (false => confirm identity). */
+    val identityAgreement: Boolean,
+)
+
 /** A persisted meal photo + carb estimate, optionally corrected by the user. */
 data class FoodRecord(
     val id: String,
@@ -104,6 +120,8 @@ data class FoodRecord(
     val correctedAt: Instant?,
     val commonFoodId: String?,
     val createdAt: Instant?,
+    /** Multi-sample dispersion detail (Story 50.H1). Null on history reads. */
+    val dispersion: MealDispersion? = null,
 ) {
     /** Whether the user has corrected the AI estimate. */
     val isCorrected: Boolean get() = correction != null
@@ -157,6 +175,13 @@ fun FoodRecordResponse.toDomain(): FoodRecord {
         correctedAt = parseInstantOrNull(correctedAt),
         commonFoodId = commonFoodId,
         createdAt = parseInstantOrNull(createdAt),
+        dispersion = estimateDispersion?.let {
+            MealDispersion(
+                note = it.note?.takeIf { note -> note.isNotBlank() },
+                wideSpread = it.wideSpread,
+                identityAgreement = it.identityAgreement,
+            )
+        },
     )
 }
 

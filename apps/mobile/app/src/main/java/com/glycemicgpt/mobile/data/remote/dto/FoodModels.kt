@@ -21,13 +21,30 @@ data class FoodRecordResponse(
     @Json(name = "food_description") val foodDescription: String? = null,
     @Json(name = "carbs_low") val carbsLow: Double,
     @Json(name = "carbs_high") val carbsHigh: Double,
+    // The empirical, dispersion-derived band (Story 50.H1) -- not the model's
+    // self-reported confidence, which is no longer surfaced.
     val confidence: String? = null,
     val source: String,
     @Json(name = "corrected_carbs_low") val correctedCarbsLow: Double? = null,
     @Json(name = "corrected_carbs_high") val correctedCarbsHigh: Double? = null,
     @Json(name = "corrected_at") val correctedAt: String? = null,
     @Json(name = "common_food_id") val commonFoodId: String? = null,
+    // Multi-sample dispersion detail (Story 50.H1). Present only on a fresh
+    // estimate (create response); absent on later reads.
+    @Json(name = "estimate_dispersion") val estimateDispersion: EstimateDispersionResponse? = null,
     @Json(name = "created_at") val createdAt: String,
+)
+
+/**
+ * How much the N vision samples of one photo disagreed (Story 50.H1). The UI uses
+ * this to communicate uncertainty viscerally; only the consumed fields are
+ * declared (Moshi tolerates the rest).
+ */
+@JsonClass(generateAdapter = true)
+data class EstimateDispersionResponse(
+    val note: String? = null,
+    @Json(name = "wide_spread") val wideSpread: Boolean = false,
+    @Json(name = "identity_agreement") val identityAgreement: Boolean = true,
 )
 
 @JsonClass(generateAdapter = true)

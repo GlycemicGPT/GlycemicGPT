@@ -1,6 +1,7 @@
 package com.glycemicgpt.mobile.data.meal
 
 import com.glycemicgpt.mobile.data.remote.dto.CommonFoodResponse
+import com.glycemicgpt.mobile.data.remote.dto.EstimateDispersionResponse
 import com.glycemicgpt.mobile.data.remote.dto.FoodRecordResponse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -16,6 +17,7 @@ class MealModelsTest {
         confidence: String? = "high",
         correctedLow: Double? = null,
         correctedHigh: Double? = null,
+        dispersion: EstimateDispersionResponse? = null,
     ) = FoodRecordResponse(
         id = "rec-1",
         mealTimestamp = "2026-06-14T12:00:00Z",
@@ -26,6 +28,7 @@ class MealModelsTest {
         source = source,
         correctedCarbsLow = correctedLow,
         correctedCarbsHigh = correctedHigh,
+        estimateDispersion = dispersion,
         createdAt = "2026-06-14T12:00:05Z",
     )
 
@@ -38,6 +41,36 @@ class MealModelsTest {
         assertFalse(domain.isCorrected)
         assertEquals(domain.estimate, domain.displayRange)
         assertEquals(Instant.parse("2026-06-14T12:00:00Z"), domain.mealTimestamp)
+    }
+
+    @Test
+    fun `maps multi-sample dispersion when present (Story 50_H1)`() {
+        val domain = record(
+            dispersion = EstimateDispersionResponse(
+                note = "Repeated looks at this photo disagreed a lot -- treat this as a rough guess.",
+                wideSpread = true,
+                identityAgreement = false,
+            ),
+        ).toDomain()
+        val dispersion = domain.dispersion
+        assertTrue("dispersion should be mapped", dispersion != null)
+        assertEquals(true, dispersion?.wideSpread)
+        assertEquals(false, dispersion?.identityAgreement)
+        assertTrue(dispersion?.note?.contains("rough guess") == true)
+    }
+
+    @Test
+    fun `dispersion is null on a history read that omits it`() {
+        // History/list responses do not carry the transient create-time detail.
+        assertNull(record(dispersion = null).toDomain().dispersion)
+    }
+
+    @Test
+    fun `a blank dispersion note maps to null so the UI shows nothing`() {
+        val domain = record(
+            dispersion = EstimateDispersionResponse(note = "   ", wideSpread = false),
+        ).toDomain()
+        assertNull(domain.dispersion?.note)
     }
 
     @Test

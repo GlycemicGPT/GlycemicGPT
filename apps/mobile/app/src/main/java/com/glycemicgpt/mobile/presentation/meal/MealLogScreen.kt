@@ -361,6 +361,8 @@ private fun ResultContent(
                 confidence = record.confidence,
                 isCorrected = record.isCorrected,
                 originalRange = record.estimate,
+                // Only the fresh-estimate surface carries dispersion (transient on create).
+                dispersion = record.dispersion,
             )
             Text(
                 text = formatMealTimestamp(record.mealTimestamp),
