@@ -108,9 +108,11 @@ python evals/vision_carb/harness.py \
     --base-url http://localhost:11434 --model llava:13b --no-auth --repeats 5
 ```
 
-Outputs `results/results.json` and `results/summary.md`, and prints a summary to
-stderr. The variance run needs the adversarial images sourced first:
-`python evals/vision_carb/fetch_images.py --manifest dataset/adversarial.json`.
+Outputs `evals/vision_carb/results/results.json` and
+`evals/vision_carb/results/summary.md` (the default `--out-dir`, repo-root
+relative, matching FINDINGS.md), and prints a summary to stderr. The variance run
+needs the adversarial images sourced first:
+`python evals/vision_carb/fetch_images.py --manifest evals/vision_carb/dataset/adversarial.json`.
 
 ## Metrics
 
