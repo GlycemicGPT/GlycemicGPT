@@ -1,0 +1,92 @@
+{
+  "name": "vision-carb adversarial look-alike set",
+  "set": "adversarial",
+  "notes": "Systematically-hard foods chosen from the diabettech LLM carb-estimation studies, where the failure is not random error but a repeatable trap: a look-alike the model confidently misidentifies, a food it consistently under-counts, or a dish whose carbs swing wildly run-to-run. Average accuracy on the easy set is blind to all three. Every item records: known_carbs_grams (a reference value) OR ambiguous:true; expected_identity (synonym list for the CORRECT food); confused_with (the look-alike / wrong answer it tends to give); and failure_mode. Truth values are best-effort references per a documented portion -- the point of these items is the variance and identity signals, not a precise MAE; label_basis states the basis and its uncertainty. Images are NOT committed (licensing / PHI); each item carries image_todo and a search hint -- source a license-clean image (e.g. `python fetch_images.py --manifest dataset/adversarial.json`) before a run. Sources: diabettech.com/category/ai.",
+  "ground_truth_units": "grams of carbohydrate per depicted portion",
+  "failure_modes": {
+    "identity_lookalike": "confidently named as a different food (identity error upstream of carb error)",
+    "systematic_underestimate": "correctly identified but consistently under-counted (tight spread, wrong center)",
+    "high_variance": "wild run-to-run carb swing on the same photo (the acute-hypo tail risk)",
+    "portion_ambiguity": "no single honest carb value; the determining portion is not visually resolvable"
+  },
+  "items": [
+    {
+      "id": "cheese-sandwich",
+      "known_carbs_grams": 40,
+      "expected_identity": ["cheese sandwich", "cheese sandwich on white bread"],
+      "confused_with": "a lower-carb ~28 g sandwich -- the model reads the bread as thinner/less than it is",
+      "failure_mode": "systematic_underestimate",
+      "label_basis": "two slices of medium white sandwich bread (~18-20 g carb each) + cheese; ~40 g actual. The diabettech 'I Asked AI to Count My Carbs 27,000 Times' study found models settle near ~28 g -- a consistent, NOT random, under-count.",
+      "portion_note": "a two-slice cheese sandwich, cut in half",
+      "image": "cheese-sandwich.jpg",
+      "image_todo": "source a license-clean photo of a plain two-slice cheese sandwich on white bread",
+      "search": "cheese sandwich white bread",
+      "category": "Cheese sandwiches"
+    },
+    {
+      "id": "bakewell-tart",
+      "known_carbs_grams": 42,
+      "expected_identity": ["bakewell tart", "bakewell", "cherry bakewell"],
+      "confused_with": "Linzer torte (diabettech: misidentified as Linzer torte ~100% of the time)",
+      "failure_mode": "identity_lookalike",
+      "label_basis": "one Bakewell tart slice (~70 g): shortcrust pastry + frangipane + raspberry jam + icing; ~40-45 g carb (sugar-heavy). Reference value is approximate; the item exists to measure identity error, which drives the carb error.",
+      "portion_note": "one slice of Bakewell tart (iced, with a cherry)",
+      "image": "bakewell-tart.jpg",
+      "image_todo": "source a license-clean photo of a cherry Bakewell tart slice (iced top)",
+      "search": "bakewell tart",
+      "category": "Bakewell tarts"
+    },
+    {
+      "id": "crema-catalana",
+      "known_carbs_grams": 30,
+      "expected_identity": ["crema catalana", "catalan cream"],
+      "confused_with": "creme brulee (diabettech: misidentified as creme brulee ~100% of the time)",
+      "failure_mode": "identity_lookalike",
+      "label_basis": "one crema catalana ramekin (~120 g): milk / egg-yolk / sugar custard thickened with cornstarch + caramelized sugar top; ~28-32 g carb. Visually near-identical to creme brulee but cornstarch-thickened and citrus/cinnamon-flavored. Approximate reference; the item measures identity error.",
+      "portion_note": "one ramekin of crema catalana with a caramelized sugar crust",
+      "image": "crema-catalana.jpg",
+      "image_todo": "source a license-clean photo of crema catalana (caramelized top, ramekin)",
+      "search": "crema catalana",
+      "category": "Crema catalana"
+    },
+    {
+      "id": "paella",
+      "known_carbs_grams": 50,
+      "expected_identity": ["paella", "spanish rice", "seafood rice"],
+      "confused_with": "risotto / a generic rice dish; and an extreme run-to-run carb swing (one model ranged 55 g to 484 g across repeats of one photo in the study)",
+      "failure_mode": "high_variance",
+      "label_basis": "one paella serving (~250 g cooked): saffron rice + seafood/chicken; ~45-55 g carb. Reference value is approximate; the item exists to measure run-to-run VARIANCE (CV / worst-case swing), the failure the study found most dangerous on rice dishes.",
+      "portion_note": "one plated serving of paella (rice, seafood, peas)",
+      "image": "paella.jpg",
+      "image_todo": "source a license-clean photo of a single plated paella serving",
+      "search": "paella valenciana plate",
+      "category": "Paella"
+    },
+    {
+      "id": "blueberry-muffin",
+      "known_carbs_grams": 52,
+      "expected_identity": ["muffin", "blueberry muffin"],
+      "confused_with": "an unfrosted cupcake (near-identical shape; a standard cupcake is roughly half the carb of a large bakery muffin)",
+      "failure_mode": "identity_lookalike",
+      "label_basis": "one large bakery-style blueberry muffin (~115 g); ~50-55 g carb. A standard cupcake (~45 g) is ~25 g carb, so a muffin/cupcake identity error roughly doubles or halves the carb estimate -- identity error as a carb error.",
+      "portion_note": "one large bakery blueberry muffin",
+      "image": "blueberry-muffin.jpg",
+      "image_todo": "source a license-clean photo of a single large blueberry muffin",
+      "search": "blueberry muffin",
+      "category": "Blueberry muffins"
+    },
+    {
+      "id": "mixed-plate",
+      "ambiguous": true,
+      "expected_identity": ["mixed plate", "dinner plate", "combination plate"],
+      "confused_with": "any composed plate; the carb-determining starch portion is not visually resolvable",
+      "failure_mode": "portion_ambiguity",
+      "label_basis": "a mixed restaurant plate (protein + starch + vegetables). Carbs depend almost entirely on the unseen depth/volume of the starch, so there is NO single honest reference value -- marked ambiguous: scored for variance and identity only, never MAE. This is the honest case: the right output is a wide spread, not a confident number.",
+      "portion_note": "a composed dinner plate (e.g. chicken + potatoes/rice + vegetables)",
+      "image": "mixed-plate.jpg",
+      "image_todo": "source a license-clean photo of a composed dinner plate (protein + starch + veg)",
+      "search": "dinner plate chicken potatoes vegetables",
+      "category": "Plates of food"
+    }
+  ]
+}
