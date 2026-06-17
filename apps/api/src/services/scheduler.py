@@ -745,7 +745,14 @@ def start_scheduler() -> AsyncIOScheduler:
         logger.warning("Scheduler already running")
         return scheduler
 
-    scheduler = AsyncIOScheduler()
+    # Pin to UTC instead of the host's local timezone (APScheduler's default,
+    # resolved via tzlocal). APScheduler 3.x miscalculates its wakeup loop across
+    # a DST spring-forward when the configured zone is a ZoneInfo object, which
+    # can stall sub-minute jobs (e.g. the Telegram poll) for up to an hour. UTC
+    # has no DST so the whole class is moot; every job here uses IntervalTrigger
+    # (fixed deltas) and per-user brief send-times are resolved in app logic, not
+    # the trigger, so UTC is safe.
+    scheduler = AsyncIOScheduler(timezone="UTC")
 
     # Add Dexcom sync job if enabled
     if settings.dexcom_sync_enabled:
