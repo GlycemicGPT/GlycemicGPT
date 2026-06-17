@@ -123,18 +123,13 @@ def _download(url: str, dest: Path) -> None:
         dest.write_bytes(data)
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    here = Path(__file__).parent
-    parser.add_argument("--manifest", default=str(here / "dataset" / "manifest.json"))
-    parser.add_argument("--force", action="store_true", help="re-fetch even if present")
-    args = parser.parse_args()
-
-    manifest_path = Path(args.manifest)
+def _fetch_manifest(manifest_path: Path, force: bool) -> None:
+    """Fill any missing images for one manifest and pin provenance back."""
     manifest = json.loads(manifest_path.read_text())
     images_dir = manifest_path.parent / "images"
     images_dir.mkdir(parents=True, exist_ok=True)
 
+    print(f"== {manifest_path} ==")
     changed = False
     for item in manifest.get("items", []):
         item_id = item["id"]
@@ -142,7 +137,7 @@ def main() -> int:
             print(f"  {item_id}: skipped (id is not a safe slug)")
             continue
         existing = item.get("image")
-        if existing and (images_dir / existing).exists() and not args.force:
+        if existing and (images_dir / existing).exists() and not force:
             print(f"  {item_id}: already present ({existing})")
             continue
 
@@ -179,9 +174,31 @@ def main() -> int:
 
     if changed:
         manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
-        print(f"\nUpdated provenance in {manifest_path}")
+        print(f"  Updated provenance in {manifest_path}")
     else:
-        print("\nNothing to update.")
+        print("  Nothing to update.")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    here = Path(__file__).parent
+    # Accept one or more manifests so the CLI matches the harness's --manifest.
+    parser.add_argument(
+        "--manifest",
+        nargs="+",
+        default=[str(here / "dataset" / "manifest.json")],
+        help="one or more manifest paths (default: the v1 easy set)",
+    )
+    parser.add_argument("--force", action="store_true", help="re-fetch even if present")
+    args = parser.parse_args()
+
+    for raw_path in args.manifest:
+        # Fall back to a path relative to this script so a command run from the
+        # repo root (``--manifest dataset/adversarial.json``) resolves too.
+        path = Path(raw_path)
+        if not path.exists() and (here / raw_path).exists():
+            path = here / raw_path
+        _fetch_manifest(path, args.force)
     return 0
 
 
