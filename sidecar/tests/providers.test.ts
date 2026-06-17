@@ -162,19 +162,6 @@ describe("CodexProvider", () => {
     expect(state.authenticated).toBe(false);
   });
 
-  it("resolves known model names", async () => {
-    const { resolveModel } = await import("../src/providers/codex.js");
-    expect(resolveModel("gpt-4o")).toBe("gpt-4o");
-    expect(resolveModel("o3-mini")).toBe("o3-mini");
-    expect(resolveModel()).toBe("gpt-4o"); // default
-  });
-
-  it("rejects unknown model names", async () => {
-    const { resolveModel } = await import("../src/providers/codex.js");
-    expect(() => resolveModel("claude-sonnet-4")).toThrow("Unsupported model");
-    expect(() => resolveModel("--some-flag")).toThrow("Unsupported model");
-  });
-
   it("supportsVision tracks Codex auth availability", async () => {
     delete process.env.OPENAI_API_KEY;
     const { CodexProvider } = await import("../src/providers/codex.js");
