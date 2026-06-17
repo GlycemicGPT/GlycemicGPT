@@ -21,7 +21,7 @@ dependencies = [
     "httpx>=0.26.0",
     "python-jose[cryptography]>=3.3.0",
     "bcrypt>=4.0.0",
-    # Security floor: <0.0.31 is vulnerable to GHSA-5rvq-cxj2-64vf (7.5),
+    # Security floor: <0.0.31 is vulnerable to GHSA-5rvq-cxj2-64vf (HIGH),
     # GHSA-6jv3-5f52-599m, GHSA-v9pg-7xvm-68hf, GHSA-vffw-93wf-4j4q (all fixed by 0.0.31).
     "python-multipart>=0.0.31",
     "pydexcom>=0.2.0",
