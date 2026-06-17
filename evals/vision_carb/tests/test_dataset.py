@@ -66,8 +66,10 @@ def test_adversarial_manifest_is_well_formed():
         else:
             assert isinstance(item["known_carbs_grams"], (int, float)), item_id
             assert item["known_carbs_grams"] >= 0, item_id
-        # Images are NOT committed (licensing/PHI); each carries a sourcing TODO.
-        assert item.get("image_todo"), item_id
+        # Images are NOT committed (licensing/PHI); provenance is pinned per item
+        # (source_url + license) so the image can be re-fetched + attributed.
+        assert item.get("source_url"), item_id
+        assert item.get("license"), item_id
 
 
 def test_adversarial_covers_the_required_cases_and_failure_modes():

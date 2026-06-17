@@ -87,50 +87,72 @@ and a search hint. Source license-clean images before a run:
 **Question:** the production pipeline samples each photo **N=3** times. Does N=3
 adequately surface variance, or should N change?
 
-### Live confirmation (3-food easy subset, claude-sonnet-4-5 via the sidecar)
+### Live results — full sweep (9 easy + 6 adversarial, claude-sonnet-4-5)
 
-A live run on the first three easy foods (banana, apple, orange) through the
-sidecar's Claude vision path — the variance-vs-cost sweep this metric exists to
-produce:
+The complete N=1/3/5 sweep over all 15 images (75 vision calls) through the
+sidecar's Claude vision path. **0 dosing-language violations.**
 
-| N | max CV | max spread (g) | max illustrative swing (U) | MAE (g) |
-| --- | --- | --- | --- | --- |
-| 1 | — (unmeasurable) | — | — | 5.8 |
-| 3 | 0.11 | 5.0 | 0.5 | 5.3 |
-| 5 | 0.25 | 20.0 | 2.0 | 6.7 |
+| N | max CV | mean CV | max spread (g) | max illustrative swing (U) | identity-error | MAE (g) |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | — (unmeasurable) | — | — | — | 7 % | 14.4 |
+| 3 | 0.25 | 0.10 | 26.5 | 2.65 | 7 % | 11.8 |
+| 5 | 0.24 | 0.10 | 27.0 | 2.70 | 7 % | 11.3 |
 
-This is **the verdict, observed**: at N=1 variance is invisible; at N=3 the
-worst food shows a 5 g spread; **at N=5 the same food's spread is 20 g** — the
-high-variance item (the two-apple photo) only reveals its true dispersion with
-more samples. N=3 detects that something is off but *under-reports the
-magnitude*, exactly as the statistics below predict. Identity-error rate was
-**0 %** (all three foods correctly identified by the containment check) and
-**dosing-language violations 0**.
+By set: the adversarial set is measurably harder — **MAE ≈ 14.6 g vs ≈ 9.5 g**
+on the easy set, and **identity error 20 % (1/5 scored) vs 0 %**.
 
-> This subset is a live *confirmation*, not the full experiment. The complete
-> easy (9) + adversarial (6) sweep is the operational next step (it needs the
-> license-clean adversarial images sourced and consumes N× subscription quota,
-> so it is a periodic/manual run, deliberately **out of CI**):
->
-> ```bash
-> python evals/vision_carb/fetch_images.py --manifest dataset/adversarial.json
-> SIDECAR_API_KEY=<key> python evals/vision_carb/harness.py \
->     --manifest dataset/manifest.json dataset/adversarial.json --sweep 1,3,5
-> ```
+What the adversarial items showed (the reason the set exists):
 
-**Live testing found and fixed a real metric bug.** The first live run reported a
-100 % identity-error rate on three foods the model had named correctly: the
-identity matcher used symmetric token Jaccard, which collapses on the real
-model's verbose descriptions ("A single whole banana, unpeeled, resting on a
-rock…" shares too few tokens with "banana" to clear the threshold). Because the
-eval has ground truth, the matcher was changed to **containment** (does the
-description contain the expected food name?), which is robust to verbose output;
-the rate then read 0 %. The unit tests had used short descriptions and missed
-this — a regression test now pins the real verbose-description case. (The
-production aggregator clusters descriptions against *each other* with the same
-Jaccard and is likely also weak on verbose output — tracked as a follow-up.)
+- **`crema-catalana` → misidentified as crème brûlée** (the exact diabettech
+  look-alike), and that identity error drove the worst identity-linked carb error
+  (**MAE 22.7 g**). Misidentification upstream of carb error, observed.
+- **`cheese-sandwich`: the tightest CV in the whole set (0.03) yet MAE 10.7 g**
+  (model ≈ 19 g vs 30 g truth). The textbook *consistency-is-not-correctness*
+  case: a confident, perfectly-repeatable, systematically-low estimate. Variance
+  alone would have called this "high confidence." It is wrong.
+- **`mixed-plate` (ambiguous): MAE and identity both `None`** (correctly not
+  scored), variance still measured (CV 0.10) — the ambiguous gate behaves on real
+  data.
+- **`bakewell-tart` was correctly identified** — Claude resisted the Bakewell→
+  Linzer confusion the study's weaker models fell for 100 % of the time, a useful
+  capability data point in its own right.
+- Highest-variance items: chocolate-chip-cookie (spread 27 g), white-rice-bowl
+  (26.5 g), apple (20.5 g) — portion-ambiguous foods, as expected.
 
-### The verdict does not depend on the live run
+This **confirms the verdict**: at N=1 variance is invisible; N≥3 surfaces the
+high-variance tail (max spread ~26 g) and the identity errors. On this stable
+model the N=3 and N=5 aggregates are close (max CV 0.25 vs 0.24) — Claude is
+reproducible enough that N=3 already captures the fleet-level dispersion, which is
+why **N=3 is adequate for the live pipeline**. The **N≥5 benchmark margin is
+insurance for the unknown, less-stable local models** the benchmark will gate,
+where N=3's per-item CV estimate (≈ 50 % relative error, see below) is too noisy
+to gate on — not a claim that cloud needs N=5.
+
+Against the pass-bar below, the cloud reference (Claude) clears its own easy-set
+gates with margin: easy max CV 0.24 (< 0.30), easy max spread 27 g (≤ 30 g), easy
+MAE 9.5 g (< 15 g), easy identity error 0 % (< 10 %).
+
+**Live testing found and fixed a real metric bug.** An earlier live run reported a
+100 % identity-error rate on foods the model had named correctly: the identity
+matcher used symmetric token Jaccard, which collapses on the real model's verbose
+descriptions ("A single whole banana, unpeeled, resting on a rock…" shares too
+few tokens with "banana" to clear the threshold). Because the eval has ground
+truth, the matcher was changed to **containment** (does the description contain
+the expected food name?), which is robust to verbose output. The unit tests had
+used short descriptions and missed this — a regression test now pins the real
+verbose-description case. (The production aggregator clusters descriptions against
+*each other* with the same Jaccard and is likely also weak on verbose output —
+tracked as a follow-up.)
+
+Reproduce:
+
+```bash
+python evals/vision_carb/fetch_images.py --manifest dataset/manifest.json dataset/adversarial.json
+SIDECAR_API_KEY=<key> python evals/vision_carb/harness.py \
+    --manifest dataset/manifest.json dataset/adversarial.json --sweep 1,3,5
+```
+
+### Why the verdict holds independent of any single run
 
 Whether N=3 is enough is, at its core, a **sampling-statistics** question, and the
 answer is robust independent of the specific model:
@@ -193,12 +215,13 @@ misidentifying simple foods, **fails**.
 | **Adversarial set** | reported, compared to the cloud reference (not a hard absolute gate) | Look-alikes are hard for every model; the bar is "no worse than the cloud reference," and the numbers inform user guidance, not a binary pass. |
 | **Sampling N for the benchmark** | **N ≥ 5** | Per the verdict above — do not gate on N=3's optimistic variance estimate. |
 
-The absolute thresholds above are **starting values to be finalized against the
-measured cloud (Claude) reference baseline** once that sweep is run: the true bar
-is "a local model is acceptable when its variance/identity are within a defined
-margin of the cloud reference, with the hard gates (0 dosing, ≤ 10 % easy
-identity error) absolute." Anchoring to the cloud baseline keeps the bar honest
-as models and the eval set evolve.
+The absolute thresholds above are **calibrated against the measured cloud
+(Claude) reference baseline** (the live results above: easy max CV 0.24, easy max
+spread 27 g, easy MAE 9.5 g, easy identity error 0 % — the reference clears every
+easy-set gate with margin). The true bar is "a local model is acceptable when its
+variance/identity are within a defined margin of the cloud reference, with the
+hard gates (0 dosing, ≤ 10 % easy identity error) absolute." Re-run the cloud
+sweep when the model or eval set changes to keep the baseline current.
 
 ---
 
