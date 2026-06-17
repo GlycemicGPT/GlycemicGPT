@@ -1206,7 +1206,10 @@ export interface CurrentUserResponse {
   role: "diabetic" | "caregiver" | "admin";
   is_active: boolean;
   email_verified: boolean;
+  // Version-aware: the API reports `false` when the stored acknowledgment is for
+  // an older disclaimer version, so the gate re-prompts on a version bump.
   disclaimer_acknowledged: boolean;
+  disclaimer_version: string | null;
   created_at: string;
 }
 

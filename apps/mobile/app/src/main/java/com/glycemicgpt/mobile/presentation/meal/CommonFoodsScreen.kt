@@ -12,7 +12,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -251,7 +253,15 @@ private fun EditCommonFoodDialog(
         onDismissRequest = onDismiss,
         title = { Text("Edit common food") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            // Scrollable so the embedded qualifier + fields can't clip (and block
+            // the buttons) on small screens or large accessibility font sizes.
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+            ) {
+                // Story 50.S: the AlertDialog scrim dims the screen-level qualifier,
+                // so embed it inside the modal above the editable carb grams.
+                VerifyBeforeDosingQualifier()
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },

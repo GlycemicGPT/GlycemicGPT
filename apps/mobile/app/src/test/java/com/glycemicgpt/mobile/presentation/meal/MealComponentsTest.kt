@@ -47,8 +47,10 @@ class MealComponentsTest {
     }
 
     @Test
-    fun `the verify-before-dosing qualifier text mentions both estimate and dosing`() {
-        assertTrue(VERIFY_BEFORE_DOSING_TEXT.contains("Estimate", ignoreCase = true))
-        assertTrue(VERIFY_BEFORE_DOSING_TEXT.contains("dosing", ignoreCase = true))
+    fun `the qualifier text names that it is a guess and forbids dosing`() {
+        assertTrue(VERIFY_BEFORE_DOSING_TEXT.contains("estimate", ignoreCase = true))
+        // Story 50.S: must name the prohibited action explicitly, not just "verify".
+        assertTrue(VERIFY_BEFORE_DOSING_TEXT.contains("insulin dose", ignoreCase = true))
+        assertTrue(VERIFY_BEFORE_DOSING_TEXT.contains("bolus", ignoreCase = true))
     }
 }

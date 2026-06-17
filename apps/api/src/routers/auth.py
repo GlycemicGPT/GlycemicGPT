@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
 from src.core.auth import CurrentUser
+from src.core.disclaimer import has_acknowledged_current
 from src.core.security import (
     _DUMMY_HASH,
     create_access_token,
@@ -165,7 +166,7 @@ async def register_user(
             email=user.email,
             role=user.role,
             message="Registration successful",
-            disclaimer_required=not user.disclaimer_acknowledged,
+            disclaimer_required=not has_acknowledged_current(user),
         )
 
     except IntegrityError:
@@ -299,7 +300,7 @@ async def login(
     return LoginResponse(
         message="Login successful",
         user=UserResponse.model_validate(user),
-        disclaimer_required=not user.disclaimer_acknowledged,
+        disclaimer_required=not has_acknowledged_current(user),
     )
 
 

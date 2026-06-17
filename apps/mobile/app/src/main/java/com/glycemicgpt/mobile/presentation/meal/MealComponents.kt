@@ -42,8 +42,13 @@ import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Locale
 
-/** The text shown on every estimate surface. A single source of truth for the safety wording. */
-const val VERIFY_BEFORE_DOSING_TEXT = "Estimate — verify before dosing"
+/**
+ * The text shown on every estimate surface. A single source of truth for the safety wording.
+ * Names the prohibited action explicitly (Story 50.S); mirrors the API SAFETY_QUALIFIER constant.
+ */
+const val VERIFY_BEFORE_DOSING_TEXT =
+    "Rough estimate — an AI guess that's often wrong. " +
+        "Never use it to calculate an insulin dose or bolus."
 
 /** testTag for the always-on safety qualifier. Present on result, history, and common-food surfaces. */
 const val TAG_SAFETY_QUALIFIER = "meal_safety_qualifier"

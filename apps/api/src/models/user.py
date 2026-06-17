@@ -38,6 +38,9 @@ class User(Base, TimestampMixin):
         is_active: Whether the account is active
         email_verified: Whether the email has been verified
         disclaimer_acknowledged: Whether user has acknowledged the disclaimer
+        disclaimer_version: Version of the disclaimer the user acknowledged
+            (NULL until first acknowledged). A mismatch with the current
+            DISCLAIMER_VERSION re-prompts the user; see src.core.disclaimer.
         last_login_at: Timestamp of last successful login
     """
 
@@ -76,6 +79,13 @@ class User(Base, TimestampMixin):
     )
     disclaimer_acknowledged: Mapped[bool] = mapped_column(
         default=False,
+    )
+    # Version the user acknowledged; NULL until first ack. Gated against the
+    # current DISCLAIMER_VERSION so a bump re-prompts (see src.core.disclaimer).
+    disclaimer_version: Mapped[str | None] = mapped_column(
+        String(10),
+        nullable=True,
+        default=None,
     )
     display_name: Mapped[str | None] = mapped_column(
         String(100),
