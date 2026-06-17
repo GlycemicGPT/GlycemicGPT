@@ -46,13 +46,20 @@ def _is_public_https_url(value):
     parsed = urlparse(value.strip())
     if parsed.scheme != "https" or not parsed.hostname:
         return False
-    host = parsed.hostname.lower()
-    if host == "localhost" or host.endswith(".local") or host.endswith(".internal"):
+    host = parsed.hostname.rstrip(".").lower()  # strip the FQDN trailing dot
+    # A public host is a dotted domain; reject single-word internal-like names
+    # ("intranet", "localhost") and the explicit private suffixes.
+    if (
+        "." not in host
+        or host == "localhost"
+        or host.endswith(".local")
+        or host.endswith(".internal")
+    ):
         return False
     try:
         ip = ipaddress.ip_address(host)
     except ValueError:
-        return True  # a regular public hostname
+        return True  # a regular public dotted hostname
     return not (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved)
 
 
@@ -131,6 +138,8 @@ def test_is_public_https_url_rejects_private_and_malformed():
     for bad in (
         "http://commons.wikimedia.org/x",  # not https
         "https://localhost/x",
+        "https://localhost./x",  # trailing-dot FQDN form
+        "https://intranet/x",  # single-word internal host (no dot)
         "https://10.0.0.5/x",
         "https://192.168.1.1/x",
         "https://host.internal/x",
