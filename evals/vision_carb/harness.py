@@ -185,12 +185,31 @@ class LoadedItem:
         return self.raw.get("id", "unknown")
 
 
+def _manifest_paths(args: argparse.Namespace) -> list[str]:
+    """The manifests to evaluate (the default easy set when none is given)."""
+    return args.manifest or [str(_DEFAULT_MANIFEST)]
+
+
+def _resolve_manifest_path(raw_path: str) -> Path:
+    """Resolve a manifest path, falling back to one relative to this script.
+
+    So a documented command run from the repo root (``--manifest
+    dataset/manifest.json``) works even though that path is relative to the
+    harness directory, not the caller's cwd. If neither location exists, the
+    original path is returned so the resulting error names what the user typed.
+    """
+    direct = Path(raw_path)
+    if direct.exists():
+        return direct
+    fallback = _HERE / raw_path
+    return fallback if fallback.exists() else direct
+
+
 def _load_items(args: argparse.Namespace) -> list[LoadedItem]:
     """Load and concatenate every requested manifest, tagging each item's set."""
-    manifest_paths = args.manifest or [str(_DEFAULT_MANIFEST)]
     loaded: list[LoadedItem] = []
-    for raw_path in manifest_paths:
-        manifest_path = Path(raw_path)
+    for raw_path in _manifest_paths(args):
+        manifest_path = _resolve_manifest_path(raw_path)
         manifest = json.loads(manifest_path.read_text())
         # A manifest may name its set ("easy"/"adversarial"); else use the file
         # stem so per-set reporting still distinguishes them.
@@ -240,10 +259,12 @@ def _resolve_image(raw: dict, images_dir: Path) -> tuple[Path | None, str | None
     image_name = raw.get("image")
     if not image_name:
         return None, "manifest item is missing 'image'"
-    if Path(image_name).name != image_name:
+    # Reject path components and the "."/".." specials (Path("..").name == "..",
+    # which would otherwise slip the bare-filename check and read a directory).
+    if image_name in (".", "..") or Path(image_name).name != image_name:
         return None, "image must be a bare filename (no path components)"
     path = images_dir / image_name
-    if not path.exists():
+    if not path.is_file():
         return None, f"image not found: {path}"
     return path, None
 
@@ -370,7 +391,7 @@ def _run_single_shot(
     agg = metrics.aggregate(scores)
     report = {
         "mode": "single_shot",
-        "manifests": args.manifest or [str(_DEFAULT_MANIFEST)],
+        "manifests": _manifest_paths(args),
         "base_url": args.base_url,
         "model": args.model,
         "aggregate": agg.to_dict(),
@@ -382,7 +403,7 @@ def _run_single_shot(
     }
     _write_report(args, report, _render_single_shot_markdown(report))
     _print_single_shot_summary(report)
-    return 0
+    return _exit_code(report)
 
 
 # ---------------------------------------------------------------------------
@@ -531,7 +552,7 @@ def _run_variance(
     )
     report = {
         "mode": "variance",
-        "manifests": args.manifest or [str(_DEFAULT_MANIFEST)],
+        "manifests": _manifest_paths(args),
         "base_url": args.base_url,
         "model": args.model,
         "repeats": n,
@@ -546,7 +567,7 @@ def _run_variance(
     }
     _write_report(args, report, _render_variance_markdown(report))
     _print_variance_summary(report)
-    return 0
+    return _exit_code(report)
 
 
 # ---------------------------------------------------------------------------
@@ -592,7 +613,7 @@ def _run_sweep(
         curve.append(agg)
     report = {
         "mode": "sweep",
-        "manifests": args.manifest or [str(_DEFAULT_MANIFEST)],
+        "manifests": _manifest_paths(args),
         "base_url": args.base_url,
         "model": args.model,
         "sweep": sweep_ns,
@@ -607,7 +628,7 @@ def _run_sweep(
     }
     _write_report(args, report, _render_sweep_markdown(report))
     _print_sweep_summary(report)
-    return 0
+    return _exit_code(report)
 
 
 # ---------------------------------------------------------------------------
@@ -620,6 +641,16 @@ def _write_report(args: argparse.Namespace, report: dict, markdown: str) -> None
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "results.json").write_text(json.dumps(report, indent=2))
     (out_dir / "summary.md").write_text(markdown)
+
+
+# Exit code returned when a run surfaces dosing/advice language in any response.
+# Non-zero so the "must be 0" safety check actually gates a scripted/CI run.
+_DOSING_VIOLATION_EXIT = 3
+
+
+def _exit_code(report: dict) -> int:
+    """0 on a clean run; non-zero if any dosing-language violation was found."""
+    return _DOSING_VIOLATION_EXIT if report["safety"]["dosing_violation_count"] else 0
 
 
 def _pct(value: float | None) -> str:

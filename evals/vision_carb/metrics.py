@@ -280,21 +280,38 @@ def _normalize_expected(expected: object) -> list[str]:
     return []
 
 
+def _plural_eq(a: str, b: str) -> bool:
+    """Token equality tolerant of simple English pluralization.
+
+    Compares by suffix *addition* only (never stripping), so "potato" matches
+    "potatoes" (potato + "es") and "apple" matches "apples" (apple + "s") without
+    the over-stripping that turns "apples" into "appl". Good enough for the
+    single-word food nouns this eval set uses.
+    """
+    if a == b:
+        return True
+    longer, shorter = (a, b) if len(a) > len(b) else (b, a)
+    return longer in (shorter + "s", shorter + "es")
+
+
 def _identity_matches(description: str, expected: list[str]) -> bool:
     """True when ``description`` names the expected food (token containment).
 
-    Matches if the content tokens of ANY expected synonym are all present in the
-    description's tokens -- so a verbose "two red apples, one bitten" contains the
-    synonym "apples", and "a cheese sandwich on white bread" contains "cheese
-    sandwich", while "creme brulee" does not contain "crema catalana". A synonym
-    that normalizes to no tokens (pure stopwords) never matches.
+    Matches if every content token of ANY expected synonym is present in the
+    description's tokens (singular/plural-tolerant) -- so a verbose "two red
+    apples, one bitten" contains the synonym "apple"/"apples", and "a cheese
+    sandwich on white bread" contains "cheese sandwich", while "creme brulee"
+    does not contain "crema catalana". A synonym that normalizes to no tokens
+    (pure stopwords) never matches.
     """
     description_tokens = _identity_tokens(description)
     if not description_tokens or not expected:
         return False
     for synonym in expected:
         synonym_tokens = _identity_tokens(synonym)
-        if synonym_tokens and synonym_tokens <= description_tokens:
+        if synonym_tokens and all(
+            any(_plural_eq(t, d) for d in description_tokens) for t in synonym_tokens
+        ):
             return True
     return False
 
@@ -409,16 +426,19 @@ def score_variance(
 
     # Identity is scored per sample against ground truth (containment), then
     # majority-voted -- no fragile description-to-description clustering. A
-    # representative description is kept for the report.
+    # representative description is kept for the report. An ambiguous item (e.g. a
+    # mixed plate) has no single honest identity, so -- like MAE above -- identity
+    # is not scored for it (left None), never forced to a guaranteed misID.
     described = [d for d in sample_descriptions if d and d.strip()]
     model_identity = described[0] if described else None
+    score_identity = not ambiguous and bool(expected)
     matches = sum(1 for d in described if _identity_matches(d, expected))
     n_described = len(described)
 
     # Identity error needs ground truth AND a described sample to be measurable;
     # then it is a strict-majority vote. A tie -> None (unmeasurable, not wrong).
     identity_error: bool | None = None
-    if expected and n_described:
+    if score_identity and n_described:
         if matches * 2 > n_described:
             identity_error = False  # most samples name the right food
         elif (n_described - matches) * 2 > n_described:
@@ -427,7 +447,7 @@ def score_variance(
     # Run-to-run disagreement: do the samples agree among themselves on whether
     # this is the expected food? A split (some match, some don't) is instability.
     identity_disagreement: bool | None = None
-    if expected and n_described >= 2:
+    if score_identity and n_described >= 2:
         identity_disagreement = 0 < matches < n_described
 
     return VarianceScore(

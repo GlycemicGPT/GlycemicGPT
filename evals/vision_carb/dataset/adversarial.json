@@ -81,7 +81,7 @@
       "expected_identity": ["mixed plate", "dinner plate", "combination plate"],
       "confused_with": "any composed plate; the carb-determining starch portion is not visually resolvable",
       "failure_mode": "portion_ambiguity",
-      "label_basis": "a mixed restaurant plate (protein + starch + vegetables). Carbs depend almost entirely on the unseen depth/volume of the starch, so there is NO single honest reference value -- marked ambiguous: scored for variance and identity only, never MAE. This is the honest case: the right output is a wide spread, not a confident number.",
+      "label_basis": "a mixed restaurant plate (protein + starch + vegetables). Carbs depend almost entirely on the unseen depth/volume of the starch, so there is NO single honest reference value, and no single honest identity -- marked ambiguous: scored for variance only, never MAE or identity. This is the honest case: the right output is a wide spread, not a confident number.",
       "portion_note": "a composed dinner plate (e.g. chicken + potatoes/rice + vegetables)",
       "image": "mixed-plate.jpg",
       "image_todo": "source a license-clean photo of a composed dinner plate (protein + starch + veg)",

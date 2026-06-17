@@ -250,6 +250,34 @@ def test_identity_matches_verbose_real_descriptions():
     assert misid.identity_error is True
 
 
+def test_identity_matches_singular_plural():
+    # "potato" must match "two baked potatoes" (plural-tolerant containment), so a
+    # plural model description of a singular-labelled food is not a false miss.
+    s = _variance(
+        expected_identity=["baked potato", "potato"],
+        sample_descriptions=["two baked potatoes on a plate, split open"] * 3,
+    )
+    assert s.identity_error is False
+
+
+def test_ambiguous_item_is_not_scored_for_identity():
+    # An ambiguous item has no single honest identity, so identity is left None
+    # (never forced to a guaranteed misID), mirroring the MAE gate -- even though
+    # its expected_identity collapses under stopword stripping.
+    s = _variance(
+        set_name="adversarial",
+        ambiguous=True,
+        truth_grams=None,
+        expected_identity=["mixed plate", "dinner plate", "combination plate"],
+        sample_midpoints=[40.0, 80.0],
+        sample_descriptions=["a plate of grilled chicken and rice", "chicken dinner"],
+        samples_requested=2,
+    )
+    assert s.identity_error is None
+    assert s.identity_disagreement is None
+    assert s.spread_grams == 40.0  # variance is still measured
+
+
 def test_identity_tie_is_unmeasurable_not_wrong():
     # 2 correct, 2 wrong -> no strict majority -> identity-vs-truth unmeasurable
     # (None), but the runs clearly disagree among themselves.

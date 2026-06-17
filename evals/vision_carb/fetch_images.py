@@ -193,7 +193,12 @@ def main() -> int:
     args = parser.parse_args()
 
     for raw_path in args.manifest:
-        _fetch_manifest(Path(raw_path), args.force)
+        # Fall back to a path relative to this script so a command run from the
+        # repo root (``--manifest dataset/adversarial.json``) resolves too.
+        path = Path(raw_path)
+        if not path.exists() and (here / raw_path).exists():
+            path = here / raw_path
+        _fetch_manifest(path, args.force)
     return 0
 
 
