@@ -28,7 +28,7 @@ router = APIRouter(prefix="/api/disclaimer", tags=["Disclaimer"])
 
 # Current disclaimer version - increment when disclaimer text changes.
 # 1.1: added AI data-handling acknowledgment (cloud vs local provider data flow).
-DISCLAIMER_VERSION = "1.1"
+DISCLAIMER_VERSION = "1.2"
 
 
 @router.get("/status", response_model=DisclaimerStatusResponse)
@@ -227,6 +227,18 @@ async def get_disclaimer_content() -> dict[str, Any]:
                 "icon": "brain",
                 "title": "AI Limitations",
                 "text": "AI can and will make mistakes. All suggestions should be verified with your healthcare provider before acting on them.",
+            },
+            {
+                "icon": "camera",
+                "title": "Photo Carb Estimates Are Guesses",
+                "text": (
+                    "If you use the meal-photo feature, the carbohydrate numbers "
+                    "are AI estimates from an image and are frequently wrong -- "
+                    "including misidentifying the food entirely. They are a rough "
+                    "starting point only. Never use a photo carb estimate to "
+                    "calculate an insulin dose or bolus, and always verify carbs "
+                    "yourself before dosing."
+                ),
             },
             {
                 "icon": "shield-x",

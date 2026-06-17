@@ -111,18 +111,30 @@ USER_PROMPT = (
 )
 
 # Phrasing that would turn a description into dosing advice. Its presence in a
-# response is a safety-posture violation. Bare "units" is NOT
-# flagged on its own (it has benign uses, e.g. "unit of measurement") -- only
-# insulin units / a dosing verb near "units" / explicit dosing terms.
+# response is a safety-posture violation. Bare "units" is NOT flagged on its own
+# (it has benign uses, e.g. "unit of measurement") -- only insulin units / a
+# dosing-or-suggestion verb near "units" / the "Nu"/"NU" insulin-unit
+# abbreviation (e.g. "6u", "take 4U") / explicit dosing terms.
 _DOSING_PATTERNS = re.compile(
     r"\b("
     r"insulin|bolus(?:es|ing)?|"
     r"units?\s+of\s+insulin|"
-    r"(?:take|inject|administer|give|deliver|dose|dosing)\b[^.]{0,40}\bunits?\b|"
+    r"(?:take|inject|administer|give|deliver|dose|dosing|suggest|recommend"
+    r"|consider|cover|need)\b[^.]{0,40}\bunits?\b|"
+    r"\d{1,3}\s*u\b|"
     r"carb\s*ratio|insulin[- ]to[- ]carb|correction\s+factor|"
     r"how\s+much\s+insulin"
     r")\b",
     re.IGNORECASE,
+)
+
+# Canonical user-facing safety qualifier for a vision carb estimate. Names the
+# prohibited action explicitly (never dose/bolus) rather than the softer
+# "verify before dosing". Single source of truth for the API surfaces; the
+# mobile client mirrors this string in MealComponents.kt.
+SAFETY_QUALIFIER = (
+    "Rough estimate — an AI guess that's often wrong. "
+    "Never use it to calculate an insulin dose or bolus."
 )
 
 

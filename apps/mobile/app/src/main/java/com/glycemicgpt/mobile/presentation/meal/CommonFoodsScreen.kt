@@ -252,6 +252,9 @@ private fun EditCommonFoodDialog(
         title = { Text("Edit common food") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                // Story 50.S: the AlertDialog scrim dims the screen-level qualifier,
+                // so embed it inside the modal above the editable carb grams.
+                VerifyBeforeDosingQualifier()
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },

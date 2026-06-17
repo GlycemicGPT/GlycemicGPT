@@ -59,7 +59,7 @@ class TestDisclaimerStatus:
             data = response.json()
             assert data["acknowledged"] is False
             assert data["acknowledged_at"] is None
-            assert data["disclaimer_version"] == "1.1"
+            assert data["disclaimer_version"] == "1.2"
 
     @pytest.mark.asyncio
     async def test_returns_acknowledged_for_existing_session(self, client):
@@ -138,7 +138,7 @@ class TestDisclaimerStatus:
             data = response.json()
             assert data["acknowledged"] is False
             assert data["acknowledged_at"] is None
-            assert data["disclaimer_version"] == "1.1"
+            assert data["disclaimer_version"] == "1.2"
 
 
 class TestDisclaimerAcknowledge:
@@ -338,14 +338,15 @@ class TestDisclaimerContent:
     async def test_returns_disclaimer_content(self, client):
         """
         AC1: Disclaimer content includes all required warnings.
-        v1.1 adds an AI Data Processing warning.
+        v1.1 adds an AI Data Processing warning; v1.2 adds a photo-carb-estimate
+        warning (Story 50.S).
         """
         response = await client.get("/api/disclaimer/content")
 
         assert response.status_code == 200
         data = response.json()
 
-        assert data["version"] == "1.1"
+        assert data["version"] == "1.2"
         assert data["title"] == "Important Safety Information"
 
         # Check all required warnings are present
@@ -355,6 +356,7 @@ class TestDisclaimerContent:
         assert "Not FDA Approved" in warning_titles
         assert "Consult Your Healthcare Provider" in warning_titles
         assert "AI Data Processing" in warning_titles
+        assert "Photo Carb Estimates Are Guesses" in warning_titles
 
         # Check warning text contains required phrases
         warning_texts = " ".join([w["text"] for w in data["warnings"]])
@@ -362,6 +364,8 @@ class TestDisclaimerContent:
         assert "ai" in warning_texts.lower()
         assert "fda" in warning_texts.lower()
         assert "healthcare provider" in warning_texts.lower()
+        # The photo-carb warning must name the prohibited action explicitly.
+        assert "insulin dose or bolus" in warning_texts.lower()
         # v1.1: AI data-flow disclosure uses vendor-agnostic cloud/local framing
         assert "cloud" in warning_texts.lower()
         assert "local" in warning_texts.lower()

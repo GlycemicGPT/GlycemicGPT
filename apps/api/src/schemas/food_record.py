@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Literal
 from pydantic import BaseModel, Field, model_validator
 
 from src.models.food_record import FoodRecordSource
-from src.vision.carb_contract import CARB_GRAMS_MAX, CARB_GRAMS_MIN
+from src.vision.carb_contract import CARB_GRAMS_MAX, CARB_GRAMS_MIN, SAFETY_QUALIFIER
 
 if TYPE_CHECKING:
     from src.models.food_record_audit import FoodRecordAudit
@@ -115,6 +115,10 @@ class FoodRecordResponse(BaseModel):
     carbs_low: float = Field(ge=CARB_GRAMS_MIN, le=CARB_GRAMS_MAX)
     carbs_high: float = Field(ge=CARB_GRAMS_MIN, le=CARB_GRAMS_MAX)
     confidence: str | None = None
+    # Server-emitted safety qualifier (Story 50.S): a constant that travels with
+    # every estimate so a non-mobile client can't render carbs without the
+    # "this is a guess, never dose from it" framing. Mirrors the mobile string.
+    safety_qualifier: str = Field(default=SAFETY_QUALIFIER)
     nutrition_json: dict | None = None
     source: FoodRecordSource
     corrected_carbs_low: float | None = Field(

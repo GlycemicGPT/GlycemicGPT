@@ -130,6 +130,12 @@ jobs:
           ENCRYPTION_KEY: dGVzdC1lbmNyeXB0aW9uLWtleS0zMi1ieXRlcw==
         run: uv run pytest --tb=short -q
 
+      # Story 50.S: gate the vision carb-estimate contract — including the
+      # dosing-language safety scanner — in CI. These tests import the backend
+      # contract via a shim, so they run with the apps/api venv.
+      - name: Run vision eval-harness contract tests
+        run: uv run pytest --tb=short -q ../../evals/vision_carb/tests/
+
   test-frontend:
     name: Frontend Tests
     needs: detect-changes

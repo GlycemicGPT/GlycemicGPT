@@ -169,6 +169,29 @@ def test_take_units_is_flagged():
     assert est.dosing_violations
 
 
+def test_insulin_unit_abbreviation_is_flagged():
+    # The "Nu"/"NU" insulin-unit shorthand (Story 50.S hardening).
+    for text in ("give yourself 6u for this", "take 4U now", "about 10u of rapid"):
+        assert contract.find_dosing_violations(text), text
+
+
+def test_suggestion_verbs_near_units_are_flagged():
+    # Dosing-suggestion verbs near "units", not just take/inject (Story 50.S).
+    for text in (
+        "I suggest about 5 units for this meal",
+        "you could cover this with 3 units",
+        "consider 4 units to match these carbs",
+    ):
+        assert contract.find_dosing_violations(text), text
+
+
+def test_iu_and_oz_not_flagged_as_insulin_units():
+    # International units (IU), ounces (oz), and cups must not trip the
+    # abbreviation rule — only a bare number + "u" does.
+    for text in ("vitamin D about 400 IU", "a 6 oz portion", "12 cups of broth"):
+        assert contract.find_dosing_violations(text) == [], text
+
+
 def test_benign_unit_language_is_not_flagged():
     # "units" / "unit" appear in benign contexts and must not trip the scanner.
     for text in (

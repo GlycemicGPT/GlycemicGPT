@@ -451,6 +451,10 @@ class TestFoodRecordsApi:
         assert body["carbs_high"] == 45
         assert body["source"] == "ai_estimate"
         assert "dose" not in body and "insulin" not in body
+        # Story 50.S: the response carries a server-side safety qualifier that
+        # explicitly names the prohibition, so a non-mobile client can't render
+        # carbs without it.
+        assert "insulin dose or bolus" in body["safety_qualifier"].lower()
 
         listing = await client.get("/api/food-records")
         assert listing.status_code == 200
