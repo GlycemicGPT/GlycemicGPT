@@ -26,6 +26,7 @@ dependencies = [
     "python-multipart>=0.0.31",
     "pydexcom>=0.2.0",
     "apscheduler>=3.10.0",
+    "tzlocal>=5.2",  # explicit: apscheduler's runtime tz dependency; guards against transitive-resolver drops
     "tconnectsync>=2.3.0",
     # tconnectsync.api.tandemsource imports requests_oidc.make_auth_code_session,
     # which only exists in requests-oidc>=0.5.0. Renovate's lock-file maintenance
