@@ -28,7 +28,11 @@ from src.models.food_record import FoodRecord, FoodRecordSource
 from src.models.knowledge_chunk import KnowledgeChunk
 from src.models.user import User, UserRole
 from src.services import food_vision, meal_grounding, meal_rag, nutrition_sources
-from src.vision.carb_contract import find_dosing_violations
+from src.vision.carb_contract import (
+    MEAL_ESTIMATE_QUALIFIER,
+    NEVER_DOSE_PROHIBITION,
+    find_dosing_violations,
+)
 
 # (asyncio_mode = "auto" in pyproject -- async tests need no explicit mark.)
 
@@ -391,6 +395,15 @@ class TestOpenFoodFacts:
         assert fact.carbs_grams == 70.0
         assert fact.source_url == "https://world.openfoodfacts.org/product/999"
         assert fact.disclaimer and "Open Food Facts" in fact.disclaimer
+        # Story 50.H5 (AC4): the grounding disclaimer carries the canonical dosing
+        # prohibition (single source of truth, shared with MEAL_ESTIMATE_QUALIFIER)
+        # and never the permissive "verify before dosing". It must NOT mislabel
+        # published reference data as an "AI estimate" -- only the prohibition is
+        # reused, not the whole estimate qualifier.
+        assert NEVER_DOSE_PROHIBITION in fact.disclaimer
+        assert "verify before dosing" not in fact.disclaimer.lower()
+        assert "AI estimate" not in fact.disclaimer
+        assert MEAL_ESTIMATE_QUALIFIER not in fact.disclaimer
 
     async def test_disabled_returns_none(self, monkeypatch):
         monkeypatch.setattr(settings, "open_food_facts_enabled", False)
