@@ -10,6 +10,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.navigation.compose.NavHost
@@ -88,19 +89,20 @@ class MealFullFlowE2ETest {
         compose.onNodeWithTag("meal_carb_range", useUnmergedTree = true).assertIsDisplayed()
 
         // GJ2: correct the estimate; the corrected note proves it persisted + re-rendered.
-        compose.onNodeWithTag("meal_correct_button").performClick()
+        tapInScroll("meal_correct_button")
         awaitTag("meal_correction_editor")
         compose.onNodeWithTag("meal_correct_low_input").performTextReplacement("70")
         compose.onNodeWithTag("meal_correct_high_input").performTextReplacement("80")
         // Editing the number fields raises the soft keyboard, which on a real emulator
-        // overlays the inline Save button; dismiss it (as a user would) so the click
-        // lands on the button and not on the IME window.
+        // overlays the inline Save button; dismiss it (as a user would) and scroll the
+        // button into view so the click lands on the button, not the IME or the void
+        // below a short screen's fold.
         dismissKeyboard()
-        compose.onNodeWithTag("meal_correct_save").performClick()
+        tapInScroll("meal_correct_save")
         awaitTag("meal_corrected_note")
 
         // GJ3: save the corrected estimate as a common food.
-        compose.onNodeWithTag("meal_save_common_button").performClick()
+        tapInScroll("meal_save_common_button")
         awaitTag("meal_save_common_name_input")
         compose.onNodeWithTag("meal_save_common_name_input").performTextInput("Chicken Burrito")
         dismissKeyboard() // same IME-overlay guard before the dialog's confirm button
@@ -109,9 +111,9 @@ class MealFullFlowE2ETest {
         check(api.commonFoods.isNotEmpty()) { "save-as-common-food never reached the API" }
 
         // Navigate to history (result -> idle -> History) and see the saved record.
-        compose.onNodeWithTag("meal_log_another").performClick()
+        tapInScroll("meal_log_another")
         awaitTag("meal_history_button")
-        compose.onNodeWithTag("meal_history_button").performClick()
+        tapInScroll("meal_history_button")
         awaitTag("meal_history_item")
         // The qualifier rides every estimate surface, history included.
         compose.onNodeWithTag("meal_safety_qualifier", useUnmergedTree = true).assertIsDisplayed()
@@ -204,6 +206,14 @@ class MealFullFlowE2ETest {
 
     /** Hide the soft keyboard and wait for it to be gone, so it can't overlay a tap target. */
     private fun dismissKeyboard() = Espresso.closeSoftKeyboard()
+
+    /**
+     * Scroll a node in the result/idle scroll column into view, then click it. The result
+     * surface is a [androidx.compose.foundation.verticalScroll] column, so on a shorter
+     * screen a button can sit below the fold where a positional click would miss it.
+     */
+    private fun tapInScroll(tag: String) =
+        compose.onNodeWithTag(tag).performScrollTo().performClick()
 
     private fun awaitTag(tag: String, timeoutMs: Long = 10_000) {
         compose.waitUntil(timeoutMs) {
