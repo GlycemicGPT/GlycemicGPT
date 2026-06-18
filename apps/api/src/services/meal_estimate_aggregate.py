@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import re
 import statistics
+import unicodedata
 from dataclasses import dataclass, field
 
 from src.vision.carb_contract import (
@@ -56,10 +57,9 @@ CONFIDENCE_HIGH = "high"
 CONFIDENCE_MEDIUM = "medium"
 CONFIDENCE_LOW = "low"
 
-# Token-set Jaccard at or above this means two food descriptions name the same
-# food for agreement purposes. Below it (e.g. "creme brulee" vs "crema catalana",
-# disjoint tokens -> 0.0) the samples disagree on identity. (50.H4 tunes this.)
-_IDENTITY_AGREEMENT_JACCARD = 0.5
+# Upper bound on content tokens compared per description (DoS guard for the
+# O(tokens^2) identity match; a food identity never needs this many).
+_MAX_IDENTITY_TOKENS = 24
 
 # Common filler words stripped before comparing food identities, so "a plate of
 # grilled chicken" and "grilled chicken breast" still cluster together.
@@ -135,18 +135,90 @@ def _sample_in_bounds(sample: ParsedEstimate) -> bool:
     )
 
 
+def _strip_accents(text: str) -> str:
+    """Drop combining marks so "creme brulee" matches "crème brûlée"."""
+    decomposed = unicodedata.normalize("NFKD", text)
+    return "".join(ch for ch in decomposed if not unicodedata.combining(ch))
+
+
 def _identity_tokens(description: str) -> frozenset[str]:
-    """Normalize a food description to a comparable token set."""
-    tokens = re.findall(r"[a-z0-9]+", (description or "").lower())
-    return frozenset(t for t in tokens if t not in _IDENTITY_STOPWORDS)
+    """Normalize a food description to a comparable, stopword-stripped token set.
+
+    Accents are folded (NFKD) before tokenizing so unicode spelling variants of
+    the same food ("crème brûlée" / "creme brulee") share tokens instead of
+    reading as different foods. The content tokens are capped at
+    ``_MAX_IDENTITY_TOKENS``: ``_identity_match`` is O(tokens_a * tokens_b) per pair
+    and clustering is O(N^2) pairs, so an unbounded model description (the raw,
+    pre-storage-cap sidecar text) would be a synchronous CPU sink -- and a food
+    identity never needs that many content tokens, only the leading ones carry it.
+    """
+    normalized = _strip_accents(description or "").lower()
+    tokens = re.findall(r"[a-z0-9]+", normalized)
+    content = [t for t in tokens if t not in _IDENTITY_STOPWORDS]
+    return frozenset(content[:_MAX_IDENTITY_TOKENS])
 
 
-def _jaccard(a: frozenset[str], b: frozenset[str]) -> float:
+def _plural_eq(a: str, b: str) -> bool:
+    """Token equality tolerant of simple English pluralization.
+
+    Compares by suffix *addition* only (never stripping), so "potato" matches
+    "potatoes" (potato + "es") and "apple" matches "apples" (apple + "s") without
+    over-stripping that would collapse "apples" back to "appl". It can still
+    over-ADD on short words (any word that is another word plus "s"/"es" collapses,
+    e.g. "bus"/"buses"), but those are not plausible food-identity tokens, so it is
+    good enough for the food nouns that drive identity here. Mirrors the eval
+    harness helper (``evals/vision_carb/metrics.py``).
+    """
+    if a == b:
+        return True
+    longer, shorter = (a, b) if len(a) > len(b) else (b, a)
+    return longer in (shorter + "s", shorter + "es")
+
+
+def _identity_match(a: frozenset[str], b: frozenset[str]) -> bool:
+    """True when two descriptions name the same food, by token containment.
+
+    The shorter token set is the candidate "name"; it matches when **all** of its
+    content tokens appear (plural-tolerant) in the longer set -- i.e. the terse
+    description is fully contained in the verbose one. Unlike the original
+    symmetric Jaccard this does not collapse when one description is far more
+    verbose than the other (a terse "banana" is fully contained in "a ripe banana
+    with brown speckles on the peel"), which was the bug this hardening fixes:
+    the same food read two ways scored low Jaccard and read as disagreement.
+
+    Full containment (rather than a partial-overlap ratio) keeps the safe
+    direction intact: two genuinely different multi-token names that merely share a
+    common noun -- "chicken salad" vs "chicken soup", "beef taco" vs "fish taco" --
+    are NOT fully contained, so they correctly disagree (a partial ratio would have
+    matched them on the one shared token). Disjoint sets ("creme brulee" vs "crema
+    catalana") never match.
+
+    This is the same all-content-tokens rule the offline variance harness uses
+    (``evals/vision_carb/metrics.py`` ``_identity_matches``); the harness applies it
+    against a curated ground-truth name, while here -- with no ground truth -- it is
+    applied symmetrically between two unlabeled samples, the shorter as the
+    candidate name. Normalization (NFKD accent folding, stopwords, ``_plural_eq``)
+    is shared with that harness; the threshold choice is not (the harness has no
+    ratio, it requires all tokens, which is what this now does).
+
+    Residual: a single generic token that is fully contained in an unrelated dish
+    ("rice" in "fried rice with shrimp") still matches -- structurally identical to
+    the legitimate terse-vs-verbose case ("banana" in "...banana..."), so it cannot
+    be distinguished without a food ontology. This is the conservative direction
+    (it only inflates the empirical confidence band / suppresses the "confirm the
+    food" UX note; external grounding is gated on user identity confirmation, never
+    on this signal) and is rare for N samples of one photo.
+
+    Two empty token sets count as a match (mirrors the old semantics: no identity
+    evidence either way, so not manufactured disagreement); one empty and one
+    non-empty never match.
+    """
     if not a and not b:
-        return 1.0
+        return True
     if not a or not b:
-        return 0.0
-    return len(a & b) / len(a | b)
+        return False
+    smaller, larger = (a, b) if len(a) <= len(b) else (b, a)
+    return all(any(_plural_eq(token, other) for other in larger) for token in smaller)
 
 
 def _largest_identity_cluster(
@@ -166,10 +238,10 @@ def _largest_identity_cluster(
         for cluster in clusters:
             # True single-link: match if this sample is close to ANY member, so
             # transitive matches (A≈B, B≈C) aren't split into false disagreement.
-            if any(
-                _jaccard(tokens, token_sets[idx]) >= _IDENTITY_AGREEMENT_JACCARD
-                for idx in cluster
-            ):
+            # With full-containment matching, chaining needs a real subset relation
+            # at each hop, so distinct multi-token foods sharing one noun no longer
+            # bridge (only a fully-contained terse name, e.g. a bare head noun, can).
+            if any(_identity_match(tokens, token_sets[idx]) for idx in cluster):
                 cluster.append(i)
                 placed = True
                 break

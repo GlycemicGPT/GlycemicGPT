@@ -39,7 +39,7 @@ from src.database import get_session_maker
 from src.logging_config import get_logger
 from src.models.knowledge_chunk import KnowledgeChunk
 from src.services.meal_rag import SOURCE_TYPE_OPEN_FOOD_FACTS, SOURCE_TYPE_USDA
-from src.vision.carb_contract import find_dosing_violations
+from src.vision.carb_contract import NEVER_DOSE_PROHIBITION, find_dosing_violations
 
 logger = get_logger(__name__)
 
@@ -68,9 +68,14 @@ _USDA_CARB_NUTRIENT_NUMBER = "205"
 # 100 g (Branded items are per-serving and would break the per-100 g basis).
 _USDA_GENERIC_DATATYPES = "Foundation,SR Legacy,Survey (FNDDS)"
 
+# The safety prohibition is the canonical ``NEVER_DOSE_PROHIBITION`` (single source
+# of truth); the rest is OFF-specific attribution + the not-medically-verified
+# framing. Note the figure is published reference data, NOT an AI estimate, so the
+# full ``MEAL_ESTIMATE_QUALIFIER`` ("AI estimate, often wrong ...") would mislabel
+# it -- only the shared dosing prohibition is reused here.
 _OFF_DISCLAIMER = (
     "Nutrition data from Open Food Facts (ODbL), contributed by volunteers and "
-    "not medically verified -- a descriptive reference only; never use it to dose or bolus."
+    f"not medically verified -- a descriptive reference only; {NEVER_DOSE_PROHIBITION}."
 )
 
 _SERVING_PER_100G = "per 100 g"

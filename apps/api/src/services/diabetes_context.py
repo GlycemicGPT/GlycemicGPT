@@ -21,7 +21,11 @@ from src.logging_config import get_logger
 from src.services.alert_notifier import trend_description
 from src.services.iob_projection import get_iob_projection, get_user_dia
 from src.services.meal_citation import AllowedCarb, verify_carb_citations
-from src.vision.carb_contract import MEAL_ESTIMATE_QUALIFIER, find_dosing_violations
+from src.vision.carb_contract import (
+    MEAL_ESTIMATE_QUALIFIER,
+    NEVER_DOSE_PROHIBITION,
+    find_dosing_violations,
+)
 
 if TYPE_CHECKING:
     from src.models.food_record import FoodRecord
@@ -379,7 +383,7 @@ def _format_meal_line(record: "FoodRecord", now: datetime) -> str:
     description = _safe_meal_description(record.food_description)
     when = _meal_when_token(record, now)
     qualifier = (
-        "user-corrected estimate — never use it to dose or bolus"
+        f"user-corrected estimate — {NEVER_DOSE_PROHIBITION}"
         if corrected
         else MEAL_ESTIMATE_QUALIFIER
     )

@@ -137,13 +137,23 @@ SAFETY_QUALIFIER = (
     "Never use it to calculate an insulin dose or bolus."
 )
 
+# The non-negotiable prohibition shared by every carb surface: a carb figure --
+# whether an AI vision estimate or one grounded against a published source (USDA /
+# Open Food Facts) -- is descriptive only and must never drive a dose. Kept as a
+# single source of truth so the exact phrasing cannot drift between the inline
+# estimate qualifier below and the grounding disclaimers in
+# ``services/nutrition_sources.py``. Deliberately absolute ("never use it to dose
+# or bolus") rather than the permissive "verify before dosing", which would imply
+# dosing off the figure is fine once checked.
+NEVER_DOSE_PROHIBITION = "never use it to dose or bolus"
+
 # Inline counterpart to SAFETY_QUALIFIER for when a carb figure is embedded in a
 # sentence (chat / daily brief) rather than shown on its own. Same non-negotiable
 # posture: the figure is an AI guess, often wrong, and must NEVER drive a dose.
 # It names the prohibited action and deliberately avoids "verify before dosing",
 # which would wrongly imply that dosing off the estimate is fine once checked --
 # we never tell a user it is OK to bolus from a carb guess.
-MEAL_ESTIMATE_QUALIFIER = "AI estimate, often wrong — never use it to dose or bolus"
+MEAL_ESTIMATE_QUALIFIER = f"AI estimate, often wrong — {NEVER_DOSE_PROHIBITION}"
 
 
 @dataclass

@@ -226,6 +226,212 @@ class TestAggregation:
 
 
 # --------------------------------------------------------------------------- #
+# Story 50.H5: identity agreement survives verbose vs terse descriptions
+# --------------------------------------------------------------------------- #
+class TestVerboseIdentityMatching:
+    """Regression guard for the symmetric-Jaccard collapse on verbose prose.
+
+    A real vision model returns a sentence ("a ripe banana with brown spots..."),
+    not a 1-2 word name. Symmetric token-set Jaccard scored the same food, read
+    tersely once and verbosely once, as DISAGREEMENT -- needless low confidence
+    and a misleading "the AI couldn't agree what this is" on a food it actually
+    identified consistently. The hardened matcher requires full token containment
+    of the shorter description (NFKD-normalized, plural-tolerant) so verbosity no
+    longer reads as disagreement, while a gross misidentification (disjoint tokens)
+    -- and two different multi-token foods that merely share one noun -- still
+    disagree.
+
+    The verbose-vs-terse cases (``banana``, ``grilled chicken``) evaluated to
+    ``identity_agreement is False`` against the pre-fix symmetric-Jaccard matcher
+    (confirmed by running it directly) -- they are the genuine regression repro.
+    The NFKD and plural behaviors are NOT meaningfully guarded at this
+    agreement-aggregate level (a 2-of-3 majority among the non-accented / singular
+    samples reaches agreement even if folding were disabled); they are pinned
+    directly in ``TestIdentityMatchContainment`` so a regression in
+    ``_strip_accents`` / ``_plural_eq`` is actually caught.
+    """
+
+    def test_verbose_vs_terse_same_food_agrees(self):
+        # The AC1 repro: three unanimous "banana" reads, one terse + two verbose.
+        samples = [
+            _sample(40, 50, "banana"),
+            _sample(41, 51, "a ripe banana with brown speckles on the peel"),
+            _sample(42, 52, "one yellow banana resting on a wooden cutting board"),
+        ]
+        result = agg.aggregate_samples(samples, samples_requested=3)
+        assert result.identity_agreement is True
+        # Not force-lowered: agreement + tight numbers -> the empirical band stands.
+        assert result.confidence != agg.CONFIDENCE_LOW
+        assert result.wide_spread is False
+
+    def test_all_verbose_descriptions_of_one_food_cluster(self):
+        samples = [
+            _sample(45, 55, "grilled chicken"),
+            _sample(
+                46,
+                56,
+                "a generous portion of grilled chicken breast with light char "
+                "marks and herbs",
+            ),
+            _sample(
+                44,
+                54,
+                "pan-seared chicken breast, sliced, with rosemary garnish on a "
+                "white plate",
+            ),
+        ]
+        result = agg.aggregate_samples(samples, samples_requested=3)
+        assert result.identity_agreement is True
+
+    def test_accent_variants_cluster_via_nfkd(self):
+        samples = [
+            _sample(30, 40, "crème brûlée"),
+            _sample(31, 41, "creme brulee"),
+            _sample(32, 42, "a dish of crème brûlée"),
+        ]
+        result = agg.aggregate_samples(samples, samples_requested=3)
+        assert result.identity_agreement is True
+
+    def test_plural_variants_cluster(self):
+        samples = [
+            _sample(20, 28, "apple"),
+            _sample(21, 29, "two red apples, one bitten"),
+            _sample(22, 30, "a single apple"),
+        ]
+        result = agg.aggregate_samples(samples, samples_requested=3)
+        assert result.identity_agreement is True
+
+    def test_different_foods_stay_disagreeing_even_when_verbose(self):
+        # The safe direction: containment must NOT manufacture agreement between
+        # genuinely different foods because one description is verbose. Gross
+        # misID has disjoint content tokens -> ratio 0.0 -> still disagreement,
+        # and tight numbers do NOT rescue it (identity forces low confidence).
+        samples = [
+            _sample(
+                40,
+                50,
+                "a small ramekin of classic crème brûlée with a torched sugar crust",
+            ),
+            _sample(41, 51, "crema catalana"),
+            _sample(42, 52, "a wedge of spanish tortilla potato omelette"),
+        ]
+        result = agg.aggregate_samples(samples, samples_requested=3)
+        assert result.identity_agreement is False
+        assert result.confidence == agg.CONFIDENCE_LOW
+        assert len(result.distinct_identities) >= 2
+
+    def test_short_named_foods_sharing_one_word_disagree(self):
+        # The harder safe-direction case: three genuinely DIFFERENT 2-token dishes
+        # that share one common noun. Full containment requires ALL of the shorter
+        # name's tokens, so a single shared token ("chicken") is not enough to
+        # match -- they stay distinct. (A partial-overlap ratio would have collapsed
+        # them to one food at high confidence; this pins that they do not.)
+        samples = [
+            _sample(40, 50, "chicken salad"),
+            _sample(41, 51, "chicken soup"),
+            _sample(42, 52, "chicken sandwich"),
+        ]
+        result = agg.aggregate_samples(samples, samples_requested=3)
+        assert result.identity_agreement is False
+        assert result.confidence == agg.CONFIDENCE_LOW
+        assert len(result.distinct_identities) >= 2
+
+
+class TestIdentityMatchContainment:
+    """Unit-level checks on the directional-containment matcher itself.
+
+    These pin the helper-level behaviors that the agreement-aggregate tests above
+    cannot (a 2-of-3 majority can reach agreement without exercising NFKD/plural),
+    so a regression in ``_strip_accents`` or ``_plural_eq`` is caught here.
+    """
+
+    def test_nfkd_accent_folding_is_required(self):
+        # False if _strip_accents is a no-op (the old tokenizer splits on accents,
+        # so "crème brûlée" and "creme brulee" would share no tokens).
+        assert (
+            agg._identity_match(
+                agg._identity_tokens("crème brûlée"),
+                agg._identity_tokens("creme brulee"),
+            )
+            is True
+        )
+
+    def test_plural_tolerance_is_required(self):
+        # False under exact-equality matching; only _plural_eq makes singular and
+        # plural forms of the same food noun match.
+        assert (
+            agg._identity_match(
+                agg._identity_tokens("potato"),
+                agg._identity_tokens("roasted potatoes"),
+            )
+            is True
+        )
+        assert (
+            agg._identity_match(
+                agg._identity_tokens("apple"),
+                agg._identity_tokens("two red apples"),
+            )
+            is True
+        )
+
+    def test_full_containment_required_two_token_share_one(self):
+        # A single shared token out of two is NOT a match (full containment): the
+        # regression guard for different short-named foods sharing a common noun.
+        assert (
+            agg._identity_match(
+                agg._identity_tokens("chicken salad"),
+                agg._identity_tokens("chicken soup"),
+            )
+            is False
+        )
+        assert (
+            agg._identity_match(
+                agg._identity_tokens("beef taco"),
+                agg._identity_tokens("fish taco"),
+            )
+            is False
+        )
+
+    def test_plural_eq_does_not_overmatch_unrelated_tokens(self):
+        # _plural_eq is suffix-ADDITION only; unrelated food nouns that are not one
+        # another plus "s"/"es" must not be treated as the same token.
+        assert agg._plural_eq("beef", "bean") is False
+        assert agg._plural_eq("rice", "fries") is False
+
+    def test_identity_tokens_capped_to_bound_match_cost(self):
+        # DoS guard: _identity_match is O(tokens^2) per pair, so the token set must
+        # stay bounded even if the model returns a pathologically long description.
+        long_desc = " ".join(f"token{i}" for i in range(500))
+        tokens = agg._identity_tokens(long_desc)
+        assert len(tokens) <= agg._MAX_IDENTITY_TOKENS
+
+    def test_containment_is_verbosity_robust_and_symmetric_result(self):
+        terse = agg._identity_tokens("banana")
+        verbose = agg._identity_tokens("a ripe banana with brown speckles on the peel")
+        # Argument order must not change the verdict (smaller set is the yardstick).
+        assert agg._identity_match(terse, verbose) is True
+        assert agg._identity_match(verbose, terse) is True
+
+    def test_disjoint_tokens_never_match(self):
+        assert (
+            agg._identity_match(
+                agg._identity_tokens("creme brulee"),
+                agg._identity_tokens("crema catalana"),
+            )
+            is False
+        )
+
+    def test_empty_token_sets_match_only_each_other(self):
+        # An all-stopword description tokenizes to empty; two empties carry no
+        # identity evidence (match -> not manufactured disagreement), but an empty
+        # vs a real food does not match.
+        empty = agg._identity_tokens("a plate of food")
+        assert empty == frozenset()
+        assert agg._identity_match(empty, frozenset()) is True
+        assert agg._identity_match(empty, agg._identity_tokens("pasta")) is False
+
+
+# --------------------------------------------------------------------------- #
 # Pipeline: multi-sample wired end-to-end (AC1/AC4/AC6/AC7)
 # --------------------------------------------------------------------------- #
 class TestPipelineMultiSample:
@@ -277,6 +483,29 @@ class TestPipelineMultiSample:
         assert d.wide_spread is True
         assert d.note and "rough guess" in d.note
         assert not find_dosing_violations(d.note)
+
+    async def test_verbose_same_food_not_flagged_as_disagreement(self):
+        # Story 50.H5 end-to-end: verbose prose of ONE food must reach the
+        # persisted record as agreement, not trip the identity gate. Pre-fix this
+        # surfaced identity_agreement=False + "confirm the food" + forced low.
+        async with get_session_maker()() as db:
+            user = await _user_with_provider(db)
+            with self._patch_vision(
+                _estimate_json(40, 50, "banana"),
+                _estimate_json(41, 51, "a ripe banana with brown speckles on the peel"),
+                _estimate_json(
+                    42, 52, "one yellow banana resting on a wooden cutting board"
+                ),
+            ):
+                record = await food_vision.create_food_record_from_image(
+                    db=db, user=user, raw_image=_png_bytes()
+                )
+
+        d = record.estimate_dispersion
+        assert d.identity_agreement is True
+        assert "confirm the food" not in (d.note or "")
+        # Agreement + tight spread -> the empirical band is NOT force-lowered.
+        assert record.confidence != "low"
 
     async def test_identity_disagreement_requires_confirmation(self):
         async with get_session_maker()() as db:
