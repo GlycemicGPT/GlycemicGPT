@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.units import GlucoseUnit
 from src.logging_config import get_logger
 from src.models.ai_provider import AIProviderConfig
 from src.models.alert import Alert
@@ -48,11 +49,7 @@ async def _export_settings(
 
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
-    if user is None:
-        logger.warning("User not found during settings export", user_id=str(user_id))
-    settings["glucose_unit"] = (
-        getattr(user.glucose_unit, "value", user.glucose_unit) if user else "mgdl"
-    )
+    settings["glucose_unit"] = (user.glucose_unit if user else GlucoseUnit.MGDL).value
 
     # Target glucose range
     result = await db.execute(

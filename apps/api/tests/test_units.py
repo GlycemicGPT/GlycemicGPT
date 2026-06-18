@@ -26,6 +26,21 @@ def test_whole_mgdl_round_trip_stays_within_display_precision():
         assert abs(mmol_again - mmol) <= 0.1
 
 
+def test_safety_bounds_convert_to_mmol():
+    # The 20-500 mg/dL safety invariant expressed in mmol/L. A mis-converted
+    # hypo bound silently suppresses low alerts, so the endpoints are pinned.
+    assert mgdl_to_mmol(20) == 1.1
+    assert mgdl_to_mmol(500) == 27.7
+
+
+def test_round_trip_is_lossy_so_converted_values_are_never_persisted():
+    # mg/dL -> mmol(1dp) -> mg/dL loses precision (100 -> 5.5 -> 99), which is
+    # why a converted value must never be written back to canonical mg/dL
+    # storage (Epic 53 decision #5). Guards a future change that wrongly
+    # assumes the round trip is identity-preserving.
+    assert mmol_to_mgdl(mgdl_to_mmol(100)) != 100
+
+
 def test_legacy_nightscout_constants_point_to_shared_constant():
     assert MGDL_PER_MMOL == 18.0182
     assert nightscout_models.MGDL_PER_MMOL == MGDL_PER_MMOL

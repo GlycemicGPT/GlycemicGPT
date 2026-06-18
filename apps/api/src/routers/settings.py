@@ -116,7 +116,11 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 
-@router.get("/glucose-unit", response_model=GlucoseUnitPreferenceResponse)
+@router.get(
+    "/glucose-unit",
+    response_model=GlucoseUnitPreferenceResponse,
+    dependencies=[Depends(require_diabetic_or_admin)],
+)
 async def get_glucose_unit(
     user: User = Depends(get_current_user),
 ) -> GlucoseUnitPreferenceResponse:
@@ -124,7 +128,11 @@ async def get_glucose_unit(
     return GlucoseUnitPreferenceResponse(glucose_unit=user.glucose_unit)
 
 
-@router.patch("/glucose-unit", response_model=GlucoseUnitPreferenceResponse)
+@router.patch(
+    "/glucose-unit",
+    response_model=GlucoseUnitPreferenceResponse,
+    dependencies=[Depends(require_diabetic_or_admin)],
+)
 async def patch_glucose_unit(
     body: GlucoseUnitPreferenceUpdate,
     user: User = Depends(get_current_user),

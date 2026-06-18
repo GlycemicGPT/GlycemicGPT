@@ -71,7 +71,8 @@ class UserResponse(BaseModel):
     disclaimer_acknowledged: bool
     disclaimer_version: str | None = None
     glucose_unit: GlucoseUnit = Field(
-        ..., description="Preferred glucose display unit: mgdl or mmol"
+        default=GlucoseUnit.MGDL,
+        description="Preferred glucose display unit: mgdl or mmol",
     )
     created_at: datetime
 
