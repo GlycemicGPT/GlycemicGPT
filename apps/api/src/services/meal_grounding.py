@@ -64,6 +64,7 @@ async def ground_estimate(
     identity: str | None,
     *,
     identity_confirmed: bool,
+    exclude_food_record_id: uuid.UUID | str | None = None,
 ) -> GroundingDetail | None:
     """Return the best grounding for a *confirmed-identity* estimate, or None.
 
@@ -79,6 +80,9 @@ async def ground_estimate(
     lookups each manage their own DB sessions and each fails open to None
     internally, so this orchestrator stays free of redundant try/except layers.
     The single hard fail-open boundary is the caller (``food_vision``).
+
+    ``exclude_food_record_id`` is forwarded to own-history recall so the record
+    being grounded never recalls itself (a first log must not cite itself).
     """
     # Defence in depth: the only callers are already flag-gated, but enforce the
     # feature flag at this boundary too so a future caller can't run grounding
@@ -94,7 +98,9 @@ async def ground_estimate(
     if not description:
         return None
 
-    recall = await meal_rag.recall_similar_meal(user_id, description)
+    recall = await meal_rag.recall_similar_meal(
+        user_id, description, exclude_food_record_id=exclude_food_record_id
+    )
 
     # 1. A corrected own-history match is the user's own truth -- top precedence,
     # and lets us skip the external calls entirely.

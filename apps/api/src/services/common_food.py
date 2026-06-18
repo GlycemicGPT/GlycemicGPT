@@ -132,7 +132,12 @@ async def confirm_food_identity(
     if settings.meal_intelligence_enabled:
         try:
             grounding = await meal_grounding.ground_estimate(
-                record.user_id, name, identity_confirmed=True
+                record.user_id,
+                name,
+                identity_confirmed=True,
+                # Don't let a record ground to its own freshly-indexed chunk; a
+                # first-ever log must not cite itself as "your meal history".
+                exclude_food_record_id=record.id,
             )
         except Exception:
             logger.warning(
