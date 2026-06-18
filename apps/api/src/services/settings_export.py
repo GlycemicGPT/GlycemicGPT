@@ -48,6 +48,8 @@ async def _export_settings(
 
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
+    if user is None:
+        logger.warning("User not found during settings export", user_id=str(user_id))
     settings["glucose_unit"] = (
         getattr(user.glucose_unit, "value", user.glucose_unit) if user else "mgdl"
     )
