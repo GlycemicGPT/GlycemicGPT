@@ -40,7 +40,7 @@ For broader commercial restaurant coverage, an operator can supply their **own**
 
 ## Turning it off
 
-Restaurant grounding is on when Meal Intelligence is on, and can be disabled on its own with `restaurant_grounding_enabled=false` (it then falls back to vision-only for restaurant items). Because it makes an outbound request to the chain on your behalf, leave it off if you don't want that.
+Restaurant grounding is on when Meal Intelligence is on, and can be disabled on its own with `restaurant_grounding_enabled=false` (restaurant-chain fetching is skipped, and grounding falls back to the normal USDA / Open Food Facts / vision path). Because it makes an outbound request to the chain on your behalf, leave it off if you don't want that.
 
 ## The bottom line
 

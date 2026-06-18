@@ -127,6 +127,8 @@ def _contains_phrase(haystack_canon: str, needle_canon: str) -> bool:
 # --------------------------------------------------------------------------- #
 # host -> {"last": monotonic, "backoff_until": monotonic, "fails": int}
 _host_state: dict[str, dict] = {}
+# host -> asyncio.Lock serializing the rate-limit check+update for that host.
+_host_locks: dict[str, asyncio.Lock] = {}
 # host -> (RobotFileParser, expiry_monotonic)
 _robots_cache: dict[str, tuple[RobotFileParser, float]] = {}
 
@@ -134,6 +136,7 @@ _robots_cache: dict[str, tuple[RobotFileParser, float]] = {}
 def _reset_state_for_tests() -> None:
     """Clear throttle + robots state. Test-only; keeps cases independent."""
     _host_state.clear()
+    _host_locks.clear()
     _robots_cache.clear()
 
 
@@ -143,14 +146,23 @@ def _in_backoff(host: str) -> bool:
 
 
 async def _respect_rate_limit(host: str) -> None:
-    """Sleep just enough to honour the per-host minimum fetch interval."""
-    st = _host_state.setdefault(host, {})
-    min_interval = settings.restaurant_min_seconds_between_fetches
-    if min_interval > 0:
-        wait = min_interval - (time.monotonic() - st.get("last", 0.0))
-        if wait > 0:
-            await asyncio.sleep(wait)
-    st["last"] = time.monotonic()
+    """Sleep just enough to honour the per-host minimum fetch interval.
+
+    Serialized per host with an ``asyncio.Lock`` so two concurrent fetches to the
+    same host can't both read a stale ``last`` and slip past the gate together --
+    the second waits for the first's slot (the AC2 rate-limit is a per-host
+    politeness guarantee, not best-effort). Different hosts use different locks, so
+    there's no cross-host contention.
+    """
+    lock = _host_locks.setdefault(host, asyncio.Lock())
+    async with lock:
+        st = _host_state.setdefault(host, {})
+        min_interval = settings.restaurant_min_seconds_between_fetches
+        if min_interval > 0:
+            wait = min_interval - (time.monotonic() - st.get("last", 0.0))
+            if wait > 0:
+                await asyncio.sleep(wait)
+        st["last"] = time.monotonic()
 
 
 def _note_success(host: str) -> None:
@@ -501,20 +513,29 @@ _CHAINS: tuple[RestaurantChain, ...] = (_Chipotle(), _McDonalds())
 # item to the optional FatSecret BYO-key provider (broader commercial coverage),
 # never to USDA/OFF -- a branded item is not a generic food. Kept small and
 # data-driven; add a dedicated fetcher to graduate a brand off this list.
+# Include punctuation-free spellings: ``_canon`` turns "wendy's" into "wendy s"
+# and "chick-fil-a" into "chick fil a", which would NOT match a user typing
+# "wendys" / "chickfila", so a branded item would silently skip restaurant
+# grounding. List the common collapsed variants alongside the canonical names.
 _EXTRA_BRANDS: frozenset[str] = frozenset(
     _canon(b)
     for b in (
         "taco bell",
         "starbucks",
         "wendy's",
+        "wendys",
         "burger king",
         "subway",
         "kfc",
         "chick-fil-a",
+        "chick fil a",
+        "chickfila",
         "dunkin",
         "panera",
         "popeyes",
         "in-n-out",
+        "in n out",
+        "innout",
         "five guys",
     )
 )

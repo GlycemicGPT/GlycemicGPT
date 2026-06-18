@@ -9,6 +9,7 @@ test. Behavioral assertions only -- never an exact published carb count from a r
 endpoint; the only hard numbers are inputs we control in the mocked payloads.
 """
 
+import asyncio
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -161,6 +162,13 @@ class TestBrandDetection:
         assert rn._has_known_brand("Starbucks caramel frappuccino") is True
         # A plain food carries no brand.
         assert rn._has_known_brand("homemade chili") is False
+
+    def test_punctuation_free_brand_spellings_match(self):
+        # Common collapsed spellings must still be recognized as a brand, even
+        # though _canon turns "wendy's" -> "wendy s" / "chick-fil-a" -> "chick fil a".
+        assert rn._has_known_brand("wendys baconator") is True
+        assert rn._has_known_brand("chickfila sandwich") is True
+        assert rn._has_known_brand("innout double double") is True
 
     def test_brand_match_is_whole_token(self):
         # "mcd" must not match inside "mcdonalds"; "taco" must not match a non-brand.
@@ -517,6 +525,23 @@ class TestCompliance:
         with patch.object(rn.asyncio, "sleep", _fake_sleep):
             await rn._respect_rate_limit(host)
         assert slept and slept[0] > 0  # waited for the min interval
+
+    async def test_concurrent_same_host_calls_serialize(self, monkeypatch):
+        # The per-host lock serializes two concurrent fetches to the same host:
+        # exactly one waits for the other's slot (without it, both could read a
+        # stale `last` and skip the rate limit together).
+        monkeypatch.setattr(settings, "restaurant_min_seconds_between_fetches", 5.0)
+        slept = []
+
+        async def _fake_sleep(seconds):
+            slept.append(seconds)
+
+        host = "www.mcdonalds.com"
+        with patch.object(rn.asyncio, "sleep", _fake_sleep):
+            await asyncio.gather(
+                rn._respect_rate_limit(host), rn._respect_rate_limit(host)
+            )
+        assert len(slept) == 1 and slept[0] > 0
 
 
 # --------------------------------------------------------------------------- #
