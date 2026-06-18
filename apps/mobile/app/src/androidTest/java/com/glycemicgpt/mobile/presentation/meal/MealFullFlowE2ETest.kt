@@ -16,6 +16,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.test.core.app.ApplicationProvider
+import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.glycemicgpt.mobile.data.remote.GlycemicGptApi
 import com.glycemicgpt.mobile.data.remote.dto.ChatRequest
@@ -91,6 +92,10 @@ class MealFullFlowE2ETest {
         awaitTag("meal_correction_editor")
         compose.onNodeWithTag("meal_correct_low_input").performTextReplacement("70")
         compose.onNodeWithTag("meal_correct_high_input").performTextReplacement("80")
+        // Editing the number fields raises the soft keyboard, which on a real emulator
+        // overlays the inline Save button; dismiss it (as a user would) so the click
+        // lands on the button and not on the IME window.
+        dismissKeyboard()
         compose.onNodeWithTag("meal_correct_save").performClick()
         awaitTag("meal_corrected_note")
 
@@ -98,6 +103,7 @@ class MealFullFlowE2ETest {
         compose.onNodeWithTag("meal_save_common_button").performClick()
         awaitTag("meal_save_common_name_input")
         compose.onNodeWithTag("meal_save_common_name_input").performTextInput("Chicken Burrito")
+        dismissKeyboard() // same IME-overlay guard before the dialog's confirm button
         compose.onNodeWithTag("meal_save_common_confirm").performClick()
         awaitTag("meal_saved_common_confirmation")
         check(api.commonFoods.isNotEmpty()) { "save-as-common-food never reached the API" }
@@ -195,6 +201,9 @@ class MealFullFlowE2ETest {
     }
 
     private fun runOnUi(block: () -> Unit) = compose.runOnUiThread(block)
+
+    /** Hide the soft keyboard and wait for it to be gone, so it can't overlay a tap target. */
+    private fun dismissKeyboard() = Espresso.closeSoftKeyboard()
 
     private fun awaitTag(tag: String, timeoutMs: Long = 10_000) {
         compose.waitUntil(timeoutMs) {
