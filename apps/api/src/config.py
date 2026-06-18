@@ -183,6 +183,37 @@ class Settings(BaseSettings):
     # source never stalls the estimate path (it falls back to vision-only).
     nutrition_grounding_timeout_seconds: float = Field(default=6.0, gt=0)
 
+    # Restaurant / fast-food grounding (Story 50.E2). A confirmed branded-chain
+    # item (e.g. a McDonald's Quarter Pounder) is grounded against that chain's
+    # OWN published nutrition, fetched on demand for that one item -- no
+    # pre-crawl, no bulk mirror -- via the per-chain fetcher registry in
+    # ``services/restaurant_nutrition.py``. Compliance mitigations (robots.txt,
+    # rate-limit + back-off, descriptive User-Agent, user-action-triggered, and
+    # OWNER-SCOPED caching -- never the shared mirror USDA/OFF use) are
+    # non-negotiable. Disable to opt out of every restaurant fetch (falls back to
+    # vision-only).
+    restaurant_grounding_enabled: bool = True
+    # Minimum seconds between successive fetches to the same chain host (a simple
+    # per-host rate limit; a 429/503 adds exponential back-off on top).
+    restaurant_min_seconds_between_fetches: float = Field(default=2.0, ge=0)
+    # How long an owner-scoped restaurant cache entry stays fresh. Chain facts
+    # change rarely, so a re-log inside this window reuses the cached value rather
+    # than re-fetching. Owner-scoped only -- never pooled into a shared mirror.
+    restaurant_cache_ttl_hours: float = Field(default=24 * 30, gt=0)
+
+    # Optional FatSecret BYO-key add-on (Story 50.E2, AC5). Broader *commercial*
+    # restaurant coverage via the operator's OWN FatSecret Platform credentials
+    # (self-serve free tier). Empty -> disabled; no shared key is ever shipped.
+    # FatSecret's terms cap value caching at 24 h, so FatSecret-sourced results are
+    # cached owner-scoped for at most ``fatsecret_cache_ttl_hours`` and otherwise
+    # queried fresh.
+    fatsecret_consumer_key: str = ""
+    fatsecret_consumer_secret: str = ""
+    fatsecret_token_url: str = "https://oauth.fatsecret.com/connect/token"
+    fatsecret_api_url: str = "https://platform.fatsecret.com/rest/server.api"
+    # FatSecret's value-cache ToS limit (hours). Hard-capped at 24 h by intent.
+    fatsecret_cache_ttl_hours: float = Field(default=24.0, gt=0, le=24.0)
+
     # Device & API key limits (Story 28.7)
     max_devices_per_user: int = Field(default=10, ge=1)
     debug_device_limit: int = Field(default=50, ge=1)

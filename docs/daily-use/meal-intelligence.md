@@ -22,7 +22,7 @@ The feature is designed so a guess can never quietly turn into a dose:
 
 - **A range, not a single confident number.** Real plates are uncertain; a single integer invites you to dose off it.
 - **Confidence comes from disagreement, not the model's self-rating.** The same photo is sampled several times; the spread between answers drives the confidence. (A model's own "I'm confident" score does not track accuracy and is never shown as a safety signal.) A wide spread is shown plainly — "this could be 40 g or 90 g, we're not sure."
-- **You confirm what the food is** before the app grounds it against nutrition data, so a misidentified food can't be "certified" with an authoritative-looking citation.
+- **You confirm what the food is** before the app grounds it against nutrition data, so a misidentified food can't be "certified" with an authoritative-looking citation. For branded restaurant items this can cite the chain's own published nutrition — see [Restaurant Nutrition Grounding](restaurant-nutrition-grounding.md).
 - **Carb estimates never flow into insulin-on-board, safety limits, or any dosing math.** They are descriptive notes, structurally isolated from the dosing engine.
 - **Every screen that shows a carb estimate carries a persistent reminder** — *"Rough estimate — an AI guess that's often wrong. Never use it to calculate an insulin dose or bolus."*
 
