@@ -37,6 +37,7 @@ from src.services.diabetes_context import (
     format_meals_for_brief,
     format_pump_profile_for_prompt,
     get_pump_profile_summary,
+    verify_meal_citations,
 )
 from src.services.safety_validation import log_safety_validation, validate_ai_suggestion
 
@@ -85,8 +86,8 @@ def _build_analysis_prompt(
         hours: Number of hours analyzed.
         profile_context: Optional pump profile text block.
         iob_context: Optional IoB text block.
-        meals_context: Optional logged-meals text block (Story 50.F1). Carries
-            the reflect-and-ask, verify-before-dosing framing; never a dosing
+        meals_context: Optional logged-meals text block. Carries
+            the reflect-and-ask, never-dose-or-bolus framing; never a dosing
             input.
 
     Returns:
@@ -424,7 +425,7 @@ async def generate_daily_brief(
             exc_info=True,
         )
 
-    # Logged meals for the period (Story 50.F1) -- gated on the meal-intelligence
+    # Logged meals for the period -- gated on the meal-intelligence
     # feature so the brief stays unchanged while the flag is off.
     meals_context = None
     if settings.meal_intelligence_enabled:
@@ -456,8 +457,21 @@ async def generate_daily_brief(
         system_prompt=SYSTEM_PROMPT,
     )
 
+    # Verify any cited meal carb figure against the period's logged meals before
+    # the dosing-safety pass and storage. Anchor ``now`` to
+    # ``period_end`` so the time tokens match what the brief rendered.
+    verified_text = await verify_meal_citations(
+        db,
+        user.id,
+        ai_response.content,
+        surface="daily_brief",
+        window_start=period_start,
+        window_end=period_end,
+        now=period_end,
+    )
+
     # Safety validation (Story 5.6)
-    safety_result = validate_ai_suggestion(ai_response.content, "daily_brief")
+    safety_result = validate_ai_suggestion(verified_text, "daily_brief")
 
     # Store the brief with sanitized text
     brief = DailyBrief(

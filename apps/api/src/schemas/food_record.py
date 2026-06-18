@@ -76,7 +76,7 @@ class EstimateDispersion(BaseModel):
 
     Safety: ``wide_spread`` and ``note`` exist to communicate uncertainty
     viscerally, never to bless a number. Low dispersion is NOT "safe to dose" --
-    consistency is not correctness -- so callers keep the verify-before-dosing
+    consistency is not correctness -- so callers keep the never-dose-or-bolus
     qualifier dominant regardless of this value.
     """
 

@@ -54,7 +54,7 @@ def validate_carb_range(low: float, high: float) -> tuple[float, float]:
       * ``low == high`` is permitted: the model is prompted for a range, but a
         degenerate equal-bound estimate is a valid value -- we never *fabricate*
         a point, and the confidence signal plus the persistent
-        "estimate -- verify before dosing" qualifier carry the uncertainty.
+        "never use it to dose or bolus" qualifier carry the uncertainty.
     """
     if not (math.isfinite(low) and math.isfinite(high)):
         msg = "carbohydrate bound is not a finite number"
@@ -136,6 +136,14 @@ SAFETY_QUALIFIER = (
     "Rough estimate — an AI guess that's often wrong. "
     "Never use it to calculate an insulin dose or bolus."
 )
+
+# Inline counterpart to SAFETY_QUALIFIER for when a carb figure is embedded in a
+# sentence (chat / daily brief) rather than shown on its own. Same non-negotiable
+# posture: the figure is an AI guess, often wrong, and must NEVER drive a dose.
+# It names the prohibited action and deliberately avoids "verify before dosing",
+# which would wrongly imply that dosing off the estimate is fine once checked --
+# we never tell a user it is OK to bolus from a carb guess.
+MEAL_ESTIMATE_QUALIFIER = "AI estimate, often wrong — never use it to dose or bolus"
 
 
 @dataclass

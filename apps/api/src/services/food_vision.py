@@ -381,7 +381,7 @@ def _dispersion_note(
 
     Never blesses a number and never contains dosing language: a tight spread is
     deliberately NOT described as trustworthy (consistency is not correctness),
-    and the persistent verify-before-dosing qualifier on every estimate surface
+    and the persistent never-dose-or-bolus qualifier on every estimate surface
     carries the safety framing regardless of what this says.
     """
     low, high = aggregate.carbs_low, aggregate.carbs_high

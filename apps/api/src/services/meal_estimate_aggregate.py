@@ -20,7 +20,7 @@ Safety posture (NON-NEGOTIABLE):
   * Consistency is NOT correctness. A tight spread must never be presented as
     "safe to dose" -- a systematically-wrong-but-consistent estimate (the study's
     cheese-sandwich class) would have low dispersion yet be wrong. The
-    verify-before-dosing framing stays dominant regardless of dispersion; this
+    never-dose-or-bolus framing stays dominant regardless of dispersion; this
     module never emits a dose and nothing here is read by IoB / treatment_safety.
   * The model's self-reported confidence is retained ONLY as internal audit/eval
     data (for 50.H3), never surfaced as a user-facing safety signal.
