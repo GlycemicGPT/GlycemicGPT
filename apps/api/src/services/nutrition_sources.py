@@ -70,7 +70,7 @@ _USDA_GENERIC_DATATYPES = "Foundation,SR Legacy,Survey (FNDDS)"
 
 _OFF_DISCLAIMER = (
     "Nutrition data from Open Food Facts (ODbL), contributed by volunteers and "
-    "not medically verified -- a descriptive reference only, verify before dosing."
+    "not medically verified -- a descriptive reference only; never use it to dose or bolus."
 )
 
 _SERVING_PER_100G = "per 100 g"

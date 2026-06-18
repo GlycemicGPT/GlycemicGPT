@@ -571,7 +571,7 @@ class TestPrecedence:
             "Open Food Facts",
             KnowledgeChunk.TIER_RESEARCHED,
             70,
-            disclaimer="Open Food Facts (ODbL) -- verify before dosing.",
+            disclaimer="Open Food Facts (ODbL) -- never use it to dose or bolus.",
         )
         with (
             patch.object(meal_rag, "recall_similar_meal", AsyncMock(return_value=None)),

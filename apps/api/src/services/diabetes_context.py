@@ -20,7 +20,8 @@ from src.config import settings
 from src.logging_config import get_logger
 from src.services.alert_notifier import trend_description
 from src.services.iob_projection import get_iob_projection, get_user_dia
-from src.vision.carb_contract import find_dosing_violations
+from src.services.meal_citation import AllowedCarb, verify_carb_citations
+from src.vision.carb_contract import MEAL_ESTIMATE_QUALIFIER, find_dosing_violations
 
 if TYPE_CHECKING:
     from src.models.food_record import FoodRecord
@@ -36,7 +37,7 @@ CONTROL_IQ_SUMMARY_HOURS = 24
 # to surface the active basal dose + timing for overnight-pattern analysis.
 BASAL_INJECTION_CONTEXT_HOURS = 30
 
-# Logged-meal context (Story 50.F1, meal-intelligence feature). A bounded window
+# Logged-meal context (meal-intelligence feature). A bounded window
 # and record cap keep the prompt lean -- enough to reflect on recent eating
 # without bloating context. People log a handful of meals a day, so ~48h / 10
 # records covers "what have I been eating lately" for chat.
@@ -274,21 +275,22 @@ async def build_pump_section(
     return "\n".join(lines)
 
 
-# ── Logged-meal context (Story 50.F1) ──
+# ── Logged-meal context ──
 
 # Framing that introduces logged meals to the model. The AI is a mirror and an
-# interviewer here, never an advisor (the Epic 50 / AI Engine 2.0 charter): it
+# interviewer here, never an advisor (the mirror-and-interviewer charter): it
 # reflects the meals back and asks open questions, and it NEVER turns a meal's
-# carb estimate into dosing guidance. The carb figures are descriptive,
-# photo-based estimates -- not dosing inputs -- and carry the verify-before-dosing
-# qualifier wherever they appear.
+# carb estimate into dosing guidance. The carb figures are rough AI guesses --
+# the user must never be told it is OK to dose or bolus from them (we never use
+# "verify before dosing", which implies dosing off the estimate is fine).
 _MEAL_GUIDANCE = (
-    "These are meals the user logged. The carb figures are rough photo-based "
-    "estimates -- verify before dosing -- and are NOT dosing inputs. Reflect "
-    "these meals back to the user and ask open questions about them (for "
-    'example, "you logged a high-carb dinner -- how did that sit with you?"). '
-    "Never tell the user how much to take or what to eat, and never give "
-    "treatment advice about a meal."
+    "These are meals the user logged. The carb figures are rough AI photo "
+    "estimates -- often wrong, are NOT dosing inputs, and the user must never "
+    "use them to dose or bolus. Reflect these meals back to the user and ask "
+    'open questions about them (for example, "you logged a high-carb dinner -- '
+    'how did that sit with you?"). Never tell the user how much to take or what '
+    "to eat, never give treatment advice about a meal, and never imply the "
+    "estimate is safe to dose from."
 )
 
 
@@ -335,7 +337,7 @@ def _safe_meal_description(raw: str | None) -> str:
     prompt. Persisted descriptions are already scrubbed of dosing language at
     write time (``food_vision``), but we re-check here -- if any dosing phrasing
     or prompt-injection marker slips through we drop the description to a neutral
-    fallback rather than let it reach the model (Epic 50 charter). Length is
+    fallback rather than let it reach the model (mirror-and-interviewer charter). Length is
     capped to keep the prompt lean and the injection surface small.
     """
     description = _sanitize_for_prompt(raw or "")
@@ -349,30 +351,37 @@ def _safe_meal_description(raw: str | None) -> str:
     return description
 
 
-def _format_meal_line(record: "FoodRecord", now: datetime) -> str:
-    """Render one logged meal as a descriptive, non-prescriptive context line.
+def _meal_when_token(record: "FoodRecord", now: datetime) -> str:
+    """Render the relative/absolute time token for a logged meal.
 
-    Every line carries the "estimate -- verify before dosing" qualifier so the
-    carb figure is never read as a dosing input.
+    Shared by the rendered meal context and the citation allow-set so the output
+    verifier's timestamp guard compares the exact
+    token the model saw. ``meal_timestamp`` is tz-aware in normal operation
+    (``DateTime(timezone=True)``); a naive value is normalized defensively so the
+    subtraction can't raise and silently drop the meal.
     """
-    low, high, corrected = _meal_carb_range(record)
-    description = _safe_meal_description(record.food_description)
-    # ``meal_timestamp`` is tz-aware in normal operation (DateTime(timezone=True)),
-    # but normalize defensively so a naive value can't raise on subtraction and
-    # silently drop the whole meal block.
     meal_ts = record.meal_timestamp
     if meal_ts.tzinfo is None:
         meal_ts = meal_ts.replace(tzinfo=UTC)
     hours_ago = (now - meal_ts).total_seconds() / 3600
-    when = (
-        f"{hours_ago:.0f}h ago"
-        if 0 <= hours_ago < MEAL_RELATIVE_TIME_MAX_HOURS
-        else meal_ts.strftime("%a %H:%M")
-    )
+    if 0 <= hours_ago < MEAL_RELATIVE_TIME_MAX_HOURS:
+        return f"{hours_ago:.0f}h ago"
+    return meal_ts.strftime("%a %H:%M")
+
+
+def _format_meal_line(record: "FoodRecord", now: datetime) -> str:
+    """Render one logged meal as a descriptive, non-prescriptive context line.
+
+    Every line carries the "never use it to dose or bolus" qualifier so the carb
+    figure is read as an AI guess, never as something to dose from.
+    """
+    low, high, corrected = _meal_carb_range(record)
+    description = _safe_meal_description(record.food_description)
+    when = _meal_when_token(record, now)
     qualifier = (
-        "user-corrected estimate, verify before dosing"
+        "user-corrected estimate — never use it to dose or bolus"
         if corrected
-        else "estimate, verify before dosing"
+        else MEAL_ESTIMATE_QUALIFIER
     )
     return f"- {description}: ~{low:g}-{high:g}g carbs ({qualifier}) [{when}]"
 
@@ -384,6 +393,37 @@ def _format_meals_block(header: str, records: list["FoodRecord"], now: datetime)
     return "\n".join(lines)
 
 
+async def _fetch_meal_records(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    *,
+    start: datetime,
+    end: datetime | None,
+) -> list["FoodRecord"]:
+    """Fetch a user's logged meals in ``[start, end)`` (open end if ``end`` is None).
+
+    Single source of the meal query so the rendered context and the citation
+    allow-set always read the same rows -- the verifier can
+    only trust a number if the context that produced it used identical records.
+    Ordered newest-first and capped at ``MEAL_MAX_RECORDS``.
+    """
+    from src.models.food_record import FoodRecord
+
+    conditions = [
+        FoodRecord.user_id == user_id,
+        FoodRecord.meal_timestamp >= start,
+    ]
+    if end is not None:
+        conditions.append(FoodRecord.meal_timestamp < end)
+    result = await db.execute(
+        select(FoodRecord)
+        .where(*conditions)
+        .order_by(FoodRecord.meal_timestamp.desc())
+        .limit(MEAL_MAX_RECORDS)
+    )
+    return list(result.scalars().all())
+
+
 async def build_meals_section(
     db: AsyncSession,
     user_id: uuid.UUID,
@@ -392,23 +432,12 @@ async def build_meals_section(
 
     Pulls the user's most recent food records within a bounded window so chat can
     reference what they ate. Descriptive only: the carb range is presented as an
-    estimate to verify, never as a dosing input (Epic 50 safety posture). The
+    estimate to verify, never as a dosing input (meal-intelligence safety posture). The
     caller only invokes this when ``meal_intelligence_enabled`` is on.
     """
-    from src.models.food_record import FoodRecord
-
     now = datetime.now(UTC)
     cutoff = now - timedelta(hours=MEAL_CONTEXT_HOURS)
-    result = await db.execute(
-        select(FoodRecord)
-        .where(
-            FoodRecord.user_id == user_id,
-            FoodRecord.meal_timestamp >= cutoff,
-        )
-        .order_by(FoodRecord.meal_timestamp.desc())
-        .limit(MEAL_MAX_RECORDS)
-    )
-    records = list(result.scalars().all())
+    records = await _fetch_meal_records(db, user_id, start=cutoff, end=None)
     if not records:
         return None
 
@@ -429,22 +458,10 @@ async def format_meals_for_brief(
 
     Mirrors ``build_meals_section`` but scopes to the brief's window so the brief
     references the meals logged in the period it summarizes. Same descriptive,
-    verify-before-dosing framing; never a dosing input. The caller only invokes
+    never-dose-or-bolus framing; never a dosing input. The caller only invokes
     this when ``meal_intelligence_enabled`` is on.
     """
-    from src.models.food_record import FoodRecord
-
-    result = await db.execute(
-        select(FoodRecord)
-        .where(
-            FoodRecord.user_id == user_id,
-            FoodRecord.meal_timestamp >= period_start,
-            FoodRecord.meal_timestamp < period_end,
-        )
-        .order_by(FoodRecord.meal_timestamp.desc())
-        .limit(MEAL_MAX_RECORDS)
-    )
-    records = list(result.scalars().all())
+    records = await _fetch_meal_records(db, user_id, start=period_start, end=period_end)
     if not records:
         return None
 
@@ -452,6 +469,105 @@ async def format_meals_for_brief(
     # the moment of generation -- a brief produced hours after the window closes
     # would otherwise render in-period meals as misleadingly old.
     return _format_meals_block("[Logged meals this period]", records, period_end)
+
+
+async def build_allowed_carbs(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    *,
+    window_start: datetime,
+    window_end: datetime | None,
+    now: datetime,
+) -> list[AllowedCarb]:
+    """Build the set of carb figures the model was allowed to cite.
+
+    Reads the same rows the context rendered (``_fetch_meal_records``) and the
+    same per-record carb range (``_meal_carb_range`` -- corrected values
+    preferred), so the output verifier's truth and the context the model saw
+    can't diverge (AC3). The allowed numbers come only from the carb columns,
+    never from ``food_description``, so a prompt-injected figure in a description
+    can never mint an allowed value.
+    """
+    records = await _fetch_meal_records(db, user_id, start=window_start, end=window_end)
+    allowed: list[AllowedCarb] = []
+    for record in records:
+        low, high, _ = _meal_carb_range(record)
+        allowed.append(
+            AllowedCarb(low=low, high=high, when=_meal_when_token(record, now))
+        )
+    return allowed
+
+
+async def verify_meal_citations(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    content: str,
+    *,
+    surface: str,
+    window_start: datetime | None = None,
+    window_end: datetime | None = None,
+    now: datetime | None = None,
+) -> str:
+    """Verify carb figures in a model response against the user's logged meals.
+
+    The single output-side choke-point for chat and the daily
+    brief. Inert when ``meal_intelligence_enabled`` is off. ``window_start``
+    defaults to the chat meal window (``now - MEAL_CONTEXT_HOURS``); the brief
+    passes its period bounds and anchors ``now`` to ``period_end`` so the time
+    tokens match what it rendered.
+
+    Fail-closed on the allow-set: if the records can't be read, the allow-set is
+    empty and every carb figure is scrubbed -- we never emit a number we couldn't
+    verify. A verifier exception (should be impossible on ``str`` input) returns
+    the content unchanged rather than break the reply; the model's *input* was
+    already scrubbed by the context layer. Logs PHI-free counts only (AC6).
+    """
+    if not settings.meal_intelligence_enabled or not content:
+        return content
+
+    now = now or datetime.now(UTC)
+    if window_start is None:
+        window_start = now - timedelta(hours=MEAL_CONTEXT_HOURS)
+
+    try:
+        allowed = await build_allowed_carbs(
+            db,
+            user_id,
+            window_start=window_start,
+            window_end=window_end,
+            now=now,
+        )
+    except Exception:
+        logger.warning(
+            "Meal citation allow-set build failed; scrubbing unverifiable figures",
+            surface=surface,
+            user_id=str(user_id),
+            exc_info=True,
+        )
+        allowed = []  # fail closed -> every carb figure is scrubbed
+
+    try:
+        outcome = verify_carb_citations(content, allowed)
+    except Exception:
+        logger.warning(
+            "Meal citation verification raised; returning content unchanged",
+            surface=surface,
+            user_id=str(user_id),
+            exc_info=True,
+        )
+        return content
+
+    if outcome.changed:
+        logger.info(
+            "Meal citation rewrite",
+            surface=surface,
+            seen=outcome.citations_seen,
+            matched=outcome.citations_matched,
+            corrected=outcome.citations_corrected,
+            scrubbed=outcome.citations_scrubbed,
+            timestamp_mismatches=outcome.timestamp_mismatches,
+        )
+    return outcome.text
 
 
 async def build_control_iq_section(
@@ -602,7 +718,7 @@ async def build_diabetes_context(
     ]
 
     # Logged meals are only surfaced when the meal-intelligence feature is on
-    # (Story 50.F1). Gated here -- not inside the builder -- so the feature stays
+    # Gated here -- not inside the builder -- so the feature stays
     # fully invisible (no query, no section) while the flag is off.
     if settings.meal_intelligence_enabled:
         builders.append(("meals", build_meals_section))

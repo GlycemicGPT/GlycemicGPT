@@ -15,7 +15,7 @@ already-computed results.
 
 Safety posture (NON-NEGOTIABLE): grounding sharpens the *descriptive* estimate
 only. It returns a carb range + citation, never a dose, and the result is never
-read by IoB / treatment_safety / carb-ratio math. The verify-before-dosing framing
+read by IoB / treatment_safety / carb-ratio math. The never-dose-or-bolus framing
 is preserved by the callers (the persistent qualifier on every estimate surface).
 """
 
