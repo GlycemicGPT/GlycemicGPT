@@ -21,7 +21,6 @@ from src.services.integrations.nightscout.onboarding_derive import (
     DEFAULT_DIA_HOURS,
     DEFAULT_TARGET_HIGH_MGDL,
     DEFAULT_TARGET_LOW_MGDL,
-    MMOL_TO_MGDL,
     derive_onboarding_proposals,
 )
 
@@ -294,9 +293,12 @@ class TestUnitConversion:
         )
 
         assert result.units_converted is True
-        # 4.4 * 18.0182 = 79.28 -> rounds to 79.3
-        assert result.target_low.proposed_value == round(4.4 * MMOL_TO_MGDL, 1)
-        assert result.target_high.proposed_value == round(7.8 * MMOL_TO_MGDL, 1)
+        # Hardcoded goldens (not derived from the constant) so the test
+        # fails if the shared 18.0182 factor ever drifts:
+        #   4.4 mmol/L * 18.0182 = 79.28 -> 79.3
+        #   7.8 mmol/L * 18.0182 = 140.54 -> 140.5
+        assert result.target_low.proposed_value == 79.3
+        assert result.target_high.proposed_value == 140.5
 
     def test_mmol_isf_converts_to_mgdl_per_unit(self):
         """ISF in mmol/L per U converts to mg/dL per U at segment level."""
@@ -313,10 +315,8 @@ class TestUnitConversion:
         )
 
         assert result.units_converted is True
-        # 2.5 mmol/L per U * 18.0182 = 45.0455 -> rounds to 45.0
-        assert result.isf_schedule.proposed_segments[0].value == round(
-            2.5 * MMOL_TO_MGDL, 1
-        )
+        # 2.5 mmol/L per U * 18.0182 = 45.0455 -> 45.0 (hardcoded golden).
+        assert result.isf_schedule.proposed_segments[0].value == 45.0
 
     def test_mmol_basal_and_carb_ratio_not_converted(self):
         """Rate (U/hr) and carb ratio (g/U) are unit-agnostic."""
@@ -365,8 +365,8 @@ class TestUnitConversion:
         )
         assert result.units_converted is True
         assert result.units_unknown is False
-        # 4.4 * 18.0182 = 79.28 -> 79.3
-        assert result.target_low.proposed_value == round(4.4 * MMOL_TO_MGDL, 1)
+        # 4.4 * 18.0182 = 79.28 -> 79.3 (hardcoded golden).
+        assert result.target_low.proposed_value == 79.3
 
     def test_unknown_units_flagged(self):
         """CR H1: an unknown unit string must NOT silently default to

@@ -187,6 +187,7 @@ class TestExportUserData:
         result = await export_user_data(user_id, db, include_data=False)
 
         settings_data = result["settings"]
+        assert "glucose_unit" in settings_data
         assert "target_glucose_range" in settings_data
         assert "alert_thresholds" in settings_data
         assert "escalation_config" in settings_data
@@ -210,6 +211,8 @@ class TestExportUserData:
         db.execute.return_value = mock_result
 
         result = await export_user_data(user_id, db, include_data=False)
+
+        assert result["settings"]["glucose_unit"] == "mgdl"
 
         tgr = result["settings"]["target_glucose_range"]
         assert tgr["low_target"] == 70.0

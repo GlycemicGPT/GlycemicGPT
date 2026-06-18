@@ -10,6 +10,7 @@ from datetime import datetime
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 from src.core.disclaimer import has_acknowledged_current
+from src.core.units import GlucoseUnit
 from src.models.user import UserRole
 
 
@@ -69,6 +70,9 @@ class UserResponse(BaseModel):
     email_verified: bool
     disclaimer_acknowledged: bool
     disclaimer_version: str | None = None
+    glucose_unit: GlucoseUnit = Field(
+        ..., description="Preferred glucose display unit: mgdl or mmol"
+    )
     created_at: datetime
 
     @model_validator(mode="after")

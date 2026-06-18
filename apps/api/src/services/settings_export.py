@@ -27,6 +27,7 @@ from src.models.pump_data import PumpEvent
 from src.models.safety_log import SafetyLog
 from src.models.suggestion_response import SuggestionResponse
 from src.models.target_glucose_range import TargetGlucoseRange
+from src.models.user import User
 
 logger = get_logger(__name__)
 
@@ -44,6 +45,12 @@ async def _export_settings(
     values when a row does not yet exist.
     """
     settings: dict = {}
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    settings["glucose_unit"] = (
+        getattr(user.glucose_unit, "value", user.glucose_unit) if user else "mgdl"
+    )
 
     # Target glucose range
     result = await db.execute(

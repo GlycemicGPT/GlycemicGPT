@@ -22,6 +22,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
+from src.core.units import MGDL_PER_MMOL
 from src.models.glucose import TrendDirection
 from src.services.integrations.nightscout.models import (
     NightscoutEntry,
@@ -147,13 +148,11 @@ def map_bg_check_treatment_to_glucose_reading(
         return None
 
     # Per-record `units` field can override the default (rare).
-    # Convert mmol/L to mg/dL using the project-wide conversion factor.
+    # Convert mmol/L to mg/dL using the project-wide conversion factor
+    # (single source of truth in `src.core.units`).
     glucose_value = treatment.glucose
     units = (treatment.units or "").lower().strip()
     if units in ("mmol", "mmol/l"):
-        # Defer to the central constant to keep one source of truth.
-        from src.services.integrations.nightscout.models import MGDL_PER_MMOL
-
         glucose_value = glucose_value * MGDL_PER_MMOL
 
     return {
