@@ -25,7 +25,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import case, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from src.database import get_session_maker
@@ -104,12 +104,25 @@ def _coerce_float(value: object) -> float | None:
 async def recall_similar_meal(
     user_id: uuid.UUID,
     food_description: str,
+    *,
+    exclude_food_record_id: uuid.UUID | str | None = None,
 ) -> MealRecall | None:
     """Return the user's closest prior logged food, or None.
 
     Owner-scoped vector search over the user's own food-history chunks only. The
     carb range comes from the chunk metadata (already the user's corrected value
     when one exists -- see ``index_food_record``).
+
+    ``exclude_food_record_id`` drops the chunk for the record currently being
+    grounded, so a freshly-uploaded record can't recall *itself* as history (its
+    own chunk is indexed at upload). A common-food baseline carries
+    ``common_food_id`` (not ``food_record_id``), so ``IS DISTINCT FROM`` is used
+    to keep those rows rather than drop them on a NULL comparison.
+
+    Ties on distance are broken deterministically: the user's **corrected** value
+    wins, then the **most-recently** indexed -- so when a corrected and an
+    uncorrected chunk for one food are equidistant or near-equidistant, grounding
+    reliably prefers the correction instead of an implementation-defined row.
 
     Runs on its own short-lived session, decoupled from any caller transaction:
     embedding offloads to a worker thread, and reusing the request session across
@@ -121,25 +134,47 @@ async def recall_similar_meal(
         return None
 
     distance = KnowledgeChunk.embedding.cosine_distance(embedding)
+    conditions = [
+        # Strictly owner-scoped: never another user's history, and never the
+        # shared (NULL) clinical/external chunks.
+        KnowledgeChunk.user_id == user_id,
+        KnowledgeChunk.source_type.in_(OWN_HISTORY_SOURCE_TYPES),
+        KnowledgeChunk.valid_to.is_(None),
+        KnowledgeChunk.embedding.is_not(None),
+        # Only chunks carrying a usable carb range (BOTH bounds) -- so the closest
+        # match with complete metadata is chosen, not a closer-but-unusable row
+        # that would then return None.
+        KnowledgeChunk.metadata_json["carbs_low"].astext.isnot(None),
+        KnowledgeChunk.metadata_json["carbs_high"].astext.isnot(None),
+        distance < RECALL_MAX_DISTANCE,
+    ]
+    if exclude_food_record_id is not None:
+        conditions.append(
+            KnowledgeChunk.metadata_json["food_record_id"].astext.is_distinct_from(
+                str(exclude_food_record_id)
+            )
+        )
+    # Corrected (the user's truth) wins a distance tie; CASE maps the JSON bool to
+    # 1/0 so a missing/false flag never sorts ahead of a corrected match.
+    corrected_first = case(
+        (KnowledgeChunk.metadata_json["is_corrected"].astext == "true", 1),
+        else_=0,
+    ).desc()
+    # Full deterministic order: nearest, then corrected, then most-recent
+    # (NULLS LAST so a missing timestamp can't outrank a real one), then a stable
+    # tie-break on the PK so even an all-keys tie resolves to a single fixed row.
+    ordering = (
+        distance,
+        corrected_first,
+        KnowledgeChunk.retrieved_at.desc().nulls_last(),
+        KnowledgeChunk.id,
+    )
     try:
         async with get_session_maker()() as db:
             result = await db.execute(
                 select(KnowledgeChunk, distance.label("distance"))
-                .where(
-                    # Strictly owner-scoped: never another user's history, and
-                    # never the shared (NULL) clinical/external chunks.
-                    KnowledgeChunk.user_id == user_id,
-                    KnowledgeChunk.source_type.in_(OWN_HISTORY_SOURCE_TYPES),
-                    KnowledgeChunk.valid_to.is_(None),
-                    KnowledgeChunk.embedding.is_not(None),
-                    # Only chunks carrying a usable carb range (BOTH bounds) -- so
-                    # the closest match with complete metadata is chosen, not a
-                    # closer-but-unusable row that would then return None.
-                    KnowledgeChunk.metadata_json["carbs_low"].astext.isnot(None),
-                    KnowledgeChunk.metadata_json["carbs_high"].astext.isnot(None),
-                    distance < RECALL_MAX_DISTANCE,
-                )
-                .order_by(distance)
+                .where(*conditions)
+                .order_by(*ordering)
                 .limit(1)
             )
             row = result.first()

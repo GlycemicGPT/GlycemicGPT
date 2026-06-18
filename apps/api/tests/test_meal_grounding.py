@@ -13,6 +13,7 @@ own-history recall is exercised without the real model. External HTTP is mocked.
 
 import json
 import uuid
+from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -84,6 +85,23 @@ async def _new_record(
     await db.commit()
     await db.refresh(record)
     return record
+
+
+async def _set_chunk_retrieved_at(food_record_id: uuid.UUID, when: datetime) -> None:
+    """Pin a food-record chunk's ``retrieved_at`` so most-recent ties are stable
+    (rather than racing on the sub-millisecond gap between two index calls)."""
+    from sqlalchemy import update
+
+    async with get_session_maker()() as db:
+        await db.execute(
+            update(KnowledgeChunk)
+            .where(
+                KnowledgeChunk.metadata_json["food_record_id"].astext
+                == str(food_record_id)
+            )
+            .values(retrieved_at=when)
+        )
+        await db.commit()
 
 
 async def _user_with_provider(db) -> User:
@@ -261,6 +279,130 @@ class TestOwnHistoryRecall:
         assert recall is not None
         assert recall.common_food_id == str(cf.id)
         assert recall.is_corrected is True  # a curated baseline is the truth
+
+    async def test_recall_breaks_distance_tie_toward_corrected(self):
+        # Two own-history chunks for one food embed to an EXACT distance tie (same
+        # description). The corrected one -- the user's truth -- must win. This is
+        # the HIGH bug: without a deterministic order the tie resolved
+        # implementation-defined, so grounding could fall back to the uncorrected
+        # guess. Indexing the uncorrected one first means a naive ORDER BY distance
+        # would surface it.
+        #
+        # Pin the CORRECTED chunk as the OLDER one so the recency fallback
+        # (retrieved_at DESC) would actually prefer the uncorrected row -- only the
+        # corrected-first ordering can surface the correction here. That isolates
+        # the corrected-first term: drop it and this test fails on the recency tie.
+        async with get_session_maker()() as db:
+            user = await _new_user(db)
+            desc = _uniq("turkey sandwich")
+            uncorrected = await _new_record(db, user, desc, low=40, high=50)
+            corrected = await _new_record(
+                db, user, desc, low=40, high=50, corrected=(70, 80)
+            )
+
+        await meal_rag.index_food_record(uncorrected)
+        await meal_rag.index_food_record(corrected)
+        now = datetime.now(UTC)
+        await _set_chunk_retrieved_at(corrected.id, now - timedelta(hours=2))
+        await _set_chunk_retrieved_at(uncorrected.id, now)
+
+        recall = await meal_rag.recall_similar_meal(user.id, desc)
+        assert recall is not None
+        assert recall.is_corrected is True
+        assert recall.food_record_id == str(corrected.id)
+        assert recall.carbs_low == 70 and recall.carbs_high == 80
+
+    async def test_recall_tie_among_corrected_prefers_most_recent(self):
+        # Two equidistant CORRECTED chunks -> the most-recently indexed wins,
+        # deterministically (a later correction supersedes an earlier one).
+        async with get_session_maker()() as db:
+            user = await _new_user(db)
+            desc = _uniq("veggie curry")
+            older = await _new_record(
+                db, user, desc, low=40, high=50, corrected=(60, 70)
+            )
+            newer = await _new_record(
+                db, user, desc, low=40, high=50, corrected=(90, 100)
+            )
+
+        await meal_rag.index_food_record(older)
+        await meal_rag.index_food_record(newer)
+        now = datetime.now(UTC)
+        await _set_chunk_retrieved_at(older.id, now - timedelta(hours=2))
+        await _set_chunk_retrieved_at(newer.id, now)
+
+        recall = await meal_rag.recall_similar_meal(user.id, desc)
+        assert recall is not None
+        assert recall.food_record_id == str(newer.id)
+        assert recall.carbs_low == 90 and recall.carbs_high == 100
+
+    async def test_recall_excludes_the_record_being_grounded(self):
+        # A first-ever log must not recall ITSELF as own-history (self-exclusion).
+        async with get_session_maker()() as db:
+            user = await _new_user(db)
+            desc = _uniq("first ever log")
+            record = await _new_record(db, user, desc, low=30, high=40)
+
+        await meal_rag.index_food_record(record)
+
+        assert (
+            await meal_rag.recall_similar_meal(
+                user.id, desc, exclude_food_record_id=record.id
+            )
+            is None
+        )
+        # Sanity: the chunk does exist -- without the exclusion it is found.
+        assert await meal_rag.recall_similar_meal(user.id, desc) is not None
+
+    async def test_recall_excludes_self_but_finds_genuine_prior(self):
+        # Excluding the re-shoot's own chunk still recalls a genuine prior log.
+        async with get_session_maker()() as db:
+            user = await _new_user(db)
+            desc = _uniq("repeat meal")
+            prior = await _new_record(
+                db, user, desc, low=40, high=50, corrected=(70, 80)
+            )
+            reshoot = await _new_record(db, user, desc, low=45, high=55)
+
+        await meal_rag.index_food_record(prior)
+        await meal_rag.index_food_record(reshoot)
+
+        recall = await meal_rag.recall_similar_meal(
+            user.id, desc, exclude_food_record_id=reshoot.id
+        )
+        assert recall is not None
+        assert recall.food_record_id == str(prior.id)
+        assert recall.is_corrected is True
+        assert recall.carbs_low == 70 and recall.carbs_high == 80
+
+    async def test_self_exclusion_keeps_common_food_baseline(self):
+        # A common-food chunk carries common_food_id, not food_record_id, so the
+        # IS DISTINCT FROM exclusion must KEEP it (a NULL "!=" would wrongly drop
+        # it). Excluding the record's own chunk still recalls the baseline.
+        async with get_session_maker()() as db:
+            user = await _new_user(db)
+            name = _uniq("my saved bowl")
+            cf = CommonFood(
+                user_id=user.id,
+                name=name,
+                normalized_name=normalize_common_food_name(name),
+                carbs_low=55,
+                carbs_high=65,
+            )
+            db.add(cf)
+            await db.commit()
+            await db.refresh(cf)
+            record = await _new_record(db, user, name, low=40, high=50)
+
+        await meal_rag.index_common_food(cf)
+        await meal_rag.index_food_record(record)
+
+        recall = await meal_rag.recall_similar_meal(
+            user.id, name, exclude_food_record_id=record.id
+        )
+        assert recall is not None
+        assert recall.common_food_id == str(cf.id)
+        assert recall.is_corrected is True
 
 
 # --------------------------------------------------------------------------- #
