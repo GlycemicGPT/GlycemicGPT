@@ -3,6 +3,7 @@
   "pages": [
     "branching-strategy",
     "testing-checklist",
+    "instrumented-tests-ci",
     "docker-integration-testing",
     "real-data-pipeline-verification",
     "security-testing",
