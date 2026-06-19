@@ -11,7 +11,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
-import { UtensilsCrossed, Loader2, ChevronRight } from "lucide-react";
+import { UtensilsCrossed, Loader2, ChevronRight, BookMarked } from "lucide-react";
 import { listFoodRecords, type FoodRecord } from "@/lib/api";
 import { classifyMealError, type MealErrorInfo } from "@/lib/meal-errors";
 import {
@@ -172,10 +172,20 @@ export default function MealsPage() {
             </div>
           </div>
           {!blockedInfo && (
-            <MealUpload
-              onUploaded={handleUploaded}
-              onFeatureOff={() => loadData(1)}
-            />
+            <div className="flex flex-col items-end gap-2">
+              <MealUpload
+                onUploaded={handleUploaded}
+                onFeatureOff={() => loadData(1)}
+              />
+              <Link
+                href="/dashboard/meals/common-foods"
+                data-testid="meals-common-foods-link"
+                className="inline-flex items-center gap-1.5 text-sm text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+              >
+                <BookMarked className="h-4 w-4" />
+                Common foods
+              </Link>
+            </div>
           )}
         </div>
 

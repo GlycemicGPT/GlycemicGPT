@@ -42,6 +42,7 @@ import {
   MealCorrectionSection,
   MealIdentitySection,
 } from "@/components/meals/meal-edit";
+import { MealCommonFoodSection } from "@/components/meals/common-food-actions";
 
 function BackLink() {
   return (
@@ -262,6 +263,27 @@ export default function MealDetailPage() {
               What is this?
             </h2>
             <MealIdentitySection record={record} onUpdated={handleUpdated} />
+          </div>
+        </AnimatedCard>
+
+        {/* Personalize: save this meal as a reusable baseline, or link it to one
+            you already keep. A baseline is the user's curated truth, but still a
+            description of the food — never a dose. */}
+        <AnimatedCard delay={0.075}>
+          <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
+                Common foods
+              </h2>
+              <Link
+                href="/dashboard/meals/common-foods"
+                data-testid="meal-manage-common-foods"
+                className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+              >
+                Manage
+              </Link>
+            </div>
+            <MealCommonFoodSection record={record} onUpdated={handleUpdated} />
           </div>
         </AnimatedCard>
 

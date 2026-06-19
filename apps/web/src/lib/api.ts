@@ -4484,3 +4484,148 @@ export async function getMealIntelligenceStatus(): Promise<{ enabled: boolean }>
     return { enabled: true };
   }
 }
+
+// ============================================================================
+// Common-foods management + save/link
+//
+// A common food is a user-named carb/nutrition baseline for a food eaten often.
+// Mirrors `CommonFoodResponse` (apps/api/src/schemas/common_food.py). It is a
+// descriptive baseline only: there is deliberately no dose/insulin field, and
+// these values never flow into IoB / treatment_safety / carb-ratio math. Every
+// endpoint is owner-scoped + flag-gated server-side (a 404 whose detail says the
+// feature is "not enabled" means the global flag is off). Failures throw
+// `MealApiError` so callers can map status to UX (409 name-in-use, 422 range).
+// ============================================================================
+
+/** A saved common-food baseline. The `nutrition_json` macros mirror a record's. */
+export interface CommonFood {
+  id: string;
+  name: string;
+  carbs_low: number;
+  carbs_high: number;
+  nutrition_json: FoodRecordNutrition | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CommonFoodListResponse {
+  common_foods: CommonFood[];
+  total: number;
+}
+
+/** Fields a user can edit on a baseline. Carb bounds are sent together (the
+ *  server rejects one without the other), matching the carb-correction contract. */
+export interface CommonFoodUpdate {
+  name?: string;
+  carbs_low?: number;
+  carbs_high?: number;
+}
+
+/**
+ * List the current user's common foods, most recently updated first. Paginated
+ * (server caps limit at 200). Flag-gated + owner-scoped server-side.
+ */
+export async function listCommonFoods(
+  limit = 50,
+  offset = 0
+): Promise<CommonFoodListResponse> {
+  const params = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+  });
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/common-foods?${params.toString()}`
+  );
+  if (!response.ok) {
+    await _throwMealError(response);
+  }
+  return response.json();
+}
+
+/**
+ * Rename and/or re-baseline a common food. Throws `MealApiError`: 404 for a
+ * missing/cross-user id (IDOR-safe, no existence leak), 409 when the new name
+ * collides with another of the user's baselines, 422 for an out-of-range or
+ * inverted carb band. The baseline is a description of a food, never a dose.
+ */
+export async function updateCommonFood(
+  commonFoodId: string,
+  update: CommonFoodUpdate
+): Promise<CommonFood> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/common-foods/${encodeURIComponent(commonFoodId)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(update),
+    }
+  );
+  if (!response.ok) {
+    await _throwMealError(response);
+  }
+  return response.json();
+}
+
+/**
+ * Delete a common food (204 No Content). Records linked to it are unlinked
+ * (FK ON DELETE SET NULL), never deleted. Throws `MealApiError` 404 for a
+ * missing/cross-user id.
+ */
+export async function deleteCommonFood(commonFoodId: string): Promise<void> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/common-foods/${encodeURIComponent(commonFoodId)}`,
+    { method: "DELETE" }
+  );
+  if (!response.ok) {
+    await _throwMealError(response);
+  }
+}
+
+/**
+ * Promote a food record to a named common-food baseline and link it. The server
+ * uses the record's corrected values when present, else the AI estimate, and
+ * dedupes by name (saving under an existing name updates that baseline). Returns
+ * the saved/updated baseline. Throws `MealApiError` (404 missing/cross-user
+ * record, 422 out-of-range).
+ */
+export async function saveRecordAsCommonFood(
+  recordId: string,
+  name: string
+): Promise<CommonFood> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/food-records/${encodeURIComponent(recordId)}/save-as-common-food`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    }
+  );
+  if (!response.ok) {
+    await _throwMealError(response);
+  }
+  return response.json();
+}
+
+/**
+ * Link an existing food record to one of the user's existing common foods.
+ * Both sides are owner-scoped: a missing or cross-user record OR baseline 404s
+ * with no existence leak. Returns the refreshed record (now carrying
+ * `common_food_id`). Throws `MealApiError` 404.
+ */
+export async function linkRecordToCommonFood(
+  recordId: string,
+  commonFoodId: string
+): Promise<FoodRecord> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/food-records/${encodeURIComponent(recordId)}/link-common-food`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ common_food_id: commonFoodId }),
+    }
+  );
+  if (!response.ok) {
+    await _throwMealError(response);
+  }
+  return response.json();
+}
