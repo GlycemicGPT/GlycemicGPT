@@ -32,11 +32,15 @@ jest.mock("next/navigation", () => ({
 
 const mockGet = jest.fn();
 const mockDelete = jest.fn();
+const mockCorrect = jest.fn();
+const mockConfirm = jest.fn();
 jest.mock("@/lib/api", () => ({
   __esModule: true,
   ...jest.requireActual("@/lib/api"),
   getFoodRecord: (...args: unknown[]) => mockGet(...args),
   deleteFoodRecord: (...args: unknown[]) => mockDelete(...args),
+  correctFoodRecord: (...args: unknown[]) => mockCorrect(...args),
+  confirmFoodIdentity: (...args: unknown[]) => mockConfirm(...args),
   // MealPhoto fetches the photo lazily; default to "no photo" -> placeholder.
   fetchFoodRecordPhotoObjectUrl: jest.fn(() =>
     Promise.reject(new Error("no photo"))
@@ -67,6 +71,7 @@ function makeRecord(overrides: Partial<FoodRecord> = {}): FoodRecord {
     ai_provider: "anthropic",
     confirmed_food_name: null,
     identity_confirmed: false,
+    suggested_identity: null,
     grounding_source: null,
     grounding_source_url: null,
     grounding_trust_tier: null,
@@ -101,6 +106,8 @@ describe("Meal detail page", () => {
   beforeEach(() => {
     mockGet.mockReset();
     mockDelete.mockReset();
+    mockCorrect.mockReset();
+    mockConfirm.mockReset();
     mockPush.mockReset();
   });
 
@@ -259,5 +266,216 @@ describe("Meal detail page", () => {
     ).toBeInTheDocument();
     // The record state is cleared, so no stale meal content renders.
     expect(screen.queryByTestId("meal-carb-range")).not.toBeInTheDocument();
+  });
+
+  // --- carb correction ---
+
+  it("corrects the carb range: shows the corrected band, retains the original, flips the source", async () => {
+    mockGet.mockResolvedValue(makeRecord());
+    mockCorrect.mockResolvedValue(
+      makeRecord({
+        source: "user_corrected",
+        corrected_carbs_low: 30,
+        corrected_carbs_high: 30,
+        corrected_at: "2026-06-19T13:00:00Z",
+      })
+    );
+    render(<MealDetailPage />);
+
+    fireEvent.click(await screen.findByTestId("meal-correct-button"));
+    // AC2: the editor states the corrected values never feed dosing math.
+    expect(screen.getByTestId("meal-correct-decoupling")).toHaveTextContent(
+      /never fed to IoB, treatment safety, or carb-ratio/i
+    );
+    fireEvent.change(screen.getByTestId("meal-correct-low"), {
+      target: { value: "30" },
+    });
+    fireEvent.change(screen.getByTestId("meal-correct-high"), {
+      target: { value: "30" },
+    });
+    fireEvent.click(screen.getByTestId("meal-correct-save"));
+
+    await waitFor(() =>
+      expect(mockCorrect).toHaveBeenCalledWith("rec-1", {
+        corrected_carbs_low: 30,
+        corrected_carbs_high: 30,
+      })
+    );
+    // Refreshed in place: corrected band shown, source flipped, original retained.
+    expect(await screen.findByTestId("meal-carb-range")).toHaveTextContent(
+      "≈ 30 g carbs"
+    );
+    expect(screen.getByTestId("meal-source-badge")).toHaveTextContent(
+      "You corrected this"
+    );
+    expect(screen.getByText(/AI estimated/)).toHaveTextContent(
+      "≈ 40–55 g carbs"
+    );
+    // Two distinct actions: correcting carbs never confirms identity.
+    expect(mockConfirm).not.toHaveBeenCalled();
+  });
+
+  it("rejects an inverted correction client-side, without any network call", async () => {
+    mockGet.mockResolvedValue(makeRecord());
+    render(<MealDetailPage />);
+
+    fireEvent.click(await screen.findByTestId("meal-correct-button"));
+    fireEvent.change(screen.getByTestId("meal-correct-low"), {
+      target: { value: "50" },
+    });
+    fireEvent.change(screen.getByTestId("meal-correct-high"), {
+      target: { value: "10" },
+    });
+    fireEvent.click(screen.getByTestId("meal-correct-save"));
+
+    expect(await screen.findByTestId("meal-correct-error")).toHaveTextContent(
+      /low value must not exceed/i
+    );
+    expect(mockCorrect).not.toHaveBeenCalled();
+  });
+
+  it("handles a server-side out-of-range 422 gracefully and does not mutate the record", async () => {
+    mockGet.mockResolvedValue(makeRecord());
+    mockCorrect.mockRejectedValue(
+      new MealApiError(422, "carbohydrate bound above 1000 g")
+    );
+    render(<MealDetailPage />);
+
+    fireEvent.click(await screen.findByTestId("meal-correct-button"));
+    fireEvent.change(screen.getByTestId("meal-correct-low"), {
+      target: { value: "30" },
+    });
+    fireEvent.change(screen.getByTestId("meal-correct-high"), {
+      target: { value: "40" },
+    });
+    fireEvent.click(screen.getByTestId("meal-correct-save"));
+
+    expect(await screen.findByTestId("meal-correct-error")).toHaveTextContent(
+      /between 0 and 1000/i
+    );
+    // A rejected correction never mutates the displayed estimate or its source.
+    expect(screen.getByTestId("meal-carb-range")).toHaveTextContent(
+      "≈ 40–55 g carbs"
+    );
+    expect(screen.getByTestId("meal-source-badge")).toHaveTextContent(
+      "AI estimate"
+    );
+  });
+
+  it("surfaces a 404 (deleted / cross-user) on correction without mutating the record (IDOR)", async () => {
+    mockGet.mockResolvedValue(makeRecord());
+    mockCorrect.mockRejectedValue(new MealApiError(404, "Food record not found."));
+    render(<MealDetailPage />);
+
+    fireEvent.click(await screen.findByTestId("meal-correct-button"));
+    fireEvent.change(screen.getByTestId("meal-correct-low"), {
+      target: { value: "30" },
+    });
+    fireEvent.change(screen.getByTestId("meal-correct-high"), {
+      target: { value: "40" },
+    });
+    fireEvent.click(screen.getByTestId("meal-correct-save"));
+
+    expect(await screen.findByTestId("meal-correct-error")).toHaveTextContent(
+      /no longer exists/i
+    );
+    expect(screen.getByTestId("meal-carb-range")).toHaveTextContent(
+      "≈ 40–55 g carbs"
+    );
+  });
+
+  // --- identity confirmation + grounding gate ---
+
+  it("keeps an unconfirmed record vision-only with no authoritative citation", async () => {
+    mockGet.mockResolvedValue(
+      makeRecord({ identity_confirmed: false, grounding_source: null })
+    );
+    render(<MealDetailPage />);
+
+    expect(
+      await screen.findByTestId("meal-grounding-vision-only")
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("meal-grounding-grounded")
+    ).not.toBeInTheDocument();
+    // Confirm-identity and correct-carbs are two distinct actions on the surface.
+    expect(screen.getByTestId("meal-identity-confirm")).toBeInTheDocument();
+    expect(screen.getByTestId("meal-correct-button")).toBeInTheDocument();
+  });
+
+  it("confirm-identity opens grounding: vision-only before, attribution after", async () => {
+    mockGet.mockResolvedValue(makeRecord());
+    mockConfirm.mockResolvedValue(
+      makeRecord({
+        identity_confirmed: true,
+        confirmed_food_name: "Bowl of oatmeal",
+        source: "external_grounded",
+        grounding_source: "USDA FoodData Central",
+        grounding_source_url: "https://fdc.nal.usda.gov/",
+        grounding_trust_tier: "AUTHORITATIVE",
+      })
+    );
+    render(<MealDetailPage />);
+
+    // Before: vision-only, no authoritative citation.
+    expect(
+      await screen.findByTestId("meal-grounding-vision-only")
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("meal-grounding-grounded")
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("meal-identity-confirm"));
+
+    await waitFor(() =>
+      expect(mockConfirm).toHaveBeenCalledWith("rec-1", "Bowl of oatmeal")
+    );
+    // After: refreshes to show the grounding attribution + a safe outbound link.
+    expect(
+      await screen.findByTestId("meal-grounding-grounded")
+    ).toHaveTextContent("USDA FoodData Central");
+    const link = screen.getByTestId("meal-grounding-link");
+    expect(link).toHaveAttribute("href", "https://fdc.nal.usda.gov/");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(
+      screen.queryByTestId("meal-grounding-vision-only")
+    ).not.toBeInTheDocument();
+    // Two distinct actions: confirming identity never corrects carbs.
+    expect(mockCorrect).not.toHaveBeenCalled();
+  });
+
+  it("corrects the identity to a different name via the editor", async () => {
+    mockGet.mockResolvedValue(makeRecord());
+    mockConfirm.mockResolvedValue(
+      makeRecord({ identity_confirmed: true, confirmed_food_name: "Steel-cut oats" })
+    );
+    render(<MealDetailPage />);
+
+    fireEvent.click(await screen.findByTestId("meal-identity-correct"));
+    fireEvent.change(screen.getByTestId("meal-identity-input"), {
+      target: { value: "Steel-cut oats" },
+    });
+    fireEvent.click(screen.getByTestId("meal-identity-save"));
+
+    await waitFor(() =>
+      expect(mockConfirm).toHaveBeenCalledWith("rec-1", "Steel-cut oats")
+    );
+  });
+
+  it("pre-fills and surfaces an own-history suggested identity", async () => {
+    mockGet.mockResolvedValue(makeRecord({ suggested_identity: "Saved oatmeal" }));
+    mockConfirm.mockResolvedValue(
+      makeRecord({ identity_confirmed: true, confirmed_food_name: "Saved oatmeal" })
+    );
+    render(<MealDetailPage />);
+
+    expect(await screen.findByTestId("meal-identity-prompt")).toHaveTextContent(
+      /Saved oatmeal/
+    );
+    fireEvent.click(screen.getByTestId("meal-identity-confirm"));
+    await waitFor(() =>
+      expect(mockConfirm).toHaveBeenCalledWith("rec-1", "Saved oatmeal")
+    );
   });
 });

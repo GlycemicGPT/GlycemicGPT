@@ -32,11 +32,16 @@ import {
   SourceBadge,
   IdentityConfirmedBadge,
   MealSafetyQualifier,
+  MealGroundingStatus,
   MealAssumedPortion,
   MealNutritionFacts,
   MealNutritionDisclaimer,
   MealErrorPanel,
 } from "@/components/meals/meal-ui";
+import {
+  MealCorrectionSection,
+  MealIdentitySection,
+} from "@/components/meals/meal-edit";
 
 function BackLink() {
   return (
@@ -116,6 +121,20 @@ export default function MealDetailPage() {
       setDeleting(false);
     }
   }, [record, deleting, router]);
+
+  // A correction / identity-confirmation returns the refreshed record; swap it in
+  // so the carb band, source badge, and grounding attribution re-render in place.
+  // Guard on the route id: this route segment re-runs its loader on navigation
+  // without remounting, so a response that resolves after the user moved to a
+  // different meal must not overwrite the now-active record with stale data.
+  const handleUpdated = useCallback(
+    (updated: FoodRecord) => {
+      if (updated.id !== id) return;
+      setRecord(updated);
+      setError(null);
+    },
+    [id]
+  );
 
   if (loading) {
     return (
@@ -228,17 +247,32 @@ export default function MealDetailPage() {
             )}
 
             <MealSafetyQualifier qualifier={record.safety_qualifier} />
+            <MealGroundingStatus record={record} />
+            <MealCorrectionSection record={record} onUpdated={handleUpdated} />
+          </div>
+        </AnimatedCard>
+
+        {/* Confirming/correcting *what the food is* is a distinct action from
+            carb correction (the Story 50.H2 split between fixing carbs and
+            confirming identity): it is what opens external authoritative
+            grounding, so a misidentification is never certified. */}
+        <AnimatedCard delay={0.05}>
+          <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 space-y-3">
+            <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
+              What is this?
+            </h2>
+            <MealIdentitySection record={record} onUpdated={handleUpdated} />
           </div>
         </AnimatedCard>
 
         {facts?.portion && (
-          <AnimatedCard delay={0.05}>
+          <AnimatedCard delay={0.1}>
             <MealAssumedPortion portion={facts.portion} />
           </AnimatedCard>
         )}
 
         {hasNutrition && facts && (
-          <AnimatedCard delay={0.1}>
+          <AnimatedCard delay={0.15}>
             <MealNutritionFacts facts={facts} />
           </AnimatedCard>
         )}

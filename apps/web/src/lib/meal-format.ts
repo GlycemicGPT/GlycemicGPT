@@ -127,3 +127,99 @@ export function formatNetCarbs(low: number, high: number): string {
   const hi = grams(high);
   return lo === hi ? `≈ ${lo} g` : `≈ ${lo}–${hi} g`;
 }
+
+/**
+ * Carb-correction input bounds, identical to the server's reject-not-clamp range
+ * (`CARB_GRAMS_MIN`/`CARB_GRAMS_MAX`) and the mobile `CarbBounds`. These describe
+ * food, never a dose; a client-side check just spares an obvious round-trip, the
+ * server re-validates regardless.
+ */
+export const CARB_GRAMS_MIN = 0;
+export const CARB_GRAMS_MAX = 1000;
+
+export type CarbInputResult =
+  | { ok: true; low: number; high: number }
+  | { ok: false; reason: string };
+
+/**
+ * Return a human-readable reason a low/high carb range is invalid, or null when
+ * it is acceptable. Copy mirrors the mobile `CarbBounds.validate` so the two
+ * clients never drift.
+ */
+export function validateCarbBounds(low: number, high: number): string | null {
+  if (Number.isNaN(low) || Number.isNaN(high)) {
+    return "Enter a number of carbs in grams.";
+  }
+  if (low < CARB_GRAMS_MIN || high < CARB_GRAMS_MIN) {
+    return "Carbs can't be negative.";
+  }
+  if (low > CARB_GRAMS_MAX || high > CARB_GRAMS_MAX) {
+    return `Carbs can't exceed ${CARB_GRAMS_MAX} g.`;
+  }
+  if (low > high) {
+    return "The low value must not exceed the high value.";
+  }
+  return null;
+}
+
+/**
+ * Parse two free-text gram inputs into a validated range, mirroring the mobile
+ * `CarbBounds.parse`. Returns the parsed numbers on success, else a reason to
+ * show inline. Blank / non-numeric input is rejected before any network call.
+ */
+export function parseCarbInputs(
+  lowText: string,
+  highText: string
+): CarbInputResult {
+  const low = Number(lowText.trim());
+  const high = Number(highText.trim());
+  if (lowText.trim() === "" || highText.trim() === "" || Number.isNaN(low) || Number.isNaN(high)) {
+    return { ok: false, reason: "Enter both carb values in grams." };
+  }
+  const reason = validateCarbBounds(low, high);
+  if (reason) return { ok: false, reason };
+  return { ok: true, low, high };
+}
+
+/**
+ * The identity to pre-fill the confirm/correct input with: a fresh own-history
+ * suggestion when the server offered one, else the current display identity
+ * (confirmed name or AI description). Trimmed; "" when nothing is known. Mirrors
+ * the mobile candidate (`suggestedIdentity ?? displayIdentity`).
+ */
+export function prefillIdentity(record: FoodRecord): string {
+  return (
+    record.suggested_identity?.trim() ||
+    record.confirmed_food_name?.trim() ||
+    record.food_description?.trim() ||
+    ""
+  );
+}
+
+/**
+ * Whether a record has been grounded against an external nutrition source. The
+ * grounding gate only opens once an identity is confirmed, so we require BOTH a
+ * confirmed identity and a grounding source: the server only populates
+ * `grounding_source` after confirmation, and gating the client on
+ * `identity_confirmed` too means a regressed/stale source can never render
+ * authoritative attribution before the user has confirmed what the food is.
+ */
+export function isGrounded(record: FoodRecord): boolean {
+  return record.identity_confirmed && !!record.grounding_source?.trim();
+}
+
+/**
+ * Whether a string is a safe http(s) URL to render as an outbound link. The
+ * grounding attribution URL is server-provided (from a fixed source allow-list),
+ * but this is defense-in-depth so a non-http scheme (`javascript:` / `data:`)
+ * can never be turned into a clickable link on a medical surface.
+ */
+export function isSafeHttpUrl(url: string | null | undefined): boolean {
+  if (!url) return false;
+  try {
+    const { protocol } = new URL(url);
+    return protocol === "https:" || protocol === "http:";
+  } catch {
+    return false;
+  }
+}

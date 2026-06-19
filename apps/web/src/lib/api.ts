@@ -4248,6 +4248,12 @@ export interface FoodRecord {
   ai_provider: string | null;
   confirmed_food_name: string | null;
   identity_confirmed: boolean;
+  /**
+   * Transient create-time own-history pre-fill ("looks like your saved X"); the
+   * server emits it on the upload response and it is absent (null) on later reads
+   * of a persisted record. Used to pre-fill the identity-confirmation input.
+   */
+  suggested_identity: string | null;
   grounding_source: string | null;
   grounding_source_url: string | null;
   grounding_trust_tier: string | null;
@@ -4385,6 +4391,59 @@ export async function uploadFoodRecord(image: Blob): Promise<FoodRecord> {
     method: "POST",
     body: formData,
   });
+  if (!response.ok) {
+    await _throwMealError(response);
+  }
+  return response.json();
+}
+
+/**
+ * Correct a food record's carb range (Story 50.C). Fixes a *description of the
+ * food*, never a dose: the corrected values land in the record's correction
+ * columns and provenance flips to `user_corrected`; the original AI estimate is
+ * preserved, and corrected values are never read by IoB / treatment_safety /
+ * carb-ratio math. Returns the refreshed record. Throws `MealApiError` (404 for
+ * a missing/cross-user id, 422 for out-of-range/inverted) for UX-state mapping.
+ */
+export async function correctFoodRecord(
+  recordId: string,
+  correction: { corrected_carbs_low: number; corrected_carbs_high: number }
+): Promise<FoodRecord> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/food-records/${encodeURIComponent(recordId)}/correct`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(correction),
+    }
+  );
+  if (!response.ok) {
+    await _throwMealError(response);
+  }
+  return response.json();
+}
+
+/**
+ * Confirm or correct *what the food is* (Story 50.H2) -- a distinct action from
+ * carb correction. The confirmed name opens the grounding gate: only now does
+ * the server look up external authoritative nutrition (USDA / Open Food Facts;
+ * restaurant facts) keyed on the confirmed name, so a misidentified label is
+ * never certified with a citation. Returns the refreshed record (which may now
+ * carry grounding attribution). Throws `MealApiError` (404 missing/cross-user,
+ * 422 blank/oversized name) for UX-state mapping.
+ */
+export async function confirmFoodIdentity(
+  recordId: string,
+  confirmedFoodName: string
+): Promise<FoodRecord> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/food-records/${encodeURIComponent(recordId)}/confirm-identity`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirmed_food_name: confirmedFoodName }),
+    }
+  );
   if (!response.ok) {
     await _throwMealError(response);
   }

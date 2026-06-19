@@ -61,6 +61,7 @@ function makeRecord(overrides: Partial<FoodRecord> = {}): FoodRecord {
     ai_provider: null,
     confirmed_food_name: null,
     identity_confirmed: false,
+    suggested_identity: null,
     grounding_source: null,
     grounding_source_url: null,
     grounding_trust_tier: null,

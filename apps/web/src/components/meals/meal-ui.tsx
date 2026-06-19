@@ -8,13 +8,22 @@
 import Link from "next/link";
 import {
   AlertTriangle,
+  BadgeCheck,
   CheckCircle2,
+  ExternalLink,
   ImageOff,
+  ScanLine,
   Settings as SettingsIcon,
   X,
 } from "lucide-react";
-import { formatMacroValue, formatNetCarbs, sourceMeta } from "@/lib/meal-format";
-import type { FoodRecordSource, NutritionFacts } from "@/lib/api";
+import {
+  formatMacroValue,
+  formatNetCarbs,
+  isGrounded,
+  isSafeHttpUrl,
+  sourceMeta,
+} from "@/lib/meal-format";
+import type { FoodRecord, FoodRecordSource, NutritionFacts } from "@/lib/api";
 import type { MealErrorInfo } from "@/lib/meal-errors";
 
 /** Provenance badge (AI estimate / corrected / grounded). */
@@ -178,6 +187,76 @@ export function MealNutritionDisclaimer({ disclaimer }: { disclaimer: string }) 
     >
       {disclaimer}
     </p>
+  );
+}
+
+/**
+ * Grounding status for the carb estimate (Story 50.H2/E1). Confirming the food's
+ * identity opens the grounding gate, so an unconfirmed record is "vision-only --
+ * not checked against an external source"; once a source grounds it, the
+ * attribution (and an optional outbound link) is shown. Descriptive provenance
+ * only -- nothing here is a dose.
+ */
+export function MealGroundingStatus({ record }: { record: FoodRecord }) {
+  if (isGrounded(record)) {
+    return (
+      <div
+        role="note"
+        data-testid="meal-grounding-grounded"
+        className="flex items-start gap-2 rounded-lg border border-blue-500/30 bg-blue-500/5 dark:bg-blue-500/10 px-3 py-2 text-xs text-slate-600 dark:text-slate-300"
+      >
+        <BadgeCheck className="h-4 w-4 flex-shrink-0 mt-0.5 text-blue-600 dark:text-blue-400" />
+        <span>
+          Grounded against{" "}
+          <span className="font-medium text-slate-900 dark:text-white">
+            {record.grounding_source}
+          </span>
+          {isSafeHttpUrl(record.grounding_source_url) && (
+            <>
+              {" "}
+              <a
+                href={record.grounding_source_url!}
+                target="_blank"
+                rel="noopener noreferrer"
+                data-testid="meal-grounding-link"
+                aria-label={`View ${record.grounding_source} source (opens in a new window)`}
+                className="inline-flex items-center gap-0.5 text-blue-600 dark:text-blue-400 hover:underline"
+              >
+                source
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            </>
+          )}
+          .
+        </span>
+      </div>
+    );
+  }
+
+  // Not grounded: be precise about *why*, since provenance accuracy is the whole
+  // point of the grounding gate. A corrected band is the user's own number; a
+  // confirmed-but-unmatched record was checked and nothing authoritative matched;
+  // otherwise it is a pure vision estimate that hasn't been checked at all.
+  let copy: string;
+  if (record.source === "user_corrected") {
+    copy =
+      "Your corrected estimate — not checked against an external nutrition source.";
+  } else if (record.identity_confirmed) {
+    copy =
+      "Confirmed, but no authoritative nutrition source matched this food.";
+  } else {
+    copy =
+      "Vision-only — this estimate hasn’t been checked against an external nutrition source.";
+  }
+  return (
+    <div
+      role="note"
+      data-testid="meal-grounding-vision-only"
+      className="flex items-start gap-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 px-3 py-2 text-xs text-slate-500 dark:text-slate-400"
+    >
+      <ScanLine className="h-4 w-4 flex-shrink-0 mt-0.5" />
+      <span>{copy}</span>
+    </div>
   );
 }
 
