@@ -7,6 +7,7 @@ food-record API endpoints.
 """
 
 import json
+import os
 import uuid
 from io import BytesIO
 from pathlib import Path
@@ -235,6 +236,41 @@ class TestImageProcessing:
         outside.write_text("keep me")
         food_image.delete_stored_image(str(outside))
         assert outside.exists()  # untouched -- containment check held
+
+    def test_resolve_stored_image_returns_path_and_media_type(self, _uploads_tmp):
+        user_id = uuid.uuid4()
+        processed = food_image.process_upload(_png_bytes())
+        path, _ = food_image.store_image(user_id, processed)
+        resolved, media_type = food_image.resolve_stored_image(path)
+        assert resolved == Path(path).resolve()
+        assert media_type == "image/png"
+
+    def test_resolve_refuses_path_outside_uploads_root(self, _uploads_tmp, tmp_path):
+        outside = tmp_path / "outside.png"
+        outside.write_bytes(_png_bytes())
+        with pytest.raises(food_image.StoredImageMissingError):
+            food_image.resolve_stored_image(str(outside))
+
+    def test_resolve_raises_for_missing_file(self, _uploads_tmp):
+        user_id = uuid.uuid4()
+        processed = food_image.process_upload(_png_bytes())
+        path, _ = food_image.store_image(user_id, processed)
+        Path(path).unlink()
+        with pytest.raises(food_image.StoredImageMissingError):
+            food_image.resolve_stored_image(path)
+
+    def test_resolve_raises_for_unreadable_file(self, _uploads_tmp):
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            pytest.skip("root bypasses file permissions")
+        user_id = uuid.uuid4()
+        processed = food_image.process_upload(_png_bytes())
+        path, _ = food_image.store_image(user_id, processed)
+        Path(path).chmod(0o000)
+        try:
+            with pytest.raises(food_image.StoredImageMissingError):
+                food_image.resolve_stored_image(path)
+        finally:
+            Path(path).chmod(0o600)  # restore so tmp cleanup can remove it
 
 
 # --------------------------------------------------------------------------- #
@@ -534,6 +570,42 @@ class TestFoodRecordsApi:
             cookie = await _register_login(other)
             other.cookies.set(settings.jwt_cookie_name, cookie)
             resp = await other.get(f"/api/food-records/{record_id}")
+        assert resp.status_code == 404
+
+    async def test_get_photo_returns_image_to_owner(self, auth_client):
+        client, _ = auth_client
+        record_id = (await _create_record(client))["id"]
+        resp = await client.get(f"/api/food-records/{record_id}/photo")
+        assert resp.status_code == 200, resp.text
+        assert resp.headers["content-type"] == "image/png"
+        assert resp.headers["cache-control"] == "private, max-age=300"
+        assert len(resp.content) > 0
+
+    async def test_get_photo_disabled_when_flag_off(self, auth_client, monkeypatch):
+        client, _ = auth_client
+        record_id = (await _create_record(client))["id"]
+        monkeypatch.setattr(settings, "meal_intelligence_enabled", False)
+        resp = await client.get(f"/api/food-records/{record_id}/photo")
+        assert resp.status_code == 404
+
+    async def test_cannot_access_other_users_photo(self, auth_client):
+        client, _ = auth_client
+        record_id = (await _create_record(client))["id"]
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as other:
+            cookie = await _register_login(other)
+            other.cookies.set(settings.jwt_cookie_name, cookie)
+            resp = await other.get(f"/api/food-records/{record_id}/photo")
+        assert resp.status_code == 404
+
+    async def test_get_photo_404_when_file_missing(self, auth_client, _uploads_tmp):
+        client, _ = auth_client
+        record_id = (await _create_record(client))["id"]
+        # Remove the stored file out from under the record; the row remains.
+        for stored in Path(_uploads_tmp).rglob("*"):
+            if stored.is_file():
+                stored.unlink()
+        resp = await client.get(f"/api/food-records/{record_id}/photo")
         assert resp.status_code == 404
 
 

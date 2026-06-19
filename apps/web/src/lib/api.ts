@@ -4150,3 +4150,237 @@ export async function importGlookoHistory(): Promise<GlookoSyncResult> {
   }
   return response.json();
 }
+
+// ============================================================================
+// Meal management (food records)
+//
+// Wires the existing, owner-scoped, flag-gated food-records API into the web
+// app. Descriptive nutrition observations only -- there is deliberately no
+// dose/insulin field anywhere in these types. The server attaches the cleared
+// safety qualifier as `safety_qualifier`; the web renders that field verbatim
+// rather than re-stating any carb/dosing copy of its own.
+// ============================================================================
+
+/** Record provenance, as the API emits it (snake_case enum value). */
+export type FoodRecordSource =
+  | "ai_estimate"
+  | "user_corrected"
+  | "external_grounded";
+
+/**
+ * Macro nutrition for a meal. Only visually-estimable macros are present; any
+ * subset of the known keys may appear. Carbs are NOT here -- they live in the
+ * dedicated carbs_low/carbs_high columns.
+ */
+export interface FoodRecordNutrition {
+  protein_grams?: number;
+  fat_grams?: number;
+  fiber_grams?: number;
+  calories?: number;
+  [key: string]: number | undefined;
+}
+
+/**
+ * A persisted food record. Mirrors `FoodRecordResponse`
+ * (apps/api/src/schemas/food_record.py). `carbs_low`/`carbs_high` are the
+ * original AI estimate; when corrected, `corrected_carbs_*` carry the user's
+ * values and `source` is `user_corrected`. `confidence` is the EMPIRICAL
+ * dispersion band ("low"|"medium"|"high"), not the model's self-reported
+ * confidence. The create (upload) response additionally carries transient
+ * dispersion detail; reads of an existing record do not, so it is omitted here.
+ */
+export interface FoodRecord {
+  id: string;
+  meal_timestamp: string;
+  food_description: string | null;
+  carbs_low: number;
+  carbs_high: number;
+  confidence: string | null;
+  /** Server-cleared "this is a guess, never dose from it" qualifier. Render verbatim. */
+  safety_qualifier: string;
+  nutrition_json: FoodRecordNutrition | null;
+  source: FoodRecordSource;
+  corrected_carbs_low: number | null;
+  corrected_carbs_high: number | null;
+  corrected_nutrition_json: FoodRecordNutrition | null;
+  corrected_at: string | null;
+  common_food_id: string | null;
+  ai_model: string | null;
+  ai_provider: string | null;
+  confirmed_food_name: string | null;
+  identity_confirmed: boolean;
+  grounding_source: string | null;
+  grounding_source_url: string | null;
+  grounding_trust_tier: string | null;
+  created_at: string;
+}
+
+export interface FoodRecordListResponse {
+  records: FoodRecord[];
+  total: number;
+}
+
+/**
+ * A food-records API failure that preserves the HTTP status and the server's
+ * `detail` string, so callers can map it to the right UX state (feature off,
+ * no provider, vision unavailable, ...) -- mirroring the mobile client's
+ * detail-substring contract. See `classifyMealError` in `@/lib/meal-errors`.
+ */
+export class MealApiError extends Error {
+  readonly status: number;
+  readonly detail: string;
+
+  constructor(status: number, detail: string) {
+    super(detail || `Food-records request failed: ${status}`);
+    this.name = "MealApiError";
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
+/**
+ * Read a FastAPI error envelope's `detail` as a bare string for substring
+ * matching. Tolerates both the common string form and the 422 list-of-objects
+ * form; returns "" when no usable detail is present.
+ *
+ * Distinct from `_readErrorDetail` (above) on purpose: that helper formats a
+ * ready-to-throw Error *message* (folding in a fallback + the status and
+ * JSON-stringifying a non-string detail), whereas the meal path needs the raw
+ * detail string preserved verbatim so callers can substring-match the
+ * cross-client contract (e.g. "not enabled", "vision") and carry the status
+ * separately on `MealApiError`. Keep the two in sync if the envelope changes.
+ */
+async function _readMealDetail(response: Response): Promise<string> {
+  try {
+    const body = await response.json();
+    const detail = (body as { detail?: unknown })?.detail;
+    if (typeof detail === "string") return detail;
+    if (Array.isArray(detail)) {
+      return detail
+        .map((e) =>
+          e && typeof e === "object" && "msg" in e
+            ? String((e as { msg: unknown }).msg)
+            : ""
+        )
+        .filter(Boolean)
+        .join("; ");
+    }
+  } catch {
+    // Non-JSON / empty body.
+  }
+  return "";
+}
+
+async function _throwMealError(response: Response): Promise<never> {
+  throw new MealApiError(response.status, await _readMealDetail(response));
+}
+
+/**
+ * List the current user's food records, most recent meal first.
+ * Owner-scoped + flag-gated server-side; a 404 whose detail says the feature is
+ * "not enabled" means the global flag is off (see `getMealIntelligenceStatus`).
+ */
+export async function listFoodRecords(
+  limit = 50,
+  offset = 0
+): Promise<FoodRecordListResponse> {
+  const params = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+  });
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/food-records?${params.toString()}`
+  );
+  if (!response.ok) {
+    await _throwMealError(response);
+  }
+  return response.json();
+}
+
+/** Fetch a single owner-scoped food record (404 for missing or cross-user). */
+export async function getFoodRecord(recordId: string): Promise<FoodRecord> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/food-records/${encodeURIComponent(recordId)}`
+  );
+  if (!response.ok) {
+    await _throwMealError(response);
+  }
+  return response.json();
+}
+
+/**
+ * Fetch a record's stored meal photo as a `blob:` object URL.
+ *
+ * The photo endpoint is same-origin and cookie-protected, and next/image's
+ * optimizer can't carry the auth cookie, so we fetch the bytes through apiFetch
+ * (which sends credentials) and wrap them in a `blob:` URL the CSP allows. The
+ * caller MUST revoke the URL (URL.revokeObjectURL) once it is no longer shown.
+ */
+export async function fetchFoodRecordPhotoObjectUrl(
+  recordId: string
+): Promise<string> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/food-records/${encodeURIComponent(recordId)}/photo`
+  );
+  if (!response.ok) {
+    await _throwMealError(response);
+  }
+  const blob = await response.blob();
+  return URL.createObjectURL(blob);
+}
+
+/**
+ * Upload a meal photo for AI carb estimation. The caller compresses to a JPEG
+ * blob first (see `@/lib/image-compress`); this mirrors the mobile client's
+ * single-part `file` upload. Returns the persisted record (with the create-time
+ * estimate). Throws `MealApiError` on failure for UX-state mapping.
+ */
+export async function uploadFoodRecord(image: Blob): Promise<FoodRecord> {
+  const formData = new FormData();
+  // Field name `file` and filename `meal.jpg` mirror the mobile multipart part.
+  formData.append("file", image, "meal.jpg");
+  // Do NOT set Content-Type -- the browser sets multipart/form-data + boundary.
+  const response = await apiFetch(`${API_BASE_URL}/api/food-records`, {
+    method: "POST",
+    body: formData,
+  });
+  if (!response.ok) {
+    await _throwMealError(response);
+  }
+  return response.json();
+}
+
+/** Delete a food record and unlink its stored photo (204 No Content). */
+export async function deleteFoodRecord(recordId: string): Promise<void> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/food-records/${encodeURIComponent(recordId)}`,
+    { method: "DELETE" }
+  );
+  if (!response.ok) {
+    await _throwMealError(response);
+  }
+}
+
+/**
+ * Resolve whether meal intelligence is enabled for the current user.
+ *
+ * There is no server flag endpoint: `meal_intelligence_enabled` is a global
+ * deployment flag, and every meal route is hidden behind a 404 when it is off.
+ * So we mirror the mobile cross-client contract and probe the list endpoint: a
+ * 404 whose detail contains "not enabled" means the flag is off; success (or
+ * any transient/other error) is treated as available, so a network blip never
+ * hides a real feature.
+ */
+export async function getMealIntelligenceStatus(): Promise<{ enabled: boolean }> {
+  try {
+    const response = await apiFetch(`${API_BASE_URL}/api/food-records?limit=1`);
+    if (response.status === 404) {
+      const detail = (await _readMealDetail(response)).toLowerCase();
+      if (detail.includes("not enabled")) return { enabled: false };
+    }
+    return { enabled: true };
+  } catch {
+    // Network/other failure: degrade to available, matching the mobile client.
+    return { enabled: true };
+  }
+}
