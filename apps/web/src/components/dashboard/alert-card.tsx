@@ -159,7 +159,7 @@ export function AlertCard({
           "flex items-center justify-center gap-2 w-full rounded-lg",
           "min-h-[56px] px-4 py-3 text-base font-semibold",
           "transition-colors",
-          "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+          "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500",
           "disabled:opacity-50 disabled:cursor-not-allowed",
           isExpired
             ? "bg-slate-100/30 dark:bg-slate-800/30 text-slate-500"

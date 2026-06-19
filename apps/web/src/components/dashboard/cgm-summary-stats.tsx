@@ -85,9 +85,9 @@ function safeCount(value: number): string {
 function StatSkeleton() {
   return (
     <div className="animate-pulse space-y-2">
-      <div className="h-4 w-20 bg-slate-700 rounded" />
-      <div className="h-8 w-16 bg-slate-700 rounded" />
-      <div className="h-3 w-24 bg-slate-100 dark:bg-slate-800 rounded" />
+      <div className="h-4 w-20 bg-slate-700 rounded-sm" />
+      <div className="h-8 w-16 bg-slate-700 rounded-sm" />
+      <div className="h-3 w-24 bg-slate-100 dark:bg-slate-800 rounded-sm" />
     </div>
   );
 }

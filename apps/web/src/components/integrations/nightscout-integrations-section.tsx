@@ -743,7 +743,7 @@ export function NightscoutIntegrationsSection({
                         "border-slate-300 dark:border-slate-700",
                         "text-slate-700 dark:text-slate-200",
                         "placeholder:text-slate-400 dark:placeholder:text-slate-500",
-                        "focus:outline-none focus:ring-2 focus:ring-blue-500",
+                        "focus:outline-hidden focus:ring-2 focus:ring-blue-500",
                         "disabled:opacity-50 disabled:cursor-not-allowed"
                       )}
                     />
@@ -769,7 +769,7 @@ export function NightscoutIntegrationsSection({
                         "border-slate-300 dark:border-slate-700",
                         "text-slate-700 dark:text-slate-200",
                         "placeholder:text-slate-400 dark:placeholder:text-slate-500",
-                        "focus:outline-none focus:ring-2 focus:ring-blue-500",
+                        "focus:outline-hidden focus:ring-2 focus:ring-blue-500",
                         "disabled:opacity-50 disabled:cursor-not-allowed"
                       )}
                     />
@@ -800,7 +800,7 @@ export function NightscoutIntegrationsSection({
                         "bg-slate-100 dark:bg-slate-800",
                         "border-slate-300 dark:border-slate-700",
                         "text-slate-700 dark:text-slate-200",
-                        "focus:outline-none focus:ring-2 focus:ring-blue-500",
+                        "focus:outline-hidden focus:ring-2 focus:ring-blue-500",
                         "disabled:opacity-50 disabled:cursor-not-allowed"
                       )}
                     />
@@ -847,7 +847,7 @@ export function NightscoutIntegrationsSection({
                         "bg-white dark:bg-slate-800",
                         "border-slate-300 dark:border-slate-700",
                         "text-slate-700 dark:text-slate-200",
-                        "focus:outline-none focus:ring-2 focus:ring-blue-500",
+                        "focus:outline-hidden focus:ring-2 focus:ring-blue-500",
                         "disabled:opacity-50 disabled:cursor-not-allowed"
                       )}
                     >
@@ -875,7 +875,7 @@ export function NightscoutIntegrationsSection({
                         "bg-white dark:bg-slate-800",
                         "border-slate-300 dark:border-slate-700",
                         "text-slate-700 dark:text-slate-200",
-                        "focus:outline-none focus:ring-2 focus:ring-blue-500",
+                        "focus:outline-hidden focus:ring-2 focus:ring-blue-500",
                         "disabled:opacity-50 disabled:cursor-not-allowed"
                       )}
                     >

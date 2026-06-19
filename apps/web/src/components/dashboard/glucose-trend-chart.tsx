@@ -486,12 +486,12 @@ function BrushSlider({ fullDomain, zoomDomain, onZoomChange }: BrushSliderProps)
   return (
     <div
       ref={containerRef}
-      className="relative h-6 mt-2 bg-slate-100 dark:bg-slate-800 rounded select-none"
+      className="relative h-6 mt-2 bg-slate-100 dark:bg-slate-800 rounded-sm select-none"
       aria-label="Zoom brush slider"
     >
       {/* Selected region */}
       <div
-        className="absolute top-0 h-full bg-slate-600 rounded-sm"
+        className="absolute top-0 h-full bg-slate-600 rounded-xs"
         style={{
           left: `${leftPct}%`,
           width: `${widthPct}%`,
@@ -508,7 +508,7 @@ function BrushSlider({ fullDomain, zoomDomain, onZoomChange }: BrushSliderProps)
           aria-valuemin={fullDomain[0]}
           aria-valuemax={fullDomain[1]}
           aria-valuenow={zoom[0]}
-          className="absolute left-0 top-0 h-full w-4 flex justify-start focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-l-sm"
+          className="absolute left-0 top-0 h-full w-4 flex justify-start focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500 rounded-l-sm"
           style={{ cursor: "col-resize", marginLeft: "-4px" }}
           onMouseDown={(e) => handlePointerDown("left", e)}
           onTouchStart={(e) => handlePointerDown("left", e)}
@@ -524,7 +524,7 @@ function BrushSlider({ fullDomain, zoomDomain, onZoomChange }: BrushSliderProps)
           aria-valuemin={fullDomain[0]}
           aria-valuemax={fullDomain[1]}
           aria-valuenow={zoom[1]}
-          className="absolute right-0 top-0 h-full w-4 flex justify-end focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-r-sm"
+          className="absolute right-0 top-0 h-full w-4 flex justify-end focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500 rounded-r-sm"
           style={{ cursor: "col-resize", marginRight: "-4px" }}
           onMouseDown={(e) => handlePointerDown("right", e)}
           onTouchStart={(e) => handlePointerDown("right", e)}
@@ -946,10 +946,10 @@ export function GlucoseTrendChart({
         data-testid="glucose-trend-chart"
       >
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
-          <div className="h-6 w-40 bg-slate-700 rounded animate-pulse" />
-          <div className="h-8 w-48 bg-slate-700 rounded animate-pulse" />
+          <div className="h-6 w-40 bg-slate-700 rounded-sm animate-pulse" />
+          <div className="h-8 w-48 bg-slate-700 rounded-sm animate-pulse" />
         </div>
-        <div className="h-64 bg-slate-100 dark:bg-slate-800 rounded animate-pulse" />
+        <div className="h-64 bg-slate-100 dark:bg-slate-800 rounded-sm animate-pulse" />
       </div>
     );
   }

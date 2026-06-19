@@ -41,7 +41,7 @@ export function Header({ className }: HeaderProps) {
   return (
     <header
       className={clsx(
-        "flex items-center justify-between h-14 sm:h-16 px-3 sm:px-4 lg:px-6 flex-shrink-0 z-40 min-w-0",
+        "flex items-center justify-between h-14 sm:h-16 px-3 sm:px-4 lg:px-6 shrink-0 z-40 min-w-0",
         "bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800",
         className
       )}
@@ -52,13 +52,13 @@ export function Header({ className }: HeaderProps) {
 
         {/* Mobile logo */}
         <Link href="/dashboard" className="flex min-w-0 items-center gap-2 lg:hidden">
-          <Activity className="h-5 w-5 sm:h-6 sm:w-6 flex-shrink-0 text-blue-500" />
+          <Activity className="h-5 w-5 sm:h-6 sm:w-6 shrink-0 text-blue-500" />
           <span className="truncate text-base sm:text-lg font-bold">GlycemicGPT</span>
         </Link>
       </div>
 
       {/* Right side - Theme toggle + User menu */}
-      <div className="flex flex-shrink-0 items-center gap-2 sm:gap-3">
+      <div className="flex shrink-0 items-center gap-2 sm:gap-3">
         <ThemeToggle />
         <div className="relative" ref={menuRef}>
         <button

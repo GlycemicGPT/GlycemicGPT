@@ -57,9 +57,9 @@ function safeCount(value: number): string {
 function StatSkeleton() {
   return (
     <div className="animate-pulse space-y-2">
-      <div className="h-4 w-20 bg-slate-700 rounded" />
-      <div className="h-8 w-16 bg-slate-700 rounded" />
-      <div className="h-3 w-24 bg-slate-100 dark:bg-slate-800 rounded" />
+      <div className="h-4 w-20 bg-slate-700 rounded-sm" />
+      <div className="h-8 w-16 bg-slate-700 rounded-sm" />
+      <div className="h-3 w-24 bg-slate-100 dark:bg-slate-800 rounded-sm" />
     </div>
   );
 }
@@ -142,7 +142,7 @@ export function InsulinSummaryStats({ className }: InsulinSummaryStatsProps) {
           tabIndex={period === opt.value ? 0 : -1}
           onClick={() => setPeriod(opt.value)}
           onKeyDown={(e) => handlePeriodKeyDown(e, i)}
-          className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900 ${
+          className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors outline-hidden focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900 ${
             period === opt.value
               ? "bg-violet-600 text-white"
               : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
@@ -194,7 +194,7 @@ export function InsulinSummaryStats({ className }: InsulinSummaryStatsProps) {
           <button
             type="button"
             onClick={refetch}
-            className="text-violet-400 hover:text-violet-300 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900 rounded"
+            className="text-violet-400 hover:text-violet-300 text-sm font-medium outline-hidden focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900 rounded-sm"
           >
             Retry
           </button>

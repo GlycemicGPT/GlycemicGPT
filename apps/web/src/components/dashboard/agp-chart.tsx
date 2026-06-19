@@ -185,7 +185,7 @@ function PeriodSelector({
           onClick={() => onPeriodChange(p.value)}
           onKeyDown={(e) => handleKeyDown(e, index)}
           className={clsx(
-            "px-3 py-1 text-xs font-medium rounded-md transition-colors outline-none focus-visible:ring-2 focus-visible:ring-teal-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900",
+            "px-3 py-1 text-xs font-medium rounded-md transition-colors outline-hidden focus-visible:ring-2 focus-visible:ring-teal-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900",
             period === p.value
               ? "bg-teal-500/20 text-teal-700 dark:text-teal-400 border border-teal-500/40"
               : "text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 border border-transparent"
@@ -243,14 +243,14 @@ export function AgpChart({ className, thresholds }: AgpChartProps) {
         )}
       >
         <div className="flex items-center justify-between mb-4">
-          <div className="h-6 w-48 bg-slate-100 dark:bg-slate-800 rounded animate-pulse" />
+          <div className="h-6 w-48 bg-slate-100 dark:bg-slate-800 rounded-sm animate-pulse" />
           <div className="flex gap-1">
             {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="h-7 w-10 bg-slate-100 dark:bg-slate-800 rounded animate-pulse" />
+              <div key={i} className="h-7 w-10 bg-slate-100 dark:bg-slate-800 rounded-sm animate-pulse" />
             ))}
           </div>
         </div>
-        <div className="h-64 bg-slate-100 dark:bg-slate-800 rounded animate-pulse" />
+        <div className="h-64 bg-slate-100 dark:bg-slate-800 rounded-sm animate-pulse" />
       </section>
     );
   }
@@ -278,7 +278,7 @@ export function AgpChart({ className, thresholds }: AgpChartProps) {
           <button
             type="button"
             onClick={refetch}
-            className="text-teal-700 dark:text-teal-400 hover:text-teal-600 dark:hover:text-teal-300 text-sm underline outline-none focus-visible:ring-2 focus-visible:ring-teal-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900 rounded"
+            className="text-teal-700 dark:text-teal-400 hover:text-teal-600 dark:hover:text-teal-300 text-sm underline outline-hidden focus-visible:ring-2 focus-visible:ring-teal-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900 rounded-sm"
           >
             Retry
           </button>
@@ -443,15 +443,15 @@ export function AgpChart({ className, thresholds }: AgpChartProps) {
       {/* Legend */}
       <div className="flex flex-wrap items-center gap-4 mt-3 text-xs text-slate-500 dark:text-slate-400" aria-label="Chart legend">
         <span className="flex items-center gap-1.5">
-          <span className="w-5 h-0.5 rounded" style={{ backgroundColor: TEAL }} aria-hidden="true" />
+          <span className="w-5 h-0.5 rounded-sm" style={{ backgroundColor: TEAL }} aria-hidden="true" />
           Median
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="w-4 h-3 rounded-sm" style={{ backgroundColor: TEAL_INNER }} aria-hidden="true" />
+          <span className="w-4 h-3 rounded-xs" style={{ backgroundColor: TEAL_INNER }} aria-hidden="true" />
           25th-75th pctl
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="w-4 h-3 rounded-sm" style={{ backgroundColor: TEAL_OUTER }} aria-hidden="true" />
+          <span className="w-4 h-3 rounded-xs" style={{ backgroundColor: TEAL_OUTER }} aria-hidden="true" />
           10th-90th pctl
         </span>
         <span className="flex items-center gap-1.5">

@@ -344,7 +344,7 @@ export function AIInsightCard({ insight, onRespond, onFetchDetail }: AIInsightCa
           className={clsx(
             "mt-2 text-xs font-medium flex items-center gap-1",
             "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 transition-colors",
-            "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
+            "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500 rounded-sm"
           )}
           aria-expanded={isExpanded}
           aria-label={isExpanded ? "Show less" : "Show more"}
@@ -369,7 +369,7 @@ export function AIInsightCard({ insight, onRespond, onFetchDetail }: AIInsightCa
           className={clsx(
             "mt-3 text-xs font-medium flex items-center gap-1.5",
             "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 transition-colors",
-            "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded",
+            "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500 rounded-sm",
             "disabled:opacity-50 disabled:cursor-not-allowed"
           )}
           aria-expanded={showDetail}
@@ -494,7 +494,7 @@ export function AIInsightCard({ insight, onRespond, onFetchDetail }: AIInsightCa
               "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium",
               "bg-green-500/10 text-green-400 hover:bg-green-500/20",
               "transition-colors",
-              "focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500",
+              "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-green-500",
               "disabled:opacity-50 disabled:cursor-not-allowed"
             )}
             aria-label="Acknowledge this insight"
@@ -509,7 +509,7 @@ export function AIInsightCard({ insight, onRespond, onFetchDetail }: AIInsightCa
               "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium",
               "bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-700/50 dark:text-slate-300 dark:hover:bg-slate-700",
               "transition-colors",
-              "focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500",
+              "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-slate-500",
               "disabled:opacity-50 disabled:cursor-not-allowed"
             )}
             aria-label="Dismiss this insight"
