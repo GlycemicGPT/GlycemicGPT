@@ -101,7 +101,10 @@ async def _provision(
                 provider_type=provider_type,
                 model_name=model_name,
                 base_url=(
-                    "http://localhost:11434/v1"
+                    # Non-routable placeholder (RFC 2606): the gate fires before
+                    # any network call, so this is never dialed -- it just makes
+                    # the seeded openai_compatible config realistic.
+                    "https://example.invalid/v1"
                     if provider_type is AIProviderType.OPENAI_COMPATIBLE
                     else None
                 ),

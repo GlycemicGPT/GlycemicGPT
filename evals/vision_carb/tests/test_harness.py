@@ -575,8 +575,10 @@ def test_enforce_pass_bar_passing_model_exits_zero(tmp_path, monkeypatch):
 
 
 def test_enforce_pass_bar_low_n_is_insufficient_and_gated(tmp_path, monkeypatch):
-    # All metrics fine, but N=3 < the certification N: cannot certify -> non-zero
-    # under enforcement so a benchmark script does not bless an under-sampled run.
+    # Engine-level (below the CLI guard, which rejects this invocation up front):
+    # all metrics fine, but N=3 < the certification N, so run() must still gate it
+    # non-zero with an INSUFFICIENT_DATA verdict -- defense in depth, so a caller
+    # that reaches the engine directly never blesses an under-sampled run.
     m = _manifest(tmp_path, [_easy_item()])
     monkeypatch.setattr(harness, "_post_chat", _Responder([_estimate(24, 30)]))
     args = _ns(tmp_path, [m], repeats=3, enforce_pass_bar=True)
@@ -691,6 +693,18 @@ def test_enforce_pass_bar_in_single_shot_is_a_clean_error(monkeypatch):
 def test_enforce_pass_bar_with_sweep_is_a_clean_error(monkeypatch):
     monkeypatch.setattr(
         sys, "argv", ["harness.py", "--sweep", "1,3,5", "--enforce-pass-bar"]
+    )
+    with pytest.raises(SystemExit) as exc:
+        harness.main()
+    assert exc.value.code == 2
+
+
+def test_enforce_pass_bar_below_certification_n_is_a_clean_error(monkeypatch):
+    # Certification needs N >= MIN_CERTIFICATION_REPEATS; an N in 2..4 would pass
+    # variance mode but can never certify (always INSUFFICIENT_DATA). Reject it at
+    # the CLI with a clear message instead of letting a guaranteed-to-fail run go.
+    monkeypatch.setattr(
+        sys, "argv", ["harness.py", "--repeats", "3", "--enforce-pass-bar"]
     )
     with pytest.raises(SystemExit) as exc:
         harness.main()

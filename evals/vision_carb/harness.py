@@ -1143,13 +1143,18 @@ def main() -> int:
                 file=sys.stderr,
             )
 
-    # The pass-bar is only computed in variance mode (--repeats N), so enforcing
-    # it anywhere else would silently exit 0 and bless an unverified model. Fail
-    # loud instead -- a fail-closed certification gate must never no-op quietly.
-    if args.enforce_pass_bar and (args.sweep is not None or args.repeats < 2):
+    # --enforce-pass-bar certifies a model, which requires the variance mode AND
+    # the certification sample count (N>=5): the pass-bar is only computed in
+    # variance mode, and below the certification N every run is INSUFFICIENT_DATA
+    # by design. Reject those invocations loudly so the flag never silently no-ops
+    # (single-shot/sweep) nor accepts an N that is guaranteed not to certify --
+    # a fail-closed gate must fail fast and tell the caller exactly what to pass.
+    if args.enforce_pass_bar and (
+        args.sweep is not None or args.repeats < passbar.MIN_CERTIFICATION_REPEATS
+    ):
         parser.error(
-            "--enforce-pass-bar requires variance mode: pass --repeats >= 5 "
-            "(and not --sweep)"
+            "--enforce-pass-bar certifies a model and requires variance mode at "
+            f"--repeats >= {passbar.MIN_CERTIFICATION_REPEATS} (and not --sweep)"
         )
 
     return run(args)
