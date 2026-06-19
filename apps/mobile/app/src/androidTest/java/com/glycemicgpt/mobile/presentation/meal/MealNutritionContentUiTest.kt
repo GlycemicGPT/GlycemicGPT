@@ -100,4 +100,21 @@ class MealNutritionContentUiTest {
 
         compose.onNodeWithTag("meal_nutrition_disclaimer").assertIsDisplayed()
     }
+
+    @Test
+    fun disclaimer_showsEvenForAPortionOnlyPayload() {
+        // A portion-only payload (no macros, no net carbs) must still carry the
+        // never-dose disclaimer -- the framing can't depend on macros existing.
+        val portionOnly = MealNutritionFacts(
+            portion = "one bowl, about 1.5 cups of rice",
+            macros = emptyList(),
+            netCarbs = null,
+            disclaimer = "These nutrition figures are rough AI estimates that describe the meal — " +
+                "never use it to dose or bolus.",
+        )
+        compose.setContent { GlycemicGptTheme { MealNutritionContent(portionOnly) } }
+
+        compose.onNodeWithTag("meal_portion").assertIsDisplayed()
+        compose.onNodeWithTag("meal_nutrition_disclaimer").assertIsDisplayed()
+    }
 }

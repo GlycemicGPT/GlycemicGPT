@@ -159,14 +159,25 @@ export function MealNutritionFacts({ facts }: { facts: NutritionFacts }) {
           </div>
         </div>
       )}
-
-      <p
-        data-testid="meal-nutrition-disclaimer"
-        className="text-xs text-slate-400 dark:text-slate-500"
-      >
-        {facts.disclaimer}
-      </p>
+      {/* The section disclaimer renders at the page level (so it also shows for
+          a portion-only payload), not inside this macros/net-carbs card. */}
     </div>
+  );
+}
+
+/**
+ * The section-level never-dose disclaimer for the nutrition block (Story 50.N1).
+ * Rendered whenever any nutrition surfaces -- including a portion-only payload --
+ * so the framing is never dropped. Verbatim from the server.
+ */
+export function MealNutritionDisclaimer({ disclaimer }: { disclaimer: string }) {
+  return (
+    <p
+      data-testid="meal-nutrition-disclaimer"
+      className="text-xs text-center text-slate-400 dark:text-slate-500"
+    >
+      {disclaimer}
+    </p>
   );
 }
 

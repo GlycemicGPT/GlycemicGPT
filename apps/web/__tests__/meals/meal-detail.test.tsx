@@ -145,6 +145,28 @@ describe("Meal detail page", () => {
     );
   });
 
+  it("keeps the never-dose disclaimer for a portion-only payload (no macros/net carbs)", async () => {
+    mockGet.mockResolvedValue(
+      makeRecord({
+        nutrition_facts: {
+          portion: "one bowl, about 1.5 cups",
+          macros: [],
+          net_carbs: null,
+          disclaimer:
+            "These nutrition figures are rough AI estimates that describe the meal — never use it to dose or bolus.",
+        },
+      })
+    );
+    render(<MealDetailPage />);
+
+    expect(await screen.findByTestId("meal-portion")).toBeInTheDocument();
+    // No macros/net carbs render, but the never-dose disclaimer must not vanish.
+    expect(screen.queryByTestId("meal-macro")).not.toBeInTheDocument();
+    expect(screen.getByTestId("meal-nutrition-disclaimer")).toHaveTextContent(
+      /never use it to dose or bolus/i
+    );
+  });
+
   it("shows net carbs only behind the never-dose + count-total-carbs caveat", async () => {
     mockGet.mockResolvedValue(
       makeRecord({

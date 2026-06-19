@@ -34,6 +34,7 @@ import {
   MealSafetyQualifier,
   MealAssumedPortion,
   MealNutritionFacts,
+  MealNutritionDisclaimer,
   MealErrorPanel,
 } from "@/components/meals/meal-ui";
 
@@ -240,6 +241,10 @@ export default function MealDetailPage() {
           <AnimatedCard delay={0.1}>
             <MealNutritionFacts facts={facts} />
           </AnimatedCard>
+        )}
+
+        {facts?.disclaimer && (
+          <MealNutritionDisclaimer disclaimer={facts.disclaimer} />
         )}
 
         {(record.ai_model || record.ai_provider) && (

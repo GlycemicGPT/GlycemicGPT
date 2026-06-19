@@ -284,6 +284,17 @@ fun MealNutritionContent(facts: MealNutritionFacts, modifier: Modifier = Modifie
         if (facts.macros.isNotEmpty() || facts.netCarbs != null) {
             NutritionFactsCard(facts)
         }
+        // Section-level never-dose note: shown whenever any nutrition surfaces
+        // (including a portion-only payload with no macros/net carbs), so the
+        // framing can never be dropped.
+        facts.disclaimer?.takeIf { it.isNotBlank() }?.let { disclaimer ->
+            Text(
+                text = disclaimer,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.testTag("meal_nutrition_disclaimer"),
+            )
+        }
     }
 }
 
@@ -345,14 +356,8 @@ private fun NutritionFactsCard(facts: MealNutritionFacts) {
             )
             facts.macros.forEach { macro -> MacroRow(macro) }
             facts.netCarbs?.let { NetCarbsRow(it) }
-            facts.disclaimer?.let { disclaimer ->
-                Text(
-                    text = disclaimer,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.testTag("meal_nutrition_disclaimer"),
-                )
-            }
+            // The section disclaimer is rendered by MealNutritionContent (so it
+            // also shows for a portion-only payload), not here.
         }
     }
 }
