@@ -50,6 +50,7 @@ function makeRecord(overrides: Partial<FoodRecord> = {}): FoodRecord {
     confidence: "medium",
     safety_qualifier: "Rough estimate — an AI guess. Never dose from it.",
     nutrition_json: null,
+    assumptions: null,
     source: "ai_estimate",
     corrected_carbs_low: null,
     corrected_carbs_high: null,
@@ -63,6 +64,7 @@ function makeRecord(overrides: Partial<FoodRecord> = {}): FoodRecord {
     grounding_source: null,
     grounding_source_url: null,
     grounding_trust_tier: null,
+    nutrition_facts: null,
     created_at: "2026-06-19T12:00:01Z",
     ...overrides,
   };

@@ -13,8 +13,8 @@ import {
   Settings as SettingsIcon,
   X,
 } from "lucide-react";
-import { sourceMeta } from "@/lib/meal-format";
-import type { FoodRecordSource } from "@/lib/api";
+import { formatMacroValue, formatNetCarbs, sourceMeta } from "@/lib/meal-format";
+import type { FoodRecordSource, NutritionFacts } from "@/lib/api";
 import type { MealErrorInfo } from "@/lib/meal-errors";
 
 /** Provenance badge (AI estimate / corrected / grounded). */
@@ -64,6 +64,120 @@ export function MealSafetyQualifier({
       <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
       <span>{qualifier}</span>
     </div>
+  );
+}
+
+/**
+ * The assumed portion (Story 50.N1), surfaced prominently as the estimate's
+ * primary sanity-check -- portion size is the dominant error source, so it gets
+ * its own card and an explicit "does this match?" prompt. Descriptive only.
+ */
+export function MealAssumedPortion({ portion }: { portion: string }) {
+  return (
+    <div
+      data-testid="meal-portion"
+      className="rounded-xl border border-blue-500/30 bg-blue-500/5 dark:bg-blue-500/10 p-5 space-y-1"
+    >
+      <p className="text-xs font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">
+        Assumed portion
+      </p>
+      <p className="text-base text-slate-900 dark:text-white">{portion}</p>
+      <p className="text-xs text-slate-500 dark:text-slate-400">
+        Portion size is the biggest source of error in a photo estimate — does
+        this match what you ate?
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Glucose-framed nutrition (Story 50.N1): the macros with their descriptive
+ * "how this affects glucose" notes, the caveated net-carbs figure (clearly
+ * secondary, behind the never-dose caveat), and the section disclaimer. All copy
+ * is rendered verbatim from the server `nutrition_facts` block so it can never
+ * drift into dosing language. Read-only -- nothing here is a dose.
+ */
+export function MealNutritionFacts({ facts }: { facts: NutritionFacts }) {
+  return (
+    <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 space-y-4">
+      <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
+        Estimated nutrition
+      </h2>
+
+      {facts.macros.length > 0 && (
+        <dl className="space-y-3">
+          {facts.macros.map((macro) => (
+            <div
+              key={macro.key}
+              data-testid="meal-macro"
+              className="space-y-0.5"
+            >
+              <div className="flex items-baseline justify-between gap-3">
+                <dt className="text-sm text-slate-600 dark:text-slate-300">
+                  {macro.label}
+                </dt>
+                <dd
+                  data-testid="meal-macro-value"
+                  className="text-sm font-medium text-slate-900 dark:text-white"
+                >
+                  {formatMacroValue(macro.value, macro.unit)}
+                </dd>
+              </div>
+              {macro.glucose_note && (
+                <p
+                  data-testid="meal-macro-note"
+                  className="text-xs text-slate-500 dark:text-slate-400"
+                >
+                  {macro.glucose_note}
+                </p>
+              )}
+            </div>
+          ))}
+        </dl>
+      )}
+
+      {facts.net_carbs && (
+        <div
+          data-testid="meal-net-carbs"
+          className="space-y-2 border-t border-slate-200 dark:border-slate-800 pt-3"
+        >
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              Net carbs
+            </span>
+            <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
+              {formatNetCarbs(facts.net_carbs.low, facts.net_carbs.high)}
+            </span>
+          </div>
+          <div
+            role="note"
+            data-testid="meal-net-carbs-caveat"
+            className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300"
+          >
+            <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+            <span>{facts.net_carbs.caveat}</span>
+          </div>
+        </div>
+      )}
+      {/* The section disclaimer renders at the page level (so it also shows for
+          a portion-only payload), not inside this macros/net-carbs card. */}
+    </div>
+  );
+}
+
+/**
+ * The section-level never-dose disclaimer for the nutrition block (Story 50.N1).
+ * Rendered whenever any nutrition surfaces -- including a portion-only payload --
+ * so the framing is never dropped. Verbatim from the server.
+ */
+export function MealNutritionDisclaimer({ disclaimer }: { disclaimer: string }) {
+  return (
+    <p
+      data-testid="meal-nutrition-disclaimer"
+      className="text-xs text-center text-slate-400 dark:text-slate-500"
+    >
+      {disclaimer}
+    </p>
   );
 }
 

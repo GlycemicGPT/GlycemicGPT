@@ -6,7 +6,7 @@
  * `safety_qualifier` field carries the never-dose framing on the surface.
  */
 
-import type { FoodRecord, FoodRecordNutrition, FoodRecordSource } from "./api";
+import type { FoodRecord, FoodRecordSource } from "./api";
 
 /** Round to whole grams; avoids false precision on a float estimate. */
 function grams(value: number): string {
@@ -111,47 +111,19 @@ export function mealTitle(record: FoodRecord): string {
   );
 }
 
-const MACRO_LABELS: Record<string, string> = {
-  protein_grams: "Protein",
-  fat_grams: "Fat",
-  fiber_grams: "Fiber",
-  calories: "Calories",
-};
-
-export interface MacroEntry {
-  key: string;
-  label: string;
-  value: string;
+/**
+ * Render a macro value with its unit ("12 g", "520 kcal"). Whole units only --
+ * no false precision on an estimate. Mirrors the carb rounding. The label, unit,
+ * and descriptive glucose framing come from the server `nutrition_facts` block
+ * (Story 50.N1) so the safety-adjacent copy lives in one scrubber-checked place.
+ */
+export function formatMacroValue(value: number, unit: string): string {
+  return `${Math.round(value)} ${unit}`.trim();
 }
 
-/**
- * Normalise a nutrition_json object into labelled, display-ready macro entries.
- * Known macros are ordered and gram-suffixed; calories are unit-less; unknown
- * keys are passed through with a humanised label. Read-only -- never a dose.
- */
-export function macroEntries(
-  nutrition: FoodRecordNutrition | null | undefined
-): MacroEntry[] {
-  if (!nutrition) return [];
-  const ordered = ["protein_grams", "fat_grams", "fiber_grams", "calories"];
-  const keys = [
-    ...ordered.filter((k) => nutrition[k] != null),
-    ...Object.keys(nutrition).filter(
-      (k) => !ordered.includes(k) && nutrition[k] != null
-    ),
-  ];
-  return keys.map((key) => {
-    const raw = nutrition[key] as number;
-    const isCalories = key === "calories";
-    const label =
-      MACRO_LABELS[key] ??
-      // Best-effort label for an unknown key: drop the _grams suffix and
-      // title-case each word ("added_sugar_grams" -> "Added Sugar").
-      key
-        .replace(/_grams$/, "")
-        .replace(/_/g, " ")
-        .replace(/\b\w/g, (c) => c.toUpperCase());
-    const value = isCalories ? String(Math.round(raw)) : `${Math.round(raw)} g`;
-    return { key, label, value };
-  });
+/** Render a net-carb band as "≈ 34–49 g" (or "≈ 26 g" when the endpoints meet). */
+export function formatNetCarbs(low: number, high: number): string {
+  const lo = grams(low);
+  const hi = grams(high);
+  return lo === hi ? `≈ ${lo} g` : `≈ ${lo}–${hi} g`;
 }

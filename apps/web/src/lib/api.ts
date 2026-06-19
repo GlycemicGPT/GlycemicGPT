@@ -4181,6 +4181,43 @@ export interface FoodRecordNutrition {
 }
 
 /**
+ * One glucose-relevant macro with descriptive framing (Story 50.N1). Read-only:
+ * `glucose_note` explains how the macro tends to affect glucose (no peak-timing
+ * number, no dosing language) -- never a dose.
+ */
+export interface MacroFact {
+  key: string;
+  label: string;
+  value: number;
+  unit: string;
+  glucose_note: string;
+}
+
+/**
+ * Net carbs (total carbs minus fiber), surfaced only behind `caveat` (Story
+ * 50.N1). Display-only and clearly secondary to the total carb range; never a
+ * dosing input.
+ */
+export interface NetCarbsEstimate {
+  low: number;
+  high: number;
+  caveat: string;
+}
+
+/**
+ * Display-ready, glucose-framed nutrition for a food record (Story 50.N1).
+ * Server-computed (never persisted): the assumed `portion` (the estimate's
+ * primary sanity-check), the framed `macros`, and caveated `net_carbs`.
+ * `disclaimer` carries the never-dose framing over the whole block.
+ */
+export interface NutritionFacts {
+  portion: string | null;
+  macros: MacroFact[];
+  net_carbs: NetCarbsEstimate | null;
+  disclaimer: string;
+}
+
+/**
  * A persisted food record. Mirrors `FoodRecordResponse`
  * (apps/api/src/schemas/food_record.py). `carbs_low`/`carbs_high` are the
  * original AI estimate; when corrected, `corrected_carbs_*` carry the user's
@@ -4199,6 +4236,8 @@ export interface FoodRecord {
   /** Server-cleared "this is a guess, never dose from it" qualifier. Render verbatim. */
   safety_qualifier: string;
   nutrition_json: FoodRecordNutrition | null;
+  /** The model's assumed portion / preparation -- the estimate's primary sanity-check. */
+  assumptions: string | null;
   source: FoodRecordSource;
   corrected_carbs_low: number | null;
   corrected_carbs_high: number | null;
@@ -4212,6 +4251,8 @@ export interface FoodRecord {
   grounding_source: string | null;
   grounding_source_url: string | null;
   grounding_trust_tier: string | null;
+  /** Server-computed, glucose-framed nutrition (portion + macros + net carbs). */
+  nutrition_facts: NutritionFacts | null;
   created_at: string;
 }
 

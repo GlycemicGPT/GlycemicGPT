@@ -119,6 +119,12 @@ class FoodRecord(Base):
     carbs_high: Mapped[float] = mapped_column(Float, nullable=False)
     confidence: Mapped[str | None] = mapped_column(String(10), nullable=True)
     nutrition_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # The model's portion-size / preparation assumptions (Story 50.N1). The
+    # contract always asked for these; they used to be dropped by the parser. We
+    # persist (dosing-scrubbed, length-capped) the *assumed portion* so it can be
+    # surfaced as the estimate's primary sanity-check -- portion is the dominant
+    # error source. Descriptive only; never read by IoB / treatment_safety.
+    assumptions: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     ai_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
     ai_provider: Mapped[str | None] = mapped_column(String(50), nullable=True)

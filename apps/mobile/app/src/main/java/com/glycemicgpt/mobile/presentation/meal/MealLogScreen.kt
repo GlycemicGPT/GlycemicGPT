@@ -395,6 +395,11 @@ private fun ResultContent(
         }
     }
 
+    // Glucose-framed nutrition (Story 50.N1): assumed portion + macros + caveated
+    // net carbs. Shown below the estimate so the portion sanity-check is visible
+    // before the user corrects. Descriptive only -- never a dose.
+    record.nutritionFacts?.let { MealNutritionContent(it) }
+
     if (uiState.isCorrecting) {
         CorrectionEditor(
             initialLow = record.displayRange.lowGrams,

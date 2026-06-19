@@ -56,6 +56,7 @@ function makeRecord(overrides: Partial<FoodRecord> = {}): FoodRecord {
     confidence: "medium",
     safety_qualifier: "Rough estimate — never dose from it.",
     nutrition_json: { protein_grams: 12, fat_grams: 8 },
+    assumptions: "standard restaurant portion",
     source: "ai_estimate",
     corrected_carbs_low: null,
     corrected_carbs_high: null,
@@ -69,6 +70,28 @@ function makeRecord(overrides: Partial<FoodRecord> = {}): FoodRecord {
     grounding_source: null,
     grounding_source_url: null,
     grounding_trust_tier: null,
+    nutrition_facts: {
+      portion: "standard restaurant portion",
+      macros: [
+        {
+          key: "protein_grams",
+          label: "Protein",
+          value: 12,
+          unit: "g",
+          glucose_note: "Protein can nudge glucose up later, in the hours after a meal.",
+        },
+        {
+          key: "fat_grams",
+          label: "Fat",
+          value: 8,
+          unit: "g",
+          glucose_note: "Fat can slow digestion, so glucose may rise later, hours after a meal.",
+        },
+      ],
+      net_carbs: null,
+      disclaimer:
+        "These nutrition figures are rough AI estimates that describe the meal — never use it to dose or bolus.",
+    },
     created_at: "2026-06-19T12:00:01Z",
     ...overrides,
   };
@@ -95,6 +118,88 @@ describe("Meal detail page", () => {
     // No dose/insulin element is ever presented (the safety qualifier warning aside).
     expect(screen.queryByText(/recommended (dose|bolus)/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/units of insulin/i)).not.toBeInTheDocument();
+  });
+
+  it("surfaces the assumed portion prominently as the primary sanity-check", async () => {
+    mockGet.mockResolvedValue(makeRecord());
+    render(<MealDetailPage />);
+
+    const portion = await screen.findByTestId("meal-portion");
+    expect(portion).toHaveTextContent("standard restaurant portion");
+    expect(portion).toHaveTextContent(/does this match what you ate/i);
+  });
+
+  it("frames protein/fat as a later rise with no specific timing number", async () => {
+    mockGet.mockResolvedValue(makeRecord());
+    render(<MealDetailPage />);
+
+    const notes = await screen.findAllByTestId("meal-macro-note");
+    expect(notes.length).toBe(2);
+    for (const note of notes) {
+      expect(note.textContent ?? "").toMatch(/later/i);
+      // AC2: no peak-timing number is stated.
+      expect(note.textContent ?? "").not.toMatch(/\d/);
+    }
+    expect(screen.getByTestId("meal-nutrition-disclaimer")).toHaveTextContent(
+      /never use it to dose or bolus/i
+    );
+  });
+
+  it("keeps the never-dose disclaimer for a portion-only payload (no macros/net carbs)", async () => {
+    mockGet.mockResolvedValue(
+      makeRecord({
+        nutrition_facts: {
+          portion: "one bowl, about 1.5 cups",
+          macros: [],
+          net_carbs: null,
+          disclaimer:
+            "These nutrition figures are rough AI estimates that describe the meal — never use it to dose or bolus.",
+        },
+      })
+    );
+    render(<MealDetailPage />);
+
+    expect(await screen.findByTestId("meal-portion")).toBeInTheDocument();
+    // No macros/net carbs render, but the never-dose disclaimer must not vanish.
+    expect(screen.queryByTestId("meal-macro")).not.toBeInTheDocument();
+    expect(screen.getByTestId("meal-nutrition-disclaimer")).toHaveTextContent(
+      /never use it to dose or bolus/i
+    );
+  });
+
+  it("shows net carbs only behind the never-dose + count-total-carbs caveat", async () => {
+    mockGet.mockResolvedValue(
+      makeRecord({
+        nutrition_facts: {
+          portion: null,
+          macros: [
+            {
+              key: "fiber_grams",
+              label: "Fiber",
+              value: 6,
+              unit: "g",
+              glucose_note: "Fiber slows and blunts the rise in glucose.",
+            },
+          ],
+          net_carbs: {
+            low: 34,
+            high: 49,
+            caveat:
+              "Net carbs (total carbs minus fiber) is a rough estimate, not exact — the ADA recommends counting total carbs. AI estimate, often wrong — never use it to dose or bolus.",
+          },
+          disclaimer:
+            "These nutrition figures are rough AI estimates that describe the meal — never use it to dose or bolus.",
+        },
+      })
+    );
+    render(<MealDetailPage />);
+
+    expect(await screen.findByTestId("meal-net-carbs")).toHaveTextContent(
+      "≈ 34–49 g"
+    );
+    const caveat = screen.getByTestId("meal-net-carbs-caveat");
+    expect(caveat).toHaveTextContent(/ADA recommends counting total carbs/i);
+    expect(caveat).toHaveTextContent(/never use it to dose or bolus/i);
   });
 
   it("shows the corrected band and the original AI estimate when corrected", async () => {

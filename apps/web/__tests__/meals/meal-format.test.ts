@@ -8,7 +8,8 @@ import {
   confidenceLabel,
   sourceMeta,
   mealTitle,
-  macroEntries,
+  formatMacroValue,
+  formatNetCarbs,
 } from "@/lib/meal-format";
 import type { FoodRecord } from "@/lib/api";
 
@@ -32,9 +33,11 @@ function makeRecord(overrides: Partial<FoodRecord> = {}): FoodRecord {
     ai_provider: null,
     confirmed_food_name: null,
     identity_confirmed: false,
+    assumptions: null,
     grounding_source: null,
     grounding_source_url: null,
     grounding_trust_tier: null,
+    nutrition_facts: null,
     created_at: "2026-06-19T12:00:01Z",
     ...overrides,
   };
@@ -120,39 +123,19 @@ describe("mealTitle", () => {
   });
 });
 
-describe("macroEntries", () => {
-  it("returns an empty list for null nutrition", () => {
-    expect(macroEntries(null)).toEqual([]);
+describe("formatMacroValue", () => {
+  it("renders grams and kilocalories with whole-unit rounding", () => {
+    expect(formatMacroValue(12.4, "g")).toBe("12 g");
+    expect(formatMacroValue(250.6, "kcal")).toBe("251 kcal");
+  });
+});
+
+describe("formatNetCarbs", () => {
+  it("renders a band as ≈ low–high g", () => {
+    expect(formatNetCarbs(34, 49)).toBe("≈ 34–49 g");
   });
 
-  it("orders known macros and gram-suffixes them (calories unit-less)", () => {
-    const entries = macroEntries({
-      calories: 250.6,
-      protein_grams: 12.4,
-      fat_grams: 8,
-    });
-    expect(entries.map((e) => e.key)).toEqual([
-      "protein_grams",
-      "fat_grams",
-      "calories",
-    ]);
-    expect(entries).toEqual([
-      { key: "protein_grams", label: "Protein", value: "12 g" },
-      { key: "fat_grams", label: "Fat", value: "8 g" },
-      { key: "calories", label: "Calories", value: "251" },
-    ]);
-  });
-
-  it("skips absent keys and passes unknown keys through with a humanised label", () => {
-    const entries = macroEntries({ sugar_grams: 5 });
-    expect(entries).toEqual([
-      { key: "sugar_grams", label: "Sugar", value: "5 g" },
-    ]);
-  });
-
-  it("title-cases each word of an unknown multi-word key", () => {
-    expect(macroEntries({ added_sugar_grams: 9 })).toEqual([
-      { key: "added_sugar_grams", label: "Added Sugar", value: "9 g" },
-    ]);
+  it("collapses to a single value when the rounded endpoints coincide", () => {
+    expect(formatNetCarbs(26, 26)).toBe("≈ 26 g");
   });
 });
