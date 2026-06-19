@@ -7,7 +7,9 @@ GlycemicGPT is a multi-component monorepo (backend API, web app, AI sidecar, And
 
 ## Ask DeepWiki (AI-generated overview)
 
-[**Ask DeepWiki**](https://deepwiki.com/GlycemicGPT/GlycemicGPT) is an auto-generated, AI-powered wiki of this repository. It maps the architecture, summarizes components, and lets you ask questions about the code in natural language — a fast way to build a mental model before reading source.
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/GlycemicGPT/GlycemicGPT)
+
+DeepWiki is an auto-generated, AI-powered wiki of this repository. It maps the architecture, summarizes components, and lets you ask questions about the code in natural language — a fast way to build a mental model before reading source.
 
 It refreshes automatically (the DeepWiki badge in the project README keeps it on a weekly re-index), so it tracks the default branch without manual upkeep.
 

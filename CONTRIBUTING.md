@@ -111,7 +111,9 @@ If you'd like to work on something, comment on the issue to let others know. For
 
 ## 🛠️ Development Setup
 
-> **New to the codebase?** [Ask DeepWiki](https://deepwiki.com/GlycemicGPT/GlycemicGPT) is an auto-generated, AI-powered wiki of this repository -- a fast way to explore the architecture and ask questions in natural language before you dive in. It is AI-generated and can be incomplete or wrong, so treat it as an orientation aid: the source code, the `docs/` site, and the safety rules above are authoritative.
+> **New to the codebase?** [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/GlycemicGPT/GlycemicGPT)
+>
+> DeepWiki is an auto-generated, AI-powered wiki of this repository -- a fast way to explore the architecture and ask questions in natural language before you dive in. It is AI-generated and can be incomplete or wrong, so treat it as an orientation aid: the source code, the `docs/` site, and the safety rules above are authoritative.
 
 ### Prerequisites
 
