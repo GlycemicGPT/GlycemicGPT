@@ -45,13 +45,28 @@ SOURCE_TYPE_FOOD_RECORD = "user_food_record"
 SOURCE_TYPE_COMMON_FOOD = "user_common_food"
 SOURCE_TYPE_USDA = "usda_fdc"
 SOURCE_TYPE_OPEN_FOOD_FACTS = "open_food_facts"
+# Story 50.E2 restaurant grounding. Unlike USDA/OFF (shared, ``user_id IS NULL``),
+# these cache chunks are OWNER-SCOPED (``user_id`` = the requesting user) because a
+# chain's fetched values must not be pooled into a shared, redistributable mirror.
+SOURCE_TYPE_RESTAURANT_CHAIN = "restaurant_chain"
+SOURCE_TYPE_FATSECRET = "restaurant_fatsecret"
 
 OWN_HISTORY_SOURCE_TYPES = frozenset({SOURCE_TYPE_FOOD_RECORD, SOURCE_TYPE_COMMON_FOOD})
 EXTERNAL_SOURCE_TYPES = frozenset({SOURCE_TYPE_USDA, SOURCE_TYPE_OPEN_FOOD_FACTS})
+# Restaurant grounding chunks are external published facts but cached owner-scoped;
+# kept in their own set so own-history recall (which queries only
+# OWN_HISTORY_SOURCE_TYPES) never matches them, while clinical retrieval still
+# excludes them via FOOD_GROUNDING_SOURCE_TYPES below.
+RESTAURANT_SOURCE_TYPES = frozenset(
+    {SOURCE_TYPE_RESTAURANT_CHAIN, SOURCE_TYPE_FATSECRET}
+)
 # Every source_type used by the meal-grounding feature. Clinical retrieval
 # excludes these so nutrition grounding never pollutes clinical knowledge
-# prompts (the mechanisms stay separate -- AC4).
-FOOD_GROUNDING_SOURCE_TYPES = OWN_HISTORY_SOURCE_TYPES | EXTERNAL_SOURCE_TYPES
+# prompts (the mechanisms stay separate -- AC4). Own-history recall narrows to
+# OWN_HISTORY_SOURCE_TYPES, so restaurant/external chunks never surface there.
+FOOD_GROUNDING_SOURCE_TYPES = (
+    OWN_HISTORY_SOURCE_TYPES | EXTERNAL_SOURCE_TYPES | RESTAURANT_SOURCE_TYPES
+)
 
 # Cosine-distance ceiling for "this is the same food I logged before". Tighter
 # than the clinical retriever's 0.6 (which casts a wide net for related

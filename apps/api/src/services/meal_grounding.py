@@ -4,14 +4,15 @@ Story 50.E1, AC4. Given a vision-identified food, this picks the single best
 grounding source in trust order and returns a descriptive citation. Precedence:
 
   1. own-history **corrected** value  (USER_PROVIDED -- the user's own truth)
-  2. USDA FoodData Central             (AUTHORITATIVE -- official, CC0)
-  3. Open Food Facts                   (RESEARCHED   -- crowd-sourced, ODbL)
-  4. own-history **uncorrected** value (USER_PROVIDED -- a prior estimate)
-  5. none -> pure vision
+  2. branded restaurant chain          (AUTHORITATIVE -- the chain's own menu facts)
+  3. USDA FoodData Central             (AUTHORITATIVE -- official, CC0)
+  4. Open Food Facts                   (RESEARCHED   -- crowd-sourced, ODbL)
+  5. own-history **uncorrected** value (USER_PROVIDED -- a prior estimate)
+  6. none -> pure vision
 
-The two mechanisms stay architecturally distinct (own-history RAG vs external
-research), separated by trust tier; this module only chooses between their
-already-computed results.
+The mechanisms stay architecturally distinct (own-history RAG vs external research
+vs on-demand restaurant fetch), separated by trust tier and source module; this
+module only chooses between their already-computed results.
 
 Safety posture (NON-NEGOTIABLE): grounding sharpens the *descriptive* estimate
 only. It returns a carb range + citation, never a dose, and the result is never
@@ -25,7 +26,7 @@ from src.config import settings
 from src.logging_config import get_logger
 from src.models.knowledge_chunk import KnowledgeChunk
 from src.schemas.food_record import GroundingDetail
-from src.services import meal_rag, nutrition_sources
+from src.services import meal_rag, nutrition_sources, restaurant_nutrition
 
 logger = get_logger(__name__)
 
@@ -107,18 +108,26 @@ async def ground_estimate(
     if recall is not None and recall.is_corrected:
         return _recall_detail(recall)
 
-    # 2/3. Published facts (USDA preferred over OFF). Each fails open to None.
+    # 2. A branded restaurant item, grounded against that chain's OWN published
+    # nutrition (AUTHORITATIVE), above generic USDA -- a chain's figure for its own
+    # menu item beats a generic-food lookup. Owner-scoped + fail-open; returns None
+    # for any non-branded food, so a plain food still flows to USDA/OFF below.
+    restaurant = await restaurant_nutrition.lookup_restaurant(user_id, description)
+    if restaurant is not None:
+        return _fact_detail(restaurant)
+
+    # 3/4. Published facts (USDA preferred over OFF). Each fails open to None.
     usda, off = await nutrition_sources.lookup_published_nutrition(description)
     if usda is not None:
         return _fact_detail(usda)
     if off is not None:
         return _fact_detail(off)
 
-    # 4. An uncorrected prior log still grounds when nothing published matched.
+    # 5. An uncorrected prior log still grounds when nothing published matched.
     if recall is not None:
         return _recall_detail(recall)
 
-    # 5. Pure vision.
+    # 6. Pure vision.
     return None
 
 

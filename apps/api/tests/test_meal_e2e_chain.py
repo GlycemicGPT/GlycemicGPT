@@ -519,3 +519,125 @@ async def test_fm7_cross_user_isolation(client):
             b, _vision(desc, 60, 70), _vision(desc, 62, 72), _vision(desc, 61, 71)
         )
         assert rec_b["suggested_identity"] is None
+
+
+# ── Story 50.E2: restaurant grounding journeys (GJ5, FM4, FM6) ──
+# The chain HTTP is never hit here -- restaurant_nutrition.lookup_restaurant is
+# patched so the journey asserts the gate + precedence + provenance plumbing.
+# FM7 (owner-scoped restaurant cache isolation) lives in test_restaurant_nutrition
+# where the cache + mocked HTTP are exercised directly.
+
+
+def _chain_fact(carbs: float = 42):
+    from src.services import nutrition_sources
+
+    return nutrition_sources.NutritionFact(
+        source_name="McDonald's",
+        source_url="https://www.mcdonalds.com/x",
+        trust_tier="AUTHORITATIVE",
+        name="Quarter Pounder with Cheese",
+        carbs_grams=carbs,
+        serving="per item",
+        disclaimer="Reference only; never use it to dose or bolus.",
+    )
+
+
+async def test_gj5_confirmed_chain_item_gets_authoritative_citation(client):
+    """GJ5: a chain item is fetched + cited at AUTHORITATIVE only AFTER the user
+    confirms identity; an unconfirmed item never carries a chain citation."""
+    from src.services import restaurant_nutrition
+
+    desc = f"mcdonalds quarter pounder {_uniq()}"
+    rec = await _upload(
+        client, _vision(desc, 40, 50), _vision(desc, 42, 52), _vision(desc, 41, 51)
+    )
+    # Headline AC8 safety point: vision-only at create, no chain citation yet.
+    assert rec["identity_confirmed"] is False
+    assert rec["grounding_source"] is None
+
+    with patch.object(
+        restaurant_nutrition,
+        "lookup_restaurant",
+        AsyncMock(return_value=_chain_fact(42)),
+    ):
+        confirm = await client.post(
+            f"/api/food-records/{rec['id']}/confirm-identity",
+            json={"confirmed_food_name": desc},
+        )
+    assert confirm.status_code == 200, confirm.text
+    body = confirm.json()
+    assert body["identity_confirmed"] is True
+    assert body["grounding_source"] == "McDonald's"
+    assert body["grounding_trust_tier"] == "AUTHORITATIVE"
+    assert body["grounding_source_url"] == "https://www.mcdonalds.com/x"
+    assert body["grounding"]["carbs_low"] == 42  # the chain's own published figure
+    # Grounding is descriptive only -- the user's empirical band is untouched.
+    assert (body["carbs_low"], body["carbs_high"]) == (
+        rec["carbs_low"],
+        rec["carbs_high"],
+    )
+    assert not find_dosing_violations(body["grounding"]["note"] or "")
+
+
+async def test_fm4_misidentified_chain_item_grounds_only_corrected_identity(client):
+    """FM4: the AI's mislabel is never cited; only the user's corrected identity
+    is grounded, and the chain is queried on the corrected name."""
+    from src.services import restaurant_nutrition
+
+    mislabel = f"mystery sandwich {_uniq()}"
+    corrected = f"mcdonalds quarter pounder {_uniq()}"
+    rec = await _upload(
+        client,
+        _vision(mislabel, 35, 45),
+        _vision(mislabel, 36, 46),
+        _vision(mislabel, 34, 44),
+    )
+    assert rec["grounding_source"] is None  # the mislabel is never grounded
+
+    seen = {}
+
+    async def _fake_lookup(user_id, identity):
+        seen["identity"] = identity
+        return _chain_fact(42)
+
+    with patch.object(
+        restaurant_nutrition, "lookup_restaurant", AsyncMock(side_effect=_fake_lookup)
+    ):
+        confirm = await client.post(
+            f"/api/food-records/{rec['id']}/confirm-identity",
+            json={"confirmed_food_name": corrected},
+        )
+    assert confirm.status_code == 200, confirm.text
+    body = confirm.json()
+    assert body["confirmed_food_name"] == corrected
+    assert body["grounding_source"] == "McDonald's"
+    # The chain was queried on the CORRECTED identity, never the AI's mislabel.
+    assert seen["identity"] == corrected
+
+
+async def test_fm6_restaurant_fetch_failure_degrades_to_vision_only(client):
+    """FM6: a restaurant fetch blowing up degrades cleanly -- confirmation still
+    succeeds, the estimate stays vision-only, and the band is untouched."""
+    from src.services import restaurant_nutrition
+
+    desc = f"mcdonalds big mac {_uniq()}"
+    rec = await _upload(
+        client, _vision(desc, 40, 50), _vision(desc, 42, 52), _vision(desc, 41, 51)
+    )
+    with patch.object(
+        restaurant_nutrition,
+        "lookup_restaurant",
+        AsyncMock(side_effect=RuntimeError("endpoint down")),
+    ):
+        confirm = await client.post(
+            f"/api/food-records/{rec['id']}/confirm-identity",
+            json={"confirmed_food_name": desc},
+        )
+    assert confirm.status_code == 200, confirm.text  # no crash
+    body = confirm.json()
+    assert body["identity_confirmed"] is True
+    assert body["grounding_source"] is None  # gracefully vision-only
+    assert (body["carbs_low"], body["carbs_high"]) == (
+        rec["carbs_low"],
+        rec["carbs_high"],
+    )

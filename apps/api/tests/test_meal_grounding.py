@@ -28,7 +28,13 @@ from src.models.common_food import CommonFood, normalize_common_food_name
 from src.models.food_record import FoodRecord, FoodRecordSource
 from src.models.knowledge_chunk import KnowledgeChunk
 from src.models.user import User, UserRole
-from src.services import food_vision, meal_grounding, meal_rag, nutrition_sources
+from src.services import (
+    food_vision,
+    meal_grounding,
+    meal_rag,
+    nutrition_sources,
+    restaurant_nutrition,
+)
 from src.vision.carb_contract import (
     MEAL_ESTIMATE_QUALIFIER,
     NEVER_DOSE_PROHIBITION,
@@ -811,6 +817,101 @@ class TestPrecedence:
         # The gate short-circuits before any recall or external lookup runs.
         recall.assert_not_awaited()
         lookup.assert_not_awaited()
+
+    # ── Story 50.E2: restaurant slots in as AUTHORITATIVE above USDA ──
+    def _restaurant_fact(self, carbs=30):
+        return nutrition_sources.NutritionFact(
+            source_name="McDonald's",
+            source_url="https://www.mcdonalds.com/x",
+            trust_tier=KnowledgeChunk.TIER_AUTHORITATIVE,
+            name="Quarter Pounder with Cheese",
+            carbs_grams=carbs,
+            serving="per item",
+            disclaimer="Reference only; never use it to dose or bolus.",
+        )
+
+    async def test_restaurant_preferred_over_usda(self):
+        # A branded chain item grounds to the chain's own facts above generic USDA.
+        usda = self._fact(
+            "USDA FoodData Central", KnowledgeChunk.TIER_AUTHORITATIVE, 12
+        )
+        with (
+            patch.object(meal_rag, "recall_similar_meal", AsyncMock(return_value=None)),
+            patch.object(
+                restaurant_nutrition,
+                "lookup_restaurant",
+                AsyncMock(return_value=self._restaurant_fact(30)),
+            ),
+            patch.object(
+                nutrition_sources,
+                "lookup_published_nutrition",
+                AsyncMock(return_value=(usda, None)),
+            ) as published,
+        ):
+            detail = await meal_grounding.ground_estimate(
+                uuid.uuid4(), "McDonald's Quarter Pounder", identity_confirmed=True
+            )
+        assert detail.source == "McDonald's"
+        assert detail.carbs_low == 30  # the chain figure, not the USDA 12
+        assert detail.trust_tier == KnowledgeChunk.TIER_AUTHORITATIVE
+        # A restaurant hit short-circuits before the USDA/OFF HTTP round-trips.
+        published.assert_not_awaited()
+
+    async def test_corrected_own_history_beats_restaurant(self):
+        # Precedence: own-history corrected > restaurant. A corrected match
+        # short-circuits before the restaurant lookup even runs.
+        with (
+            patch.object(
+                meal_rag,
+                "recall_similar_meal",
+                AsyncMock(return_value=self._recall(corrected=True)),
+            ),
+            patch.object(
+                restaurant_nutrition, "lookup_restaurant", AsyncMock()
+            ) as restaurant,
+        ):
+            detail = await meal_grounding.ground_estimate(
+                uuid.uuid4(), "McDonald's Quarter Pounder", identity_confirmed=True
+            )
+        assert detail.source == "Your meal history"
+        restaurant.assert_not_awaited()
+
+    async def test_restaurant_falls_through_to_usda_when_unbranded(self):
+        # A generic food (restaurant lookup returns None) still grounds to USDA.
+        usda = self._fact(
+            "USDA FoodData Central", KnowledgeChunk.TIER_AUTHORITATIVE, 12
+        )
+        with (
+            patch.object(meal_rag, "recall_similar_meal", AsyncMock(return_value=None)),
+            patch.object(
+                restaurant_nutrition,
+                "lookup_restaurant",
+                AsyncMock(return_value=None),
+            ),
+            patch.object(
+                nutrition_sources,
+                "lookup_published_nutrition",
+                AsyncMock(return_value=(usda, None)),
+            ),
+        ):
+            detail = await meal_grounding.ground_estimate(
+                uuid.uuid4(), "oatmeal", identity_confirmed=True
+            )
+        assert detail.source == "USDA FoodData Central"
+        assert detail.carbs_low == 12
+
+    async def test_unconfirmed_identity_never_grounds_restaurant(self):
+        # AC8: the restaurant lookup is never even reached for an unconfirmed item.
+        with patch.object(
+            restaurant_nutrition, "lookup_restaurant", AsyncMock()
+        ) as restaurant:
+            detail = await meal_grounding.ground_estimate(
+                uuid.uuid4(),
+                "McDonald's Quarter Pounder",
+                identity_confirmed=False,
+            )
+        assert detail is None
+        restaurant.assert_not_awaited()
 
 
 # --------------------------------------------------------------------------- #
