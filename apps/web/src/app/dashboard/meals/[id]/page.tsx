@@ -65,6 +65,9 @@ export default function MealDetailPage() {
     let cancelled = false;
     setLoading(true);
     setError(null);
+    // Clear any prior meal so a stale record can't render under a new id.
+    setRecord(null);
+    setBlockedInfo(null);
     getFoodRecord(id)
       .then((data) => {
         if (cancelled) return;
@@ -76,6 +79,7 @@ export default function MealDetailPage() {
         const info = classifyMealError(err);
         if (info.retryable) {
           setError(info.message);
+          setRecord(null);
         } else {
           setBlockedInfo(info);
           setRecord(null);

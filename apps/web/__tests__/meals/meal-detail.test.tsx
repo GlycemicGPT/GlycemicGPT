@@ -143,4 +143,16 @@ describe("Meal detail page", () => {
     expect(await screen.findByTestId("meal-not-found")).toBeInTheDocument();
     expect(screen.queryByTestId("meal-carb-range")).not.toBeInTheDocument();
   });
+
+  it("shows a fallback (no stale meal) on a retryable error", async () => {
+    mockGet.mockRejectedValue(
+      new MealApiError(502, "AI vision service is unreachable.")
+    );
+    render(<MealDetailPage />);
+    expect(
+      await screen.findByText(/temporarily unavailable/i)
+    ).toBeInTheDocument();
+    // The record state is cleared, so no stale meal content renders.
+    expect(screen.queryByTestId("meal-carb-range")).not.toBeInTheDocument();
+  });
 });

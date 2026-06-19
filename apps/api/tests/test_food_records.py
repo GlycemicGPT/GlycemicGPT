@@ -7,6 +7,7 @@ food-record API endpoints.
 """
 
 import json
+import os
 import uuid
 from io import BytesIO
 from pathlib import Path
@@ -257,6 +258,19 @@ class TestImageProcessing:
         Path(path).unlink()
         with pytest.raises(food_image.StoredImageMissingError):
             food_image.resolve_stored_image(path)
+
+    def test_resolve_raises_for_unreadable_file(self, _uploads_tmp):
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            pytest.skip("root bypasses file permissions")
+        user_id = uuid.uuid4()
+        processed = food_image.process_upload(_png_bytes())
+        path, _ = food_image.store_image(user_id, processed)
+        Path(path).chmod(0o000)
+        try:
+            with pytest.raises(food_image.StoredImageMissingError):
+                food_image.resolve_stored_image(path)
+        finally:
+            Path(path).chmod(0o600)  # restore so tmp cleanup can remove it
 
 
 # --------------------------------------------------------------------------- #

@@ -179,6 +179,13 @@ def resolve_stored_image(storage_path: str) -> tuple[Path, str]:
         raise StoredImageMissingError("stored path outside uploads root")
     if not target.is_file():
         raise StoredImageMissingError("stored image not found")
+    # Confirm the bytes are actually readable, so an existing-but-unreadable file
+    # surfaces as a clean 404 rather than a 500 mid-serve.
+    try:
+        with target.open("rb"):
+            pass
+    except OSError as exc:
+        raise StoredImageMissingError("stored image not readable") from exc
     media_type = _EXTENSION_MEDIA_TYPES.get(target.suffix.lstrip(".").lower())
     if media_type is None:
         raise StoredImageMissingError("unsupported stored extension")
