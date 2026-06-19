@@ -235,14 +235,34 @@ describe("prefillIdentity", () => {
 
 describe("isGrounded", () => {
   it("is false for a vision-only record (no grounding source)", () => {
-    expect(isGrounded(makeRecord({ grounding_source: null }))).toBe(false);
-    expect(isGrounded(makeRecord({ grounding_source: "  " }))).toBe(false);
+    expect(
+      isGrounded(makeRecord({ identity_confirmed: true, grounding_source: null }))
+    ).toBe(false);
+    expect(
+      isGrounded(makeRecord({ identity_confirmed: true, grounding_source: "  " }))
+    ).toBe(false);
   });
 
-  it("is true once an external source has grounded it", () => {
+  it("is true once a confirmed identity has been grounded by an external source", () => {
     expect(
-      isGrounded(makeRecord({ grounding_source: "USDA FoodData Central" }))
+      isGrounded(
+        makeRecord({
+          identity_confirmed: true,
+          grounding_source: "USDA FoodData Central",
+        })
+      )
     ).toBe(true);
+  });
+
+  it("requires identity confirmation: a stale source without confirmation is not grounded", () => {
+    expect(
+      isGrounded(
+        makeRecord({
+          identity_confirmed: false,
+          grounding_source: "USDA FoodData Central",
+        })
+      )
+    ).toBe(false);
   });
 });
 

@@ -198,11 +198,14 @@ export function prefillIdentity(record: FoodRecord): string {
 
 /**
  * Whether a record has been grounded against an external nutrition source. The
- * grounding gate only opens once an identity is confirmed, so an unconfirmed
- * record is always vision-only here.
+ * grounding gate only opens once an identity is confirmed, so we require BOTH a
+ * confirmed identity and a grounding source: the server only populates
+ * `grounding_source` after confirmation, and gating the client on
+ * `identity_confirmed` too means a regressed/stale source can never render
+ * authoritative attribution before the user has confirmed what the food is.
  */
 export function isGrounded(record: FoodRecord): boolean {
-  return !!record.grounding_source?.trim();
+  return record.identity_confirmed && !!record.grounding_source?.trim();
 }
 
 /**
