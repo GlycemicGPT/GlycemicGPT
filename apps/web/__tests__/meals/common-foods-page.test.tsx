@@ -194,6 +194,20 @@ describe("Common foods page", () => {
     confirmSpy.mockRestore();
   });
 
+  it("surfaces a delete failure inline and leaves the delete button usable", async () => {
+    mockList.mockResolvedValue({ common_foods: [makeFood()], total: 1 });
+    mockDelete.mockRejectedValue(new MealApiError(502, "transient"));
+    const confirmSpy = jest.spyOn(window, "confirm").mockReturnValue(true);
+    render(<CommonFoodsPage />);
+
+    fireEvent.click(await screen.findByTestId("common-food-delete"));
+
+    expect(await screen.findByTestId("common-food-row-error")).toBeInTheDocument();
+    // Not left stuck in the deleting (disabled) state after a failure.
+    expect(screen.getByTestId("common-food-delete")).not.toBeDisabled();
+    confirmSpy.mockRestore();
+  });
+
   it("does not delete when the confirmation is cancelled", async () => {
     mockList.mockResolvedValue({ common_foods: [makeFood()], total: 1 });
     const confirmSpy = jest.spyOn(window, "confirm").mockReturnValue(false);

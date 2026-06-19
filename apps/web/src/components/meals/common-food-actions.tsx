@@ -93,7 +93,8 @@ export function MealCommonFoodSection({ record, onUpdated }: SectionProps) {
       })
       .catch((err) => {
         if (cancelled) return;
-        setBaselines([]);
+        // Leave baselines null on error so the picker shows the error message,
+        // not the misleading "no common foods yet" empty state.
         setError(describeCommonFoodError(err));
       })
       .finally(() => {
@@ -262,15 +263,7 @@ export function MealCommonFoodSection({ record, onUpdated }: SectionProps) {
               <Loader2 className="h-4 w-4 animate-spin" />
               Loading your common foods…
             </p>
-          ) : baselines && baselines.length === 0 ? (
-            <p
-              data-testid="meal-link-empty"
-              className="text-sm text-slate-500 dark:text-slate-400"
-            >
-              You don’t have any common foods yet. Use “Save as common food” to
-              create one.
-            </p>
-          ) : (
+          ) : baselines && baselines.length > 0 ? (
             <label className="block text-xs text-slate-500 dark:text-slate-400">
               Link to
               <select
@@ -281,14 +274,22 @@ export function MealCommonFoodSection({ record, onUpdated }: SectionProps) {
                 aria-describedby={error ? errorId : undefined}
                 className="mt-1 w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-blue-400 focus:outline-none"
               >
-                {(baselines ?? []).map((food) => (
+                {baselines.map((food) => (
                   <option key={food.id} value={food.id}>
                     {food.name}
                   </option>
                 ))}
               </select>
             </label>
-          )}
+          ) : baselines && baselines.length === 0 ? (
+            <p
+              data-testid="meal-link-empty"
+              className="text-sm text-slate-500 dark:text-slate-400"
+            >
+              You don’t have any common foods yet. Use “Save as common food” to
+              create one.
+            </p>
+          ) : null}
           {error && (
             <p
               role="alert"

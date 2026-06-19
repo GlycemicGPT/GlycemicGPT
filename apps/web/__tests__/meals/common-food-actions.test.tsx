@@ -201,6 +201,17 @@ describe("MealCommonFoodSection", () => {
     expect(screen.queryByTestId("meal-link-select")).not.toBeInTheDocument();
   });
 
+  it("shows an error (not the empty state) when the baseline list fails to load", async () => {
+    mockListCommon.mockRejectedValue(new MealApiError(502, "transient"));
+    render(<MealCommonFoodSection record={makeRecord()} onUpdated={jest.fn()} />);
+
+    fireEvent.click(screen.getByTestId("meal-link-common-food"));
+    expect(await screen.findByTestId("meal-link-error")).toBeInTheDocument();
+    // A load failure must not masquerade as "you have no common foods".
+    expect(screen.queryByTestId("meal-link-empty")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("meal-link-select")).not.toBeInTheDocument();
+  });
+
   it("handles a link 404 (cross-user baseline) gracefully (IDOR)", async () => {
     mockListCommon.mockResolvedValue({
       common_foods: [makeFood({ id: "cf-1", name: "Oatmeal" })],

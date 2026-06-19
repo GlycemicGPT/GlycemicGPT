@@ -129,6 +129,10 @@ function CommonFoodRow({
       onDeleted();
     } catch (err) {
       setError(describeCommonFoodError(err));
+    } finally {
+      // Clear the loading state on success too: a successful delete usually
+      // unmounts this row (the list reloads without it), but a failed reload can
+      // leave the row mounted — without this it would stay stuck disabled.
       setDeleting(false);
     }
   }, [food.id, food.name, onDeleted]);
