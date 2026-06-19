@@ -60,7 +60,10 @@ _ACCEPTED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
         404: {"model": ErrorResponse, "description": "No AI provider configured"},
         413: {"model": ErrorResponse, "description": "Image too large"},
         415: {"model": ErrorResponse, "description": "Unsupported image type"},
-        422: {"model": ErrorResponse, "description": "Vision unavailable / unusable"},
+        422: {
+            "model": ErrorResponse,
+            "description": "Vision unavailable, model not certified, or estimate unusable",
+        },
         429: {"model": ErrorResponse, "description": "Rate limit exceeded"},
     },
 )
@@ -112,6 +115,10 @@ async def upload_food_photo(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
         ) from exc
     except food_vision.VisionUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+    except food_vision.ModelNotCertifiedError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc

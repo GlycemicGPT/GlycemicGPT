@@ -43,6 +43,7 @@ from src.services import (
     meal_estimate_aggregate,
     meal_grounding,
     meal_rag,
+    vision_capability,
 )
 from src.services.ai_client import DEFAULT_MODELS
 from src.vision.carb_contract import (
@@ -78,6 +79,17 @@ class VisionUnavailableError(FoodVisionError):
     """The user's active provider has no vision route (sidecar HTTP 422)."""
 
 
+class ModelNotCertifiedError(FoodVisionError):
+    """The configured model is not certified for vision carb estimation.
+
+    Distinct from ``VisionUnavailableError`` ("your provider has no vision route"):
+    this means the provider *can* do vision but the specific model -- a local,
+    self-hosted one -- has not cleared the benchmark pass-bar, so estimating from
+    it would risk a silent low-quality result. The pipeline refuses with guidance
+    rather than producing one.
+    """
+
+
 class VisionServiceError(FoodVisionError):
     """The sidecar was unreachable or returned an unexpected error."""
 
@@ -90,7 +102,10 @@ async def _resolve_model(user: User, db: AsyncSession) -> tuple[str, str]:
     """Return ``(model_name, provider_label)`` for the user's active provider.
 
     The model name drives the sidecar's vision-runner selection. Raises
-    ``ProviderNotConfiguredError`` when no provider is configured.
+    ``ProviderNotConfiguredError`` when no provider is configured, and
+    ``ModelNotCertifiedError`` when the configured model is a local/self-hosted
+    one that has not cleared the vision benchmark -- gating it here, before any
+    vision call, so an unverified model never yields a silent low-quality estimate.
     """
     result = await db.execute(
         select(AIProviderConfig).where(AIProviderConfig.user_id == user.id)
@@ -101,6 +116,8 @@ async def _resolve_model(user: User, db: AsyncSession) -> tuple[str, str]:
     model = config.model_name or DEFAULT_MODELS.get(config.provider_type, "")
     if not model:
         raise ProviderNotConfiguredError("No model configured for your AI provider.")
+    if not vision_capability.is_vision_cleared(config.provider_type, model):
+        raise ModelNotCertifiedError(vision_capability.unverified_local_message(model))
     return model, config.provider_type.value
 
 

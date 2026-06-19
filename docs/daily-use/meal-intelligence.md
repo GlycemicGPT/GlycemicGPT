@@ -36,6 +36,8 @@ The feature is designed so a guess can never quietly turn into a dose:
 
 Meal Intelligence is flag-gated and off by default. When enabled, it appears in the mobile app's meal-capture surfaces. Because it sends a food photo to your configured AI provider, the same BYOAI data-handling rules apply as the rest of the app — review your provider's policy.
 
+If you run a **local model**, note that meal photos have a higher quality bar than text chat: an unverified local model is refused for photo estimates (with a clear message) rather than allowed to produce a low-quality guess. See [Local AI Vision](../concepts/local-ai-vision.md) for which models clear the bar and why cloud is the verified path for photos today.
+
 ## The bottom line
 
 A carb estimate from a photo is a **guess about a picture**, not a measurement and never a dose. Use it to get a baseline, correct it when it's wrong, and **count your carbs and decide your insulin the way you and your healthcare provider do today.**
