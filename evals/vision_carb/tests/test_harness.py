@@ -71,6 +71,7 @@ def _ns(tmp_path, manifest, **overrides):
         "limit": 0,
         "out_dir": str(tmp_path / "out"),
         "no_auth": True,
+        "enforce_pass_bar": False,
     }
     args.update(overrides)
     return argparse.Namespace(**args)
@@ -533,6 +534,123 @@ def test_determinism_same_inputs_same_metrics(tmp_path, monkeypatch):
     assert run_once("a") == run_once("b")
 
 
+# --- pass-bar (local-model certification gate) --------------------------------
+
+
+def _easy_item(item_id="banana", carbs=27, image="b.jpg", identity=None):
+    return {
+        "id": item_id,
+        "known_carbs_grams": carbs,
+        "image": image,
+        "expected_identity": identity or ["banana"],
+    }
+
+
+def test_variance_report_carries_pass_bar_verdict(tmp_path, monkeypatch):
+    # A clean, reproducible easy-set run at the certification N clears the bar.
+    m = _manifest(tmp_path, [_easy_item()])
+    monkeypatch.setattr(harness, "_post_chat", _Responder([_estimate(24, 30)]))
+    args = _ns(tmp_path, [m], repeats=5)
+    assert harness.run(args) == 0
+    report = _read(args)
+    assert report["pass_bar"]["verdict"] == "pass"
+    assert report["pass_bar"]["repeats"] == 5
+    names = {c["name"] for c in report["pass_bar"]["criteria"]}
+    assert {
+        "vision_available",
+        "dosing_violations",
+        "easy_identity_error_rate",
+        "easy_max_cv",
+        "easy_max_spread_g",
+        "easy_mae_g",
+    } <= names
+
+
+def test_enforce_pass_bar_passing_model_exits_zero(tmp_path, monkeypatch):
+    m = _manifest(tmp_path, [_easy_item()])
+    monkeypatch.setattr(harness, "_post_chat", _Responder([_estimate(24, 30)]))
+    args = _ns(tmp_path, [m], repeats=5, enforce_pass_bar=True)
+    assert harness.run(args) == 0
+    assert _read(args)["pass_bar"]["verdict"] == "pass"
+
+
+def test_enforce_pass_bar_low_n_is_insufficient_and_gated(tmp_path, monkeypatch):
+    # All metrics fine, but N=3 < the certification N: cannot certify -> non-zero
+    # under enforcement so a benchmark script does not bless an under-sampled run.
+    m = _manifest(tmp_path, [_easy_item()])
+    monkeypatch.setattr(harness, "_post_chat", _Responder([_estimate(24, 30)]))
+    args = _ns(tmp_path, [m], repeats=3, enforce_pass_bar=True)
+    assert harness.run(args) == harness._PASS_BAR_FAIL_EXIT
+    assert _read(args)["pass_bar"]["verdict"] == "insufficient_data"
+
+
+def test_enforce_pass_bar_high_variance_model_fails(tmp_path, monkeypatch):
+    # Accurate-on-average (midpoint ~27) but wildly variable photo-to-photo ->
+    # FAIL on variance, exit non-zero under enforcement. Variance is the bar.
+    m = _manifest(tmp_path, [_easy_item()])
+    monkeypatch.setattr(
+        harness,
+        "_post_chat",
+        _Responder(
+            [
+                _estimate(2, 12),  # mid 7
+                _estimate(40, 60),  # mid 50
+                _estimate(5, 15),  # mid 10
+                _estimate(38, 50),  # mid 44
+                _estimate(20, 30),  # mid 25
+            ]
+        ),
+    )
+    args = _ns(tmp_path, [m], repeats=5, enforce_pass_bar=True)
+    assert harness.run(args) == harness._PASS_BAR_FAIL_EXIT
+    report = _read(args)
+    assert report["pass_bar"]["verdict"] == "fail"
+    assert "easy_max_cv" in report["pass_bar"]["failures"]
+
+
+def test_pass_bar_is_informational_without_enforcement(tmp_path, monkeypatch):
+    # The same high-variance model does NOT change the exit code when the bar is
+    # not enforced -- existing/cloud runs are unaffected (verdict still recorded).
+    m = _manifest(tmp_path, [_easy_item()])
+    monkeypatch.setattr(
+        harness, "_post_chat", _Responder([_estimate(2, 12), _estimate(40, 60)])
+    )
+    args = _ns(tmp_path, [m], repeats=5)  # enforce_pass_bar defaults False
+    assert harness.run(args) == 0
+    assert _read(args)["pass_bar"]["verdict"] == "fail"
+
+
+def test_metric_comparability_local_and_cloud_score_identically(tmp_path, monkeypatch):
+    # The crux of the local-model benchmark: identical model responses scored
+    # through the harness must yield identical metrics + pass-bar whether the
+    # endpoint is "cloud" or "local". Metrics are a pure function of the responses,
+    # not the transport -- so the cloud reference run and local numbers are
+    # directly comparable.
+    responses = [_estimate(24, 30), _estimate(22, 32), _estimate(25, 29)]
+
+    def run_endpoint(base_url, model, no_auth, out_name):
+        m = _manifest(tmp_path, [_easy_item()], name=f"{out_name}.json")
+        monkeypatch.setattr(harness, "_post_chat", _Responder(list(responses)))
+        args = _ns(
+            tmp_path,
+            [m],
+            repeats=5,
+            base_url=base_url,
+            model=model,
+            no_auth=no_auth,
+            out_dir=str(tmp_path / out_name),
+        )
+        assert harness.run(args) == 0
+        return _read(args)
+
+    cloud = run_endpoint("http://localhost:3456", "claude-sonnet-4-5", False, "cloud")
+    local = run_endpoint("http://localhost:11434", "llava:13b", True, "local")
+
+    assert cloud["variance_aggregate"] == local["variance_aggregate"]
+    assert cloud["pass_bar"]["criteria"] == local["pass_bar"]["criteria"]
+    assert cloud["pass_bar"]["verdict"] == local["pass_bar"]["verdict"]
+
+
 # --- CLI argument handling ----------------------------------------------------
 
 
@@ -555,6 +673,25 @@ def test_main_bad_sweep_exits_cleanly(monkeypatch):
 
 def test_main_bad_icr_exits_cleanly(monkeypatch):
     monkeypatch.setattr(sys, "argv", ["harness.py", "--illustrative-icr", "0"])
+    with pytest.raises(SystemExit) as exc:
+        harness.main()
+    assert exc.value.code == 2
+
+
+def test_enforce_pass_bar_in_single_shot_is_a_clean_error(monkeypatch):
+    # The pass-bar is only computed in variance mode; enforcing it in single-shot
+    # (the default --repeats 1) must fail loud, not silently exit 0 (which would
+    # bless an unverified model). argparse usage error, not a traceback.
+    monkeypatch.setattr(sys, "argv", ["harness.py", "--enforce-pass-bar"])
+    with pytest.raises(SystemExit) as exc:
+        harness.main()
+    assert exc.value.code == 2
+
+
+def test_enforce_pass_bar_with_sweep_is_a_clean_error(monkeypatch):
+    monkeypatch.setattr(
+        sys, "argv", ["harness.py", "--sweep", "1,3,5", "--enforce-pass-bar"]
+    )
     with pytest.raises(SystemExit) as exc:
         harness.main()
     assert exc.value.code == 2

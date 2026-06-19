@@ -36,9 +36,11 @@ Usage (N sweep for tuning the production sample count):
     SIDECAR_API_KEY=... python evals/vision_carb/harness.py \\
         --manifest dataset/manifest.json dataset/adversarial.json --sweep 1,3,5
 
-Usage (local model benchmark):
+Usage (local model certification benchmark -- gate on the pass-bar at N>=5):
     python evals/vision_carb/harness.py \\
-        --base-url http://localhost:11434 --model llava:13b --no-auth --repeats 3
+        --base-url http://localhost:11434 --model llava:13b --no-auth \\
+        --manifest dataset/manifest.json dataset/adversarial.json \\
+        --repeats 5 --enforce-pass-bar
 
 No third-party dependencies -- standard library only.
 """
@@ -59,6 +61,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import contract  # noqa: E402
 import metrics  # noqa: E402
+import passbar  # noqa: E402
 
 _HERE = Path(__file__).parent
 _DEFAULT_MANIFEST = _HERE / "dataset" / "manifest.json"
@@ -72,6 +75,12 @@ _MEDIA_TYPES = {
 }
 
 _RETRYABLE = {429, 500, 502, 503, 504, 529}
+
+# The pass-bar gates a model on the EASY set (a simple, single food is where a
+# model has no excuse). The adversarial set is reported for guidance only. These
+# are the canonical set names the dataset manifests carry.
+_EASY_SET_NAME = "easy"
+_ADVERSARIAL_SET_NAME = "adversarial"
 
 
 def _media_type(path: Path) -> str:
@@ -522,6 +531,49 @@ def _by_set(
     }
 
 
+def evaluate_run_pass_bar(
+    scores: list[metrics.VarianceScore],
+    *,
+    repeats: int,
+    dosing_violation_count: int,
+    illustrative_icr: float = metrics.DEFAULT_ILLUSTRATIVE_ICR,
+) -> passbar.PassBarResult:
+    """Apply the local-model pass-bar to a variance run's scores.
+
+    Gates on the EASY-set aggregate (the bar is set where a model has no excuse);
+    the adversarial-set aggregate, when present, is passed for the informational
+    comparison only. ``has_vision`` is derived from whether any usable sample was
+    produced fleet-wide -- a model that returned nothing usable served no vision.
+    """
+    easy_scores = [s for s in scores if s.set_name == _EASY_SET_NAME]
+    adversarial_scores = [s for s in scores if s.set_name == _ADVERSARIAL_SET_NAME]
+
+    easy = (
+        metrics.aggregate_variance(
+            easy_scores, repeats=repeats, illustrative_icr=illustrative_icr
+        )
+        if easy_scores
+        else None
+    )
+    adversarial = (
+        metrics.aggregate_variance(
+            adversarial_scores, repeats=repeats, illustrative_icr=illustrative_icr
+        )
+        if adversarial_scores
+        else None
+    )
+    # No usable sample anywhere => the model served no vision (or was unreachable).
+    has_vision = any(s.samples_ok > 0 for s in scores)
+
+    return passbar.evaluate_pass_bar(
+        has_vision=has_vision,
+        dosing_violation_count=dosing_violation_count,
+        easy=easy,
+        repeats=repeats,
+        adversarial=adversarial,
+    )
+
+
 # ---------------------------------------------------------------------------
 # --repeats mode
 # ---------------------------------------------------------------------------
@@ -550,6 +602,12 @@ def _run_variance(
     agg = metrics.aggregate_variance(
         scores, repeats=n, illustrative_icr=args.illustrative_icr
     )
+    pass_bar = evaluate_run_pass_bar(
+        scores,
+        repeats=n,
+        dosing_violation_count=len(safety_violations),
+        illustrative_icr=args.illustrative_icr,
+    )
     report = {
         "mode": "variance",
         "manifests": _manifest_paths(args),
@@ -559,6 +617,8 @@ def _run_variance(
         "illustrative_icr_g_per_u": args.illustrative_icr,
         "variance_aggregate": agg.to_dict(),
         "by_set": _by_set(scores, n, args.illustrative_icr),
+        "pass_bar": pass_bar.to_dict(),
+        "enforce_pass_bar": bool(args.enforce_pass_bar),
         "safety": {
             "dosing_violation_count": len(safety_violations),
             "violations": safety_violations,
@@ -646,11 +706,29 @@ def _write_report(args: argparse.Namespace, report: dict, markdown: str) -> None
 # Exit code returned when a run surfaces dosing/advice language in any response.
 # Non-zero so the "must be 0" safety check actually gates a scripted/CI run.
 _DOSING_VIOLATION_EXIT = 3
+# Exit code when a certification run (--enforce-pass-bar) does not return a clean
+# PASS, so a benchmark script can gate on "this model cleared the bar".
+_PASS_BAR_FAIL_EXIT = 4
 
 
 def _exit_code(report: dict) -> int:
-    """0 on a clean run; non-zero if any dosing-language violation was found."""
-    return _DOSING_VIOLATION_EXIT if report["safety"]["dosing_violation_count"] else 0
+    """Process exit code for a run.
+
+    A dosing-language violation is the highest-priority failure (it is a safety
+    breach in any mode). Otherwise, a variance run invoked with
+    ``--enforce-pass-bar`` returns non-zero unless the model cleared the bar
+    (verdict ``pass``) -- so the certification command gates the way the dosing
+    check does. Without ``--enforce-pass-bar`` the pass-bar is informational only
+    and never changes the exit code (existing/cloud runs are unaffected).
+    """
+    if report["safety"]["dosing_violation_count"]:
+        return _DOSING_VIOLATION_EXIT
+    if (
+        report.get("enforce_pass_bar")
+        and report.get("pass_bar", {}).get("verdict") != passbar.Verdict.PASS.value
+    ):
+        return _PASS_BAR_FAIL_EXIT
+    return 0
 
 
 def _pct(value: float | None) -> str:
@@ -742,6 +820,33 @@ def _cv(value: float | None) -> str:
     return f"{value:.3f}" if value is not None else "n/a"
 
 
+def _render_pass_bar_section(pass_bar: dict | None) -> list[str]:
+    """Render the local-model pass-bar verdict + per-criterion table."""
+    if not pass_bar:
+        return []
+    lines = [
+        "## Local-model pass-bar",
+        "",
+        f"- **Verdict: {pass_bar['verdict'].upper()}** "
+        f"(N={pass_bar['repeats']}, certifies at N>={pass_bar['min_certification_repeats']})",
+        f"- {pass_bar['summary']}",
+        "",
+        "| gate | observed | bar | result |",
+        "| --- | --- | --- | --- |",
+    ]
+    for c in pass_bar["criteria"]:
+        result = (
+            "PASS"
+            if c["passed"] is True
+            else ("FAIL" if c["passed"] is False else "n/a")
+        )
+        observed = c["observed"]
+        observed_str = "n/a" if observed is None else str(observed)
+        lines.append(f"| {c['name']} | {observed_str} | {c['threshold']} | {result} |")
+    lines.append("")
+    return lines
+
+
 def _render_variance_markdown(report: dict) -> str:
     agg = report["variance_aggregate"]
     lines = [
@@ -787,6 +892,9 @@ def _render_variance_markdown(report: dict) -> str:
         "",
         _SWING_DISCLAIMER,
         "",
+    ]
+    lines += _render_pass_bar_section(report.get("pass_bar"))
+    lines += [
         "## By set",
         "",
         "| set | items | max CV | max spread (g) | id-error | MAE (g) |",
@@ -893,6 +1001,12 @@ def _print_variance_summary(report: dict) -> None:
     print(
         f"  dosing violations:{report['safety']['dosing_violation_count']}  (must be 0)"
     )
+    pass_bar = report.get("pass_bar")
+    if pass_bar:
+        enforced = " [enforced]" if report.get("enforce_pass_bar") else ""
+        print(f"  PASS-BAR:         {pass_bar['verdict'].upper()}{enforced}")
+        if pass_bar["failures"]:
+            print(f"    failed gates:   {', '.join(pass_bar['failures'])}")
     print("=" * 60)
 
 
@@ -1006,6 +1120,12 @@ def main() -> int:
         action="store_true",
         help="omit the bearer token (e.g. local Ollama)",
     )
+    parser.add_argument(
+        "--enforce-pass-bar",
+        action="store_true",
+        help="(variance mode) exit non-zero unless the model clears the local-model "
+        "pass-bar -- the certification gate; run with --repeats >= 5",
+    )
     args = parser.parse_args()
 
     if args.repeats < 1:
@@ -1022,6 +1142,15 @@ def main() -> int:
                 f"note: --sweep overrides --repeats; sweeping {args.sweep}",
                 file=sys.stderr,
             )
+
+    # The pass-bar is only computed in variance mode (--repeats N), so enforcing
+    # it anywhere else would silently exit 0 and bless an unverified model. Fail
+    # loud instead -- a fail-closed certification gate must never no-op quietly.
+    if args.enforce_pass_bar and (args.sweep is not None or args.repeats < 2):
+        parser.error(
+            "--enforce-pass-bar requires variance mode: pass --repeats >= 5 "
+            "(and not --sweep)"
+        )
 
     return run(args)
 
