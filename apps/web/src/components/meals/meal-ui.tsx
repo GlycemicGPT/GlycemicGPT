@@ -20,6 +20,7 @@ import {
   formatMacroValue,
   formatNetCarbs,
   isGrounded,
+  isSafeHttpUrl,
   sourceMeta,
 } from "@/lib/meal-format";
 import type { FoodRecord, FoodRecordSource, NutritionFacts } from "@/lib/api";
@@ -210,14 +211,15 @@ export function MealGroundingStatus({ record }: { record: FoodRecord }) {
           <span className="font-medium text-slate-900 dark:text-white">
             {record.grounding_source}
           </span>
-          {record.grounding_source_url && (
+          {isSafeHttpUrl(record.grounding_source_url) && (
             <>
               {" "}
               <a
-                href={record.grounding_source_url}
+                href={record.grounding_source_url!}
                 target="_blank"
                 rel="noopener noreferrer"
                 data-testid="meal-grounding-link"
+                aria-label={`View ${record.grounding_source} source (opens in a new window)`}
                 className="inline-flex items-center gap-0.5 text-blue-600 dark:text-blue-400 hover:underline"
               >
                 source

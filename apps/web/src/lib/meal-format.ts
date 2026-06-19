@@ -204,3 +204,19 @@ export function prefillIdentity(record: FoodRecord): string {
 export function isGrounded(record: FoodRecord): boolean {
   return !!record.grounding_source?.trim();
 }
+
+/**
+ * Whether a string is a safe http(s) URL to render as an outbound link. The
+ * grounding attribution URL is server-provided (from a fixed source allow-list),
+ * but this is defense-in-depth so a non-http scheme (`javascript:` / `data:`)
+ * can never be turned into a clickable link on a medical surface.
+ */
+export function isSafeHttpUrl(url: string | null | undefined): boolean {
+  if (!url) return false;
+  try {
+    const { protocol } = new URL(url);
+    return protocol === "https:" || protocol === "http:";
+  } catch {
+    return false;
+  }
+}

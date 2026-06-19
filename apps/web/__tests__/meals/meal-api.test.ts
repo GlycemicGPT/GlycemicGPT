@@ -247,10 +247,13 @@ describe("confirmFoodIdentity", () => {
     global.fetch = jest
       .fn()
       .mockResolvedValue(jsonResponse(404, { detail: "Food record not found." }));
-    const { confirmFoodIdentity } = require("@/lib/api");
+    const { confirmFoodIdentity, MealApiError } = require("@/lib/api");
     await expect(
       confirmFoodIdentity("someone-elses-id", "Pizza")
     ).rejects.toMatchObject({ status: 404 });
+    await expect(
+      confirmFoodIdentity("someone-elses-id", "Pizza")
+    ).rejects.toBeInstanceOf(MealApiError);
   });
 });
 

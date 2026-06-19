@@ -14,6 +14,7 @@ import {
   validateCarbBounds,
   prefillIdentity,
   isGrounded,
+  isSafeHttpUrl,
 } from "@/lib/meal-format";
 import type { FoodRecord } from "@/lib/api";
 
@@ -242,5 +243,20 @@ describe("isGrounded", () => {
     expect(
       isGrounded(makeRecord({ grounding_source: "USDA FoodData Central" }))
     ).toBe(true);
+  });
+});
+
+describe("isSafeHttpUrl", () => {
+  it("accepts http(s) URLs", () => {
+    expect(isSafeHttpUrl("https://fdc.nal.usda.gov/")).toBe(true);
+    expect(isSafeHttpUrl("http://example.com")).toBe(true);
+  });
+
+  it("rejects non-http schemes and junk", () => {
+    expect(isSafeHttpUrl("javascript:alert(1)")).toBe(false);
+    expect(isSafeHttpUrl("data:text/html,<script>")).toBe(false);
+    expect(isSafeHttpUrl("not a url")).toBe(false);
+    expect(isSafeHttpUrl(null)).toBe(false);
+    expect(isSafeHttpUrl("")).toBe(false);
   });
 });
