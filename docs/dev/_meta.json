@@ -1,6 +1,7 @@
 {
   "title": "Developer Reference",
   "pages": [
+    "exploring-the-codebase",
     "branching-strategy",
     "testing-checklist",
     "instrumented-tests-ci",

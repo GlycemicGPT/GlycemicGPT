@@ -18,6 +18,10 @@
 </p>
 
 <p align="center">
+  <a href="https://deepwiki.com/GlycemicGPT/GlycemicGPT"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki: auto-generated, AI-powered wiki of this codebase"></a>
+</p>
+
+<p align="center">
   <a href="#overview">Overview</a> •
   <a href="#quick-start">Quick Start</a> •
   <a href="#architecture">Architecture</a> •
