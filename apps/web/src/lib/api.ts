@@ -4309,6 +4309,27 @@ export async function getFoodRecord(recordId: string): Promise<FoodRecord> {
 }
 
 /**
+ * Fetch a record's stored meal photo as a `blob:` object URL.
+ *
+ * The photo endpoint is same-origin and cookie-protected, and next/image's
+ * optimizer can't carry the auth cookie, so we fetch the bytes through apiFetch
+ * (which sends credentials) and wrap them in a `blob:` URL the CSP allows. The
+ * caller MUST revoke the URL (URL.revokeObjectURL) once it is no longer shown.
+ */
+export async function fetchFoodRecordPhotoObjectUrl(
+  recordId: string
+): Promise<string> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/food-records/${encodeURIComponent(recordId)}/photo`
+  );
+  if (!response.ok) {
+    await _throwMealError(response);
+  }
+  const blob = await response.blob();
+  return URL.createObjectURL(blob);
+}
+
+/**
  * Upload a meal photo for AI carb estimation. The caller compresses to a JPEG
  * blob first (see `@/lib/image-compress`); this mirrors the mobile client's
  * single-part `file` upload. Returns the persisted record (with the create-time

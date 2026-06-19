@@ -28,11 +28,11 @@ import {
 } from "@/lib/meal-format";
 import { PageTransition } from "@/components/ui/page-transition";
 import { AnimatedCard } from "@/components/ui/animated-card";
+import { MealPhoto } from "@/components/meals/meal-photo";
 import {
   SourceBadge,
   IdentityConfirmedBadge,
   MealSafetyQualifier,
-  MealPhotoPlaceholder,
   MealErrorPanel,
 } from "@/components/meals/meal-ui";
 
@@ -183,7 +183,7 @@ export default function MealDetailPage() {
 
         <AnimatedCard>
           <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 space-y-4">
-            <MealPhotoPlaceholder size="lg" />
+            <MealPhoto recordId={record.id} size="lg" />
 
             <div className="space-y-2">
               <div className="flex flex-wrap items-center gap-2">

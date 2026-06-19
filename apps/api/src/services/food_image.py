@@ -59,6 +59,15 @@ class ImageTooLargeError(FoodImageError):
     """The upload exceeds the configured size cap."""
 
 
+class StoredImageMissingError(FoodImageError):
+    """The stored image is absent, unreadable, or escapes the uploads root."""
+
+
+# Stored extension -> media type, derived from the same validated format map so a
+# served photo's Content-Type can never drift from what was accepted at upload.
+_EXTENSION_MEDIA_TYPES: dict[str, str] = dict(_ALLOWED_FORMATS.values())
+
+
 class ProcessedImage:
     """A validated, metadata-stripped image ready to store and send."""
 
@@ -149,6 +158,31 @@ def store_image(user_id: uuid.UUID, image: ProcessedImage) -> tuple[str, int]:
         path.unlink(missing_ok=True)
         raise
     return str(path), len(image.data)
+
+
+def resolve_stored_image(storage_path: str) -> tuple[Path, str]:
+    """Resolve a stored image to ``(path, media_type)``, confined to the uploads root.
+
+    Mirrors ``delete_stored_image``'s containment check so a malformed/poisoned
+    stored path can never read a file outside the uploads root. Raises
+    ``StoredImageMissingError`` if the path escapes the root or is not a readable
+    file. The media type is derived from the stored extension, never guessed from
+    the file's contents or any caller-supplied value.
+    """
+    base = Path(settings.upload_dir).resolve()
+    try:
+        target = Path(storage_path).resolve()
+    except OSError as exc:
+        raise StoredImageMissingError("invalid stored path") from exc
+    # Must be strictly *inside* the uploads root -- never the root itself.
+    if base not in target.parents:
+        raise StoredImageMissingError("stored path outside uploads root")
+    if not target.is_file():
+        raise StoredImageMissingError("stored image not found")
+    media_type = _EXTENSION_MEDIA_TYPES.get(target.suffix.lstrip(".").lower())
+    if media_type is None:
+        raise StoredImageMissingError("unsupported stored extension")
+    return target, media_type
 
 
 def delete_stored_image(storage_path: str) -> None:

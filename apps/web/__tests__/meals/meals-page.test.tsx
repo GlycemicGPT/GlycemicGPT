@@ -30,6 +30,11 @@ jest.mock("@/lib/api", () => ({
   __esModule: true,
   ...jest.requireActual("@/lib/api"),
   listFoodRecords: (...args: unknown[]) => mockList(...args),
+  // The photo is fetched lazily by MealPhoto; default to "no photo" so the
+  // placeholder renders and these tests stay focused on the list behaviour.
+  fetchFoodRecordPhotoObjectUrl: jest.fn(() =>
+    Promise.reject(new Error("no photo"))
+  ),
 }));
 
 import MealsPage from "../../src/app/dashboard/meals/page";

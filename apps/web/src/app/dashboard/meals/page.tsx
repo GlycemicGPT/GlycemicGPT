@@ -23,11 +23,11 @@ import {
 import { PageTransition } from "@/components/ui/page-transition";
 import { AnimatedCard } from "@/components/ui/animated-card";
 import { MealUpload } from "@/components/meals/meal-upload";
+import { MealPhoto } from "@/components/meals/meal-photo";
 import {
   SourceBadge,
   IdentityConfirmedBadge,
   MealSafetyQualifier,
-  MealPhotoPlaceholder,
   MealErrorPanel,
 } from "@/components/meals/meal-ui";
 
@@ -42,7 +42,7 @@ function MealRow({ record, delay }: { record: FoodRecord; delay: number }) {
         data-testid="meal-card"
         className="flex gap-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 hover:border-blue-400 dark:hover:border-blue-500/50 transition-colors"
       >
-        <MealPhotoPlaceholder size="sm" />
+        <MealPhoto recordId={record.id} size="sm" />
         <div className="flex-1 min-w-0 space-y-2">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">

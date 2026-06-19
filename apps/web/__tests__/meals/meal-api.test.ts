@@ -113,6 +113,41 @@ describe("uploadFoodRecord", () => {
   });
 });
 
+describe("fetchFoodRecordPhotoObjectUrl", () => {
+  it("fetches the photo (credentialed) and returns an object URL", async () => {
+    const fakeBlob = new Blob(["bytes"], { type: "image/jpeg" });
+    const mockFetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      blob: async () => fakeBlob,
+    });
+    global.fetch = mockFetch;
+    (URL as unknown as { createObjectURL: jest.Mock }).createObjectURL = jest.fn(
+      () => "blob:meal-photo"
+    );
+
+    const { fetchFoodRecordPhotoObjectUrl } = require("@/lib/api");
+    const url = await fetchFoodRecordPhotoObjectUrl("rec-1");
+
+    expect(url).toBe("blob:meal-photo");
+    expect(mockFetch).toHaveBeenCalledWith(
+      "/api/food-records/rec-1/photo",
+      expect.objectContaining({ credentials: "include" })
+    );
+    expect(URL.createObjectURL).toHaveBeenCalledWith(fakeBlob);
+  });
+
+  it("throws a MealApiError when the photo is unavailable (404)", async () => {
+    global.fetch = jest
+      .fn()
+      .mockResolvedValue(jsonResponse(404, { detail: "Meal photo not available." }));
+    const { fetchFoodRecordPhotoObjectUrl, MealApiError } = require("@/lib/api");
+    await expect(fetchFoodRecordPhotoObjectUrl("rec-1")).rejects.toBeInstanceOf(
+      MealApiError
+    );
+  });
+});
+
 describe("deleteFoodRecord", () => {
   it("issues a DELETE and resolves on 204", async () => {
     const mockFetch = jest
