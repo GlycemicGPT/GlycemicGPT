@@ -216,19 +216,19 @@ export default function ProfilePage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="bg-slate-100/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-300/50 dark:border-slate-700/50">
               <p className="text-xs text-slate-500 mb-1">Email</p>
-              <p className="text-sm text-slate-200 font-medium">
+              <p className="text-sm text-slate-700 dark:text-slate-200 font-medium">
                 {profile.email}
               </p>
             </div>
             <div className="bg-slate-100/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-300/50 dark:border-slate-700/50">
               <p className="text-xs text-slate-500 mb-1">Role</p>
-              <p className="text-sm text-slate-200 font-medium">
+              <p className="text-sm text-slate-700 dark:text-slate-200 font-medium">
                 {ROLE_LABELS[profile.role] || profile.role}
               </p>
             </div>
             <div className="bg-slate-100/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-300/50 dark:border-slate-700/50">
               <p className="text-xs text-slate-500 mb-1">Account Created</p>
-              <p className="text-sm text-slate-200 font-medium">
+              <p className="text-sm text-slate-700 dark:text-slate-200 font-medium">
                 {new Date(profile.created_at).toLocaleDateString(undefined, {
                   year: "numeric",
                   month: "long",
@@ -241,7 +241,9 @@ export default function ProfilePage() {
               <p className="text-sm font-medium">
                 <span
                   className={
-                    profile.is_active ? "text-green-400" : "text-red-400"
+                    profile.is_active
+                      ? "text-green-700 dark:text-green-400"
+                      : "text-red-700 dark:text-red-400"
                   }
                 >
                   {profile.is_active ? "Active" : "Inactive"}
@@ -287,7 +289,7 @@ export default function ProfilePage() {
                   "w-full rounded-lg border px-3 py-2 text-sm",
                   "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
                   "placeholder:text-slate-500",
-                  "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
+                  "focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                   "disabled:opacity-50 disabled:cursor-not-allowed"
                 )}
                 aria-describedby="display-name-hint"
@@ -308,7 +310,7 @@ export default function ProfilePage() {
                 "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium",
                 "bg-blue-600 text-white hover:bg-blue-500",
                 "transition-colors",
-                "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+                "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500",
                 "disabled:opacity-50 disabled:cursor-not-allowed"
               )}
             >
@@ -351,7 +353,7 @@ export default function ProfilePage() {
                 "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium",
                 "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700",
                 "transition-colors",
-                "focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500",
+                "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-slate-500",
                 "disabled:opacity-50 disabled:cursor-not-allowed"
               )}
             >
@@ -377,7 +379,7 @@ export default function ProfilePage() {
                   className={clsx(
                     "w-full rounded-lg border px-3 py-2 text-sm",
                     "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
-                    "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
+                    "focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                     "disabled:opacity-50 disabled:cursor-not-allowed"
                   )}
                 />
@@ -400,7 +402,7 @@ export default function ProfilePage() {
                   className={clsx(
                     "w-full rounded-lg border px-3 py-2 text-sm",
                     "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
-                    "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
+                    "focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                     "disabled:opacity-50 disabled:cursor-not-allowed"
                   )}
                   aria-describedby="password-hint"
@@ -428,7 +430,7 @@ export default function ProfilePage() {
                   className={clsx(
                     "w-full rounded-lg border px-3 py-2 text-sm",
                     "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
-                    "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
+                    "focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                     "disabled:opacity-50 disabled:cursor-not-allowed"
                   )}
                 />
@@ -449,7 +451,7 @@ export default function ProfilePage() {
                     "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium",
                     "bg-blue-600 text-white hover:bg-blue-500",
                     "transition-colors",
-                    "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+                    "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500",
                     "disabled:opacity-50 disabled:cursor-not-allowed"
                   )}
                 >
@@ -477,7 +479,7 @@ export default function ProfilePage() {
                     "px-4 py-2 rounded-lg text-sm font-medium",
                     "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700",
                     "transition-colors",
-                    "focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500",
+                    "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-slate-500",
                     "disabled:opacity-50 disabled:cursor-not-allowed"
                   )}
                 >

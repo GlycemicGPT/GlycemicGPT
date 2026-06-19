@@ -492,7 +492,7 @@ export default function SafetyLimitsPage() {
                       !isNaN(minGNum) && (minGNum < 20 || minGNum > 499)
                         ? "border-red-500 focus:ring-red-500"
                         : "border-slate-300 dark:border-slate-700 focus:ring-orange-500",
-                      "focus:outline-none focus:ring-2 focus:border-transparent",
+                      "focus:outline-hidden focus:ring-2 focus:border-transparent",
                       "disabled:opacity-50 disabled:cursor-not-allowed"
                     )}
                     aria-describedby="min-glucose-hint"
@@ -529,7 +529,7 @@ export default function SafetyLimitsPage() {
                       !isNaN(maxGNum) && (maxGNum < 21 || maxGNum > 500)
                         ? "border-red-500 focus:ring-red-500"
                         : "border-slate-300 dark:border-slate-700 focus:ring-orange-500",
-                      "focus:outline-none focus:ring-2 focus:border-transparent",
+                      "focus:outline-hidden focus:ring-2 focus:border-transparent",
                       "disabled:opacity-50 disabled:cursor-not-allowed"
                     )}
                     aria-describedby="max-glucose-hint"
@@ -547,7 +547,7 @@ export default function SafetyLimitsPage() {
               {isValid && minGNum < maxGNum && (
                 <div className="bg-slate-100/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-300/50 dark:border-slate-700/50">
                   <p className="text-xs text-slate-500 mb-2">Valid Glucose Range</p>
-                  <p className="text-lg font-semibold text-orange-400">
+                  <p className="text-lg font-semibold text-orange-700 dark:text-orange-400">
                     {minGNum} - {maxGNum} mg/dL
                   </p>
                   <p className="text-xs text-slate-500 mt-1">
@@ -598,7 +598,7 @@ export default function SafetyLimitsPage() {
                     !isNaN(basalMuNum) && (basalMuNum < 1 || basalMuNum > 15000)
                       ? "border-red-500 focus:ring-red-500"
                       : "border-slate-300 dark:border-slate-700 focus:ring-orange-500",
-                    "focus:outline-none focus:ring-2 focus:border-transparent",
+                    "focus:outline-hidden focus:ring-2 focus:border-transparent",
                     "disabled:opacity-50 disabled:cursor-not-allowed"
                   )}
                   aria-describedby="max-basal-hint"
@@ -635,7 +635,7 @@ export default function SafetyLimitsPage() {
                     !isNaN(bolusMuNum) && (bolusMuNum < 1 || bolusMuNum > 25000)
                       ? "border-red-500 focus:ring-red-500"
                       : "border-slate-300 dark:border-slate-700 focus:ring-orange-500",
-                    "focus:outline-none focus:ring-2 focus:border-transparent",
+                    "focus:outline-hidden focus:ring-2 focus:border-transparent",
                     "disabled:opacity-50 disabled:cursor-not-allowed"
                   )}
                   aria-describedby="max-bolus-hint"
@@ -651,13 +651,13 @@ export default function SafetyLimitsPage() {
 
             {/* Visual preview for insulin limits */}
             {isValid && (
-              <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50 mt-6">
-                <p className="text-xs text-slate-500 mb-2">Active Limits</p>
+              <div className="bg-slate-100/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-300/50 dark:border-slate-700/50 mt-6">
+                <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">Active Limits</p>
                 <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-6">
-                  <p className="text-sm text-orange-400">
+                  <p className="text-sm text-orange-700 dark:text-orange-400">
                     <span className="font-semibold">{formatUnits(maxBasal)}</span> u/hr max basal
                   </p>
-                  <p className="text-sm text-orange-400">
+                  <p className="text-sm text-orange-700 dark:text-orange-400">
                     <span className="font-semibold">{formatUnits(maxBolus)}</span> units max bolus
                   </p>
                 </div>
@@ -675,7 +675,7 @@ export default function SafetyLimitsPage() {
                 "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium",
                 "bg-blue-600 text-white hover:bg-blue-500",
                 "transition-colors",
-                "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+                "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500",
                 "disabled:opacity-50 disabled:cursor-not-allowed"
               )}
             >
@@ -705,7 +705,7 @@ export default function SafetyLimitsPage() {
                 "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium",
                 "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700",
                 "transition-colors",
-                "focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500",
+                "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-slate-500",
                 "disabled:opacity-50 disabled:cursor-not-allowed"
               )}
             >

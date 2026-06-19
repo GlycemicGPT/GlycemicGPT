@@ -273,8 +273,8 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
 
   const inputClass = clsx(
     "w-full rounded-lg border px-3 py-2 text-sm",
-    "bg-slate-800 border-slate-700 text-slate-200 placeholder:text-slate-500",
-    "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
+    "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200 placeholder:text-slate-500",
+    "focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent",
     "disabled:opacity-50 disabled:cursor-not-allowed"
   );
   const btnClass = clsx(
@@ -284,13 +284,13 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
   );
 
   return (
-    <div className="space-y-5 rounded-lg border border-slate-700 bg-slate-900/40 p-4">
+    <div className="space-y-5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 p-4">
       <div className="flex items-center gap-2">
-        <p className="text-sm font-medium text-slate-200">
+        <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
           Automatic sync (CareLink CarePartner)
         </p>
       </div>
-      <div className="space-y-2 text-sm text-slate-400">
+      <div className="space-y-2 text-sm text-slate-500 dark:text-slate-400">
         <p>
           Keep GlycemicGPT updated automatically from Medtronic&apos;s CareLink
           CarePartner service — no cables, and no need to import by hand.
@@ -306,7 +306,7 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
             <div>
               <label
                 htmlFor="connect-region"
-                className="block text-sm font-medium text-slate-300 mb-1"
+                className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
               >
                 Region
               </label>
@@ -327,7 +327,7 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
             <div>
               <label
                 htmlFor="connect-username"
-                className="block text-sm font-medium text-slate-300 mb-1"
+                className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
               >
                 CareLink username
               </label>
@@ -370,7 +370,7 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
             </div>
           ) : (
             <div className="space-y-3">
-              <p className="text-sm font-medium text-slate-300">
+              <p className="text-sm font-medium text-slate-600 dark:text-slate-300">
                 Run the setup command
               </p>
 
@@ -378,7 +378,7 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
               <div>
                 <label
                   htmlFor="connect-instance-url"
-                  className="block text-xs font-medium text-slate-400 mb-1"
+                  className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1"
                 >
                   Your GlycemicGPT URL
                 </label>
@@ -405,7 +405,7 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
               </div>
 
               {/* OS picker. */}
-              <div className="inline-flex rounded-md border border-slate-700 overflow-hidden">
+              <div className="inline-flex rounded-md border border-slate-300 dark:border-slate-700 overflow-hidden">
                 {(
                   [
                     { v: "linux-mac" as const, label: "macOS / Linux" },
@@ -420,7 +420,7 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
                       "px-3 py-1.5 text-sm",
                       selectedOS === o.v
                         ? "bg-blue-600 text-white"
-                        : "bg-slate-900 text-slate-300 hover:bg-slate-800"
+                        : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
                     )}
                   >
                     {o.label}
@@ -443,7 +443,7 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
                 <button
                   type="button"
                   onClick={copyCommand}
-                  className="rounded-md border border-slate-600 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
+                  className="rounded-md border border-slate-300 dark:border-slate-600 px-3 py-1.5 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
                 >
                   {copied ? "Copied!" : "Copy command"}
                 </button>
@@ -451,7 +451,7 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
                   type="button"
                   onClick={startPairing}
                   disabled={isPairing}
-                  className="rounded-md border border-slate-600 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
+                  className="rounded-md border border-slate-300 dark:border-slate-600 px-3 py-1.5 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
                 >
                   New token
                 </button>
@@ -462,7 +462,7 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
               </div>
 
               <details className="text-xs text-slate-500">
-                <summary className="cursor-pointer hover:text-slate-300">
+                <summary className="cursor-pointer hover:text-slate-700 dark:hover:text-slate-300">
                   Advanced — Python CLI (requires uv + Playwright on your machine)
                 </summary>
                 <pre className="mt-2 overflow-x-auto rounded-md border border-slate-700 bg-slate-950 p-3 text-slate-200">
@@ -488,7 +488,7 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
       {/* ---- Connected: status + controls ---- */}
       {loaded && connected && status && (
         <div className="space-y-4">
-          <div className="rounded-md border border-green-600/40 bg-green-600/10 p-3 text-sm text-green-300">
+          <div className="rounded-md border border-green-600/40 bg-green-600/10 p-3 text-sm text-green-700 dark:text-green-300">
             ✓ Connected ({status.region}). Last sync:{" "}
             {status.last_sync_at
               ? new Date(status.last_sync_at).toLocaleString()
@@ -497,7 +497,7 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
           </div>
 
           <div className="flex flex-wrap items-end gap-4">
-            <label className="flex items-center gap-2 text-sm text-slate-300">
+            <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
               <input
                 type="checkbox"
                 checked={enabled}
@@ -510,7 +510,7 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
             <div>
               <label
                 htmlFor="connect-interval"
-                className="block text-xs text-slate-400 mb-1"
+                className="block text-xs text-slate-500 dark:text-slate-400 mb-1"
               >
                 Sync every (minutes)
               </label>
@@ -554,7 +554,7 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
               type="button"
               onClick={disconnect}
               disabled={isOffline || isDisconnecting}
-              className="rounded-lg border border-red-600/50 px-4 py-2 text-sm font-medium text-red-300 hover:bg-red-600/10 disabled:opacity-50"
+              className="rounded-lg border border-red-600/50 px-4 py-2 text-sm font-medium text-red-700 dark:text-red-300 hover:bg-red-600/10 disabled:opacity-50"
             >
               {isDisconnecting ? "Disconnecting…" : "Disconnect"}
             </button>
@@ -569,13 +569,13 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
       )}
 
       {syncResult && (
-        <div className="rounded-md border border-green-600/40 bg-green-600/10 p-3 text-sm text-green-300">
+        <div className="rounded-md border border-green-600/40 bg-green-600/10 p-3 text-sm text-green-700 dark:text-green-300">
           ✓ Synced {syncResult.glucose_stored} new glucose readings and{" "}
           {syncResult.events_stored} pump events.
         </div>
       )}
       {error && (
-        <div className="rounded-md border border-red-600/40 bg-red-600/10 p-3 text-sm text-red-300">
+        <div className="rounded-md border border-red-600/40 bg-red-600/10 p-3 text-sm text-red-700 dark:text-red-300">
           {error}
         </div>
       )}

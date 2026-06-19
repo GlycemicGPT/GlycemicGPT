@@ -118,7 +118,7 @@ export default function ResearchSourcesPage() {
     <div className="max-w-3xl mx-auto space-y-6 p-6">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <Link href="/dashboard/settings" className="text-slate-400 hover:text-white transition-colors">
+        <Link href="/dashboard/settings" className="text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white transition-colors">
           <ArrowLeft className="h-5 w-5" />
         </Link>
         <BookOpen className="h-6 w-6 text-blue-400" />
@@ -145,11 +145,11 @@ export default function ResearchSourcesPage() {
       {/* Suggestions based on user config */}
       {suggestions.length > 0 && (
         <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4 space-y-3">
-          <div className="flex items-center gap-2 text-blue-400">
+          <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400">
             <Lightbulb className="h-5 w-5" />
             <span className="font-medium">Suggested Sources</span>
           </div>
-          <p className="text-sm text-slate-400">
+          <p className="text-sm text-slate-600 dark:text-slate-400">
             Based on your configuration
             {basedOn.insulin && ` (${basedOn.insulin})`}
             {basedOn.pump && ` + ${basedOn.pump} pump`}
@@ -158,15 +158,15 @@ export default function ResearchSourcesPage() {
           </p>
           <div className="space-y-2">
             {suggestions.map((suggestion) => (
-              <div key={suggestion.url} className="flex items-center justify-between bg-slate-800/50 rounded px-3 py-2">
+              <div key={suggestion.url} className="flex items-center justify-between bg-white/70 dark:bg-slate-800/50 border border-blue-200/70 dark:border-transparent rounded-sm px-3 py-2">
                 <div>
-                  <p className="text-sm font-medium text-white">{suggestion.name}</p>
-                  <p className="text-xs text-slate-500 truncate max-w-md">{suggestion.url}</p>
+                  <p className="text-sm font-medium text-slate-900 dark:text-white">{suggestion.name}</p>
+                  <p className="text-xs text-slate-600 dark:text-slate-500 truncate max-w-md">{suggestion.url}</p>
                 </div>
                 <button
                   onClick={() => handleAddSource(suggestion.url, suggestion.name, suggestion.category)}
                   disabled={adding}
-                  className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded transition-colors disabled:opacity-50"
+                  className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-sm transition-colors disabled:opacity-50"
                 >
                   Add
                 </button>
@@ -202,23 +202,23 @@ export default function ResearchSourcesPage() {
         </div>
 
         {sources.length === 0 && !showAddForm && (
-          <div className="text-center py-12 bg-slate-800/30 rounded-lg">
-            <BookOpen className="h-12 w-12 text-slate-600 mx-auto mb-3" />
-            <p className="text-slate-400">No research sources configured</p>
-            <p className="text-sm text-slate-500 mt-1">
+          <div className="text-center py-12 bg-slate-100/50 dark:bg-slate-800/30 border border-slate-200 dark:border-transparent rounded-lg">
+            <BookOpen className="h-12 w-12 text-slate-500 dark:text-slate-600 mx-auto mb-3" />
+            <p className="text-slate-700 dark:text-slate-400">No research sources configured</p>
+            <p className="text-sm text-slate-500 dark:text-slate-500 mt-1">
               Add sources above or use the suggested sources based on your devices
             </p>
           </div>
         )}
 
         {sources.map((source) => (
-          <div key={source.id} className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
+          <div key={source.id} className="bg-white dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg p-4">
             <div className="flex items-start justify-between">
               <div className="flex-1 min-w-0">
-                <p className="font-medium text-white">{source.name}</p>
-                <p className="text-sm text-slate-400 truncate">{source.url}</p>
-                <div className="flex gap-3 mt-2 text-xs text-slate-500">
-                  {source.category && <span className="bg-slate-700 px-2 py-0.5 rounded">{source.category}</span>}
+                <p className="font-medium text-slate-900 dark:text-white">{source.name}</p>
+                <p className="text-sm text-slate-600 dark:text-slate-400 truncate">{source.url}</p>
+                <div className="flex gap-3 mt-2 text-xs text-slate-500 dark:text-slate-500">
+                  {source.category && <span className="bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-sm">{source.category}</span>}
                   {source.last_researched_at ? (
                     <span>Last researched: {new Date(source.last_researched_at).toLocaleDateString()}</span>
                   ) : (
@@ -240,34 +240,34 @@ export default function ResearchSourcesPage() {
 
       {/* Add source form */}
       {showAddForm && (
-        <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4 space-y-3">
-          <h3 className="font-medium text-white">Add Research Source</h3>
+        <div className="bg-white dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg p-4 space-y-3">
+          <h3 className="font-medium text-slate-900 dark:text-white">Add Research Source</h3>
           <div>
-            <label className="block text-sm text-slate-400 mb-1">URL (HTTPS required)</label>
+            <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">URL (HTTPS required)</label>
             <input
               type="url"
               value={newUrl}
               onChange={(e) => setNewUrl(e.target.value)}
               placeholder="https://www.example.com/documentation"
-              className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white placeholder-slate-500 text-sm"
+              className="w-full bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-sm px-3 py-2 text-slate-900 dark:text-white placeholder-slate-500 text-sm"
             />
           </div>
           <div>
-            <label className="block text-sm text-slate-400 mb-1">Name</label>
+            <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Name</label>
             <input
               type="text"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               placeholder="e.g., Humalog Prescribing Information"
-              className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white placeholder-slate-500 text-sm"
+              className="w-full bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-sm px-3 py-2 text-slate-900 dark:text-white placeholder-slate-500 text-sm"
             />
           </div>
           <div>
-            <label className="block text-sm text-slate-400 mb-1">Category (optional)</label>
+            <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Category (optional)</label>
             <select
               value={newCategory}
               onChange={(e) => setNewCategory(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white text-sm"
+              className="w-full bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-sm px-3 py-2 text-slate-900 dark:text-white text-sm"
             >
               <option value="">Select category...</option>
               <option value="insulin">Insulin / Medication</option>
@@ -281,13 +281,13 @@ export default function ResearchSourcesPage() {
             <button
               onClick={() => handleAddSource(newUrl, newName, newCategory || undefined)}
               disabled={adding || !newUrl || !newName}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded transition-colors disabled:opacity-50"
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-sm transition-colors disabled:opacity-50"
             >
               {adding ? "Adding..." : "Add Source"}
             </button>
             <button
               onClick={() => { setShowAddForm(false); setNewUrl(""); setNewName(""); setNewCategory(""); }}
-              className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded transition-colors"
+              className="px-4 py-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-white text-sm rounded-sm transition-colors"
             >
               Cancel
             </button>
