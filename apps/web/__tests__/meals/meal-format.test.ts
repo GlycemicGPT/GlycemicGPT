@@ -10,6 +10,10 @@ import {
   mealTitle,
   formatMacroValue,
   formatNetCarbs,
+  parseCarbInputs,
+  validateCarbBounds,
+  prefillIdentity,
+  isGrounded,
 } from "@/lib/meal-format";
 import type { FoodRecord } from "@/lib/api";
 
@@ -33,6 +37,7 @@ function makeRecord(overrides: Partial<FoodRecord> = {}): FoodRecord {
     ai_provider: null,
     confirmed_food_name: null,
     identity_confirmed: false,
+    suggested_identity: null,
     assumptions: null,
     grounding_source: null,
     grounding_source_url: null,
@@ -137,5 +142,105 @@ describe("formatNetCarbs", () => {
 
   it("collapses to a single value when the rounded endpoints coincide", () => {
     expect(formatNetCarbs(26, 26)).toBe("≈ 26 g");
+  });
+});
+
+describe("validateCarbBounds", () => {
+  it("accepts an in-range, well-ordered band", () => {
+    expect(validateCarbBounds(30, 45)).toBeNull();
+    expect(validateCarbBounds(0, 1000)).toBeNull();
+  });
+
+  it("rejects an inverted band", () => {
+    expect(validateCarbBounds(50, 10)).toMatch(/low value must not exceed/i);
+  });
+
+  it("rejects negative and over-cap values", () => {
+    expect(validateCarbBounds(-1, 10)).toMatch(/can't be negative/i);
+    expect(validateCarbBounds(10, 1001)).toMatch(/can't exceed 1000/i);
+  });
+
+  it("rejects NaN input", () => {
+    expect(validateCarbBounds(NaN, 10)).toMatch(/enter a number/i);
+  });
+});
+
+describe("parseCarbInputs", () => {
+  it("parses two numeric strings into an ordered range", () => {
+    expect(parseCarbInputs("30", "45")).toEqual({ ok: true, low: 30, high: 45 });
+  });
+
+  it("rejects blank input before any network call", () => {
+    expect(parseCarbInputs("", "45")).toEqual({
+      ok: false,
+      reason: "Enter both carb values in grams.",
+    });
+  });
+
+  it("rejects non-numeric input", () => {
+    expect(parseCarbInputs("abc", "45")).toMatchObject({ ok: false });
+  });
+
+  it("rejects an inverted range with the shared bounds copy", () => {
+    expect(parseCarbInputs("50", "10")).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/low value must not exceed/i),
+    });
+  });
+});
+
+describe("prefillIdentity", () => {
+  it("prefers a fresh own-history suggestion", () => {
+    expect(
+      prefillIdentity(
+        makeRecord({
+          suggested_identity: "Saved oatmeal",
+          confirmed_food_name: "Confirmed thing",
+          food_description: "AI desc",
+        })
+      )
+    ).toBe("Saved oatmeal");
+  });
+
+  it("falls back to the confirmed name, then the AI description", () => {
+    expect(
+      prefillIdentity(
+        makeRecord({ suggested_identity: null, confirmed_food_name: "Confirmed thing" })
+      )
+    ).toBe("Confirmed thing");
+    expect(
+      prefillIdentity(
+        makeRecord({
+          suggested_identity: null,
+          confirmed_food_name: null,
+          food_description: "AI desc",
+        })
+      )
+    ).toBe("AI desc");
+  });
+
+  it("is empty when nothing is known", () => {
+    expect(
+      prefillIdentity(
+        makeRecord({
+          suggested_identity: null,
+          confirmed_food_name: null,
+          food_description: null,
+        })
+      )
+    ).toBe("");
+  });
+});
+
+describe("isGrounded", () => {
+  it("is false for a vision-only record (no grounding source)", () => {
+    expect(isGrounded(makeRecord({ grounding_source: null }))).toBe(false);
+    expect(isGrounded(makeRecord({ grounding_source: "  " }))).toBe(false);
+  });
+
+  it("is true once an external source has grounded it", () => {
+    expect(
+      isGrounded(makeRecord({ grounding_source: "USDA FoodData Central" }))
+    ).toBe(true);
   });
 });

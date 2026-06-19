@@ -148,6 +148,112 @@ describe("fetchFoodRecordPhotoObjectUrl", () => {
   });
 });
 
+describe("correctFoodRecord", () => {
+  it("POSTs the corrected carb range and returns the refreshed record", async () => {
+    const updated = { id: "rec-1", source: "user_corrected" };
+    const mockFetch = jest.fn().mockResolvedValue(jsonResponse(200, updated));
+    global.fetch = mockFetch;
+
+    const { correctFoodRecord } = require("@/lib/api");
+    const result = await correctFoodRecord("rec-1", {
+      corrected_carbs_low: 30,
+      corrected_carbs_high: 40,
+    });
+
+    expect(result).toEqual(updated);
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toBe("/api/food-records/rec-1/correct");
+    expect(options.method).toBe("POST");
+    expect(JSON.parse(options.body)).toEqual({
+      corrected_carbs_low: 30,
+      corrected_carbs_high: 40,
+    });
+    expect(options.credentials).toBe("include");
+  });
+
+  it("surfaces an out-of-range / inverted 422 as a MealApiError (graceful, GJ2)", async () => {
+    global.fetch = jest.fn().mockResolvedValue(
+      jsonResponse(422, {
+        detail: "corrected_carbs_low must not exceed corrected_carbs_high",
+      })
+    );
+    const { correctFoodRecord, MealApiError } = require("@/lib/api");
+    await expect(
+      correctFoodRecord("rec-1", {
+        corrected_carbs_low: 50,
+        corrected_carbs_high: 10,
+      })
+    ).rejects.toBeInstanceOf(MealApiError);
+    await expect(
+      correctFoodRecord("rec-1", {
+        corrected_carbs_low: 50,
+        corrected_carbs_high: 10,
+      })
+    ).rejects.toMatchObject({ status: 422 });
+  });
+
+  it("rejects a cross-user id with an owner-scoped 404 (IDOR)", async () => {
+    global.fetch = jest
+      .fn()
+      .mockResolvedValue(jsonResponse(404, { detail: "Food record not found." }));
+    const { correctFoodRecord, MealApiError } = require("@/lib/api");
+    await expect(
+      correctFoodRecord("someone-elses-id", {
+        corrected_carbs_low: 30,
+        corrected_carbs_high: 40,
+      })
+    ).rejects.toMatchObject({ status: 404 });
+    await expect(
+      correctFoodRecord("someone-elses-id", {
+        corrected_carbs_low: 30,
+        corrected_carbs_high: 40,
+      })
+    ).rejects.toBeInstanceOf(MealApiError);
+  });
+});
+
+describe("confirmFoodIdentity", () => {
+  it("POSTs the confirmed name and returns the refreshed record", async () => {
+    const updated = { id: "rec-1", identity_confirmed: true };
+    const mockFetch = jest.fn().mockResolvedValue(jsonResponse(200, updated));
+    global.fetch = mockFetch;
+
+    const { confirmFoodIdentity } = require("@/lib/api");
+    const result = await confirmFoodIdentity("rec-1", "Steel-cut oats");
+
+    expect(result).toEqual(updated);
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toBe("/api/food-records/rec-1/confirm-identity");
+    expect(options.method).toBe("POST");
+    expect(JSON.parse(options.body)).toEqual({
+      confirmed_food_name: "Steel-cut oats",
+    });
+    expect(options.credentials).toBe("include");
+  });
+
+  it("surfaces a blank/invalid-name 422 as a MealApiError", async () => {
+    global.fetch = jest
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(422, { detail: "confirmed_food_name must not be blank" })
+      );
+    const { confirmFoodIdentity, MealApiError } = require("@/lib/api");
+    await expect(confirmFoodIdentity("rec-1", " ")).rejects.toBeInstanceOf(
+      MealApiError
+    );
+  });
+
+  it("rejects a cross-user id with an owner-scoped 404 (IDOR)", async () => {
+    global.fetch = jest
+      .fn()
+      .mockResolvedValue(jsonResponse(404, { detail: "Food record not found." }));
+    const { confirmFoodIdentity } = require("@/lib/api");
+    await expect(
+      confirmFoodIdentity("someone-elses-id", "Pizza")
+    ).rejects.toMatchObject({ status: 404 });
+  });
+});
+
 describe("deleteFoodRecord", () => {
   it("issues a DELETE and resolves on 204", async () => {
     const mockFetch = jest
