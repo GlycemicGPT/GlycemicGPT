@@ -24,7 +24,6 @@ import {
   formatCarbRange,
   confidenceLabel,
   mealTitle,
-  macroEntries,
 } from "@/lib/meal-format";
 import { PageTransition } from "@/components/ui/page-transition";
 import { AnimatedCard } from "@/components/ui/animated-card";
@@ -33,6 +32,8 @@ import {
   SourceBadge,
   IdentityConfirmedBadge,
   MealSafetyQualifier,
+  MealAssumedPortion,
+  MealNutritionFacts,
   MealErrorPanel,
 } from "@/components/meals/meal-ui";
 
@@ -153,7 +154,8 @@ export default function MealDetailPage() {
   }
 
   const range = effectiveCarbRange(record);
-  const macros = macroEntries(record.corrected_nutrition_json ?? record.nutrition_json);
+  const facts = record.nutrition_facts;
+  const hasNutrition = !!facts && (facts.macros.length > 0 || !!facts.net_carbs);
 
   return (
     <PageTransition>
@@ -228,25 +230,15 @@ export default function MealDetailPage() {
           </div>
         </AnimatedCard>
 
-        {macros.length > 0 && (
+        {facts?.portion && (
           <AnimatedCard delay={0.05}>
-            <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 space-y-3">
-              <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
-                Estimated nutrition
-              </h2>
-              <dl className="grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-4">
-                {macros.map((macro) => (
-                  <div key={macro.key} data-testid="meal-macro">
-                    <dt className="text-xs text-slate-500 dark:text-slate-400">
-                      {macro.label}
-                    </dt>
-                    <dd className="text-sm font-medium text-slate-900 dark:text-white">
-                      {macro.value}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-            </div>
+            <MealAssumedPortion portion={facts.portion} />
+          </AnimatedCard>
+        )}
+
+        {hasNutrition && facts && (
+          <AnimatedCard delay={0.1}>
+            <MealNutritionFacts facts={facts} />
           </AnimatedCard>
         )}
 

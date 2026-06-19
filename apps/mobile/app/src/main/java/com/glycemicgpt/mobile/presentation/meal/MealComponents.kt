@@ -34,6 +34,9 @@ import androidx.compose.ui.unit.dp
 import com.glycemicgpt.mobile.data.meal.CarbConfidence
 import com.glycemicgpt.mobile.data.meal.CarbRange
 import com.glycemicgpt.mobile.data.meal.MealDispersion
+import com.glycemicgpt.mobile.data.meal.MealMacro
+import com.glycemicgpt.mobile.data.meal.MealNetCarbs
+import com.glycemicgpt.mobile.data.meal.MealNutritionFacts
 import com.glycemicgpt.mobile.presentation.theme.MealConfidenceColors
 import com.glycemicgpt.mobile.presentation.theme.safetyPalette
 import java.time.Instant
@@ -41,6 +44,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Locale
+import kotlin.math.roundToInt
 
 /**
  * The text shown on every estimate surface. A single source of truth for the safety wording.
@@ -262,6 +266,199 @@ fun confidenceLabel(confidence: CarbConfidence): String = when (confidence) {
  * prefilled field never shows more precision than the value rendered elsewhere.
  */
 internal fun formatEditableGrams(value: Double): String = formatGrams(value)
+
+/**
+ * Glucose-framed nutrition (Story 50.N1): the assumed portion (the estimate's
+ * primary sanity-check), the macros with their descriptive "how this affects
+ * glucose" notes, and the caveated net-carbs figure. All copy is server-cleared
+ * and rendered verbatim. Read-only -- nothing here is a dose. Caller renders this
+ * only when [facts] has something to show.
+ */
+@Composable
+fun MealNutritionContent(facts: MealNutritionFacts, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        facts.portion?.let { AssumedPortionCard(it) }
+        if (facts.macros.isNotEmpty() || facts.netCarbs != null) {
+            NutritionFactsCard(facts)
+        }
+    }
+}
+
+/**
+ * The assumed portion, surfaced prominently -- portion size is the dominant error
+ * source in a photo estimate, so it gets its own emphasized card and an explicit
+ * "does this match?" prompt.
+ */
+@Composable
+private fun AssumedPortionCard(portion: String) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("meal_portion"),
+        color = MaterialTheme.colorScheme.primaryContainer,
+        shape = RoundedCornerShape(8.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = "ASSUMED PORTION",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+            Text(
+                text = portion,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+            Text(
+                text = "Portion size is the biggest source of error in a photo estimate" +
+                    " — does this match what you ate?",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+        }
+    }
+}
+
+@Composable
+private fun NutritionFactsCard(facts: MealNutritionFacts) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = RoundedCornerShape(8.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = "Estimated nutrition",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            facts.macros.forEach { macro -> MacroRow(macro) }
+            facts.netCarbs?.let { NetCarbsRow(it) }
+            facts.disclaimer?.let { disclaimer ->
+                Text(
+                    text = disclaimer,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.testTag("meal_nutrition_disclaimer"),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MacroRow(macro: MealMacro) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("meal_macro"),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                text = macro.label,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = formatMacroValue(macro.value, macro.unit),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
+        macro.glucoseNote?.let { note ->
+            Text(
+                text = note,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.testTag("meal_macro_note"),
+            )
+        }
+    }
+}
+
+@Composable
+private fun NetCarbsRow(netCarbs: MealNetCarbs) {
+    val palette = safetyPalette()
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("meal_net_carbs"),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                text = "Net carbs",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = formatNetCarbs(netCarbs.low, netCarbs.high),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
+        // The net-carbs caveat rides a calm-caution strip (not error red): named
+        // as inexact, pointing back to total carbs, carrying the never-dose line.
+        Surface(color = palette.background, shape = RoundedCornerShape(8.dp)) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Info,
+                    contentDescription = null,
+                    tint = palette.icon,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = netCarbs.caveat,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = palette.foreground,
+                    modifier = Modifier.testTag("meal_net_carbs_caveat"),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Format a macro as "32 g" / "640 kcal" -- whole units, no false precision on an
+ * estimate. Rounds to whole units (not the one-decimal carb-input style) so the
+ * value reads identically to the web client for the same server data.
+ */
+private fun formatMacroValue(value: Double, unit: String): String =
+    "${value.roundToInt()} $unit".trim()
+
+/**
+ * Render a net-carb band as "≈ 34–49 g" (or "≈ 26 g" when the rounded endpoints
+ * meet). Whole grams, matching the web client's net-carb rendering.
+ */
+fun formatNetCarbs(low: Double, high: Double): String {
+    val lo = low.roundToInt()
+    val hi = high.roundToInt()
+    return if (lo == hi) "≈ $lo g" else "≈ $lo–$hi g"
+}
 
 /** Full-screen centered spinner with an optional caption, shared across the meal screens. */
 @Composable

@@ -115,12 +115,22 @@ USER_PROMPT = (
 # (it has benign uses, e.g. "unit of measurement") -- only insulin units / a
 # dosing-or-suggestion verb near "units" / the "Nu"/"NU" insulin-unit
 # abbreviation (e.g. "6u", "take 4U") / explicit dosing terms.
+#
+# Story 50.N1 added two more, to close the dosing-creep risk that surfacing net
+# carbs + fat/protein introduces: "dose (on/for) (net) carbs" -- dosing a carb
+# figure directly, with or without a preposition -- and the Warsaw fat-protein-
+# unit concept ("FPU" / "fat-protein units"), whose whole purpose is to convert
+# fat+protein into extra insulin. Both are hard violations regardless of nearby
+# "units" wording.
 _DOSING_PATTERNS = re.compile(
     r"\b("
     r"insulin|bolus(?:es|ing)?|"
     r"units?\s+of\s+insulin|"
     r"(?:take|inject|administer|give|deliver|dose|dosing|suggest|recommend"
     r"|consider|cover|need)\b[^.]{0,40}\bunits?\b|"
+    r"(?:dose|dosing)\s+(?:(?:for|on|off|against|using|from|per)\s+)?"
+    r"(?:the\s+)?(?:net\s+)?carb(?:s|ohydrates?)?|"
+    r"fat[- ]protein\s+units?|fpus?|"
     r"\d{1,3}\s*u\b|"
     r"carb\s*ratio|insulin[- ]to[- ]carb|correction\s+factor|"
     r"how\s+much\s+insulin"
@@ -155,6 +165,44 @@ NEVER_DOSE_PROHIBITION = "never use it to dose or bolus"
 # we never tell a user it is OK to bolus from a carb guess.
 MEAL_ESTIMATE_QUALIFIER = f"AI estimate, often wrong — {NEVER_DOSE_PROHIBITION}"
 
+# --- Glucose-relevant nutrition framing (Story 50.N1) ------------------------
+# Protein/fat/fiber/calories are the strongest photo-estimable, glucose-relevant
+# *non-carb* fields; surfaced alongside the carb range they explain *why* a meal
+# behaves the way it does -- never how to dose. Each note describes the food's
+# effect on glucose and is deliberately:
+#   * free of any dosing language (each passes ``find_dosing_violations``), and
+#   * free of a specific peak-timing number -- the "protein peaks at ~5h" claim
+#     was found overstated, so protein/fat say "later, in the hours after a meal"
+#     with no figure (real time-to-peak is shorter and highly variable).
+# Keyed by the ``nutrition_json`` key so the framing travels with the value.
+MACRO_GLUCOSE_NOTES = {
+    "protein_grams": "Protein can nudge glucose up later, in the hours after a meal.",
+    "fat_grams": "Fat can slow digestion, so glucose may rise later, hours after a meal.",
+    "fiber_grams": "Fiber slows and blunts the rise in glucose.",
+    "calories": "Calories reflect the overall size of the meal.",
+}
+
+# Net carbs (total carbs minus fiber) is the highest dosing-creep risk of the
+# nutrition fields, so it is surfaced ONLY with this caveat (product decision
+# 2026-06-19): named as inexact, pointing the user back to total carbs (the ADA's
+# recommendation), and carrying the non-negotiable never-dose prohibition. Like
+# ``SAFETY_QUALIFIER`` it intentionally *names* the prohibited action ("dose or
+# bolus"), so -- by design -- it does NOT itself pass ``find_dosing_violations``:
+# it is a prohibition, not a description of food.
+NET_CARBS_CAVEAT = (
+    "Net carbs (total carbs minus fiber) is a rough estimate, not exact — "
+    "the ADA recommends counting total carbs. "
+    f"AI estimate, often wrong — {NEVER_DOSE_PROHIBITION}."
+)
+
+# Section-level disclaimer for the whole nutrition block: these figures describe
+# the meal and must never drive a dose. Carries the never-dose prohibition so the
+# framing can never be read as therapy guidance.
+NUTRITION_DOSE_DISCLAIMER = (
+    "These nutrition figures are rough AI estimates that describe the meal — "
+    f"{NEVER_DOSE_PROHIBITION}."
+)
+
 
 @dataclass
 class ParsedEstimate:
@@ -166,6 +214,12 @@ class ParsedEstimate:
     food_description: str
     raw_text: str
     nutrition: dict = field(default_factory=dict)
+    # The model's stated portion-size / preparation assumptions (Story 50.N1).
+    # Retained (the contract always asked for it; it used to be dropped) so the
+    # *assumed portion* -- the dominant error source -- can be surfaced as the
+    # primary sanity-check on the estimate. Free-form prose; treated like
+    # ``food_description`` (dosing-scrubbed before it is persisted/surfaced).
+    assumptions: str = ""
     parse_ok: bool = False
     parse_error: str | None = None
     dosing_violations: list[str] = field(default_factory=list)
@@ -324,6 +378,10 @@ def parse_estimate(raw_text: str) -> ParsedEstimate:
         raw_description.strip() if isinstance(raw_description, str) else ""
     )
 
+    # Same string-only guard for the portion/preparation assumptions.
+    raw_assumptions = data.get("assumptions")
+    assumptions = raw_assumptions.strip() if isinstance(raw_assumptions, str) else ""
+
     return ParsedEstimate(
         carbs_low=low,
         carbs_high=high,
@@ -331,6 +389,7 @@ def parse_estimate(raw_text: str) -> ParsedEstimate:
         food_description=food_description,
         raw_text=raw_text,
         nutrition=nutrition,
+        assumptions=assumptions,
         parse_ok=parse_ok,
         parse_error=error,
         dosing_violations=violations,

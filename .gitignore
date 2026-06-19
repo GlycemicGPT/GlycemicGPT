@@ -48,6 +48,8 @@ coverage/
 out/
 .nuxt/
 .output/
+*.tsbuildinfo
+.kotlin/
 
 # OS files
 .DS_Store

@@ -40,7 +40,41 @@ data class FoodRecordResponse(
     // Multi-sample dispersion detail (Story 50.H1). Present only on a fresh
     // estimate (create response); absent on later reads.
     @Json(name = "estimate_dispersion") val estimateDispersion: EstimateDispersionResponse? = null,
+    // Glucose-framed nutrition (Story 50.N1): the assumed portion, the macros
+    // with their "how this affects glucose" notes, and caveated net carbs. All
+    // copy is server-cleared and rendered verbatim. Descriptive only -- never a dose.
+    @Json(name = "nutrition_facts") val nutritionFacts: NutritionFactsResponse? = null,
     @Json(name = "created_at") val createdAt: String,
+)
+
+/**
+ * Display-ready, glucose-framed nutrition (Story 50.N1). Server-computed, never
+ * persisted: the assumed [portion] (the estimate's primary sanity-check), the
+ * framed [macros], and caveated [netCarbs]. [disclaimer] carries the never-dose
+ * framing over the whole block. Only consumed fields are declared.
+ */
+@JsonClass(generateAdapter = true)
+data class NutritionFactsResponse(
+    val portion: String? = null,
+    val macros: List<MacroFactResponse> = emptyList(),
+    @Json(name = "net_carbs") val netCarbs: NetCarbsResponse? = null,
+    val disclaimer: String? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class MacroFactResponse(
+    val key: String,
+    val label: String,
+    val value: Double,
+    val unit: String,
+    @Json(name = "glucose_note") val glucoseNote: String? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class NetCarbsResponse(
+    val low: Double,
+    val high: Double,
+    val caveat: String,
 )
 
 /**

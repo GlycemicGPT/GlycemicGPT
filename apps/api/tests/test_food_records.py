@@ -386,6 +386,39 @@ class TestPipelinePersistence:
             # The dosing-laden description must not be persisted.
             assert record.food_description is None
 
+    async def test_persists_assumed_portion(self, _uploads_tmp):
+        # Story 50.N1: the model's portion/assumptions (the dominant error
+        # source) is retained by the parser and persisted, so it can be surfaced
+        # as the estimate's primary sanity-check. The _estimate_json fixture emits
+        # "standard restaurant portion".
+        from src.database import get_session_maker
+
+        async with get_session_maker()() as db:
+            user = await _new_user(db, "portion")
+            with patch.object(
+                food_vision, "_call_vision", AsyncMock(return_value=_estimate_json())
+            ):
+                record = await food_vision.create_food_record_from_image(
+                    db=db, user=user, raw_image=_png_bytes()
+                )
+            assert record.assumptions == "standard restaurant portion"
+
+    async def test_scrubs_dosing_phrasing_from_assumptions(self, _uploads_tmp):
+        # The assumed portion is surfaced too, so dosing advice smuggled into it
+        # must be nulled before persistence (mirrors the description scrub).
+        from src.database import get_session_maker
+
+        async with get_session_maker()() as db:
+            user = await _new_user(db, "scrubassume")
+            bad = _estimate_json(
+                extra={"assumptions": "one plate; take 4 units of insulin to cover it"}
+            )
+            with patch.object(food_vision, "_call_vision", AsyncMock(return_value=bad)):
+                record = await food_vision.create_food_record_from_image(
+                    db=db, user=user, raw_image=_png_bytes()
+                )
+            assert record.assumptions is None
+
 
 # --------------------------------------------------------------------------- #
 # Safety: no IoB / treatment_safety / carb-ratio coupling (AC4)
@@ -408,6 +441,10 @@ class TestNoTherapyCoupling:
             assert "FoodRecord" not in text, f"{path} references FoodRecord"
             assert "common_food" not in text.lower(), f"{path} references common foods"
             assert "CommonFood" not in text, f"{path} references CommonFood"
+            # Story 50.N1: net carbs / surfaced nutrition must never reach dosing
+            # math either -- they are descriptive read-side figures only.
+            assert "net_carb" not in text.lower(), f"{path} references net carbs"
+            assert "nutrition_facts" not in text, f"{path} references nutrition_facts"
 
     async def test_food_record_does_not_change_iob(self):
         """A logged meal must not produce or alter insulin-on-board."""
@@ -495,6 +532,73 @@ class TestFoodRecordsApi:
         listing = await client.get("/api/food-records")
         assert listing.status_code == 200
         assert listing.json()["total"] >= 1
+
+    async def test_read_surfaces_portion_and_framed_nutrition(self, auth_client):
+        # Story 50.N1: a read carries the assumed portion + the glucose-framed
+        # macros + caveated net carbs, computed (not persisted) on the response.
+        client, _ = auth_client
+        with patch.object(
+            food_vision, "_call_vision", AsyncMock(return_value=_estimate_json(40, 55))
+        ):
+            created = await client.post(
+                "/api/food-records",
+                files={"file": ("meal.png", _png_bytes(), "image/png")},
+            )
+        assert created.status_code == 201, created.text
+        record_id = created.json()["id"]
+
+        resp = await client.get(f"/api/food-records/{record_id}")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+
+        # AC3: the assumed portion is exposed.
+        assert body["assumptions"] == "standard restaurant portion"
+
+        facts = body["nutrition_facts"]
+        assert facts is not None
+        assert facts["portion"] == "standard restaurant portion"
+        # AC1/AC2: the fixture nutrition is {protein_grams: 12, calories: 520};
+        # both surface with their descriptive (no-timing) glucose framing.
+        macros = {m["label"]: m for m in facts["macros"]}
+        assert set(macros) == {"Protein", "Calories"}
+        assert "later" in macros["Protein"]["glucose_note"].lower()
+        assert not any(c.isdigit() for c in macros["Protein"]["glucose_note"])
+        # No fiber in the fixture -> no net carbs surfaced.
+        assert facts["net_carbs"] is None
+        # AC4/AC6: the section disclaimer carries the never-dose prohibition.
+        assert "dose or bolus" in facts["disclaimer"].lower()
+        # AC5/AC6: still no dosing field anywhere on the response.
+        assert "dose" not in body and "insulin" not in body
+
+    async def test_read_surfaces_caveated_net_carbs_when_fiber_present(
+        self, auth_client
+    ):
+        client, _ = auth_client
+        rich = _estimate_json(
+            40,
+            55,
+            extra={
+                "nutrition": {
+                    "protein_grams": 12,
+                    "fat_grams": 8,
+                    "fiber_grams": 6,
+                    "calories": 520,
+                }
+            },
+        )
+        with patch.object(food_vision, "_call_vision", AsyncMock(return_value=rich)):
+            created = await client.post(
+                "/api/food-records",
+                files={"file": ("meal.png", _png_bytes(), "image/png")},
+            )
+        assert created.status_code == 201, created.text
+        body = await client.get(f"/api/food-records/{created.json()['id']}")
+        net = body.json()["nutrition_facts"]["net_carbs"]
+        assert net is not None
+        # 40-55 carbs minus 6 g fiber.
+        assert net["low"] == 34 and net["high"] == 49
+        assert "ada" in net["caveat"].lower()
+        assert "dose or bolus" in net["caveat"].lower()
 
     async def test_upload_rejects_non_image(self, auth_client):
         client, _ = auth_client

@@ -6,6 +6,7 @@ dose/insulin field. Nothing here computes or returns dosing guidance.
 """
 
 import json
+import math
 import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal
@@ -13,7 +14,14 @@ from typing import TYPE_CHECKING, Literal
 from pydantic import BaseModel, Field, model_validator
 
 from src.models.food_record import FoodRecordSource
-from src.vision.carb_contract import CARB_GRAMS_MAX, CARB_GRAMS_MIN, SAFETY_QUALIFIER
+from src.vision.carb_contract import (
+    CARB_GRAMS_MAX,
+    CARB_GRAMS_MIN,
+    MACRO_GLUCOSE_NOTES,
+    NET_CARBS_CAVEAT,
+    NUTRITION_DOSE_DISCLAIMER,
+    SAFETY_QUALIFIER,
+)
 
 if TYPE_CHECKING:
     from src.models.food_record_audit import FoodRecordAudit
@@ -95,6 +103,157 @@ class EstimateDispersion(BaseModel):
     note: str | None = None
 
 
+# --- Glucose-relevant nutrition surfacing (Story 50.N1) ---------------------- #
+# The four glucose-relevant, photo-estimable non-carb macros, in display order,
+# paired with a user label and unit. The descriptive glucose framing per macro
+# lives in ``carb_contract.MACRO_GLUCOSE_NOTES`` so all the safety-adjacent copy
+# sits in one scrubber-checked place. Only these four known keys are surfaced as
+# framed facts; arbitrary keys from a user correction are intentionally not
+# echoed back as "nutrition facts" (the raw ``*_nutrition_json`` still carries
+# them for any client that wants them).
+_MACRO_DISPLAY: dict[str, tuple[str, str]] = {
+    "protein_grams": ("Protein", "g"),
+    "fat_grams": ("Fat", "g"),
+    "fiber_grams": ("Fiber", "g"),
+    "calories": ("Calories", "kcal"),
+}
+
+# Sane upper bounds for surfaced macro values, so a single off-contract garbage
+# field can't render an absurd nutrition card. Reject-not-clamp (like the carb
+# bounds): an over-ceiling value is dropped, never shown. Grams mirror the carb
+# ceiling; calories allow a large-but-finite meal.
+_MACRO_MAX: dict[str, float] = {
+    "protein_grams": CARB_GRAMS_MAX,
+    "fat_grams": CARB_GRAMS_MAX,
+    "fiber_grams": CARB_GRAMS_MAX,
+    "calories": 10000.0,
+}
+
+
+class MacroFact(BaseModel):
+    """One glucose-relevant macro with descriptive framing (Story 50.N1).
+
+    Read-only and descriptive: ``glucose_note`` explains how the macro tends to
+    affect glucose (no peak-timing number, no dosing language) -- it is never a
+    dose, and the value never feeds dosing math.
+    """
+
+    key: str
+    label: str
+    value: float = Field(ge=0)
+    unit: str
+    glucose_note: str = ""
+
+
+class NetCarbsEstimate(BaseModel):
+    """Net carbs (total carbs minus fiber), surfaced only behind a caveat (50.N1).
+
+    The highest dosing-creep risk of the carb fields, so the product decision
+    (2026-06-19) is surface-with-heavy-caveat: it travels with ``caveat`` (the
+    ADA "count total carbs" pointer plus the never-dose prohibition), is clearly
+    secondary to the total carb range, and is **display-only** -- computed at
+    serialization time, never persisted, and never fed to IoB / treatment_safety
+    / carb-ratio math.
+    """
+
+    low: float = Field(ge=CARB_GRAMS_MIN, le=CARB_GRAMS_MAX)
+    high: float = Field(ge=CARB_GRAMS_MIN, le=CARB_GRAMS_MAX)
+    caveat: str = NET_CARBS_CAVEAT
+
+    @model_validator(mode="after")
+    def validate_ordering(self) -> "NetCarbsEstimate":
+        """Net-carb low must not exceed high (mirrors the other carb-band models)."""
+        if self.low > self.high:
+            msg = "net carbs low must not exceed high"
+            raise ValueError(msg)
+        return self
+
+
+class NutritionFacts(BaseModel):
+    """Display-ready, glucose-framed nutrition for a food record (Story 50.N1).
+
+    Computed at serialization time from the record's (corrected-or-original)
+    nutrition + carbs + assumptions and **never persisted**, so the framed macros
+    and net carbs only ever exist as a read-side description -- there is no column
+    for them to leak into dosing math from. ``portion`` is the assumed portion
+    (the estimate's primary sanity-check); ``disclaimer`` carries the never-dose
+    prohibition over the whole block.
+    """
+
+    portion: str | None = None
+    macros: list[MacroFact] = Field(default_factory=list)
+    net_carbs: NetCarbsEstimate | None = None
+    disclaimer: str = NUTRITION_DOSE_DISCLAIMER
+
+
+def _macro_value(raw: object, maximum: float | None = None) -> float | None:
+    """Coerce a nutrition value to a finite, in-range float, else ``None``.
+
+    Drops anything that is not a non-negative finite number, and (when
+    ``maximum`` is given) anything above that ceiling -- reject-not-clamp, so an
+    absurd off-contract value is omitted rather than rendered.
+    """
+    # bool is an int subclass; a True/False must never read as 1/0 grams.
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        return None
+    value = float(raw)
+    if not math.isfinite(value) or value < 0:
+        return None
+    if maximum is not None and value > maximum:
+        return None
+    return value
+
+
+def build_nutrition_facts(
+    *,
+    nutrition: dict | None,
+    carbs_low: float,
+    carbs_high: float,
+    portion: str | None,
+) -> NutritionFacts | None:
+    """Assemble the display-ready, glucose-framed nutrition block (Story 50.N1).
+
+    Returns ``None`` when there is nothing to show (no usable macros and no
+    portion). Net carbs is included only when fiber is known and leaves a positive
+    remainder. Everything here is descriptive -- nothing computed is a dose, and
+    the result is never persisted.
+    """
+    nutrition = nutrition or {}
+    portion_text = (
+        portion.strip() if isinstance(portion, str) and portion.strip() else None
+    )
+
+    macros: list[MacroFact] = []
+    for key, (label, unit) in _MACRO_DISPLAY.items():
+        value = _macro_value(nutrition.get(key), _MACRO_MAX.get(key))
+        if value is None:
+            continue
+        macros.append(
+            MacroFact(
+                key=key,
+                label=label,
+                value=value,
+                unit=unit,
+                glucose_note=MACRO_GLUCOSE_NOTES.get(key, ""),
+            )
+        )
+
+    # Net carbs = total carbs minus fiber, as a range mirroring the carb band.
+    # Fiber-gated and clamped at zero; skipped when fiber would wipe out the band
+    # (a zero/negative net value is not worth surfacing).
+    net_carbs: NetCarbsEstimate | None = None
+    fiber = _macro_value(nutrition.get("fiber_grams"), _MACRO_MAX["fiber_grams"])
+    if fiber and fiber > 0:
+        net_high = carbs_high - fiber
+        if net_high > 0:
+            net_low = max(0.0, carbs_low - fiber)
+            net_carbs = NetCarbsEstimate(low=net_low, high=net_high)
+
+    if not macros and net_carbs is None and portion_text is None:
+        return None
+    return NutritionFacts(portion=portion_text, macros=macros, net_carbs=net_carbs)
+
+
 class FoodRecordResponse(BaseModel):
     """A persisted food record returned to the client.
 
@@ -120,6 +279,9 @@ class FoodRecordResponse(BaseModel):
     # "this is a guess, never dose from it" framing. Mirrors the mobile string.
     safety_qualifier: str = Field(default=SAFETY_QUALIFIER)
     nutrition_json: dict | None = None
+    # The model's assumed portion / preparation (Story 50.N1), surfaced as the
+    # estimate's primary sanity-check. Persisted, dosing-scrubbed, length-capped.
+    assumptions: str | None = None
     source: FoodRecordSource
     corrected_carbs_low: float | None = Field(
         default=None, ge=CARB_GRAMS_MIN, le=CARB_GRAMS_MAX
@@ -150,6 +312,11 @@ class FoodRecordResponse(BaseModel):
     # Multi-sample dispersion (Story 50.H1). Transient create-time detail
     # (empirical confidence + observed spread); absent on later reads.
     estimate_dispersion: EstimateDispersion | None = None
+    # Display-ready, glucose-framed nutrition (Story 50.N1): the assumed portion,
+    # the framed macros, and caveated net carbs. Computed from the fields below
+    # at serialization time -- never persisted (see ``build_nutrition_facts``), so
+    # it can only ever be a read-side description, never a dosing input.
+    nutrition_facts: NutritionFacts | None = None
     created_at: datetime
 
     @model_validator(mode="after")
@@ -165,6 +332,32 @@ class FoodRecordResponse(BaseModel):
         ):
             msg = "corrected_carbs_low must not exceed corrected_carbs_high"
             raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def build_nutrition_facts_block(self) -> "FoodRecordResponse":
+        """Compute the glucose-framed nutrition block (Story 50.N1).
+
+        Built here -- not stored -- from the corrected-or-original nutrition and
+        carb band plus the assumed portion. Runs after ``validate_carb_ordering``
+        so the carb band it reads is already known well-ordered.
+        """
+        eff_low = (
+            self.corrected_carbs_low
+            if self.corrected_carbs_low is not None
+            else self.carbs_low
+        )
+        eff_high = (
+            self.corrected_carbs_high
+            if self.corrected_carbs_high is not None
+            else self.carbs_high
+        )
+        self.nutrition_facts = build_nutrition_facts(
+            nutrition=self.corrected_nutrition_json or self.nutrition_json,
+            carbs_low=eff_low,
+            carbs_high=eff_high,
+            portion=self.assumptions,
+        )
         return self
 
 
