@@ -59,7 +59,7 @@ export default function Home() {
             <p className="text-xl text-slate-500 dark:text-slate-400 mb-8">
               Your on-call endo at home
             </p>
-            <div className="bg-white dark:bg-slate-800 rounded-lg p-6 max-w-md border border-slate-200 dark:border-transparent shadow-sm dark:shadow-none">
+            <div className="bg-white dark:bg-slate-800 rounded-lg p-6 max-w-md border border-slate-200 dark:border-transparent shadow-xs dark:shadow-none">
               <p className="text-slate-600 dark:text-gray-300 mb-4">
                 AI-powered diabetes management platform connecting your CGM and
                 pump data with actionable insights.

@@ -125,7 +125,7 @@ export function Sidebar({ className }: SidebarProps) {
   return (
     <aside
       className={clsx(
-        "hidden lg:flex lg:flex-col lg:w-64 flex-shrink-0",
+        "hidden lg:flex lg:flex-col lg:w-64 shrink-0",
         "bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800",
         className
       )}
@@ -137,7 +137,7 @@ export function Sidebar({ className }: SidebarProps) {
           alt="GlycemicGPT"
           width={32}
           height={32}
-          className="rounded"
+          className="rounded-sm"
         />
         <span className="text-xl font-bold text-slate-900 dark:text-white">GlycemicGPT</span>
       </div>
@@ -222,7 +222,7 @@ export function MobileNav() {
                   alt="GlycemicGPT"
                   width={32}
                   height={32}
-                  className="rounded"
+                  className="rounded-sm"
                 />
                 <span className="text-xl font-bold text-slate-900 dark:text-white">GlycemicGPT</span>
               </div>

@@ -18,7 +18,7 @@ const components: Components = {
   ol: ({ children }) => (
     <ol className="pl-4 mb-2 space-y-1 list-decimal">{children}</ol>
   ),
-  li: ({ children }) => <li className="text-slate-200">{children}</li>,
+  li: ({ children }) => <li className="text-slate-700 dark:text-slate-200">{children}</li>,
   code: ({ className, children, node }: React.ComponentPropsWithoutRef<"code"> & ExtraProps) => {
     // Block code: has a language class, spans multiple lines, or is a child of <pre>
     const isBlock =
@@ -27,13 +27,13 @@ const components: Components = {
       node?.properties?.className;
     if (isBlock) {
       return (
-        <code className="block bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg p-3 text-xs font-mono overflow-x-auto my-2">
+        <code className="block bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg p-3 text-xs font-mono text-slate-800 dark:text-slate-200 overflow-x-auto my-2">
           {children}
         </code>
       );
     }
     return (
-      <code className="bg-slate-700 text-emerald-300 px-1.5 py-0.5 rounded text-xs font-mono">
+      <code className="bg-slate-100 dark:bg-slate-700 text-emerald-700 dark:text-emerald-300 px-1.5 py-0.5 rounded-sm text-xs font-mono">
         {children}
       </code>
     );

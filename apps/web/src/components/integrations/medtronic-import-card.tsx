@@ -210,8 +210,8 @@ export function MedtronicImportCard({ isOffline }: { isOffline: boolean }) {
 
   const inputClass = clsx(
     "w-full rounded-lg border px-3 py-2 text-sm",
-    "bg-slate-800 border-slate-700 text-slate-200 placeholder:text-slate-500",
-    "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
+    "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200 placeholder:text-slate-500",
+    "focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent",
     "disabled:opacity-50 disabled:cursor-not-allowed"
   );
   const btnClass = clsx(
@@ -221,8 +221,8 @@ export function MedtronicImportCard({ isOffline }: { isOffline: boolean }) {
   );
 
   return (
-    <div className="space-y-5 rounded-lg border border-slate-700 bg-slate-900/40 p-4">
-      <div className="space-y-2 text-sm text-slate-400">
+    <div className="space-y-5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 p-4">
+      <div className="space-y-2 text-sm text-slate-500 dark:text-slate-400">
         <p>
           Bring your Medtronic pump history into GlycemicGPT from the CareLink
           website — no pump connection or cables needed.
@@ -240,7 +240,7 @@ export function MedtronicImportCard({ isOffline }: { isOffline: boolean }) {
       <div className="max-w-xs">
         <label
           htmlFor="medtronic-region"
-          className="block text-sm font-medium text-slate-300 mb-1"
+          className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
         >
           Where is your CareLink account?
         </label>
@@ -268,7 +268,7 @@ export function MedtronicImportCard({ isOffline }: { isOffline: boolean }) {
 
       {/* Step 1: bookmarklet (one-time setup) */}
       <div className="space-y-2">
-        <p className="text-sm font-medium text-slate-300">
+        <p className="text-sm font-medium text-slate-600 dark:text-slate-300">
           Step 1 — One-time setup: save the GlycemicGPT button
         </p>
         <p className="text-xs text-slate-500">
@@ -284,40 +284,40 @@ export function MedtronicImportCard({ isOffline }: { isOffline: boolean }) {
             onClick={(e) => e.preventDefault()}
             draggable
             title="Drag me to your bookmarks bar"
-            className="inline-block cursor-grab rounded-md border border-blue-500/50 bg-blue-500/10 px-3 py-1.5 text-sm font-medium text-blue-300"
+            className="inline-block cursor-grab rounded-md border border-blue-500/50 bg-blue-500/10 px-3 py-1.5 text-sm font-medium text-blue-700 dark:text-blue-300"
           >
             Capture CareLink → GlycemicGPT
           </a>
           <button
             type="button"
             onClick={copyBookmarklet}
-            className="rounded-md border border-slate-600 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
+            className="rounded-md border border-slate-300 dark:border-slate-600 px-3 py-1.5 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
           >
             {bookmarkletCopied ? "Copied!" : "Copy button instead"}
           </button>
         </div>
 
-        <div className="space-y-1.5 rounded-md bg-slate-800/50 p-3 text-xs text-slate-400">
-          <p className="font-medium text-slate-300">How to save it:</p>
+        <div className="space-y-1.5 rounded-md bg-slate-100/50 dark:bg-slate-800/50 p-3 text-xs text-slate-500 dark:text-slate-400">
+          <p className="font-medium text-slate-600 dark:text-slate-300">How to save it:</p>
           <p>
             1. Show your browser&apos;s bookmarks bar — the row of saved links
             under the address bar at the top. Press{" "}
-            <kbd className="rounded bg-slate-700 px-1">Ctrl</kbd>+
-            <kbd className="rounded bg-slate-700 px-1">Shift</kbd>+
-            <kbd className="rounded bg-slate-700 px-1">B</kbd> (
-            <kbd className="rounded bg-slate-700 px-1">⌘</kbd>+Shift+B on a Mac)
+            <kbd className="rounded-sm bg-slate-700 px-1">Ctrl</kbd>+
+            <kbd className="rounded-sm bg-slate-700 px-1">Shift</kbd>+
+            <kbd className="rounded-sm bg-slate-700 px-1">B</kbd> (
+            <kbd className="rounded-sm bg-slate-700 px-1">⌘</kbd>+Shift+B on a Mac)
             to show it.
           </p>
           <p>
             2. Drag the blue{" "}
-            <span className="text-slate-300">Capture CareLink → GlycemicGPT</span>{" "}
+            <span className="text-slate-600 dark:text-slate-300">Capture CareLink → GlycemicGPT</span>{" "}
             button up onto that bar.
           </p>
           <p>
             Rather not drag? Click{" "}
-            <span className="text-slate-300">“Copy button instead”</span>, then
+            <span className="text-slate-600 dark:text-slate-300">“Copy button instead”</span>, then
             right-click your bookmarks bar, choose{" "}
-            <span className="text-slate-300">“Add page”</span>, type any name, and
+            <span className="text-slate-600 dark:text-slate-300">“Add page”</span>, type any name, and
             paste. (Pasting it into the address bar won&apos;t work — browsers
             block that.)
           </p>
@@ -326,7 +326,7 @@ export function MedtronicImportCard({ isOffline }: { isOffline: boolean }) {
 
       {/* Step 2: sign in + capture */}
       <div className="space-y-2">
-        <p className="text-sm font-medium text-slate-300">
+        <p className="text-sm font-medium text-slate-600 dark:text-slate-300">
           Step 2 — Sign in to Medtronic CareLink
         </p>
         <button
@@ -345,7 +345,7 @@ export function MedtronicImportCard({ isOffline }: { isOffline: boolean }) {
         </p>
         <p className="text-xs text-slate-500">
           Once you&apos;re signed in, click the{" "}
-          <span className="text-slate-300">Capture CareLink → GlycemicGPT</span>{" "}
+          <span className="text-slate-600 dark:text-slate-300">Capture CareLink → GlycemicGPT</span>{" "}
           button you saved (in your bookmarks bar). Your data connection comes
           back here automatically. If nothing appears here after a few seconds,
           the button will have copied a code instead — paste it below:
@@ -379,7 +379,7 @@ export function MedtronicImportCard({ isOffline }: { isOffline: boolean }) {
       {/* Step 3: range + import */}
       {availability && (
         <div className="space-y-3">
-          <p className="text-sm font-medium text-slate-300">
+          <p className="text-sm font-medium text-slate-600 dark:text-slate-300">
             Step 3 — Choose dates and import
           </p>
           <p className="text-xs text-slate-500">
@@ -392,7 +392,7 @@ export function MedtronicImportCard({ isOffline }: { isOffline: boolean }) {
             <div>
               <label
                 htmlFor="medtronic-start"
-                className="block text-xs text-slate-400 mb-1"
+                className="block text-xs text-slate-500 dark:text-slate-400 mb-1"
               >
                 Start
               </label>
@@ -410,7 +410,7 @@ export function MedtronicImportCard({ isOffline }: { isOffline: boolean }) {
             <div>
               <label
                 htmlFor="medtronic-end"
-                className="block text-xs text-slate-400 mb-1"
+                className="block text-xs text-slate-500 dark:text-slate-400 mb-1"
               >
                 End
               </label>
@@ -445,14 +445,14 @@ export function MedtronicImportCard({ isOffline }: { isOffline: boolean }) {
       )}
 
       {result && (
-        <div className="rounded-md border border-green-600/40 bg-green-600/10 p-3 text-sm text-green-300">
+        <div className="rounded-md border border-green-600/40 bg-green-600/10 p-3 text-sm text-green-700 dark:text-green-300">
           ✓ Done! Imported {result.glucose_stored} glucose readings and{" "}
           {result.events_stored} pump events. You can pick another date range
           above to bring in more.
         </div>
       )}
       {error && (
-        <div className="rounded-md border border-red-600/40 bg-red-600/10 p-3 text-sm text-red-300">
+        <div className="rounded-md border border-red-600/40 bg-red-600/10 p-3 text-sm text-red-700 dark:text-red-300">
           {error}
         </div>
       )}

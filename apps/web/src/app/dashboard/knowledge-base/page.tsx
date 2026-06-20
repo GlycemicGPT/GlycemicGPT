@@ -39,16 +39,16 @@ import { MarkdownContent } from "@/components/ui/markdown-content";
 // CURATED was dropped in the issue #563 fix -- it was never a real tier in the
 // four-tier design; sending it from the dropdown caused a 422 from the regex.
 const TIER_STYLES: Record<string, { bg: string; text: string; label: string }> = {
-  AUTHORITATIVE: { bg: "bg-emerald-500/20", text: "text-emerald-400", label: "Authoritative" },
-  RESEARCHED: { bg: "bg-blue-500/20", text: "text-blue-400", label: "AI Researched" },
-  USER_PROVIDED: { bg: "bg-amber-500/20", text: "text-amber-400", label: "User Upload" },
-  EXTRACTED: { bg: "bg-purple-500/20", text: "text-purple-400", label: "Extracted" },
+  AUTHORITATIVE: { bg: "bg-emerald-500/15", text: "text-emerald-700 dark:text-emerald-400", label: "Authoritative" },
+  RESEARCHED: { bg: "bg-blue-500/15", text: "text-blue-700 dark:text-blue-400", label: "AI Researched" },
+  USER_PROVIDED: { bg: "bg-amber-500/15", text: "text-amber-700 dark:text-amber-400", label: "User Upload" },
+  EXTRACTED: { bg: "bg-purple-500/15", text: "text-purple-700 dark:text-purple-400", label: "Extracted" },
 };
 
 function TierBadge({ tier }: { tier: string }) {
-  const style = TIER_STYLES[tier] || { bg: "bg-slate-500/20", text: "text-slate-400", label: tier };
+  const style = TIER_STYLES[tier] || { bg: "bg-slate-500/15", text: "text-slate-600 dark:text-slate-400", label: tier };
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${style.bg} ${style.text}`}>
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium ${style.bg} ${style.text}`}>
       {style.label}
     </span>
   );
@@ -72,30 +72,30 @@ function DocumentCard({
   const isUserOwned = doc.source_type === "ai_research" || doc.source_type === "user_upload";
 
   return (
-    <div className="bg-slate-800/50 border border-slate-700 rounded-lg overflow-hidden">
+    <div className="bg-white dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
       <div className="p-4">
         <div className="flex items-start justify-between">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1">
               <TierBadge tier={doc.trust_tier} />
               {doc.injection_risk_count > 0 && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-red-500/20 text-red-400">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-xs bg-red-500/15 text-red-700 dark:text-red-400">
                   <AlertTriangle className="h-3 w-3" />
                   Risk flagged
                 </span>
               )}
             </div>
-            <h3 className="font-medium text-white text-sm">{doc.source_name}</h3>
+            <h3 className="font-medium text-slate-900 dark:text-white text-sm">{doc.source_name}</h3>
             {doc.source_url && (
               <a
                 href={doc.source_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-xs text-slate-500 hover:text-blue-400 flex items-center gap-1 mt-0.5 truncate max-w-md"
+                className="text-xs text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 flex items-center gap-1 mt-0.5 truncate max-w-md"
               >
-                <Globe className="h-3 w-3 flex-shrink-0" />
+                <Globe className="h-3 w-3 shrink-0" />
                 {doc.source_url}
-                <ExternalLink className="h-3 w-3 flex-shrink-0" />
+                <ExternalLink className="h-3 w-3 shrink-0" />
               </a>
             )}
             <div className="flex gap-3 mt-2 text-xs text-slate-500">
@@ -111,7 +111,7 @@ function DocumentCard({
           <div className="flex items-center gap-2 ml-4">
             <button
               onClick={onToggleExpand}
-              className="text-slate-400 hover:text-white transition-colors p-1"
+              className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors p-1"
               title="Preview content"
             >
               {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
@@ -131,18 +131,18 @@ function DocumentCard({
 
       {/* Inline chunk preview */}
       {isExpanded && (
-        <div className="border-t border-slate-700 bg-slate-900/50 p-4">
+        <div className="border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 p-4">
           {loadingChunks ? (
             <div className="flex items-center justify-center py-6">
               <Loader2 className="h-5 w-5 animate-spin text-blue-400" />
-              <span className="ml-2 text-sm text-slate-400">Loading content...</span>
+              <span className="ml-2 text-sm text-slate-500 dark:text-slate-400">Loading content...</span>
             </div>
           ) : chunks.length === 0 ? (
             <p className="text-sm text-slate-500 text-center py-4">No content available</p>
           ) : (
             <div className="space-y-4">
               {chunks.map((chunk, i) => (
-                <div key={chunk.id} className="border border-slate-700 rounded p-3">
+                <div key={chunk.id} className="border border-slate-200 dark:border-slate-700 rounded-sm p-3">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-xs text-slate-500">
                       Chunk {i + 1} of {chunks.length} ({chunk.content_length} chars)
@@ -320,7 +320,7 @@ export default function KnowledgeBasePage() {
           <button
             disabled
             title="Coming in a future update (Story 35.11)"
-            className="flex items-center gap-2 px-3 py-2 bg-slate-700 text-slate-500 text-sm rounded-lg cursor-not-allowed opacity-50"
+            className="flex items-center gap-2 px-3 py-2 bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-sm rounded-lg cursor-not-allowed opacity-50"
           >
             <Upload className="h-4 w-4" />
             Upload Document
@@ -330,12 +330,12 @@ export default function KnowledgeBasePage() {
 
       {/* Status messages */}
       {error && (
-        <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-3 rounded-lg text-sm">
+        <div className="bg-red-500/10 border border-red-500/20 text-red-700 dark:text-red-400 px-4 py-3 rounded-lg text-sm">
           {error}
         </div>
       )}
       {success && (
-        <div className="bg-green-500/10 border border-green-500/20 text-green-400 px-4 py-3 rounded-lg text-sm">
+        <div className="bg-green-500/10 border border-green-500/20 text-green-700 dark:text-green-400 px-4 py-3 rounded-lg text-sm">
           {success}
         </div>
       )}
@@ -349,13 +349,13 @@ export default function KnowledgeBasePage() {
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             placeholder="Search knowledge base..."
-            className="w-full bg-slate-800 border border-slate-700 rounded-lg pl-10 pr-4 py-2 text-sm text-white placeholder-slate-500"
+            className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg pl-10 pr-4 py-2 text-sm text-slate-900 dark:text-white placeholder:text-slate-500 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           />
         </div>
         <select
           value={tierFilter}
           onChange={(e) => setTierFilter(e.target.value)}
-          className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+          className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent"
         >
           <option value="">All Tiers</option>
           <option value="AUTHORITATIVE">Authoritative</option>
@@ -375,7 +375,7 @@ export default function KnowledgeBasePage() {
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs transition-colors ${
                 tierFilter === tier
                   ? "bg-blue-600 text-white"
-                  : "bg-slate-800 text-slate-400 hover:bg-slate-700"
+                  : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"
               }`}
             >
               <Shield className="h-3 w-3" />
@@ -387,10 +387,10 @@ export default function KnowledgeBasePage() {
 
       {/* Document list */}
       {documents.length === 0 ? (
-        <div className="text-center py-16 bg-slate-800/30 rounded-lg">
-          <BookOpen className="h-14 w-14 text-slate-600 mx-auto mb-4" />
-          <h2 className="text-lg font-medium text-white mb-2">No Knowledge Yet</h2>
-          <p className="text-slate-400 mb-4 max-w-md mx-auto">
+        <div className="text-center py-16 bg-slate-100 dark:bg-slate-800/30 rounded-lg">
+          <BookOpen className="h-14 w-14 text-slate-500 dark:text-slate-600 mx-auto mb-4" />
+          <h2 className="text-lg font-medium text-slate-900 dark:text-white mb-2">No Knowledge Yet</h2>
+          <p className="text-slate-500 dark:text-slate-400 mb-4 max-w-md mx-auto">
             {searchText || tierFilter
               ? "No documents match your search criteria."
               : "Your AI's knowledge base is empty. Configure research sources to start building it."}
@@ -429,17 +429,17 @@ export default function KnowledgeBasePage() {
           <button
             onClick={() => setPage((p) => Math.max(1, p - 1))}
             disabled={page <= 1}
-            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white text-sm rounded disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-900 dark:text-white text-sm rounded-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Previous
           </button>
-          <span className="text-sm text-slate-400">
+          <span className="text-sm text-slate-500 dark:text-slate-400">
             Page {page} of {totalPages}
           </span>
           <button
             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
             disabled={page >= totalPages}
-            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white text-sm rounded disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-900 dark:text-white text-sm rounded-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Next
           </button>

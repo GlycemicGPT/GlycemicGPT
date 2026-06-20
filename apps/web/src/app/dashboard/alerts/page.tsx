@@ -479,7 +479,7 @@ export default function AlertsPage() {
                           className={clsx(
                             "w-full rounded-lg border px-3 py-2 text-sm",
                             "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200",
-                            "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
+                            "focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                             "placeholder:text-slate-500"
                           )}
                           aria-describedby={`${field.key}-range`}
@@ -531,7 +531,7 @@ export default function AlertsPage() {
                         className={clsx(
                           "w-full rounded-lg border px-3 py-2 text-sm",
                           "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200",
-                          "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
+                          "focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                           "placeholder:text-slate-500"
                         )}
                         aria-describedby={`${field.key}-range`}
@@ -565,7 +565,7 @@ export default function AlertsPage() {
                 "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium",
                 "bg-blue-600 text-white hover:bg-blue-500",
                 "transition-colors",
-                "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+                "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500",
                 "disabled:opacity-50 disabled:cursor-not-allowed"
               )}
               aria-label="Save threshold changes"
@@ -584,7 +584,7 @@ export default function AlertsPage() {
                 "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium",
                 "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700",
                 "transition-colors",
-                "focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500",
+                "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-slate-500",
                 "disabled:opacity-50 disabled:cursor-not-allowed"
               )}
               aria-label="Reset thresholds to defaults"
@@ -673,7 +673,7 @@ export default function AlertsPage() {
                   soundEnabled: e.target.checked,
                 })
               }
-              className="h-4 w-4 rounded border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
+              className="h-4 w-4 rounded-sm border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
               aria-describedby="pref-sound-desc"
             />
             <Volume2
@@ -710,7 +710,7 @@ export default function AlertsPage() {
                   });
                 }
               }}
-              className="h-4 w-4 rounded border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
+              className="h-4 w-4 rounded-sm border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
               aria-describedby="pref-browser-notif-desc"
             />
             <Bell
@@ -808,7 +808,7 @@ export default function AlertsPage() {
                   className={clsx(
                     "w-full rounded-lg border px-3 py-2 text-sm",
                     "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200",
-                    "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
+                    "focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                     "placeholder:text-slate-500"
                   )}
                   aria-describedby="reminder-range"
@@ -849,7 +849,7 @@ export default function AlertsPage() {
                   className={clsx(
                     "w-full rounded-lg border px-3 py-2 text-sm",
                     "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200",
-                    "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
+                    "focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                     "placeholder:text-slate-500"
                   )}
                   aria-describedby="primary-range"
@@ -888,7 +888,7 @@ export default function AlertsPage() {
                   className={clsx(
                     "w-full rounded-lg border px-3 py-2 text-sm",
                     "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200",
-                    "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
+                    "focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                     "placeholder:text-slate-500"
                   )}
                   aria-describedby="all-contacts-range"
@@ -916,7 +916,7 @@ export default function AlertsPage() {
                 "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium",
                 "bg-blue-600 text-white hover:bg-blue-500",
                 "transition-colors",
-                "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+                "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500",
                 "disabled:opacity-50 disabled:cursor-not-allowed"
               )}
               aria-label="Save escalation timing"
@@ -938,7 +938,7 @@ export default function AlertsPage() {
                 "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium",
                 "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700",
                 "transition-colors",
-                "focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500",
+                "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-slate-500",
                 "disabled:opacity-50 disabled:cursor-not-allowed"
               )}
               aria-label="Reset escalation timing to defaults"
