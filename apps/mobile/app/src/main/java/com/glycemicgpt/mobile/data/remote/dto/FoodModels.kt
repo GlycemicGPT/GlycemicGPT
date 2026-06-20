@@ -44,7 +44,38 @@ data class FoodRecordResponse(
     // with their "how this affects glucose" notes, and caveated net carbs. All
     // copy is server-cleared and rendered verbatim. Descriptive only -- never a dose.
     @Json(name = "nutrition_facts") val nutritionFacts: NutritionFactsResponse? = null,
+    // Grounding-backed comorbidity nutrition: saturated fat / sugars /
+    // sodium when an authoritative source published them. GROUNDING-ONLY and
+    // identity-gated; absent on a record with no grounded comorbidity data.
+    @Json(name = "comorbidity_nutrition")
+    val comorbidityNutrition: ComorbidityNutritionResponse? = null,
     @Json(name = "created_at") val createdAt: String,
+)
+
+/**
+ * Grounding-backed comorbidity / label nutrition. GROUNDING-ONLY and
+ * identity-gated: published reference figures for blood-pressure / cardiovascular
+ * awareness, attributed to their [source] (distinct from the vision estimate), with
+ * a [disclaimer] carrying the never-dose framing. [sugarNote] (the "sugar-free isn't
+ * carb-free" reminder) is present only when a sugars figure is surfaced. Descriptive
+ * only -- never a dose. Only consumed fields are declared.
+ */
+@JsonClass(generateAdapter = true)
+data class ComorbidityNutritionResponse(
+    val facts: List<ComorbidityFactResponse> = emptyList(),
+    @Json(name = "sugar_note") val sugarNote: String? = null,
+    val source: String? = null,
+    @Json(name = "trust_tier") val trustTier: String? = null,
+    val disclaimer: String? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class ComorbidityFactResponse(
+    val key: String,
+    val label: String,
+    val value: Double,
+    val unit: String,
+    val note: String? = null,
 )
 
 /**

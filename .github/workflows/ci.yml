@@ -297,6 +297,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Type check
+        run: npm run typecheck
+
       - name: Run lint
         run: npm run lint
 

@@ -4,6 +4,12 @@
  * save-as + link, and the owner-scoped 404 / 409 / 422 error contract.
  */
 
+// Force module scope: this file uses in-test `require()` rather than top-level
+// imports, so without an export it is a global script and its `jsonResponse`
+// collides with the identically-named helper in meal-api.test.ts ("Duplicate
+// function implementation" under tsc).
+export {};
+
 function jsonResponse(status: number, body: unknown, ok?: boolean) {
   return {
     ok: ok ?? (status >= 200 && status < 300),

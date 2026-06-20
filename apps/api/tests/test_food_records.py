@@ -445,6 +445,13 @@ class TestNoTherapyCoupling:
             # math either -- they are descriptive read-side figures only.
             assert "net_carb" not in text.lower(), f"{path} references net carbs"
             assert "nutrition_facts" not in text, f"{path} references nutrition_facts"
+            # Grounded comorbidity nutrition is descriptive-only too.
+            assert "comorbidity" not in text.lower(), (
+                f"{path} references comorbidity nutrition"
+            )
+            assert "grounding_nutrition" not in text.lower(), (
+                f"{path} references grounding nutrition"
+            )
 
     async def test_food_record_does_not_change_iob(self):
         """A logged meal must not produce or alter insulin-on-board."""
@@ -851,6 +858,127 @@ class TestIdentityConfirmation:
         # Carbs are untouched by an identity confirmation (never a dose).
         assert body["carbs_low"] == created["carbs_low"]
         assert body["carbs_high"] == created["carbs_high"]
+
+    async def test_confirm_persists_grounded_comorbidity_and_read_surfaces_it(
+        self, auth_client
+    ):
+        # When identity confirmation grounds against a published source
+        # that has comorbidity data, those values persist and the read response
+        # surfaces an attributed, awareness-framed comorbidity block. AC2 (gated on
+        # confirmation) + AC4 (attribution surfaced).
+        from src.schemas.food_record import GroundingDetail
+        from src.vision.carb_contract import NEVER_DOSE_PROHIBITION
+
+        client, _ = auth_client
+        created = await _create_record(client)
+        record_id = created["id"]
+        # A fresh (unconfirmed) record has no comorbidity block (AC1/AC2).
+        assert created["comorbidity_nutrition"] is None
+
+        detail = GroundingDetail(
+            source="USDA FoodData Central",
+            source_url="https://fdc.nal.usda.gov/x",
+            trust_tier="AUTHORITATIVE",
+            carbs_low=45,
+            carbs_high=45,
+            saturated_fat_grams=12.0,
+            sugars_grams=8.0,
+            sodium_mg=1100.0,
+        )
+        with patch(
+            "src.services.common_food.meal_grounding.ground_estimate",
+            AsyncMock(return_value=detail),
+        ):
+            resp = await client.post(
+                f"/api/food-records/{record_id}/confirm-identity",
+                json={"confirmed_food_name": "cheeseburger"},
+            )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        comorbidity = body["comorbidity_nutrition"]
+        assert comorbidity is not None
+        keys = {f["key"] for f in comorbidity["facts"]}
+        assert keys == {"saturated_fat_grams", "sugars_grams", "sodium_mg"}
+        # Attribution distinct from the vision estimate + the never-dose prohibition.
+        assert comorbidity["source"] == "USDA FoodData Central"
+        assert comorbidity["sugar_note"] and "carb-free" in comorbidity["sugar_note"]
+        assert NEVER_DOSE_PROHIBITION in comorbidity["disclaimer"]
+        # The comorbidity facts are descriptive figures, never a dose: no fact key
+        # carries dosing/insulin wording.
+        assert not any(
+            tok in f["key"]
+            for f in comorbidity["facts"]
+            for tok in ("dose", "insulin", "bolus")
+        )
+
+        # Persisted: a later read still carries the comorbidity block (not transient).
+        read = await client.get(f"/api/food-records/{record_id}")
+        assert read.status_code == 200
+        reread = read.json()["comorbidity_nutrition"]
+        assert reread is not None
+        assert {f["key"] for f in reread["facts"]} == keys
+
+    async def test_confirm_without_grounded_comorbidity_surfaces_nothing(
+        self, auth_client
+    ):
+        # Confirming an identity that grounds to nothing (or to own-history, which
+        # has no label) leaves the comorbidity block absent -- never fabricated.
+        client, _ = auth_client
+        created = await _create_record(client)
+        record_id = created["id"]
+        with patch(
+            "src.services.common_food.meal_grounding.ground_estimate",
+            AsyncMock(return_value=None),
+        ):
+            resp = await client.post(
+                f"/api/food-records/{record_id}/confirm-identity",
+                json={"confirmed_food_name": "homemade stew"},
+            )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["comorbidity_nutrition"] is None
+
+    async def test_reconfirm_to_ungrounded_identity_clears_stale_comorbidity(
+        self, auth_client
+    ):
+        # A re-confirmation that grounds to a source without comorbidity (e.g.
+        # own-history, or nothing) must clear a previously-grounded block, so a
+        # stale comorbidity card can never outlive its grounding.
+        from src.schemas.food_record import GroundingDetail
+
+        client, _ = auth_client
+        created = await _create_record(client)
+        record_id = created["id"]
+
+        grounded = GroundingDetail(
+            source="USDA FoodData Central",
+            trust_tier="AUTHORITATIVE",
+            sodium_mg=900.0,
+        )
+        with patch(
+            "src.services.common_food.meal_grounding.ground_estimate",
+            AsyncMock(return_value=grounded),
+        ):
+            first = await client.post(
+                f"/api/food-records/{record_id}/confirm-identity",
+                json={"confirmed_food_name": "branded soup"},
+            )
+        assert first.status_code == 200
+        assert first.json()["comorbidity_nutrition"] is not None
+
+        # Re-confirm to a name that grounds to nothing -> the block is cleared.
+        with patch(
+            "src.services.common_food.meal_grounding.ground_estimate",
+            AsyncMock(return_value=None),
+        ):
+            second = await client.post(
+                f"/api/food-records/{record_id}/confirm-identity",
+                json={"confirmed_food_name": "my homemade soup"},
+            )
+        assert second.status_code == 200
+        assert second.json()["comorbidity_nutrition"] is None
+        # And a fresh read confirms the cleared state is persisted.
+        read = await client.get(f"/api/food-records/{record_id}")
+        assert read.json()["comorbidity_nutrition"] is None
 
     async def test_confirm_identity_rejects_blank(self, auth_client):
         client, _ = auth_client

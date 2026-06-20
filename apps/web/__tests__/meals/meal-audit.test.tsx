@@ -51,6 +51,7 @@ function makeRecord(overrides: Partial<FoodRecord> = {}): FoodRecord {
     grounding_source_url: null,
     grounding_trust_tier: null,
     nutrition_facts: null,
+    comorbidity_nutrition: null,
     created_at: "2026-06-19T12:00:01Z",
     ...overrides,
   };

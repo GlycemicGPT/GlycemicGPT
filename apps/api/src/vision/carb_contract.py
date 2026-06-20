@@ -203,6 +203,56 @@ NUTRITION_DOSE_DISCLAIMER = (
     f"{NEVER_DOSE_PROHIBITION}."
 )
 
+# --- Grounding-backed comorbidity / label nutrition framing -----
+# Saturated fat, sugars/added sugars, and sodium aren't reliably estimable from a
+# plated-food photo, and their value is comorbidity (blood-pressure / cardiovascular)
+# awareness -- so they are GROUNDING-ONLY (looked up from a published source after
+# identity confirmation) and framed as awareness, never a directive. Each note is
+# deliberately:
+#   * free of any dosing language (each passes ``find_dosing_violations``), and
+#   * descriptive of why the figure matters, not a clinical limit or a dose input.
+# Adversarially verified: total fat (not its saturation) drives the acute glucose
+# effect, so saturated fat is framed as cardiovascular awareness only; sodium has
+# no acute glucose link but real blood-pressure value. Keyed by the grounding
+# nutrition key so the framing travels with the value.
+COMORBIDITY_NUTRITION_NOTES = {
+    "saturated_fat_grams": (
+        "Saturated fat is a heart-health signal, not a glucose one — it doesn't "
+        "change your sugar rise, but it's worth knowing for cardiovascular health."
+    ),
+    "sugars_grams": (
+        "Sugars are carbohydrates that tend to spike glucose sooner than starches do."
+    ),
+    "added_sugars_grams": (
+        "Added sugars are put in during processing — like other sugars, they tend "
+        "to spike glucose sooner."
+    ),
+    "sodium_mg": (
+        "Sodium matters for blood pressure — it doesn't affect glucose, but it's "
+        "worth keeping an eye on for cardiovascular health."
+    ),
+}
+
+# The "sugar-free is not carb-free" note that travels with a surfaced sugars
+# figure: a reminder that the absence of sugar does not mean the food won't raise
+# glucose. Descriptive and dosing-language-free (passes ``find_dosing_violations``);
+# it points back to total carbs, never to a dose.
+SUGAR_FREE_NOTE = (
+    "Sugar-free doesn't mean carb-free — sugar alcohols and starches still raise "
+    "glucose, so count total carbohydrates."
+)
+
+# Section-level disclaimer for the comorbidity block. These are PUBLISHED reference
+# figures (not AI estimates), shown for blood-pressure / heart-health awareness, so
+# -- like the OFF / restaurant disclaimers -- this avoids the "AI guess" framing and
+# reuses only the canonical ``NEVER_DOSE_PROHIBITION``. By naming the prohibited
+# action ("bolus") it intentionally does NOT itself pass ``find_dosing_violations``:
+# it is a prohibition, not a description of food.
+COMORBIDITY_NUTRITION_DISCLAIMER = (
+    "These figures come from published nutrition data, shown for blood-pressure "
+    f"and heart-health awareness — a descriptive reference only; {NEVER_DOSE_PROHIBITION}."
+)
+
 
 @dataclass
 class ParsedEstimate:

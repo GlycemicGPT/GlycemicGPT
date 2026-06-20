@@ -33,6 +33,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.glycemicgpt.mobile.data.meal.CarbConfidence
 import com.glycemicgpt.mobile.data.meal.CarbRange
+import com.glycemicgpt.mobile.data.meal.MealComorbidityFact
+import com.glycemicgpt.mobile.data.meal.MealComorbidityNutrition
 import com.glycemicgpt.mobile.data.meal.MealDispersion
 import com.glycemicgpt.mobile.data.meal.MealMacro
 import com.glycemicgpt.mobile.data.meal.MealNetCarbs
@@ -399,7 +401,6 @@ private fun MacroRow(macro: MealMacro) {
 
 @Composable
 private fun NetCarbsRow(netCarbs: MealNetCarbs) {
-    val palette = safetyPalette()
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -424,26 +425,7 @@ private fun NetCarbsRow(netCarbs: MealNetCarbs) {
         }
         // The net-carbs caveat rides a calm-caution strip (not error red): named
         // as inexact, pointing back to total carbs, carrying the never-dose line.
-        Surface(color = palette.background, shape = RoundedCornerShape(8.dp)) {
-            Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Info,
-                    contentDescription = null,
-                    tint = palette.icon,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = netCarbs.caveat,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = palette.foreground,
-                    modifier = Modifier.testTag("meal_net_carbs_caveat"),
-                )
-            }
-        }
+        CautionStrip(text = netCarbs.caveat, testTag = "meal_net_carbs_caveat")
     }
 }
 
@@ -463,6 +445,135 @@ fun formatNetCarbs(low: Double, high: Double): String {
     val lo = low.roundToInt()
     val hi = high.roundToInt()
     return if (lo == hi) "≈ $lo g" else "≈ $lo–$hi g"
+}
+
+/**
+ * Grounding-backed comorbidity / label nutrition: saturated fat,
+ * sugars, and sodium when an authoritative source published them. GROUNDING-ONLY
+ * (never from the photo) and identity-gated, so the caller renders this only for a
+ * grounded record. Framed as blood-pressure / cardiovascular awareness, never a
+ * directive: each figure carries its descriptive note, sugars carry the "sugar-free
+ * isn't carb-free" reminder, the block is attributed to its source (distinct from
+ * the vision estimate), and the never-dose disclaimer closes it. All copy is
+ * server-cleared and rendered verbatim. Read-only -- nothing here is a dose.
+ */
+@Composable
+fun MealComorbidityContent(
+    comorbidity: MealComorbidityNutrition,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("meal_comorbidity"),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = RoundedCornerShape(8.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = "Heart & blood-pressure awareness",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            comorbidity.facts.forEach { fact -> ComorbidityRow(fact) }
+            comorbidity.sugarNote?.let { note -> ComorbidityCaution(note) }
+            // Attribution: these are published reference figures, distinct from the
+            // photo estimate, so name the source (and its trust tier when present).
+            comorbidity.source?.let { source ->
+                val tier = comorbidity.trustTier?.lowercase(Locale.US)
+                Text(
+                    text = if (tier != null) "From $source ($tier source)" else "From $source",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.testTag("meal_comorbidity_source"),
+                )
+            }
+            comorbidity.disclaimer?.takeIf { it.isNotBlank() }?.let { disclaimer ->
+                Text(
+                    text = disclaimer,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.testTag("meal_comorbidity_disclaimer"),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ComorbidityRow(fact: MealComorbidityFact) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("meal_comorbidity_fact"),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                text = fact.label,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = formatMacroValue(fact.value, fact.unit),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
+        fact.note?.let { note ->
+            Text(
+                text = note,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.testTag("meal_comorbidity_note"),
+            )
+        }
+    }
+}
+
+/** The "sugar-free isn't carb-free" reminder, on the shared calm-caution strip. */
+@Composable
+private fun ComorbidityCaution(note: String) {
+    CautionStrip(text = note, testTag = "meal_comorbidity_sugar_note")
+}
+
+/**
+ * A calm-caution strip (info icon + text on the safety palette, NOT error red):
+ * the single source of truth for the never-dose-adjacent caveats so the net-carbs
+ * caveat and the comorbidity sugar note can't drift apart visually. The caller
+ * supplies the verbatim server text and the test tag for that surface.
+ */
+@Composable
+private fun CautionStrip(text: String, testTag: String) {
+    val palette = safetyPalette()
+    Surface(color = palette.background, shape = RoundedCornerShape(8.dp)) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Default.Info,
+                contentDescription = null,
+                tint = palette.icon,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = text,
+                style = MaterialTheme.typography.bodySmall,
+                color = palette.foreground,
+                modifier = Modifier.testTag(testTag),
+            )
+        }
+    }
 }
 
 /** Full-screen centered spinner with an optional caption, shared across the meal screens. */
