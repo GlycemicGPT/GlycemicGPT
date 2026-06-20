@@ -672,6 +672,19 @@ class TestComorbidityCapture:
         )
         assert result == {"sugars_grams": 9.0, "added_sugars_grams": 3.0}
 
+    def test_usda_unsaturated_fat_not_stored_as_saturated(self):
+        # "saturated" is a substring of mono-/poly-unsaturated; those distinct
+        # nutrients (which appear first here, without a number) must not be stored
+        # as saturated fat -- only the real saturated row is.
+        result = nutrition_sources._usda_comorbidity(
+            [
+                {"nutrientName": "Fatty acids, total monounsaturated", "value": 6.0},
+                {"nutrientName": "Fatty acids, total polyunsaturated", "value": 4.0},
+                {"nutrientName": "Fatty acids, total saturated", "value": 3.0},
+            ]
+        )
+        assert result == {"saturated_fat_grams": 3.0}
+
     async def test_off_converts_sodium_grams_to_mg(self, monkeypatch):
         monkeypatch.setattr(settings, "open_food_facts_enabled", True)
         payload = {

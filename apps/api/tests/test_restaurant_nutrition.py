@@ -262,6 +262,20 @@ class TestChainFetch:
         )
         assert result == {"sugars_grams": 9.0}
 
+    def test_unsaturated_fat_is_not_bucketed_as_saturated(self):
+        # "saturated" is a substring of mono-/poly-unsaturated; an unsaturated row
+        # (appearing first) must not be stored as the saturated-fat figure.
+        result = rn._comorbidity_from_nutrients(
+            [
+                {"name": "Monounsaturated Fat", "value": 7},
+                {"name": "Polyunsaturated Fat", "value": 5},
+                {"name": "Saturated Fat", "value": 3},
+            ],
+            name_key="name",
+            value_key="value",
+        )
+        assert result == {"saturated_fat_grams": 3.0}
+
     async def test_no_brand_makes_no_request(self):
         user = await _new_user()
         ctx, client = _mock_httpx(_MCD_PAYLOAD)

@@ -420,6 +420,20 @@ class TestBuildComorbidityNutrition:
         assert block is not None
         assert [f.key for f in block.facts] == ["added_sugars_grams"]
 
+    def test_non_object_grounding_payload_returns_none(self):
+        # JSONB can hold any JSON value; a non-object (corrupted / hand-edited row)
+        # must not raise on .get and 500 the record read -- it yields no block.
+        for payload in ("just a string", 42, ["a", "list"], True):
+            assert (
+                build_comorbidity_nutrition(
+                    grounding_nutrition=payload,
+                    source="x",
+                    source_url=None,
+                    trust_tier=None,
+                )
+                is None
+            )
+
 
 class TestComorbidityExcludesOutOfScopeFields:
     def test_vision_contract_never_asks_for_comorbidity_fields(self):

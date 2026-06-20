@@ -208,7 +208,12 @@ def _usda_comorbidity(food_nutrients: object) -> dict[str, float]:
         number = str(nutrient.get("nutrientNumber") or "")
         name = str(nutrient.get("nutrientName") or "").lower()
         raw = nutrient.get("value")
-        if number == _USDA_SATURATED_FAT_NUMBER or "saturated" in name:
+        if number == _USDA_SATURATED_FAT_NUMBER or (
+            # "saturated" is a substring of mono-/poly-unsaturated, which are
+            # distinct nutrients; exclude them so an unsaturated row isn't stored
+            # as saturated fat.
+            "saturated" in name and "unsaturated" not in name
+        ):
             value = _bounded(raw, maximum=_MAX_GRAMS_PER_100G)
             if value is not None:
                 result.setdefault("saturated_fat_grams", value)

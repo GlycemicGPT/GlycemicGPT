@@ -394,7 +394,9 @@ def _comorbidity_from_nutrients(
         amount = _coerce_number(nutrient.get(value_key))
         if amount is None:
             continue
-        if "saturated" in name:
+        if "saturated" in name and "unsaturated" not in name:
+            # "saturated" is a substring of mono-/poly-unsaturated; exclude those
+            # so an unsaturated-fat row isn't stored as saturated fat.
             if CARB_GRAMS_MIN <= amount <= CARB_GRAMS_MAX:
                 result.setdefault("saturated_fat_grams", amount)
         elif "added" in name and "sugar" in name:

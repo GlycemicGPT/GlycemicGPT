@@ -363,7 +363,11 @@ def build_comorbidity_nutrition(
     show. Everything here is descriptive awareness -- nothing is a dose, and the
     block is never persisted (only the flat ``grounding_nutrition_json`` is).
     """
-    grounding_nutrition = grounding_nutrition or {}
+    # JSONB can hold any JSON value; a non-object payload (a corrupted or
+    # hand-edited row) would raise on ``.get`` and 500 the whole record read, so
+    # treat anything that isn't an object as "no grounded comorbidity data".
+    if not isinstance(grounding_nutrition, dict):
+        return None
     facts: list[ComorbidityFact] = []
     for key, (label, unit) in _COMORBIDITY_DISPLAY.items():
         value = _macro_value(grounding_nutrition.get(key), _COMORBIDITY_MAX.get(key))
