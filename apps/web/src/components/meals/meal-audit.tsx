@@ -23,13 +23,11 @@
  * shows a blocked state and never reaches this panel).
  */
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   AlertTriangle,
-  BadgeCheck,
   ChevronDown,
   ChevronUp,
-  ExternalLink,
   FileSearch,
   Loader2,
   ScanLine,
@@ -48,9 +46,11 @@ import {
   formatCarbRange,
   formatCoefficientOfVariation,
   isGrounded,
-  isSafeHttpUrl,
 } from "@/lib/meal-format";
-import { MealSafetyQualifier } from "@/components/meals/meal-ui";
+import {
+  GroundedSourceNote,
+  MealSafetyQualifier,
+} from "@/components/meals/meal-ui";
 
 /** A labelled key/value provenance row. */
 function DetailRow({ label, value }: { label: string; value: string }) {
@@ -75,50 +75,26 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
 
 /**
  * The grounding citation (AC2): renders the record's grounding attribution as a
- * "how this was grounded" line, distinct from the raw vision estimate. Gated on
- * `isGrounded` -- the same identity-confirmed gate the detail view uses (Story
- * 50.W2) -- so a stale/regressed source can never render an authoritative
- * citation before the user has confirmed what the food is. The outbound link is
- * defended by the shared safe-URL guard.
+ * "how this was grounded" line (with the trust tier), distinct from the raw
+ * vision estimate. Gated on `isGrounded` -- the same identity-confirmed gate the
+ * detail view uses (Story 50.W2) -- so a stale/regressed source can never render
+ * an authoritative citation before the user has confirmed what the food is. The
+ * citation box itself is the shared `GroundedSourceNote`, so its safe-URL guard
+ * and outbound-link attributes stay in lockstep with the detail card's.
  */
 function GroundingCitation({ record }: { record: FoodRecord }) {
   if (!isGrounded(record)) return null;
   return (
     <div className="space-y-2">
       <SectionHeading>How this was grounded</SectionHeading>
-      <div
-        role="note"
-        data-testid="meal-audit-grounding"
-        className="flex items-start gap-2 rounded-lg border border-blue-500/30 bg-blue-500/5 dark:bg-blue-500/10 px-3 py-2 text-xs text-slate-600 dark:text-slate-300"
-      >
-        <BadgeCheck className="h-4 w-4 flex-shrink-0 mt-0.5 text-blue-600 dark:text-blue-400" />
-        <span>
-          Checked against{" "}
-          <span className="font-medium text-slate-900 dark:text-white">
-            {record.grounding_source}
-          </span>
-          {record.grounding_trust_tier && (
-            <> ({record.grounding_trust_tier.toLowerCase()} source)</>
-          )}
-          {isSafeHttpUrl(record.grounding_source_url) && (
-            <>
-              {" — "}
-              <a
-                href={record.grounding_source_url!}
-                target="_blank"
-                rel="noopener noreferrer"
-                data-testid="meal-audit-grounding-link"
-                aria-label={`View ${record.grounding_source} source (opens in a new window)`}
-                className="inline-flex items-center gap-0.5 text-blue-600 dark:text-blue-400 hover:underline"
-              >
-                view source
-                <ExternalLink className="h-3 w-3" />
-              </a>
-            </>
-          )}
-          .
-        </span>
-      </div>
+      <GroundedSourceNote
+        record={record}
+        label="Checked against"
+        linkLabel="view source"
+        showTrustTier
+        testId="meal-audit-grounding"
+        linkTestId="meal-audit-grounding-link"
+      />
     </div>
   );
 }
@@ -209,9 +185,15 @@ function precedenceDecision(precedence: AuditPrecedence): string {
 /**
  * The precedence decision (AC1): which source won and the ladder AS IT STOOD when
  * the decision was made. The recorded ladder is shown rather than a live constant
- * so the trail reads the ordering that actually applied.
+ * so the trail reads the ordering that actually applied. The grounding citation
+ * (above) carries the trust tier and outbound link; this section is just the
+ * decision + the ordered ladder.
+ *
+ * The server documents the precedence payload as schema-loose (still settling),
+ * so the ladder is coerced to an array before iterating rather than trusted blind.
  */
 function PrecedenceSection({ precedence }: { precedence: AuditPrecedence }) {
+  const ladder = Array.isArray(precedence.ladder) ? precedence.ladder : [];
   return (
     <div className="space-y-2" data-testid="meal-audit-precedence">
       <SectionHeading>Which source was used</SectionHeading>
@@ -225,19 +207,21 @@ function PrecedenceSection({ precedence }: { precedence: AuditPrecedence }) {
             {precedence.reason}
           </p>
         )}
-        {precedence.ladder.length > 0 && (
+        {ladder.length > 0 && (
           <div className="pt-1">
             <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">
               Sources considered, in order:
             </p>
             <ol className="list-decimal list-inside space-y-0.5">
-              {precedence.ladder.map((rung) => {
+              {ladder.map((rung, i) => {
                 const used =
                   !!precedence.chosen_source &&
                   rung.toLowerCase() === precedence.chosen_source.toLowerCase();
                 return (
+                  // Index-keyed: the ladder is render-only and never reordered, and
+                  // a malformed payload could repeat a rung.
                   <li
-                    key={rung}
+                    key={`${i}-${rung}`}
                     className={
                       used
                         ? "text-xs font-medium text-slate-900 dark:text-white"
@@ -297,6 +281,17 @@ export function MealAuditPanel({ record }: { record: FoodRecord }) {
   // A 404 means the record simply has no stored audit trail (benign) rather than
   // a failure to surface for retry.
   const [unavailable, setUnavailable] = useState(false);
+
+  // The detail view swaps the record in place when the user corrects carbs or
+  // confirms identity (which re-runs the grounding decision), so a cached audit
+  // can go stale. Drop it and collapse on those changes; the next open refetches
+  // the current trail. Mirrors AIInsightCard invalidating its cached detail.
+  useEffect(() => {
+    setAudit(null);
+    setUnavailable(false);
+    setError(null);
+    setExpanded(false);
+  }, [record.id, record.identity_confirmed, record.source, record.corrected_at]);
 
   const toggle = useCallback(async () => {
     if (expanded) {

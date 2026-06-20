@@ -82,6 +82,11 @@ describe("formatCoefficientOfVariation", () => {
     expect(formatCoefficientOfVariation(undefined)).toBeNull();
     expect(formatCoefficientOfVariation(NaN)).toBeNull();
   });
+
+  it("returns null for a non-finite CV (zero-mean degenerate case)", () => {
+    expect(formatCoefficientOfVariation(Infinity)).toBeNull();
+    expect(formatCoefficientOfVariation(-Infinity)).toBeNull();
+  });
 });
 
 describe("effectiveCarbRange", () => {

@@ -281,4 +281,49 @@ describe("MealAuditPanel", () => {
     expect(await screen.findByTestId("meal-audit-details")).toBeInTheDocument();
     expect(mockGetAudit).toHaveBeenCalledTimes(1);
   });
+
+  it("invalidates the cached audit when the record is swapped in place (e.g. identity confirmed)", async () => {
+    mockGetAudit
+      .mockResolvedValueOnce(makeAudit()) // vision-only trail
+      .mockResolvedValueOnce(
+        makeAudit({
+          precedence: {
+            outcome: "grounded",
+            chosen_source: "USDA FoodData Central",
+            trust_tier: "AUTHORITATIVE",
+            source_url: "https://fdc.nal.usda.gov/",
+            identity_used: "Bowl of oatmeal",
+            identity_confirmed: true,
+            reason: null,
+            ladder: ["own-history corrected", "USDA FoodData Central", "vision-only"],
+          },
+        })
+      );
+    const { rerender } = render(<MealAuditPanel record={makeRecord()} />);
+
+    fireEvent.click(screen.getByTestId("meal-audit-toggle"));
+    expect(await screen.findByTestId("meal-audit-precedence")).toHaveTextContent(
+      /Vision-only estimate/i
+    );
+
+    // The detail view confirms identity and swaps the record in place.
+    rerender(
+      <MealAuditPanel
+        record={makeRecord({
+          identity_confirmed: true,
+          confirmed_food_name: "Bowl of oatmeal",
+          source: "external_grounded",
+          grounding_source: "USDA FoodData Central",
+        })}
+      />
+    );
+
+    // Stale trail dropped + collapsed; re-opening refetches the current decision.
+    expect(screen.queryByTestId("meal-audit-details")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("meal-audit-toggle"));
+    expect(await screen.findByTestId("meal-audit-precedence")).toHaveTextContent(
+      /Grounded against USDA FoodData Central/i
+    );
+    expect(mockGetAudit).toHaveBeenCalledTimes(2);
+  });
 });

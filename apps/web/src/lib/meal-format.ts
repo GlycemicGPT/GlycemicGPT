@@ -75,7 +75,9 @@ export function confidenceLabel(confidence: string | null): string {
 export function formatCoefficientOfVariation(
   cv: number | null | undefined
 ): string | null {
-  if (cv == null || Number.isNaN(cv)) return null;
+  // `Number.isFinite` also rejects an Infinity CV (a zero-mean degenerate case),
+  // which would otherwise render as "Infinity%".
+  if (cv == null || !Number.isFinite(cv)) return null;
   return `${Math.round(cv * 100)}%`;
 }
 
