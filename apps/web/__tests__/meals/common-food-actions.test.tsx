@@ -229,6 +229,29 @@ describe("MealCommonFoodSection", () => {
     );
   });
 
+  it("clears a stale success message when the detail view switches to another meal", async () => {
+    mockSaveAs.mockResolvedValue(makeFood({ id: "cf-9", name: "Oatmeal" }));
+    mockGetRecord.mockResolvedValue(makeRecord({ common_food_id: "cf-9" }));
+    const { rerender } = render(
+      <MealCommonFoodSection record={makeRecord({ id: "rec-1" })} onUpdated={jest.fn()} />
+    );
+
+    fireEvent.click(screen.getByTestId("meal-save-as-common-food"));
+    fireEvent.click(screen.getByTestId("meal-save-as-submit"));
+    expect(
+      await screen.findByTestId("meal-common-food-success")
+    ).toBeInTheDocument();
+
+    // The route re-runs its loader on navigation without remounting the section;
+    // a new record id must reset the prior meal's success message.
+    rerender(
+      <MealCommonFoodSection record={makeRecord({ id: "rec-2" })} onUpdated={jest.fn()} />
+    );
+    expect(
+      screen.queryByTestId("meal-common-food-success")
+    ).not.toBeInTheDocument();
+  });
+
   it("shows the linked note when the record is already linked to a baseline", () => {
     render(
       <MealCommonFoodSection

@@ -76,6 +76,17 @@ export function MealCommonFoodSection({ record, onUpdated }: SectionProps) {
     setMode("link");
   }, []);
 
+  // Reset the section's transient state when the detail view switches to a
+  // different meal. This route re-runs its loader on navigation rather than
+  // remounting, so a success/error/open editor from a prior meal must not linger
+  // on the next one. Re-rendering with the same record (e.g. after a save) keeps
+  // record.id stable, so the success message it just set survives.
+  useEffect(() => {
+    setMode("idle");
+    setSuccess(null);
+    setError(null);
+  }, [record.id]);
+
   // Load the baselines for the link picker on demand. Re-runs if the mode toggles
   // back to "link", so a baseline saved meanwhile shows up without a full reload.
   useEffect(() => {
