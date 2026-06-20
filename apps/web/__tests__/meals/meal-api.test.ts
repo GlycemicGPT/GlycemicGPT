@@ -79,6 +79,58 @@ describe("getFoodRecord", () => {
   });
 });
 
+describe("getFoodRecordAudit", () => {
+  it("fetches the owner-scoped audit trail for a record", async () => {
+    const payload = {
+      food_record_id: "rec-1",
+      samples: [{ carbs_low: 40, carbs_high: 55, identity: "oatmeal", parse_ok: true }],
+      dispersion: { confidence: "medium", coefficient_of_variation: 0.12 },
+      precedence: { outcome: "vision_only", ladder: [] },
+      created_at: "2026-06-19T12:00:00Z",
+      updated_at: "2026-06-19T12:00:00Z",
+    };
+    const mockFetch = jest.fn().mockResolvedValue(jsonResponse(200, payload));
+    global.fetch = mockFetch;
+
+    const { getFoodRecordAudit } = require("@/lib/api");
+    const result = await getFoodRecordAudit("rec-1");
+
+    expect(result).toEqual(payload);
+    expect(mockFetch).toHaveBeenCalledWith(
+      "/api/food-records/rec-1/audit",
+      expect.objectContaining({ credentials: "include" })
+    );
+  });
+
+  it("rejects a cross-user / no-audit id with an owner-scoped 404 (IDOR)", async () => {
+    global.fetch = jest
+      .fn()
+      .mockResolvedValue(jsonResponse(404, { detail: "Audit trail not found" }));
+
+    const { getFoodRecordAudit, MealApiError } = require("@/lib/api");
+    await expect(getFoodRecordAudit("someone-elses-id")).rejects.toMatchObject({
+      status: 404,
+    });
+    await expect(getFoodRecordAudit("someone-elses-id")).rejects.toBeInstanceOf(
+      MealApiError
+    );
+  });
+
+  it("encodes the record id in the path", async () => {
+    const mockFetch = jest
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { food_record_id: "a/b" }));
+    global.fetch = mockFetch;
+
+    const { getFoodRecordAudit } = require("@/lib/api");
+    await getFoodRecordAudit("a/b");
+    expect(mockFetch).toHaveBeenCalledWith(
+      "/api/food-records/a%2Fb/audit",
+      expect.objectContaining({ credentials: "include" })
+    );
+  });
+});
+
 describe("uploadFoodRecord", () => {
   it("POSTs a multipart 'file' part and returns the record", async () => {
     const mockFetch = jest

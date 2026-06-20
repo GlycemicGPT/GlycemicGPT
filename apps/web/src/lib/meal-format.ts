@@ -66,6 +66,21 @@ export function confidenceLabel(confidence: string | null): string {
   }
 }
 
+/**
+ * Render the empirical coefficient of variation (a fraction, `stdev / mean`) as a
+ * whole-percent spread for the audit trail -- e.g. `0.123` -> "12%". This is a
+ * descriptive dispersion measure (how much the vision samples disagreed), never a
+ * dose signal. Returns null when no CV was recorded (e.g. a single usable sample).
+ */
+export function formatCoefficientOfVariation(
+  cv: number | null | undefined
+): string | null {
+  // `Number.isFinite` also rejects an Infinity CV (a zero-mean degenerate case),
+  // which would otherwise render as "Infinity%".
+  if (cv == null || !Number.isFinite(cv)) return null;
+  return `${Math.round(cv * 100)}%`;
+}
+
 export interface SourceMeta {
   label: string;
   /** Tailwind background + text classes for the badge (dual light/dark). */

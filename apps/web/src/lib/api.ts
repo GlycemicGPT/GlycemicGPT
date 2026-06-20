@@ -4268,6 +4268,68 @@ export interface FoodRecordListResponse {
 }
 
 /**
+ * One raw vision sample as surfaced in the audit trail (Story 50.H3). Mirrors
+ * the server `AuditSample`. The model's self-reported confidence is deliberately
+ * NOT part of this shape: the server strips it before responding (it is retained
+ * internally for eval/triage only, per 50.H1), so it can never reach the UI.
+ */
+export interface AuditSample {
+  carbs_low: number | null;
+  carbs_high: number | null;
+  identity: string | null;
+  parse_ok: boolean;
+}
+
+/**
+ * The empirical dispersion summary in the audit trail (Story 50.H3). Mirrors the
+ * server `AuditDispersion`. `confidence` is the EMPIRICAL dispersion band, never
+ * the model's self-reported confidence -- low dispersion is consistency, not
+ * correctness, so it is provenance, not a dose signal.
+ */
+export interface AuditDispersion {
+  confidence: string | null;
+  coefficient_of_variation: number | null;
+  samples_requested: number | null;
+  samples_used: number | null;
+  identity_agreement: boolean | null;
+  distinct_identities: string[];
+  wide_spread: boolean | null;
+}
+
+/**
+ * The precedence decision recorded for an estimate (Story 50.H2/H3). Mirrors the
+ * server precedence payload built by `services.meal_audit`: which source won (or
+ * vision-only), the identity it was keyed on, and the ladder AS IT STOOD when the
+ * decision was made (recorded per-row so the audit reads the ordering that
+ * actually applied). Descriptive provenance only -- never a dose.
+ */
+export interface AuditPrecedence {
+  outcome: string;
+  chosen_source: string | null;
+  trust_tier: string | null;
+  source_url: string | null;
+  identity_used: string | null;
+  identity_confirmed: boolean;
+  reason: string | null;
+  ladder: string[];
+}
+
+/**
+ * The "how was this estimated" provenance trail for a food record (Story 50.H3).
+ * Mirrors the server `FoodRecordAuditResponse`: the raw per-sample vision reads,
+ * the empirical dispersion summary, and the precedence decision. Descriptive
+ * only; nothing here is read by dosing math.
+ */
+export interface FoodRecordAudit {
+  food_record_id: string;
+  samples: AuditSample[];
+  dispersion: AuditDispersion | null;
+  precedence: AuditPrecedence | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
  * A food-records API failure that preserves the HTTP status and the server's
  * `detail` string, so callers can map it to the right UX state (feature off,
  * no provider, vision unavailable, ...) -- mirroring the mobile client's
@@ -4348,6 +4410,29 @@ export async function listFoodRecords(
 export async function getFoodRecord(recordId: string): Promise<FoodRecord> {
   const response = await apiFetch(
     `${API_BASE_URL}/api/food-records/${encodeURIComponent(recordId)}`
+  );
+  if (!response.ok) {
+    await _throwMealError(response);
+  }
+  return response.json();
+}
+
+/**
+ * Fetch a record's "how was this estimated" provenance trail (Story 50.H3).
+ *
+ * Owner-scoped and IDOR-safe server-side: the record must belong to the caller
+ * and the audit row is itself scoped by user id, so a cross-user id yields a 404
+ * (never another user's samples). A 404 can also mean a record simply has no
+ * stored audit (e.g. created before retention), which the caller renders as a
+ * benign "provenance unavailable" state rather than an error. Throws
+ * `MealApiError` carrying the status so callers can tell 404 from a transient
+ * failure.
+ */
+export async function getFoodRecordAudit(
+  recordId: string
+): Promise<FoodRecordAudit> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/food-records/${encodeURIComponent(recordId)}/audit`
   );
   if (!response.ok) {
     await _throwMealError(response);

@@ -60,14 +60,17 @@ export function IdentityConfirmedBadge() {
 export function MealSafetyQualifier({
   qualifier,
   className = "",
+  testId = "meal-safety-qualifier",
 }: {
   qualifier: string;
   className?: string;
+  /** Override when more than one qualifier can render on a page (avoids a duplicate testid). */
+  testId?: string;
 }) {
   return (
     <div
       role="note"
-      data-testid="meal-safety-qualifier"
+      data-testid={testId}
       className={`flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300 ${className}`}
     >
       <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
@@ -191,6 +194,70 @@ export function MealNutritionDisclaimer({ disclaimer }: { disclaimer: string }) 
 }
 
 /**
+ * The blue "grounded against {source}" attribution note: the bold source name,
+ * an optional trust tier, and a safe outbound link to the source. The single
+ * source of truth for this citation markup -- both the detail card's grounding
+ * status and the audit panel's "how this was grounded" line render through it, so
+ * the safe-URL guard, the outbound-link attributes, and the accessible label can
+ * never drift between the two surfaces. The lead-in `label` and `linkLabel` vary
+ * by surface; the box itself does not. Only ever rendered for a grounded record.
+ */
+export function GroundedSourceNote({
+  record,
+  label,
+  linkLabel = "source",
+  showTrustTier = false,
+  testId,
+  linkTestId,
+}: {
+  record: FoodRecord;
+  /** Lead-in before the source name, e.g. "Grounded against" / "Checked against". */
+  label: string;
+  /** Visible text of the outbound link. */
+  linkLabel?: string;
+  /** Append the (cleared) trust tier as "(authoritative source)". */
+  showTrustTier?: boolean;
+  testId: string;
+  linkTestId: string;
+}) {
+  return (
+    <div
+      role="note"
+      data-testid={testId}
+      className="flex items-start gap-2 rounded-lg border border-blue-500/30 bg-blue-500/5 dark:bg-blue-500/10 px-3 py-2 text-xs text-slate-600 dark:text-slate-300"
+    >
+      <BadgeCheck className="h-4 w-4 flex-shrink-0 mt-0.5 text-blue-600 dark:text-blue-400" />
+      <span>
+        {label}{" "}
+        <span className="font-medium text-slate-900 dark:text-white">
+          {record.grounding_source}
+        </span>
+        {showTrustTier && record.grounding_trust_tier && (
+          <> ({record.grounding_trust_tier.toLowerCase()} source)</>
+        )}
+        {isSafeHttpUrl(record.grounding_source_url) && (
+          <>
+            {" — "}
+            <a
+              href={record.grounding_source_url!}
+              target="_blank"
+              rel="noopener noreferrer"
+              data-testid={linkTestId}
+              aria-label={`View ${record.grounding_source} source (opens in a new window)`}
+              className="inline-flex items-center gap-0.5 text-blue-600 dark:text-blue-400 hover:underline"
+            >
+              {linkLabel}
+              <ExternalLink className="h-3 w-3" />
+            </a>
+          </>
+        )}
+        .
+      </span>
+    </div>
+  );
+}
+
+/**
  * Grounding status for the carb estimate (Story 50.H2/E1). Confirming the food's
  * identity opens the grounding gate, so an unconfirmed record is "vision-only --
  * not checked against an external source"; once a source grounds it, the
@@ -200,36 +267,12 @@ export function MealNutritionDisclaimer({ disclaimer }: { disclaimer: string }) 
 export function MealGroundingStatus({ record }: { record: FoodRecord }) {
   if (isGrounded(record)) {
     return (
-      <div
-        role="note"
-        data-testid="meal-grounding-grounded"
-        className="flex items-start gap-2 rounded-lg border border-blue-500/30 bg-blue-500/5 dark:bg-blue-500/10 px-3 py-2 text-xs text-slate-600 dark:text-slate-300"
-      >
-        <BadgeCheck className="h-4 w-4 flex-shrink-0 mt-0.5 text-blue-600 dark:text-blue-400" />
-        <span>
-          Grounded against{" "}
-          <span className="font-medium text-slate-900 dark:text-white">
-            {record.grounding_source}
-          </span>
-          {isSafeHttpUrl(record.grounding_source_url) && (
-            <>
-              {" "}
-              <a
-                href={record.grounding_source_url!}
-                target="_blank"
-                rel="noopener noreferrer"
-                data-testid="meal-grounding-link"
-                aria-label={`View ${record.grounding_source} source (opens in a new window)`}
-                className="inline-flex items-center gap-0.5 text-blue-600 dark:text-blue-400 hover:underline"
-              >
-                source
-                <ExternalLink className="h-3 w-3" />
-              </a>
-            </>
-          )}
-          .
-        </span>
-      </div>
+      <GroundedSourceNote
+        record={record}
+        label="Grounded against"
+        testId="meal-grounding-grounded"
+        linkTestId="meal-grounding-link"
+      />
     );
   }
 

@@ -5,6 +5,7 @@
 import {
   effectiveCarbRange,
   formatCarbRange,
+  formatCoefficientOfVariation,
   confidenceLabel,
   sourceMeta,
   mealTitle,
@@ -60,6 +61,31 @@ describe("formatCarbRange", () => {
 
   it("rounds to whole grams (no false precision)", () => {
     expect(formatCarbRange(40.6, 54.5)).toBe("≈ 41–55 g carbs");
+  });
+});
+
+describe("formatCoefficientOfVariation", () => {
+  it("renders a fraction as a whole-percent spread", () => {
+    expect(formatCoefficientOfVariation(0.123)).toBe("12%");
+  });
+
+  it("rounds to the nearest whole percent (no false precision)", () => {
+    expect(formatCoefficientOfVariation(0.156)).toBe("16%");
+  });
+
+  it("renders zero spread as 0%", () => {
+    expect(formatCoefficientOfVariation(0)).toBe("0%");
+  });
+
+  it("returns null when no CV was recorded", () => {
+    expect(formatCoefficientOfVariation(null)).toBeNull();
+    expect(formatCoefficientOfVariation(undefined)).toBeNull();
+    expect(formatCoefficientOfVariation(NaN)).toBeNull();
+  });
+
+  it("returns null for a non-finite CV (zero-mean degenerate case)", () => {
+    expect(formatCoefficientOfVariation(Infinity)).toBeNull();
+    expect(formatCoefficientOfVariation(-Infinity)).toBeNull();
   });
 });
 
