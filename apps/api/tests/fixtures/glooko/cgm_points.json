@@ -2,9 +2,10 @@
   {"x": 1685577728, "y": 204, "value": 20400, "mealTag": "none", "timestamp": "2023-06-01T00:02:08.000Z", "calculated": false},
   {"x": 1685584628, "y": 180, "value": 18000, "mealTag": "none", "timestamp": "2023-06-01T01:57:08.000Z", "calculated": false},
   {"x": 1685688433, "y": 69, "value": 6900, "mealTag": "none", "timestamp": "2023-06-02T06:47:13.000Z", "calculated": false},
-  {"x": 1685688733, "y": 700, "value": 70000, "mealTag": "none", "timestamp": "2023-06-02T06:52:13.000Z", "calculated": false},
+  {"x": 1685688733, "y": 19, "value": 1900, "mealTag": "none", "timestamp": "2023-06-02T06:52:13.000Z", "calculated": false},
   {"x": 1685688999, "y": null, "value": null, "mealTag": "none", "timestamp": "2023-06-02T06:56:39.000Z", "calculated": true},
-  {"x": 1685689200, "y": 10, "value": 1000, "mealTag": "none", "timestamp": "2023-06-02T07:00:00.000Z", "calculated": false},
-  {"x": 1685689500, "y": 600, "value": 60000, "mealTag": "none", "timestamp": "2023-06-02T07:05:00.000Z", "calculated": false},
-  {"x": 1685689800, "y": 9, "value": 900, "mealTag": "none", "timestamp": "2023-06-02T07:10:00.000Z", "calculated": false}
+  {"x": 1685689200, "y": 20, "value": 2000, "mealTag": "none", "timestamp": "2023-06-02T07:00:00.000Z", "calculated": false},
+  {"x": 1685689500, "y": 500, "value": 50000, "mealTag": "none", "timestamp": "2023-06-02T07:05:00.000Z", "calculated": false},
+  {"x": 1685689800, "y": 501, "value": 50100, "mealTag": "none", "timestamp": "2023-06-02T07:10:00.000Z", "calculated": false},
+  {"x": 1685690100, "y": 700, "value": 70000, "mealTag": "none", "timestamp": "2023-06-02T07:15:00.000Z", "calculated": false}
 ]

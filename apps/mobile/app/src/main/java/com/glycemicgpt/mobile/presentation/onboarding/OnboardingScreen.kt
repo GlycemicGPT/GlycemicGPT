@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.LocalHospital
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Security
@@ -443,6 +444,17 @@ private fun DisclaimerPage() {
             icon = Icons.Default.Psychology,
             title = "AI Limitations",
             description = "AI can hallucinate, misinterpret data, and provide outdated or incorrect information. Never rely solely on AI suggestions.",
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Story 50.S: consent must explicitly cover photo carb estimation, the
+        // only AI-vision feature, and name the prohibited action. Mirrors the
+        // server disclaimer's "Photo Carb Estimates Are Guesses" warning.
+        DisclaimerCard(
+            icon = Icons.Default.PhotoCamera,
+            title = "Photo Carb Estimates Are Guesses",
+            description = "If you use the meal-photo feature, the carb numbers are AI estimates from an image and are frequently wrong, including misidentifying the food entirely. Never use a photo carb estimate to calculate an insulin dose or bolus. Always verify carbs yourself before dosing.",
         )
 
         Spacer(modifier = Modifier.height(8.dp))

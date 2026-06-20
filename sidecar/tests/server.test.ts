@@ -4,8 +4,13 @@
  * Uses direct function calls against the app (no HTTP server needed).
  */
 
-import { describe, it, expect, vi, beforeAll } from "vitest";
+import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from "vitest";
 import express from "express";
+import { InvalidImageError } from "../src/providers/image-utils.js";
+
+// The unauthenticated suite below requires no key in the environment; a
+// developer's exported SIDECAR_API_KEY would otherwise 401 every request.
+delete process.env.SIDECAR_API_KEY;
 
 // Mock singleton providers
 const mockClaudeComplete = vi.fn().mockResolvedValue({
@@ -30,17 +35,41 @@ const mockCodexCheckAuth = vi.fn().mockResolvedValue({
   provider: "codex",
   message: "No Codex authentication found",
 });
+// Vision runners: anthropicVision (API key), claude (subscription CLI), codex (CLI).
+const mockVisionSupports = vi.fn().mockReturnValue(true);
+const mockVisionComplete = vi.fn().mockResolvedValue({
+  content: '{"carbs_grams_low": 40, "carbs_grams_high": 55, "confidence": "medium"}',
+  model: "claude-sonnet-4-5-20250929",
+});
+const mockClaudeSupportsVision = vi.fn().mockReturnValue(true);
+const mockClaudeCompleteVision = vi.fn().mockResolvedValue({
+  content: '{"carbs_grams_low": 10, "carbs_grams_high": 20, "confidence": "low"}',
+  model: "claude-sonnet",
+});
+const mockCodexSupportsVision = vi.fn().mockReturnValue(false);
+const mockCodexCompleteVision = vi.fn().mockResolvedValue({
+  content: '{"carbs_grams_low": 5, "carbs_grams_high": 15, "confidence": "low"}',
+  model: "gpt-4o",
+});
 
 vi.mock("../src/providers/index.js", () => ({
   claude: {
     checkAuth: mockClaudeCheckAuth,
     complete: mockClaudeComplete,
     stream: mockClaudeStream,
+    supportsVision: mockClaudeSupportsVision,
+    completeVision: mockClaudeCompleteVision,
   },
   codex: {
     checkAuth: mockCodexCheckAuth,
     complete: vi.fn(),
     stream: vi.fn(),
+    supportsVision: mockCodexSupportsVision,
+    completeVision: mockCodexCompleteVision,
+  },
+  anthropicVision: {
+    supportsVision: mockVisionSupports,
+    completeVision: mockVisionComplete,
   },
 }));
 
@@ -65,6 +94,7 @@ async function injectRequest(
   method: "get" | "post",
   path: string,
   body?: unknown,
+  extraHeaders?: Record<string, string>,
 ): Promise<{ status: number; body: unknown; headers: Record<string, string> }> {
   return new Promise((resolve) => {
     const req = {
@@ -72,7 +102,11 @@ async function injectRequest(
       url: path,
       path,
       ip: "127.0.0.1",
-      headers: { "content-type": "application/json", host: "localhost:3456" },
+      headers: {
+        "content-type": "application/json",
+        host: "localhost:3456",
+        ...extraHeaders,
+      },
       params: {},
       body,
       get: () => undefined,
@@ -193,6 +227,128 @@ describe("Server endpoints", () => {
       const sseData = result.body as string;
       expect(sseData).toContain("data:");
       expect(sseData).toContain("[DONE]");
+    });
+  });
+
+  describe("POST /v1/chat/completions (vision routing)", () => {
+    const PNG_DATA_URL =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWqM7HQAAAABJRU5ErkJggg==";
+
+    const imageRequest = (model?: string) => ({
+      ...(model ? { model } : {}),
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "image_url", image_url: { url: PNG_DATA_URL } },
+            { type: "text", text: "Estimate the carbs." },
+          ],
+        },
+      ],
+    });
+
+    beforeEach(() => {
+      mockVisionSupports.mockReturnValue(true);
+      mockClaudeSupportsVision.mockReturnValue(true);
+      mockCodexSupportsVision.mockReturnValue(false);
+      mockVisionComplete.mockClear();
+      mockClaudeCompleteVision.mockClear();
+      mockCodexCompleteVision.mockClear();
+      mockClaudeComplete.mockClear();
+    });
+
+    it("prefers the Anthropic API-key vision path for a Claude model", async () => {
+      const result = await injectRequest(app, "post", "/v1/chat/completions", imageRequest());
+      expect(result.status).toBe(200);
+      const body = result.body as { choices: Array<{ message: { content: string } }> };
+      expect(body.choices[0].message.content).toContain("carbs_grams_low");
+      expect(mockVisionComplete).toHaveBeenCalledTimes(1);
+      expect(mockClaudeCompleteVision).not.toHaveBeenCalled();
+      expect(mockClaudeComplete).not.toHaveBeenCalled();
+    });
+
+    it("falls back to the Claude subscription CLI when no API key is configured", async () => {
+      mockVisionSupports.mockReturnValue(false); // no Anthropic API key
+      const result = await injectRequest(app, "post", "/v1/chat/completions", imageRequest());
+      expect(result.status).toBe(200);
+      expect(mockClaudeCompleteVision).toHaveBeenCalledTimes(1);
+      expect(mockVisionComplete).not.toHaveBeenCalled();
+    });
+
+    it("routes a Codex/GPT model image request to the Codex provider", async () => {
+      mockCodexSupportsVision.mockReturnValue(true);
+      const result = await injectRequest(app, "post", "/v1/chat/completions", imageRequest("gpt-4o"));
+      expect(result.status).toBe(200);
+      expect(mockCodexCompleteVision).toHaveBeenCalledTimes(1);
+      expect(mockVisionComplete).not.toHaveBeenCalled();
+      expect(mockClaudeCompleteVision).not.toHaveBeenCalled();
+    });
+
+    it("keeps text-only content arrays on the CLI text path", async () => {
+      const result = await injectRequest(app, "post", "/v1/chat/completions", {
+        messages: [{ role: "user", content: [{ type: "text", text: "Hello" }] }],
+      });
+      expect(result.status).toBe(200);
+      const body = result.body as { choices: Array<{ message: { content: string } }> };
+      expect(body.choices[0].message.content).toBe("Hello from Claude");
+      expect(mockVisionComplete).not.toHaveBeenCalled();
+    });
+
+    it("returns the 422 vision_unavailable fallback when no provider can do vision", async () => {
+      mockVisionSupports.mockReturnValue(false);
+      mockClaudeSupportsVision.mockReturnValue(false);
+      const result = await injectRequest(app, "post", "/v1/chat/completions", imageRequest());
+      expect(result.status).toBe(422);
+      const body = result.body as { error: { type: string; code: string } };
+      expect(body.error.type).toBe("vision_unavailable");
+      expect(body.error.code).toBe("vision_unavailable");
+    });
+
+    it("maps an invalid image to a 400 invalid_request_error", async () => {
+      mockVisionComplete.mockRejectedValueOnce(
+        new InvalidImageError("image_url must be a base64 data: URL"),
+      );
+      const result = await injectRequest(app, "post", "/v1/chat/completions", imageRequest());
+      expect(result.status).toBe(400);
+      const body = result.body as { error: { type: string } };
+      expect(body.error.type).toBe("invalid_request_error");
+    });
+
+    it("rejects a malformed image part before reaching the provider", async () => {
+      const result = await injectRequest(app, "post", "/v1/chat/completions", {
+        messages: [{ role: "user", content: [{ type: "image_url", image_url: {} }] }],
+      });
+      expect(result.status).toBe(400);
+      expect(mockVisionComplete).not.toHaveBeenCalled();
+    });
+
+    it("rejects an image on a non-user role", async () => {
+      const result = await injectRequest(app, "post", "/v1/chat/completions", {
+        messages: [
+          { role: "system", content: [{ type: "image_url", image_url: { url: PNG_DATA_URL } }] },
+        ],
+      });
+      expect(result.status).toBe(400);
+      const body = result.body as { error: { message: string } };
+      expect(body.error.message).toContain("only allowed on a user message");
+    });
+
+    it("rejects an empty content array", async () => {
+      const result = await injectRequest(app, "post", "/v1/chat/completions", {
+        messages: [{ role: "user", content: [] }],
+      });
+      expect(result.status).toBe(400);
+    });
+
+    it("returns 400 (not 422) for a malformed image even when no runner exists", async () => {
+      mockVisionSupports.mockReturnValue(false);
+      mockClaudeSupportsVision.mockReturnValue(false);
+      const result = await injectRequest(app, "post", "/v1/chat/completions", {
+        messages: [
+          { role: "user", content: [{ type: "image_url", image_url: { url: "data:image/png;base64,abc" } }] },
+        ],
+      });
+      expect(result.status).toBe(400); // image validation happens before runner selection
     });
   });
 
@@ -326,5 +482,61 @@ describe("Server endpoints", () => {
       expect(result.headers["x-content-type-options"]).toBe("nosniff");
       expect(result.headers["x-frame-options"]).toBe("DENY");
     });
+  });
+});
+
+describe("Bearer authentication (SIDECAR_API_KEY set)", () => {
+  let authedApp: express.Express;
+  const TEST_KEY = "test-sidecar-key";
+
+  beforeAll(async () => {
+    vi.resetModules();
+    vi.stubEnv("SIDECAR_API_KEY", TEST_KEY);
+    const mod = await import("../src/server.js");
+    authedApp = mod.app;
+  });
+
+  afterAll(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("rejects requests without an Authorization header", async () => {
+    const result = await injectRequest(authedApp, "get", "/v1/models");
+    expect(result.status).toBe(401);
+    const body = result.body as { error: { type: string } };
+    expect(body.error.type).toBe("authentication_error");
+  });
+
+  it("rejects requests with a wrong bearer token", async () => {
+    const result = await injectRequest(authedApp, "get", "/v1/models", undefined, {
+      authorization: "Bearer wrong-key",
+    });
+    expect(result.status).toBe(401);
+  });
+
+  it("rejects a token of different length without throwing", async () => {
+    const result = await injectRequest(authedApp, "get", "/v1/models", undefined, {
+      authorization: `Bearer ${TEST_KEY}-and-more`,
+    });
+    expect(result.status).toBe(401);
+  });
+
+  it("accepts requests with the correct bearer token", async () => {
+    const result = await injectRequest(authedApp, "get", "/v1/models", undefined, {
+      authorization: `Bearer ${TEST_KEY}`,
+    });
+    expect(result.status).toBe(200);
+  });
+
+  it("rejects auth-route requests without a token", async () => {
+    const result = await injectRequest(authedApp, "post", "/auth/revoke", {
+      provider: "claude",
+    });
+    expect(result.status).toBe(401);
+  });
+
+  it("leaves /health reachable without a token (Docker healthcheck)", async () => {
+    const result = await injectRequest(authedApp, "get", "/health");
+    expect(result.status).toBe(200);
   });
 });

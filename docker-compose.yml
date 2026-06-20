@@ -9,7 +9,9 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      # Loopback-only: reachable from host dev tools, never from the LAN.
+      # Override the bind host via env if you need remote access.
+      - "${DB_BIND_HOST:-127.0.0.1}:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-glycemicgpt}"]
       interval: 10s
@@ -19,12 +21,21 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    # Optional auth (off by default for local dev). Set REDIS_PASSWORD to
+    # require it; mirrors docker-compose.prod.yml.
+    command: >
+      sh -c '[ -n "$$REDIS_PASSWORD" ] && exec redis-server --requirepass "$$REDIS_PASSWORD" || exec redis-server'
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
     ports:
-      - "6379:6379"
+      # Loopback-only: reachable from host dev tools, never from the LAN.
+      - "${REDIS_BIND_HOST:-127.0.0.1}:6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      # Only authenticate when a password is set; an empty REDISCLI_AUTH makes
+      # redis-cli attempt AUTH against a passwordless server (noisy stderr).
+      test: ["CMD-SHELL", "if [ -n \"$$REDIS_PASSWORD\" ]; then export REDISCLI_AUTH=\"$$REDIS_PASSWORD\"; fi; redis-cli ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -40,6 +51,10 @@ services:
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       SIDECAR_API_KEY: ${SIDECAR_API_KEY:-}
+      # Dev-only escape hatch: lets the sidecar start with an empty key since
+      # it is not published to the host here. Production templates require a
+      # key; setting SIDECAR_API_KEY above enforces auth regardless of this.
+      SIDECAR_ALLOW_UNAUTHENTICATED: ${SIDECAR_ALLOW_UNAUTHENTICATED:-true}
       # Sentry error monitoring (own project) -- empty default = disabled.
       # Runtime-only; never baked into the image (see PRIVACY.md).
       GLYCEMICGPT_SIDECAR_SENTRY_DSN: ${GLYCEMICGPT_SIDECAR_SENTRY_DSN:-}
@@ -67,19 +82,26 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-glycemicgpt}:${POSTGRES_PASSWORD:-glycemicgpt}@db:5432/${POSTGRES_DB:-glycemicgpt}
-      REDIS_URL: redis://redis:6379/0
+      # When REDIS_PASSWORD is set, override REDIS_URL in .env:
+      # REDIS_URL=redis://:<your-redis-password>@redis:6379/0
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       LOG_FORMAT: ${LOG_FORMAT:-json}
       SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
       AI_SIDECAR_URL: http://ai-sidecar:3456
       AI_SIDECAR_API_KEY: ${SIDECAR_API_KEY:-}
       CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:3000"]}
       FASTEMBED_CACHE_PATH: /app/.cache/fastembed
+      # Meal-photo carb estimation -- BETA, off by default. Requires a
+      # vision-capable AI provider.
+      MEAL_INTELLIGENCE_ENABLED: ${MEAL_INTELLIGENCE_ENABLED:-false}
       # Sentry error monitoring (Sentry for Good) -- empty default = disabled.
       # Set only in the project's own dev/CI/staging; never in a distributed build.
       GLYCEMICGPT_SENTRY_DSN: ${GLYCEMICGPT_SENTRY_DSN:-}
       GLYCEMICGPT_SENTRY_ENVIRONMENT: ${GLYCEMICGPT_SENTRY_ENVIRONMENT:-development}
     volumes:
       - embedding_cache:/app/.cache/fastembed
+      # Private, owner-scoped meal-photo storage. Never web-served.
+      - food_uploads:/uploads
     depends_on:
       db:
         condition: service_healthy
@@ -123,3 +145,4 @@ volumes:
   sidecar_auth:
   sidecar_codex:
   embedding_cache:
+  food_uploads:

@@ -1,18 +1,28 @@
 """Persist mapped Glooko records into glucose_readings + pump_events. Idempotent.
 
-Conflict targets match the existing per-source dedupe indexes so overlapping
+Conflict handling matches the existing per-source dedupe indexes so overlapping
 continuous-sync and one-time-import windows are safe to re-run:
 
 - glucose:   ``ON CONFLICT (user_id, reading_timestamp) DO NOTHING`` (graph/data
              CGM points carry no per-reading id, so the timestamp is the key).
-- pump events that carry a Glooko ``guid``: ``ON CONFLICT (source, ns_id) WHERE
-             ns_id IS NOT NULL DO NOTHING`` -- ``ns_id`` = the stable ``guid``, so
-             two boluses in the same second never collide (the natural-key index
-             would have dropped one). Any event without a guid falls back to the
-             ``(user_id, event_timestamp, event_type) WHERE ns_id IS NULL`` index.
+- pump events: a *bare* ``ON CONFLICT DO NOTHING`` (no explicit target) so a row
+             is arbitrated against whichever of the three partial unique indexes
+             it violates: ``(source, ns_id) WHERE ns_id IS NOT NULL`` (a Glooko
+             ``guid`` re-sync), ``(user_id, event_timestamp, event_type) WHERE
+             ns_id IS NULL`` (a guid-less event re-sync), and the cross-source
+             ``(user_id, dedupe_hash) WHERE dedupe_hash IS NOT NULL`` (Story
+             43.11 -- the same physical dose typed into Glooko AND logged via
+             Nightscout careportal collapses to one row instead of double-
+             counting in IoB / TDD). A *targeted* clause would arbitrate only its
+             named index and raise unique_violation on the others, so the bare
+             form is required now that a row can violate more than one index --
+             same mechanism Tandem sync, mobile push, and the Nightscout
+             translator use.
 
-Rows are de-duplicated on those keys within each batch first so a single
-multi-row INSERT can't hit an intra-statement conflict.
+Rows are de-duplicated on the guid / natural keys within each batch first so a
+single multi-row INSERT can't hit an intra-statement conflict; Postgres also
+collapses remaining within-statement duplicates (incl. dedupe-hash near-matches)
+under DO NOTHING.
 
 Timestamps must already be tz-aware UTC (the mapper resolves the pump local-time
 + offset footgun); we coerce to UTC defensively and refuse naive values rather
@@ -25,12 +35,12 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.glucose import GlucoseReading, TrendDirection
 from src.models.pump_data import PumpEvent
+from src.services.pump_event_dedupe import compute_pump_event_dedupe_hash
 
 from .mapper import MappedRecords
 
@@ -120,21 +130,34 @@ async def store_glooko_records(
             "received_at": now,
             "source": e.source,
             "ns_id": e.ns_id,
+            # Cross-source dedupe key (Story 43.11): a dose typed into Glooko
+            # collapses against the same physical dose relayed via Nightscout
+            # careportal / a direct integration. The helper returns None for
+            # non-delivery events (suspend/resume, reservoir/battery telemetry),
+            # so only BOLUS/CORRECTION/BASAL rows participate in the index.
+            "dedupe_hash": compute_pump_event_dedupe_hash(
+                user_id=user_id,
+                event_type=e.event_type,
+                event_timestamp=ts,
+                units=e.units,
+                duration_minutes=e.duration_minutes,
+            ),
         }
         if e.ns_id:
             with_guid.setdefault(e.ns_id, row)
         else:
             without_guid.setdefault((ts, e.event_type), row)
 
+    # Bare ON CONFLICT DO NOTHING for both batches (see module docstring): a row
+    # may now violate the (source, ns_id), natural-key, OR (user_id, dedupe_hash)
+    # partial unique index, and only the untargeted form skips a conflict on any
+    # of them rather than raising unique_violation on the unnamed ones.
     guid_rows = list(with_guid.values())
     for start in range(0, len(guid_rows), _CHUNK):
         stmt = (
             insert(PumpEvent)
             .values(guid_rows[start : start + _CHUNK])
-            .on_conflict_do_nothing(
-                index_elements=["source", "ns_id"],
-                index_where=text("ns_id IS NOT NULL"),
-            )
+            .on_conflict_do_nothing()
             .returning(PumpEvent.id)
         )
         res = await db.execute(stmt)
@@ -145,10 +168,7 @@ async def store_glooko_records(
         stmt = (
             insert(PumpEvent)
             .values(natural_rows[start : start + _CHUNK])
-            .on_conflict_do_nothing(
-                index_elements=["user_id", "event_timestamp", "event_type"],
-                index_where=text("ns_id IS NULL"),
-            )
+            .on_conflict_do_nothing()
             .returning(PumpEvent.id)
         )
         res = await db.execute(stmt)

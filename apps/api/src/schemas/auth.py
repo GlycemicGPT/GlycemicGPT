@@ -7,8 +7,9 @@ import re
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
+from src.core.disclaimer import has_acknowledged_current
 from src.models.user import UserRole
 
 
@@ -67,7 +68,20 @@ class UserResponse(BaseModel):
     is_active: bool
     email_verified: bool
     disclaimer_acknowledged: bool
+    disclaimer_version: str | None = None
     created_at: datetime
+
+    @model_validator(mode="after")
+    def _gate_acknowledged_on_version(self) -> "UserResponse":
+        """Report ``disclaimer_acknowledged`` as version-aware.
+
+        A stored acknowledgment for an older disclaimer version reads as
+        not-acknowledged, so clients that gate on this field (the web
+        AuthDisclaimerGate) re-prompt on a version bump without needing to know
+        the current version themselves.
+        """
+        self.disclaimer_acknowledged = has_acknowledged_current(self)
+        return self
 
 
 class ErrorResponse(BaseModel):

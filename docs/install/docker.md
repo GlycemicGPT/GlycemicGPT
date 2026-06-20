@@ -97,6 +97,7 @@ Most of GlycemicGPT's behavior is controlled by environment variables in the `.e
 - **`SECRET_KEY`** -- Used to sign authentication tokens. Generate a new value with `openssl rand -hex 32`.
 - **`POSTGRES_PASSWORD`** -- Database password. Generate a new value with `openssl rand -hex 32`.
 - **`REDIS_PASSWORD`** -- Redis password (the public-cloud example requires one). Generate with `openssl rand -hex 32`.
+- **`SIDECAR_API_KEY`** -- Shared key authenticating the API to the AI sidecar. The production templates require it and the sidecar refuses to start without one. Generate with `openssl rand -hex 32`.
 - **`COOKIE_SECURE`** -- Set to `true` when your platform is served over HTTPS. **Set to `false` if you are serving over plain `http://` from a non-localhost address (e.g. a LAN IP)** — otherwise browsers silently drop the session cookie and login appears to succeed but the dashboard bounces back to `/login`. See [Troubleshooting](#troubleshooting) below.
 - **`CORS_ORIGINS`** -- A list of URLs where your dashboard will be served from. The public-cloud example sets this automatically from your `DOMAIN`.
 
@@ -331,6 +332,7 @@ Open `.env` in your editor and fill in:
 | `POSTGRES_PASSWORD` | Run `openssl rand -hex 32` in a terminal, paste output |
 | `REDIS_PASSWORD` | Run `openssl rand -hex 32`, paste output |
 | `SECRET_KEY` | Run `openssl rand -hex 32`, paste output |
+| `SIDECAR_API_KEY` | Run `openssl rand -hex 32`, paste output -- the AI sidecar refuses to start without it |
 | `CORS_ORIGINS` | `["https://glycemicgpt.yourdomain.com"]` (the public hostname you set in step 4) |
 
 ### 6. Start everything
@@ -450,6 +452,7 @@ Edit `.env` and set:
 | `POSTGRES_PASSWORD` | Run `openssl rand -hex 32`, paste output |
 | `REDIS_PASSWORD` | Run `openssl rand -hex 32`, paste output |
 | `SECRET_KEY` | Run `openssl rand -hex 32`, paste output |
+| `SIDECAR_API_KEY` | Run `openssl rand -hex 32`, paste output -- the AI sidecar refuses to start without it |
 
 Leave the other variables at their defaults.
 

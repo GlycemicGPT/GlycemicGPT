@@ -1157,6 +1157,83 @@ class TestAdversarialRegressions:
         assert t.semantic_kind == "bolus"
 
 
+class TestBasalInjectionClassification:
+    """MDI long-acting (basal) pen injection detection (issue #728).
+
+    A long-acting dose must route to `basal_injection` (kept out of rapid IoB),
+    NOT fall through to the `has_insulin -> bolus` default. The detection is
+    conservative: only an explicit long-acting `insulinType` triggers it, so
+    rapid/automated insulin is never misclassified (which would drop it from
+    active-insulin math -- unsafe).
+    """
+
+    def _t(self, **kwargs):
+        base = {"insulin": 18.0, "created_at": "2026-05-06T07:00:00Z"}
+        base.update(kwargs)
+        return NightscoutTreatment.model_validate(base)
+
+    def test_insulin_type_basal_category_is_basal_injection(self):
+        t = self._t(insulinType="basal")
+        assert t.is_basal_injection is True
+        assert t.semantic_kind == "basal_injection"
+
+    def test_long_acting_product_name_is_basal_injection(self):
+        # Product names (with qualifiers) resolve via substring match.
+        for name in ("Lantus", "Tresiba", "insulin glargine u-300", "Levemir"):
+            t = self._t(insulinType=name)
+            assert t.is_basal_injection is True, name
+            assert t.semantic_kind == "basal_injection", name
+
+    def test_external_insulin_with_basal_type_is_basal_injection(self):
+        t = self._t(eventType="External Insulin", insulinType="basal")
+        assert t.semantic_kind == "basal_injection"
+
+    def test_rapid_insulin_type_stays_bolus(self):
+        # Humalog/Fiasp are rapid-acting -- must NOT become basal_injection.
+        for name in ("Humalog", "Fiasp", "NovoRapid"):
+            t = self._t(insulinType=name)
+            assert t.is_basal_injection is False, name
+            assert t.semantic_kind == "bolus", name
+
+    def test_no_insulin_type_stays_bolus(self):
+        t = self._t()  # insulin present, no insulinType
+        assert t.is_basal_injection is False
+        assert t.semantic_kind == "bolus"
+
+    def test_intermediate_nph_not_reclassified(self):
+        # "intermediate" (NPH) is ambiguous -- deliberately left as bolus
+        # rather than risk dropping it from rapid IoB.
+        t = self._t(insulinType="intermediate")
+        assert t.is_basal_injection is False
+        assert t.semantic_kind == "bolus"
+
+    def test_aaps_smb_never_basal_injection(self):
+        # AAPS SMB is automated rapid insulin (type=SMB). isBasalInsulin must
+        # NOT pull it into basal_injection -- that would under-count active IoB.
+        t = self._t(
+            eventType="Correction Bolus",
+            insulin=0.3,
+            type="SMB",
+            isBasalInsulin=False,
+        )
+        assert t.is_basal_injection is False
+        assert t.is_smb is True
+        assert t.semantic_kind == "bolus"
+
+    def test_zero_insulin_basal_type_not_injection(self):
+        # No actual insulin delivered -> nothing to record.
+        t = self._t(insulin=0, insulinType="basal")
+        assert t.is_basal_injection is False
+
+    def test_carbs_plus_long_acting_routes_to_basal_injection_not_meal_pair(self):
+        # A (pathological) carbs + long-acting record must NOT split into a rapid
+        # meal bolus -- the long-acting classification wins so the dose stays out
+        # of rapid IoB.
+        t = self._t(insulinType="Tresiba", carbs=30)
+        assert t.is_basal_injection is True
+        assert t.semantic_kind == "basal_injection"
+
+
 # ---------------------------------------------------------------------------
 # Fixture invariants -- meta-finding from the adversarial review
 # ---------------------------------------------------------------------------

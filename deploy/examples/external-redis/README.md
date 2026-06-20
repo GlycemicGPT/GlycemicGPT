@@ -27,6 +27,7 @@ Set:
 | `REDIS_URL` | A full URL pointing at your Redis or Valkey instance, with auth if required. Examples: `redis://:yourpassword@valkey.example.com:6379/0` (single-instance with password) or `redis://valkey.cache.svc.cluster.local:6379/2` (in-cluster Valkey on a specific database number) |
 | `POSTGRES_PASSWORD` | A strong password (run `openssl rand -hex 32`) |
 | `SECRET_KEY` | Generate with `openssl rand -hex 32` |
+| `SIDECAR_API_KEY` | Generate with `openssl rand -hex 32` -- the AI sidecar refuses to start without it |
 
 ### 2. Start the stack
 

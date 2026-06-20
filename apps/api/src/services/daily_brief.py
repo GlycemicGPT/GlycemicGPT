@@ -3,16 +3,26 @@
 Aggregates glucose and pump data, generates AI-powered analysis briefs.
 """
 
-from datetime import UTC, datetime, timedelta
+import asyncio
+import uuid
+from datetime import UTC, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.config import settings
+from src.database import get_session_maker
 from src.logging_config import get_logger
+from src.models.brief_delivery_config import BriefDeliveryConfig
 from src.models.daily_brief import DailyBrief
 from src.models.glucose import GlucoseReading
-from src.models.pump_data import PumpEvent, PumpEventType
+from src.models.pump_data import (
+    MAX_BASAL_INJECTION_UNITS,
+    PumpEvent,
+    PumpEventType,
+)
 from src.models.user import User
 from src.schemas.ai_response import AIMessage
 from src.schemas.daily_brief import DailyBriefMetrics, InsulinBreakdown
@@ -24,8 +34,10 @@ from src.services.cgm_source import (
 )
 from src.services.diabetes_context import (
     format_iob_for_prompt,
+    format_meals_for_brief,
     format_pump_profile_for_prompt,
     get_pump_profile_summary,
+    verify_meal_citations,
 )
 from src.services.safety_validation import log_safety_validation, validate_ai_suggestion
 
@@ -50,6 +62,9 @@ Guidelines:
 - When pump profile data is provided, reference the user's actual basal rates, \
 correction factors, and carb ratios when discussing patterns
 - When IoB data is provided, factor current insulin on board into your analysis
+- When logged meals are provided, you may reflect them back and ask how they \
+went, but treat the carb figures as rough estimates to verify -- never as \
+dosing inputs, and never suggest a dose for a meal
 - Use encouraging, non-judgmental language
 - Do NOT recommend specific insulin dose changes (that is for their endocrinologist)
 - Focus on actionable observations the user can discuss with their care team
@@ -62,6 +77,7 @@ def _build_analysis_prompt(
     hours: int,
     profile_context: str | None = None,
     iob_context: str | None = None,
+    meals_context: str | None = None,
 ) -> str:
     """Build the user prompt with glucose and pump metrics.
 
@@ -70,6 +86,9 @@ def _build_analysis_prompt(
         hours: Number of hours analyzed.
         profile_context: Optional pump profile text block.
         iob_context: Optional IoB text block.
+        meals_context: Optional logged-meals text block. Carries
+            the reflect-and-ask, never-dose-or-bolus framing; never a dosing
+            input.
 
     Returns:
         Formatted prompt string for the AI provider.
@@ -96,6 +115,11 @@ def _build_analysis_prompt(
             f"  - Auto-corrections (Control-IQ): {bd.auto_correction_count} ({bd.auto_correction_units:.1f}u)"
         )
         lines.append(f"  - Basal delivery (estimated): {bd.basal_units:.1f}u")
+        if bd.basal_injection_count:
+            lines.append(
+                f"  - Long-acting injections: {bd.basal_injection_count} "
+                f"({bd.basal_injection_units:.1f}u)"
+            )
     elif metrics.total_insulin is not None:
         lines.append(f"- Total insulin delivered: {metrics.total_insulin:.1f} units")
 
@@ -106,6 +130,10 @@ def _build_analysis_prompt(
     if iob_context:
         lines.append("")
         lines.append(iob_context)
+
+    if meals_context:
+        lines.append("")
+        lines.append(meals_context)
 
     lines.append("")
     lines.append(
@@ -271,8 +299,40 @@ async def calculate_metrics(
         duration_hours = min(duration_hours, 1.0)
         basal_units += rate * duration_hours
 
+    # Long-acting (basal) pen injections (MDI). Discrete injected amounts in
+    # units -- NOT a rate -- so they sum directly (no time integration). Counts
+    # toward basal for the therapy picture but kept as its own line. Bounded to
+    # the basal-injection limit (corrupt-record guard) -- the lower bolus bound
+    # would clip a legitimate large basal dose. Deduplicated by
+    # (event_timestamp, units) -- matching the `/insulin/summary` query -- so the
+    # same dose imported from both Glooko and Nightscout isn't double-counted in
+    # the total fed to the AI brief.
+    basal_inj_subq = (
+        select(PumpEvent.event_timestamp, PumpEvent.units)
+        .where(
+            PumpEvent.user_id == user_id,
+            PumpEvent.event_timestamp >= period_start,
+            PumpEvent.event_timestamp < period_end,
+            PumpEvent.event_type == PumpEventType.BASAL_INJECTION,
+            PumpEvent.units.is_not(None),
+            PumpEvent.units > 0,
+            PumpEvent.units <= MAX_BASAL_INJECTION_UNITS,
+        )
+        .group_by(PumpEvent.event_timestamp, PumpEvent.units)
+        .subquery()
+    )
+    basal_inj_result = await db.execute(
+        select(
+            func.count(basal_inj_subq.c.units),
+            func.coalesce(func.sum(basal_inj_subq.c.units), 0.0),
+        )
+    )
+    basal_inj_row = basal_inj_result.one()
+    basal_injection_count = basal_inj_row[0] or 0
+    basal_injection_units = float(basal_inj_row[1] or 0)
+
     total_bolus_corr = bolus_units + manual_corr_units + auto_corr_units
-    total_insulin = total_bolus_corr + basal_units
+    total_insulin = total_bolus_corr + basal_units + basal_injection_units
 
     breakdown = InsulinBreakdown(
         bolus_units=round(bolus_units, 1),
@@ -282,6 +342,8 @@ async def calculate_metrics(
         auto_correction_units=round(auto_corr_units, 1),
         auto_correction_count=auto_corr_count,
         basal_units=round(basal_units, 1),
+        basal_injection_units=round(basal_injection_units, 1),
+        basal_injection_count=basal_injection_count,
         total_units=round(total_insulin, 1),
     )
 
@@ -363,8 +425,25 @@ async def generate_daily_brief(
             exc_info=True,
         )
 
+    # Logged meals for the period -- gated on the meal-intelligence
+    # feature so the brief stays unchanged while the flag is off.
+    meals_context = None
+    if settings.meal_intelligence_enabled:
+        try:
+            meals_context = await format_meals_for_brief(
+                db, user.id, period_start, period_end
+            )
+        except Exception:
+            logger.warning(
+                "Failed to fetch logged meals for daily brief",
+                user_id=str(user.id),
+                exc_info=True,
+            )
+
     # Build prompt and generate
-    user_prompt = _build_analysis_prompt(metrics, hours, profile_context, iob_context)
+    user_prompt = _build_analysis_prompt(
+        metrics, hours, profile_context, iob_context, meals_context
+    )
 
     logger.info(
         "Generating daily brief",
@@ -378,8 +457,21 @@ async def generate_daily_brief(
         system_prompt=SYSTEM_PROMPT,
     )
 
+    # Verify any cited meal carb figure against the period's logged meals before
+    # the dosing-safety pass and storage. Anchor ``now`` to
+    # ``period_end`` so the time tokens match what the brief rendered.
+    verified_text = await verify_meal_citations(
+        db,
+        user.id,
+        ai_response.content,
+        surface="daily_brief",
+        window_start=period_start,
+        window_end=period_end,
+        now=period_end,
+    )
+
     # Safety validation (Story 5.6)
-    safety_result = validate_ai_suggestion(ai_response.content, "daily_brief")
+    safety_result = validate_ai_suggestion(verified_text, "daily_brief")
 
     # Store the brief with sanitized text
     brief = DailyBrief(
@@ -498,3 +590,165 @@ async def get_brief_by_id(
         )
 
     return brief
+
+
+# ── Scheduled auto-generation (issue #741) ──────────────────────────────────
+# Per-user in-process lock: the local-day existence check below is the real
+# idempotency guard; this just prevents a slow generation from overlapping the
+# next tick for the same user. A multi-replica deployment would instead need a
+# DB-level uniqueness constraint on (user, local day) -- single scheduler today.
+_brief_locks: dict[uuid.UUID, asyncio.Lock] = {}
+
+
+def _lock_for(user_id: uuid.UUID) -> asyncio.Lock:
+    lock = _brief_locks.get(user_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _brief_locks[user_id] = lock
+    return lock
+
+
+def _release_lock(user_id: uuid.UUID, lock: asyncio.Lock) -> None:
+    if not getattr(lock, "_waiters", None):
+        _brief_locks.pop(user_id, None)
+
+
+def _local_day_start_utc(now_utc: datetime, tz_name: str) -> tuple[datetime, datetime]:
+    """Return (now in the user's tz, UTC instant of the user's local midnight today)."""
+    tz = ZoneInfo(tz_name)
+    now_local = now_utc.astimezone(tz)
+    local_midnight = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+    return now_local, local_midnight.astimezone(UTC)
+
+
+def _brief_due(
+    *,
+    enabled: bool,
+    delivery_time: time,
+    now_local: datetime,
+    brief_exists_today: bool,
+) -> bool:
+    """Generate iff enabled, the local clock has reached delivery_time, and no
+    brief exists for the local day yet. The last condition gives both idempotency
+    and same-day catch-up (a restart after delivery_time still fires that day)."""
+    return enabled and not brief_exists_today and now_local.time() >= delivery_time
+
+
+async def _has_brief_for_local_day(
+    db: AsyncSession, user_id: uuid.UUID, local_midnight_utc: datetime
+) -> bool:
+    """Whether a brief was already generated on the user's current local day."""
+    result = await db.execute(
+        select(DailyBrief.id)
+        .where(
+            DailyBrief.user_id == user_id,
+            DailyBrief.created_at >= local_midnight_utc,
+        )
+        .limit(1)
+    )
+    return result.first() is not None
+
+
+async def generate_briefs_all_users(now: datetime | None = None) -> None:
+    """Scheduled tick: auto-generate a daily brief for each enabled user whose
+    local delivery_time has passed and who has no brief for their local day yet.
+
+    Per-user failures (insufficient data, no AI provider, anything else) are
+    swallowed so one user never aborts the run.
+    """
+    now_utc = now or datetime.now(UTC)
+    logger.info("Starting scheduled brief generation")
+
+    async with get_session_maker()() as db:
+        configs = (
+            (
+                await db.execute(
+                    select(BriefDeliveryConfig).where(
+                        BriefDeliveryConfig.enabled.is_(True)
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    generated = skipped = errors = 0
+    for cfg in configs:
+        lock = _lock_for(cfg.user_id)
+        async with lock:
+            try:
+                try:
+                    now_local, local_midnight_utc = _local_day_start_utc(
+                        now_utc, cfg.timezone
+                    )
+                except Exception:
+                    logger.warning(
+                        "Bad brief timezone, skipping user",
+                        user_id=str(cfg.user_id),
+                        tz=cfg.timezone,
+                    )
+                    errors += 1
+                    continue
+
+                async with get_session_maker()() as user_db:
+                    brief_exists = await _has_brief_for_local_day(
+                        user_db, cfg.user_id, local_midnight_utc
+                    )
+                    if not _brief_due(
+                        enabled=cfg.enabled,
+                        delivery_time=cfg.delivery_time,
+                        now_local=now_local,
+                        brief_exists_today=brief_exists,
+                    ):
+                        skipped += 1
+                        continue
+
+                    user = (
+                        await user_db.execute(
+                            select(User).where(
+                                User.id == cfg.user_id, User.is_active.is_(True)
+                            )
+                        )
+                    ).scalar_one_or_none()
+                    if user is None:
+                        skipped += 1
+                        continue
+
+                    try:
+                        await generate_daily_brief(user, user_db, hours=24)
+                        generated += 1
+                    except HTTPException as e:
+                        # 400 insufficient data / 404 no AI provider -> graceful skip.
+                        logger.info(
+                            "Brief auto-generation skipped",
+                            user_id=str(cfg.user_id),
+                            detail=str(e.detail),
+                        )
+                        skipped += 1
+                    except Exception:
+                        logger.error(
+                            "Brief auto-generation failed",
+                            user_id=str(cfg.user_id),
+                            exc_info=True,
+                        )
+                        errors += 1
+            except Exception:
+                # Any other per-user failure (e.g. a transient DB error on the
+                # existence check or user load) must not abort the whole tick.
+                logger.error(
+                    "Brief generation tick error for user",
+                    user_id=str(cfg.user_id),
+                    exc_info=True,
+                )
+                errors += 1
+            finally:
+                _release_lock(cfg.user_id, lock)
+
+        await asyncio.sleep(0.2)
+
+    logger.info(
+        "Scheduled brief generation completed",
+        generated=generated,
+        skipped=skipped,
+        errors=errors,
+    )

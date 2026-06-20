@@ -88,7 +88,9 @@ If any of these are missing or stale, the data flow from your pump has likely st
 
 ## Bolus review
 
-A tabular view of recent insulin events -- when each bolus was delivered, how much, and whether it was a manual bolus or a Control-IQ correction.
+A tabular view of recent insulin events -- when each dose was delivered, how much, and its type: a manual bolus, a Control-IQ correction, or a long-acting (basal) injection.
+
+If you take long-acting injections (MDI -- e.g. Lantus, Tresiba, Levemir), they show here as a distinct **Basal injection** row, clearly separated from rapid-acting boluses. They are counted toward your basal total and total daily dose, but deliberately kept out of the rapid-acting Insulin on Board calculation -- long-acting insulin acts over ~24 hours and doesn't belong in the rapid-acting IoB curve. In the insulin summary, a long-acting injection is folded into your **Basal** figure (with the injected amount shown on its own line) since for an MDI user it is the basal therapy.
 
 ## Period selector
 

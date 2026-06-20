@@ -18,6 +18,10 @@
 </p>
 
 <p align="center">
+  <a href="https://deepwiki.com/GlycemicGPT/GlycemicGPT"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki: auto-generated, AI-powered wiki of this codebase"></a>
+</p>
+
+<p align="center">
   <a href="#overview">Overview</a> •
   <a href="#quick-start">Quick Start</a> •
   <a href="#architecture">Architecture</a> •
@@ -63,6 +67,7 @@ GlycemicGPT is an open source diabetes platform built around AI-powered analysis
 | Tandem t:slim X2 | Insulin Pump | BLE (direct) + Cloud API | Verified |
 | Tandem Mobi | Insulin Pump | BLE (direct) + Cloud API | Protocol-compatible (see note) |
 | Medtronic MiniMed 680G / 770G / 780G | Insulin Pump + CGM | BLE (direct) + Cloud (CareLink) | Unverified (see note) |
+| NovoPen 6 / NovoPen Echo Plus | Smart Insulin Pen | Cloud (via Glooko) | Verified (bolus doses) |
 
 > **Tandem Mobi note:** The Mobi uses the same BLE protocol, authentication, and data formats as the t:slim X2. Our Tandem plugin reads data from both models, but **Mobi support has not been verified against physical hardware**. Protocol compatibility does not guarantee correct operation on untested devices. Use with Mobi hardware is entirely at your own risk — see [MEDICAL-DISCLAIMER.md](MEDICAL-DISCLAIMER.md) for full liability terms. If you have a Mobi and can help validate data reading, please open an issue.
 
@@ -135,7 +140,7 @@ docker compose up --build -d
 
 # Verify services
 curl localhost:8000/health   # API
-curl localhost:3456/health   # AI sidecar
+docker compose exec api curl -s http://ai-sidecar:3456/health   # AI sidecar (not published to the host)
 # Web UI at http://localhost:3000
 ```
 

@@ -9,6 +9,7 @@ from src.models.brief_delivery_config import BriefDeliveryConfig
 from src.models.caregiver_invitation import CaregiverInvitation, InvitationStatus
 from src.models.caregiver_link import CaregiverLink
 from src.models.chat_message import ChatMessage
+from src.models.common_food import CommonFood
 from src.models.correction_analysis import CorrectionAnalysis
 from src.models.daily_brief import DailyBrief
 from src.models.data_retention_config import DataRetentionConfig
@@ -21,6 +22,8 @@ from src.models.escalation_event import (
     EscalationTier,
     NotificationStatus,
 )
+from src.models.food_record import FoodRecord, FoodRecordSource
+from src.models.food_record_audit import FoodRecordAudit
 from src.models.glooko_sync_state import GlookoSyncState
 from src.models.glucose import GlucoseReading, TrendDirection
 from src.models.insulin_config import InsulinConfig
@@ -62,6 +65,7 @@ __all__ = [
     "CaregiverInvitation",
     "CaregiverLink",
     "ChatMessage",
+    "CommonFood",
     "ContactPriority",
     "CorrectionAnalysis",
     "DailyBrief",
@@ -72,6 +76,9 @@ __all__ = [
     "EscalationConfig",
     "EscalationEvent",
     "EscalationTier",
+    "FoodRecord",
+    "FoodRecordAudit",
+    "FoodRecordSource",
     "GlookoSyncState",
     "GlucoseReading",
     "InsulinConfig",

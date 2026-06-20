@@ -24,6 +24,7 @@ cp .env.example .env
 echo "SECRET_KEY:          $(openssl rand -hex 32)"
 echo "POSTGRES_PASSWORD:   $(openssl rand -hex 32)"
 echo "REDIS_PASSWORD:      $(openssl rand -hex 32)"
+echo "SIDECAR_API_KEY:     $(openssl rand -hex 32)"
 
 # Edit .env with the generated values above,
 # update your domain in CORS_ORIGINS and Caddyfile, then:
@@ -42,6 +43,7 @@ You need separate values for:
 - `SECRET_KEY` -- API session signing
 - `POSTGRES_PASSWORD` -- database access
 - `REDIS_PASSWORD` -- Redis authentication (prod examples)
+- `SIDECAR_API_KEY` -- API-to-sidecar auth; the sidecar refuses to start without it
 
 ## External Redis / Valkey
 

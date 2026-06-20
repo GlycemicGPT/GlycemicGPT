@@ -161,6 +161,19 @@ def _is_real_number(value: Any) -> bool:
 # Source attribution
 # ---------------------------------------------------------------------------
 
+# Table-level `source` prefix for every row a Nightscout connection writes
+# (`nightscout:<connection_id>`, built by the translator's `_build_source`).
+# Readers that classify rows by origin (cgm_source, iob_projection) match
+# on this prefix -- import it instead of re-declaring the literal.
+NIGHTSCOUT_SOURCE_PREFIX = "nightscout:"
+
+# Closed-loop uploader labels among `detect_uploader`'s return values.
+# Ordered by preference for consumers that pick one (evaluate.py surfaces
+# the first match as `active_pump_loop`); membership tests treat it as a
+# set. xdrip+ / xdrip4ios / spike / tidepool are data uploaders, not
+# loops, and stay out of this list.
+LOOP_UPLOADERS: tuple[str, ...] = ("loop", "aaps", "trio", "oref0")
+
 
 def detect_uploader(entered_by: str | None, device: str | None) -> str:
     """Identify the upstream uploader from `enteredBy` + `device` strings.
@@ -331,6 +344,7 @@ class NightscoutEntry(BaseModel):
 # enum captures what the translator actually does with the record.
 SemanticKind = Literal[
     "bolus",
+    "basal_injection",  # MDI long-acting (basal) pen injection -- discrete dose
     "carb_entry",
     "meal_bolus_pair",  # carbs + insulin -- split into bolus + carb_entry rows
     "temp_basal",
@@ -361,6 +375,34 @@ _DEVICE_EVENT_EVENTTYPES = frozenset(
         "sensor stop",
         "insulin change",
         "pump battery change",
+    }
+)
+
+
+# `insulinType` strings that identify a long-acting (basal) injection. The
+# field carries either a category ("basal") or a product name depending on the
+# uploader, so we match both an explicit "basal" category and known long-acting
+# generics/brands. Rapid-acting products (Humalog, NovoRapid, Fiasp, ...) and
+# the ambiguous "intermediate" (NPH) are deliberately excluded: misclassifying
+# rapid insulin as long-acting would drop it from rapid-acting IoB and
+# under-count active insulin -- a safety risk in the unsafe direction. Matched
+# as substrings so qualified product names (e.g. "insulin glargine u-300") still
+# resolve. NOT keyed on AAPS `isBasalInsulin`: that flag marks pump basal insulin
+# (rate-equivalent micro-delivery), is False on SMBs, and never denotes an MDI
+# pen injection.
+_LONG_ACTING_INSULIN_INDICATORS = frozenset(
+    {
+        "basal",
+        "glargine",
+        "lantus",
+        "toujeo",
+        "basaglar",
+        "semglee",
+        "rezvoglar",
+        "detemir",
+        "levemir",
+        "degludec",
+        "tresiba",
     }
 )
 
@@ -583,6 +625,29 @@ class NightscoutTreatment(BaseModel):
         but that requires uploader detection upstream of this property.
         """
         return self.normalized_event_type == "external insulin"
+
+    @property
+    def is_basal_injection(self) -> bool:
+        """A long-acting (basal) pen INJECTION -- e.g. Lantus, Tresiba (#728).
+
+        MDI users' once-daily basal dose arrives as an insulin treatment whose
+        `insulinType` names a long-acting product or the "basal" category. It is
+        a discrete injected amount (units), NOT a pump rate, so it is routed to
+        BASAL_INJECTION and kept out of rapid-acting IoB rather than falling
+        through to the `has_insulin -> bolus` default (which would pollute the
+        rapid-acting IoB/TDD it does not belong to).
+
+        Conservative by design: only an explicit long-acting `insulinType`
+        triggers this. A bare "External Insulin" or a rapid/unspecified
+        `insulinType` stays a BOLUS, because misclassifying rapid insulin as
+        basal would drop it from active-insulin math.
+        """
+        if not self.has_insulin:
+            return False
+        insulin_type = (self.insulin_type or "").strip().lower()
+        if not insulin_type:
+            return False
+        return any(ind in insulin_type for ind in _LONG_ACTING_INSULIN_INDICATORS)
 
     @property
     def _is_zero_rate_temp(self) -> bool:
@@ -812,6 +877,16 @@ class NightscoutTreatment(BaseModel):
         # --- Field-presence routing (last resort, handles empty eventType
         # from xDrip+ and unrecognized eventTypes from any uploader) ---
 
+        # Long-acting (basal) pen injection -- a discrete dose kept out of rapid
+        # IoB. Checked BEFORE both the meal pair and the generic has_insulin
+        # fallback: a long-acting dose must never be split out / ingested as a
+        # rapid bolus (that would pollute rapid-acting IoB/TDD). A carbs field on
+        # such a record is pathological (you don't log a meal on a once-daily
+        # basal shot); the long-acting classification wins and the incidental
+        # carbs are not split out. SMB/automated rapid insulin is unaffected --
+        # it never carries a long-acting `insulinType` (see is_basal_injection).
+        if self.is_basal_injection:
+            return "basal_injection"
         if self.has_carbs and self.has_insulin:
             return "meal_bolus_pair"
         if self.has_insulin:

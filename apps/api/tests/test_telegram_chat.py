@@ -254,6 +254,21 @@ class TestBuildIobSection:
         assert result is None
 
 
+def _db_no_basal_injections() -> AsyncMock:
+    """A db mock whose basal-injection lookback query returns no rows.
+
+    `build_pump_section` issues a direct `db.execute(...)` for the long-acting
+    (basal) injection lookback (issue #742) in addition to `get_pump_events`;
+    these tests cover the 6h pump-activity path, so the injection query yields
+    nothing and the activity assertions stay unchanged.
+    """
+    db = AsyncMock()
+    result = MagicMock()
+    result.scalars.return_value.all.return_value = []
+    db.execute.return_value = result
+    return db
+
+
 class TestBuildPumpSection:
     """Tests for build_pump_section."""
 
@@ -261,7 +276,7 @@ class TestBuildPumpSection:
     @patch("src.services.tandem_sync.get_pump_events", new_callable=AsyncMock)
     async def test_no_events_returns_none(self, mock_get_events):
         mock_get_events.return_value = []
-        result = await build_pump_section(AsyncMock(), uuid.uuid4())
+        result = await build_pump_section(_db_no_basal_injections(), uuid.uuid4())
         assert result is None
 
     @pytest.mark.asyncio
@@ -271,7 +286,7 @@ class TestBuildPumpSection:
             make_pump_event("bolus", units=3.0, is_automated=False),
             make_pump_event("bolus", units=5.0, is_automated=False),
         ]
-        result = await build_pump_section(AsyncMock(), uuid.uuid4())
+        result = await build_pump_section(_db_no_basal_injections(), uuid.uuid4())
 
         assert "Manual boluses: 2" in result
         assert "8.0u total" in result
@@ -282,7 +297,7 @@ class TestBuildPumpSection:
         mock_get_events.return_value = [
             make_pump_event("correction", units=0.5, is_automated=True, minutes_ago=10),
         ]
-        result = await build_pump_section(AsyncMock(), uuid.uuid4())
+        result = await build_pump_section(_db_no_basal_injections(), uuid.uuid4())
 
         assert "Auto-corrections (Control-IQ): 1" in result
         assert "0.5u total" in result
@@ -296,7 +311,7 @@ class TestBuildPumpSection:
             make_pump_event("basal", is_automated=True, basal_adjustment_pct=-10.0),
             make_pump_event("basal", is_automated=True, basal_adjustment_pct=20.0),
         ]
-        result = await build_pump_section(AsyncMock(), uuid.uuid4())
+        result = await build_pump_section(_db_no_basal_injections(), uuid.uuid4())
 
         assert "2 increases" in result
         assert "1 decreases" in result
@@ -307,7 +322,7 @@ class TestBuildPumpSection:
         mock_get_events.return_value = [
             make_pump_event("suspend", units=None),
         ]
-        result = await build_pump_section(AsyncMock(), uuid.uuid4())
+        result = await build_pump_section(_db_no_basal_injections(), uuid.uuid4())
 
         assert "Suspends: 1" in result
 

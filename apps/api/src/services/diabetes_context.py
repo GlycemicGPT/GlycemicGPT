@@ -11,13 +11,24 @@ correction analysis, and chat all share the same context pipeline.
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.config import settings
 from src.logging_config import get_logger
 from src.services.alert_notifier import trend_description
 from src.services.iob_projection import get_iob_projection, get_user_dia
+from src.services.meal_citation import AllowedCarb, verify_carb_citations
+from src.vision.carb_contract import (
+    MEAL_ESTIMATE_QUALIFIER,
+    NEVER_DOSE_PROHIBITION,
+    find_dosing_violations,
+)
+
+if TYPE_CHECKING:
+    from src.models.food_record import FoodRecord
 
 logger = get_logger(__name__)
 
@@ -25,6 +36,25 @@ logger = get_logger(__name__)
 GLUCOSE_CONTEXT_HOURS = 6
 PUMP_CONTEXT_HOURS = 6
 CONTROL_IQ_SUMMARY_HOURS = 24
+# Long-acting (basal) injections are typically once or twice daily, so the
+# short pump-activity window misses them most of the day. Look back far enough
+# to surface the active basal dose + timing for overnight-pattern analysis.
+BASAL_INJECTION_CONTEXT_HOURS = 30
+
+# Logged-meal context (meal-intelligence feature). A bounded window
+# and record cap keep the prompt lean -- enough to reflect on recent eating
+# without bloating context. People log a handful of meals a day, so ~48h / 10
+# records covers "what have I been eating lately" for chat.
+MEAL_CONTEXT_HOURS = 48
+MEAL_MAX_RECORDS = 10
+# Above this age, a meal line shows a wall-clock day/time instead of "Nh ago" --
+# "73h ago" is harder to place than "Mon 19:30". Independent of the fetch window
+# so a longer-period brief still renders old meals readably.
+MEAL_RELATIVE_TIME_MAX_HOURS = 48
+# Per-meal description cap for prompt rendering. Persisted descriptions are
+# already bounded (food_vision._MAX_DESCRIPTION_CHARS), but the context block is
+# leaner and a smaller cap keeps the prompt-injection surface small.
+MEAL_DESCRIPTION_MAX_LEN = 120
 
 # Maximum readings to fetch for glucose context
 GLUCOSE_MAX_READINGS = 72  # ~6 hours of 5-min CGM readings
@@ -153,11 +183,32 @@ async def build_pump_section(
     user_id: uuid.UUID,
 ) -> str | None:
     """Build pump activity section from recent pump events."""
-    from src.models.pump_data import PumpEventType
+    from src.models.pump_data import PumpEvent, PumpEventType
     from src.services.tandem_sync import get_pump_events
 
     events = await get_pump_events(db, user_id, hours=PUMP_CONTEXT_HOURS, limit=500)
-    if not events:
+
+    # Long-acting (basal) injection lookback -- a once/twice-daily MDI dose
+    # falls outside the short pump-activity window most of the time, but the AI
+    # needs the active basal dose + timing for overnight-pattern analysis.
+    # Fetched over a wider window, independent of the 6h activity events above.
+    basal_inj_cutoff = datetime.now(UTC) - timedelta(
+        hours=BASAL_INJECTION_CONTEXT_HOURS
+    )
+    basal_inj_result = await db.execute(
+        select(PumpEvent)
+        .where(
+            PumpEvent.user_id == user_id,
+            PumpEvent.event_type == PumpEventType.BASAL_INJECTION,
+            PumpEvent.event_timestamp >= basal_inj_cutoff,
+            PumpEvent.units.is_not(None),
+        )
+        .order_by(PumpEvent.event_timestamp.desc())
+        .limit(5)
+    )
+    basal_injections = list(basal_inj_result.scalars().all())
+
+    if not events and not basal_injections:
         return None
 
     manual_bolus_count = 0
@@ -189,23 +240,338 @@ async def build_pump_section(
         elif event.event_type == PumpEventType.SUSPEND:
             suspend_count += 1
 
-    lines = [
-        f"[Pump Activity - last {PUMP_CONTEXT_HOURS}h]",
-        f"- Manual boluses: {manual_bolus_count} ({manual_bolus_units:.1f}u total)",
-        f"- Auto-corrections (Control-IQ): {auto_correction_count} ({auto_correction_units:.1f}u total)",
-        f"- Basal adjustments: {basal_increase_count} increases, {basal_decrease_count} decreases",
-    ]
-    if suspend_count:
-        lines.append(f"- Suspends: {suspend_count}")
-    if last_auto_correction:
-        minutes_ago = int(
-            (datetime.now(UTC) - last_auto_correction.event_timestamp).total_seconds()
-            / 60
+    lines: list[str] = []
+    if events:
+        lines.extend(
+            [
+                f"[Pump Activity - last {PUMP_CONTEXT_HOURS}h]",
+                f"- Manual boluses: {manual_bolus_count} ({manual_bolus_units:.1f}u total)",
+                f"- Auto-corrections (Control-IQ): {auto_correction_count} ({auto_correction_units:.1f}u total)",
+                f"- Basal adjustments: {basal_increase_count} increases, {basal_decrease_count} decreases",
+            ]
         )
+        if suspend_count:
+            lines.append(f"- Suspends: {suspend_count}")
+        if last_auto_correction:
+            minutes_ago = int(
+                (
+                    datetime.now(UTC) - last_auto_correction.event_timestamp
+                ).total_seconds()
+                / 60
+            )
+            lines.append(
+                f"- Last auto-correction: {last_auto_correction.units or 0:.1f}u ({minutes_ago}min ago)"
+            )
+
+    if basal_injections:
+        now = datetime.now(UTC)
         lines.append(
-            f"- Last auto-correction: {last_auto_correction.units or 0:.1f}u ({minutes_ago}min ago)"
+            f"[Long-acting (basal) injections - last {BASAL_INJECTION_CONTEXT_HOURS}h]"
         )
+        for inj in basal_injections:
+            hours_ago = (now - inj.event_timestamp).total_seconds() / 3600
+            # Glooko writes `medication`; Nightscout writes `insulin_type`.
+            meta = inj.metadata_json or {}
+            med = meta.get("medication") or meta.get("insulin_type")
+            med_label = f"{med} " if med else ""
+            lines.append(f"- {med_label}{inj.units or 0:.1f}u ({hours_ago:.0f}h ago)")
+
     return "\n".join(lines)
+
+
+# ── Logged-meal context ──
+
+# Framing that introduces logged meals to the model. The AI is a mirror and an
+# interviewer here, never an advisor (the mirror-and-interviewer charter): it
+# reflects the meals back and asks open questions, and it NEVER turns a meal's
+# carb estimate into dosing guidance. The carb figures are rough AI guesses --
+# the user must never be told it is OK to dose or bolus from them (we never use
+# "verify before dosing", which implies dosing off the estimate is fine).
+_MEAL_GUIDANCE = (
+    "These are meals the user logged. The carb figures are rough AI photo "
+    "estimates -- often wrong, are NOT dosing inputs, and the user must never "
+    "use them to dose or bolus. Reflect these meals back to the user and ask "
+    'open questions about them (for example, "you logged a high-carb dinner -- '
+    'how did that sit with you?"). Never tell the user how much to take or what '
+    "to eat, never give treatment advice about a meal, and never imply the "
+    "estimate is safe to dose from."
+)
+
+
+def _meal_carb_range(record: "FoodRecord") -> tuple[float, float, bool]:
+    """Return ``(low, high, is_corrected)`` for a food record.
+
+    Prefers the user's corrected carb values when present -- a correction is the
+    user's own truth and supersedes the original AI estimate. Returns whether the
+    corrected values were used so the rendered line can label them honestly.
+
+    Corrected values are written as a pair (the ``ck_food_records_corrected_carb_range``
+    constraint enforces both-or-neither), so a correction is only honored when
+    both bounds are set; a half-populated value falls back to the AI estimate.
+    """
+    low = record.corrected_carbs_low
+    high = record.corrected_carbs_high
+    if low is not None and high is not None:
+        return low, high, True
+    return record.carbs_low, record.carbs_high, False
+
+
+# Substrings that signal a prompt-injection attempt rather than a food name --
+# instruction-override phrasing, chat role markers, special-token / code-fence
+# delimiters. A real food description never contains these, so their presence is
+# treated as adversarial and the description is dropped to a neutral fallback.
+_PROMPT_INJECTION_MARKERS = (
+    "ignore previous",
+    "ignore all previous",
+    "ignore the above",
+    "disregard previous",
+    "system:",
+    "assistant:",
+    "developer:",
+    "<|",
+    "|>",
+    "```",
+)
+
+
+def _safe_meal_description(raw: str | None) -> str:
+    """Sanitize a food description for embedding in an AI prompt.
+
+    Defense-in-depth: a description is user/AI-controlled and lands in the system
+    prompt. Persisted descriptions are already scrubbed of dosing language at
+    write time (``food_vision``), but we re-check here -- if any dosing phrasing
+    or prompt-injection marker slips through we drop the description to a neutral
+    fallback rather than let it reach the model (mirror-and-interviewer charter). Length is
+    capped to keep the prompt lean and the injection surface small.
+    """
+    description = _sanitize_for_prompt(raw or "")
+    if not description or find_dosing_violations(description):
+        return "logged meal"
+    lowered = description.lower()
+    if any(marker in lowered for marker in _PROMPT_INJECTION_MARKERS):
+        return "logged meal"
+    if len(description) > MEAL_DESCRIPTION_MAX_LEN:
+        description = description[:MEAL_DESCRIPTION_MAX_LEN].rstrip() + "..."
+    return description
+
+
+def _meal_when_token(record: "FoodRecord", now: datetime) -> str:
+    """Render the relative/absolute time token for a logged meal.
+
+    Shared by the rendered meal context and the citation allow-set so the output
+    verifier's timestamp guard compares the exact
+    token the model saw. ``meal_timestamp`` is tz-aware in normal operation
+    (``DateTime(timezone=True)``); a naive value is normalized defensively so the
+    subtraction can't raise and silently drop the meal.
+    """
+    meal_ts = record.meal_timestamp
+    if meal_ts.tzinfo is None:
+        meal_ts = meal_ts.replace(tzinfo=UTC)
+    hours_ago = (now - meal_ts).total_seconds() / 3600
+    if 0 <= hours_ago < MEAL_RELATIVE_TIME_MAX_HOURS:
+        return f"{hours_ago:.0f}h ago"
+    return meal_ts.strftime("%a %H:%M")
+
+
+def _format_meal_line(record: "FoodRecord", now: datetime) -> str:
+    """Render one logged meal as a descriptive, non-prescriptive context line.
+
+    Every line carries the "never use it to dose or bolus" qualifier so the carb
+    figure is read as an AI guess, never as something to dose from.
+    """
+    low, high, corrected = _meal_carb_range(record)
+    description = _safe_meal_description(record.food_description)
+    when = _meal_when_token(record, now)
+    qualifier = (
+        f"user-corrected estimate — {NEVER_DOSE_PROHIBITION}"
+        if corrected
+        else MEAL_ESTIMATE_QUALIFIER
+    )
+    return f"- {description}: ~{low:g}-{high:g}g carbs ({qualifier}) [{when}]"
+
+
+def _format_meals_block(header: str, records: list["FoodRecord"], now: datetime) -> str:
+    """Assemble a meal context block: header, charter framing, then meal lines."""
+    lines = [header, _MEAL_GUIDANCE]
+    lines.extend(_format_meal_line(r, now) for r in records)
+    return "\n".join(lines)
+
+
+async def _fetch_meal_records(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    *,
+    start: datetime,
+    end: datetime | None,
+) -> list["FoodRecord"]:
+    """Fetch a user's logged meals in ``[start, end)`` (open end if ``end`` is None).
+
+    Single source of the meal query so the rendered context and the citation
+    allow-set always read the same rows -- the verifier can
+    only trust a number if the context that produced it used identical records.
+    Ordered newest-first and capped at ``MEAL_MAX_RECORDS``.
+    """
+    from src.models.food_record import FoodRecord
+
+    conditions = [
+        FoodRecord.user_id == user_id,
+        FoodRecord.meal_timestamp >= start,
+    ]
+    if end is not None:
+        conditions.append(FoodRecord.meal_timestamp < end)
+    result = await db.execute(
+        select(FoodRecord)
+        .where(*conditions)
+        .order_by(FoodRecord.meal_timestamp.desc())
+        .limit(MEAL_MAX_RECORDS)
+    )
+    return list(result.scalars().all())
+
+
+async def build_meals_section(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+) -> str | None:
+    """Build the recent-logged-meals section for chat context.
+
+    Pulls the user's most recent food records within a bounded window so chat can
+    reference what they ate. Descriptive only: the carb range is presented as an
+    estimate to verify, never as a dosing input (meal-intelligence safety posture). The
+    caller only invokes this when ``meal_intelligence_enabled`` is on.
+    """
+    now = datetime.now(UTC)
+    cutoff = now - timedelta(hours=MEAL_CONTEXT_HOURS)
+    records = await _fetch_meal_records(db, user_id, start=cutoff, end=None)
+    if not records:
+        return None
+
+    return _format_meals_block(
+        f"[Logged meals - last {MEAL_CONTEXT_HOURS}h]",
+        records,
+        now,
+    )
+
+
+async def format_meals_for_brief(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    period_start: datetime,
+    period_end: datetime,
+) -> str | None:
+    """Build the logged-meals block for a daily brief's analysis period.
+
+    Mirrors ``build_meals_section`` but scopes to the brief's window so the brief
+    references the meals logged in the period it summarizes. Same descriptive,
+    never-dose-or-bolus framing; never a dosing input. The caller only invokes
+    this when ``meal_intelligence_enabled`` is on.
+    """
+    records = await _fetch_meal_records(db, user_id, start=period_start, end=period_end)
+    if not records:
+        return None
+
+    # Anchor relative timestamps to the period's end (the brief's "as of"), not
+    # the moment of generation -- a brief produced hours after the window closes
+    # would otherwise render in-period meals as misleadingly old.
+    return _format_meals_block("[Logged meals this period]", records, period_end)
+
+
+async def build_allowed_carbs(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    *,
+    window_start: datetime,
+    window_end: datetime | None,
+    now: datetime,
+) -> list[AllowedCarb]:
+    """Build the set of carb figures the model was allowed to cite.
+
+    Reads the same rows the context rendered (``_fetch_meal_records``) and the
+    same per-record carb range (``_meal_carb_range`` -- corrected values
+    preferred), so the output verifier's truth and the context the model saw
+    can't diverge (AC3). The allowed numbers come only from the carb columns,
+    never from ``food_description``, so a prompt-injected figure in a description
+    can never mint an allowed value.
+    """
+    records = await _fetch_meal_records(db, user_id, start=window_start, end=window_end)
+    allowed: list[AllowedCarb] = []
+    for record in records:
+        low, high, _ = _meal_carb_range(record)
+        allowed.append(
+            AllowedCarb(low=low, high=high, when=_meal_when_token(record, now))
+        )
+    return allowed
+
+
+async def verify_meal_citations(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    content: str,
+    *,
+    surface: str,
+    window_start: datetime | None = None,
+    window_end: datetime | None = None,
+    now: datetime | None = None,
+) -> str:
+    """Verify carb figures in a model response against the user's logged meals.
+
+    The single output-side choke-point for chat and the daily
+    brief. Inert when ``meal_intelligence_enabled`` is off. ``window_start``
+    defaults to the chat meal window (``now - MEAL_CONTEXT_HOURS``); the brief
+    passes its period bounds and anchors ``now`` to ``period_end`` so the time
+    tokens match what it rendered.
+
+    Fail-closed on the allow-set: if the records can't be read, the allow-set is
+    empty and every carb figure is scrubbed -- we never emit a number we couldn't
+    verify. A verifier exception (should be impossible on ``str`` input) returns
+    the content unchanged rather than break the reply; the model's *input* was
+    already scrubbed by the context layer. Logs PHI-free counts only (AC6).
+    """
+    if not settings.meal_intelligence_enabled or not content:
+        return content
+
+    now = now or datetime.now(UTC)
+    if window_start is None:
+        window_start = now - timedelta(hours=MEAL_CONTEXT_HOURS)
+
+    try:
+        allowed = await build_allowed_carbs(
+            db,
+            user_id,
+            window_start=window_start,
+            window_end=window_end,
+            now=now,
+        )
+    except Exception:
+        logger.warning(
+            "Meal citation allow-set build failed; scrubbing unverifiable figures",
+            surface=surface,
+            user_id=str(user_id),
+            exc_info=True,
+        )
+        allowed = []  # fail closed -> every carb figure is scrubbed
+
+    try:
+        outcome = verify_carb_citations(content, allowed)
+    except Exception:
+        logger.warning(
+            "Meal citation verification raised; returning content unchanged",
+            surface=surface,
+            user_id=str(user_id),
+            exc_info=True,
+        )
+        return content
+
+    if outcome.changed:
+        logger.info(
+            "Meal citation rewrite",
+            surface=surface,
+            seen=outcome.citations_seen,
+            matched=outcome.citations_matched,
+            corrected=outcome.citations_corrected,
+            scrubbed=outcome.citations_scrubbed,
+            timestamp_mismatches=outcome.timestamp_mismatches,
+        )
+    return outcome.text
 
 
 async def build_control_iq_section(
@@ -354,6 +720,12 @@ async def build_diabetes_context(
         ("settings", build_settings_section),
         ("pump_profile", build_pump_profile_section),
     ]
+
+    # Logged meals are only surfaced when the meal-intelligence feature is on
+    # Gated here -- not inside the builder -- so the feature stays
+    # fully invisible (no query, no section) while the flag is off.
+    if settings.meal_intelligence_enabled:
+        builders.append(("meals", build_meals_section))
 
     sections: list[str] = []
     for name, builder in builders:

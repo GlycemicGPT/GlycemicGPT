@@ -18,6 +18,7 @@ This page is the index. Each integration with a longer setup flow has its own pa
 | [Medtronic CareLink](./connecting-medtronic.md) | CGM, boluses, carbs, fingersticks | Have a Medtronic pump + CGM on CareLink | CareLink login (signed in via your browser) |
 | [Medtronic over Bluetooth](./connecting-medtronic-pump.md) *(beta)* | Glucose, IoB, basal, bolus history, reservoir, battery | Have a MiniMed 680G / 770G / 780G and use the mobile app | None — pair in the mobile app (one phone at a time; remove it from the Medtronic app first) |
 | [Omnipod (via Glooko)](./connecting-omnipod.md) | Basal, boluses, pod changes, CGM when available | Have an Omnipod 5 uploading to Glooko | Glooko email + password |
+| [Smart pens (via Glooko)](./connecting-omnipod.md#smart-insulin-pens-novopen-6--echo-plus) | Pen bolus doses (NovoPen 6 / Echo Plus), manual insulin logs | Use a Novo Nordisk smart pen and scan it into the Glooko app | Glooko email + password |
 | [Nightscout](#nightscout) | CGM entries, treatments, devicestatus, profile | Already run a Nightscout site -- often with a CGM we don't speak directly to (Libre, Eversense, etc.) | Nightscout URL + API_SECRET |
 
 Most of these live at **Settings → Integrations** on the dashboard. The one exception is **[Medtronic over Bluetooth](./connecting-medtronic-pump.md)**, which is an on-device pairing done in the **mobile app's** pump settings rather than on the dashboard.

@@ -92,7 +92,8 @@ class TestCalculateMetrics:
         correction_result = MagicMock()
         correction_result.scalar.return_value = 0
 
-        # Mock insulin breakdown queries: bolus, manual_corr, auto_corr, seed_basal, basal
+        # Mock insulin breakdown queries: bolus, manual_corr, auto_corr,
+        # seed_basal, basal, basal_injection
         bolus_result = MagicMock()
         bolus_result.one.return_value = (2, 10.0)
         manual_corr_result = MagicMock()
@@ -103,6 +104,9 @@ class TestCalculateMetrics:
         seed_basal_result.first.return_value = None  # no pre-window basal
         basal_result = MagicMock()
         basal_result.all.return_value = []  # no basal events
+        # One long-acting (basal) injection of 20.0 U (issue #728)
+        basal_inj_result = MagicMock()
+        basal_inj_result.one.return_value = (1, 20.0)
 
         mock_db.execute.side_effect = [
             glucose_result,
@@ -112,6 +116,7 @@ class TestCalculateMetrics:
             auto_corr_result,
             seed_basal_result,
             basal_result,
+            basal_inj_result,
         ]
 
         user_id = uuid.uuid4()
@@ -125,12 +130,15 @@ class TestCalculateMetrics:
         assert metrics.average_glucose == 120.0
         assert metrics.low_count == 0
         assert metrics.high_count == 0
-        assert metrics.total_insulin == 17.5
+        # 10 bolus + 5 manual corr + 2.5 auto corr + 20 basal injection
+        assert metrics.total_insulin == 37.5
         assert metrics.insulin_breakdown is not None
         assert metrics.insulin_breakdown.bolus_units == 10.0
         assert metrics.insulin_breakdown.correction_units == 5.0
         assert metrics.insulin_breakdown.auto_correction_units == 2.5
         assert metrics.insulin_breakdown.basal_units == 0.0
+        assert metrics.insulin_breakdown.basal_injection_units == 20.0
+        assert metrics.insulin_breakdown.basal_injection_count == 1
 
     async def test_mixed_readings_with_lows_and_highs(self):
         """Test metrics with a mix of low, in-range, and high readings."""
@@ -154,6 +162,8 @@ class TestCalculateMetrics:
         seed_basal_result.first.return_value = None
         basal_result = MagicMock()
         basal_result.all.return_value = []
+        basal_inj_result = MagicMock()
+        basal_inj_result.one.return_value = (0, 0.0)
 
         mock_db.execute.side_effect = [
             glucose_result,
@@ -163,6 +173,7 @@ class TestCalculateMetrics:
             auto_corr_result,
             seed_basal_result,
             basal_result,
+            basal_inj_result,
         ]
 
         user_id = uuid.uuid4()
@@ -199,6 +210,8 @@ class TestCalculateMetrics:
         seed_basal_result.first.return_value = None
         basal_result = MagicMock()
         basal_result.all.return_value = []
+        basal_inj_result = MagicMock()
+        basal_inj_result.one.return_value = (0, 0.0)
 
         mock_db.execute.side_effect = [
             glucose_result,
@@ -208,6 +221,7 @@ class TestCalculateMetrics:
             auto_corr_result,
             seed_basal_result,
             basal_result,
+            basal_inj_result,
         ]
 
         user_id = uuid.uuid4()
@@ -279,6 +293,38 @@ class TestBuildAnalysisPrompt:
         prompt = _build_analysis_prompt(metrics, 48)
 
         assert "48-hour" in prompt
+
+    def _metrics(self) -> DailyBriefMetrics:
+        return DailyBriefMetrics(
+            time_in_range_pct=80.0,
+            average_glucose=130.0,
+            low_count=0,
+            high_count=3,
+            readings_count=100,
+            correction_count=1,
+            total_insulin=None,
+        )
+
+    def test_prompt_includes_meals_context_when_provided(self):
+        """Story 50.F1: a provided meals block is embedded in the prompt."""
+        meals = "[Logged meals this period]\n- pasta: ~60-80g carbs (estimate)"
+        prompt = _build_analysis_prompt(self._metrics(), 24, meals_context=meals)
+
+        assert "Logged meals this period" in prompt
+        assert "pasta" in prompt
+
+    def test_prompt_omits_meals_block_when_absent(self):
+        prompt = _build_analysis_prompt(self._metrics(), 24)
+        assert "Logged meals" not in prompt
+
+    def test_system_prompt_frames_meals_as_reflect_not_dose(self):
+        """AC3/AC4: the brief's system prompt forbids dosing for meals."""
+        from src.services.daily_brief import SYSTEM_PROMPT
+
+        lowered = SYSTEM_PROMPT.lower()
+        assert "logged meals" in lowered
+        assert "never as dosing inputs" in lowered
+        assert "never suggest a dose" in lowered
 
 
 class TestGenerateDailyBrief:

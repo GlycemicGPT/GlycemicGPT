@@ -35,7 +35,9 @@ services:
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD-SHELL", "REDISCLI_AUTH=$$REDIS_PASSWORD redis-cli ping | grep -q PONG"]
+      # Only authenticate when a password is set; an empty REDISCLI_AUTH makes
+      # redis-cli attempt AUTH against a passwordless server (noisy stderr).
+      test: ["CMD-SHELL", "if [ -n \"$$REDIS_PASSWORD\" ]; then export REDISCLI_AUTH=\"$$REDIS_PASSWORD\"; fi; redis-cli ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -48,7 +50,9 @@ services:
       - sidecar_codex:/home/sidecar/.codex
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      SIDECAR_API_KEY: ${SIDECAR_API_KEY:-}
+      # Required: the sidecar refuses to start without a key. Generate with:
+      # openssl rand -hex 32
+      SIDECAR_API_KEY: "${SIDECAR_API_KEY:?SIDECAR_API_KEY is required -- generate with openssl rand -hex 32}"
       # Sentry error monitoring (own project) -- empty default = disabled.
       # Runtime-only; never baked into the image (see PRIVACY.md).
       GLYCEMICGPT_SIDECAR_SENTRY_DSN: ${GLYCEMICGPT_SIDECAR_SENTRY_DSN:-}
@@ -73,7 +77,7 @@ services:
       LOG_FORMAT: ${LOG_FORMAT:-json}
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
       AI_SIDECAR_URL: http://ai-sidecar:3456
-      AI_SIDECAR_API_KEY: ${SIDECAR_API_KEY:-}
+      AI_SIDECAR_API_KEY: "${SIDECAR_API_KEY:?SIDECAR_API_KEY is required -- generate with openssl rand -hex 32}"
       # Sentry error monitoring (Sentry for Good) -- empty default = disabled.
       # Set only in the project's own dev/CI/staging; never in a distributed build.
       GLYCEMICGPT_SENTRY_DSN: ${GLYCEMICGPT_SENTRY_DSN:-}

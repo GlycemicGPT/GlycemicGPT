@@ -20,7 +20,7 @@ That guide is written for non-technical users with no prior Cloudflare experienc
 ```bash
 cp .env.example .env
 # Edit .env: paste CLOUDFLARE_TUNNEL_TOKEN, generate POSTGRES_PASSWORD,
-# REDIS_PASSWORD, and SECRET_KEY with: openssl rand -hex 32
+# REDIS_PASSWORD, SECRET_KEY, and SIDECAR_API_KEY with: openssl rand -hex 32
 docker compose up -d
 ```
 

@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
 from src.core.auth import CurrentUser
+from src.core.disclaimer import has_acknowledged_current
 from src.core.security import (
     _DUMMY_HASH,
     create_access_token,
@@ -23,6 +24,7 @@ from src.core.security import (
     verify_password,
 )
 from src.core.token_blacklist import (
+    TokenConsumeUnavailableError,
     blacklist_token,
     consume_token_once,
 )
@@ -53,7 +55,8 @@ router = APIRouter(prefix="/api/auth", tags=["authentication"])
 async def _blacklist_current_token(request: Request) -> None:
     """Extract and blacklist the JWT from the current request.
 
-    Best-effort: silently does nothing if the token cannot be extracted.
+    Best-effort: a token that cannot be revoked here stays valid until
+    expiry, so failures are logged at WARNING rather than swallowed.
     """
     token = None
     cookie_val = request.cookies.get(settings.jwt_cookie_name)
@@ -67,12 +70,22 @@ async def _blacklist_current_token(request: Request) -> None:
     if not token:
         return
 
+    client_ip = request.client.host if request.client else "unknown"
+
     payload = decode_access_token(token)
     if not payload:
+        logger.warning(
+            "Logout: presented token could not be decoded for revocation",
+            client_ip=client_ip,
+        )
         return
 
     jti = payload.get("jti")
     if not jti:
+        logger.warning(
+            "Logout: token has no jti and stays valid until expiry",
+            client_ip=client_ip,
+        )
         return
 
     # TTL = remaining token lifetime (seconds)
@@ -153,7 +166,7 @@ async def register_user(
             email=user.email,
             role=user.role,
             message="Registration successful",
-            disclaimer_required=not user.disclaimer_acknowledged,
+            disclaimer_required=not has_acknowledged_current(user),
         )
 
     except IntegrityError:
@@ -287,7 +300,7 @@ async def login(
     return LoginResponse(
         message="Login successful",
         user=UserResponse.model_validate(user),
-        disclaimer_required=not user.disclaimer_acknowledged,
+        disclaimer_required=not has_acknowledged_current(user),
     )
 
 
@@ -392,6 +405,13 @@ async def mobile_login(
             "model": ErrorResponse,
             "description": "Invalid or expired refresh token",
         },
+        503: {
+            "model": ErrorResponse,
+            "description": (
+                "Token service temporarily unavailable; the refresh token "
+                "was not consumed and the client should retry"
+            ),
+        },
     },
 )
 @limiter.limit("30/minute")
@@ -418,21 +438,46 @@ async def mobile_refresh(
             detail="Invalid or expired refresh token",
         )
 
-    # Atomically consume the refresh token (Story 28.3 -- prevents replay races)
+    # Atomically consume the refresh token (Story 28.3 -- prevents replay races).
+    # A token without a jti cannot be consumed, so it would be infinitely
+    # replayable -- reject it outright.
     old_jti = payload.get("jti")
-    if old_jti:
-        old_exp = payload.get("exp", 0)
-        remaining = int(old_exp - datetime.now(UTC).timestamp())
+    if not old_jti:
+        logger.warning(
+            "Refresh token without jti rejected",
+            client_ip=client_ip,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+        )
+    old_exp = payload.get("exp", 0)
+    remaining = int(old_exp - datetime.now(UTC).timestamp())
+    # Fail-closed: a Redis outage denies the refresh rather than letting the
+    # same token mint unlimited new pairs. The outage maps to 503 (not 401)
+    # because mobile clients treat a refresh 401 as revocation and delete
+    # their stored token; on 5xx they keep it and retry -- the token was NOT
+    # consumed and stays valid.
+    try:
         consumed = await consume_token_once(old_jti, max(1, remaining))
-        if not consumed:
-            logger.warning(
-                "Replayed refresh token used",
-                client_ip=client_ip,
-            )
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid or expired refresh token",
-            )
+    except TokenConsumeUnavailableError:
+        logger.warning(
+            "Refresh denied: token service unavailable (fail-closed)",
+            client_ip=client_ip,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Token service temporarily unavailable. Please retry.",
+        ) from None
+    if not consumed:
+        logger.warning(
+            "Replayed refresh token used",
+            client_ip=client_ip,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+        )
 
     # Look up the user to ensure they still exist and are active
     user_id = uuid_mod.UUID(payload["sub"])

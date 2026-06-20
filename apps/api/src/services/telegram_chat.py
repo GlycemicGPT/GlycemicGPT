@@ -37,7 +37,10 @@ from src.services.chat_history import (
     get_recent_messages,
     store_message,
 )
-from src.services.diabetes_context import build_diabetes_context
+from src.services.diabetes_context import (
+    build_diabetes_context,
+    verify_meal_citations,
+)
 
 logger = get_logger(__name__)
 
@@ -252,6 +255,10 @@ async def handle_chat(
             "Please try rephrasing your question." + SAFETY_DISCLAIMER
         )
 
+    # Verify any meal carb figure the model cited against the user's logged
+    # meals before it reaches the user or is persisted.
+    content = await verify_meal_citations(db, user_id, content, surface="chat")
+
     # Persist both messages (non-fatal -- still return the AI response on failure)
     try:
         await store_message(db, user_id, conversation_id, ChatRole.USER, truncated_text)
@@ -401,6 +408,10 @@ async def handle_chat_web(
             status_code=502,
             detail="The AI returned an empty response",
         )
+
+    # Verify any meal carb figure the model cited against the user's logged
+    # meals before it reaches the user or is persisted.
+    content = await verify_meal_citations(db, user_id, content, surface="chat_web")
 
     # Persist both messages (non-fatal -- still return the AI response on failure)
     user_msg_id: uuid.UUID | None = None
@@ -595,6 +606,10 @@ async def handle_caregiver_chat(
             "Please try rephrasing your question." + SAFETY_DISCLAIMER
         )
 
+    # Verify cited meal carb figures against the *patient's* logged meals --
+    # the context was built from the patient's data.
+    content = await verify_meal_citations(db, patient_id, content, surface="caregiver")
+
     safe_content = html.escape(content)
 
     logger.info(
@@ -696,6 +711,12 @@ async def handle_caregiver_chat_web(
             status_code=502,
             detail="The AI returned an empty response",
         )
+
+    # Verify cited meal carb figures against the *patient's* logged meals --
+    # the context was built from the patient's data.
+    content = await verify_meal_citations(
+        db, patient_id, content, surface="caregiver_web"
+    )
 
     logger.info(
         "Web caregiver AI chat response generated",

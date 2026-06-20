@@ -272,7 +272,7 @@ async def test_orchestrator_happy_path_with_loop_profile():
     assert "loop" in report.uploaders_detected
     assert "aaps" in report.uploaders_detected
     assert "xdrip+" in report.uploaders_detected
-    # Loop wins the active_pump_loop tiebreak (first in _LOOP_UPLOADERS).
+    # Loop wins the active_pump_loop tiebreak (first in LOOP_UPLOADERS).
     assert report.active_pump_loop == "loop"
     assert report.has_profile is True
     assert report.profile_summary is not None

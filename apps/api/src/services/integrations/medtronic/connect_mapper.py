@@ -43,12 +43,16 @@ _MARKER_BG_TYPES = {"BG_READING", "BG", "CALIBRATION"}
 # entire sync by days -- this path can't be validated live, so we fail safe.
 _MAX_SKEW_HOURS = 26
 
-# Physiologic sensor-glucose bounds (mg/dL). Medtronic CGM clamps to 40-400;
-# we accept a slightly wider band and DROP anything outside it so a corrupt or
-# unit-confused follower value can't poison TIR/alerts/AI context. (We can't
-# validate this feed against a live pump, so be strict at the boundary.)
-_SG_MIN_MGDL = 10
-_SG_MAX_MGDL = 600
+# Sensor-glucose bounds (mg/dL). Medtronic CGM clamps to 40-400; we DROP anything
+# outside 20-500 so a corrupt or unit-confused follower value can't poison
+# TIR/alerts/AI context (this feed can't be validated against a live pump, so be
+# strict at the boundary). 20-500 is the platform-wide glucose safety invariant:
+# ``core.treatment_safety.models`` (MIN/MAX_GLUCOSE_MGDL = 20/500) and the
+# AI-context / TIR / stats read filters in ``routers.integrations`` (all clamp to
+# 20..500), plus the ``GlucoseReading`` storage ``ge=20`` floor. A wider per-source
+# bound would just admit values those consumers silently drop.
+_SG_MIN_MGDL = 20
+_SG_MAX_MGDL = 500
 
 # Sanity bound on the scheduled basal RATE (U/h). A real basal rate is a few
 # U/h; reject an implausible value rather than store a U/h rate the rate-based

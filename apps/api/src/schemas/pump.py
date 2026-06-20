@@ -9,7 +9,10 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from src.models.pump_data import PumpEventType
+from src.models.pump_data import (
+    MAX_BASAL_INJECTION_UNITS,
+    PumpEventType,
+)
 
 
 class PumpEventResponse(BaseModel):
@@ -442,7 +445,19 @@ class InsulinSummaryResponse(BaseModel):
 
     tdd: float = Field(..., ge=0, description="Average total daily dose (units/day)")
     basal_units: float = Field(
-        ..., ge=0, description="Average daily basal insulin (units/day)"
+        ..., ge=0, description="Average daily basal insulin -- pump rate (units/day)"
+    )
+    basal_injection_units: float = Field(
+        default=0.0,
+        ge=0,
+        description=(
+            "Average daily long-acting (basal) pen injections -- MDI, e.g. "
+            "Lantus/Tresiba (units/day). Counted within basal_pct; surfaced "
+            "separately as a distinct line. Add to basal_units for the basal total."
+        ),
+    )
+    basal_injection_count: int = Field(
+        default=0, ge=0, description="Total long-acting basal injections in period"
     )
     bolus_units: float = Field(
         ..., ge=0, description="Average daily bolus + correction insulin (units/day)"
@@ -464,13 +479,26 @@ class InsulinSummaryResponse(BaseModel):
 
 
 class BolusReviewItem(BaseModel):
-    """A single bolus event for the review table."""
+    """A single insulin event for the review table.
+
+    Carries boluses, corrections, and long-acting (basal) pen injections; the
+    row type is `event_type` so the UI can render each distinctly. Per-type
+    safety bounds are enforced upstream in the read query (boluses/corrections
+    <= 60U, basal injections <= 160U); the field cap here is the widest of those.
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
     event_timestamp: datetime
+    event_type: str = Field(
+        default=PumpEventType.BOLUS.value,
+        description="Event type: bolus | correction | basal_injection",
+    )
     units: float = Field(
-        ..., ge=0, le=25, description="Bolus units (hard safety cap 25U)"
+        ...,
+        ge=0,
+        le=MAX_BASAL_INJECTION_UNITS,
+        description="Insulin units (hard safety cap = max basal injection, 160U)",
     )
     is_automated: bool = False
     control_iq_reason: str | None = None

@@ -41,6 +41,7 @@ This keeps GlycemicGPT updated automatically. After you connect, a background jo
 - **Basal** (scheduled rate)
 - **Boluses** (insulin delivered, with insulin-on-board at the time of the bolus)
 - **Pod changes and events** (pod activation, reservoir/cannula changes, suspends/resumes)
+- **Smart-pen doses** (NovoPen 6 / Echo Plus boluses and manual insulin logs — see [Smart insulin pens](#smart-insulin-pens-novopen-6--echo-plus) below)
 - **Sensor glucose** (your CGM trace) — **when available.** Omnipod 5 only streams integrated CGM to Glooko on some setups, so this isn't guaranteed. The card tells you honestly whether CGM data was found in your account.
 
 ### Setting it up
@@ -74,6 +75,24 @@ Use this to pull your history once — for example, to backfill the weeks or mon
 2. GlycemicGPT walks back through your Glooko history and brings it in. This can take a minute.
 
 The import fills in the **past** without disturbing your ongoing continuous sync, and it's **safe to run again** — GlycemicGPT de-duplicates readings, so importing a range you already have just does nothing.
+
+---
+
+## Smart insulin pens (NovoPen 6 / Echo Plus)
+
+You don't need a pump for this connection to be useful. If you're on injections with a **Novo Nordisk NovoPen 6 or NovoPen Echo Plus**, the same Glooko connection brings your **pen doses** into GlycemicGPT:
+
+1. Install the free **Glooko app** on your phone (iOS or Android) and sign in.
+2. After injecting, hold the pen's display against your phone's NFC reader and sync (Home → **Sync** → **Smart Pens** the first time). The pen's memory holds a long dose history, so even an occasional scan keeps GlycemicGPT complete.
+3. Connect Glooko in GlycemicGPT as described above — pen doses flow in on the same schedule as pump data, and the one-time import backfills your pen history.
+
+What lands in GlycemicGPT:
+
+- **Rapid-acting (bolus) pen doses** read from the pen, plus insulin doses you typed into the Glooko app by hand (flagged as manually entered).
+- **Priming shots are excluded.** The pen records every actuation, including the 1–2 unit air shots used to prime the needle. Glooko flags these and GlycemicGPT skips them, so they never inflate your dose totals or AI analysis.
+- **Long-acting (basal) pen doses are not imported yet.** They don't fit the pump-style basal-rate model, so rather than show them misleadingly, they're skipped for now — support is tracked as a follow-up.
+
+> **Heads-up on dose edits:** if you delete or correct a dose in Glooko, the deletion is honored on the next sync for records not yet imported, but doses already stored in GlycemicGPT are keyed by Glooko's stable record ID and won't be retroactively removed. This matches how the pump streams behave.
 
 ---
 

@@ -1,7 +1,6 @@
 """Rate limiting middleware using slowapi.
 
 Protects auth and data push endpoints from abuse.
-Debug builds get relaxed limits via configuration.
 """
 
 import ipaddress
@@ -72,6 +71,14 @@ limiter = Limiter(
     key_func=_get_real_client_ip,
     default_limits=["120/minute"],  # Global default: 120 req/min per IP
     storage_uri=_storage_uri,
+    # Keep limiter Redis I/O bounded like token_blacklist's client; without
+    # timeouts a black-holing Redis blocks the event loop for the OS TCP
+    # timeout before the fallback engages.
+    storage_options={"socket_connect_timeout": 2, "socket_timeout": 2},
+    # Degrade to per-process in-memory counters during a Redis outage instead
+    # of failing every rate-limited request with a 500. Endpoints then surface
+    # their real responses (e.g. the retryable 503 from token refresh).
+    in_memory_fallback_enabled=True,
     enabled=not settings.testing,
 )
 
