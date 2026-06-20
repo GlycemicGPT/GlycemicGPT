@@ -13,6 +13,7 @@ own-history recall is exercised without the real model. External HTTP is mocked.
 
 import json
 import uuid
+from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -27,7 +28,13 @@ from src.models.common_food import CommonFood, normalize_common_food_name
 from src.models.food_record import FoodRecord, FoodRecordSource
 from src.models.knowledge_chunk import KnowledgeChunk
 from src.models.user import User, UserRole
-from src.services import food_vision, meal_grounding, meal_rag, nutrition_sources
+from src.services import (
+    food_vision,
+    meal_grounding,
+    meal_rag,
+    nutrition_sources,
+    restaurant_nutrition,
+)
 from src.vision.carb_contract import (
     MEAL_ESTIMATE_QUALIFIER,
     NEVER_DOSE_PROHIBITION,
@@ -84,6 +91,23 @@ async def _new_record(
     await db.commit()
     await db.refresh(record)
     return record
+
+
+async def _set_chunk_retrieved_at(food_record_id: uuid.UUID, when: datetime) -> None:
+    """Pin a food-record chunk's ``retrieved_at`` so most-recent ties are stable
+    (rather than racing on the sub-millisecond gap between two index calls)."""
+    from sqlalchemy import update
+
+    async with get_session_maker()() as db:
+        await db.execute(
+            update(KnowledgeChunk)
+            .where(
+                KnowledgeChunk.metadata_json["food_record_id"].astext
+                == str(food_record_id)
+            )
+            .values(retrieved_at=when)
+        )
+        await db.commit()
 
 
 async def _user_with_provider(db) -> User:
@@ -261,6 +285,130 @@ class TestOwnHistoryRecall:
         assert recall is not None
         assert recall.common_food_id == str(cf.id)
         assert recall.is_corrected is True  # a curated baseline is the truth
+
+    async def test_recall_breaks_distance_tie_toward_corrected(self):
+        # Two own-history chunks for one food embed to an EXACT distance tie (same
+        # description). The corrected one -- the user's truth -- must win. This is
+        # the HIGH bug: without a deterministic order the tie resolved
+        # implementation-defined, so grounding could fall back to the uncorrected
+        # guess. Indexing the uncorrected one first means a naive ORDER BY distance
+        # would surface it.
+        #
+        # Pin the CORRECTED chunk as the OLDER one so the recency fallback
+        # (retrieved_at DESC) would actually prefer the uncorrected row -- only the
+        # corrected-first ordering can surface the correction here. That isolates
+        # the corrected-first term: drop it and this test fails on the recency tie.
+        async with get_session_maker()() as db:
+            user = await _new_user(db)
+            desc = _uniq("turkey sandwich")
+            uncorrected = await _new_record(db, user, desc, low=40, high=50)
+            corrected = await _new_record(
+                db, user, desc, low=40, high=50, corrected=(70, 80)
+            )
+
+        await meal_rag.index_food_record(uncorrected)
+        await meal_rag.index_food_record(corrected)
+        now = datetime.now(UTC)
+        await _set_chunk_retrieved_at(corrected.id, now - timedelta(hours=2))
+        await _set_chunk_retrieved_at(uncorrected.id, now)
+
+        recall = await meal_rag.recall_similar_meal(user.id, desc)
+        assert recall is not None
+        assert recall.is_corrected is True
+        assert recall.food_record_id == str(corrected.id)
+        assert recall.carbs_low == 70 and recall.carbs_high == 80
+
+    async def test_recall_tie_among_corrected_prefers_most_recent(self):
+        # Two equidistant CORRECTED chunks -> the most-recently indexed wins,
+        # deterministically (a later correction supersedes an earlier one).
+        async with get_session_maker()() as db:
+            user = await _new_user(db)
+            desc = _uniq("veggie curry")
+            older = await _new_record(
+                db, user, desc, low=40, high=50, corrected=(60, 70)
+            )
+            newer = await _new_record(
+                db, user, desc, low=40, high=50, corrected=(90, 100)
+            )
+
+        await meal_rag.index_food_record(older)
+        await meal_rag.index_food_record(newer)
+        now = datetime.now(UTC)
+        await _set_chunk_retrieved_at(older.id, now - timedelta(hours=2))
+        await _set_chunk_retrieved_at(newer.id, now)
+
+        recall = await meal_rag.recall_similar_meal(user.id, desc)
+        assert recall is not None
+        assert recall.food_record_id == str(newer.id)
+        assert recall.carbs_low == 90 and recall.carbs_high == 100
+
+    async def test_recall_excludes_the_record_being_grounded(self):
+        # A first-ever log must not recall ITSELF as own-history (self-exclusion).
+        async with get_session_maker()() as db:
+            user = await _new_user(db)
+            desc = _uniq("first ever log")
+            record = await _new_record(db, user, desc, low=30, high=40)
+
+        await meal_rag.index_food_record(record)
+
+        assert (
+            await meal_rag.recall_similar_meal(
+                user.id, desc, exclude_food_record_id=record.id
+            )
+            is None
+        )
+        # Sanity: the chunk does exist -- without the exclusion it is found.
+        assert await meal_rag.recall_similar_meal(user.id, desc) is not None
+
+    async def test_recall_excludes_self_but_finds_genuine_prior(self):
+        # Excluding the re-shoot's own chunk still recalls a genuine prior log.
+        async with get_session_maker()() as db:
+            user = await _new_user(db)
+            desc = _uniq("repeat meal")
+            prior = await _new_record(
+                db, user, desc, low=40, high=50, corrected=(70, 80)
+            )
+            reshoot = await _new_record(db, user, desc, low=45, high=55)
+
+        await meal_rag.index_food_record(prior)
+        await meal_rag.index_food_record(reshoot)
+
+        recall = await meal_rag.recall_similar_meal(
+            user.id, desc, exclude_food_record_id=reshoot.id
+        )
+        assert recall is not None
+        assert recall.food_record_id == str(prior.id)
+        assert recall.is_corrected is True
+        assert recall.carbs_low == 70 and recall.carbs_high == 80
+
+    async def test_self_exclusion_keeps_common_food_baseline(self):
+        # A common-food chunk carries common_food_id, not food_record_id, so the
+        # IS DISTINCT FROM exclusion must KEEP it (a NULL "!=" would wrongly drop
+        # it). Excluding the record's own chunk still recalls the baseline.
+        async with get_session_maker()() as db:
+            user = await _new_user(db)
+            name = _uniq("my saved bowl")
+            cf = CommonFood(
+                user_id=user.id,
+                name=name,
+                normalized_name=normalize_common_food_name(name),
+                carbs_low=55,
+                carbs_high=65,
+            )
+            db.add(cf)
+            await db.commit()
+            await db.refresh(cf)
+            record = await _new_record(db, user, name, low=40, high=50)
+
+        await meal_rag.index_common_food(cf)
+        await meal_rag.index_food_record(record)
+
+        recall = await meal_rag.recall_similar_meal(
+            user.id, name, exclude_food_record_id=record.id
+        )
+        assert recall is not None
+        assert recall.common_food_id == str(cf.id)
+        assert recall.is_corrected is True
 
 
 # --------------------------------------------------------------------------- #
@@ -451,6 +599,148 @@ class TestOpenFoodFacts:
             )
         # No usable url and no code -> None.
         assert nutrition_sources._safe_off_citation_url("javascript:x", None) is None
+
+
+# --------------------------------------------------------------------------- #
+# Grounding-backed comorbidity capture + propagation
+# --------------------------------------------------------------------------- #
+class TestComorbidityCapture:
+    _USDA_PAYLOAD = {
+        "foods": [
+            {
+                "description": "Cheeseburger",
+                "fdcId": 7777,
+                "foodNutrients": [
+                    {"nutrientNumber": "205", "value": 30.0},
+                    {
+                        "nutrientNumber": "606",
+                        "nutrientName": "Fatty acids, total saturated",
+                        "value": 11.0,
+                    },
+                    {
+                        "nutrientNumber": "269.3",
+                        "nutrientName": "Sugars, total including NLEA",
+                        "value": 7.0,
+                    },
+                    {
+                        "nutrientNumber": "539",
+                        "nutrientName": "Sugars, added",
+                        "value": 4.0,
+                    },
+                    {
+                        "nutrientNumber": "307",
+                        "nutrientName": "Sodium, Na",
+                        "value": 990.0,
+                    },
+                ],
+            }
+        ]
+    }
+
+    async def test_usda_captures_comorbidity_and_cache_round_trips(self, monkeypatch):
+        monkeypatch.setattr(settings, "usda_fdc_api_key", "TESTKEY")
+        query = _uniq("burger")
+        ctx, client = _mock_httpx(self._USDA_PAYLOAD)
+        with ctx as ac:
+            ac.return_value.__aenter__.return_value = client
+            first = await nutrition_sources.lookup_usda(query)
+            second = await nutrition_sources.lookup_usda(query)  # cache hit
+
+        assert first is not None
+        assert first.saturated_fat_grams == 11.0
+        assert first.sugars_grams == 7.0
+        assert first.added_sugars_grams == 4.0
+        assert first.sodium_mg == 990.0
+        # The cached fact preserves the comorbidity values (no second HTTP call).
+        assert client.stream.call_count == 1
+        assert second is not None
+        assert second.comorbidity_dict() == {
+            "saturated_fat_grams": 11.0,
+            "sugars_grams": 7.0,
+            "added_sugars_grams": 4.0,
+            "sodium_mg": 990.0,
+        }
+
+    def test_usda_added_sugars_matched_by_name_when_number_absent(self):
+        # USDA names this "Sugars, added"; the name fallback must match it (and not
+        # mis-bucket it as total sugars) even when no nutrient number is supplied.
+        result = nutrition_sources._usda_comorbidity(
+            [
+                {"nutrientName": "Sugars, total including NLEA", "value": 9.0},
+                {"nutrientName": "Sugars, added", "value": 3.0},
+            ]
+        )
+        assert result == {"sugars_grams": 9.0, "added_sugars_grams": 3.0}
+
+    def test_usda_unsaturated_fat_not_stored_as_saturated(self):
+        # "saturated" is a substring of mono-/poly-unsaturated; those distinct
+        # nutrients (which appear first here, without a number) must not be stored
+        # as saturated fat -- only the real saturated row is.
+        result = nutrition_sources._usda_comorbidity(
+            [
+                {"nutrientName": "Fatty acids, total monounsaturated", "value": 6.0},
+                {"nutrientName": "Fatty acids, total polyunsaturated", "value": 4.0},
+                {"nutrientName": "Fatty acids, total saturated", "value": 3.0},
+            ]
+        )
+        assert result == {"saturated_fat_grams": 3.0}
+
+    async def test_off_converts_sodium_grams_to_mg(self, monkeypatch):
+        monkeypatch.setattr(settings, "open_food_facts_enabled", True)
+        payload = {
+            "products": [
+                {
+                    "product_name": "Cereal",
+                    "carbohydrates_100g": 70.0,
+                    "code": "1",
+                    "saturated-fat_100g": 2.0,
+                    "sugars_100g": 30.0,
+                    "sodium_100g": 0.5,  # grams -> 500 mg
+                }
+            ]
+        }
+        ctx, client = _mock_httpx(payload)
+        with ctx as ac:
+            ac.return_value.__aenter__.return_value = client
+            fact = await nutrition_sources.lookup_open_food_facts(_uniq("cereal"))
+        assert fact is not None
+        assert fact.saturated_fat_grams == 2.0
+        assert fact.sugars_grams == 30.0
+        assert fact.sodium_mg == 500.0
+        # OFF has no reliable added-sugars field.
+        assert fact.added_sugars_grams is None
+
+    async def test_grounding_detail_propagates_comorbidity(self):
+        # A published fact's comorbidity values flow into the GroundingDetail so the
+        # confirm path can persist them; an own-history recall carries none.
+        fact = nutrition_sources.NutritionFact(
+            source_name="USDA FoodData Central",
+            source_url="https://fdc.nal.usda.gov/x",
+            trust_tier=KnowledgeChunk.TIER_AUTHORITATIVE,
+            name="burger",
+            carbs_grams=30.0,
+            serving="per 100 g",
+            disclaimer=None,
+            saturated_fat_grams=11.0,
+            sodium_mg=990.0,
+        )
+        with (
+            patch.object(meal_rag, "recall_similar_meal", AsyncMock(return_value=None)),
+            patch.object(
+                nutrition_sources,
+                "lookup_published_nutrition",
+                AsyncMock(return_value=(fact, None)),
+            ),
+            patch.object(settings, "meal_intelligence_enabled", True),
+        ):
+            detail = await meal_grounding.ground_estimate(
+                uuid.uuid4(), "cheeseburger", identity_confirmed=True
+            )
+        assert detail is not None
+        assert detail.comorbidity_dict() == {
+            "saturated_fat_grams": 11.0,
+            "sodium_mg": 990.0,
+        }
 
 
 # --------------------------------------------------------------------------- #
@@ -669,6 +959,101 @@ class TestPrecedence:
         # The gate short-circuits before any recall or external lookup runs.
         recall.assert_not_awaited()
         lookup.assert_not_awaited()
+
+    # ── Story 50.E2: restaurant slots in as AUTHORITATIVE above USDA ──
+    def _restaurant_fact(self, carbs=30):
+        return nutrition_sources.NutritionFact(
+            source_name="McDonald's",
+            source_url="https://www.mcdonalds.com/x",
+            trust_tier=KnowledgeChunk.TIER_AUTHORITATIVE,
+            name="Quarter Pounder with Cheese",
+            carbs_grams=carbs,
+            serving="per item",
+            disclaimer="Reference only; never use it to dose or bolus.",
+        )
+
+    async def test_restaurant_preferred_over_usda(self):
+        # A branded chain item grounds to the chain's own facts above generic USDA.
+        usda = self._fact(
+            "USDA FoodData Central", KnowledgeChunk.TIER_AUTHORITATIVE, 12
+        )
+        with (
+            patch.object(meal_rag, "recall_similar_meal", AsyncMock(return_value=None)),
+            patch.object(
+                restaurant_nutrition,
+                "lookup_restaurant",
+                AsyncMock(return_value=self._restaurant_fact(30)),
+            ),
+            patch.object(
+                nutrition_sources,
+                "lookup_published_nutrition",
+                AsyncMock(return_value=(usda, None)),
+            ) as published,
+        ):
+            detail = await meal_grounding.ground_estimate(
+                uuid.uuid4(), "McDonald's Quarter Pounder", identity_confirmed=True
+            )
+        assert detail.source == "McDonald's"
+        assert detail.carbs_low == 30  # the chain figure, not the USDA 12
+        assert detail.trust_tier == KnowledgeChunk.TIER_AUTHORITATIVE
+        # A restaurant hit short-circuits before the USDA/OFF HTTP round-trips.
+        published.assert_not_awaited()
+
+    async def test_corrected_own_history_beats_restaurant(self):
+        # Precedence: own-history corrected > restaurant. A corrected match
+        # short-circuits before the restaurant lookup even runs.
+        with (
+            patch.object(
+                meal_rag,
+                "recall_similar_meal",
+                AsyncMock(return_value=self._recall(corrected=True)),
+            ),
+            patch.object(
+                restaurant_nutrition, "lookup_restaurant", AsyncMock()
+            ) as restaurant,
+        ):
+            detail = await meal_grounding.ground_estimate(
+                uuid.uuid4(), "McDonald's Quarter Pounder", identity_confirmed=True
+            )
+        assert detail.source == "Your meal history"
+        restaurant.assert_not_awaited()
+
+    async def test_restaurant_falls_through_to_usda_when_unbranded(self):
+        # A generic food (restaurant lookup returns None) still grounds to USDA.
+        usda = self._fact(
+            "USDA FoodData Central", KnowledgeChunk.TIER_AUTHORITATIVE, 12
+        )
+        with (
+            patch.object(meal_rag, "recall_similar_meal", AsyncMock(return_value=None)),
+            patch.object(
+                restaurant_nutrition,
+                "lookup_restaurant",
+                AsyncMock(return_value=None),
+            ),
+            patch.object(
+                nutrition_sources,
+                "lookup_published_nutrition",
+                AsyncMock(return_value=(usda, None)),
+            ),
+        ):
+            detail = await meal_grounding.ground_estimate(
+                uuid.uuid4(), "oatmeal", identity_confirmed=True
+            )
+        assert detail.source == "USDA FoodData Central"
+        assert detail.carbs_low == 12
+
+    async def test_unconfirmed_identity_never_grounds_restaurant(self):
+        # AC8: the restaurant lookup is never even reached for an unconfirmed item.
+        with patch.object(
+            restaurant_nutrition, "lookup_restaurant", AsyncMock()
+        ) as restaurant:
+            detail = await meal_grounding.ground_estimate(
+                uuid.uuid4(),
+                "McDonald's Quarter Pounder",
+                identity_confirmed=False,
+            )
+        assert detail is None
+        restaurant.assert_not_awaited()
 
 
 # --------------------------------------------------------------------------- #

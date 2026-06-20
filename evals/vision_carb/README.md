@@ -42,6 +42,8 @@ contract.py        # estimate JSON shape, the descriptive (mirror-not-advisor)
                    # prompt, the parser, and the no-dosing safety scan
 metrics.py         # accuracy (MAE/coverage/tolerance) + variance (CV, spread,
                    # worst-case swing, identity error) scoring
+passbar.py         # the local-model pass-bar: enforces FINDINGS.md's variance/
+                   # identity/MAE gates as code (PASS / FAIL / INSUFFICIENT_DATA)
 harness.py         # the runner CLI (single-shot / --repeats / --sweep; stdlib only)
 dataset/
   manifest.json    # committed: easy known-label set + provenance + expected_identity
@@ -103,9 +105,13 @@ SIDECAR_API_KEY=<key> python evals/vision_carb/harness.py \
 SIDECAR_API_KEY=<key> python evals/vision_carb/harness.py \
     --manifest dataset/manifest.json dataset/adversarial.json --sweep 1,3,5
 
-# Local model benchmark (benchmark at N >= 5 -- see FINDINGS.md)
+# Local-model certification benchmark: run a local model (served by Ollama) at
+# N >= 5 and gate on the pass-bar -- exits non-zero unless it clears the bar.
+# Operational only (live, costs compute); never in CI. See FINDINGS.md.
 python evals/vision_carb/harness.py \
-    --base-url http://localhost:11434 --model llava:13b --no-auth --repeats 5
+    --base-url http://localhost:11434 --model llava:13b --no-auth \
+    --manifest dataset/manifest.json dataset/adversarial.json \
+    --repeats 5 --enforce-pass-bar
 ```
 
 Outputs `evals/vision_carb/results/results.json` and

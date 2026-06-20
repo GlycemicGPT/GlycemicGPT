@@ -1,8 +1,10 @@
 package com.glycemicgpt.mobile.data.meal
 
+import com.glycemicgpt.mobile.data.remote.dto.ComorbidityNutritionResponse
 import com.glycemicgpt.mobile.data.remote.dto.CommonFoodResponse
 import com.glycemicgpt.mobile.data.remote.dto.FoodRecordAuditResponse
 import com.glycemicgpt.mobile.data.remote.dto.FoodRecordResponse
+import com.glycemicgpt.mobile.data.remote.dto.NutritionFactsResponse
 import java.time.Instant
 
 /**
@@ -107,6 +109,63 @@ data class MealDispersion(
     val identityAgreement: Boolean,
 )
 
+/**
+ * Glucose-framed nutrition for a meal (Story 50.N1). Descriptive only: the
+ * [portion] is the estimate's primary sanity-check, the [macros] carry "how this
+ * affects glucose" notes, and [netCarbs] travels behind a never-dose caveat.
+ * Nothing here is a dose. All copy is server-cleared and rendered verbatim.
+ */
+data class MealNutritionFacts(
+    val portion: String?,
+    val macros: List<MealMacro>,
+    val netCarbs: MealNetCarbs?,
+    val disclaimer: String?,
+)
+
+/** One glucose-relevant macro with its descriptive, no-timing-number framing. */
+data class MealMacro(
+    val key: String,
+    val label: String,
+    val value: Double,
+    val unit: String,
+    val glucoseNote: String?,
+)
+
+/**
+ * Net carbs (total carbs minus fiber), surfaced only behind [caveat] -- clearly
+ * secondary to the total carb range and never a dosing input.
+ */
+data class MealNetCarbs(
+    val low: Double,
+    val high: Double,
+    val caveat: String,
+)
+
+/**
+ * Grounding-backed comorbidity / label nutrition. GROUNDING-ONLY and
+ * identity-gated: published reference figures (saturated fat / sugars / sodium)
+ * framed as blood-pressure / cardiovascular awareness, never a dose. Attributed to
+ * [source] (distinct from the vision estimate); [disclaimer] carries the never-dose
+ * framing; [sugarNote] (the "sugar-free isn't carb-free" reminder) is present only
+ * when a sugars figure is surfaced. All copy is server-cleared and rendered verbatim.
+ */
+data class MealComorbidityNutrition(
+    val facts: List<MealComorbidityFact>,
+    val sugarNote: String?,
+    val source: String?,
+    val trustTier: String?,
+    val disclaimer: String?,
+)
+
+/** One grounding-backed comorbidity nutrient with its awareness-framing note. */
+data class MealComorbidityFact(
+    val key: String,
+    val label: String,
+    val value: Double,
+    val unit: String,
+    val note: String?,
+)
+
 /** A persisted meal photo + carb estimate, optionally corrected by the user. */
 data class FoodRecord(
     val id: String,
@@ -132,6 +191,14 @@ data class FoodRecord(
     val identityConfirmed: Boolean = false,
     /** Own-history pre-fill ("looks like your saved X"); fresh estimate only. */
     val suggestedIdentity: String? = null,
+    /** Glucose-framed nutrition (Story 50.N1): portion + macros + net carbs. */
+    val nutritionFacts: MealNutritionFacts? = null,
+    /**
+     * Grounding-backed comorbidity nutrition: saturated fat / sugars /
+     * sodium when an authoritative source published them. Null when nothing was
+     * grounded; only ever present on a confirmed, grounded record.
+     */
+    val comorbidityNutrition: MealComorbidityNutrition? = null,
 ) {
     /** Whether the user has corrected the AI estimate. */
     val isCorrected: Boolean get() = correction != null
@@ -198,8 +265,64 @@ fun FoodRecordResponse.toDomain(): FoodRecord {
         confirmedFoodName = confirmedFoodName,
         identityConfirmed = identityConfirmed,
         suggestedIdentity = suggestedIdentity?.takeIf { it.isNotBlank() },
+        nutritionFacts = nutritionFacts?.toDomain(),
+        comorbidityNutrition = comorbidityNutrition?.toDomain(),
     )
 }
+
+private fun ComorbidityNutritionResponse.toDomain(): MealComorbidityNutrition? {
+    // Drop any non-finite / negative value defensively (the server already rejects
+    // these); a comorbidity block with no usable fact is treated as absent so an
+    // empty card never renders.
+    val mapped = facts.mapNotNull { fact ->
+        fact.takeIf { it.value.isFinite() && it.value >= 0.0 }?.let {
+            MealComorbidityFact(
+                key = it.key,
+                label = it.label,
+                value = it.value,
+                unit = it.unit,
+                note = it.note?.takeIf { note -> note.isNotBlank() },
+            )
+        }
+    }
+    if (mapped.isEmpty()) return null
+    // Keep the "sugar-free isn't carb-free" note only when a sugars fact actually
+    // survived, mirroring the server's _SUGAR_KEYS gating, so a dropped/non-finite
+    // sugars value can't leave an orphaned reminder on the card.
+    val sugarSurvived = mapped.any {
+        it.key == "sugars_grams" || it.key == "added_sugars_grams"
+    }
+    return MealComorbidityNutrition(
+        facts = mapped,
+        sugarNote = if (sugarSurvived) sugarNote?.takeIf { it.isNotBlank() } else null,
+        source = source?.takeIf { it.isNotBlank() },
+        trustTier = trustTier?.takeIf { it.isNotBlank() },
+        disclaimer = disclaimer?.takeIf { it.isNotBlank() },
+    )
+}
+
+private fun NutritionFactsResponse.toDomain(): MealNutritionFacts = MealNutritionFacts(
+    portion = portion?.takeIf { it.isNotBlank() },
+    // Drop any non-finite macro value defensively. The server already rejects
+    // these, but the client mirrors that so a malformed response can never render
+    // a NaN/Infinity figure on a medical surface.
+    macros = macros.mapNotNull { macro ->
+        macro.takeIf { it.value.isFinite() }?.let {
+            MealMacro(
+                key = it.key,
+                label = it.label,
+                value = it.value,
+                unit = it.unit,
+                glucoseNote = it.glucoseNote?.takeIf { note -> note.isNotBlank() },
+            )
+        }
+    },
+    // Skip net carbs that are non-finite or inverted (mirrors the server bounds).
+    netCarbs = netCarbs
+        ?.takeIf { it.low.isFinite() && it.high.isFinite() && it.low <= it.high }
+        ?.let { MealNetCarbs(low = it.low, high = it.high, caveat = it.caveat) },
+    disclaimer = disclaimer?.takeIf { it.isNotBlank() },
+)
 
 /**
  * The "how was this estimated" provenance trail (Story 50.H3). Descriptive only;

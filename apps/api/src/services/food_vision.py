@@ -43,6 +43,7 @@ from src.services import (
     meal_estimate_aggregate,
     meal_grounding,
     meal_rag,
+    vision_capability,
 )
 from src.services.ai_client import DEFAULT_MODELS
 from src.vision.carb_contract import (
@@ -65,6 +66,11 @@ _VISION_MAX_TOKENS = 1024
 # output, not user input).
 _MAX_DESCRIPTION_CHARS = 1000
 
+# Same storage-growth guard for the portion/assumptions prose (Story 50.N1). It
+# is a short sanity-check ("assumed one cup, cooked"), so a tighter cap than the
+# description is plenty.
+_MAX_ASSUMPTIONS_CHARS = 500
+
 
 class FoodVisionError(Exception):
     """Base class for estimation-pipeline failures."""
@@ -76,6 +82,17 @@ class ProviderNotConfiguredError(FoodVisionError):
 
 class VisionUnavailableError(FoodVisionError):
     """The user's active provider has no vision route (sidecar HTTP 422)."""
+
+
+class ModelNotCertifiedError(FoodVisionError):
+    """The configured model is not certified for vision carb estimation.
+
+    Distinct from ``VisionUnavailableError`` ("your provider has no vision route"):
+    this means the provider *can* do vision but the specific model -- a local,
+    self-hosted one -- has not cleared the benchmark pass-bar, so estimating from
+    it would risk a silent low-quality result. The pipeline refuses with guidance
+    rather than producing one.
+    """
 
 
 class VisionServiceError(FoodVisionError):
@@ -90,7 +107,10 @@ async def _resolve_model(user: User, db: AsyncSession) -> tuple[str, str]:
     """Return ``(model_name, provider_label)`` for the user's active provider.
 
     The model name drives the sidecar's vision-runner selection. Raises
-    ``ProviderNotConfiguredError`` when no provider is configured.
+    ``ProviderNotConfiguredError`` when no provider is configured, and
+    ``ModelNotCertifiedError`` when the configured model is a local/self-hosted
+    one that has not cleared the vision benchmark -- gating it here, before any
+    vision call, so an unverified model never yields a silent low-quality estimate.
     """
     result = await db.execute(
         select(AIProviderConfig).where(AIProviderConfig.user_id == user.id)
@@ -101,6 +121,8 @@ async def _resolve_model(user: User, db: AsyncSession) -> tuple[str, str]:
     model = config.model_name or DEFAULT_MODELS.get(config.provider_type, "")
     if not model:
         raise ProviderNotConfiguredError("No model configured for your AI provider.")
+    if not vision_capability.is_vision_cleared(config.provider_type, model):
+        raise ModelNotCertifiedError(vision_capability.unverified_local_message(model))
     return model, config.provider_type.value
 
 
@@ -261,22 +283,25 @@ async def create_food_record_from_image(
     )
     samples = [parse_estimate(text) for text in raw_texts]
 
-    # Per-sample dosing scrub BEFORE aggregation: a sample whose description
-    # smuggled in advice has that description nulled (its carb numbers stay
-    # usable), so the scrubbed text can never be chosen as the representative
-    # description. Count only -- never log the content.
-    scrubbed = 0
+    # Per-sample dosing scrub BEFORE aggregation: a sample whose description --
+    # or its portion/assumptions prose (Story 50.N1), which is surfaced too --
+    # smuggled in advice has that field nulled (its carb numbers stay usable), so
+    # the scrubbed text can never be chosen as the representative. Count only --
+    # never log the content.
+    scrubbed_descriptions = 0
+    scrubbed_assumptions = 0
     for sample in samples:
-        desc_violation = bool(
-            sample.food_description and find_dosing_violations(sample.food_description)
-        )
-        if desc_violation:
+        if sample.food_description and find_dosing_violations(sample.food_description):
             sample.food_description = ""
-            scrubbed += 1
-    if scrubbed:
+            scrubbed_descriptions += 1
+        if sample.assumptions and find_dosing_violations(sample.assumptions):
+            sample.assumptions = ""
+            scrubbed_assumptions += 1
+    if scrubbed_descriptions or scrubbed_assumptions:
         logger.warning(
-            "Dosing phrasing detected in vision sample description(s); scrubbed",
-            sample_count=scrubbed,
+            "Dosing phrasing detected in vision sample(s); scrubbed",
+            scrubbed_descriptions=scrubbed_descriptions,
+            scrubbed_assumptions=scrubbed_assumptions,
         )
 
     aggregate = meal_estimate_aggregate.aggregate_samples(
@@ -296,6 +321,12 @@ async def create_food_record_from_image(
     food_description: str | None = aggregate.food_description or None
     if food_description:
         food_description = food_description[:_MAX_DESCRIPTION_CHARS]
+
+    # The assumed portion (Story 50.N1), surfaced as the estimate's primary
+    # sanity-check. Already dosing-scrubbed per-sample above; capped for storage.
+    assumptions: str | None = aggregate.assumptions or None
+    if assumptions:
+        assumptions = assumptions[:_MAX_ASSUMPTIONS_CHARS]
 
     # Story 50.H2: identity is unconfirmed at creation (cold start), so external
     # authoritative grounding is gated OFF here -- a fresh vision label is never
@@ -321,6 +352,7 @@ async def create_food_record_from_image(
         # confidence (Story 50.H1), which is no longer surfaced to users.
         confidence=aggregate.confidence,
         nutrition_json=aggregate.nutrition or None,
+        assumptions=assumptions,
         ai_model=model,
         ai_provider=provider_label,
         source=FoodRecordSource.AI_ESTIMATE,

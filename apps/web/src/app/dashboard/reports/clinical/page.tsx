@@ -668,11 +668,11 @@ function AgpChartSection({
           Median (p50)
         </span>
         <span>
-          <span className="inline-block w-3 h-2 mr-1 align-middle rounded-sm" style={{ backgroundColor: "rgba(59, 130, 246, 0.30)" }} />
+          <span className="inline-block w-3 h-2 mr-1 align-middle rounded-xs" style={{ backgroundColor: "rgba(59, 130, 246, 0.30)" }} />
           25th-75th percentile
         </span>
         <span>
-          <span className="inline-block w-3 h-2 mr-1 align-middle rounded-sm" style={{ backgroundColor: "rgba(59, 130, 246, 0.15)" }} />
+          <span className="inline-block w-3 h-2 mr-1 align-middle rounded-xs" style={{ backgroundColor: "rgba(59, 130, 246, 0.15)" }} />
           10th-90th percentile
         </span>
       </div>
@@ -1041,7 +1041,7 @@ function TirSection({ tir }: { tir: TimeInRangeDetailStats }) {
               >
                 <td className="py-2 flex items-center gap-2">
                   <span
-                    className="inline-block w-3 h-3 rounded-sm"
+                    className="inline-block w-3 h-3 rounded-xs"
                     style={{ backgroundColor: TIR_COLORS[bucket.label] }}
                   />
                   <span className="text-slate-700 dark:text-slate-300 print:text-slate-700">
@@ -1271,13 +1271,13 @@ function InsulinSection({ insulin }: { insulin: InsulinSummaryResponse }) {
       </div>
       <div className="flex gap-4 text-xs">
         <div className="flex items-center gap-1.5">
-          <span className="inline-block w-2.5 h-2.5 rounded-sm bg-indigo-500" />
+          <span className="inline-block w-2.5 h-2.5 rounded-xs bg-indigo-500" />
           <span className="text-slate-600 dark:text-slate-300 print:text-slate-600">
             Basal {insulin.basal_pct}%
           </span>
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="inline-block w-2.5 h-2.5 rounded-sm bg-blue-500" />
+          <span className="inline-block w-2.5 h-2.5 rounded-xs bg-blue-500" />
           <span className="text-slate-600 dark:text-slate-300 print:text-slate-600">
             Bolus {insulin.bolus_pct}%
           </span>
@@ -1462,11 +1462,11 @@ function BolusTable({
                   </td>
                   <td className="py-1.5 px-2 text-center">
                     {b.is_automated ? (
-                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-violet-100 text-violet-700 print:bg-violet-50 print:text-violet-800">
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-xs font-medium bg-violet-100 text-violet-700 print:bg-violet-50 print:text-violet-800">
                         Auto
                       </span>
                     ) : (
-                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-600 print:bg-slate-50 print:text-slate-700">
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-xs font-medium bg-slate-100 text-slate-600 print:bg-slate-50 print:text-slate-700">
                         Manual
                       </span>
                     )}
@@ -1903,7 +1903,7 @@ export default function ClinicalReportPage() {
                     setSelectedPreset(null);
                   }
                 }}
-                className="px-3 py-1.5 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                className="px-3 py-1.5 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-hidden"
               />
               <span className="text-sm text-slate-400">to</span>
               <input
@@ -1919,7 +1919,7 @@ export default function ClinicalReportPage() {
                     setSelectedPreset(null);
                   }
                 }}
-                className="px-3 py-1.5 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                className="px-3 py-1.5 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-hidden"
               />
               <span className="text-xs text-slate-400">
                 {numDays}d

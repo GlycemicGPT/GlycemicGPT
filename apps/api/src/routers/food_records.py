@@ -12,6 +12,7 @@ treatment_safety / carb-ratio math.
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -60,7 +61,10 @@ _ACCEPTED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
         404: {"model": ErrorResponse, "description": "No AI provider configured"},
         413: {"model": ErrorResponse, "description": "Image too large"},
         415: {"model": ErrorResponse, "description": "Unsupported image type"},
-        422: {"model": ErrorResponse, "description": "Vision unavailable / unusable"},
+        422: {
+            "model": ErrorResponse,
+            "description": "Vision unavailable, model not certified, or estimate unusable",
+        },
         429: {"model": ErrorResponse, "description": "Rate limit exceeded"},
     },
 )
@@ -112,6 +116,10 @@ async def upload_food_photo(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
         ) from exc
     except food_vision.VisionUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+    except food_vision.ModelNotCertifiedError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
@@ -195,6 +203,48 @@ async def get_food_record(
     require_meal_intelligence()
     record = await _get_owned_record(record_id, current_user.id, db)
     return FoodRecordResponse.model_validate(record)
+
+
+@router.get(
+    "/{record_id}/photo",
+    responses={
+        200: {
+            "content": {"image/jpeg": {}, "image/png": {}, "image/webp": {}},
+            "description": "The stored meal photo",
+        },
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        404: {"model": ErrorResponse, "description": "Food record or photo not found"},
+    },
+)
+async def get_food_record_photo(
+    record_id: uuid.UUID,
+    current_user: DiabeticOrAdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> FileResponse:
+    """Serve the stored meal photo for one of the current user's records.
+
+    Owner-scoped (IDOR-safe): the record must belong to the caller, and the file
+    is served *by record id* -- the caller never supplies a path, and the path
+    read from the record is re-confined to the private uploads root before it is
+    served. The photo is the user's own PHI, so it is marked private (never a
+    shared-proxy cache).
+    """
+    require_meal_intelligence()
+    record = await _get_owned_record(record_id, current_user.id, db)
+    try:
+        path, media_type = food_image.resolve_stored_image(record.storage_path)
+    except food_image.StoredImageMissingError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Meal photo not available."
+        ) from exc
+    return FileResponse(
+        path,
+        media_type=media_type,
+        headers={
+            "Cache-Control": "private, max-age=300",
+            "Content-Disposition": "inline",
+        },
+    )
 
 
 @router.get(

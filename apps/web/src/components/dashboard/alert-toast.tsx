@@ -92,7 +92,7 @@ export function AlertToast({ alert, onDismiss }: AlertToastProps) {
   return (
     <div
       className={clsx(
-        "rounded-lg border p-4 shadow-lg backdrop-blur-sm transition-all duration-300 w-80",
+        "rounded-lg border p-4 shadow-lg backdrop-blur-xs transition-all duration-300 w-80",
         config.bg,
         config.border,
         config.animation,

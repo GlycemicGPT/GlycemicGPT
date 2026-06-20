@@ -33,7 +33,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.glycemicgpt.mobile.data.meal.CarbConfidence
 import com.glycemicgpt.mobile.data.meal.CarbRange
+import com.glycemicgpt.mobile.data.meal.MealComorbidityFact
+import com.glycemicgpt.mobile.data.meal.MealComorbidityNutrition
 import com.glycemicgpt.mobile.data.meal.MealDispersion
+import com.glycemicgpt.mobile.data.meal.MealMacro
+import com.glycemicgpt.mobile.data.meal.MealNetCarbs
+import com.glycemicgpt.mobile.data.meal.MealNutritionFacts
 import com.glycemicgpt.mobile.presentation.theme.MealConfidenceColors
 import com.glycemicgpt.mobile.presentation.theme.safetyPalette
 import java.time.Instant
@@ -41,6 +46,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Locale
+import kotlin.math.roundToInt
 
 /**
  * The text shown on every estimate surface. A single source of truth for the safety wording.
@@ -262,6 +268,313 @@ fun confidenceLabel(confidence: CarbConfidence): String = when (confidence) {
  * prefilled field never shows more precision than the value rendered elsewhere.
  */
 internal fun formatEditableGrams(value: Double): String = formatGrams(value)
+
+/**
+ * Glucose-framed nutrition (Story 50.N1): the assumed portion (the estimate's
+ * primary sanity-check), the macros with their descriptive "how this affects
+ * glucose" notes, and the caveated net-carbs figure. All copy is server-cleared
+ * and rendered verbatim. Read-only -- nothing here is a dose. Caller renders this
+ * only when [facts] has something to show.
+ */
+@Composable
+fun MealNutritionContent(facts: MealNutritionFacts, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        facts.portion?.let { AssumedPortionCard(it) }
+        if (facts.macros.isNotEmpty() || facts.netCarbs != null) {
+            NutritionFactsCard(facts)
+        }
+        // Section-level never-dose note: shown whenever any nutrition surfaces
+        // (including a portion-only payload with no macros/net carbs), so the
+        // framing can never be dropped.
+        facts.disclaimer?.takeIf { it.isNotBlank() }?.let { disclaimer ->
+            Text(
+                text = disclaimer,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.testTag("meal_nutrition_disclaimer"),
+            )
+        }
+    }
+}
+
+/**
+ * The assumed portion, surfaced prominently -- portion size is the dominant error
+ * source in a photo estimate, so it gets its own emphasized card and an explicit
+ * "does this match?" prompt.
+ */
+@Composable
+private fun AssumedPortionCard(portion: String) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("meal_portion"),
+        color = MaterialTheme.colorScheme.primaryContainer,
+        shape = RoundedCornerShape(8.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = "ASSUMED PORTION",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+            Text(
+                text = portion,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+            Text(
+                text = "Portion size is the biggest source of error in a photo estimate" +
+                    " — does this match what you ate?",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+        }
+    }
+}
+
+@Composable
+private fun NutritionFactsCard(facts: MealNutritionFacts) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = RoundedCornerShape(8.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = "Estimated nutrition",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            facts.macros.forEach { macro -> MacroRow(macro) }
+            facts.netCarbs?.let { NetCarbsRow(it) }
+            // The section disclaimer is rendered by MealNutritionContent (so it
+            // also shows for a portion-only payload), not here.
+        }
+    }
+}
+
+@Composable
+private fun MacroRow(macro: MealMacro) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("meal_macro"),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                text = macro.label,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = formatMacroValue(macro.value, macro.unit),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
+        macro.glucoseNote?.let { note ->
+            Text(
+                text = note,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.testTag("meal_macro_note"),
+            )
+        }
+    }
+}
+
+@Composable
+private fun NetCarbsRow(netCarbs: MealNetCarbs) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("meal_net_carbs"),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                text = "Net carbs",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = formatNetCarbs(netCarbs.low, netCarbs.high),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
+        // The net-carbs caveat rides a calm-caution strip (not error red): named
+        // as inexact, pointing back to total carbs, carrying the never-dose line.
+        CautionStrip(text = netCarbs.caveat, testTag = "meal_net_carbs_caveat")
+    }
+}
+
+/**
+ * Format a macro as "32 g" / "640 kcal" -- whole units, no false precision on an
+ * estimate. Rounds to whole units (not the one-decimal carb-input style) so the
+ * value reads identically to the web client for the same server data.
+ */
+private fun formatMacroValue(value: Double, unit: String): String =
+    "${value.roundToInt()} $unit".trim()
+
+/**
+ * Render a net-carb band as "≈ 34–49 g" (or "≈ 26 g" when the rounded endpoints
+ * meet). Whole grams, matching the web client's net-carb rendering.
+ */
+fun formatNetCarbs(low: Double, high: Double): String {
+    val lo = low.roundToInt()
+    val hi = high.roundToInt()
+    return if (lo == hi) "≈ $lo g" else "≈ $lo–$hi g"
+}
+
+/**
+ * Grounding-backed comorbidity / label nutrition: saturated fat,
+ * sugars, and sodium when an authoritative source published them. GROUNDING-ONLY
+ * (never from the photo) and identity-gated, so the caller renders this only for a
+ * grounded record. Framed as blood-pressure / cardiovascular awareness, never a
+ * directive: each figure carries its descriptive note, sugars carry the "sugar-free
+ * isn't carb-free" reminder, the block is attributed to its source (distinct from
+ * the vision estimate), and the never-dose disclaimer closes it. All copy is
+ * server-cleared and rendered verbatim. Read-only -- nothing here is a dose.
+ */
+@Composable
+fun MealComorbidityContent(
+    comorbidity: MealComorbidityNutrition,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("meal_comorbidity"),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = RoundedCornerShape(8.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = "Heart & blood-pressure awareness",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            comorbidity.facts.forEach { fact -> ComorbidityRow(fact) }
+            comorbidity.sugarNote?.let { note -> ComorbidityCaution(note) }
+            // Attribution: these are published reference figures, distinct from the
+            // photo estimate, so name the source (and its trust tier when present).
+            comorbidity.source?.let { source ->
+                val tier = comorbidity.trustTier?.lowercase(Locale.US)
+                Text(
+                    text = if (tier != null) "From $source ($tier source)" else "From $source",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.testTag("meal_comorbidity_source"),
+                )
+            }
+            comorbidity.disclaimer?.takeIf { it.isNotBlank() }?.let { disclaimer ->
+                Text(
+                    text = disclaimer,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.testTag("meal_comorbidity_disclaimer"),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ComorbidityRow(fact: MealComorbidityFact) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("meal_comorbidity_fact"),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                text = fact.label,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = formatMacroValue(fact.value, fact.unit),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
+        fact.note?.let { note ->
+            Text(
+                text = note,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.testTag("meal_comorbidity_note"),
+            )
+        }
+    }
+}
+
+/** The "sugar-free isn't carb-free" reminder, on the shared calm-caution strip. */
+@Composable
+private fun ComorbidityCaution(note: String) {
+    CautionStrip(text = note, testTag = "meal_comorbidity_sugar_note")
+}
+
+/**
+ * A calm-caution strip (info icon + text on the safety palette, NOT error red):
+ * the single source of truth for the never-dose-adjacent caveats so the net-carbs
+ * caveat and the comorbidity sugar note can't drift apart visually. The caller
+ * supplies the verbatim server text and the test tag for that surface.
+ */
+@Composable
+private fun CautionStrip(text: String, testTag: String) {
+    val palette = safetyPalette()
+    Surface(color = palette.background, shape = RoundedCornerShape(8.dp)) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Default.Info,
+                contentDescription = null,
+                tint = palette.icon,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = text,
+                style = MaterialTheme.typography.bodySmall,
+                color = palette.foreground,
+                modifier = Modifier.testTag(testTag),
+            )
+        }
+    }
+}
 
 /** Full-screen centered spinner with an optional caption, shared across the meal screens. */
 @Composable

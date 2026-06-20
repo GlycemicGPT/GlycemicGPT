@@ -23,11 +23,12 @@ import {
   Bell,
   MessageSquare,
   BookOpen,
+  UtensilsCrossed,
   Settings,
   Menu,
   X,
 } from "lucide-react";
-import { useUserContext } from "@/providers";
+import { useUserContext, useMealIntelligenceContext } from "@/providers";
 import { getUnreadInsightsCount } from "@/lib/api";
 
 interface NavItem {
@@ -49,6 +50,28 @@ const diabeticNavigation: NavItem[] = [
 const caregiverNavigation: NavItem[] = [
   { name: "Dashboard", href: "/dashboard/caregiver", icon: LayoutDashboard },
 ];
+
+// Meals is gated on the deployment-wide meal-intelligence flag (resolved via a
+// probe in MealIntelligenceProvider). When off, the nav item is hidden; the
+// route itself renders a clear feature-off state (never a raw 404), mirroring
+// the mobile client. Inserted just before the trailing Settings item.
+const mealsNavItem: NavItem = {
+  name: "Meals",
+  href: "/dashboard/meals",
+  icon: UtensilsCrossed,
+};
+
+function navItemsFor(isCaregiver: boolean, mealsEnabled: boolean): NavItem[] {
+  if (isCaregiver) return caregiverNavigation;
+  if (!mealsEnabled) return diabeticNavigation;
+  // Settings is the trailing item; keep it last with Meals just before it.
+  const lastIndex = diabeticNavigation.length - 1;
+  return [
+    ...diabeticNavigation.slice(0, lastIndex),
+    mealsNavItem,
+    ...diabeticNavigation.slice(lastIndex),
+  ];
+}
 
 interface SidebarProps {
   className?: string;
@@ -94,14 +117,15 @@ function UnreadBadge({ count }: { count: number }) {
 export function Sidebar({ className }: SidebarProps) {
   const pathname = usePathname();
   const { user } = useUserContext();
+  const { enabled: mealsEnabled } = useMealIntelligenceContext();
   const isCaregiver = user?.role === "caregiver";
-  const navigation = isCaregiver ? caregiverNavigation : diabeticNavigation;
+  const navigation = navItemsFor(isCaregiver, mealsEnabled === true);
   const unreadCount = useUnreadCount(!isCaregiver);
 
   return (
     <aside
       className={clsx(
-        "hidden lg:flex lg:flex-col lg:w-64 flex-shrink-0",
+        "hidden lg:flex lg:flex-col lg:w-64 shrink-0",
         "bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800",
         className
       )}
@@ -113,7 +137,7 @@ export function Sidebar({ className }: SidebarProps) {
           alt="GlycemicGPT"
           width={32}
           height={32}
-          className="rounded"
+          className="rounded-sm"
         />
         <span className="text-xl font-bold text-slate-900 dark:text-white">GlycemicGPT</span>
       </div>
@@ -162,8 +186,9 @@ export function MobileNav() {
   const [isOpen, setIsOpen] = useState(false);
   const pathname = usePathname();
   const { user } = useUserContext();
+  const { enabled: mealsEnabled } = useMealIntelligenceContext();
   const isCaregiver = user?.role === "caregiver";
-  const navigation = isCaregiver ? caregiverNavigation : diabeticNavigation;
+  const navigation = navItemsFor(isCaregiver, mealsEnabled === true);
   const unreadCount = useUnreadCount(!isCaregiver);
 
   return (
@@ -197,7 +222,7 @@ export function MobileNav() {
                   alt="GlycemicGPT"
                   width={32}
                   height={32}
-                  className="rounded"
+                  className="rounded-sm"
                 />
                 <span className="text-xl font-bold text-slate-900 dark:text-white">GlycemicGPT</span>
               </div>

@@ -33,6 +33,7 @@ logger = get_logger(__name__)
 # fidelity is the point of storing it rather than referencing a live constant.
 _PRECEDENCE_LADDER = [
     "own-history corrected",
+    "restaurant nutrition",
     "USDA FoodData Central",
     "Open Food Facts",
     "own-history uncorrected",

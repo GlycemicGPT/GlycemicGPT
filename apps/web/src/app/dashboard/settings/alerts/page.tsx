@@ -401,7 +401,7 @@ export default function AlertSettingsPage() {
                     className={clsx(
                       "w-full rounded-lg border px-3 py-2 text-sm",
                       "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
-                      "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
+                      "focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                       "disabled:opacity-50 disabled:cursor-not-allowed"
                     )}
                     aria-describedby="urgent-low-hint"
@@ -433,7 +433,7 @@ export default function AlertSettingsPage() {
                     className={clsx(
                       "w-full rounded-lg border px-3 py-2 text-sm",
                       "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
-                      "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
+                      "focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                       "disabled:opacity-50 disabled:cursor-not-allowed"
                     )}
                     aria-describedby="low-warning-hint"
@@ -482,7 +482,7 @@ export default function AlertSettingsPage() {
                     className={clsx(
                       "w-full rounded-lg border px-3 py-2 text-sm",
                       "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
-                      "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
+                      "focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                       "disabled:opacity-50 disabled:cursor-not-allowed"
                     )}
                     aria-describedby="high-warning-hint"
@@ -514,7 +514,7 @@ export default function AlertSettingsPage() {
                     className={clsx(
                       "w-full rounded-lg border px-3 py-2 text-sm",
                       "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
-                      "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
+                      "focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                       "disabled:opacity-50 disabled:cursor-not-allowed"
                     )}
                     aria-describedby="urgent-high-hint"
@@ -562,7 +562,7 @@ export default function AlertSettingsPage() {
                   className={clsx(
                     "w-full rounded-lg border px-3 py-2 text-sm",
                     "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
-                    "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
+                    "focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                     "disabled:opacity-50 disabled:cursor-not-allowed"
                   )}
                   aria-describedby="iob-warning-hint"
@@ -579,37 +579,37 @@ export default function AlertSettingsPage() {
             {/* Threshold preview */}
             {thresholdsValid && (
               <div className="bg-slate-100/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-300/50 dark:border-slate-700/50 mt-6">
-                <p className="text-xs text-slate-500 mb-2">
+                <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
                   Threshold Preview
                 </p>
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <div>
-                    <span className="text-red-400">Urgent Low:</span>{" "}
-                    <span className="text-slate-200">
+                    <span className="text-red-600 dark:text-red-400">Urgent Low:</span>{" "}
+                    <span className="text-slate-700 dark:text-slate-200">
                       &lt; {urgLow} mg/dL
                     </span>
                   </div>
                   <div>
-                    <span className="text-amber-400">Low Warning:</span>{" "}
-                    <span className="text-slate-200">
+                    <span className="text-amber-600 dark:text-amber-400">Low Warning:</span>{" "}
+                    <span className="text-slate-700 dark:text-slate-200">
                       &lt; {lowWarn} mg/dL
                     </span>
                   </div>
                   <div>
-                    <span className="text-amber-400">High Warning:</span>{" "}
-                    <span className="text-slate-200">
+                    <span className="text-amber-600 dark:text-amber-400">High Warning:</span>{" "}
+                    <span className="text-slate-700 dark:text-slate-200">
                       &gt; {highWarn} mg/dL
                     </span>
                   </div>
                   <div>
-                    <span className="text-red-400">Urgent High:</span>{" "}
-                    <span className="text-slate-200">
+                    <span className="text-red-600 dark:text-red-400">Urgent High:</span>{" "}
+                    <span className="text-slate-700 dark:text-slate-200">
                       &gt; {urgHigh} mg/dL
                     </span>
                   </div>
                   <div className="col-span-2">
-                    <span className="text-amber-400">IoB Warning:</span>{" "}
-                    <span className="text-slate-200">
+                    <span className="text-amber-600 dark:text-amber-400">IoB Warning:</span>{" "}
+                    <span className="text-slate-700 dark:text-slate-200">
                       &gt; {iobWarn} units
                     </span>
                   </div>
@@ -653,7 +653,7 @@ export default function AlertSettingsPage() {
                     className={clsx(
                       "w-full rounded-lg border px-3 py-2 text-sm",
                       "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
-                      "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
+                      "focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                       "disabled:opacity-50 disabled:cursor-not-allowed"
                     )}
                     aria-describedby="reminder-hint"
@@ -682,7 +682,7 @@ export default function AlertSettingsPage() {
                     className={clsx(
                       "w-full rounded-lg border px-3 py-2 text-sm",
                       "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
-                      "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
+                      "focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                       "disabled:opacity-50 disabled:cursor-not-allowed"
                     )}
                     aria-describedby="primary-hint"
@@ -711,7 +711,7 @@ export default function AlertSettingsPage() {
                     className={clsx(
                       "w-full rounded-lg border px-3 py-2 text-sm",
                       "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
-                      "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
+                      "focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                       "disabled:opacity-50 disabled:cursor-not-allowed"
                     )}
                     aria-describedby="all-contacts-hint"
@@ -772,7 +772,7 @@ export default function AlertSettingsPage() {
                 "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium",
                 "bg-blue-600 text-white hover:bg-blue-500",
                 "transition-colors",
-                "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+                "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500",
                 "disabled:opacity-50 disabled:cursor-not-allowed"
               )}
             >
@@ -795,7 +795,7 @@ export default function AlertSettingsPage() {
                 "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium",
                 "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700",
                 "transition-colors",
-                "focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500",
+                "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-slate-500",
                 "disabled:opacity-50 disabled:cursor-not-allowed"
               )}
             >

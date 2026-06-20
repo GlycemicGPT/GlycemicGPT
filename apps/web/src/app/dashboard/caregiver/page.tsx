@@ -661,7 +661,7 @@ export default function CaregiverDashboardPage() {
                     placeholder='Ask about your patient, e.g. "How are they doing?"'
                     maxLength={2000}
                     disabled={isChatLoading}
-                    className="flex-1 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-lg px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 disabled:opacity-50"
+                    className="flex-1 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-lg px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 placeholder:text-slate-500 focus:outline-hidden focus:ring-2 focus:ring-cyan-500 disabled:opacity-50"
                     aria-label="Ask AI about your patient"
                   />
                   <button

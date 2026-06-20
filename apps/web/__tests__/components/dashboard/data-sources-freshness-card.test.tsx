@@ -43,14 +43,13 @@ function dexcomIntegration(
   overrides: Partial<IntegrationResponse> = {}
 ): IntegrationResponse {
   return {
-    id: "int-dex",
     integration_type: "dexcom",
     status: "connected",
     last_sync_at: new Date(NOW_MS - 5 * 60_000).toISOString(), // 5m ago
     last_error: null,
-    has_credentials: true,
     created_at: "2026-05-01T00:00:00.000Z",
     updated_at: "2026-05-01T00:00:00.000Z",
+    region: null,
     ...overrides,
   };
 }

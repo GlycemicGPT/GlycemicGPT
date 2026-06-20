@@ -132,7 +132,12 @@ async def confirm_food_identity(
     if settings.meal_intelligence_enabled:
         try:
             grounding = await meal_grounding.ground_estimate(
-                record.user_id, name, identity_confirmed=True
+                record.user_id,
+                name,
+                identity_confirmed=True,
+                # Don't let a record ground to its own freshly-indexed chunk; a
+                # first-ever log must not cite itself as "your meal history".
+                exclude_food_record_id=record.id,
             )
         except Exception:
             logger.warning(
@@ -141,6 +146,13 @@ async def confirm_food_identity(
     record.grounding_source = grounding.source if grounding else None
     record.grounding_source_url = grounding.source_url if grounding else None
     record.grounding_trust_tier = grounding.trust_tier if grounding else None
+    # Persist any grounding-backed comorbidity values (saturated fat /
+    # sugars / added sugars / sodium) from the chosen source. Reset to None when a
+    # re-confirmation grounds to a source without them (e.g. own-history), so a
+    # stale comorbidity block can never outlive its grounding.
+    record.grounding_nutrition_json = (
+        grounding.comorbidity_dict() if grounding else None
+    )
 
     await db.commit()
     await db.refresh(record)

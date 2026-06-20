@@ -116,6 +116,10 @@ class AggregatedEstimate:
     confidence: str
     food_description: str
     nutrition: dict
+    # The representative sample's portion/preparation assumptions (Story 50.N1),
+    # carried so the assumed portion can be surfaced as the estimate's primary
+    # sanity-check. Already dosing-scrubbed per-sample upstream.
+    assumptions: str
     dispersion_cv: float | None
     identity_agreement: bool
     distinct_identities: list[str]
@@ -373,6 +377,7 @@ def aggregate_samples(
         confidence=confidence,
         food_description=representative.food_description,
         nutrition=representative.nutrition or {},
+        assumptions=representative.assumptions or "",
         dispersion_cv=cv,
         identity_agreement=identity_agreement,
         distinct_identities=distinct,

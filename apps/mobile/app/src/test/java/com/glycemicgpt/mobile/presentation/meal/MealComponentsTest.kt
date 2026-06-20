@@ -53,4 +53,20 @@ class MealComponentsTest {
         assertTrue(VERIFY_BEFORE_DOSING_TEXT.contains("insulin dose", ignoreCase = true))
         assertTrue(VERIFY_BEFORE_DOSING_TEXT.contains("bolus", ignoreCase = true))
     }
+
+    @Test
+    fun `net carbs renders as a g range, never bare`() {
+        // Story 50.N1: mirrors the carb range -- a band with units, single value
+        // when the rounded endpoints coincide.
+        assertEquals("≈ 34–49 g", formatNetCarbs(34.0, 49.0))
+        assertEquals("≈ 26 g", formatNetCarbs(26.0, 26.0))
+    }
+
+    @Test
+    fun `net carbs round to whole grams, matching the web client (no false precision)`() {
+        // A fractional server value must render in whole grams on both clients;
+        // 33.6 and 34.4 both round to 34, collapsing the band.
+        assertEquals("≈ 34 g", formatNetCarbs(33.6, 34.4))
+        assertEquals("≈ 12–14 g", formatNetCarbs(12.4, 13.6))
+    }
 }

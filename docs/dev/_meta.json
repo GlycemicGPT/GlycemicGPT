@@ -1,8 +1,10 @@
 {
   "title": "Developer Reference",
   "pages": [
+    "exploring-the-codebase",
     "branching-strategy",
     "testing-checklist",
+    "instrumented-tests-ci",
     "docker-integration-testing",
     "real-data-pipeline-verification",
     "security-testing",

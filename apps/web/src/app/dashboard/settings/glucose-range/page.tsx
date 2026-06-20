@@ -269,7 +269,7 @@ export default function GlucoseRangePage() {
                   className={clsx(
                     "w-full rounded-lg border px-3 py-2 text-sm",
                     "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
-                    "focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent",
+                    "focus:outline-hidden focus:ring-2 focus:ring-red-500 focus:border-transparent",
                     "disabled:opacity-50 disabled:cursor-not-allowed"
                   )}
                   aria-describedby="urgent-low-hint"
@@ -302,7 +302,7 @@ export default function GlucoseRangePage() {
                   className={clsx(
                     "w-full rounded-lg border px-3 py-2 text-sm",
                     "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
-                    "focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent",
+                    "focus:outline-hidden focus:ring-2 focus:ring-amber-500 focus:border-transparent",
                     "disabled:opacity-50 disabled:cursor-not-allowed"
                   )}
                   aria-describedby="low-target-hint"
@@ -332,7 +332,7 @@ export default function GlucoseRangePage() {
                   className={clsx(
                     "w-full rounded-lg border px-3 py-2 text-sm",
                     "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
-                    "focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent",
+                    "focus:outline-hidden focus:ring-2 focus:ring-amber-500 focus:border-transparent",
                     "disabled:opacity-50 disabled:cursor-not-allowed"
                   )}
                   aria-describedby="high-target-hint"
@@ -365,7 +365,7 @@ export default function GlucoseRangePage() {
                   className={clsx(
                     "w-full rounded-lg border px-3 py-2 text-sm",
                     "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
-                    "focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent",
+                    "focus:outline-hidden focus:ring-2 focus:ring-red-500 focus:border-transparent",
                     "disabled:opacity-50 disabled:cursor-not-allowed"
                   )}
                   aria-describedby="urgent-high-hint"
@@ -409,7 +409,7 @@ export default function GlucoseRangePage() {
                   "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium",
                   "bg-blue-600 text-white hover:bg-blue-500",
                   "transition-colors",
-                  "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+                  "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500",
                   "disabled:opacity-50 disabled:cursor-not-allowed"
                 )}
               >
@@ -439,7 +439,7 @@ export default function GlucoseRangePage() {
                   "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium",
                   "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700",
                   "transition-colors",
-                  "focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500",
+                  "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-slate-500",
                   "disabled:opacity-50 disabled:cursor-not-allowed"
                 )}
               >
