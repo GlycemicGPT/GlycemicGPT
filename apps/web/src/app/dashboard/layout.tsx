@@ -16,7 +16,11 @@
 
 import { DashboardLayout } from "@/components/layout";
 import { AuthDisclaimerGate } from "@/components/auth-disclaimer-gate";
-import { AlertNotificationProvider, UserProvider } from "@/providers";
+import {
+  AlertNotificationProvider,
+  MealIntelligenceProvider,
+  UserProvider,
+} from "@/providers";
 
 /**
  * Skip link component for keyboard navigation.
@@ -39,9 +43,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       <SkipLink />
       <UserProvider>
         <AuthDisclaimerGate>
-          <AlertNotificationProvider>
-            <DashboardLayout>{children}</DashboardLayout>
-          </AlertNotificationProvider>
+          <MealIntelligenceProvider>
+            <AlertNotificationProvider>
+              <DashboardLayout>{children}</DashboardLayout>
+            </AlertNotificationProvider>
+          </MealIntelligenceProvider>
         </AuthDisclaimerGate>
       </UserProvider>
     </>

@@ -1,6 +1,6 @@
 [project]
 name = "glycemicgpt-api"
-version = "0.9.0" # x-release-please-version
+version = "0.10.0" # x-release-please-version
 description = "GlycemicGPT FastAPI Backend"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -13,7 +13,9 @@ dependencies = [
     "starlette>=1.3.1",
     "uvicorn[standard]>=0.27.0",
     "pydantic[email]>=2.6.0",
-    "pydantic-settings>=2.1.0",
+    # Security floor: <2.14.2 is vulnerable to GHSA-4xgf-cpjx-pc3j (5.3, fixed
+    # 2.14.2); we floor at the fix and let uv take the latest compatible release.
+    "pydantic-settings>=2.14.2",
     "sqlalchemy[asyncio]>=2.0.25",
     "asyncpg>=0.29.0",
     "alembic>=1.13.0",

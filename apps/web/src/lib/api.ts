@@ -4150,3 +4150,604 @@ export async function importGlookoHistory(): Promise<GlookoSyncResult> {
   }
   return response.json();
 }
+
+// ============================================================================
+// Meal management (food records)
+//
+// Wires the existing, owner-scoped, flag-gated food-records API into the web
+// app. Descriptive nutrition observations only -- there is deliberately no
+// dose/insulin field anywhere in these types. The server attaches the cleared
+// safety qualifier as `safety_qualifier`; the web renders that field verbatim
+// rather than re-stating any carb/dosing copy of its own.
+// ============================================================================
+
+/** Record provenance, as the API emits it (snake_case enum value). */
+export type FoodRecordSource =
+  | "ai_estimate"
+  | "user_corrected"
+  | "external_grounded";
+
+/**
+ * Macro nutrition for a meal. Only visually-estimable macros are present; any
+ * subset of the known keys may appear. Carbs are NOT here -- they live in the
+ * dedicated carbs_low/carbs_high columns.
+ */
+export interface FoodRecordNutrition {
+  protein_grams?: number;
+  fat_grams?: number;
+  fiber_grams?: number;
+  calories?: number;
+  [key: string]: number | undefined;
+}
+
+/**
+ * One glucose-relevant macro with descriptive framing (Story 50.N1). Read-only:
+ * `glucose_note` explains how the macro tends to affect glucose (no peak-timing
+ * number, no dosing language) -- never a dose.
+ */
+export interface MacroFact {
+  key: string;
+  label: string;
+  value: number;
+  unit: string;
+  glucose_note: string;
+}
+
+/**
+ * Net carbs (total carbs minus fiber), surfaced only behind `caveat` (Story
+ * 50.N1). Display-only and clearly secondary to the total carb range; never a
+ * dosing input.
+ */
+export interface NetCarbsEstimate {
+  low: number;
+  high: number;
+  caveat: string;
+}
+
+/**
+ * Display-ready, glucose-framed nutrition for a food record (Story 50.N1).
+ * Server-computed (never persisted): the assumed `portion` (the estimate's
+ * primary sanity-check), the framed `macros`, and caveated `net_carbs`.
+ * `disclaimer` carries the never-dose framing over the whole block.
+ */
+export interface NutritionFacts {
+  portion: string | null;
+  macros: MacroFact[];
+  net_carbs: NetCarbsEstimate | null;
+  disclaimer: string;
+}
+
+/**
+ * One grounding-backed comorbidity nutrient with awareness framing.
+ * Read-only: `note` explains why the figure matters for blood-pressure /
+ * cardiovascular awareness -- never a dose.
+ */
+export interface ComorbidityFact {
+  key: string;
+  label: string;
+  value: number;
+  unit: string;
+  note: string;
+}
+
+/**
+ * Grounding-backed comorbidity / label nutrition. GROUNDING-ONLY
+ * and identity-gated: populated solely from an authoritative grounded source
+ * (USDA / Open Food Facts / restaurant) after identity confirmation, never from
+ * the photo. Carries its own attribution (distinct from the vision estimate) and a
+ * `disclaimer` carrying the never-dose framing. `sugar_note` (the "sugar-free is
+ * not carb-free" reminder) is present only when a sugars figure is surfaced.
+ */
+export interface ComorbidityNutrition {
+  facts: ComorbidityFact[];
+  sugar_note: string | null;
+  source: string | null;
+  source_url: string | null;
+  trust_tier: string | null;
+  disclaimer: string;
+}
+
+/**
+ * A persisted food record. Mirrors `FoodRecordResponse`
+ * (apps/api/src/schemas/food_record.py). `carbs_low`/`carbs_high` are the
+ * original AI estimate; when corrected, `corrected_carbs_*` carry the user's
+ * values and `source` is `user_corrected`. `confidence` is the EMPIRICAL
+ * dispersion band ("low"|"medium"|"high"), not the model's self-reported
+ * confidence. The create (upload) response additionally carries transient
+ * dispersion detail; reads of an existing record do not, so it is omitted here.
+ */
+export interface FoodRecord {
+  id: string;
+  meal_timestamp: string;
+  food_description: string | null;
+  carbs_low: number;
+  carbs_high: number;
+  confidence: string | null;
+  /** Server-cleared "this is a guess, never dose from it" qualifier. Render verbatim. */
+  safety_qualifier: string;
+  nutrition_json: FoodRecordNutrition | null;
+  /** The model's assumed portion / preparation -- the estimate's primary sanity-check. */
+  assumptions: string | null;
+  source: FoodRecordSource;
+  corrected_carbs_low: number | null;
+  corrected_carbs_high: number | null;
+  corrected_nutrition_json: FoodRecordNutrition | null;
+  corrected_at: string | null;
+  common_food_id: string | null;
+  ai_model: string | null;
+  ai_provider: string | null;
+  confirmed_food_name: string | null;
+  identity_confirmed: boolean;
+  /**
+   * Transient create-time own-history pre-fill ("looks like your saved X"); the
+   * server emits it on the upload response and it is absent (null) on later reads
+   * of a persisted record. Used to pre-fill the identity-confirmation input.
+   */
+  suggested_identity: string | null;
+  grounding_source: string | null;
+  grounding_source_url: string | null;
+  grounding_trust_tier: string | null;
+  /** Server-computed, glucose-framed nutrition (portion + macros + net carbs). */
+  nutrition_facts: NutritionFacts | null;
+  /**
+   * Grounding-backed comorbidity nutrition: the display-ready, awareness-framed,
+   * attributed block (saturated fat / sugars / sodium). Null on a record with no
+   * grounded comorbidity data. (The raw grounded values are an internal server
+   * column and are not part of the response.)
+   */
+  comorbidity_nutrition: ComorbidityNutrition | null;
+  created_at: string;
+}
+
+export interface FoodRecordListResponse {
+  records: FoodRecord[];
+  total: number;
+}
+
+/**
+ * One raw vision sample as surfaced in the audit trail (Story 50.H3). Mirrors
+ * the server `AuditSample`. The model's self-reported confidence is deliberately
+ * NOT part of this shape: the server strips it before responding (it is retained
+ * internally for eval/triage only, per 50.H1), so it can never reach the UI.
+ */
+export interface AuditSample {
+  carbs_low: number | null;
+  carbs_high: number | null;
+  identity: string | null;
+  parse_ok: boolean;
+}
+
+/**
+ * The empirical dispersion summary in the audit trail (Story 50.H3). Mirrors the
+ * server `AuditDispersion`. `confidence` is the EMPIRICAL dispersion band, never
+ * the model's self-reported confidence -- low dispersion is consistency, not
+ * correctness, so it is provenance, not a dose signal.
+ */
+export interface AuditDispersion {
+  confidence: string | null;
+  coefficient_of_variation: number | null;
+  samples_requested: number | null;
+  samples_used: number | null;
+  identity_agreement: boolean | null;
+  distinct_identities: string[];
+  wide_spread: boolean | null;
+}
+
+/**
+ * The precedence decision recorded for an estimate (Story 50.H2/H3). Mirrors the
+ * server precedence payload built by `services.meal_audit`: which source won (or
+ * vision-only), the identity it was keyed on, and the ladder AS IT STOOD when the
+ * decision was made (recorded per-row so the audit reads the ordering that
+ * actually applied). Descriptive provenance only -- never a dose.
+ */
+export interface AuditPrecedence {
+  outcome: string;
+  chosen_source: string | null;
+  trust_tier: string | null;
+  source_url: string | null;
+  identity_used: string | null;
+  identity_confirmed: boolean;
+  reason: string | null;
+  ladder: string[];
+}
+
+/**
+ * The "how was this estimated" provenance trail for a food record (Story 50.H3).
+ * Mirrors the server `FoodRecordAuditResponse`: the raw per-sample vision reads,
+ * the empirical dispersion summary, and the precedence decision. Descriptive
+ * only; nothing here is read by dosing math.
+ */
+export interface FoodRecordAudit {
+  food_record_id: string;
+  samples: AuditSample[];
+  dispersion: AuditDispersion | null;
+  precedence: AuditPrecedence | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * A food-records API failure that preserves the HTTP status and the server's
+ * `detail` string, so callers can map it to the right UX state (feature off,
+ * no provider, vision unavailable, ...) -- mirroring the mobile client's
+ * detail-substring contract. See `classifyMealError` in `@/lib/meal-errors`.
+ */
+export class MealApiError extends Error {
+  readonly status: number;
+  readonly detail: string;
+
+  constructor(status: number, detail: string) {
+    super(detail || `Food-records request failed: ${status}`);
+    this.name = "MealApiError";
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
+/**
+ * Read a FastAPI error envelope's `detail` as a bare string for substring
+ * matching. Tolerates both the common string form and the 422 list-of-objects
+ * form; returns "" when no usable detail is present.
+ *
+ * Distinct from `_readErrorDetail` (above) on purpose: that helper formats a
+ * ready-to-throw Error *message* (folding in a fallback + the status and
+ * JSON-stringifying a non-string detail), whereas the meal path needs the raw
+ * detail string preserved verbatim so callers can substring-match the
+ * cross-client contract (e.g. "not enabled", "vision") and carry the status
+ * separately on `MealApiError`. Keep the two in sync if the envelope changes.
+ */
+async function _readMealDetail(response: Response): Promise<string> {
+  try {
+    const body = await response.json();
+    const detail = (body as { detail?: unknown })?.detail;
+    if (typeof detail === "string") return detail;
+    if (Array.isArray(detail)) {
+      return detail
+        .map((e) =>
+          e && typeof e === "object" && "msg" in e
+            ? String((e as { msg: unknown }).msg)
+            : ""
+        )
+        .filter(Boolean)
+        .join("; ");
+    }
+  } catch {
+    // Non-JSON / empty body.
+  }
+  return "";
+}
+
+async function _throwMealError(response: Response): Promise<never> {
+  throw new MealApiError(response.status, await _readMealDetail(response));
+}
+
+/**
+ * List the current user's food records, most recent meal first.
+ * Owner-scoped + flag-gated server-side; a 404 whose detail says the feature is
+ * "not enabled" means the global flag is off (see `getMealIntelligenceStatus`).
+ */
+export async function listFoodRecords(
+  limit = 50,
+  offset = 0
+): Promise<FoodRecordListResponse> {
+  const params = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+  });
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/food-records?${params.toString()}`
+  );
+  if (!response.ok) {
+    await _throwMealError(response);
+  }
+  return response.json();
+}
+
+/** Fetch a single owner-scoped food record (404 for missing or cross-user). */
+export async function getFoodRecord(recordId: string): Promise<FoodRecord> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/food-records/${encodeURIComponent(recordId)}`
+  );
+  if (!response.ok) {
+    await _throwMealError(response);
+  }
+  return response.json();
+}
+
+/**
+ * Fetch a record's "how was this estimated" provenance trail (Story 50.H3).
+ *
+ * Owner-scoped and IDOR-safe server-side: the record must belong to the caller
+ * and the audit row is itself scoped by user id, so a cross-user id yields a 404
+ * (never another user's samples). A 404 can also mean a record simply has no
+ * stored audit (e.g. created before retention), which the caller renders as a
+ * benign "provenance unavailable" state rather than an error. Throws
+ * `MealApiError` carrying the status so callers can tell 404 from a transient
+ * failure.
+ */
+export async function getFoodRecordAudit(
+  recordId: string
+): Promise<FoodRecordAudit> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/food-records/${encodeURIComponent(recordId)}/audit`
+  );
+  if (!response.ok) {
+    await _throwMealError(response);
+  }
+  return response.json();
+}
+
+/**
+ * Fetch a record's stored meal photo as a `blob:` object URL.
+ *
+ * The photo endpoint is same-origin and cookie-protected, and next/image's
+ * optimizer can't carry the auth cookie, so we fetch the bytes through apiFetch
+ * (which sends credentials) and wrap them in a `blob:` URL the CSP allows. The
+ * caller MUST revoke the URL (URL.revokeObjectURL) once it is no longer shown.
+ */
+export async function fetchFoodRecordPhotoObjectUrl(
+  recordId: string
+): Promise<string> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/food-records/${encodeURIComponent(recordId)}/photo`
+  );
+  if (!response.ok) {
+    await _throwMealError(response);
+  }
+  const blob = await response.blob();
+  return URL.createObjectURL(blob);
+}
+
+/**
+ * Upload a meal photo for AI carb estimation. The caller compresses to a JPEG
+ * blob first (see `@/lib/image-compress`); this mirrors the mobile client's
+ * single-part `file` upload. Returns the persisted record (with the create-time
+ * estimate). Throws `MealApiError` on failure for UX-state mapping.
+ */
+export async function uploadFoodRecord(image: Blob): Promise<FoodRecord> {
+  const formData = new FormData();
+  // Field name `file` and filename `meal.jpg` mirror the mobile multipart part.
+  formData.append("file", image, "meal.jpg");
+  // Do NOT set Content-Type -- the browser sets multipart/form-data + boundary.
+  const response = await apiFetch(`${API_BASE_URL}/api/food-records`, {
+    method: "POST",
+    body: formData,
+  });
+  if (!response.ok) {
+    await _throwMealError(response);
+  }
+  return response.json();
+}
+
+/**
+ * Correct a food record's carb range (Story 50.C). Fixes a *description of the
+ * food*, never a dose: the corrected values land in the record's correction
+ * columns and provenance flips to `user_corrected`; the original AI estimate is
+ * preserved, and corrected values are never read by IoB / treatment_safety /
+ * carb-ratio math. Returns the refreshed record. Throws `MealApiError` (404 for
+ * a missing/cross-user id, 422 for out-of-range/inverted) for UX-state mapping.
+ */
+export async function correctFoodRecord(
+  recordId: string,
+  correction: { corrected_carbs_low: number; corrected_carbs_high: number }
+): Promise<FoodRecord> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/food-records/${encodeURIComponent(recordId)}/correct`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(correction),
+    }
+  );
+  if (!response.ok) {
+    await _throwMealError(response);
+  }
+  return response.json();
+}
+
+/**
+ * Confirm or correct *what the food is* (Story 50.H2) -- a distinct action from
+ * carb correction. The confirmed name opens the grounding gate: only now does
+ * the server look up external authoritative nutrition (USDA / Open Food Facts;
+ * restaurant facts) keyed on the confirmed name, so a misidentified label is
+ * never certified with a citation. Returns the refreshed record (which may now
+ * carry grounding attribution). Throws `MealApiError` (404 missing/cross-user,
+ * 422 blank/oversized name) for UX-state mapping.
+ */
+export async function confirmFoodIdentity(
+  recordId: string,
+  confirmedFoodName: string
+): Promise<FoodRecord> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/food-records/${encodeURIComponent(recordId)}/confirm-identity`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirmed_food_name: confirmedFoodName }),
+    }
+  );
+  if (!response.ok) {
+    await _throwMealError(response);
+  }
+  return response.json();
+}
+
+/** Delete a food record and unlink its stored photo (204 No Content). */
+export async function deleteFoodRecord(recordId: string): Promise<void> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/food-records/${encodeURIComponent(recordId)}`,
+    { method: "DELETE" }
+  );
+  if (!response.ok) {
+    await _throwMealError(response);
+  }
+}
+
+/**
+ * Resolve whether meal intelligence is enabled for the current user.
+ *
+ * There is no server flag endpoint: `meal_intelligence_enabled` is a global
+ * deployment flag, and every meal route is hidden behind a 404 when it is off.
+ * So we mirror the mobile cross-client contract and probe the list endpoint: a
+ * 404 whose detail contains "not enabled" means the flag is off; success (or
+ * any transient/other error) is treated as available, so a network blip never
+ * hides a real feature.
+ */
+export async function getMealIntelligenceStatus(): Promise<{ enabled: boolean }> {
+  try {
+    const response = await apiFetch(`${API_BASE_URL}/api/food-records?limit=1`);
+    if (response.status === 404) {
+      const detail = (await _readMealDetail(response)).toLowerCase();
+      if (detail.includes("not enabled")) return { enabled: false };
+    }
+    return { enabled: true };
+  } catch {
+    // Network/other failure: degrade to available, matching the mobile client.
+    return { enabled: true };
+  }
+}
+
+// ============================================================================
+// Common-foods management + save/link
+//
+// A common food is a user-named carb/nutrition baseline for a food eaten often.
+// Mirrors `CommonFoodResponse` (apps/api/src/schemas/common_food.py). It is a
+// descriptive baseline only: there is deliberately no dose/insulin field, and
+// these values never flow into IoB / treatment_safety / carb-ratio math. Every
+// endpoint is owner-scoped + flag-gated server-side (a 404 whose detail says the
+// feature is "not enabled" means the global flag is off). Failures throw
+// `MealApiError` so callers can map status to UX (409 name-in-use, 422 range).
+// ============================================================================
+
+/** A saved common-food baseline. The `nutrition_json` macros mirror a record's. */
+export interface CommonFood {
+  id: string;
+  name: string;
+  carbs_low: number;
+  carbs_high: number;
+  nutrition_json: FoodRecordNutrition | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CommonFoodListResponse {
+  common_foods: CommonFood[];
+  total: number;
+}
+
+/** Fields a user can edit on a baseline. Carb bounds are sent together (the
+ *  server rejects one without the other), matching the carb-correction contract. */
+export interface CommonFoodUpdate {
+  name?: string;
+  carbs_low?: number;
+  carbs_high?: number;
+}
+
+/**
+ * List the current user's common foods, most recently updated first. Paginated
+ * (server caps limit at 200). Flag-gated + owner-scoped server-side.
+ */
+export async function listCommonFoods(
+  limit = 50,
+  offset = 0
+): Promise<CommonFoodListResponse> {
+  const params = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+  });
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/common-foods?${params.toString()}`
+  );
+  if (!response.ok) {
+    await _throwMealError(response);
+  }
+  return response.json();
+}
+
+/**
+ * Rename and/or re-baseline a common food. Throws `MealApiError`: 404 for a
+ * missing/cross-user id (IDOR-safe, no existence leak), 409 when the new name
+ * collides with another of the user's baselines, 422 for an out-of-range or
+ * inverted carb band. The baseline is a description of a food, never a dose.
+ */
+export async function updateCommonFood(
+  commonFoodId: string,
+  update: CommonFoodUpdate
+): Promise<CommonFood> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/common-foods/${encodeURIComponent(commonFoodId)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(update),
+    }
+  );
+  if (!response.ok) {
+    await _throwMealError(response);
+  }
+  return response.json();
+}
+
+/**
+ * Delete a common food (204 No Content). Records linked to it are unlinked
+ * (FK ON DELETE SET NULL), never deleted. Throws `MealApiError` 404 for a
+ * missing/cross-user id.
+ */
+export async function deleteCommonFood(commonFoodId: string): Promise<void> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/common-foods/${encodeURIComponent(commonFoodId)}`,
+    { method: "DELETE" }
+  );
+  if (!response.ok) {
+    await _throwMealError(response);
+  }
+}
+
+/**
+ * Promote a food record to a named common-food baseline and link it. The server
+ * uses the record's corrected values when present, else the AI estimate, and
+ * dedupes by name (saving under an existing name updates that baseline). Returns
+ * the saved/updated baseline. Throws `MealApiError` (404 missing/cross-user
+ * record, 422 out-of-range).
+ */
+export async function saveRecordAsCommonFood(
+  recordId: string,
+  name: string
+): Promise<CommonFood> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/food-records/${encodeURIComponent(recordId)}/save-as-common-food`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    }
+  );
+  if (!response.ok) {
+    await _throwMealError(response);
+  }
+  return response.json();
+}
+
+/**
+ * Link an existing food record to one of the user's existing common foods.
+ * Both sides are owner-scoped: a missing or cross-user record OR baseline 404s
+ * with no existence leak. Returns the refreshed record (now carrying
+ * `common_food_id`). Throws `MealApiError` 404.
+ */
+export async function linkRecordToCommonFood(
+  recordId: string,
+  commonFoodId: string
+): Promise<FoodRecord> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/food-records/${encodeURIComponent(recordId)}/link-common-food`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ common_food_id: commonFoodId }),
+    }
+  );
+  if (!response.ok) {
+    await _throwMealError(response);
+  }
+  return response.json();
+}

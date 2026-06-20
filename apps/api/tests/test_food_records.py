@@ -7,6 +7,7 @@ food-record API endpoints.
 """
 
 import json
+import os
 import uuid
 from io import BytesIO
 from pathlib import Path
@@ -236,6 +237,41 @@ class TestImageProcessing:
         food_image.delete_stored_image(str(outside))
         assert outside.exists()  # untouched -- containment check held
 
+    def test_resolve_stored_image_returns_path_and_media_type(self, _uploads_tmp):
+        user_id = uuid.uuid4()
+        processed = food_image.process_upload(_png_bytes())
+        path, _ = food_image.store_image(user_id, processed)
+        resolved, media_type = food_image.resolve_stored_image(path)
+        assert resolved == Path(path).resolve()
+        assert media_type == "image/png"
+
+    def test_resolve_refuses_path_outside_uploads_root(self, _uploads_tmp, tmp_path):
+        outside = tmp_path / "outside.png"
+        outside.write_bytes(_png_bytes())
+        with pytest.raises(food_image.StoredImageMissingError):
+            food_image.resolve_stored_image(str(outside))
+
+    def test_resolve_raises_for_missing_file(self, _uploads_tmp):
+        user_id = uuid.uuid4()
+        processed = food_image.process_upload(_png_bytes())
+        path, _ = food_image.store_image(user_id, processed)
+        Path(path).unlink()
+        with pytest.raises(food_image.StoredImageMissingError):
+            food_image.resolve_stored_image(path)
+
+    def test_resolve_raises_for_unreadable_file(self, _uploads_tmp):
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            pytest.skip("root bypasses file permissions")
+        user_id = uuid.uuid4()
+        processed = food_image.process_upload(_png_bytes())
+        path, _ = food_image.store_image(user_id, processed)
+        Path(path).chmod(0o000)
+        try:
+            with pytest.raises(food_image.StoredImageMissingError):
+                food_image.resolve_stored_image(path)
+        finally:
+            Path(path).chmod(0o600)  # restore so tmp cleanup can remove it
+
 
 # --------------------------------------------------------------------------- #
 # Vision request shape + sidecar contract mapping (AC3)
@@ -350,6 +386,39 @@ class TestPipelinePersistence:
             # The dosing-laden description must not be persisted.
             assert record.food_description is None
 
+    async def test_persists_assumed_portion(self, _uploads_tmp):
+        # Story 50.N1: the model's portion/assumptions (the dominant error
+        # source) is retained by the parser and persisted, so it can be surfaced
+        # as the estimate's primary sanity-check. The _estimate_json fixture emits
+        # "standard restaurant portion".
+        from src.database import get_session_maker
+
+        async with get_session_maker()() as db:
+            user = await _new_user(db, "portion")
+            with patch.object(
+                food_vision, "_call_vision", AsyncMock(return_value=_estimate_json())
+            ):
+                record = await food_vision.create_food_record_from_image(
+                    db=db, user=user, raw_image=_png_bytes()
+                )
+            assert record.assumptions == "standard restaurant portion"
+
+    async def test_scrubs_dosing_phrasing_from_assumptions(self, _uploads_tmp):
+        # The assumed portion is surfaced too, so dosing advice smuggled into it
+        # must be nulled before persistence (mirrors the description scrub).
+        from src.database import get_session_maker
+
+        async with get_session_maker()() as db:
+            user = await _new_user(db, "scrubassume")
+            bad = _estimate_json(
+                extra={"assumptions": "one plate; take 4 units of insulin to cover it"}
+            )
+            with patch.object(food_vision, "_call_vision", AsyncMock(return_value=bad)):
+                record = await food_vision.create_food_record_from_image(
+                    db=db, user=user, raw_image=_png_bytes()
+                )
+            assert record.assumptions is None
+
 
 # --------------------------------------------------------------------------- #
 # Safety: no IoB / treatment_safety / carb-ratio coupling (AC4)
@@ -372,6 +441,17 @@ class TestNoTherapyCoupling:
             assert "FoodRecord" not in text, f"{path} references FoodRecord"
             assert "common_food" not in text.lower(), f"{path} references common foods"
             assert "CommonFood" not in text, f"{path} references CommonFood"
+            # Story 50.N1: net carbs / surfaced nutrition must never reach dosing
+            # math either -- they are descriptive read-side figures only.
+            assert "net_carb" not in text.lower(), f"{path} references net carbs"
+            assert "nutrition_facts" not in text, f"{path} references nutrition_facts"
+            # Grounded comorbidity nutrition is descriptive-only too.
+            assert "comorbidity" not in text.lower(), (
+                f"{path} references comorbidity nutrition"
+            )
+            assert "grounding_nutrition" not in text.lower(), (
+                f"{path} references grounding nutrition"
+            )
 
     async def test_food_record_does_not_change_iob(self):
         """A logged meal must not produce or alter insulin-on-board."""
@@ -460,6 +540,73 @@ class TestFoodRecordsApi:
         assert listing.status_code == 200
         assert listing.json()["total"] >= 1
 
+    async def test_read_surfaces_portion_and_framed_nutrition(self, auth_client):
+        # Story 50.N1: a read carries the assumed portion + the glucose-framed
+        # macros + caveated net carbs, computed (not persisted) on the response.
+        client, _ = auth_client
+        with patch.object(
+            food_vision, "_call_vision", AsyncMock(return_value=_estimate_json(40, 55))
+        ):
+            created = await client.post(
+                "/api/food-records",
+                files={"file": ("meal.png", _png_bytes(), "image/png")},
+            )
+        assert created.status_code == 201, created.text
+        record_id = created.json()["id"]
+
+        resp = await client.get(f"/api/food-records/{record_id}")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+
+        # AC3: the assumed portion is exposed.
+        assert body["assumptions"] == "standard restaurant portion"
+
+        facts = body["nutrition_facts"]
+        assert facts is not None
+        assert facts["portion"] == "standard restaurant portion"
+        # AC1/AC2: the fixture nutrition is {protein_grams: 12, calories: 520};
+        # both surface with their descriptive (no-timing) glucose framing.
+        macros = {m["label"]: m for m in facts["macros"]}
+        assert set(macros) == {"Protein", "Calories"}
+        assert "later" in macros["Protein"]["glucose_note"].lower()
+        assert not any(c.isdigit() for c in macros["Protein"]["glucose_note"])
+        # No fiber in the fixture -> no net carbs surfaced.
+        assert facts["net_carbs"] is None
+        # AC4/AC6: the section disclaimer carries the never-dose prohibition.
+        assert "dose or bolus" in facts["disclaimer"].lower()
+        # AC5/AC6: still no dosing field anywhere on the response.
+        assert "dose" not in body and "insulin" not in body
+
+    async def test_read_surfaces_caveated_net_carbs_when_fiber_present(
+        self, auth_client
+    ):
+        client, _ = auth_client
+        rich = _estimate_json(
+            40,
+            55,
+            extra={
+                "nutrition": {
+                    "protein_grams": 12,
+                    "fat_grams": 8,
+                    "fiber_grams": 6,
+                    "calories": 520,
+                }
+            },
+        )
+        with patch.object(food_vision, "_call_vision", AsyncMock(return_value=rich)):
+            created = await client.post(
+                "/api/food-records",
+                files={"file": ("meal.png", _png_bytes(), "image/png")},
+            )
+        assert created.status_code == 201, created.text
+        body = await client.get(f"/api/food-records/{created.json()['id']}")
+        net = body.json()["nutrition_facts"]["net_carbs"]
+        assert net is not None
+        # 40-55 carbs minus 6 g fiber.
+        assert net["low"] == 34 and net["high"] == 49
+        assert "ada" in net["caveat"].lower()
+        assert "dose or bolus" in net["caveat"].lower()
+
     async def test_upload_rejects_non_image(self, auth_client):
         client, _ = auth_client
         resp = await client.post(
@@ -534,6 +681,42 @@ class TestFoodRecordsApi:
             cookie = await _register_login(other)
             other.cookies.set(settings.jwt_cookie_name, cookie)
             resp = await other.get(f"/api/food-records/{record_id}")
+        assert resp.status_code == 404
+
+    async def test_get_photo_returns_image_to_owner(self, auth_client):
+        client, _ = auth_client
+        record_id = (await _create_record(client))["id"]
+        resp = await client.get(f"/api/food-records/{record_id}/photo")
+        assert resp.status_code == 200, resp.text
+        assert resp.headers["content-type"] == "image/png"
+        assert resp.headers["cache-control"] == "private, max-age=300"
+        assert len(resp.content) > 0
+
+    async def test_get_photo_disabled_when_flag_off(self, auth_client, monkeypatch):
+        client, _ = auth_client
+        record_id = (await _create_record(client))["id"]
+        monkeypatch.setattr(settings, "meal_intelligence_enabled", False)
+        resp = await client.get(f"/api/food-records/{record_id}/photo")
+        assert resp.status_code == 404
+
+    async def test_cannot_access_other_users_photo(self, auth_client):
+        client, _ = auth_client
+        record_id = (await _create_record(client))["id"]
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as other:
+            cookie = await _register_login(other)
+            other.cookies.set(settings.jwt_cookie_name, cookie)
+            resp = await other.get(f"/api/food-records/{record_id}/photo")
+        assert resp.status_code == 404
+
+    async def test_get_photo_404_when_file_missing(self, auth_client, _uploads_tmp):
+        client, _ = auth_client
+        record_id = (await _create_record(client))["id"]
+        # Remove the stored file out from under the record; the row remains.
+        for stored in Path(_uploads_tmp).rglob("*"):
+            if stored.is_file():
+                stored.unlink()
+        resp = await client.get(f"/api/food-records/{record_id}/photo")
         assert resp.status_code == 404
 
 
@@ -675,6 +858,127 @@ class TestIdentityConfirmation:
         # Carbs are untouched by an identity confirmation (never a dose).
         assert body["carbs_low"] == created["carbs_low"]
         assert body["carbs_high"] == created["carbs_high"]
+
+    async def test_confirm_persists_grounded_comorbidity_and_read_surfaces_it(
+        self, auth_client
+    ):
+        # When identity confirmation grounds against a published source
+        # that has comorbidity data, those values persist and the read response
+        # surfaces an attributed, awareness-framed comorbidity block. AC2 (gated on
+        # confirmation) + AC4 (attribution surfaced).
+        from src.schemas.food_record import GroundingDetail
+        from src.vision.carb_contract import NEVER_DOSE_PROHIBITION
+
+        client, _ = auth_client
+        created = await _create_record(client)
+        record_id = created["id"]
+        # A fresh (unconfirmed) record has no comorbidity block (AC1/AC2).
+        assert created["comorbidity_nutrition"] is None
+
+        detail = GroundingDetail(
+            source="USDA FoodData Central",
+            source_url="https://fdc.nal.usda.gov/x",
+            trust_tier="AUTHORITATIVE",
+            carbs_low=45,
+            carbs_high=45,
+            saturated_fat_grams=12.0,
+            sugars_grams=8.0,
+            sodium_mg=1100.0,
+        )
+        with patch(
+            "src.services.common_food.meal_grounding.ground_estimate",
+            AsyncMock(return_value=detail),
+        ):
+            resp = await client.post(
+                f"/api/food-records/{record_id}/confirm-identity",
+                json={"confirmed_food_name": "cheeseburger"},
+            )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        comorbidity = body["comorbidity_nutrition"]
+        assert comorbidity is not None
+        keys = {f["key"] for f in comorbidity["facts"]}
+        assert keys == {"saturated_fat_grams", "sugars_grams", "sodium_mg"}
+        # Attribution distinct from the vision estimate + the never-dose prohibition.
+        assert comorbidity["source"] == "USDA FoodData Central"
+        assert comorbidity["sugar_note"] and "carb-free" in comorbidity["sugar_note"]
+        assert NEVER_DOSE_PROHIBITION in comorbidity["disclaimer"]
+        # The comorbidity facts are descriptive figures, never a dose: no fact key
+        # carries dosing/insulin wording.
+        assert not any(
+            tok in f["key"]
+            for f in comorbidity["facts"]
+            for tok in ("dose", "insulin", "bolus")
+        )
+
+        # Persisted: a later read still carries the comorbidity block (not transient).
+        read = await client.get(f"/api/food-records/{record_id}")
+        assert read.status_code == 200
+        reread = read.json()["comorbidity_nutrition"]
+        assert reread is not None
+        assert {f["key"] for f in reread["facts"]} == keys
+
+    async def test_confirm_without_grounded_comorbidity_surfaces_nothing(
+        self, auth_client
+    ):
+        # Confirming an identity that grounds to nothing (or to own-history, which
+        # has no label) leaves the comorbidity block absent -- never fabricated.
+        client, _ = auth_client
+        created = await _create_record(client)
+        record_id = created["id"]
+        with patch(
+            "src.services.common_food.meal_grounding.ground_estimate",
+            AsyncMock(return_value=None),
+        ):
+            resp = await client.post(
+                f"/api/food-records/{record_id}/confirm-identity",
+                json={"confirmed_food_name": "homemade stew"},
+            )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["comorbidity_nutrition"] is None
+
+    async def test_reconfirm_to_ungrounded_identity_clears_stale_comorbidity(
+        self, auth_client
+    ):
+        # A re-confirmation that grounds to a source without comorbidity (e.g.
+        # own-history, or nothing) must clear a previously-grounded block, so a
+        # stale comorbidity card can never outlive its grounding.
+        from src.schemas.food_record import GroundingDetail
+
+        client, _ = auth_client
+        created = await _create_record(client)
+        record_id = created["id"]
+
+        grounded = GroundingDetail(
+            source="USDA FoodData Central",
+            trust_tier="AUTHORITATIVE",
+            sodium_mg=900.0,
+        )
+        with patch(
+            "src.services.common_food.meal_grounding.ground_estimate",
+            AsyncMock(return_value=grounded),
+        ):
+            first = await client.post(
+                f"/api/food-records/{record_id}/confirm-identity",
+                json={"confirmed_food_name": "branded soup"},
+            )
+        assert first.status_code == 200
+        assert first.json()["comorbidity_nutrition"] is not None
+
+        # Re-confirm to a name that grounds to nothing -> the block is cleared.
+        with patch(
+            "src.services.common_food.meal_grounding.ground_estimate",
+            AsyncMock(return_value=None),
+        ):
+            second = await client.post(
+                f"/api/food-records/{record_id}/confirm-identity",
+                json={"confirmed_food_name": "my homemade soup"},
+            )
+        assert second.status_code == 200
+        assert second.json()["comorbidity_nutrition"] is None
+        # And a fresh read confirms the cleared state is persisted.
+        read = await client.get(f"/api/food-records/{record_id}")
+        assert read.json()["comorbidity_nutrition"] is None
 
     async def test_confirm_identity_rejects_blank(self, auth_client):
         client, _ = auth_client

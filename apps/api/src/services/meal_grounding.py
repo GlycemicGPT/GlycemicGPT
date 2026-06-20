@@ -57,6 +57,13 @@ def _fact_detail(fact: nutrition_sources.NutritionFact) -> GroundingDetail:
         serving=fact.serving,
         note=f"{fact.name}: ~{fact.carbs_grams:g}g carbohydrate {fact.serving}.",
         disclaimer=fact.disclaimer,
+        # Carry any published comorbidity values (saturated fat /
+        # sugars / added sugars / sodium) so the confirm path can persist them. An
+        # own-history recall has no label, so ``_recall_detail`` leaves them None.
+        saturated_fat_grams=fact.saturated_fat_grams,
+        sugars_grams=fact.sugars_grams,
+        added_sugars_grams=fact.added_sugars_grams,
+        sodium_mg=fact.sodium_mg,
     )
 
 

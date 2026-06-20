@@ -395,6 +395,17 @@ private fun ResultContent(
         }
     }
 
+    // Glucose-framed nutrition (Story 50.N1): assumed portion + macros + caveated
+    // net carbs. Shown below the estimate so the portion sanity-check is visible
+    // before the user corrects. Descriptive only -- never a dose.
+    record.nutritionFacts?.let { MealNutritionContent(it) }
+
+    // Grounding-backed comorbidity nutrition: saturated fat, sugars,
+    // and sodium when an authoritative source published them. Only present on a
+    // grounded record; framed as blood-pressure / cardiovascular awareness and
+    // attributed to its source -- distinct from the photo-estimated macros above.
+    record.comorbidityNutrition?.let { MealComorbidityContent(it) }
+
     if (uiState.isCorrecting) {
         CorrectionEditor(
             initialLow = record.displayRange.lowGrams,

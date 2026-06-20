@@ -3,10 +3,15 @@ package com.glycemicgpt.mobile.data.meal
 import com.glycemicgpt.mobile.data.remote.dto.AuditDispersionResponse
 import com.glycemicgpt.mobile.data.remote.dto.AuditPrecedenceResponse
 import com.glycemicgpt.mobile.data.remote.dto.AuditSampleResponse
+import com.glycemicgpt.mobile.data.remote.dto.ComorbidityFactResponse
+import com.glycemicgpt.mobile.data.remote.dto.ComorbidityNutritionResponse
 import com.glycemicgpt.mobile.data.remote.dto.CommonFoodResponse
 import com.glycemicgpt.mobile.data.remote.dto.EstimateDispersionResponse
 import com.glycemicgpt.mobile.data.remote.dto.FoodRecordAuditResponse
 import com.glycemicgpt.mobile.data.remote.dto.FoodRecordResponse
+import com.glycemicgpt.mobile.data.remote.dto.MacroFactResponse
+import com.glycemicgpt.mobile.data.remote.dto.NetCarbsResponse
+import com.glycemicgpt.mobile.data.remote.dto.NutritionFactsResponse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -215,6 +220,167 @@ class MealModelsTest {
         assertTrue(domain.grounded)
         assertEquals("Your meal history", domain.groundingSource)
         assertEquals("pasta", domain.identityUsed)
+    }
+
+    // --- Glucose-framed nutrition mapping (Story 50.N1) ---
+
+    @Test
+    fun `nutrition facts map portion, framed macros, and caveated net carbs`() {
+        val domain = record().copy(
+            nutritionFacts = NutritionFactsResponse(
+                portion = "one large bowl",
+                macros = listOf(
+                    MacroFactResponse(
+                        key = "protein_grams",
+                        label = "Protein",
+                        value = 12.0,
+                        unit = "g",
+                        glucoseNote = "Protein can nudge glucose up later, in the hours after a meal.",
+                    ),
+                ),
+                netCarbs = NetCarbsResponse(
+                    low = 34.0,
+                    high = 49.0,
+                    caveat = "Net carbs ... the ADA recommends counting total carbs ... never use it to dose or bolus.",
+                ),
+                disclaimer = "These nutrition figures ... never use it to dose or bolus.",
+            ),
+        ).toDomain()
+
+        val facts = domain.nutritionFacts
+        assertTrue("nutrition facts should be mapped", facts != null)
+        assertEquals("one large bowl", facts?.portion)
+        assertEquals("Protein", facts?.macros?.first()?.label)
+        assertEquals("g", facts?.macros?.first()?.unit)
+        assertTrue(facts?.macros?.first()?.glucoseNote?.contains("later") == true)
+        assertEquals(34.0, facts?.netCarbs?.low)
+        assertEquals(49.0, facts?.netCarbs?.high)
+        assertTrue(facts?.netCarbs?.caveat?.contains("dose or bolus") == true)
+    }
+
+    @Test
+    fun `nutrition facts are null on a read that omits them`() {
+        assertNull(record().toDomain().nutritionFacts)
+    }
+
+    @Test
+    fun `a blank portion maps to null so the UI shows nothing`() {
+        val domain = record().copy(
+            nutritionFacts = NutritionFactsResponse(portion = "  "),
+        ).toDomain()
+        assertNull(domain.nutritionFacts?.portion)
+    }
+
+    @Test
+    fun `non-finite macro values are dropped and an inverted net-carb band is skipped`() {
+        // Defensive client mirror of the server bounds: a NaN/Infinity figure must
+        // never render on a medical surface, and an inverted band is not shown.
+        val domain = record().copy(
+            nutritionFacts = NutritionFactsResponse(
+                macros = listOf(
+                    MacroFactResponse("protein_grams", "Protein", Double.NaN, "g", null),
+                    MacroFactResponse("fat_grams", "Fat", Double.POSITIVE_INFINITY, "g", null),
+                    MacroFactResponse("calories", "Calories", 640.0, "kcal", null),
+                ),
+                netCarbs = NetCarbsResponse(low = 40.0, high = 10.0, caveat = "x"),
+            ),
+        ).toDomain()
+
+        val facts = domain.nutritionFacts!!
+        assertEquals(listOf("Calories"), facts.macros.map { it.label })
+        assertNull(facts.netCarbs)
+    }
+
+    @Test
+    fun `comorbidity nutrition maps grounded facts, sugar note, and attribution`() {
+        val domain = record().copy(
+            comorbidityNutrition = ComorbidityNutritionResponse(
+                facts = listOf(
+                    ComorbidityFactResponse(
+                        key = "saturated_fat_grams",
+                        label = "Saturated fat",
+                        value = 12.0,
+                        unit = "g",
+                        note = "Saturated fat ... worth knowing for cardiovascular health.",
+                    ),
+                    ComorbidityFactResponse(
+                        key = "sugars_grams",
+                        label = "Sugars",
+                        value = 8.0,
+                        unit = "g",
+                        note = "Sugars ... tend to spike glucose sooner ...",
+                    ),
+                    ComorbidityFactResponse(
+                        key = "sodium_mg",
+                        label = "Sodium",
+                        value = 1100.0,
+                        unit = "mg",
+                        note = "Sodium matters for blood pressure ...",
+                    ),
+                ),
+                sugarNote = "Sugar-free doesn't mean carb-free ...",
+                source = "USDA FoodData Central",
+                trustTier = "AUTHORITATIVE",
+                disclaimer = "These figures come from published nutrition data ... never use it to dose or bolus.",
+            ),
+        ).toDomain()
+
+        val comorbidity = domain.comorbidityNutrition
+        assertTrue("comorbidity should be mapped", comorbidity != null)
+        assertEquals(
+            listOf("Saturated fat", "Sugars", "Sodium"),
+            comorbidity?.facts?.map { it.label },
+        )
+        assertEquals("mg", comorbidity?.facts?.get(2)?.unit)
+        assertTrue(comorbidity?.facts?.get(2)?.note?.contains("blood pressure") == true)
+        assertEquals("USDA FoodData Central", comorbidity?.source)
+        assertEquals("AUTHORITATIVE", comorbidity?.trustTier)
+        // The sugar note is retained because a sugars fact survived.
+        assertTrue(comorbidity?.sugarNote?.contains("carb-free") == true)
+        assertTrue(comorbidity?.disclaimer?.contains("dose or bolus") == true)
+    }
+
+    @Test
+    fun `comorbidity nutrition is null on a read that omits it`() {
+        assertNull(record().toDomain().comorbidityNutrition)
+    }
+
+    @Test
+    fun `a comorbidity block with only non-finite values maps to null`() {
+        // Defensive client mirror of the server bounds: a NaN/Infinity figure must
+        // never render, and a block left with no usable fact is treated as absent.
+        val domain = record().copy(
+            comorbidityNutrition = ComorbidityNutritionResponse(
+                facts = listOf(
+                    ComorbidityFactResponse("sodium_mg", "Sodium", Double.NaN, "mg", null),
+                    ComorbidityFactResponse(
+                        "sugars_grams", "Sugars", Double.POSITIVE_INFINITY, "g", null,
+                    ),
+                ),
+                source = "USDA FoodData Central",
+            ),
+        ).toDomain()
+        assertNull(domain.comorbidityNutrition)
+    }
+
+    @Test
+    fun `sugar note is dropped when its sugars fact does not survive`() {
+        // A non-finite sugars value is dropped but a finite sodium fact survives;
+        // the "sugar-free isn't carb-free" note must not be left orphaned.
+        val domain = record().copy(
+            comorbidityNutrition = ComorbidityNutritionResponse(
+                facts = listOf(
+                    ComorbidityFactResponse("sodium_mg", "Sodium", 1100.0, "mg", null),
+                    ComorbidityFactResponse("sugars_grams", "Sugars", Double.NaN, "g", null),
+                ),
+                sugarNote = "Sugar-free doesn't mean carb-free ...",
+                source = "USDA FoodData Central",
+            ),
+        ).toDomain()
+        val comorbidity = domain.comorbidityNutrition
+        assertTrue("block should survive on the sodium fact", comorbidity != null)
+        assertEquals(listOf("Sodium"), comorbidity?.facts?.map { it.label })
+        assertNull(comorbidity?.sugarNote)
     }
 
     @Test
