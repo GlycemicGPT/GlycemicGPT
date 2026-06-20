@@ -127,6 +127,19 @@ describe("Meal detail page", () => {
     expect(screen.queryByText(/units of insulin/i)).not.toBeInTheDocument();
   });
 
+  it("wires the 'how this was estimated' provenance panel onto the detail view", async () => {
+    mockGet.mockResolvedValue(makeRecord());
+    render(<MealDetailPage />);
+
+    // Present (collapsed) once the record loads; it lazily fetches only on open,
+    // so no audit request fires just from rendering the detail page.
+    expect(await screen.findByTestId("meal-audit-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("meal-audit-toggle")).toHaveTextContent(
+      /view details/i
+    );
+    expect(screen.queryByTestId("meal-audit-details")).not.toBeInTheDocument();
+  });
+
   it("surfaces the assumed portion prominently as the primary sanity-check", async () => {
     mockGet.mockResolvedValue(makeRecord());
     render(<MealDetailPage />);

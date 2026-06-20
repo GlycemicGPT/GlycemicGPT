@@ -60,14 +60,17 @@ export function IdentityConfirmedBadge() {
 export function MealSafetyQualifier({
   qualifier,
   className = "",
+  testId = "meal-safety-qualifier",
 }: {
   qualifier: string;
   className?: string;
+  /** Override when more than one qualifier can render on a page (avoids a duplicate testid). */
+  testId?: string;
 }) {
   return (
     <div
       role="note"
-      data-testid="meal-safety-qualifier"
+      data-testid={testId}
       className={`flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300 ${className}`}
     >
       <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />

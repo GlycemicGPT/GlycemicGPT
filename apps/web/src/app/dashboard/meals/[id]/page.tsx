@@ -43,6 +43,7 @@ import {
   MealIdentitySection,
 } from "@/components/meals/meal-edit";
 import { MealCommonFoodSection } from "@/components/meals/common-food-actions";
+import { MealAuditPanel } from "@/components/meals/meal-audit";
 
 function BackLink() {
   return (
@@ -287,8 +288,16 @@ export default function MealDetailPage() {
           </div>
         </AnimatedCard>
 
+        {/* "How this was estimated": the deterministic provenance trail (Story
+            50.H3) — per-sample reads, empirical dispersion, and the precedence
+            decision. Descriptive only; it hides itself when meal intelligence is
+            off (a flag-off server hides the record above, so we never get here). */}
+        <AnimatedCard delay={0.1}>
+          <MealAuditPanel record={record} />
+        </AnimatedCard>
+
         {facts?.portion && (
-          <AnimatedCard delay={0.1}>
+          <AnimatedCard delay={0.125}>
             <MealAssumedPortion portion={facts.portion} />
           </AnimatedCard>
         )}
