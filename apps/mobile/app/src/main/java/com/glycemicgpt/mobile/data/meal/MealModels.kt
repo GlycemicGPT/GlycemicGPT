@@ -1,5 +1,6 @@
 package com.glycemicgpt.mobile.data.meal
 
+import com.glycemicgpt.mobile.data.remote.dto.ComorbidityNutritionResponse
 import com.glycemicgpt.mobile.data.remote.dto.CommonFoodResponse
 import com.glycemicgpt.mobile.data.remote.dto.FoodRecordAuditResponse
 import com.glycemicgpt.mobile.data.remote.dto.FoodRecordResponse
@@ -140,6 +141,31 @@ data class MealNetCarbs(
     val caveat: String,
 )
 
+/**
+ * Grounding-backed comorbidity / label nutrition. GROUNDING-ONLY and
+ * identity-gated: published reference figures (saturated fat / sugars / sodium)
+ * framed as blood-pressure / cardiovascular awareness, never a dose. Attributed to
+ * [source] (distinct from the vision estimate); [disclaimer] carries the never-dose
+ * framing; [sugarNote] (the "sugar-free isn't carb-free" reminder) is present only
+ * when a sugars figure is surfaced. All copy is server-cleared and rendered verbatim.
+ */
+data class MealComorbidityNutrition(
+    val facts: List<MealComorbidityFact>,
+    val sugarNote: String?,
+    val source: String?,
+    val trustTier: String?,
+    val disclaimer: String?,
+)
+
+/** One grounding-backed comorbidity nutrient with its awareness-framing note. */
+data class MealComorbidityFact(
+    val key: String,
+    val label: String,
+    val value: Double,
+    val unit: String,
+    val note: String?,
+)
+
 /** A persisted meal photo + carb estimate, optionally corrected by the user. */
 data class FoodRecord(
     val id: String,
@@ -167,6 +193,12 @@ data class FoodRecord(
     val suggestedIdentity: String? = null,
     /** Glucose-framed nutrition (Story 50.N1): portion + macros + net carbs. */
     val nutritionFacts: MealNutritionFacts? = null,
+    /**
+     * Grounding-backed comorbidity nutrition: saturated fat / sugars /
+     * sodium when an authoritative source published them. Null when nothing was
+     * grounded; only ever present on a confirmed, grounded record.
+     */
+    val comorbidityNutrition: MealComorbidityNutrition? = null,
 ) {
     /** Whether the user has corrected the AI estimate. */
     val isCorrected: Boolean get() = correction != null
@@ -234,6 +266,38 @@ fun FoodRecordResponse.toDomain(): FoodRecord {
         identityConfirmed = identityConfirmed,
         suggestedIdentity = suggestedIdentity?.takeIf { it.isNotBlank() },
         nutritionFacts = nutritionFacts?.toDomain(),
+        comorbidityNutrition = comorbidityNutrition?.toDomain(),
+    )
+}
+
+private fun ComorbidityNutritionResponse.toDomain(): MealComorbidityNutrition? {
+    // Drop any non-finite / negative value defensively (the server already rejects
+    // these); a comorbidity block with no usable fact is treated as absent so an
+    // empty card never renders.
+    val mapped = facts.mapNotNull { fact ->
+        fact.takeIf { it.value.isFinite() && it.value >= 0.0 }?.let {
+            MealComorbidityFact(
+                key = it.key,
+                label = it.label,
+                value = it.value,
+                unit = it.unit,
+                note = it.note?.takeIf { note -> note.isNotBlank() },
+            )
+        }
+    }
+    if (mapped.isEmpty()) return null
+    // Keep the "sugar-free isn't carb-free" note only when a sugars fact actually
+    // survived, mirroring the server's _SUGAR_KEYS gating, so a dropped/non-finite
+    // sugars value can't leave an orphaned reminder on the card.
+    val sugarSurvived = mapped.any {
+        it.key == "sugars_grams" || it.key == "added_sugars_grams"
+    }
+    return MealComorbidityNutrition(
+        facts = mapped,
+        sugarNote = if (sugarSurvived) sugarNote?.takeIf { it.isNotBlank() } else null,
+        source = source?.takeIf { it.isNotBlank() },
+        trustTier = trustTier?.takeIf { it.isNotBlank() },
+        disclaimer = disclaimer?.takeIf { it.isNotBlank() },
     )
 }
 

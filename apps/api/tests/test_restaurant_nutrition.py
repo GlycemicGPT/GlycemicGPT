@@ -214,6 +214,54 @@ class TestChainFetch:
         assert fact.carbs_grams == 40
         assert fact.trust_tier == KnowledgeChunk.TIER_AUTHORITATIVE
 
+    async def test_captures_comorbidity_and_cache_round_trips(self):
+        # A chain's published saturated fat / sugars / sodium flow into
+        # the fact (per-item) and survive the owner-scoped cache round-trip.
+        user = await _new_user()
+        payload = {
+            "items": [
+                {
+                    "item_name": "Big Mac",
+                    "nutrient_facts": [
+                        {"name": "Carbohydrates", "value": 45},
+                        {"name": "Saturated Fat", "value": 10},
+                        {"name": "Total Sugars", "value": 9},
+                        {"name": "Added Sugars", "value": 7},
+                        {"name": "Sodium", "value": 1010},
+                    ],
+                }
+            ]
+        }
+        ctx, client = _mock_httpx(payload)
+        with _allow_robots(), ctx as ac:
+            ac.return_value.__aenter__.return_value = client
+            first = await rn.lookup_restaurant(user.id, "McDonald's Big Mac")
+            second = await rn.lookup_restaurant(user.id, "McDonald's Big Mac")
+        assert first is not None
+        assert first.comorbidity_dict() == {
+            "saturated_fat_grams": 10.0,
+            "sugars_grams": 9.0,
+            "added_sugars_grams": 7.0,
+            "sodium_mg": 1010.0,
+        }
+        # Served from the owner-scoped cache with comorbidity intact (no 2nd fetch).
+        assert client.stream.call_count == 1
+        assert second is not None
+        assert second.comorbidity_dict() == first.comorbidity_dict()
+
+    def test_sugar_alcohol_is_not_bucketed_as_total_sugars(self):
+        # "Sugar Alcohol" (polyols) contains "sugar" but is a distinct field; it must
+        # not be surfaced as the meal's total Sugars figure.
+        result = rn._comorbidity_from_nutrients(
+            [
+                {"name": "Total Sugars", "value": 9},
+                {"name": "Sugar Alcohol", "value": 4},
+            ],
+            name_key="name",
+            value_key="value",
+        )
+        assert result == {"sugars_grams": 9.0}
+
     async def test_no_brand_makes_no_request(self):
         user = await _new_user()
         ctx, client = _mock_httpx(_MCD_PAYLOAD)

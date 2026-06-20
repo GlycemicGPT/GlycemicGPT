@@ -83,7 +83,12 @@ _SERVING_PER_100G = "per 100 g"
 
 @dataclass(frozen=True)
 class NutritionFact:
-    """A grounded nutrition fact from a published source."""
+    """A grounded nutrition fact from a published source.
+
+    The comorbidity fields -- saturated fat / sugars / added sugars /
+    sodium -- are optional: present only when the source publishes them. They are
+    blood-pressure / cardiovascular awareness data, never a dosing input.
+    """
 
     source_name: str
     source_url: str | None
@@ -92,6 +97,25 @@ class NutritionFact:
     carbs_grams: float
     serving: str
     disclaimer: str | None
+    # Grounding-backed comorbidity nutrition; None when unpublished.
+    saturated_fat_grams: float | None = None
+    sugars_grams: float | None = None
+    added_sugars_grams: float | None = None
+    sodium_mg: float | None = None
+
+    def comorbidity_dict(self) -> dict | None:
+        """The present comorbidity values as a dict, or None when there are none."""
+        present = {
+            k: v
+            for k, v in (
+                ("saturated_fat_grams", self.saturated_fat_grams),
+                ("sugars_grams", self.sugars_grams),
+                ("added_sugars_grams", self.added_sugars_grams),
+                ("sodium_mg", self.sodium_mg),
+            )
+            if v is not None
+        }
+        return present or None
 
 
 def _normalize_query(query: str) -> str:
@@ -141,6 +165,119 @@ def _valid_carbs(value: object) -> float | None:
     return carbs
 
 
+# --- Comorbidity nutrition extraction -------------------------- #
+# Per-100 g grams (saturated fat / sugars) can't exceed 100 g; sodium per 100 g
+# is in mg and bounded by an implausible-but-finite ceiling (pure salt is ~38.8 g
+# sodium / 100 g). Reject-not-clamp: a value past the ceiling signals bad/mis-parsed
+# source data, so it is dropped rather than grounded on.
+_MAX_GRAMS_PER_100G = 100.0
+_MAX_SODIUM_MG_PER_100G = 100_000.0
+
+# USDA FoodData Central nutrient numbers for the comorbidity fields.
+_USDA_SATURATED_FAT_NUMBER = "606"
+_USDA_ADDED_SUGARS_NUMBER = "539"
+_USDA_SODIUM_NUMBER = "307"
+# Total sugars shifted nutrient number between USDA datasets (269 / 269.3).
+_USDA_TOTAL_SUGARS_NUMBERS = frozenset({"269", "269.3"})
+
+
+def _bounded(value: object, *, maximum: float) -> float | None:
+    """A finite, non-negative number within ``maximum``, else None (reject-not-clamp)."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    if not (0.0 <= number <= maximum):
+        return None
+    return number
+
+
+def _usda_comorbidity(food_nutrients: object) -> dict[str, float]:
+    """Pull the comorbidity nutrients out of a USDA ``foodNutrients`` list.
+
+    Returns only the fields the source actually published, each bounded per 100 g.
+    Matched by USDA nutrient number first (stable), falling back to the nutrient
+    name -- and added sugars is matched separately from total sugars so the two are
+    never conflated.
+    """
+    result: dict[str, float] = {}
+    if not isinstance(food_nutrients, list):
+        return result
+    for nutrient in food_nutrients:
+        if not isinstance(nutrient, dict):
+            continue
+        number = str(nutrient.get("nutrientNumber") or "")
+        name = str(nutrient.get("nutrientName") or "").lower()
+        raw = nutrient.get("value")
+        if number == _USDA_SATURATED_FAT_NUMBER or "saturated" in name:
+            value = _bounded(raw, maximum=_MAX_GRAMS_PER_100G)
+            if value is not None:
+                result.setdefault("saturated_fat_grams", value)
+        elif number == _USDA_ADDED_SUGARS_NUMBER or (
+            # USDA names this "Sugars, added", so match both word orders rather than
+            # the (never-matching) "added sugar" substring.
+            "added" in name and "sugar" in name
+        ):
+            value = _bounded(raw, maximum=_MAX_GRAMS_PER_100G)
+            if value is not None:
+                result.setdefault("added_sugars_grams", value)
+        elif number in _USDA_TOTAL_SUGARS_NUMBERS or (
+            "sugars" in name and "added" not in name
+        ):
+            value = _bounded(raw, maximum=_MAX_GRAMS_PER_100G)
+            if value is not None:
+                result.setdefault("sugars_grams", value)
+        elif number == _USDA_SODIUM_NUMBER or name == "sodium, na":
+            value = _bounded(raw, maximum=_MAX_SODIUM_MG_PER_100G)
+            if value is not None:
+                result.setdefault("sodium_mg", value)
+    return result
+
+
+def comorbidity_from_meta(
+    meta: dict, *, grams_max: float = _MAX_GRAMS_PER_100G
+) -> dict[str, float]:
+    """Reconstruct a cached fact's comorbidity values, each re-bounded.
+
+    Defence in depth: although the cache is written by us, re-validate every value
+    on read so a hand-edited / corrupted ``metadata_json`` can never resurrect an
+    out-of-range comorbidity figure. Shared by the USDA/OFF (per-100 g) and
+    restaurant (per-item) caches; ``grams_max`` is the gram ceiling for that basis.
+    """
+    result: dict[str, float] = {}
+    for key in ("saturated_fat_grams", "sugars_grams", "added_sugars_grams"):
+        value = _bounded(meta.get(key), maximum=grams_max)
+        if value is not None:
+            result[key] = value
+    sodium = _bounded(meta.get("sodium_mg"), maximum=_MAX_SODIUM_MG_PER_100G)
+    if sodium is not None:
+        result["sodium_mg"] = sodium
+    return result
+
+
+def _off_comorbidity(product: dict) -> dict[str, float]:
+    """Pull the comorbidity nutrients out of an Open Food Facts product.
+
+    OFF reports per 100 g; sodium is in grams there, so it is converted to mg. When
+    only salt is given, sodium is derived as ``salt / 2.5`` (the standard factor).
+    OFF has no reliable added-sugars field, so that key is left unset.
+    """
+    result: dict[str, float] = {}
+    sat = _bounded(product.get("saturated-fat_100g"), maximum=_MAX_GRAMS_PER_100G)
+    if sat is not None:
+        result["saturated_fat_grams"] = sat
+    sugars = _bounded(product.get("sugars_100g"), maximum=_MAX_GRAMS_PER_100G)
+    if sugars is not None:
+        result["sugars_grams"] = sugars
+    sodium_g = _bounded(product.get("sodium_100g"), maximum=_MAX_GRAMS_PER_100G)
+    if sodium_g is not None:
+        result["sodium_mg"] = sodium_g * 1000.0
+    else:
+        salt_g = _bounded(product.get("salt_100g"), maximum=_MAX_GRAMS_PER_100G)
+        if salt_g is not None:
+            result["sodium_mg"] = salt_g / 2.5 * 1000.0
+    return result
+
+
 async def _cache_get(
     db: AsyncSession, source_type: str, normalized_query: str
 ) -> NutritionFact | None:
@@ -172,6 +309,7 @@ async def _cache_get(
         carbs_grams=carbs,
         serving=meta.get("serving") or _SERVING_PER_100G,
         disclaimer=meta.get("disclaimer"),
+        **comorbidity_from_meta(meta),
     )
 
 
@@ -205,6 +343,9 @@ async def _cache_put(
         "carbs_grams": fact.carbs_grams,
         "serving": fact.serving,
         "disclaimer": fact.disclaimer,
+        # Persist any grounded comorbidity values so a cache hit
+        # surfaces them too (only the present keys are written).
+        **(fact.comorbidity_dict() or {}),
     }
     stmt = pg_insert(KnowledgeChunk).values(
         user_id=None,
@@ -334,6 +475,7 @@ async def lookup_usda(query: str) -> NutritionFact | None:
         return None
 
     fdc_id = food.get("fdcId")
+    comorbidity = _usda_comorbidity(food.get("foodNutrients"))
     fact = NutritionFact(
         source_name="USDA FoodData Central",
         source_url=(
@@ -346,6 +488,7 @@ async def lookup_usda(query: str) -> NutritionFact | None:
         carbs_grams=carbs,
         serving=_SERVING_PER_100G,
         disclaimer=None,
+        **comorbidity,
     )
     async with get_session_maker()() as db:
         await _cache_put(
@@ -380,7 +523,11 @@ async def lookup_open_food_facts(query: str) -> NutritionFact | None:
             "action": "process",
             "json": 1,
             "page_size": 1,
-            "fields": "product_name,carbohydrates_100g,code,url",
+            "fields": (
+                "product_name,carbohydrates_100g,code,url,"
+                # Comorbidity fields (per 100 g; sodium in grams here).
+                "saturated-fat_100g,sugars_100g,sodium_100g,salt_100g"
+            ),
         },
     )
     if data is None:
@@ -400,6 +547,7 @@ async def lookup_open_food_facts(query: str) -> NutritionFact | None:
     if not name:
         name = query[:120]
     source_url = _safe_off_citation_url(product.get("url"), product.get("code"))
+    comorbidity = _off_comorbidity(product)
     fact = NutritionFact(
         source_name="Open Food Facts",
         source_url=source_url,
@@ -408,6 +556,7 @@ async def lookup_open_food_facts(query: str) -> NutritionFact | None:
         carbs_grams=carbs,
         serving=_SERVING_PER_100G,
         disclaimer=_OFF_DISCLAIMER,
+        **comorbidity,
     )
     async with get_session_maker()() as db:
         await _cache_put(

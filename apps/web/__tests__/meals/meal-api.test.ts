@@ -4,6 +4,12 @@
  * the multipart upload, the meal-intelligence probe, and owner-scoped errors.
  */
 
+// Force module scope: this file uses in-test `require()` rather than top-level
+// imports, so without an export it is a global script and its `jsonResponse`
+// collides with the identically-named helper in common-foods-api.test.ts
+// ("Duplicate function implementation" under tsc).
+export {};
+
 function jsonResponse(status: number, body: unknown, ok?: boolean) {
   return {
     ok: ok ?? (status >= 200 && status < 300),

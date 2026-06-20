@@ -97,6 +97,7 @@ function makeRecord(overrides: Partial<FoodRecord> = {}): FoodRecord {
       disclaimer:
         "These nutrition figures are rough AI estimates that describe the meal — never use it to dose or bolus.",
     },
+    comorbidity_nutrition: null,
     created_at: "2026-06-19T12:00:01Z",
     ...overrides,
   };
@@ -490,5 +491,90 @@ describe("Meal detail page", () => {
     await waitFor(() =>
       expect(mockConfirm).toHaveBeenCalledWith("rec-1", "Saved oatmeal")
     );
+  });
+
+  // --- grounding-backed comorbidity nutrition ---
+
+  const groundedComorbidityRecord = () =>
+    makeRecord({
+      identity_confirmed: true,
+      confirmed_food_name: "Cheeseburger",
+      source: "external_grounded",
+      grounding_source: "USDA FoodData Central",
+      grounding_source_url: "https://fdc.nal.usda.gov/",
+      grounding_trust_tier: "AUTHORITATIVE",
+      comorbidity_nutrition: {
+        facts: [
+          {
+            key: "saturated_fat_grams",
+            label: "Saturated fat",
+            value: 12,
+            unit: "g",
+            note: "Saturated fat is a heart-health signal, not a glucose one — it doesn't change your sugar rise, but it's worth knowing for cardiovascular health.",
+          },
+          {
+            key: "sugars_grams",
+            label: "Sugars",
+            value: 8,
+            unit: "g",
+            note: "Sugars are carbohydrates that tend to spike glucose sooner than starches do.",
+          },
+          {
+            key: "sodium_mg",
+            label: "Sodium",
+            value: 1100,
+            unit: "mg",
+            note: "Sodium matters for blood pressure — it doesn't affect glucose, but it's worth keeping an eye on for cardiovascular health.",
+          },
+        ],
+        sugar_note:
+          "Sugar-free doesn't mean carb-free — sugar alcohols and starches still raise glucose, so count total carbohydrates.",
+        source: "USDA FoodData Central",
+        source_url: "https://fdc.nal.usda.gov/",
+        trust_tier: "AUTHORITATIVE",
+        disclaimer:
+          "These figures come from published nutrition data, shown for blood-pressure and heart-health awareness — a descriptive reference only; never use it to dose or bolus.",
+      },
+    });
+
+  it("surfaces grounded comorbidity nutrition as BP/CVD awareness, attributed, with no dose element", async () => {
+    mockGet.mockResolvedValue(groundedComorbidityRecord());
+    render(<MealDetailPage />);
+
+    const card = await screen.findByTestId("meal-comorbidity");
+    // Sodium + saturated fat read as blood-pressure / cardiovascular awareness.
+    expect(card).toHaveTextContent("Saturated fat");
+    expect(card).toHaveTextContent("Sodium");
+    expect(card).toHaveTextContent(/blood pressure/i);
+    expect(card).toHaveTextContent(/cardiovascular/i);
+    // Sugars frame an earlier spike + carry the "sugar-free isn't carb-free" note.
+    expect(card).toHaveTextContent(/spike glucose sooner/i);
+    expect(
+      screen.getByTestId("meal-comorbidity-sugar-note")
+    ).toHaveTextContent(/sugar-free.*carb-free/i);
+    // Values render with units; three grounded facts shown.
+    expect(screen.getAllByTestId("meal-comorbidity-fact")).toHaveLength(3);
+    expect(screen.getByTestId("meal-comorbidity")).toHaveTextContent("1100 mg");
+    // Attribution is distinct from the vision estimate: a safe outbound link.
+    expect(screen.getByTestId("meal-comorbidity-source")).toHaveTextContent(
+      "USDA FoodData Central"
+    );
+    const link = screen.getByTestId("meal-comorbidity-link");
+    expect(link).toHaveAttribute("href", "https://fdc.nal.usda.gov/");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    // The block carries the never-dose prohibition; nothing here is a dose.
+    expect(
+      screen.getByTestId("meal-comorbidity-disclaimer")
+    ).toHaveTextContent(/never use it to dose or bolus/i);
+    expect(card).not.toHaveTextContent(/insulin|how much/i);
+  });
+
+  it("omits the comorbidity card when nothing was grounded", async () => {
+    mockGet.mockResolvedValue(makeRecord({ comorbidity_nutrition: null }));
+    render(<MealDetailPage />);
+
+    // Wait for the page to settle on a known element, then assert absence.
+    expect(await screen.findByTestId("meal-carb-range")).toBeInTheDocument();
+    expect(screen.queryByTestId("meal-comorbidity")).not.toBeInTheDocument();
   });
 });

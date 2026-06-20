@@ -189,6 +189,15 @@ class FoodRecord(Base):
     # Trust-tier marker mirroring knowledge_chunks.trust_tier: USER_PROVIDED
     # (own history) / RESEARCHED / AUTHORITATIVE (published nutrition facts).
     grounding_trust_tier: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # --- Grounding-backed comorbidity / label nutrition ---
+    # Saturated fat / sugars / added sugars / sodium, populated ONLY from the
+    # authoritative grounding source (USDA / OFF / restaurant) once identity is
+    # confirmed -- never asserted from the photo. Kept SEPARATE from the AI's
+    # ``nutrition_json`` (photo-estimated macros) so the photo can never assert a
+    # comorbidity value, and reset whenever grounding is re-run. NULL = no grounded
+    # comorbidity data. Comorbidity awareness only; never read by IoB /
+    # treatment_safety / carb-ratio math.
+    grounding_nutrition_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     # NOTE: the estimation pipeline (food_vision) attaches a transient, non-mapped
     # ``grounding`` attribute (a schemas.food_record.GroundingDetail) to a freshly
     # created instance so the create response can carry the grounded range + note +

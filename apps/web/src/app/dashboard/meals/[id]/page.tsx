@@ -36,6 +36,7 @@ import {
   MealAssumedPortion,
   MealNutritionFacts,
   MealNutritionDisclaimer,
+  MealComorbidityNutrition,
   MealErrorPanel,
 } from "@/components/meals/meal-ui";
 import {
@@ -311,6 +312,20 @@ export default function MealDetailPage() {
 
         {facts?.disclaimer && (
           <MealNutritionDisclaimer disclaimer={facts.disclaimer} />
+        )}
+
+        {/* Grounding-backed comorbidity nutrition: saturated fat,
+            sugars, and sodium when an authoritative source published them. Only
+            renders for a grounded record (the block is absent otherwise), framed as
+            blood-pressure / cardiovascular awareness and attributed to its source —
+            distinct from the photo-estimated macros above. */}
+        {record.comorbidity_nutrition && (
+          <AnimatedCard delay={0.175}>
+            <MealComorbidityNutrition
+              record={record}
+              comorbidity={record.comorbidity_nutrition}
+            />
+          </AnimatedCard>
         )}
 
         {(record.ai_model || record.ai_provider) && (

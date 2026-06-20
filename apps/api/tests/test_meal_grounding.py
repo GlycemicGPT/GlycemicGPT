@@ -602,6 +602,135 @@ class TestOpenFoodFacts:
 
 
 # --------------------------------------------------------------------------- #
+# Grounding-backed comorbidity capture + propagation
+# --------------------------------------------------------------------------- #
+class TestComorbidityCapture:
+    _USDA_PAYLOAD = {
+        "foods": [
+            {
+                "description": "Cheeseburger",
+                "fdcId": 7777,
+                "foodNutrients": [
+                    {"nutrientNumber": "205", "value": 30.0},
+                    {
+                        "nutrientNumber": "606",
+                        "nutrientName": "Fatty acids, total saturated",
+                        "value": 11.0,
+                    },
+                    {
+                        "nutrientNumber": "269.3",
+                        "nutrientName": "Sugars, total including NLEA",
+                        "value": 7.0,
+                    },
+                    {
+                        "nutrientNumber": "539",
+                        "nutrientName": "Sugars, added",
+                        "value": 4.0,
+                    },
+                    {
+                        "nutrientNumber": "307",
+                        "nutrientName": "Sodium, Na",
+                        "value": 990.0,
+                    },
+                ],
+            }
+        ]
+    }
+
+    async def test_usda_captures_comorbidity_and_cache_round_trips(self, monkeypatch):
+        monkeypatch.setattr(settings, "usda_fdc_api_key", "TESTKEY")
+        query = _uniq("burger")
+        ctx, client = _mock_httpx(self._USDA_PAYLOAD)
+        with ctx as ac:
+            ac.return_value.__aenter__.return_value = client
+            first = await nutrition_sources.lookup_usda(query)
+            second = await nutrition_sources.lookup_usda(query)  # cache hit
+
+        assert first is not None
+        assert first.saturated_fat_grams == 11.0
+        assert first.sugars_grams == 7.0
+        assert first.added_sugars_grams == 4.0
+        assert first.sodium_mg == 990.0
+        # The cached fact preserves the comorbidity values (no second HTTP call).
+        assert client.stream.call_count == 1
+        assert second is not None
+        assert second.comorbidity_dict() == {
+            "saturated_fat_grams": 11.0,
+            "sugars_grams": 7.0,
+            "added_sugars_grams": 4.0,
+            "sodium_mg": 990.0,
+        }
+
+    def test_usda_added_sugars_matched_by_name_when_number_absent(self):
+        # USDA names this "Sugars, added"; the name fallback must match it (and not
+        # mis-bucket it as total sugars) even when no nutrient number is supplied.
+        result = nutrition_sources._usda_comorbidity(
+            [
+                {"nutrientName": "Sugars, total including NLEA", "value": 9.0},
+                {"nutrientName": "Sugars, added", "value": 3.0},
+            ]
+        )
+        assert result == {"sugars_grams": 9.0, "added_sugars_grams": 3.0}
+
+    async def test_off_converts_sodium_grams_to_mg(self, monkeypatch):
+        monkeypatch.setattr(settings, "open_food_facts_enabled", True)
+        payload = {
+            "products": [
+                {
+                    "product_name": "Cereal",
+                    "carbohydrates_100g": 70.0,
+                    "code": "1",
+                    "saturated-fat_100g": 2.0,
+                    "sugars_100g": 30.0,
+                    "sodium_100g": 0.5,  # grams -> 500 mg
+                }
+            ]
+        }
+        ctx, client = _mock_httpx(payload)
+        with ctx as ac:
+            ac.return_value.__aenter__.return_value = client
+            fact = await nutrition_sources.lookup_open_food_facts(_uniq("cereal"))
+        assert fact is not None
+        assert fact.saturated_fat_grams == 2.0
+        assert fact.sugars_grams == 30.0
+        assert fact.sodium_mg == 500.0
+        # OFF has no reliable added-sugars field.
+        assert fact.added_sugars_grams is None
+
+    async def test_grounding_detail_propagates_comorbidity(self):
+        # A published fact's comorbidity values flow into the GroundingDetail so the
+        # confirm path can persist them; an own-history recall carries none.
+        fact = nutrition_sources.NutritionFact(
+            source_name="USDA FoodData Central",
+            source_url="https://fdc.nal.usda.gov/x",
+            trust_tier=KnowledgeChunk.TIER_AUTHORITATIVE,
+            name="burger",
+            carbs_grams=30.0,
+            serving="per 100 g",
+            disclaimer=None,
+            saturated_fat_grams=11.0,
+            sodium_mg=990.0,
+        )
+        with (
+            patch.object(meal_rag, "recall_similar_meal", AsyncMock(return_value=None)),
+            patch.object(
+                nutrition_sources,
+                "lookup_published_nutrition",
+                AsyncMock(return_value=(fact, None)),
+            ),
+            patch.object(settings, "meal_intelligence_enabled", True),
+        ):
+            detail = await meal_grounding.ground_estimate(
+                uuid.uuid4(), "cheeseburger", identity_confirmed=True
+            )
+        assert detail is not None
+        assert detail.comorbidity_dict() == {
+            "saturated_fat_grams": 11.0,
+            "sodium_mg": 990.0,
+        }
+
+
+# --------------------------------------------------------------------------- #
 # Security: SSRF / host allow-list on the external fetch
 # --------------------------------------------------------------------------- #
 class TestExternalFetchSecurity:

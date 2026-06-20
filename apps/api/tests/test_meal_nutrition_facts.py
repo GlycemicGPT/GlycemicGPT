@@ -21,13 +21,17 @@ import pytest
 
 from src.schemas.food_record import (
     NetCarbsEstimate,
+    build_comorbidity_nutrition,
     build_nutrition_facts,
 )
 from src.vision.carb_contract import (
+    COMORBIDITY_NUTRITION_DISCLAIMER,
+    COMORBIDITY_NUTRITION_NOTES,
     MACRO_GLUCOSE_NOTES,
     NET_CARBS_CAVEAT,
     NEVER_DOSE_PROHIBITION,
     NUTRITION_DOSE_DISCLAIMER,
+    SUGAR_FREE_NOTE,
     find_dosing_violations,
 )
 
@@ -288,3 +292,169 @@ class TestNetCarbsNeverCouples:
             assert "net_carb" not in text, f"{path} references net carbs"
             assert "nutrition_facts" not in text, f"{path} references nutrition_facts"
             assert "macrofact" not in text, f"{path} references MacroFact"
+            # Grounded comorbidity nutrition is descriptive-only too.
+            assert "comorbidity" not in text, f"{path} references comorbidity"
+            assert "grounding_nutrition" not in text, (
+                f"{path} references grounding nutrition"
+            )
+
+
+# --------------------------------------------------------------------------- #
+# Grounding-backed comorbidity nutrition -- framing + build + safety
+# --------------------------------------------------------------------------- #
+class TestComorbidityFraming:
+    def test_the_four_comorbidity_fields_are_framed(self):
+        assert set(COMORBIDITY_NUTRITION_NOTES) == {
+            "saturated_fat_grams",
+            "sugars_grams",
+            "added_sugars_grams",
+            "sodium_mg",
+        }
+
+    def test_every_comorbidity_note_is_free_of_dosing_language(self):
+        # AC3: the awareness framing must pass the scrubber (it describes the food,
+        # never a dose).
+        for key, note in COMORBIDITY_NUTRITION_NOTES.items():
+            assert find_dosing_violations(note) == [], f"{key} note reads as dosing"
+
+    def test_sodium_and_sat_fat_frame_bp_cardiovascular_awareness(self):
+        # AC3: sodium -> blood pressure; saturated fat -> cardiovascular.
+        assert "blood pressure" in COMORBIDITY_NUTRITION_NOTES["sodium_mg"].lower()
+        assert (
+            "cardiovascular"
+            in COMORBIDITY_NUTRITION_NOTES["saturated_fat_grams"].lower()
+        )
+
+    def test_sugars_frame_an_earlier_spike(self):
+        # AC3: sugars -> "tends to spike sooner".
+        for key in ("sugars_grams", "added_sugars_grams"):
+            note = COMORBIDITY_NUTRITION_NOTES[key].lower()
+            assert "spike" in note and "sooner" in note, key
+
+    def test_sugar_free_note_is_descriptive_and_points_to_total_carbs(self):
+        # AC3: the "sugar-free is not carb-free" note passes the scrubber and points
+        # the user back to total carbs (never a dose).
+        assert find_dosing_violations(SUGAR_FREE_NOTE) == []
+        lowered = SUGAR_FREE_NOTE.lower()
+        assert "sugar-free" in lowered and "carb-free" in lowered
+        assert "total carb" in lowered
+
+    def test_section_disclaimer_carries_the_prohibition_not_ai_framing(self):
+        # The figures are published reference data, so the disclaimer carries the
+        # never-dose prohibition but must NOT mislabel them as an "AI estimate".
+        assert NEVER_DOSE_PROHIBITION in COMORBIDITY_NUTRITION_DISCLAIMER
+        assert "ai estimate" not in COMORBIDITY_NUTRITION_DISCLAIMER.lower()
+
+
+class TestBuildComorbidityNutrition:
+    _GROUNDED = {
+        "saturated_fat_grams": 12.0,
+        "sugars_grams": 8.0,
+        "added_sugars_grams": 5.0,
+        "sodium_mg": 1100.0,
+    }
+
+    def test_builds_attributed_facts_from_grounded_values(self):
+        block = build_comorbidity_nutrition(
+            grounding_nutrition=self._GROUNDED,
+            source="USDA FoodData Central",
+            source_url="https://fdc.nal.usda.gov/x",
+            trust_tier="AUTHORITATIVE",
+        )
+        assert block is not None
+        labels = [f.label for f in block.facts]
+        assert labels == ["Saturated fat", "Sugars", "Added sugars", "Sodium"]
+        units = {f.key: f.unit for f in block.facts}
+        assert units["sodium_mg"] == "mg" and units["saturated_fat_grams"] == "g"
+        # Each fact carries its descriptive awareness note.
+        for fact in block.facts:
+            assert fact.note == COMORBIDITY_NUTRITION_NOTES[fact.key]
+        # Attribution is distinct from the vision estimate.
+        assert block.source == "USDA FoodData Central"
+        assert block.source_url == "https://fdc.nal.usda.gov/x"
+        assert block.trust_tier == "AUTHORITATIVE"
+        assert block.disclaimer == COMORBIDITY_NUTRITION_DISCLAIMER
+
+    def test_sugar_note_only_when_a_sugars_field_is_present(self):
+        with_sugar = build_comorbidity_nutrition(
+            grounding_nutrition={"sugars_grams": 9.0},
+            source="x",
+            source_url=None,
+            trust_tier=None,
+        )
+        assert with_sugar is not None and with_sugar.sugar_note == SUGAR_FREE_NOTE
+        without_sugar = build_comorbidity_nutrition(
+            grounding_nutrition={"sodium_mg": 500.0},
+            source="x",
+            source_url=None,
+            trust_tier=None,
+        )
+        assert without_sugar is not None and without_sugar.sugar_note is None
+
+    def test_returns_none_without_grounded_values(self):
+        assert (
+            build_comorbidity_nutrition(
+                grounding_nutrition=None, source=None, source_url=None, trust_tier=None
+            )
+            is None
+        )
+        assert (
+            build_comorbidity_nutrition(
+                grounding_nutrition={}, source="x", source_url=None, trust_tier=None
+            )
+            is None
+        )
+
+    def test_absurd_and_invalid_values_are_dropped_reject_not_clamp(self):
+        block = build_comorbidity_nutrition(
+            grounding_nutrition={
+                "sodium_mg": 10**9,  # over ceiling -> dropped
+                "sugars_grams": -3,  # negative -> dropped
+                "saturated_fat_grams": "lots",  # non-numeric -> dropped
+                "added_sugars_grams": 4.0,  # kept
+            },
+            source="x",
+            source_url=None,
+            trust_tier=None,
+        )
+        assert block is not None
+        assert [f.key for f in block.facts] == ["added_sugars_grams"]
+
+
+class TestComorbidityExcludesOutOfScopeFields:
+    def test_vision_contract_never_asks_for_comorbidity_fields(self):
+        # AC1: the comorbidity fields are grounding-only -- the photo is never asked
+        # for them, so they can't be asserted from a plated-food image.
+        from src.vision.carb_contract import ESTIMATE_JSON_SHAPE, SYSTEM_PROMPT
+
+        nutrition_spec = ESTIMATE_JSON_SHAPE["nutrition"].lower()
+        for term in ("saturated", "sugar", "sodium", "salt"):
+            assert term not in nutrition_spec, f"vision contract solicits {term}"
+        prompt = SYSTEM_PROMPT.lower()
+        for term in ("saturated fat", "sodium", "added sugar"):
+            assert term not in prompt, f"system prompt solicits {term}"
+
+    def test_no_gi_gl_or_fpu_field_is_surfaced(self):
+        # AC5: GI / GL / FPU stay out of scope -- a block fed those keys surfaces
+        # only the four allowed comorbidity fields (here: none), never them.
+        block = build_comorbidity_nutrition(
+            grounding_nutrition={
+                "glycemic_index": 70,
+                "glycemic_load": 25,
+                "fat_protein_units": 2,
+            },
+            source="x",
+            source_url=None,
+            trust_tier=None,
+        )
+        assert block is None
+
+    def test_comorbidity_is_not_a_food_record_dosing_column(self):
+        # The grounded comorbidity values live in their own JSONB column, never a
+        # carb/dose column the therapy math could read.
+        from src.models.food_record import FoodRecord
+
+        cols = set(FoodRecord.__table__.columns.keys())
+        assert "grounding_nutrition_json" in cols
+        for forbidden in ("dose", "insulin", "bolus", "sodium", "saturated"):
+            assert not any(forbidden in c for c in cols), forbidden

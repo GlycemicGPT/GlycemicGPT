@@ -11,6 +11,7 @@ import {
   BadgeCheck,
   CheckCircle2,
   ExternalLink,
+  HeartPulse,
   ImageOff,
   ScanLine,
   Settings as SettingsIcon,
@@ -23,7 +24,12 @@ import {
   isSafeHttpUrl,
   sourceMeta,
 } from "@/lib/meal-format";
-import type { FoodRecord, FoodRecordSource, NutritionFacts } from "@/lib/api";
+import type {
+  ComorbidityNutrition,
+  FoodRecord,
+  FoodRecordSource,
+  NutritionFacts,
+} from "@/lib/api";
 import type { MealErrorInfo } from "@/lib/meal-errors";
 
 /** Provenance badge (AI estimate / corrected / grounded). */
@@ -190,6 +196,97 @@ export function MealNutritionDisclaimer({ disclaimer }: { disclaimer: string }) 
     >
       {disclaimer}
     </p>
+  );
+}
+
+/**
+ * Grounding-backed comorbidity / label nutrition: saturated fat,
+ * sugars/added sugars, and sodium when an authoritative grounded source published
+ * them. GROUNDING-ONLY (never from the photo) and identity-gated, so this only
+ * renders for a grounded record. Framed as blood-pressure / cardiovascular
+ * awareness, never a directive: every figure carries its descriptive note, sugars
+ * carry the "sugar-free isn't carb-free" reminder, the block is attributed to its
+ * source (distinct from the vision estimate), and the never-dose disclaimer closes
+ * it. All copy is rendered verbatim from the server. Read-only -- nothing is a dose.
+ */
+export function MealComorbidityNutrition({
+  record,
+  comorbidity,
+}: {
+  record: FoodRecord;
+  comorbidity: ComorbidityNutrition;
+}) {
+  return (
+    <div
+      data-testid="meal-comorbidity"
+      className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 space-y-4"
+    >
+      <div className="flex items-center gap-2">
+        <HeartPulse className="h-4 w-4 text-rose-500 dark:text-rose-400" />
+        <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
+          Heart &amp; blood-pressure awareness
+        </h2>
+      </div>
+
+      <dl className="space-y-3">
+        {comorbidity.facts.map((fact) => (
+          <div
+            key={fact.key}
+            data-testid="meal-comorbidity-fact"
+            className="space-y-0.5"
+          >
+            <div className="flex items-baseline justify-between gap-3">
+              <dt className="text-sm text-slate-600 dark:text-slate-300">
+                {fact.label}
+              </dt>
+              <dd
+                data-testid="meal-comorbidity-value"
+                className="text-sm font-medium text-slate-900 dark:text-white"
+              >
+                {formatMacroValue(fact.value, fact.unit)}
+              </dd>
+            </div>
+            {fact.note && (
+              <p
+                data-testid="meal-comorbidity-note"
+                className="text-xs text-slate-500 dark:text-slate-400"
+              >
+                {fact.note}
+              </p>
+            )}
+          </div>
+        ))}
+      </dl>
+
+      {comorbidity.sugar_note && (
+        <div
+          role="note"
+          data-testid="meal-comorbidity-sugar-note"
+          className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300"
+        >
+          <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+          <span>{comorbidity.sugar_note}</span>
+        </div>
+      )}
+
+      {/* These figures are published reference data, not the vision estimate, so
+          they carry their own source attribution (the same grounded source the
+          carb range was checked against). */}
+      <GroundedSourceNote
+        record={record}
+        label="From"
+        linkLabel="published data"
+        testId="meal-comorbidity-source"
+        linkTestId="meal-comorbidity-link"
+      />
+
+      <p
+        data-testid="meal-comorbidity-disclaimer"
+        className="text-xs text-slate-400 dark:text-slate-500"
+      >
+        {comorbidity.disclaimer}
+      </p>
+    </div>
   );
 }
 

@@ -55,7 +55,7 @@ from src.database import get_session_maker
 from src.logging_config import get_logger
 from src.models.knowledge_chunk import KnowledgeChunk
 from src.services.meal_rag import SOURCE_TYPE_FATSECRET, SOURCE_TYPE_RESTAURANT_CHAIN
-from src.services.nutrition_sources import NutritionFact
+from src.services.nutrition_sources import NutritionFact, comorbidity_from_meta
 from src.vision.carb_contract import (
     CARB_GRAMS_MAX,
     CARB_GRAMS_MIN,
@@ -322,6 +322,24 @@ async def _fetch_json(
 # --------------------------------------------------------------------------- #
 # Carb + response parsing helpers
 # --------------------------------------------------------------------------- #
+def _coerce_number(value: object) -> float | None:
+    """Coerce a number or numeric string to a float, else None (no bounds applied).
+
+    Shared by the carb and comorbidity parsers so their numeric coercion (reject
+    bool; pull the first signed decimal out of a string) can never drift apart;
+    each caller applies its own reject-not-clamp bound on top.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        match = re.search(r"-?\d+(?:\.\d+)?", value)
+        if match:
+            return float(match.group(0))
+    return None
+
+
 def _valid_item_carbs(value: object) -> float | None:
     """Per-item carbs within the absolute single-meal bounds, or None.
 
@@ -330,15 +348,7 @@ def _valid_item_carbs(value: object) -> float | None:
     rather than cite a wrong "published" number. ``GroundingDetail`` enforces the
     same bound at construction, so an out-of-range value would otherwise raise.
     """
-    if isinstance(value, bool):
-        return None
-    carbs: float | None = None
-    if isinstance(value, (int, float)):
-        carbs = float(value)
-    elif isinstance(value, str):
-        match = re.search(r"-?\d+(?:\.\d+)?", value)
-        if match:
-            carbs = float(match.group(0))
+    carbs = _coerce_number(value)
     if carbs is None or not (CARB_GRAMS_MIN <= carbs <= CARB_GRAMS_MAX):
         return None
     return carbs
@@ -357,6 +367,46 @@ def _carb_from_nutrients(
         if "carbohydrate" in name or name in ("carbs", "total carbs"):
             return _valid_item_carbs(nutrient.get(value_key))
     return None
+
+
+# A per-item meal's sodium (mg) is bounded by an implausible-but-finite ceiling
+# (reject-not-clamp), distinct from the per-item gram bound the macros use.
+_MAX_ITEM_SODIUM_MG = 100_000.0
+
+
+def _comorbidity_from_nutrients(
+    nutrients: object, *, name_key: str, value_key: str
+) -> dict[str, float]:
+    """Scan a [{name, value}, ...] nutrient list for the comorbidity fields.
+
+    Per-item grams are bounded by the absolute single-meal carb range; sodium (mg)
+    by its own ceiling. Added sugars is matched before total sugars so the two are
+    never conflated, and total sugars excludes "sugar alcohol" / polyols (a distinct
+    field that is not a sugar). Returns only the fields the chain actually published.
+    """
+    result: dict[str, float] = {}
+    if not isinstance(nutrients, list):
+        return result
+    for nutrient in nutrients:
+        if not isinstance(nutrient, dict):
+            continue
+        name = str(nutrient.get(name_key) or "").lower()
+        amount = _coerce_number(nutrient.get(value_key))
+        if amount is None:
+            continue
+        if "saturated" in name:
+            if CARB_GRAMS_MIN <= amount <= CARB_GRAMS_MAX:
+                result.setdefault("saturated_fat_grams", amount)
+        elif "added" in name and "sugar" in name:
+            if CARB_GRAMS_MIN <= amount <= CARB_GRAMS_MAX:
+                result.setdefault("added_sugars_grams", amount)
+        elif "sugar" in name and "alcohol" not in name and "polyol" not in name:
+            if CARB_GRAMS_MIN <= amount <= CARB_GRAMS_MAX:
+                result.setdefault("sugars_grams", amount)
+        elif "sodium" in name:
+            if 0.0 <= amount <= _MAX_ITEM_SODIUM_MG:
+                result.setdefault("sodium_mg", amount)
+    return result
 
 
 def _best_item(items: object, *, name_key: str, item_query: str) -> dict | None:
@@ -460,6 +510,9 @@ class _McDonalds(RestaurantChain):
         )
         if carbs is None:
             return None
+        comorbidity = _comorbidity_from_nutrients(
+            item.get("nutrient_facts"), name_key="name", value_key="value"
+        )
         name = (
             str(item.get("item_name") or item_query).strip()[:120] or item_query[:120]
         )
@@ -468,6 +521,7 @@ class _McDonalds(RestaurantChain):
             source_url=self.citation_url,
             name=name,
             carbs=carbs,
+            comorbidity=comorbidity,
         )
 
 
@@ -497,12 +551,16 @@ class _Chipotle(RestaurantChain):
         )
         if carbs is None:
             return None
+        comorbidity = _comorbidity_from_nutrients(
+            item.get("nutrition"), name_key="name", value_key="value"
+        )
         name = str(item.get("itemName") or item_query).strip()[:120] or item_query[:120]
         return _build_fact(
             source_name=self.display_name,
             source_url=self.citation_url,
             name=name,
             carbs=carbs,
+            comorbidity=comorbidity,
         )
 
 
@@ -552,6 +610,7 @@ def _build_fact(
     name: str,
     carbs: float,
     serving: str = _SERVING_PER_ITEM,
+    comorbidity: dict | None = None,
 ) -> NutritionFact | None:
     """Build an AUTHORITATIVE reference fact, or None if the (source-controlled)
     item name carries dosing language.
@@ -562,6 +621,9 @@ def _build_fact(
     entirely rather than surface that text in the citation note returned to the
     client -- the same no-dosing-language boundary the rest of the meal pipeline
     enforces on generated/source text.
+
+    ``comorbidity`` carries the optional comorbidity fields (saturated fat /
+    sugars / added sugars / sodium) the chain published for this item.
     """
     if find_dosing_violations(name):
         logger.warning("Restaurant item name carried dosing language; dropping")
@@ -574,6 +636,7 @@ def _build_fact(
         carbs_grams=carbs,
         serving=serving,
         disclaimer=_RESTAURANT_DISCLAIMER,
+        **(comorbidity or {}),
     )
 
 
@@ -796,6 +859,8 @@ async def _cache_get(
                 carbs_grams=carbs,
                 serving=meta.get("serving") or _SERVING_PER_ITEM,
                 disclaimer=meta.get("disclaimer"),
+                # Per-item basis, so grams are bounded by the absolute carb ceiling.
+                **comorbidity_from_meta(meta, grams_max=CARB_GRAMS_MAX),
             )
     except Exception:
         logger.warning("Restaurant cache lookup failed", source=source_type)
@@ -838,6 +903,8 @@ async def _cache_put(
         "source_name": fact.source_name,
         "source_url": fact.source_url,
         "trust_tier": fact.trust_tier,
+        # Persist any grounded comorbidity values (present keys only).
+        **(fact.comorbidity_dict() or {}),
     }
     stmt = pg_insert(KnowledgeChunk).values(
         user_id=user_id,

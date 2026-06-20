@@ -4218,6 +4218,36 @@ export interface NutritionFacts {
 }
 
 /**
+ * One grounding-backed comorbidity nutrient with awareness framing.
+ * Read-only: `note` explains why the figure matters for blood-pressure /
+ * cardiovascular awareness -- never a dose.
+ */
+export interface ComorbidityFact {
+  key: string;
+  label: string;
+  value: number;
+  unit: string;
+  note: string;
+}
+
+/**
+ * Grounding-backed comorbidity / label nutrition. GROUNDING-ONLY
+ * and identity-gated: populated solely from an authoritative grounded source
+ * (USDA / Open Food Facts / restaurant) after identity confirmation, never from
+ * the photo. Carries its own attribution (distinct from the vision estimate) and a
+ * `disclaimer` carrying the never-dose framing. `sugar_note` (the "sugar-free is
+ * not carb-free" reminder) is present only when a sugars figure is surfaced.
+ */
+export interface ComorbidityNutrition {
+  facts: ComorbidityFact[];
+  sugar_note: string | null;
+  source: string | null;
+  source_url: string | null;
+  trust_tier: string | null;
+  disclaimer: string;
+}
+
+/**
  * A persisted food record. Mirrors `FoodRecordResponse`
  * (apps/api/src/schemas/food_record.py). `carbs_low`/`carbs_high` are the
  * original AI estimate; when corrected, `corrected_carbs_*` carry the user's
@@ -4259,6 +4289,13 @@ export interface FoodRecord {
   grounding_trust_tier: string | null;
   /** Server-computed, glucose-framed nutrition (portion + macros + net carbs). */
   nutrition_facts: NutritionFacts | null;
+  /**
+   * Grounding-backed comorbidity nutrition: the display-ready, awareness-framed,
+   * attributed block (saturated fat / sugars / sodium). Null on a record with no
+   * grounded comorbidity data. (The raw grounded values are an internal server
+   * column and are not part of the response.)
+   */
+  comorbidity_nutrition: ComorbidityNutrition | null;
   created_at: string;
 }
 

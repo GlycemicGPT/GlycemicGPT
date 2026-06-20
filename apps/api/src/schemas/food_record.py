@@ -17,10 +17,13 @@ from src.models.food_record import FoodRecordSource
 from src.vision.carb_contract import (
     CARB_GRAMS_MAX,
     CARB_GRAMS_MIN,
+    COMORBIDITY_NUTRITION_DISCLAIMER,
+    COMORBIDITY_NUTRITION_NOTES,
     MACRO_GLUCOSE_NOTES,
     NET_CARBS_CAVEAT,
     NUTRITION_DOSE_DISCLAIMER,
     SAFETY_QUALIFIER,
+    SUGAR_FREE_NOTE,
 )
 
 if TYPE_CHECKING:
@@ -55,6 +58,30 @@ class GroundingDetail(BaseModel):
     note: str | None = None
     # Source licence / non-medical disclaimer to surface (e.g. Open Food Facts).
     disclaimer: str | None = None
+    # --- Grounding-backed comorbidity nutrition ---
+    # Saturated fat / sugars / added sugars / sodium from the same grounded source,
+    # when published. Only present on a published-fact grounding (USDA / OFF /
+    # restaurant); an own-history recall leaves them None (no label). Persisted via
+    # ``comorbidity_dict()`` into the record's ``grounding_nutrition_json``.
+    saturated_fat_grams: float | None = Field(default=None, ge=0)
+    sugars_grams: float | None = Field(default=None, ge=0)
+    added_sugars_grams: float | None = Field(default=None, ge=0)
+    sodium_mg: float | None = Field(default=None, ge=0)
+
+    def comorbidity_dict(self) -> dict | None:
+        """The grounded comorbidity values as a dict for persistence, or None.
+
+        Only the present (non-None) keys are kept, so a source that publishes no
+        comorbidity data persists nothing rather than a dict of nulls.
+        """
+        values = {
+            "saturated_fat_grams": self.saturated_fat_grams,
+            "sugars_grams": self.sugars_grams,
+            "added_sugars_grams": self.added_sugars_grams,
+            "sodium_mg": self.sodium_mg,
+        }
+        present = {k: v for k, v in values.items() if v is not None}
+        return present or None
 
     @model_validator(mode="after")
     def validate_carb_ordering(self) -> "GroundingDetail":
@@ -254,6 +281,117 @@ def build_nutrition_facts(
     return NutritionFacts(portion=portion_text, macros=macros, net_carbs=net_carbs)
 
 
+# --- Grounding-backed comorbidity / label nutrition ------------ #
+# The comorbidity (blood-pressure / cardiovascular) label fields, in display
+# order, paired with a user label and unit. Unlike the N1 macros (photo-estimated)
+# these are GROUNDING-ONLY: surfaced solely from an authoritative grounded source
+# after identity confirmation. The descriptive awareness framing per field lives in
+# ``carb_contract.COMORBIDITY_NUTRITION_NOTES`` so all the safety-adjacent copy sits
+# in one scrubber-checked place.
+_COMORBIDITY_DISPLAY: dict[str, tuple[str, str]] = {
+    "saturated_fat_grams": ("Saturated fat", "g"),
+    "sugars_grams": ("Sugars", "g"),
+    "added_sugars_grams": ("Added sugars", "g"),
+    "sodium_mg": ("Sodium", "mg"),
+}
+
+# Sane upper bounds so a single off-contract garbage value can't render an absurd
+# card. Reject-not-clamp (like the macro/carb bounds): an over-ceiling value is
+# dropped, never shown. Grams mirror the carb ceiling; sodium (mg) allows a large
+# but finite amount (100 g of sodium per portion is already implausible).
+_COMORBIDITY_MAX: dict[str, float] = {
+    "saturated_fat_grams": CARB_GRAMS_MAX,
+    "sugars_grams": CARB_GRAMS_MAX,
+    "added_sugars_grams": CARB_GRAMS_MAX,
+    "sodium_mg": 100_000.0,
+}
+
+# Whether a surfaced field is a sugars field (drives the "sugar-free is not
+# carb-free" reminder).
+_SUGAR_KEYS = frozenset({"sugars_grams", "added_sugars_grams"})
+
+
+class ComorbidityFact(BaseModel):
+    """One grounding-backed comorbidity nutrient with awareness framing.
+
+    Read-only and descriptive: ``note`` explains why the figure matters for
+    comorbidity (blood-pressure / cardiovascular) awareness, never a clinical
+    limit or a dose. The value never feeds dosing math.
+    """
+
+    key: str
+    label: str
+    value: float = Field(ge=0)
+    unit: str
+    note: str = ""
+
+
+class ComorbidityNutrition(BaseModel):
+    """Grounding-backed comorbidity / label nutrition block.
+
+    GROUNDING-ONLY and identity-gated: populated solely from an authoritative
+    grounded source (USDA / Open Food Facts / restaurant) once the user has
+    confirmed identity -- never asserted from the photo. Framed as blood-pressure /
+    cardiovascular awareness, never a directive. Carries its OWN attribution
+    (``source`` / ``source_url`` / ``trust_tier``), distinct from the vision
+    estimate, and a ``disclaimer`` carrying the never-dose prohibition.
+    """
+
+    facts: list[ComorbidityFact] = Field(default_factory=list)
+    # The "sugar-free is not carb-free" reminder; present only when a sugars
+    # figure is surfaced.
+    sugar_note: str | None = None
+    # Grounding attribution for these figures (the single source they came from).
+    source: str | None = None
+    source_url: str | None = None
+    trust_tier: str | None = None
+    disclaimer: str = COMORBIDITY_NUTRITION_DISCLAIMER
+
+
+def build_comorbidity_nutrition(
+    *,
+    grounding_nutrition: dict | None,
+    source: str | None,
+    source_url: str | None,
+    trust_tier: str | None,
+) -> ComorbidityNutrition | None:
+    """Assemble the grounding-backed comorbidity block.
+
+    Reads ONLY the grounded comorbidity values (never the photo's
+    ``nutrition_json``), so a comorbidity figure can structurally never originate
+    from the vision estimate. Returns ``None`` when there is nothing grounded to
+    show. Everything here is descriptive awareness -- nothing is a dose, and the
+    block is never persisted (only the flat ``grounding_nutrition_json`` is).
+    """
+    grounding_nutrition = grounding_nutrition or {}
+    facts: list[ComorbidityFact] = []
+    for key, (label, unit) in _COMORBIDITY_DISPLAY.items():
+        value = _macro_value(grounding_nutrition.get(key), _COMORBIDITY_MAX.get(key))
+        if value is None:
+            continue
+        facts.append(
+            ComorbidityFact(
+                key=key,
+                label=label,
+                value=value,
+                unit=unit,
+                note=COMORBIDITY_NUTRITION_NOTES.get(key, ""),
+            )
+        )
+
+    if not facts:
+        return None
+
+    sugar_note = SUGAR_FREE_NOTE if any(f.key in _SUGAR_KEYS for f in facts) else None
+    return ComorbidityNutrition(
+        facts=facts,
+        sugar_note=sugar_note,
+        source=source,
+        source_url=source_url,
+        trust_tier=trust_tier,
+    )
+
+
 class FoodRecordResponse(BaseModel):
     """A persisted food record returned to the client.
 
@@ -308,6 +446,14 @@ class FoodRecordResponse(BaseModel):
     grounding_source: str | None = None
     grounding_source_url: str | None = None
     grounding_trust_tier: str | None = None
+    # Grounding-backed comorbidity nutrition. ``grounding_nutrition_json`` is the
+    # raw persisted column (saturated fat / sugars / added sugars / sodium) mapped
+    # off the ORM; it is read internally to build ``comorbidity_nutrition`` -- the
+    # display-ready, awareness-framed, attributed block clients actually consume --
+    # and is itself excluded from the response (an internal column, not a client
+    # field). Both are absent (null) on a record with no grounded comorbidity data.
+    grounding_nutrition_json: dict | None = Field(default=None, exclude=True)
+    comorbidity_nutrition: "ComorbidityNutrition | None" = None
     grounding: GroundingDetail | None = None
     # Multi-sample dispersion (Story 50.H1). Transient create-time detail
     # (empirical confidence + observed spread); absent on later reads.
@@ -357,6 +503,23 @@ class FoodRecordResponse(BaseModel):
             carbs_low=eff_low,
             carbs_high=eff_high,
             portion=self.assumptions,
+        )
+        return self
+
+    @model_validator(mode="after")
+    def build_comorbidity_block(self) -> "FoodRecordResponse":
+        """Compute the grounding-backed comorbidity block.
+
+        Built here -- not stored -- ONLY from the grounded comorbidity values and
+        the record's grounding attribution, so a comorbidity figure can never
+        originate from the photo's ``nutrition_json``. Absent on a record with no
+        grounded comorbidity data.
+        """
+        self.comorbidity_nutrition = build_comorbidity_nutrition(
+            grounding_nutrition=self.grounding_nutrition_json,
+            source=self.grounding_source,
+            source_url=self.grounding_source_url,
+            trust_tier=self.grounding_trust_tier,
         )
         return self
 
