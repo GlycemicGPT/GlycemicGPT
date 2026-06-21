@@ -10,13 +10,23 @@ from pydantic import BaseModel, Field
 
 from src.models.glucose import TrendDirection
 
+CANONICAL_MGDL_NOTE = (
+    "Canonical API value in mg/dL. Clients render with the user's glucose_unit "
+    "preference."
+)
+
 
 class GlucoseReadingResponse(BaseModel):
     """Response schema for a single glucose reading."""
 
     model_config = {"from_attributes": True}
 
-    value: int = Field(..., description="Glucose value in mg/dL", ge=20, le=600)
+    value: int = Field(
+        ...,
+        description=f"Glucose value in mg/dL. {CANONICAL_MGDL_NOTE}",
+        ge=20,
+        le=600,
+    )
     reading_timestamp: datetime = Field(..., description="When the reading was taken")
     trend: TrendDirection = Field(..., description="Trend direction")
     trend_rate: float | None = Field(None, description="Rate of change in mg/dL/min")
@@ -27,7 +37,9 @@ class GlucoseReadingResponse(BaseModel):
 class CurrentGlucoseResponse(BaseModel):
     """Response schema for current glucose status."""
 
-    value: int = Field(..., description="Current glucose value in mg/dL")
+    value: int = Field(
+        ..., description=f"Current glucose value in mg/dL. {CANONICAL_MGDL_NOTE}"
+    )
     trend: TrendDirection = Field(..., description="Current trend direction")
     trend_rate: float | None = Field(None, description="Rate of change in mg/dL/min")
     reading_timestamp: datetime = Field(..., description="When the reading was taken")
@@ -51,8 +63,12 @@ class TimeInRangeResponse(BaseModel):
     in_range_pct: float = Field(..., description="Percentage of readings in range")
     high_pct: float = Field(..., description="Percentage of readings above range")
     readings_count: int = Field(..., description="Total readings analyzed")
-    low_threshold: float = Field(..., description="Low target threshold (mg/dL)")
-    high_threshold: float = Field(..., description="High target threshold (mg/dL)")
+    low_threshold: float = Field(
+        ..., description=f"Low target threshold in mg/dL. {CANONICAL_MGDL_NOTE}"
+    )
+    high_threshold: float = Field(
+        ..., description=f"High target threshold in mg/dL. {CANONICAL_MGDL_NOTE}"
+    )
 
 
 TirLabel = Literal["urgent_low", "low", "in_range", "high", "urgent_high"]
@@ -70,10 +86,16 @@ class TirBucket(BaseModel):
     )
     readings: int = Field(..., ge=0, description="Number of readings in this bucket")
     threshold_low: float | None = Field(
-        None, ge=20, le=500, description="Lower bound in mg/dL (None for urgent_low)"
+        None,
+        ge=20,
+        le=500,
+        description=f"Lower bound in mg/dL, or null for urgent_low. {CANONICAL_MGDL_NOTE}",
     )
     threshold_high: float | None = Field(
-        None, ge=20, le=500, description="Upper bound in mg/dL (None for urgent_high)"
+        None,
+        ge=20,
+        le=500,
+        description=f"Upper bound in mg/dL, or null for urgent_high. {CANONICAL_MGDL_NOTE}",
     )
 
 
@@ -81,12 +103,28 @@ class TirThresholds(BaseModel):
     """Threshold values used for TIR bucket boundaries."""
 
     urgent_low: float = Field(
-        ..., ge=20, le=500, description="Urgent low threshold (mg/dL)"
+        ...,
+        ge=20,
+        le=500,
+        description=f"Urgent low threshold in mg/dL. {CANONICAL_MGDL_NOTE}",
     )
-    low: float = Field(..., ge=20, le=500, description="Low threshold (mg/dL)")
-    high: float = Field(..., ge=20, le=500, description="High threshold (mg/dL)")
+    low: float = Field(
+        ...,
+        ge=20,
+        le=500,
+        description=f"Low threshold in mg/dL. {CANONICAL_MGDL_NOTE}",
+    )
+    high: float = Field(
+        ...,
+        ge=20,
+        le=500,
+        description=f"High threshold in mg/dL. {CANONICAL_MGDL_NOTE}",
+    )
     urgent_high: float = Field(
-        ..., ge=20, le=500, description="Urgent high threshold (mg/dL)"
+        ...,
+        ge=20,
+        le=500,
+        description=f"Urgent high threshold in mg/dL. {CANONICAL_MGDL_NOTE}",
     )
 
 
@@ -114,8 +152,15 @@ class TimeInRangeDetailResponse(BaseModel):
 class GlucoseStatsResponse(BaseModel):
     """Response schema for aggregate glucose statistics (Story 30.1)."""
 
-    mean_glucose: float = Field(..., ge=0, le=500, description="Mean glucose in mg/dL")
-    std_dev: float = Field(..., ge=0, le=500, description="Standard deviation in mg/dL")
+    mean_glucose: float = Field(
+        ..., ge=0, le=500, description=f"Mean glucose in mg/dL. {CANONICAL_MGDL_NOTE}"
+    )
+    std_dev: float = Field(
+        ...,
+        ge=0,
+        le=500,
+        description=f"Standard deviation in mg/dL. {CANONICAL_MGDL_NOTE}",
+    )
     cv_pct: float = Field(..., ge=0, description="Coefficient of variation (%)")
     gmi: float = Field(
         ..., ge=0, description="Glucose Management Indicator (est. A1C %)"
@@ -134,11 +179,36 @@ class AGPBucket(BaseModel):
     """A single hourly AGP bucket with percentile values."""
 
     hour: int = Field(..., description="Hour of day (0-23)", ge=0, le=23)
-    p10: float = Field(..., ge=0, le=500, description="10th percentile glucose (mg/dL)")
-    p25: float = Field(..., ge=0, le=500, description="25th percentile glucose (mg/dL)")
-    p50: float = Field(..., ge=0, le=500, description="Median glucose (mg/dL)")
-    p75: float = Field(..., ge=0, le=500, description="75th percentile glucose (mg/dL)")
-    p90: float = Field(..., ge=0, le=500, description="90th percentile glucose (mg/dL)")
+    p10: float = Field(
+        ...,
+        ge=0,
+        le=500,
+        description=f"10th percentile glucose in mg/dL. {CANONICAL_MGDL_NOTE}",
+    )
+    p25: float = Field(
+        ...,
+        ge=0,
+        le=500,
+        description=f"25th percentile glucose in mg/dL. {CANONICAL_MGDL_NOTE}",
+    )
+    p50: float = Field(
+        ...,
+        ge=0,
+        le=500,
+        description=f"Median glucose in mg/dL. {CANONICAL_MGDL_NOTE}",
+    )
+    p75: float = Field(
+        ...,
+        ge=0,
+        le=500,
+        description=f"75th percentile glucose in mg/dL. {CANONICAL_MGDL_NOTE}",
+    )
+    p90: float = Field(
+        ...,
+        ge=0,
+        le=500,
+        description=f"90th percentile glucose in mg/dL. {CANONICAL_MGDL_NOTE}",
+    )
     count: int = Field(..., ge=0, description="Number of readings in this hour")
 
 

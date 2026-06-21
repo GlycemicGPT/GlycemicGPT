@@ -806,7 +806,7 @@ async def test_apply_preserves_fractional_isf_precision(http_client):
                 )
             ).fetchone()
             cf = pp.segments[0]["correction_factor"]
-            # Float, not int; precision preserved (1.8 mmol/L/U * 18.0182 = 32.43...).
+            # Float, not int; precision preserved (1.8 mmol/L/U * 18.0156 = 32.43...).
             assert isinstance(cf, float)
             assert 32.0 < cf < 33.0
     finally:

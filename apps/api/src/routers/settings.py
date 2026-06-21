@@ -42,6 +42,10 @@ from src.schemas.escalation_config import (
     EscalationConfigResponse,
     EscalationConfigUpdate,
 )
+from src.schemas.glucose_unit import (
+    GlucoseUnitPreferenceResponse,
+    GlucoseUnitPreferenceUpdate,
+)
 from src.schemas.insulin_config import (
     InsulinConfigDefaults,
     InsulinConfigResponse,
@@ -110,6 +114,35 @@ from src.services.target_glucose_range import get_or_create_range, update_range
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
+
+
+@router.get(
+    "/glucose-unit",
+    response_model=GlucoseUnitPreferenceResponse,
+    dependencies=[Depends(require_diabetic_or_admin)],
+)
+async def get_glucose_unit(
+    user: User = Depends(get_current_user),
+) -> GlucoseUnitPreferenceResponse:
+    """Get the current user's glucose display unit preference."""
+    return GlucoseUnitPreferenceResponse(glucose_unit=user.glucose_unit)
+
+
+@router.patch(
+    "/glucose-unit",
+    response_model=GlucoseUnitPreferenceResponse,
+    dependencies=[Depends(require_diabetic_or_admin)],
+)
+async def patch_glucose_unit(
+    body: GlucoseUnitPreferenceUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> GlucoseUnitPreferenceResponse:
+    """Update the current user's glucose display unit preference."""
+    user.glucose_unit = body.glucose_unit
+    await db.commit()
+    await db.refresh(user)
+    return GlucoseUnitPreferenceResponse(glucose_unit=user.glucose_unit)
 
 
 @router.get(

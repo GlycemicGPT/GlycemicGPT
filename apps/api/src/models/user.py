@@ -11,6 +11,7 @@ from sqlalchemy import DateTime, Enum, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from src.core.units import GlucoseUnit
 from src.models.base import Base, TimestampMixin
 
 
@@ -41,6 +42,7 @@ class User(Base, TimestampMixin):
         disclaimer_version: Version of the disclaimer the user acknowledged
             (NULL until first acknowledged). A mismatch with the current
             DISCLAIMER_VERSION re-prompts the user; see src.core.disclaimer.
+        glucose_unit: User's preferred glucose display unit
         last_login_at: Timestamp of last successful login
     """
 
@@ -86,6 +88,17 @@ class User(Base, TimestampMixin):
         String(10),
         nullable=True,
         default=None,
+    )
+    glucose_unit: Mapped[GlucoseUnit] = mapped_column(
+        Enum(
+            GlucoseUnit,
+            name="glucoseunit",
+            create_type=False,
+            values_callable=lambda e: [member.value for member in e],
+        ),
+        nullable=False,
+        default=GlucoseUnit.MGDL,
+        server_default=GlucoseUnit.MGDL.value,
     )
     display_name: Mapped[str | None] = mapped_column(
         String(100),
