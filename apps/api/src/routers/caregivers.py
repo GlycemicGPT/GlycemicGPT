@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.auth import CurrentUser, require_caregiver, require_diabetic
 from src.core.security import hash_password
+from src.core.units import GlucoseUnit
 from src.database import get_db
 from src.logging_config import get_logger
 from src.models.caregiver_link import CaregiverLink
@@ -462,11 +463,17 @@ async def get_caregiver_patient_status(
 
     glucose_data: CaregiverGlucoseData | None = None
     iob_data: CaregiverIoBData | None = None
+    # The PATIENT's display unit (never the caregiver's). Only meaningful when a
+    # glucose value is returned, so it is resolved inside the glucose block and
+    # defaults to mg/dL otherwise.
+    glucose_unit = GlucoseUnit.MGDL
 
     # Glucose data (if permitted)
     if permissions.can_view_glucose:
         from src.services.dexcom_sync import get_latest_glucose_reading
+        from src.services.glucose_unit import resolve_glucose_unit
 
+        glucose_unit = await resolve_glucose_unit(db, patient_id)
         reading = await get_latest_glucose_reading(db, patient_id)
         if reading is not None:
             now = datetime.now(UTC)
@@ -507,6 +514,7 @@ async def get_caregiver_patient_status(
         glucose=glucose_data,
         iob=iob_data,
         permissions=permissions,
+        glucose_unit=glucose_unit,
     )
 
 

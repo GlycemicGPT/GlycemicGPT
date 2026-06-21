@@ -14,7 +14,8 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { X } from "lucide-react";
 import clsx from "clsx";
 import type { AlertEventData } from "@/hooks/use-glucose-stream";
-import { getAlertIcon } from "@/lib/alert-utils";
+import { getAlertIcon, formatAlertSummary } from "@/lib/alert-utils";
+import type { GlucoseUnit } from "@/lib/glucose-units";
 
 const TOAST_CONFIG: Record<
   string,
@@ -59,9 +60,11 @@ const TOAST_CONFIG: Record<
 export interface AlertToastProps {
   alert: AlertEventData;
   onDismiss: (id: string) => void;
+  /** Viewer's glucose display unit (default mgdl). Values stay mg/dL internally. */
+  unit?: GlucoseUnit;
 }
 
-export function AlertToast({ alert, onDismiss }: AlertToastProps) {
+export function AlertToast({ alert, onDismiss, unit = "mgdl" }: AlertToastProps) {
   const config = TOAST_CONFIG[alert.severity] ?? TOAST_CONFIG.info;
   const [isVisible, setIsVisible] = useState(true);
   const Icon = getAlertIcon(alert.alert_type);
@@ -114,7 +117,9 @@ export function AlertToast({ alert, onDismiss }: AlertToastProps) {
           >
             {alert.severity}
           </div>
-          <p className={clsx("text-sm", config.text)}>{alert.message}</p>
+          <p className={clsx("text-sm", config.text)}>
+            {formatAlertSummary(alert, unit)}
+          </p>
         </div>
         <button
           onClick={handleDismiss}

@@ -1,20 +1,25 @@
 /**
- * Wiring tests: the safety-limits and glucose-range forms must convert mmol
- * entries back to INTEGER mg/dL and clamp to the canonical bound before they
- * leave the browser. The conversion math is unit-tested in glucose-units.test;
- * these prove the input forms actually call it on save (so a refactor that
- * dropped the clamp/convert would fail here).
+ * Wiring tests: the safety-limits, glucose-range, and alert-threshold forms must
+ * convert mmol entries back to INTEGER mg/dL and clamp to the canonical bound
+ * before they leave the browser. The conversion math is unit-tested in
+ * glucose-units.test; these prove the input forms actually call it on save (so a
+ * refactor that dropped the clamp/convert would fail here).
  */
 
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import SafetyLimitsPage from "@/app/dashboard/settings/safety-limits/page";
 import GlucoseRangePage from "@/app/dashboard/settings/glucose-range/page";
+import AlertSettingsPage from "@/app/dashboard/settings/alerts/page";
 import {
   getSafetyLimits,
   getSafetyLimitsDefaults,
   updateSafetyLimits,
   getTargetGlucoseRange,
   updateTargetGlucoseRange,
+  getAlertThresholds,
+  updateAlertThresholds,
+  getEscalationConfig,
+  updateEscalationConfig,
 } from "@/lib/api";
 
 jest.mock("@/lib/api");
@@ -39,6 +44,10 @@ const mockGetSafetyDefaults = getSafetyLimitsDefaults as jest.Mock;
 const mockUpdateSafety = updateSafetyLimits as jest.Mock;
 const mockGetRange = getTargetGlucoseRange as jest.Mock;
 const mockUpdateRange = updateTargetGlucoseRange as jest.Mock;
+const mockGetThresholds = getAlertThresholds as jest.Mock;
+const mockUpdateThresholds = updateAlertThresholds as jest.Mock;
+const mockGetEscalation = getEscalationConfig as jest.Mock;
+const mockUpdateEscalation = updateEscalationConfig as jest.Mock;
 
 const SAFETY_DEFAULTS = {
   min_glucose_mgdl: 20,
@@ -92,6 +101,64 @@ describe("safety-limits convert-back + clamp (medical safety)", () => {
     expect(Number.isInteger(payload.min_glucose_mgdl)).toBe(true);
     expect(payload.max_glucose_mgdl).toBeLessThanOrEqual(500);
     expect(payload.min_glucose_mgdl).toBeGreaterThanOrEqual(20);
+  });
+});
+
+describe("alert-thresholds convert-back (integer mg/dL on the wire)", () => {
+  it("converts an mmol urgent-high entry to integer mg/dL on save", async () => {
+    mockGetThresholds.mockResolvedValue({
+      id: "t1",
+      low_warning: 70, // 3.9 mmol
+      urgent_low: 55, // 3.1 mmol
+      high_warning: 180, // 10.0 mmol
+      urgent_high: 250, // 13.9 mmol
+      iob_warning: 3.0,
+      updated_at: "",
+    });
+    mockGetEscalation.mockResolvedValue({
+      reminder_delay_minutes: 5,
+      primary_contact_delay_minutes: 10,
+      all_contacts_delay_minutes: 20,
+    });
+    mockUpdateThresholds.mockResolvedValue({
+      id: "t1",
+      low_warning: 70,
+      urgent_low: 56,
+      high_warning: 180,
+      urgent_high: 252,
+      iob_warning: 3.0,
+      updated_at: "",
+    });
+    mockUpdateEscalation.mockResolvedValue({
+      reminder_delay_minutes: 5,
+      primary_contact_delay_minutes: 10,
+      all_contacts_delay_minutes: 20,
+    });
+
+    render(<AlertSettingsPage />);
+
+    const urgentHigh = await screen.findByLabelText(/Urgent High/i);
+    fireEvent.change(urgentHigh, { target: { value: "14.0" } });
+
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() => expect(mockUpdateThresholds).toHaveBeenCalledTimes(1));
+    const payload = mockUpdateThresholds.mock.calls[0][0];
+    // 14.0 mmol -> 252 mg/dL (round(14 * 18.0156)).
+    expect(payload.urgent_high).toBe(252);
+    // The four glucose thresholds are integers within the 20-500 invariant.
+    for (const k of [
+      "low_warning",
+      "urgent_low",
+      "high_warning",
+      "urgent_high",
+    ]) {
+      expect(Number.isInteger(payload[k])).toBe(true);
+      expect(payload[k]).toBeGreaterThanOrEqual(20);
+      expect(payload[k]).toBeLessThanOrEqual(500);
+    }
+    // IoB stays in insulin units (never glucose-converted).
+    expect(payload.iob_warning).toBe(3.0);
   });
 });
 
