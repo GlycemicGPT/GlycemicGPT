@@ -12,12 +12,14 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import and_, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.units import GlucoseUnit, format_glucose, format_glucose_value
 from src.logging_config import get_logger
 from src.models.alert import Alert, AlertSeverity, AlertType
 from src.models.alert_threshold import AlertThreshold
 from src.models.glucose import GlucoseReading
 from src.services.alert_notifier import notify_user_of_alerts
 from src.services.alert_threshold import get_or_create_thresholds
+from src.services.glucose_unit import resolve_glucose_unit
 from src.services.iob_projection import get_iob_projection, get_user_dia
 
 logger = get_logger(__name__)
@@ -147,6 +149,7 @@ def check_threshold_crossings(
     trajectory: GlucoseTrajectory,
     thresholds: AlertThreshold,
     iob_value: float | None,
+    unit: GlucoseUnit = GlucoseUnit.MGDL,
 ) -> list[AlertCandidate]:
     """Check if glucose trajectory crosses any configured thresholds.
 
@@ -157,12 +160,26 @@ def check_threshold_crossings(
         trajectory: Calculated glucose trajectory.
         thresholds: User's configured alert thresholds.
         iob_value: Current IoB value (for severity escalation).
+        unit: The patient's glucose display unit. The persisted
+            ``Alert.message`` text renders in it (rendered once at persist; the
+            numeric ``current_value``/``predicted_value`` stay canonical mg/dL).
+            All threshold comparisons remain in mg/dL.
 
     Returns:
         List of AlertCandidate objects for threshold crossings found.
     """
     candidates: list[AlertCandidate] = []
     current = trajectory.current_value
+    # Pre-render the message figures in the patient's unit once. ``current_labeled``
+    # carries the unit label for the headline figure; ``current_value`` and the
+    # ``*_disp`` threshold strings are the bare numbers shown inside the
+    # parentheticals. Threshold comparisons below still use the raw mg/dL columns.
+    current_labeled = format_glucose(current, unit)
+    current_value = format_glucose_value(current, unit)
+    urgent_low_disp = format_glucose_value(thresholds.urgent_low, unit)
+    low_warning_disp = format_glucose_value(thresholds.low_warning, unit)
+    urgent_high_disp = format_glucose_value(thresholds.urgent_high, unit)
+    high_warning_disp = format_glucose_value(thresholds.high_warning, unit)
 
     # Check current value against thresholds
     if current <= thresholds.urgent_low:
@@ -177,8 +194,8 @@ def check_threshold_crossings(
                 prediction_minutes=None,
                 iob_value=iob_value,
                 message=(
-                    f"Urgent low glucose: {current:.0f} mg/dL "
-                    f"(threshold: {thresholds.urgent_low:.0f})"
+                    f"Urgent low glucose: {current_labeled} "
+                    f"(threshold: {urgent_low_disp})"
                 ),
                 trend_rate=trajectory.trend_rate,
                 source="current",
@@ -196,8 +213,8 @@ def check_threshold_crossings(
                 prediction_minutes=None,
                 iob_value=iob_value,
                 message=(
-                    f"Low glucose warning: {current:.0f} mg/dL "
-                    f"(threshold: {thresholds.low_warning:.0f})"
+                    f"Low glucose warning: {current_labeled} "
+                    f"(threshold: {low_warning_disp})"
                 ),
                 trend_rate=trajectory.trend_rate,
                 source="current",
@@ -216,8 +233,8 @@ def check_threshold_crossings(
                 prediction_minutes=None,
                 iob_value=iob_value,
                 message=(
-                    f"Urgent high glucose: {current:.0f} mg/dL "
-                    f"(threshold: {thresholds.urgent_high:.0f})"
+                    f"Urgent high glucose: {current_labeled} "
+                    f"(threshold: {urgent_high_disp})"
                 ),
                 trend_rate=trajectory.trend_rate,
                 source="current",
@@ -235,8 +252,8 @@ def check_threshold_crossings(
                 prediction_minutes=None,
                 iob_value=iob_value,
                 message=(
-                    f"High glucose warning: {current:.0f} mg/dL "
-                    f"(threshold: {thresholds.high_warning:.0f})"
+                    f"High glucose warning: {current_labeled} "
+                    f"(threshold: {high_warning_disp})"
                 ),
                 trend_rate=trajectory.trend_rate,
                 source="current",
@@ -263,9 +280,9 @@ def check_threshold_crossings(
                     prediction_minutes=minutes,
                     iob_value=iob_value,
                     message=(
-                        f"Predicted urgent low: {predicted:.0f} mg/dL "
-                        f"in {minutes} min (current: {current:.0f}, "
-                        f"threshold: {thresholds.urgent_low:.0f})"
+                        f"Predicted urgent low: {format_glucose(predicted, unit)} "
+                        f"in {minutes} min "
+                        f"(current: {current_value}, threshold: {urgent_low_disp})"
                     ),
                     trend_rate=trajectory.trend_rate,
                     source="predictive",
@@ -289,9 +306,9 @@ def check_threshold_crossings(
                     prediction_minutes=minutes,
                     iob_value=iob_value,
                     message=(
-                        f"Predicted low glucose: {predicted:.0f} mg/dL "
-                        f"in {minutes} min (current: {current:.0f}, "
-                        f"threshold: {thresholds.low_warning:.0f})"
+                        f"Predicted low glucose: {format_glucose(predicted, unit)} "
+                        f"in {minutes} min "
+                        f"(current: {current_value}, threshold: {low_warning_disp})"
                     ),
                     trend_rate=trajectory.trend_rate,
                     source="predictive",
@@ -315,9 +332,9 @@ def check_threshold_crossings(
                     prediction_minutes=minutes,
                     iob_value=iob_value,
                     message=(
-                        f"Predicted urgent high: {predicted:.0f} mg/dL "
-                        f"in {minutes} min (current: {current:.0f}, "
-                        f"threshold: {thresholds.urgent_high:.0f})"
+                        f"Predicted urgent high: {format_glucose(predicted, unit)} "
+                        f"in {minutes} min "
+                        f"(current: {current_value}, threshold: {urgent_high_disp})"
                     ),
                     trend_rate=trajectory.trend_rate,
                     source="predictive",
@@ -341,9 +358,9 @@ def check_threshold_crossings(
                     prediction_minutes=minutes,
                     iob_value=iob_value,
                     message=(
-                        f"Predicted high glucose: {predicted:.0f} mg/dL "
-                        f"in {minutes} min (current: {current:.0f}, "
-                        f"threshold: {thresholds.high_warning:.0f})"
+                        f"Predicted high glucose: {format_glucose(predicted, unit)} "
+                        f"in {minutes} min "
+                        f"(current: {current_value}, threshold: {high_warning_disp})"
                     ),
                     trend_rate=trajectory.trend_rate,
                     source="predictive",
@@ -589,6 +606,11 @@ async def evaluate_alerts_for_user(
     # Get user's thresholds
     thresholds = await get_or_create_thresholds(user_id, db)
 
+    # Resolve the patient's display unit once. Alert.message is rendered in it
+    # at persist time (historical alerts are not backfilled on a unit change);
+    # the numeric current/predicted columns stay canonical mg/dL.
+    unit = await resolve_glucose_unit(db, user_id)
+
     # Get IoB projection
     iob_value = None
     try:
@@ -604,7 +626,7 @@ async def evaluate_alerts_for_user(
         )
 
     # Check threshold crossings
-    candidates = check_threshold_crossings(trajectory, thresholds, iob_value)
+    candidates = check_threshold_crossings(trajectory, thresholds, iob_value, unit)
 
     # Check IoB threshold
     if iob_value is not None:
@@ -638,7 +660,7 @@ async def evaluate_alerts_for_user(
 
         # Story 7.2: Immediate Telegram delivery
         try:
-            await notify_user_of_alerts(db, user_id, new_alerts)
+            await notify_user_of_alerts(db, user_id, new_alerts, unit)
         except Exception as e:
             logger.warning(
                 "Telegram alert delivery failed",

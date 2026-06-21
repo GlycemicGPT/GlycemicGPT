@@ -9,12 +9,14 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from src.config import settings
+from src.core.units import GlucoseUnit
 from src.main import app
 from src.models.ai_provider import AIProviderType
 from src.schemas.ai_response import AIResponse, AIUsage
 from src.schemas.correction_analysis import TimePeriodData
 from src.services.correction_analysis import (
     _build_correction_prompt,
+    _build_system_prompt,
     _classify_time_period,
     analyze_correction_outcomes,
 )
@@ -147,6 +149,82 @@ class TestBuildCorrectionPrompt:
 
         assert "Overnight" in prompt
         assert "Effective correction rate" not in prompt
+
+    def _periods(self) -> list[TimePeriodData]:
+        return [
+            TimePeriodData(
+                period="morning",
+                correction_count=5,
+                under_count=3,
+                over_count=0,
+                avg_observed_isf=40.0,
+                avg_glucose_drop=80.0,
+            ),
+        ]
+
+    def test_prompt_mgdl_unchanged_from_legacy(self):
+        """mg/dL output is byte-identical to the pre-unit format (default unit)."""
+        prompt = _build_correction_prompt(self._periods(), 5, 7, unit=GlucoseUnit.MGDL)
+
+        assert "glucose stayed >120 mg/dL" in prompt
+        assert "glucose dropped <70 mg/dL" in prompt
+        assert "Average observed ISF: 40.0 mg/dL per unit" in prompt
+        assert "Average glucose drop: 80 mg/dL" in prompt
+
+    def test_prompt_renders_mmol_unit(self):
+        """Anchors (120->6.7, 70->3.9), the ISF rate, and the drop convert;
+        the ISF rate converts as a rate (40 mg/dL/U -> 2.2 mmol/L/U)."""
+        prompt = _build_correction_prompt(self._periods(), 5, 7, unit=GlucoseUnit.MMOL)
+
+        assert "glucose stayed >6.7 mmol/L" in prompt
+        assert "glucose dropped <3.9 mmol/L" in prompt
+        assert "Average observed ISF: 2.2 mmol/L per unit" in prompt
+        assert "Average glucose drop: 4.4 mmol/L" in prompt
+        assert "mg/dL" not in prompt
+
+    def test_mmol_prompt_keeps_cf_and_observed_isf_same_scale(self):
+        """The configured correction factor and the observed ISF the prompt asks
+        the model to compare must be on the same scale for an mmol/L user (both
+        mmol/L per unit), not a mg/dL CF against a mmol observed ISF."""
+        from src.services.diabetes_context import ProfileSegment, PumpProfileSummary
+
+        summary = PumpProfileSummary(
+            profile_name="Default",
+            segments=[
+                ProfileSegment(
+                    time="00:00",
+                    start_minutes=0,
+                    basal_rate=0.5,
+                    correction_factor=50,
+                    carb_ratio=8,
+                    target_bg=120,
+                ),
+            ],
+        )
+        prompt = _build_correction_prompt(
+            self._periods(), 5, 7, summary, GlucoseUnit.MMOL
+        )
+        assert "CF 1:2.8" in prompt  # configured CF on the mmol scale
+        assert "2.2 mmol/L per unit" in prompt  # observed ISF on the same scale
+        assert "CF 1:50" not in prompt
+
+    def test_system_prompt_states_user_unit(self):
+        """Each system prompt names the report unit and the ISF rate unit."""
+        mgdl = _build_system_prompt(GlucoseUnit.MGDL)
+        assert "mg/dL drop per unit of insulin" in mgdl
+        assert "Report all glucose values in mg/dL" in mgdl
+        assert "dropped below 70 mg/dL" in mgdl
+
+        # The ISF example renders on the user's scale so observed ISF and the
+        # configured correction factor stay same-unit (1:50 mg/dL -> 1:2.8 mmol).
+        assert "currently 1:50" in mgdl
+
+        mmol = _build_system_prompt(GlucoseUnit.MMOL)
+        assert "mmol/L drop per unit of insulin" in mmol
+        assert "Report all glucose values in mmol/L" in mmol
+        assert "dropped below 3.9 mmol/L" in mmol
+        assert "currently 1:2.8" in mmol
+        assert "currently 1:50" not in mmol
 
 
 class TestAnalyzeCorrectionOutcomes:
@@ -512,7 +590,7 @@ class TestGenerateCorrectionAnalysis:
         mock_client.generate.return_value = _mock_ai_response()
         mock_get_client.return_value = mock_client
 
-        mock_user = SimpleNamespace(id=uuid.uuid4())
+        mock_user = SimpleNamespace(id=uuid.uuid4(), glucose_unit=GlucoseUnit.MGDL)
         mock_db = AsyncMock()
 
         analysis = await generate_correction_analysis(mock_user, mock_db, days=7)
@@ -573,7 +651,7 @@ class TestGenerateCorrectionAnalysis:
             ),
         ]
 
-        mock_user = SimpleNamespace(id=uuid.uuid4())
+        mock_user = SimpleNamespace(id=uuid.uuid4(), glucose_unit=GlucoseUnit.MGDL)
         mock_db = AsyncMock()
 
         with pytest.raises(HTTPException) as exc_info:
@@ -631,7 +709,7 @@ class TestGenerateCorrectionAnalysis:
         mock_client.generate.side_effect = RuntimeError("AI failed")
         mock_get_client.return_value = mock_client
 
-        mock_user = SimpleNamespace(id=uuid.uuid4())
+        mock_user = SimpleNamespace(id=uuid.uuid4(), glucose_unit=GlucoseUnit.MGDL)
         mock_db = AsyncMock()
 
         with pytest.raises(RuntimeError, match="AI failed"):

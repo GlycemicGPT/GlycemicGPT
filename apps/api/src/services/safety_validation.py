@@ -44,35 +44,55 @@ DANGEROUS_PATTERNS = [
     r"(?i)\b(?:take|bolus|inject|give)\s+\d+\s*(?:units?|u)\b",
 ]
 
+# Glucose-unit suffix shared by the ISF patterns and the carb-ratio lookahead.
+# Both units must be accepted: when a mmol/L user's assistant is told to report
+# in mmol/L, an ISF suggestion arrives suffixed "mmol/L" instead of "mg/dL", and
+# the ±20% over-change flag must still fire (and ISF must still be distinguished
+# from a unitless carb ratio). Longer alternatives lead so "mg/dL" wins over a
+# bare "mg" and "mmol/L" over a bare "mmol".
+_GLUCOSE_UNIT_SUFFIX = r"mg/dL|mg|mmol/L|mmol"
+
+
+def _canonical_glucose_suffix(matched: str) -> str:
+    """Normalize a matched glucose-unit suffix to its canonical display label."""
+    return "mmol/L" if matched.lower().startswith("mmol") else "mg/dL"
+
+
 # Pattern to extract carb ratio suggestions like "1:8 to 1:7" or "from 1:10 to 1:8"
-# Negative lookahead excludes matches followed by mg/dL (those are ISF values)
-# (?!\d) prevents backtracking from consuming fewer digits to bypass the lookahead
+# Negative lookahead excludes matches followed by a glucose unit (mg/dL or
+# mmol/L) -- those are ISF values, not carb ratios.
+# (?!\d) prevents backtracking from consuming fewer digits to bypass the lookahead;
+# (?!\.\d) additionally stops it from truncating a *decimal* ISF (e.g. "1:2.8 to
+# 1:2.5 mmol/L") down to its integer part ("1:2") and mis-flagging it as a carb
+# ratio -- mmol/L correction factors are routinely decimals.
 CARB_RATIO_PATTERN = re.compile(
     r"(?:from\s+)?1\s*:\s*(\d+(?:\.\d+)?)\s+"
     r"(?:to|→|->)\s+"
     r"1\s*:\s*(\d+(?:\.\d+)?)"
-    r"(?!\d|\s*(?:mg/dL|mg\b))",
+    rf"(?!\d|\.\d|\s*(?:{_GLUCOSE_UNIT_SUFFIX})\b)",
     re.IGNORECASE,
 )
 
-# Pattern to extract ISF suggestions with 1:X notation requiring mg/dL suffix
-# e.g., "from 1:50 to 1:45 mg/dL" — the mg/dL suffix distinguishes ISF from carb ratios
+# Pattern to extract ISF suggestions with 1:X notation requiring a glucose-unit
+# suffix, e.g. "from 1:50 to 1:45 mg/dL" or "from 1:2.8 to 1:2.5 mmol/L" -- the
+# suffix distinguishes ISF from carb ratios. Group 3 captures the matched unit.
 ISF_PATTERN = re.compile(
     r"(?:from\s+)?1\s*:\s*(\d+(?:\.\d+)?)\s+"
     r"(?:to|→|->)\s+"
     r"(?:1\s*:\s*)?(\d+(?:\.\d+)?)"
-    r"\s*(?:mg/dL|mg)",
+    rf"\s*({_GLUCOSE_UNIT_SUFFIX})\b",
     re.IGNORECASE,
 )
 
 # ISF pattern with context keywords (does not require 1: prefix)
-# e.g., "correction factor from 50 to 45 mg/dL" or "ISF should be 50 to 45 mg/dL"
+# e.g., "correction factor from 50 to 45 mg/dL" or "ISF should be 2.8 to 2.5 mmol/L"
+# Group 3 captures the matched unit.
 ISF_CONTEXT_PATTERN = re.compile(
     r"(?:ISF|correction\s+factor|sensitivity\s+factor|CF)"
     r".*?(?:from\s+)?(\d+(?:\.\d+)?)\s+"
     r"(?:to|→|->)\s+"
     r"(\d+(?:\.\d+)?)"
-    r"\s*(?:mg/dL|mg)",
+    rf"\s*({_GLUCOSE_UNIT_SUFFIX})\b",
     re.IGNORECASE,
 )
 
@@ -153,6 +173,10 @@ def _extract_isf_changes(text: str) -> list[FlaggedSuggestion]:
         for match in pattern.finditer(text):
             original = float(match.group(1))
             suggested = float(match.group(2))
+            # The reason echoes the unit the model actually used, derived from
+            # the matched suffix -- not the configured display unit -- so the
+            # text the user reads stays consistent with what was flagged.
+            unit_label = _canonical_glucose_suffix(match.group(3))
 
             if original == 0:
                 continue
@@ -175,7 +199,7 @@ def _extract_isf_changes(text: str) -> list[FlaggedSuggestion]:
                         max_allowed_pct=MAX_CHANGE_PCT,
                         reason=(
                             f"Correction factor change of {change_pct:.0f}% "
-                            f"({original} to {suggested} mg/dL) exceeds "
+                            f"({original} to {suggested} {unit_label}) exceeds "
                             f"maximum allowed change of {MAX_CHANGE_PCT:.0f}%"
                         ),
                     )
