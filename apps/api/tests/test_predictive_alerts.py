@@ -8,6 +8,7 @@ import pytest
 from httpx import AsyncClient
 
 from src.config import settings
+from src.core.units import GlucoseUnit
 from src.models.alert import AlertSeverity, AlertType
 from src.services.predictive_alerts import (
     calculate_trajectory,
@@ -174,6 +175,39 @@ class TestCheckThresholdCrossings:
         candidates = check_threshold_crossings(trajectory, thresholds, None)
         assert len(candidates) == 1
         assert candidates[0].alert_type == AlertType.LOW_URGENT
+
+    def test_message_mgdl_unchanged_from_legacy(self):
+        """The persisted message is byte-identical for mg/dL (default)."""
+        trajectory = calculate_trajectory(50.0, 0.0)
+        thresholds = self._make_thresholds()
+        candidates = check_threshold_crossings(trajectory, thresholds, None)
+        assert candidates[0].message == "Urgent low glucose: 50 mg/dL (threshold: 55)"
+
+    def test_message_renders_mmol(self):
+        """The persisted message renders in the patient's unit
+        (50->2.8, threshold 55->3.1) when the unit is mmol/L."""
+        trajectory = calculate_trajectory(50.0, 0.0)
+        thresholds = self._make_thresholds()
+        candidates = check_threshold_crossings(
+            trajectory, thresholds, None, GlucoseUnit.MMOL
+        )
+        assert candidates[0].message == (
+            "Urgent low glucose: 2.8 mmol/L (threshold: 3.1)"
+        )
+
+    def test_predicted_message_renders_mmol(self):
+        """Predicted messages convert the predicted, current, and
+        threshold figures to the patient's unit."""
+        # Falling fast: current 90 -> predicted low within the horizon.
+        trajectory = calculate_trajectory(90.0, -2.0)
+        thresholds = self._make_thresholds()
+        candidates = check_threshold_crossings(
+            trajectory, thresholds, None, GlucoseUnit.MMOL
+        )
+        predicted = [c for c in candidates if c.source == "predictive"]
+        assert predicted
+        assert "mmol/L" in predicted[0].message
+        assert "mg/dL" not in predicted[0].message
 
     def test_current_high_warning(self):
         """Current glucose at high_warning should trigger HIGH_WARNING."""
@@ -348,6 +382,11 @@ class TestEvaluateAlertsForUser:
                 "src.services.predictive_alerts.get_user_dia",
                 new_callable=AsyncMock,
                 return_value=4.0,
+            ),
+            patch(
+                "src.services.predictive_alerts.resolve_glucose_unit",
+                new_callable=AsyncMock,
+                return_value=GlucoseUnit.MGDL,
             ),
         ):
             result = await evaluate_alerts_for_user(mock_db, user_id)

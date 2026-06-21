@@ -9,12 +9,14 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from src.config import settings
+from src.core.units import GlucoseUnit
 from src.main import app
 from src.models.ai_provider import AIProviderType
 from src.schemas.ai_response import AIResponse, AIUsage
 from src.schemas.meal_analysis import MealPeriodData
 from src.services.meal_analysis import (
     _build_meal_prompt,
+    _build_system_prompt,
     _classify_meal_period,
     analyze_post_meal_patterns,
 )
@@ -126,6 +128,45 @@ class TestBuildMealPrompt:
         assert "195" in prompt
         assert "160" in prompt
         assert "Spike rate: 60%" in prompt  # 3/5
+
+    def _periods(self) -> list[MealPeriodData]:
+        return [
+            MealPeriodData(
+                period="breakfast",
+                bolus_count=5,
+                spike_count=3,
+                avg_peak_glucose=195.0,
+                avg_2hr_glucose=140.0,
+            ),
+        ]
+
+    def test_prompt_mgdl_unchanged_from_legacy(self):
+        """mg/dL output is byte-identical to the pre-unit format (default unit)."""
+        prompt = _build_meal_prompt(self._periods(), 5, 7, unit=GlucoseUnit.MGDL)
+
+        assert "Post-meal spikes (>180 mg/dL): 3" in prompt
+        assert "Average peak glucose: 195 mg/dL" in prompt
+        assert "Average 2hr post-meal glucose: 140 mg/dL" in prompt
+
+    def test_prompt_renders_mmol_unit(self):
+        """Spike threshold (180->10.0), peak (195->10.8) and 2hr (140->7.8)
+        convert; mg/dL never leaks."""
+        prompt = _build_meal_prompt(self._periods(), 5, 7, unit=GlucoseUnit.MMOL)
+
+        assert "Post-meal spikes (>10.0 mmol/L): 3" in prompt
+        assert "Average peak glucose: 10.8 mmol/L" in prompt
+        assert "Average 2hr post-meal glucose: 7.8 mmol/L" in prompt
+        assert "mg/dL" not in prompt
+
+    def test_system_prompt_states_user_unit(self):
+        """Each system prompt names its report unit and spike threshold."""
+        mgdl = _build_system_prompt(GlucoseUnit.MGDL)
+        assert "(>180 mg/dL within 2 hours)" in mgdl
+        assert "Report all glucose values in mg/dL" in mgdl
+
+        mmol = _build_system_prompt(GlucoseUnit.MMOL)
+        assert "(>10.0 mmol/L within 2 hours)" in mmol
+        assert "Report all glucose values in mmol/L" in mmol
 
     def test_prompt_with_zero_bolus_period(self):
         """Test that zero-bolus periods don't produce spike rate."""
@@ -375,7 +416,7 @@ class TestGenerateMealAnalysis:
         mock_client.generate.return_value = _mock_ai_response()
         mock_get_client.return_value = mock_client
 
-        mock_user = SimpleNamespace(id=uuid.uuid4())
+        mock_user = SimpleNamespace(id=uuid.uuid4(), glucose_unit=GlucoseUnit.MGDL)
         mock_db = AsyncMock()
 
         analysis = await generate_meal_analysis(mock_user, mock_db, days=7)
@@ -429,7 +470,7 @@ class TestGenerateMealAnalysis:
             ),
         ]
 
-        mock_user = SimpleNamespace(id=uuid.uuid4())
+        mock_user = SimpleNamespace(id=uuid.uuid4(), glucose_unit=GlucoseUnit.MGDL)
         mock_db = AsyncMock()
 
         with pytest.raises(HTTPException) as exc_info:
@@ -481,7 +522,7 @@ class TestGenerateMealAnalysis:
         mock_client.generate.side_effect = RuntimeError("AI failed")
         mock_get_client.return_value = mock_client
 
-        mock_user = SimpleNamespace(id=uuid.uuid4())
+        mock_user = SimpleNamespace(id=uuid.uuid4(), glucose_unit=GlucoseUnit.MGDL)
         mock_db = AsyncMock()
 
         with pytest.raises(RuntimeError, match="AI failed"):

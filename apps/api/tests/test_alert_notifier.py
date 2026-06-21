@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from src.core.units import GlucoseUnit
 from src.models.alert import Alert, AlertSeverity, AlertType
 from src.services.alert_notifier import (
     SEVERITY_EMOJI,
@@ -183,6 +184,15 @@ class TestFormatAlertMessage:
             emoji = SEVERITY_EMOJI[severity]
             assert emoji in msg
 
+    def test_renders_mmol_unit(self):
+        """Current (55->3.1) and predicted (45->2.5) render in the patient's
+        unit; mg/dL never appears."""
+        alert = make_alert(current_value=55.0, predicted_value=45.0)
+        msg = format_alert_message(alert, GlucoseUnit.MMOL)
+        assert "3.1 mmol/L" in msg
+        assert "2.5 mmol/L" in msg
+        assert "mg/dL" not in msg
+
 
 # ---------------------------------------------------------------------------
 # Format escalation contact message tests (pure function)
@@ -205,6 +215,16 @@ class TestFormatEscalationContactMessage:
         msg = format_escalation_contact_message(alert, "u@t.com", "Tier")
         assert "180 mg/dL" in msg
         assert "rising" in msg
+
+    def test_contact_sees_patient_unit(self):
+        """The contact reads the patient's glucose in the PATIENT's unit
+        (180 -> 10.0 mmol/L), never the contact's own."""
+        alert = make_alert(current_value=180.0, trend_rate=2.0)
+        msg = format_escalation_contact_message(
+            alert, "u@t.com", "Tier", GlucoseUnit.MMOL
+        )
+        assert "10.0 mmol/L" in msg
+        assert "mg/dL" not in msg
 
 
 # ---------------------------------------------------------------------------

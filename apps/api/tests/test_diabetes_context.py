@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from src.config import settings
+from src.core.units import GlucoseUnit
 from src.services.diabetes_context import (
     MEAL_CONTEXT_HOURS,
     MEAL_DESCRIPTION_MAX_LEN,
@@ -202,6 +203,22 @@ class TestFormatPumpProfileForPrompt:
         assert "Max bolus: 15.0u" in result
         assert "High 200 mg/dL" in result
         assert "Low 55 mg/dL" in result
+
+    def test_renders_mmol_unit(self):
+        """Target BG (120->6.7, 100->5.6), CGM alert thresholds
+        (200->11.1, 55->3.1), and the correction factor (a glucose drop per
+        unit: 1:50->1:2.8) convert; the carb ratio (grams per unit) stays 1:8."""
+        summary = _make_summary()
+        result = format_pump_profile_for_prompt(summary, GlucoseUnit.MMOL)
+
+        assert "Target 6.7 mmol/L" in result
+        assert "Target 5.6 mmol/L" in result
+        assert "High 11.1 mmol/L" in result
+        assert "Low 3.1 mmol/L" in result
+        assert "CF 1:2.8" in result  # 50 mg/dL per unit -> 2.8 mmol/L per unit
+        assert "CF 1:50" not in result  # must not leave the mg/dL-scaled value
+        assert "CR 1:8" in result  # carb ratio is grams per unit, unchanged
+        assert "mg/dL" not in result
 
     def test_no_extras_when_none(self):
         summary = _make_summary(

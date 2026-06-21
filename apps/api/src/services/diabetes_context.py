@@ -11,12 +11,20 @@ correction analysis, and chat all share the same context pipeline.
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
+from src.core.units import (
+    GlucoseUnit,
+    format_correction_factor_value,
+    format_glucose,
+    format_glucose_range,
+    format_glucose_value,
+)
 from src.logging_config import get_logger
 from src.services.alert_notifier import trend_description
 from src.services.iob_projection import get_iob_projection, get_user_dia
@@ -97,8 +105,13 @@ class PumpProfileSummary:
 async def build_glucose_section(
     db: AsyncSession,
     user_id: uuid.UUID,
+    unit: GlucoseUnit = GlucoseUnit.MGDL,
 ) -> str | None:
-    """Build glucose summary section from recent CGM readings."""
+    """Build glucose summary section from recent CGM readings.
+
+    Glucose numbers render in ``unit``; the time-in-range membership test stays
+    in canonical mg/dL and only the displayed range bounds convert.
+    """
     from src.models.glucose import GlucoseReading
     from src.models.target_glucose_range import TargetGlucoseRange
     from src.services.cgm_source import (
@@ -150,9 +163,12 @@ async def build_glucose_section(
 
     lines = [
         f"[Glucose - last {GLUCOSE_CONTEXT_HOURS}h]",
-        f"- Current: {latest.value} mg/dL ({trend})",
-        f"- Range: {min_val}-{max_val} mg/dL, Avg: {avg_val:.0f} mg/dL",
-        f"- Time in range ({low:.0f}-{high:.0f}): {tir_pct:.0f}%",
+        f"- Current: {format_glucose(latest.value, unit)} ({trend})",
+        f"- Range: {format_glucose_range(min_val, max_val, unit)}, "
+        f"Avg: {format_glucose(avg_val, unit)}",
+        f"- Time in range "
+        f"({format_glucose_value(low, unit)}-{format_glucose_value(high, unit)}): "
+        f"{tir_pct:.0f}%",
         f"- Readings: {len(readings)}",
     ]
     return "\n".join(lines)
@@ -614,8 +630,13 @@ async def build_control_iq_section(
 async def build_settings_section(
     db: AsyncSession,
     user_id: uuid.UUID,
+    unit: GlucoseUnit = GlucoseUnit.MGDL,
 ) -> str | None:
-    """Build user settings section (target range, insulin config)."""
+    """Build user settings section (target range, insulin config).
+
+    The glucose target range renders in ``unit``; insulin config (DIA, onset)
+    is unit-agnostic and unchanged.
+    """
     from src.models.insulin_config import InsulinConfig
     from src.models.target_glucose_range import TargetGlucoseRange
 
@@ -627,7 +648,10 @@ async def build_settings_section(
     target_range = range_result.scalar_one_or_none()
     if target_range:
         parts.append(
-            f"- Target range: {target_range.low_target:.0f}-{target_range.high_target:.0f} mg/dL"
+            "- Target range: "
+            + format_glucose_range(
+                target_range.low_target, target_range.high_target, unit
+            )
         )
 
     config_result = await db.execute(
@@ -649,6 +673,7 @@ async def build_settings_section(
 async def build_pump_profile_section(
     db: AsyncSession,
     user_id: uuid.UUID,
+    unit: GlucoseUnit = GlucoseUnit.MGDL,
 ) -> str | None:
     """Build pump profile section from the active Tandem pump profile.
 
@@ -658,7 +683,7 @@ async def build_pump_profile_section(
     summary = await get_pump_profile_summary(db, user_id)
     if not summary:
         return None
-    return format_pump_profile_for_prompt(summary)
+    return format_pump_profile_for_prompt(summary, unit)
 
 
 # ── Composite context builder ──
@@ -695,6 +720,7 @@ async def build_diabetes_context(
     db: AsyncSession,
     user_id: uuid.UUID,
     query: str | None = None,
+    unit: GlucoseUnit = GlucoseUnit.MGDL,
 ) -> str:
     """Build comprehensive diabetes context from all available data.
 
@@ -707,30 +733,35 @@ async def build_diabetes_context(
         db: Database session.
         user_id: User's UUID.
         query: Optional user question for knowledge retrieval.
+        unit: The data owner's glucose display unit. Glucose-rendering sections
+            convert to it; all stored values and metric math stay mg/dL.
 
     Returns:
         A formatted string describing all available diabetes data,
         or a fallback message if no data is available.
     """
+    # Each builder is bound to its arguments here so the dispatch loop stays
+    # uniform while only the glucose-rendering sections receive the user's unit
+    # (IoB, pump activity, Control-IQ and meals carry no glucose values).
     builders: list[tuple[str, object]] = [
-        ("glucose", build_glucose_section),
-        ("iob", build_iob_section),
-        ("pump", build_pump_section),
-        ("control_iq", build_control_iq_section),
-        ("settings", build_settings_section),
-        ("pump_profile", build_pump_profile_section),
+        ("glucose", partial(build_glucose_section, db, user_id, unit)),
+        ("iob", partial(build_iob_section, db, user_id)),
+        ("pump", partial(build_pump_section, db, user_id)),
+        ("control_iq", partial(build_control_iq_section, db, user_id)),
+        ("settings", partial(build_settings_section, db, user_id, unit)),
+        ("pump_profile", partial(build_pump_profile_section, db, user_id, unit)),
     ]
 
     # Logged meals are only surfaced when the meal-intelligence feature is on
     # Gated here -- not inside the builder -- so the feature stays
     # fully invisible (no query, no section) while the flag is off.
     if settings.meal_intelligence_enabled:
-        builders.append(("meals", build_meals_section))
+        builders.append(("meals", partial(build_meals_section, db, user_id)))
 
     sections: list[str] = []
     for name, builder in builders:
         try:
-            section = await builder(db, user_id)
+            section = await builder()
             if section:
                 sections.append(section)
         except Exception:
@@ -824,21 +855,31 @@ def _sanitize_for_prompt(value: str) -> str:
     return value.replace("\n", " ").replace("\r", " ").strip()
 
 
-def format_pump_profile_for_prompt(summary: PumpProfileSummary) -> str:
+def format_pump_profile_for_prompt(
+    summary: PumpProfileSummary,
+    unit: GlucoseUnit = GlucoseUnit.MGDL,
+) -> str:
     """Format a pump profile summary as a text block for AI prompts.
 
     Includes all segments with basal rates, correction factors, carb ratios,
     and target BG values. Also includes insulin duration, max bolus, and
     CGM alert thresholds.
+
+    Glucose-valued fields render in ``unit``: the segment target BG, the CGM
+    high/low alert thresholds, and the correction factor (``CF 1:X`` -- a glucose
+    drop per insulin unit, the same quantity as the observed ISF, so it stays on
+    the same scale the analysis prompt compares it against). The carb ratio
+    (``CR 1:X``) is grams per unit, not a glucose quantity, and never converts.
     """
     safe_name = _sanitize_for_prompt(summary.profile_name)
     lines = [f'[Pump Profile - "{safe_name}" (active)]']
     for seg in summary.segments:
         safe_time = _sanitize_for_prompt(seg.time)
+        cf = format_correction_factor_value(seg.correction_factor, unit)
         lines.append(
             f"- {safe_time}: Basal {seg.basal_rate:.3f} u/hr, "
-            f"CF 1:{seg.correction_factor}, CR 1:{seg.carb_ratio:g}, "
-            f"Target {seg.target_bg}"
+            f"CF 1:{cf}, CR 1:{seg.carb_ratio:g}, "
+            f"Target {format_glucose(seg.target_bg, unit)}"
         )
 
     extras = []
@@ -854,9 +895,9 @@ def format_pump_profile_for_prompt(summary: PumpProfileSummary) -> str:
 
     alert_parts = []
     if summary.cgm_high_alert_mgdl is not None:
-        alert_parts.append(f"High {summary.cgm_high_alert_mgdl} mg/dL")
+        alert_parts.append(f"High {format_glucose(summary.cgm_high_alert_mgdl, unit)}")
     if summary.cgm_low_alert_mgdl is not None:
-        alert_parts.append(f"Low {summary.cgm_low_alert_mgdl} mg/dL")
+        alert_parts.append(f"Low {format_glucose(summary.cgm_low_alert_mgdl, unit)}")
     if alert_parts:
         lines.append(f"- CGM alerts: {', '.join(alert_parts)}")
 
