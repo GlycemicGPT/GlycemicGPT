@@ -4,7 +4,10 @@
  * Story 1.3: First-Run Safety Disclaimer
  * Story 15.1: Authentication API functions
  * Story 15.4: Global 401 handling via apiFetch wrapper
+ * Glucose unit preference on the current user + update endpoint
  */
+
+import type { GlucoseUnit } from "./glucose-units";
 
 /**
  * Resolve the API base URL.
@@ -1210,6 +1213,13 @@ export interface CurrentUserResponse {
   // an older disclaimer version, so the gate re-prompts on a version bump.
   disclaimer_acknowledged: boolean;
   disclaimer_version: string | null;
+  /**
+   * Preferred glucose display unit. Read from /api/auth/me.
+   * Optional so a transient deploy skew (web bundle hitting an older API that
+   * predates the glucose-unit backend) is type-safe; callers default to "mgdl" (see
+   * `useGlucoseUnit`) so existing mg/dL behavior is preserved.
+   */
+  glucose_unit?: GlucoseUnit;
   created_at: string;
 }
 
@@ -1259,6 +1269,32 @@ export async function updateProfile(data: {
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
     throw new Error(error.detail || `Failed to update profile: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Update the current user's glucose display unit preference.
+ *
+ * Persists via the dedicated PATCH /api/settings/glucose-unit endpoint
+ * (the backend field owner). Web-only: no profile-payload change. Callers
+ * refresh the user context afterward so dashboard display switches units.
+ */
+export async function updateGlucoseUnit(
+  glucose_unit: GlucoseUnit
+): Promise<{ glucose_unit: GlucoseUnit }> {
+  const response = await apiFetch(`${API_BASE_URL}/api/settings/glucose-unit`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ glucose_unit }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to update glucose unit: ${response.status}`
+    );
   }
 
   return response.json();

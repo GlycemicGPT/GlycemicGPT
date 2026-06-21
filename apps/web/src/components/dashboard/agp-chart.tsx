@@ -26,6 +26,7 @@ import {
   AGP_PERIOD_LABELS,
 } from "@/hooks/use-glucose-percentiles";
 import type { AGPBucket } from "@/lib/api";
+import { formatGlucose, unitLabel, type GlucoseUnit } from "@/lib/glucose-units";
 
 // --- Constants ---
 
@@ -48,6 +49,9 @@ const AGP_PERIODS: { value: AgpPeriod; label: string }[] = [
 export interface AgpChartProps {
   className?: string;
   thresholds?: { urgentLow: number; low: number; high: number; urgentHigh: number };
+  /** Active glucose display unit (default mgdl). Band math + domain stay
+   * mg/dL; only axis tick labels, the axis title, and tooltip convert. */
+  unit?: GlucoseUnit;
 }
 
 // --- Data transformation ---
@@ -107,10 +111,12 @@ export function transformBuckets(buckets: AGPBucket[]): AgpChartPoint[] {
 function AgpTooltipContent({
   active,
   payload,
+  unit = "mgdl",
 }: {
   active?: boolean;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   payload?: Array<{ payload: any }>;
+  unit?: GlucoseUnit;
 }) {
   if (!active || !payload?.length) return null;
   const d = payload[0]?.payload as AgpChartPoint | undefined;
@@ -123,12 +129,13 @@ function AgpTooltipContent({
       </div>
     );
   }
+  const label = unitLabel(unit);
   return (
     <div className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-xs shadow-lg">
       <p className="font-semibold text-slate-800 dark:text-slate-200 mb-1">{d.label}</p>
-      <p className="text-teal-700 dark:text-teal-400">Median: {Math.round(d.p50)} mg/dL</p>
-      <p className="text-slate-600 dark:text-slate-300">25th-75th: {Math.round(d.p25)}-{Math.round(d.p75)} mg/dL</p>
-      <p className="text-slate-500 dark:text-slate-400">10th-90th: {Math.round(d.p10)}-{Math.round(d.p90)} mg/dL</p>
+      <p className="text-teal-700 dark:text-teal-400">Median: {formatGlucose(d.p50, unit)} {label}</p>
+      <p className="text-slate-600 dark:text-slate-300">25th-75th: {formatGlucose(d.p25, unit)}-{formatGlucose(d.p75, unit)} {label}</p>
+      <p className="text-slate-500 dark:text-slate-400">10th-90th: {formatGlucose(d.p10, unit)}-{formatGlucose(d.p90, unit)} {label}</p>
       <p className="text-slate-500 dark:text-slate-400 mt-1">{d.count} readings</p>
     </div>
   );
@@ -200,7 +207,7 @@ function PeriodSelector({
 
 // --- Main component ---
 
-export function AgpChart({ className, thresholds }: AgpChartProps) {
+export function AgpChart({ className, thresholds, unit = "mgdl" }: AgpChartProps) {
   const {
     data,
     isLoading,
@@ -358,17 +365,19 @@ export function AgpChart({ className, thresholds }: AgpChartProps) {
             />
             <YAxis
               domain={yDomain}
+              // Domain stays mg/dL; only the tick LABEL converts.
+              tickFormatter={(v: number) => formatGlucose(v, unit)}
               tick={{ fill: "#94a3b8", fontSize: 11 }}
               axisLine={{ stroke: "#475569" }}
               tickLine={{ stroke: "#475569" }}
               label={{
-                value: "mg/dL",
+                value: unitLabel(unit),
                 angle: -90,
                 position: "insideLeft",
                 style: { fill: "#64748b", fontSize: 11 },
               }}
             />
-            <Tooltip content={<AgpTooltipContent />} />
+            <Tooltip content={<AgpTooltipContent unit={unit} />} />
 
             {/* Target range reference lines */}
             <ReferenceLine

@@ -286,11 +286,11 @@ describe("GlucoseTrendChart", () => {
       ).toBeInTheDocument();
     });
 
-    it("renders the range legend derived from thresholds", () => {
+    it("renders the range legend derived from thresholds (with the unit label)", () => {
       mockHookReturn.readings = [makeReading(120, 5)];
       renderChart();
       expect(
-        screen.getByText(`${GLUCOSE_THRESHOLDS.LOW}-${GLUCOSE_THRESHOLDS.HIGH} Target`)
+        screen.getByText(`${GLUCOSE_THRESHOLDS.LOW}-${GLUCOSE_THRESHOLDS.HIGH} mg/dL Target`)
       ).toBeInTheDocument();
       expect(screen.getByText("High/Low")).toBeInTheDocument();
       expect(screen.getByText("Urgent")).toBeInTheDocument();

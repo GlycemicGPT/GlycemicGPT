@@ -246,6 +246,13 @@ describe("TimeInRangeBar component", () => {
       render(<TimeInRangeBar {...baseProps} targetRange="80-140 mg/dL" />);
       expect(screen.getByText(/Target: 80-140 mg\/dL/)).toBeInTheDocument();
     });
+
+    it("renders an mmol/L target range string from the parent", () => {
+      // The parent dashboard converts the target before passing it down; the
+      // bar renders whatever unit string it receives.
+      render(<TimeInRangeBar {...baseProps} targetRange="3.9-10.0 mmol/L" />);
+      expect(screen.getByText(/Target: 3\.9-10\.0 mmol\/L/)).toBeInTheDocument();
+    });
   });
 
   describe("5-segment rendering", () => {
