@@ -3,7 +3,7 @@
 Focus: the mmol/L -> mg/dL conversion at the treatments-route
 fingerstick seam, which is the one ingestion path whose output
 shifts when the shared conversion constant moved from the
-translator-local 18.02 to the project-wide 18.0182 (mmol/L support
+translator-local 18.02 to the project-wide 18.0156 (mmol/L support
 foundation).
 """
 
@@ -30,11 +30,11 @@ def _mmol_fingerstick(glucose_mmol: float) -> NightscoutTreatment:
 
 
 def test_mmol_fingerstick_rebaselined_to_shared_constant():
-    """5.3 mmol/L ingests as 95 mg/dL under the shared 18.0182 constant.
+    """5.3 mmol/L ingests as 95 mg/dL under the shared 18.0156 constant.
 
     Re-baseline note: the translator-local constant used to be 18.02,
     which produced 96 mg/dL for this input (5.3 * 18.02 = 95.506 ->
-    96). The project-wide 18.0182 yields 5.3 * 18.0182 = 95.496 -> 95.
+    96). The project-wide 18.0156 yields 5.3 * 18.0156 = 95.483 -> 95.
     This is one of the few whole-mg/dL outputs that actually shifts
     (about 0.01%); pinning it guards the conversion seam against a
     silent drift back to the old factor.

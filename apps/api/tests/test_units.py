@@ -14,6 +14,10 @@ def test_standard_mgdl_reference_points_convert_to_mmol():
     assert mgdl_to_mmol(70) == 3.9
     assert mgdl_to_mmol(180) == 10.0
     assert mgdl_to_mmol(120) == 6.7
+    # The textbook reference clinicians and mmol/L users sanity-check against:
+    # 100 mg/dL is 5.6 mmol/L. Pins the exact-molar-mass factor (18.0156); the
+    # earlier 18.0182 wrongly rendered this as 5.5.
+    assert mgdl_to_mmol(100) == 5.6
 
 
 def test_whole_mgdl_round_trip_stays_within_display_precision():
@@ -30,11 +34,11 @@ def test_safety_bounds_convert_to_mmol():
     # The 20-500 mg/dL safety invariant expressed in mmol/L. A mis-converted
     # hypo bound silently suppresses low alerts, so the endpoints are pinned.
     assert mgdl_to_mmol(20) == 1.1
-    assert mgdl_to_mmol(500) == 27.7
+    assert mgdl_to_mmol(500) == 27.8
 
 
 def test_round_trip_is_lossy_so_converted_values_are_never_persisted():
-    # mg/dL -> mmol(1dp) -> mg/dL loses precision (100 -> 5.5 -> 99), which is
+    # mg/dL -> mmol(1dp) -> mg/dL loses precision (100 -> 5.6 -> 101), which is
     # why a converted value must never be written back to canonical mg/dL
     # storage (Epic 53 decision #5). Guards a future change that wrongly
     # assumes the round trip is identity-preserving.
@@ -42,6 +46,6 @@ def test_round_trip_is_lossy_so_converted_values_are_never_persisted():
 
 
 def test_legacy_nightscout_constants_point_to_shared_constant():
-    assert MGDL_PER_MMOL == 18.0182
+    assert MGDL_PER_MMOL == 18.0156
     assert nightscout_models.MGDL_PER_MMOL == MGDL_PER_MMOL
     assert MMOL_TO_MGDL == MGDL_PER_MMOL

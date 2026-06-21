@@ -294,9 +294,9 @@ class TestUnitConversion:
 
         assert result.units_converted is True
         # Hardcoded goldens (not derived from the constant) so the test
-        # fails if the shared 18.0182 factor ever drifts:
-        #   4.4 mmol/L * 18.0182 = 79.28 -> 79.3
-        #   7.8 mmol/L * 18.0182 = 140.54 -> 140.5
+        # fails if the shared 18.0156 factor ever drifts:
+        #   4.4 mmol/L * 18.0156 = 79.27 -> 79.3
+        #   7.8 mmol/L * 18.0156 = 140.52 -> 140.5
         assert result.target_low.proposed_value == 79.3
         assert result.target_high.proposed_value == 140.5
 
@@ -315,7 +315,7 @@ class TestUnitConversion:
         )
 
         assert result.units_converted is True
-        # 2.5 mmol/L per U * 18.0182 = 45.0455 -> 45.0 (hardcoded golden).
+        # 2.5 mmol/L per U * 18.0156 = 45.039 -> 45.0 (hardcoded golden).
         assert result.isf_schedule.proposed_segments[0].value == 45.0
 
     def test_mmol_basal_and_carb_ratio_not_converted(self):
@@ -365,7 +365,7 @@ class TestUnitConversion:
         )
         assert result.units_converted is True
         assert result.units_unknown is False
-        # 4.4 * 18.0182 = 79.28 -> 79.3 (hardcoded golden).
+        # 4.4 * 18.0156 = 79.27 -> 79.3 (hardcoded golden).
         assert result.target_low.proposed_value == 79.3
 
     def test_unknown_units_flagged(self):

@@ -12,15 +12,15 @@ class GlucoseUnit(str, enum.Enum):
     MMOL = "mmol"
 
 
-# 1 mmol/L = 18.0182 mg/dL (standard glucose mass-to-molarity conversion;
-# ADA / IFCC consensus is 18.0156 to 4 decimals). 18.0182 is the single
-# canonical factor so ingestion, onboarding, and display conversion cannot
-# drift independently. It is chosen for round-trip precision after rounding
-# to 1 decimal at the wire boundary: sub-decimal differences wash out
-# (e.g. 4.4 mmol -> 79.28 vs 79.27 both round to 79.3). It supersedes the
-# old translator-local 18.02; the ~0.01% shift is below the rounding step
-# for whole-number mg/dL.
-MGDL_PER_MMOL: float = 18.0182
+# 1 mmol/L = 18.0156 mg/dL -- the exact glucose mass-to-molarity factor
+# (molar mass 180.156 g/mol / 10) and the ADA / IFCC consensus value. This
+# is the single canonical factor so ingestion, onboarding, and display
+# conversion cannot drift independently. It supersedes two earlier in-repo
+# constants (a translator-local 18.02 and an onboarding 18.0182); both were
+# slightly off, and 18.0182 in particular rendered the textbook 100 mg/dL as
+# 5.5 mmol/L instead of the universally-recognized 5.6. Accuracy matters here
+# because every mmol/L surface in the unit epic reads off this factor.
+MGDL_PER_MMOL: float = 18.0156
 
 
 def mgdl_to_mmol(value_mgdl: int | float) -> float:
