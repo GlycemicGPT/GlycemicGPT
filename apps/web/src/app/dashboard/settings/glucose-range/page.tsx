@@ -23,13 +23,32 @@ import {
   updateTargetGlucoseRange,
   type TargetGlucoseRangeResponse,
 } from "@/lib/api";
+import {
+  toDisplayNumber,
+  clampMgdl,
+  toStoredMgdl,
+  formatGlucose,
+  unitLabel,
+  stepFor,
+} from "@/lib/glucose-units";
+import { useGlucoseUnit } from "@/hooks/use-glucose-unit";
 import { OfflineBanner } from "@/components/ui/offline-banner";
 
+// All thresholds are stored and validated in canonical mg/dL (locked decision
+// 6). The form displays/accepts the active unit and converts on the edges.
 const DEFAULTS = {
   urgent_low: 55,
   low_target: 70,
   high_target: 180,
   urgent_high: 250,
+};
+
+// mg/dL validation bounds per field (never converted).
+const BOUNDS = {
+  urgentLow: { min: 30, max: 70 },
+  lowTarget: { min: 40, max: 200 },
+  highTarget: { min: 80, max: 400 },
+  urgentHigh: { min: 200, max: 500 },
 };
 
 export default function GlucoseRangePage() {
@@ -40,7 +59,14 @@ export default function GlucoseRangePage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
 
-  // Form state
+  const unit = useGlucoseUnit();
+  // Display a stored mg/dL threshold as the active-unit string for an input.
+  const toDisplay = useCallback(
+    (mgdl: number) => formatGlucose(mgdl, unit),
+    [unit]
+  );
+
+  // Form state (holds DISPLAY-unit strings; converted to mg/dL on save).
   const [urgentLow, setUrgentLow] = useState<string>("55");
   const [lowTarget, setLowTarget] = useState<string>("70");
   const [highTarget, setHighTarget] = useState<string>("180");
@@ -51,10 +77,10 @@ export default function GlucoseRangePage() {
       setError(null);
       const data = await getTargetGlucoseRange();
       setRange(data);
-      setUrgentLow(String(data.urgent_low));
-      setLowTarget(String(data.low_target));
-      setHighTarget(String(data.high_target));
-      setUrgentHigh(String(data.urgent_high));
+      setUrgentLow(toDisplay(data.urgent_low));
+      setLowTarget(toDisplay(data.low_target));
+      setHighTarget(toDisplay(data.high_target));
+      setUrgentHigh(toDisplay(data.urgent_high));
       setIsOffline(false);
     } catch (err) {
       if (!(err instanceof Error && err.message.includes("401"))) {
@@ -69,7 +95,7 @@ export default function GlucoseRangePage() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [toDisplay]);
 
   useEffect(() => {
     fetchRange();
@@ -87,16 +113,24 @@ export default function GlucoseRangePage() {
     setError(null);
     setSuccess(null);
 
-    const ul = parseFloat(urgentLow);
-    const low = parseFloat(lowTarget);
-    const high = parseFloat(highTarget);
-    const uh = parseFloat(urgentHigh);
+    const ulInput = parseFloat(urgentLow);
+    const lowInput = parseFloat(lowTarget);
+    const highInput = parseFloat(highTarget);
+    const uhInput = parseFloat(urgentHigh);
 
-    if ([ul, low, high, uh].some(isNaN)) {
+    if ([ulInput, lowInput, highInput, uhInput].some(isNaN)) {
       setError("Please enter valid numbers for all fields");
       setIsSaving(false);
       return;
     }
+
+    // Convert the entered display values back to canonical integer mg/dL,
+    // CLAMPED to each field's bound so a boundary
+    // unit-rounding overshoot (e.g. 27.8 mmol -> 501) never crosses the bound.
+    const ul = clampMgdl(toStoredMgdl(ulInput, unit), BOUNDS.urgentLow.min, BOUNDS.urgentLow.max);
+    const low = clampMgdl(toStoredMgdl(lowInput, unit), BOUNDS.lowTarget.min, BOUNDS.lowTarget.max);
+    const high = clampMgdl(toStoredMgdl(highInput, unit), BOUNDS.highTarget.min, BOUNDS.highTarget.max);
+    const uh = clampMgdl(toStoredMgdl(uhInput, unit), BOUNDS.urgentHigh.min, BOUNDS.urgentHigh.max);
 
     if (!(ul < low && low < high && high < uh)) {
       setError(
@@ -114,6 +148,12 @@ export default function GlucoseRangePage() {
         urgent_high: uh,
       });
       setRange(updated);
+      // Re-sync inputs to the canonical-converted display values; a saved mmol
+      // value may visibly "snap" (e.g. 5.5 -> 99 mg/dL -> 5.5). Expected.
+      setUrgentLow(toDisplay(updated.urgent_low));
+      setLowTarget(toDisplay(updated.low_target));
+      setHighTarget(toDisplay(updated.high_target));
+      setUrgentHigh(toDisplay(updated.urgent_high));
       setSuccess("Glucose thresholds updated successfully");
     } catch (err) {
       setError(
@@ -137,10 +177,10 @@ export default function GlucoseRangePage() {
         urgent_high: DEFAULTS.urgent_high,
       });
       setRange(updated);
-      setUrgentLow(String(DEFAULTS.urgent_low));
-      setLowTarget(String(DEFAULTS.low_target));
-      setHighTarget(String(DEFAULTS.high_target));
-      setUrgentHigh(String(DEFAULTS.urgent_high));
+      setUrgentLow(toDisplay(DEFAULTS.urgent_low));
+      setLowTarget(toDisplay(DEFAULTS.low_target));
+      setHighTarget(toDisplay(DEFAULTS.high_target));
+      setUrgentHigh(toDisplay(DEFAULTS.urgent_high));
       setSuccess("Glucose thresholds reset to defaults");
     } catch (err) {
       setError(
@@ -151,27 +191,30 @@ export default function GlucoseRangePage() {
     }
   };
 
+  // Display-unit values (what the user typed / sees in the inputs + preview).
   const ulNum = parseFloat(urgentLow);
   const lowNum = parseFloat(lowTarget);
   const highNum = parseFloat(highTarget);
   const uhNum = parseFloat(urgentHigh);
   const allParsed = [ulNum, lowNum, highNum, uhNum].every((n) => !isNaN(n));
+  // Range validity in DISPLAY space so the displayed bound is accepted; the
+  // saved value is clamped to canonical mg/dL.
+  const inRange = (v: number, b: { min: number; max: number }) =>
+    v >= toDisplayNumber(b.min, unit) && v <= toDisplayNumber(b.max, unit);
+  // Compare in display space so the load-time round-trip "snap" doesn't read
+  // as an unsaved change.
   const hasChanges =
     range &&
-    (ulNum !== range.urgent_low ||
-      lowNum !== range.low_target ||
-      highNum !== range.high_target ||
-      uhNum !== range.urgent_high);
+    (urgentLow !== toDisplay(range.urgent_low) ||
+      lowTarget !== toDisplay(range.low_target) ||
+      highTarget !== toDisplay(range.high_target) ||
+      urgentHigh !== toDisplay(range.urgent_high));
   const isValid =
     allParsed &&
-    ulNum >= 30 &&
-    ulNum <= 70 &&
-    lowNum >= 40 &&
-    lowNum <= 200 &&
-    highNum >= 80 &&
-    highNum <= 400 &&
-    uhNum >= 200 &&
-    uhNum <= 500 &&
+    inRange(ulNum, BOUNDS.urgentLow) &&
+    inRange(lowNum, BOUNDS.lowTarget) &&
+    inRange(highNum, BOUNDS.highTarget) &&
+    inRange(uhNum, BOUNDS.urgentHigh) &&
     ulNum < lowNum &&
     lowNum < highNum &&
     highNum < uhNum;
@@ -255,14 +298,14 @@ export default function GlucoseRangePage() {
                   htmlFor="urgent-low"
                   className="block text-sm font-medium text-red-400 mb-1"
                 >
-                  Urgent Low (mg/dL)
+                  Urgent Low ({unitLabel(unit)})
                 </label>
                 <input
                   id="urgent-low"
                   type="number"
-                  min={30}
-                  max={70}
-                  step={1}
+                  min={toDisplayNumber(BOUNDS.urgentLow.min, unit)}
+                  max={toDisplayNumber(BOUNDS.urgentLow.max, unit)}
+                  step={stepFor(unit)}
                   value={urgentLow}
                   onChange={(e) => setUrgentLow(e.target.value)}
                   disabled={isSaving}
@@ -278,7 +321,7 @@ export default function GlucoseRangePage() {
                   id="urgent-low-hint"
                   className="text-xs text-slate-500 mt-1"
                 >
-                  Range: 30-70 mg/dL. Default: 55 mg/dL
+                  Range: {toDisplayNumber(BOUNDS.urgentLow.min, unit)}-{toDisplayNumber(BOUNDS.urgentLow.max, unit)} {unitLabel(unit)}. Default: {toDisplay(DEFAULTS.urgent_low)} {unitLabel(unit)}
                 </p>
               </div>
 
@@ -288,14 +331,14 @@ export default function GlucoseRangePage() {
                   htmlFor="low-target"
                   className="block text-sm font-medium text-amber-400 mb-1"
                 >
-                  Low Target (mg/dL)
+                  Low Target ({unitLabel(unit)})
                 </label>
                 <input
                   id="low-target"
                   type="number"
-                  min={40}
-                  max={200}
-                  step={1}
+                  min={toDisplayNumber(BOUNDS.lowTarget.min, unit)}
+                  max={toDisplayNumber(BOUNDS.lowTarget.max, unit)}
+                  step={stepFor(unit)}
                   value={lowTarget}
                   onChange={(e) => setLowTarget(e.target.value)}
                   disabled={isSaving}
@@ -308,7 +351,7 @@ export default function GlucoseRangePage() {
                   aria-describedby="low-target-hint"
                 />
                 <p id="low-target-hint" className="text-xs text-slate-500 mt-1">
-                  Range: 40-200 mg/dL. Default: 70 mg/dL
+                  Range: {toDisplayNumber(BOUNDS.lowTarget.min, unit)}-{toDisplayNumber(BOUNDS.lowTarget.max, unit)} {unitLabel(unit)}. Default: {toDisplay(DEFAULTS.low_target)} {unitLabel(unit)}
                 </p>
               </div>
 
@@ -318,14 +361,14 @@ export default function GlucoseRangePage() {
                   htmlFor="high-target"
                   className="block text-sm font-medium text-amber-400 mb-1"
                 >
-                  High Target (mg/dL)
+                  High Target ({unitLabel(unit)})
                 </label>
                 <input
                   id="high-target"
                   type="number"
-                  min={80}
-                  max={400}
-                  step={1}
+                  min={toDisplayNumber(BOUNDS.highTarget.min, unit)}
+                  max={toDisplayNumber(BOUNDS.highTarget.max, unit)}
+                  step={stepFor(unit)}
                   value={highTarget}
                   onChange={(e) => setHighTarget(e.target.value)}
                   disabled={isSaving}
@@ -341,7 +384,7 @@ export default function GlucoseRangePage() {
                   id="high-target-hint"
                   className="text-xs text-slate-500 mt-1"
                 >
-                  Range: 80-400 mg/dL. Default: 180 mg/dL
+                  Range: {toDisplayNumber(BOUNDS.highTarget.min, unit)}-{toDisplayNumber(BOUNDS.highTarget.max, unit)} {unitLabel(unit)}. Default: {toDisplay(DEFAULTS.high_target)} {unitLabel(unit)}
                 </p>
               </div>
 
@@ -351,14 +394,14 @@ export default function GlucoseRangePage() {
                   htmlFor="urgent-high"
                   className="block text-sm font-medium text-red-400 mb-1"
                 >
-                  Urgent High (mg/dL)
+                  Urgent High ({unitLabel(unit)})
                 </label>
                 <input
                   id="urgent-high"
                   type="number"
-                  min={200}
-                  max={500}
-                  step={1}
+                  min={toDisplayNumber(BOUNDS.urgentHigh.min, unit)}
+                  max={toDisplayNumber(BOUNDS.urgentHigh.max, unit)}
+                  step={stepFor(unit)}
                   value={urgentHigh}
                   onChange={(e) => setUrgentHigh(e.target.value)}
                   disabled={isSaving}
@@ -374,7 +417,7 @@ export default function GlucoseRangePage() {
                   id="urgent-high-hint"
                   className="text-xs text-slate-500 mt-1"
                 >
-                  Range: 200-500 mg/dL. Default: 250 mg/dL
+                  Range: {toDisplayNumber(BOUNDS.urgentHigh.min, unit)}-{toDisplayNumber(BOUNDS.urgentHigh.max, unit)} {unitLabel(unit)}. Default: {toDisplay(DEFAULTS.urgent_high)} {unitLabel(unit)}
                 </p>
               </div>
             </div>
@@ -389,7 +432,7 @@ export default function GlucoseRangePage() {
                   <span className="text-amber-400 font-medium">{lowNum}</span>
                   <span className="text-slate-600">---</span>
                   <span className="text-lg font-semibold text-green-400">
-                    Target: {lowNum}-{highNum} mg/dL
+                    Target: {lowNum}-{highNum} {unitLabel(unit)}
                   </span>
                   <span className="text-slate-600">---</span>
                   <span className="text-amber-400 font-medium">{highNum}</span>
@@ -458,8 +501,9 @@ export default function GlucoseRangePage() {
           dashboard, where the target range band appears on charts, and what
           counts as &quot;in range&quot; for the Time in Range bar. They also
           influence AI-generated suggestions and alert triggers. The standard
-          target range for most people with diabetes is 70-180 mg/dL with urgent
-          thresholds at 55 and 250 mg/dL. Consult your healthcare provider
+          target range for most people with diabetes is {toDisplay(70)}-{toDisplay(180)}{" "}
+          {unitLabel(unit)} with urgent thresholds at {toDisplay(55)} and{" "}
+          {toDisplay(250)} {unitLabel(unit)}. Consult your healthcare provider
           before changing these values.
         </p>
       </div>

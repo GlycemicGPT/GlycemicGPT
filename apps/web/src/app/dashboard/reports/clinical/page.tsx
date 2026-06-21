@@ -76,6 +76,8 @@ import {
   type AnalyticsConfigResponse,
   type DisplayLabel,
 } from "@/lib/api";
+import { formatGlucose, unitLabel, type GlucoseUnit } from "@/lib/glucose-units";
+import { useGlucoseUnit } from "@/hooks/use-glucose-unit";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -429,9 +431,11 @@ function getPointColor(value: number, low: number, high: number, urgentLow = 54,
 function GlucoseChartTooltip({
   active,
   payload,
+  unit = "mgdl",
 }: {
   active?: boolean;
   payload?: Array<{ payload: ChartPoint }>;
+  unit?: GlucoseUnit;
 }) {
   if (!active || !payload?.[0]) return null;
   const point = payload[0].payload;
@@ -445,7 +449,7 @@ function GlucoseChartTooltip({
     <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 shadow-lg print:hidden">
       <p className="text-xs text-slate-500 dark:text-slate-400">{time}</p>
       <p className="text-sm font-semibold text-slate-900 dark:text-white">
-        {point.value} mg/dL
+        {formatGlucose(point.value, unit)} {unitLabel(unit)}
       </p>
     </div>
   );
@@ -477,6 +481,7 @@ function ReportGlucoseChart({
   high,
   urgentLow = 54,
   urgentHigh = 250,
+  unit = "mgdl",
 }: {
   readings: GlucoseHistoryReading[];
   startDate: string;
@@ -485,6 +490,7 @@ function ReportGlucoseChart({
   high: number;
   urgentLow?: number;
   urgentHigh?: number;
+  unit?: GlucoseUnit;
 }) {
   const points = useMemo(() => transformReadings(readings), [readings]);
   const renderPoint = useMemo(
@@ -521,8 +527,8 @@ function ReportGlucoseChart({
       month: "short",
       day: "numeric",
     });
-    return `Glucose trend chart showing ${points.length} readings from ${startLabel} to ${endLabel}, average ${avg} mg/dL`;
-  }, [points, domainStart, domainEnd]);
+    return `Glucose trend chart showing ${points.length} readings from ${startLabel} to ${endLabel}, average ${formatGlucose(avg, unit)} ${unitLabel(unit)}`;
+  }, [points, domainStart, domainEnd, unit]);
 
   if (points.length === 0) {
     return (
@@ -560,8 +566,10 @@ function ReportGlucoseChart({
             dataKey="value"
             domain={[40, 350]}
             ticks={[urgentLow, low, high, urgentHigh]}
+            // Tick positions + domain stay mg/dL; only labels convert.
+            tickFormatter={(v: number) => formatGlucose(v, unit)}
             tick={{ fontSize: 10, fill: "#94a3b8" }}
-            width={35}
+            width={unit === "mmol" ? 40 : 35}
           />
           <ReferenceArea y1={low} y2={high} fill="#22c55e" fillOpacity={0.08} />
           <ReferenceLine
@@ -576,7 +584,7 @@ function ReportGlucoseChart({
             strokeDasharray="4 4"
             strokeOpacity={0.6}
           />
-          <RechartsTooltip content={<GlucoseChartTooltip />} cursor={false} />
+          <RechartsTooltip content={<GlucoseChartTooltip unit={unit} />} cursor={false} />
           <Scatter data={points} shape={renderPoint} />
         </ScatterChart>
       </ResponsiveContainer>
@@ -590,12 +598,14 @@ function AgpChartSection({
   high,
   urgentLow = 54,
   urgentHigh = 250,
+  unit = "mgdl",
 }: {
   buckets: AgpBucket[];
   low: number;
   high: number;
   urgentLow?: number;
   urgentHigh?: number;
+  unit?: GlucoseUnit;
 }) {
   const data = useMemo(() => {
     const filtered = buckets.filter((b) => b.count > 0);
@@ -636,8 +646,9 @@ function AgpChartSection({
           <YAxis
             domain={[40, 350]}
             ticks={[urgentLow, low, high, urgentHigh]}
+            tickFormatter={(v: number) => formatGlucose(v, unit)}
             tick={{ fontSize: 10, fill: "#94a3b8" }}
-            width={35}
+            width={unit === "mmol" ? 40 : 35}
           />
           <ReferenceArea y1={low} y2={high} fill="#22c55e" fillOpacity={0.06} />
           <ReferenceLine
@@ -686,12 +697,14 @@ function DailyOverlayChart({
   high,
   urgentLow = 54,
   urgentHigh = 250,
+  unit = "mgdl",
 }: {
   readings: GlucoseHistoryReading[];
   low: number;
   high: number;
   urgentLow?: number;
   urgentHigh?: number;
+  unit?: GlucoseUnit;
 }) {
   const MAX_OVERLAY_DAYS = 14;
   const overlayData = useMemo(() => buildDailyOverlay(readings), [readings]);
@@ -769,8 +782,9 @@ function DailyOverlayChart({
           <YAxis
             domain={[40, 350]}
             ticks={[urgentLow, low, high, urgentHigh]}
+            tickFormatter={(v: number) => formatGlucose(v, unit)}
             tick={{ fontSize: 10, fill: "#94a3b8" }}
-            width={35}
+            width={unit === "mmol" ? 40 : 35}
           />
           <ReferenceArea y1={low} y2={high} fill="#22c55e" fillOpacity={0.06} />
           {days.map((day, i) => (
@@ -882,7 +896,7 @@ function PatientDeviceHeader({
   );
 }
 
-function CgmStatsSection({ stats }: { stats: GlucoseStats }) {
+function CgmStatsSection({ stats, unit = "mgdl" }: { stats: GlucoseStats; unit?: GlucoseUnit }) {
   const eA1C = stats.gmi;
 
   return (
@@ -902,8 +916,8 @@ function CgmStatsSection({ stats }: { stats: GlucoseStats }) {
             Average Glucose
           </p>
           <p className="text-4xl font-bold text-slate-900 dark:text-white print:text-black mt-1">
-            {Math.round(stats.mean_glucose)}
-            <span className="text-lg font-normal ml-1">mg/dL</span>
+            {formatGlucose(stats.mean_glucose, unit)}
+            <span className="text-lg font-normal ml-1">{unitLabel(unit)}</span>
           </p>
         </div>
         <div className="text-center">
@@ -925,7 +939,7 @@ function CgmStatsSection({ stats }: { stats: GlucoseStats }) {
           {[
             {
               label: "Standard Deviation",
-              value: `${Math.round(stats.std_dev)} mg/dL`,
+              value: `${formatGlucose(stats.std_dev, unit)} ${unitLabel(unit)}`,
             },
             {
               label: "CGM Active Time",
@@ -954,7 +968,7 @@ function CgmStatsSection({ stats }: { stats: GlucoseStats }) {
   );
 }
 
-function TirSection({ tir }: { tir: TimeInRangeDetailStats }) {
+function TirSection({ tir, unit = "mgdl" }: { tir: TimeInRangeDetailStats; unit?: GlucoseUnit }) {
   const t = tir.thresholds;
   const orderedLabels = [
     "urgent_low",
@@ -967,18 +981,20 @@ function TirSection({ tir }: { tir: TimeInRangeDetailStats }) {
     .map((label) => tir.buckets.find((b) => b.label === label))
     .filter((b): b is TirBucket => !!b);
 
+  // Thresholds are mg/dL; the displayed range bounds convert to the active unit.
+  const fmt = (v: number) => formatGlucose(v, unit);
   function rangeLabel(bucket: string): string {
     switch (bucket) {
       case "urgent_low":
-        return `<${t.urgent_low}`;
+        return `<${fmt(t.urgent_low)}`;
       case "low":
-        return `${t.urgent_low}-${t.low}`;
+        return `${fmt(t.urgent_low)}-${fmt(t.low)}`;
       case "in_range":
-        return `${t.low}-${t.high}`;
+        return `${fmt(t.low)}-${fmt(t.high)}`;
       case "high":
-        return `${t.high}-${t.urgent_high}`;
+        return `${fmt(t.high)}-${fmt(t.urgent_high)}`;
       case "urgent_high":
-        return `>${t.urgent_high}`;
+        return `>${fmt(t.urgent_high)}`;
       default:
         return "";
     }
@@ -1012,7 +1028,7 @@ function TirSection({ tir }: { tir: TimeInRangeDetailStats }) {
               Range
             </th>
             <th className="py-1.5 text-left text-xs font-semibold text-slate-500 print:text-slate-600 uppercase tracking-wider">
-              mg/dL
+              {unitLabel(unit)}
             </th>
             <th className="py-1.5 text-right text-xs font-semibold text-slate-500 print:text-slate-600 uppercase tracking-wider">
               % Time
@@ -1083,11 +1099,13 @@ function HypoSection({
   periodDays,
   low = 70,
   urgentLow = 54,
+  unit = "mgdl",
 }: {
   events: HypoEvent[];
   periodDays: number;
   low?: number;
   urgentLow?: number;
+  unit?: GlucoseUnit;
 }) {
   const urgentEvents = events.filter((e) => e.isUrgent);
   const totalDuration = events.reduce((s, e) => s + e.durationMinutes, 0);
@@ -1112,7 +1130,7 @@ function HypoSection({
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <div>
           <p className="text-xs text-slate-500 print:text-slate-600 mb-1">
-            Low Events (&lt;{low})
+            Low Events (&lt;{formatGlucose(low, unit)})
           </p>
           <p className="text-2xl font-bold text-slate-900 dark:text-white print:text-black">
             {events.length}
@@ -1121,7 +1139,7 @@ function HypoSection({
         </div>
         <div>
           <p className="text-xs text-slate-500 print:text-slate-600 mb-1">
-            Urgent Lows (&lt;{urgentLow})
+            Urgent Lows (&lt;{formatGlucose(urgentLow, unit)})
           </p>
           <p className={`text-2xl font-bold ${urgentEvents.length > 0 ? "text-red-600" : "text-slate-900 dark:text-white print:text-black"}`}>
             {urgentEvents.length}
@@ -1140,9 +1158,9 @@ function HypoSection({
             Lowest Reading
           </p>
           <p className="text-2xl font-bold text-slate-900 dark:text-white print:text-black">
-            {lowestNadir ?? "---"}
+            {lowestNadir != null ? formatGlucose(lowestNadir, unit) : "---"}
             {lowestNadir != null && (
-              <span className="text-sm font-normal ml-1">mg/dL</span>
+              <span className="text-sm font-normal ml-1">{unitLabel(unit)}</span>
             )}
           </p>
         </div>
@@ -1164,8 +1182,10 @@ function HypoSection({
 
 function OvernightSection({
   stats,
+  unit = "mgdl",
 }: {
   stats: { avg: number; count: number; lowPct: number; highPct: number; inRangePct: number };
+  unit?: GlucoseUnit;
 }) {
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -1174,8 +1194,8 @@ function OvernightSection({
           Overnight Avg (10PM-6AM)
         </p>
         <p className="text-2xl font-bold text-slate-900 dark:text-white print:text-black">
-          {stats.avg}
-          <span className="text-sm font-normal ml-1">mg/dL</span>
+          {formatGlucose(stats.avg, unit)}
+          <span className="text-sm font-normal ml-1">{unitLabel(unit)}</span>
         </p>
       </div>
       <div>
@@ -1293,8 +1313,10 @@ function InsulinSection({ insulin }: { insulin: InsulinSummaryResponse }) {
 
 function PumpSettingsSection({
   profile,
+  unit = "mgdl",
 }: {
   profile: PumpProfileSummaryResponse;
+  unit?: GlucoseUnit;
 }) {
   const segments = profile.segments;
 
@@ -1343,7 +1365,7 @@ function PumpSettingsSection({
                 Carb Ratio (g/U)
               </th>
               <th className="py-1.5 px-2 text-right text-xs font-semibold text-slate-500 print:text-slate-600 uppercase tracking-wider">
-                Correction (mg/dL/U)
+                Correction ({unitLabel(unit)}/U)
               </th>
               <th className="py-1.5 px-2 text-right text-xs font-semibold text-slate-500 print:text-slate-600 uppercase tracking-wider">
                 Target BG
@@ -1367,11 +1389,11 @@ function PumpSettingsSection({
                 </td>
                 <td className="py-1.5 px-2 text-right text-slate-900 dark:text-white print:text-black">
                   {seg.correction_factor != null
-                    ? Math.round(seg.correction_factor)
+                    ? formatGlucose(seg.correction_factor, unit)
                     : "---"}
                 </td>
                 <td className="py-1.5 px-2 text-right text-slate-900 dark:text-white print:text-black">
-                  {seg.target_bg ?? "---"}
+                  {seg.target_bg != null ? formatGlucose(seg.target_bg, unit) : "---"}
                 </td>
               </tr>
             ))}
@@ -1395,9 +1417,11 @@ function PumpSettingsSection({
 function BolusTable({
   boluses,
   totalCount,
+  unit = "mgdl",
 }: {
   boluses: BolusReviewItem[];
   totalCount: number;
+  unit?: GlucoseUnit;
 }) {
   if (boluses.length === 0) {
     return (
@@ -1476,7 +1500,7 @@ function BolusTable({
                   </td>
                   <td className="py-1.5 px-2 text-right text-slate-600 dark:text-slate-300 print:text-slate-700">
                     {b.bg_at_event != null
-                      ? `${Math.round(b.bg_at_event)}`
+                      ? formatGlucose(b.bg_at_event, unit)
                       : "---"}
                   </td>
                   <td className="py-1.5 px-2 text-right text-slate-600 dark:text-slate-300 print:text-slate-700">
@@ -1603,12 +1627,15 @@ function PlatformSettingsSection({
   glucoseRange,
   plugin,
   analyticsConfig,
+  unit = "mgdl",
 }: {
   glucoseRange: { urgentLow: number; low: number; high: number; urgentHigh: number };
   plugin: PluginDeclarationResponse | null;
   analyticsConfig: AnalyticsConfigResponse | null;
+  unit?: GlucoseUnit;
 }) {
   const displayLabels = analyticsConfig?.display_labels ?? null;
+  const label = unitLabel(unit);
 
   return (
     <div className="space-y-4">
@@ -1620,19 +1647,19 @@ function PlatformSettingsSection({
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
           <div>
             <p className="text-xs text-slate-400">Urgent Low</p>
-            <p className="font-medium text-red-600 print:text-red-700">&lt;{glucoseRange.urgentLow} mg/dL</p>
+            <p className="font-medium text-red-600 print:text-red-700">&lt;{formatGlucose(glucoseRange.urgentLow, unit)} {label}</p>
           </div>
           <div>
             <p className="text-xs text-slate-400">Low</p>
-            <p className="font-medium text-amber-500">{glucoseRange.urgentLow}-{glucoseRange.low} mg/dL</p>
+            <p className="font-medium text-amber-500">{formatGlucose(glucoseRange.urgentLow, unit)}-{formatGlucose(glucoseRange.low, unit)} {label}</p>
           </div>
           <div>
             <p className="text-xs text-slate-400">Target Range</p>
-            <p className="font-medium text-green-600 print:text-green-700">{glucoseRange.low}-{glucoseRange.high} mg/dL</p>
+            <p className="font-medium text-green-600 print:text-green-700">{formatGlucose(glucoseRange.low, unit)}-{formatGlucose(glucoseRange.high, unit)} {label}</p>
           </div>
           <div>
             <p className="text-xs text-slate-400">High</p>
-            <p className="font-medium text-orange-500">&gt;{glucoseRange.high} mg/dL</p>
+            <p className="font-medium text-orange-500">&gt;{formatGlucose(glucoseRange.high, unit)} {label}</p>
           </div>
         </div>
       </div>
@@ -1692,6 +1719,8 @@ const PRESETS = [
 ];
 
 export default function ClinicalReportPage() {
+  // Self-view report: render in the logged-in user's preferred unit.
+  const unit = useGlucoseUnit();
   const [startDate, setStartDate] = useState(daysAgoDateString(13));
   const [endDate, setEndDate] = useState(todayDateString());
   const [selectedPreset, setSelectedPreset] = useState<number | null>(14);
@@ -2025,6 +2054,7 @@ export default function ClinicalReportPage() {
               glucoseRange={thresholds}
               plugin={reportData.plugin}
               analyticsConfig={reportData.analyticsConfig}
+              unit={unit}
             />
           </ReportSection>
 
@@ -2032,7 +2062,7 @@ export default function ClinicalReportPage() {
           {reportData.cgmStats &&
             reportData.cgmStats.readings_count > 0 && (
               <ReportSection title="CGM Summary">
-                <CgmStatsSection stats={reportData.cgmStats} />
+                <CgmStatsSection stats={reportData.cgmStats} unit={unit} />
               </ReportSection>
             )}
 
@@ -2040,7 +2070,7 @@ export default function ClinicalReportPage() {
           {reportData.tirStats &&
             reportData.tirStats.readings_count > 0 && (
               <ReportSection title="Time in Range">
-                <TirSection tir={reportData.tirStats} />
+                <TirSection tir={reportData.tirStats} unit={unit} />
               </ReportSection>
             )}
 
@@ -2053,6 +2083,7 @@ export default function ClinicalReportPage() {
                 high={thresholds.high}
                 urgentLow={thresholds.urgentLow}
                 urgentHigh={thresholds.urgentHigh}
+                unit={unit}
               />
             </ReportSection>
           )}
@@ -2068,6 +2099,7 @@ export default function ClinicalReportPage() {
                 high={thresholds.high}
                 urgentLow={thresholds.urgentLow}
                 urgentHigh={thresholds.urgentHigh}
+                unit={unit}
               />
             </ReportSection>
           )}
@@ -2081,6 +2113,7 @@ export default function ClinicalReportPage() {
                 high={thresholds.high}
                 urgentLow={thresholds.urgentLow}
                 urgentHigh={thresholds.urgentHigh}
+                unit={unit}
               />
             </ReportSection>
           )}
@@ -2088,14 +2121,14 @@ export default function ClinicalReportPage() {
           {/* 7. Hypoglycemia Analysis */}
           {reportData.readings.length > 0 && (
             <ReportSection title="Hypoglycemia Analysis">
-              <HypoSection events={hypoEvents} periodDays={reportDays} low={thresholds.low} urgentLow={thresholds.urgentLow} />
+              <HypoSection events={hypoEvents} periodDays={reportDays} low={thresholds.low} urgentLow={thresholds.urgentLow} unit={unit} />
             </ReportSection>
           )}
 
           {/* 8. Overnight Pattern */}
           {overnightStats && (
             <ReportSection title="Overnight Pattern (10 PM - 6 AM)">
-              <OvernightSection stats={overnightStats} />
+              <OvernightSection stats={overnightStats} unit={unit} />
             </ReportSection>
           )}
 
@@ -2111,7 +2144,7 @@ export default function ClinicalReportPage() {
           {/* 10. Active Pump Settings */}
           {reportData.pumpProfile && (
             <ReportSection title="Active Pump Settings">
-              <PumpSettingsSection profile={reportData.pumpProfile} />
+              <PumpSettingsSection profile={reportData.pumpProfile} unit={unit} />
             </ReportSection>
           )}
 
@@ -2121,6 +2154,7 @@ export default function ClinicalReportPage() {
               <BolusTable
                 boluses={reportData.boluses}
                 totalCount={reportData.totalBolusCount}
+                unit={unit}
               />
             </ReportSection>
           )}

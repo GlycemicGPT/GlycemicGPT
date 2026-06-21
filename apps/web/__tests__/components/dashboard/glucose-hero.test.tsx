@@ -151,10 +151,18 @@ describe("GlucoseHero", () => {
       expect(screen.getByTestId("glucose-unit")).toHaveTextContent("mg/dL");
     });
 
-    it("displays custom unit when provided", () => {
-      render(<GlucoseHero {...defaultProps} unit="mmol/L" />);
+    it("displays the mmol/L label and converts the value when unit=mmol", () => {
+      // value stays mg/dL; display converts (180 -> 10.0).
+      render(<GlucoseHero {...defaultProps} value={180} unit="mmol" />);
 
       expect(screen.getByTestId("glucose-unit")).toHaveTextContent("mmol/L");
+      expect(screen.getByTestId("glucose-value")).toHaveTextContent("10.0");
+    });
+
+    it("shows 1-decimal mmol for the clinical anchor 70 -> 3.9", () => {
+      render(<GlucoseHero {...defaultProps} value={70} unit="mmol" />);
+
+      expect(screen.getByTestId("glucose-value")).toHaveTextContent("3.9");
     });
   });
 

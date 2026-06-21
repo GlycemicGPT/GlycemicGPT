@@ -28,15 +28,25 @@ import {
   type AlertThresholdResponse,
   type EscalationConfigResponse,
 } from "@/lib/api";
+import {
+  toDisplayNumber,
+  clampMgdl,
+  toStoredMgdl,
+  formatGlucose,
+  unitLabel,
+  stepFor,
+} from "@/lib/glucose-units";
+import { useGlucoseUnit } from "@/hooks/use-glucose-unit";
+import {
+  ALERT_THRESHOLD_DEFAULTS,
+  GLUCOSE_THRESHOLD_BOUNDS,
+} from "@/lib/alert-thresholds";
 import { OfflineBanner } from "@/components/ui/offline-banner";
 
-const THRESHOLD_DEFAULTS = {
-  low_warning: 70,
-  urgent_low: 55,
-  high_warning: 180,
-  urgent_high: 250,
-  iob_warning: 3.0,
-};
+// Defaults + canonical mg/dL glucose bounds come from one shared source so this
+// page and the dashboard alerts page cannot drift.
+const THRESHOLD_DEFAULTS = ALERT_THRESHOLD_DEFAULTS;
+const GLUCOSE_BOUNDS = GLUCOSE_THRESHOLD_BOUNDS;
 
 const ESCALATION_DEFAULTS = {
   reminder_delay_minutes: 5,
@@ -45,6 +55,12 @@ const ESCALATION_DEFAULTS = {
 };
 
 export default function AlertSettingsPage() {
+  const unit = useGlucoseUnit();
+  // Display a stored mg/dL glucose threshold as the active-unit input string.
+  const toDisplay = useCallback(
+    (mgdl: number) => formatGlucose(mgdl, unit),
+    [unit]
+  );
   const [thresholds, setThresholds] =
     useState<AlertThresholdResponse | null>(null);
   const [escalation, setEscalation] =
@@ -76,10 +92,10 @@ export default function AlertSettingsPage() {
       ]);
 
       setThresholds(thresholdData);
-      setLowWarning(String(thresholdData.low_warning));
-      setUrgentLow(String(thresholdData.urgent_low));
-      setHighWarning(String(thresholdData.high_warning));
-      setUrgentHigh(String(thresholdData.urgent_high));
+      setLowWarning(toDisplay(thresholdData.low_warning));
+      setUrgentLow(toDisplay(thresholdData.urgent_low));
+      setHighWarning(toDisplay(thresholdData.high_warning));
+      setUrgentHigh(toDisplay(thresholdData.urgent_high));
       setIobWarning(String(thresholdData.iob_warning));
 
       setEscalation(escalationData);
@@ -95,10 +111,10 @@ export default function AlertSettingsPage() {
       setThresholds({
         ...THRESHOLD_DEFAULTS,
       } as AlertThresholdResponse);
-      setLowWarning(String(THRESHOLD_DEFAULTS.low_warning));
-      setUrgentLow(String(THRESHOLD_DEFAULTS.urgent_low));
-      setHighWarning(String(THRESHOLD_DEFAULTS.high_warning));
-      setUrgentHigh(String(THRESHOLD_DEFAULTS.urgent_high));
+      setLowWarning(toDisplay(THRESHOLD_DEFAULTS.low_warning));
+      setUrgentLow(toDisplay(THRESHOLD_DEFAULTS.urgent_low));
+      setHighWarning(toDisplay(THRESHOLD_DEFAULTS.high_warning));
+      setUrgentHigh(toDisplay(THRESHOLD_DEFAULTS.urgent_high));
       setIobWarning(String(THRESHOLD_DEFAULTS.iob_warning));
 
       setEscalation({
@@ -114,7 +130,7 @@ export default function AlertSettingsPage() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [toDisplay]);
 
   useEffect(() => {
     fetchData();
@@ -128,11 +144,16 @@ export default function AlertSettingsPage() {
   }, [success]);
 
   // --- Validation ---
+  // Display-unit values (what the user typed / sees in inputs + preview).
   const lowWarn = parseFloat(lowWarning);
   const urgLow = parseFloat(urgentLow);
   const highWarn = parseFloat(highWarning);
   const urgHigh = parseFloat(urgentHigh);
   const iobWarn = parseFloat(iobWarning);
+  // Range validity in DISPLAY space so the displayed bound is accepted; saved
+  // glucose values are clamped to canonical mg/dL.
+  const inRange = (v: number, b: { min: number; max: number }) =>
+    v >= toDisplayNumber(b.min, unit) && v <= toDisplayNumber(b.max, unit);
   const remDelay = parseInt(reminderDelay, 10);
   const priDelay = parseInt(primaryDelay, 10);
   const allDelay = parseInt(allContactsDelay, 10);
@@ -143,14 +164,10 @@ export default function AlertSettingsPage() {
     !isNaN(highWarn) &&
     !isNaN(urgHigh) &&
     !isNaN(iobWarn) &&
-    urgLow >= 30 &&
-    urgLow <= 80 &&
-    lowWarn >= 40 &&
-    lowWarn <= 100 &&
-    highWarn >= 120 &&
-    highWarn <= 300 &&
-    urgHigh >= 150 &&
-    urgHigh <= 400 &&
+    inRange(urgLow, GLUCOSE_BOUNDS.urgentLow) &&
+    inRange(lowWarn, GLUCOSE_BOUNDS.lowWarning) &&
+    inRange(highWarn, GLUCOSE_BOUNDS.highWarning) &&
+    inRange(urgHigh, GLUCOSE_BOUNDS.urgentHigh) &&
     iobWarn >= 0.5 &&
     iobWarn <= 20 &&
     urgLow < lowWarn &&
@@ -171,12 +188,14 @@ export default function AlertSettingsPage() {
 
   const isValid = thresholdsValid && escalationValid;
 
+  // Compare glucose in display space so the load-time round-trip "snap" doesn't
+  // read as an unsaved change; IoB compares numerically.
   const thresholdsChanged =
     thresholds !== null &&
-    (parseFloat(lowWarning) !== thresholds.low_warning ||
-      parseFloat(urgentLow) !== thresholds.urgent_low ||
-      parseFloat(highWarning) !== thresholds.high_warning ||
-      parseFloat(urgentHigh) !== thresholds.urgent_high ||
+    (lowWarning !== toDisplay(thresholds.low_warning) ||
+      urgentLow !== toDisplay(thresholds.urgent_low) ||
+      highWarning !== toDisplay(thresholds.high_warning) ||
+      urgentHigh !== toDisplay(thresholds.urgent_high) ||
       parseFloat(iobWarning) !== thresholds.iob_warning);
 
   const escalationChanged =
@@ -200,10 +219,12 @@ export default function AlertSettingsPage() {
     const results = await Promise.allSettled([
       thresholdsChanged
         ? updateAlertThresholds({
-            low_warning: lowWarn,
-            urgent_low: urgLow,
-            high_warning: highWarn,
-            urgent_high: urgHigh,
+            // Glucose thresholds convert back to integer mg/dL, clamped to each
+            // bound; IoB stays units.
+            low_warning: clampMgdl(toStoredMgdl(lowWarn, unit), GLUCOSE_BOUNDS.lowWarning.min, GLUCOSE_BOUNDS.lowWarning.max),
+            urgent_low: clampMgdl(toStoredMgdl(urgLow, unit), GLUCOSE_BOUNDS.urgentLow.min, GLUCOSE_BOUNDS.urgentLow.max),
+            high_warning: clampMgdl(toStoredMgdl(highWarn, unit), GLUCOSE_BOUNDS.highWarning.min, GLUCOSE_BOUNDS.highWarning.max),
+            urgent_high: clampMgdl(toStoredMgdl(urgHigh, unit), GLUCOSE_BOUNDS.urgentHigh.min, GLUCOSE_BOUNDS.urgentHigh.max),
             iob_warning: iobWarn,
           })
         : Promise.resolve(thresholds!),
@@ -218,7 +239,14 @@ export default function AlertSettingsPage() {
 
     // Update state for whichever calls succeeded
     if (results[0].status === "fulfilled") {
-      setThresholds(results[0].value);
+      const t = results[0].value;
+      setThresholds(t);
+      // Re-sync glucose inputs to the canonical-converted display (snap).
+      setLowWarning(toDisplay(t.low_warning));
+      setUrgentLow(toDisplay(t.urgent_low));
+      setHighWarning(toDisplay(t.high_warning));
+      setUrgentHigh(toDisplay(t.urgent_high));
+      setIobWarning(String(t.iob_warning));
     }
     if (results[1].status === "fulfilled") {
       setEscalation(results[1].value);
@@ -262,10 +290,10 @@ export default function AlertSettingsPage() {
       ]);
 
       setThresholds(updatedThresholds);
-      setLowWarning(String(THRESHOLD_DEFAULTS.low_warning));
-      setUrgentLow(String(THRESHOLD_DEFAULTS.urgent_low));
-      setHighWarning(String(THRESHOLD_DEFAULTS.high_warning));
-      setUrgentHigh(String(THRESHOLD_DEFAULTS.urgent_high));
+      setLowWarning(toDisplay(THRESHOLD_DEFAULTS.low_warning));
+      setUrgentLow(toDisplay(THRESHOLD_DEFAULTS.urgent_low));
+      setHighWarning(toDisplay(THRESHOLD_DEFAULTS.high_warning));
+      setUrgentHigh(toDisplay(THRESHOLD_DEFAULTS.urgent_high));
       setIobWarning(String(THRESHOLD_DEFAULTS.iob_warning));
 
       setEscalation(updatedEscalation);
@@ -387,14 +415,14 @@ export default function AlertSettingsPage() {
                     htmlFor="urgent-low"
                     className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
                   >
-                    Urgent Low (mg/dL)
+                    Urgent Low ({unitLabel(unit)})
                   </label>
                   <input
                     id="urgent-low"
                     type="number"
-                    min={30}
-                    max={80}
-                    step={1}
+                    min={toDisplayNumber(GLUCOSE_BOUNDS.urgentLow.min, unit)}
+                    max={toDisplayNumber(GLUCOSE_BOUNDS.urgentLow.max, unit)}
+                    step={stepFor(unit)}
                     value={urgentLow}
                     onChange={(e) => setUrgentLow(e.target.value)}
                     disabled={isSaving}
@@ -410,7 +438,7 @@ export default function AlertSettingsPage() {
                     id="urgent-low-hint"
                     className="text-xs text-slate-500 mt-1"
                   >
-                    Range: 30-80. Default: 55 mg/dL
+                    Range: {toDisplayNumber(GLUCOSE_BOUNDS.urgentLow.min, unit)}-{toDisplayNumber(GLUCOSE_BOUNDS.urgentLow.max, unit)} {unitLabel(unit)}. Default: {toDisplay(THRESHOLD_DEFAULTS.urgent_low)} {unitLabel(unit)}
                   </p>
                 </div>
 
@@ -419,14 +447,14 @@ export default function AlertSettingsPage() {
                     htmlFor="low-warning"
                     className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
                   >
-                    Low Warning (mg/dL)
+                    Low Warning ({unitLabel(unit)})
                   </label>
                   <input
                     id="low-warning"
                     type="number"
-                    min={40}
-                    max={100}
-                    step={1}
+                    min={toDisplayNumber(GLUCOSE_BOUNDS.lowWarning.min, unit)}
+                    max={toDisplayNumber(GLUCOSE_BOUNDS.lowWarning.max, unit)}
+                    step={stepFor(unit)}
                     value={lowWarning}
                     onChange={(e) => setLowWarning(e.target.value)}
                     disabled={isSaving}
@@ -442,7 +470,7 @@ export default function AlertSettingsPage() {
                     id="low-warning-hint"
                     className="text-xs text-slate-500 mt-1"
                   >
-                    Range: 40-100. Default: 70 mg/dL
+                    Range: {toDisplayNumber(GLUCOSE_BOUNDS.lowWarning.min, unit)}-{toDisplayNumber(GLUCOSE_BOUNDS.lowWarning.max, unit)} {unitLabel(unit)}. Default: {toDisplay(THRESHOLD_DEFAULTS.low_warning)} {unitLabel(unit)}
                   </p>
                 </div>
               </div>
@@ -468,14 +496,14 @@ export default function AlertSettingsPage() {
                     htmlFor="high-warning"
                     className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
                   >
-                    High Warning (mg/dL)
+                    High Warning ({unitLabel(unit)})
                   </label>
                   <input
                     id="high-warning"
                     type="number"
-                    min={120}
-                    max={300}
-                    step={1}
+                    min={toDisplayNumber(GLUCOSE_BOUNDS.highWarning.min, unit)}
+                    max={toDisplayNumber(GLUCOSE_BOUNDS.highWarning.max, unit)}
+                    step={stepFor(unit)}
                     value={highWarning}
                     onChange={(e) => setHighWarning(e.target.value)}
                     disabled={isSaving}
@@ -491,7 +519,7 @@ export default function AlertSettingsPage() {
                     id="high-warning-hint"
                     className="text-xs text-slate-500 mt-1"
                   >
-                    Range: 120-300. Default: 180 mg/dL
+                    Range: {toDisplayNumber(GLUCOSE_BOUNDS.highWarning.min, unit)}-{toDisplayNumber(GLUCOSE_BOUNDS.highWarning.max, unit)} {unitLabel(unit)}. Default: {toDisplay(THRESHOLD_DEFAULTS.high_warning)} {unitLabel(unit)}
                   </p>
                 </div>
 
@@ -500,14 +528,14 @@ export default function AlertSettingsPage() {
                     htmlFor="urgent-high"
                     className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
                   >
-                    Urgent High (mg/dL)
+                    Urgent High ({unitLabel(unit)})
                   </label>
                   <input
                     id="urgent-high"
                     type="number"
-                    min={150}
-                    max={400}
-                    step={1}
+                    min={toDisplayNumber(GLUCOSE_BOUNDS.urgentHigh.min, unit)}
+                    max={toDisplayNumber(GLUCOSE_BOUNDS.urgentHigh.max, unit)}
+                    step={stepFor(unit)}
                     value={urgentHigh}
                     onChange={(e) => setUrgentHigh(e.target.value)}
                     disabled={isSaving}
@@ -523,7 +551,7 @@ export default function AlertSettingsPage() {
                     id="urgent-high-hint"
                     className="text-xs text-slate-500 mt-1"
                   >
-                    Range: 150-400. Default: 250 mg/dL
+                    Range: {toDisplayNumber(GLUCOSE_BOUNDS.urgentHigh.min, unit)}-{toDisplayNumber(GLUCOSE_BOUNDS.urgentHigh.max, unit)} {unitLabel(unit)}. Default: {toDisplay(THRESHOLD_DEFAULTS.urgent_high)} {unitLabel(unit)}
                   </p>
                 </div>
               </div>
@@ -586,25 +614,25 @@ export default function AlertSettingsPage() {
                   <div>
                     <span className="text-red-600 dark:text-red-400">Urgent Low:</span>{" "}
                     <span className="text-slate-700 dark:text-slate-200">
-                      &lt; {urgLow} mg/dL
+                      &lt; {urgLow} {unitLabel(unit)}
                     </span>
                   </div>
                   <div>
                     <span className="text-amber-600 dark:text-amber-400">Low Warning:</span>{" "}
                     <span className="text-slate-700 dark:text-slate-200">
-                      &lt; {lowWarn} mg/dL
+                      &lt; {lowWarn} {unitLabel(unit)}
                     </span>
                   </div>
                   <div>
                     <span className="text-amber-600 dark:text-amber-400">High Warning:</span>{" "}
                     <span className="text-slate-700 dark:text-slate-200">
-                      &gt; {highWarn} mg/dL
+                      &gt; {highWarn} {unitLabel(unit)}
                     </span>
                   </div>
                   <div>
                     <span className="text-red-600 dark:text-red-400">Urgent High:</span>{" "}
                     <span className="text-slate-700 dark:text-slate-200">
-                      &gt; {urgHigh} mg/dL
+                      &gt; {urgHigh} {unitLabel(unit)}
                     </span>
                   </div>
                   <div className="col-span-2">

@@ -13,6 +13,7 @@ import { AlertCircle, BarChart3, TrendingUp, Percent, Heart, Radio, Hash } from 
 import type { GlucoseStats } from "@/lib/api";
 import type { StatsPeriod } from "@/hooks/use-glucose-stats";
 import { PERIOD_LABELS } from "@/components/dashboard/time-in-range-bar";
+import { formatGlucose, unitLabel, type GlucoseUnit } from "@/lib/glucose-units";
 
 export interface CgmSummaryStatsProps {
   stats: GlucoseStats | null;
@@ -20,6 +21,8 @@ export interface CgmSummaryStatsProps {
   error?: string | null;
   period: StatsPeriod;
   onPeriodChange: (p: StatsPeriod) => void;
+  /** Active glucose display unit (default mgdl). Stats stay mg/dL internally. */
+  unit?: GlucoseUnit;
 }
 
 const PERIOD_OPTIONS: { value: StatsPeriod; label: string }[] = [
@@ -120,6 +123,7 @@ export function CgmSummaryStats({
   error,
   period,
   onPeriodChange,
+  unit = "mgdl",
 }: CgmSummaryStatsProps) {
   const noData = !stats || !Number.isFinite(stats.readings_count) || stats.readings_count <= 0;
   const cvAssessment = stats && Number.isFinite(stats.cv_pct) ? getCvAssessment(stats.cv_pct) : null;
@@ -211,17 +215,18 @@ export function CgmSummaryStats({
           <StatCard
             icon={<TrendingUp className="h-4 w-4 text-blue-400" aria-hidden="true" />}
             label="Avg Glucose"
-            value={isReasonableGlucose(stats.mean_glucose) ? safeRound(stats.mean_glucose) : "--"}
-            subtitle="mg/dL"
-            ariaLabel={`Average glucose: ${isReasonableGlucose(stats.mean_glucose) ? `${safeRound(stats.mean_glucose)} mg/dL` : "unavailable"}`}
+            value={isReasonableGlucose(stats.mean_glucose) ? formatGlucose(stats.mean_glucose, unit) : "--"}
+            subtitle={unitLabel(unit)}
+            ariaLabel={`Average glucose: ${isReasonableGlucose(stats.mean_glucose) ? `${formatGlucose(stats.mean_glucose, unit)} ${unitLabel(unit)}` : "unavailable"}`}
           />
 
           <StatCard
             icon={<BarChart3 className="h-4 w-4 text-purple-400" aria-hidden="true" />}
             label="Std Dev"
-            value={isValidStdDev(stats.std_dev) ? safeRound(stats.std_dev) : "--"}
-            subtitle="mg/dL"
-            ariaLabel={`Standard deviation: ${isValidStdDev(stats.std_dev) ? `${safeRound(stats.std_dev)} mg/dL` : "unavailable"}`}
+            // SD is a spread: scaled by /18.0156 like a value (mmol keeps 1 decimal).
+            value={isValidStdDev(stats.std_dev) ? formatGlucose(stats.std_dev, unit) : "--"}
+            subtitle={unitLabel(unit)}
+            ariaLabel={`Standard deviation: ${isValidStdDev(stats.std_dev) ? `${formatGlucose(stats.std_dev, unit)} ${unitLabel(unit)}` : "unavailable"}`}
           />
 
           <StatCard

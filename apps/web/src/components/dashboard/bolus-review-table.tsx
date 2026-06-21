@@ -15,9 +15,12 @@ import {
   BOLUS_PERIOD_LABELS,
 } from "@/hooks/use-bolus-review";
 import type { BolusReviewItem } from "@/lib/api";
+import { formatGlucose, unitLabel, type GlucoseUnit } from "@/lib/glucose-units";
 
 export interface BolusReviewTableProps {
   className?: string;
+  /** Active glucose display unit (default mgdl). BG stays mg/dL internally. */
+  unit?: GlucoseUnit;
 }
 
 const PERIOD_OPTIONS: { value: BolusReviewPeriod; label: string }[] = [
@@ -77,13 +80,15 @@ function isBasalInjection(item: BolusReviewItem): boolean {
   return item.event_type === "basal_injection";
 }
 
-function formatBg(value: number | null | undefined): string {
+function formatBg(value: number | null | undefined, unit: GlucoseUnit): string {
   if (value == null || !Number.isFinite(value)) return "---";
-  const clamped = Math.min(BG_MAX, Math.max(BG_MIN, Math.round(value)));
-  return `${clamped} mg/dL`;
+  // Clamp the 20-500 mg/dL invariant FIRST (canonical units), then convert
+  // for display so mmol precision is correct.
+  const clamped = Math.min(BG_MAX, Math.max(BG_MIN, value));
+  return `${formatGlucose(clamped, unit)} ${unitLabel(unit)}`;
 }
 
-function BolusRow({ bolus }: { bolus: BolusReviewItem }) {
+function BolusRow({ bolus, unit }: { bolus: BolusReviewItem; unit: GlucoseUnit }) {
   const basalInjection = isBasalInjection(bolus);
   const unitsMax = basalInjection ? MAX_BASAL_INJECTION_DISPLAY : MAX_BOLUS_DISPLAY;
   const typeLabel = basalInjection
@@ -118,7 +123,7 @@ function BolusRow({ bolus }: { bolus: BolusReviewItem }) {
         )}
       </td>
       <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300 whitespace-nowrap">
-        {basalInjection ? "---" : formatBg(bolus.bg_at_event)}
+        {basalInjection ? "---" : formatBg(bolus.bg_at_event, unit)}
       </td>
       <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300 whitespace-nowrap">
         {basalInjection ? "---" : formatUnits(bolus.iob_at_event, 1)}
@@ -134,7 +139,7 @@ function BolusRow({ bolus }: { bolus: BolusReviewItem }) {
   );
 }
 
-export function BolusReviewTable({ className }: BolusReviewTableProps) {
+export function BolusReviewTable({ className, unit = "mgdl" }: BolusReviewTableProps) {
   const { data, isLoading, error, period, setPeriod, refetch } = useBolusReview();
   const periodLabel = BOLUS_PERIOD_LABELS[period] ?? period;
   const buttonsRef = useRef<(HTMLButtonElement | null)[]>([]);
@@ -264,7 +269,7 @@ export function BolusReviewTable({ className }: BolusReviewTableProps) {
             </thead>
             <tbody>
               {data.boluses.map((bolus, i) => (
-                <BolusRow key={`${bolus.event_timestamp}-${i}`} bolus={bolus} />
+                <BolusRow key={`${bolus.event_timestamp}-${i}`} bolus={bolus} unit={unit} />
               ))}
             </tbody>
           </table>

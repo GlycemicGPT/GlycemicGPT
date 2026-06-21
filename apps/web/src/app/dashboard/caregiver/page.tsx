@@ -39,8 +39,23 @@ import {
 } from "@/lib/api";
 import { MarkdownContent } from "@/components/ui/markdown-content";
 import { useUserContext } from "@/providers";
+import {
+  formatGlucose,
+  formatTrendRate,
+  unitLabel,
+  type GlucoseUnit,
+} from "@/lib/glucose-units";
 
 const REFRESH_INTERVAL_MS = 60_000;
+
+/**
+ * Patient glucose renders in the PATIENT's unit, never the
+ * caregiver's own preference. The patient's `glucose_unit` is not yet carried
+ * on the caregiver status payload (added later); until then we fall
+ * back to the canonical mg/dL — NOT `useGlucoseUnit()` (the viewer's unit).
+ * When the caregiver payload carries the patient's unit, replace this with it.
+ */
+const PATIENT_GLUCOSE_UNIT: GlucoseUnit = "mgdl";
 
 function getTrendArrow(trend: string): string {
   const arrows: Record<string, string> = {
@@ -443,9 +458,9 @@ export default function CaregiverDashboardPage() {
                               getGlucoseColor(g.value)
                             )}
                           >
-                            {g.value}
+                            {formatGlucose(g.value, PATIENT_GLUCOSE_UNIT)}
                           </span>
-                          <span className="text-sm text-slate-500 dark:text-slate-400">mg/dL</span>
+                          <span className="text-sm text-slate-500 dark:text-slate-400">{unitLabel(PATIENT_GLUCOSE_UNIT)}</span>
                           <span className="text-lg">
                             {getTrendArrow(g.trend)}
                           </span>
@@ -547,9 +562,9 @@ export default function CaregiverDashboardPage() {
                         getGlucoseColor(status.glucose.value)
                       )}
                     >
-                      {status.glucose.value}
+                      {formatGlucose(status.glucose.value, PATIENT_GLUCOSE_UNIT)}
                     </span>
-                    <span className="text-2xl text-slate-500 dark:text-slate-400">mg/dL</span>
+                    <span className="text-2xl text-slate-500 dark:text-slate-400">{unitLabel(PATIENT_GLUCOSE_UNIT)}</span>
                     <span className="text-2xl">
                       {getTrendArrow(status.glucose.trend)}
                     </span>
@@ -569,7 +584,7 @@ export default function CaregiverDashboardPage() {
                     {status.glucose.trend_rate !== null && (
                       <span>
                         {status.glucose.trend_rate > 0 ? "+" : ""}
-                        {status.glucose.trend_rate.toFixed(1)} mg/dL/min
+                        {formatTrendRate(status.glucose.trend_rate, PATIENT_GLUCOSE_UNIT)} {unitLabel(PATIENT_GLUCOSE_UNIT)}/min
                       </span>
                     )}
                   </div>

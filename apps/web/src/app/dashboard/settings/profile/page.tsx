@@ -16,16 +16,26 @@ import {
   ArrowLeft,
   Key,
   Shield,
+  Droplet,
 } from "lucide-react";
 import Link from "next/link";
 import clsx from "clsx";
 import {
   getCurrentUser,
   updateProfile,
+  updateGlucoseUnit,
   changePassword,
   type CurrentUserResponse,
 } from "@/lib/api";
+import { unitLabel, type GlucoseUnit } from "@/lib/glucose-units";
+import { useUserContext } from "@/providers";
 import { OfflineBanner } from "@/components/ui/offline-banner";
+
+const GLUCOSE_UNIT_OPTIONS: { value: GlucoseUnit; label: string; hint: string }[] =
+  [
+    { value: "mgdl", label: "mg/dL", hint: "US standard" },
+    { value: "mmol", label: "mmol/L", hint: "International (UK, EU, AU)" },
+  ];
 
 const ROLE_LABELS: Record<string, string> = {
   diabetic: "Diabetic",
@@ -43,6 +53,11 @@ export default function ProfilePage() {
   // Display name form
   const [displayName, setDisplayName] = useState("");
   const [isSavingName, setIsSavingName] = useState(false);
+
+  // Glucose display unit. Persists via the dedicated glucose-unit
+  // endpoint and refreshes the shared user context so the dashboard re-renders.
+  const { refreshUser } = useUserContext();
+  const [isSavingUnit, setIsSavingUnit] = useState(false);
 
   // Password form
   const [showPasswordForm, setShowPasswordForm] = useState(false);
@@ -127,6 +142,36 @@ export default function ProfilePage() {
       );
     } finally {
       setIsSavingPassword(false);
+    }
+  };
+
+  const handleSelectUnit = async (unit: GlucoseUnit) => {
+    if (!profile || (profile.glucose_unit ?? "mgdl") === unit || isSavingUnit)
+      return;
+    setIsSavingUnit(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      await updateGlucoseUnit(unit);
+      // Persisted. Update local state + report success BEFORE the best-effort
+      // context refresh so a refresh failure never reads as a save failure.
+      // Functional update so a concurrent profile change isn't clobbered.
+      setProfile((prev) => (prev ? { ...prev, glucose_unit: unit } : prev));
+      setSuccess(`Glucose unit set to ${unitLabel(unit)}`);
+      // Propagate to the shared user context so display sites across the
+      // dashboard switch units immediately. Best-effort: the unit is
+      // already saved and will apply on the next load if this refresh fails.
+      try {
+        await refreshUser();
+      } catch {
+        // Non-fatal — the preference is persisted.
+      }
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to update glucose unit"
+      );
+    } finally {
+      setIsSavingUnit(false);
     }
   };
 
@@ -325,6 +370,71 @@ export default function ProfilePage() {
               {isSavingName ? "Saving..." : "Save Changes"}
             </button>
           </form>
+        </div>
+      )}
+
+      {/* Glucose Display Unit */}
+      {!isLoading && profile && (
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="p-2 bg-sky-500/10 rounded-lg">
+              <Droplet className="h-5 w-5 text-sky-400" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold">Glucose Display Unit</h2>
+              <p className="text-xs text-slate-500">
+                Choose how glucose values are shown across your dashboard
+              </p>
+            </div>
+          </div>
+
+          <div
+            role="radiogroup"
+            aria-label="Glucose display unit"
+            className="grid grid-cols-2 gap-3 max-w-md"
+          >
+            {GLUCOSE_UNIT_OPTIONS.map((option) => {
+              const isActive = (profile.glucose_unit ?? "mgdl") === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={isActive}
+                  onClick={() => handleSelectUnit(option.value)}
+                  disabled={isSavingUnit || isOffline}
+                  title={
+                    isOffline ? "Cannot change unit while disconnected" : undefined
+                  }
+                  className={clsx(
+                    "flex flex-col items-start gap-0.5 rounded-lg border px-4 py-3 text-left",
+                    "transition-colors focus:outline-hidden focus-visible:ring-2 focus-visible:ring-sky-500",
+                    "disabled:cursor-not-allowed disabled:opacity-60",
+                    isActive
+                      ? "border-sky-500 bg-sky-500/10"
+                      : "border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700"
+                  )}
+                >
+                  <span className="flex items-center gap-1.5 text-sm font-medium text-slate-800 dark:text-slate-100">
+                    {isActive && (
+                      <Check className="h-4 w-4 text-sky-500" aria-hidden="true" />
+                    )}
+                    {option.label}
+                  </span>
+                  <span className="text-xs text-slate-500">{option.hint}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          <p className="text-xs text-slate-500 mt-3 flex items-center gap-1.5">
+            {isSavingUnit && (
+              <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+            )}
+            {isSavingUnit
+              ? "Saving..."
+              : "Your glucose data is always stored in mg/dL; this only changes how it is displayed."}
+          </p>
         </div>
       )}
 

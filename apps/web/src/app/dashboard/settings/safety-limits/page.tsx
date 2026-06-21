@@ -27,8 +27,24 @@ import {
   type SafetyLimitsResponse,
   type SafetyLimitsDefaults,
 } from "@/lib/api";
+import {
+  toDisplayNumber,
+  clampMgdl,
+  toStoredMgdl,
+  formatGlucose,
+  unitLabel,
+  stepFor,
+} from "@/lib/glucose-units";
+import { useGlucoseUnit } from "@/hooks/use-glucose-unit";
 import { OfflineBanner } from "@/components/ui/offline-banner";
 import { useUserContext } from "@/providers";
+
+// The glucose validation bounds are a medical-safety invariant: they are ALWAYS
+// stored, validated, and sent to the API as integer mg/dL.
+// mmol users see/enter the bounds in mmol/L; conversion happens only at the
+// edges. min_glucose accepts 20-499 mg/dL, max_glucose 21-500 mg/dL.
+const MIN_GLUCOSE_BOUNDS = { min: 20, max: 499 };
+const MAX_GLUCOSE_BOUNDS = { min: 21, max: 500 };
 
 // Hardcoded fallback if the defaults endpoint is unreachable
 const FALLBACK_DEFAULTS: SafetyLimitsDefaults = {
@@ -57,6 +73,13 @@ function unitsToMilliunits(u: number): number {
 
 export default function SafetyLimitsPage() {
   const { user } = useUserContext();
+  const unit = useGlucoseUnit();
+  const isMmol = unit === "mmol";
+  // Display a stored mg/dL glucose bound as the active-unit string for an input.
+  const toDisplay = useCallback(
+    (mgdl: number) => formatGlucose(mgdl, unit),
+    [unit]
+  );
   const [defaults, setDefaults] = useState<SafetyLimitsDefaults>(FALLBACK_DEFAULTS);
   const [limits, setLimits] = useState<SafetyLimitsResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -83,8 +106,8 @@ export default function SafetyLimitsPage() {
       ]);
       setLimits(data);
       setDefaults(serverDefaults);
-      setMinGlucose(String(data.min_glucose_mgdl));
-      setMaxGlucose(String(data.max_glucose_mgdl));
+      setMinGlucose(toDisplay(data.min_glucose_mgdl));
+      setMaxGlucose(toDisplay(data.max_glucose_mgdl));
       setMaxBasal(milliunitsToUnits(data.max_basal_rate_milliunits));
       setMaxBolus(milliunitsToUnits(data.max_bolus_dose_milliunits));
       setIsOffline(false);
@@ -100,14 +123,14 @@ export default function SafetyLimitsPage() {
         max_bolus_dose_milliunits: FALLBACK_DEFAULTS.max_bolus_dose_milliunits,
         updated_at: "",
       });
-      setMinGlucose(String(FALLBACK_DEFAULTS.min_glucose_mgdl));
-      setMaxGlucose(String(FALLBACK_DEFAULTS.max_glucose_mgdl));
+      setMinGlucose(toDisplay(FALLBACK_DEFAULTS.min_glucose_mgdl));
+      setMaxGlucose(toDisplay(FALLBACK_DEFAULTS.max_glucose_mgdl));
       setMaxBasal(milliunitsToUnits(FALLBACK_DEFAULTS.max_basal_rate_milliunits));
       setMaxBolus(milliunitsToUnits(FALLBACK_DEFAULTS.max_bolus_dose_milliunits));
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [toDisplay]);
 
   useEffect(() => {
     fetchLimits();
@@ -147,20 +170,51 @@ export default function SafetyLimitsPage() {
     e.preventDefault();
     if (isSaving) return;
 
-    const minG = parseInt(minGlucose, 10);
-    const maxG = parseInt(maxGlucose, 10);
+    const minGInput = parseFloat(minGlucose);
+    const maxGInput = parseFloat(maxGlucose);
     const basalU = parseFloat(maxBasal);
     const bolusU = parseFloat(maxBolus);
 
-    if ([minG, maxG].some(isNaN) || [basalU, bolusU].some(isNaN)) {
+    if ([minGInput, maxGInput].some(isNaN) || [basalU, bolusU].some(isNaN)) {
       setError("Please enter valid numbers for all fields");
       return;
     }
 
-    if (String(minG) !== minGlucose.trim() || String(maxG) !== maxGlucose.trim()) {
+    // mg/dL must be entered as whole numbers; mmol entries carry one decimal
+    // and round-trip to integer mg/dL on save.
+    if (
+      !isMmol &&
+      (String(parseInt(minGlucose, 10)) !== minGlucose.trim() ||
+        String(parseInt(maxGlucose, 10)) !== maxGlucose.trim())
+    ) {
       setError("Glucose values must be whole numbers (no decimals)");
       return;
     }
+
+    // Range check in DISPLAY space so the displayed bound is accepted (e.g. the
+    // 500 ceiling shows as 27.8 mmol — entering it must be valid).
+    if (
+      minGInput < toDisplayNumber(MIN_GLUCOSE_BOUNDS.min, unit) ||
+      minGInput > toDisplayNumber(MIN_GLUCOSE_BOUNDS.max, unit) ||
+      maxGInput < toDisplayNumber(MAX_GLUCOSE_BOUNDS.min, unit) ||
+      maxGInput > toDisplayNumber(MAX_GLUCOSE_BOUNDS.max, unit)
+    ) {
+      setError("One or more values are outside the allowed range");
+      return;
+    }
+
+    // Canonical integer mg/dL, CLAMPED to the bound — the value on the wire is
+    // ALWAYS within range (medical-safety guarantee).
+    const minG = clampMgdl(
+      toStoredMgdl(minGInput, unit),
+      MIN_GLUCOSE_BOUNDS.min,
+      MIN_GLUCOSE_BOUNDS.max
+    );
+    const maxG = clampMgdl(
+      toStoredMgdl(maxGInput, unit),
+      MAX_GLUCOSE_BOUNDS.min,
+      MAX_GLUCOSE_BOUNDS.max
+    );
 
     if (minG >= maxG) {
       setError("Minimum glucose must be less than maximum glucose");
@@ -169,8 +223,7 @@ export default function SafetyLimitsPage() {
 
     const basalMu = unitsToMilliunits(basalU);
     const bolusMu = unitsToMilliunits(bolusU);
-    if (minG < 20 || minG > 499 || maxG < 21 || maxG > 500 ||
-        basalMu < 1 || basalMu > 15000 || bolusMu < 1 || bolusMu > 25000) {
+    if (basalMu < 1 || basalMu > 15000 || bolusMu < 1 || bolusMu > 25000) {
       setError("One or more values are outside the allowed range");
       return;
     }
@@ -185,8 +238,18 @@ export default function SafetyLimitsPage() {
     setError(null);
     setSuccess(null);
 
-    const minG = parseInt(minGlucose, 10);
-    const maxG = parseInt(maxGlucose, 10);
+    // Recompute the canonical integer mg/dL (clamped to the bound) from the
+    // entered display values.
+    const minG = clampMgdl(
+      toStoredMgdl(parseFloat(minGlucose), unit),
+      MIN_GLUCOSE_BOUNDS.min,
+      MIN_GLUCOSE_BOUNDS.max
+    );
+    const maxG = clampMgdl(
+      toStoredMgdl(parseFloat(maxGlucose), unit),
+      MAX_GLUCOSE_BOUNDS.min,
+      MAX_GLUCOSE_BOUNDS.max
+    );
     const basalU = parseFloat(maxBasal);
     const bolusU = parseFloat(maxBolus);
     const basalMu = unitsToMilliunits(basalU);
@@ -200,8 +263,8 @@ export default function SafetyLimitsPage() {
         max_bolus_dose_milliunits: bolusMu,
       });
       setLimits(updated);
-      setMinGlucose(String(updated.min_glucose_mgdl));
-      setMaxGlucose(String(updated.max_glucose_mgdl));
+      setMinGlucose(toDisplay(updated.min_glucose_mgdl));
+      setMaxGlucose(toDisplay(updated.max_glucose_mgdl));
       setMaxBasal(milliunitsToUnits(updated.max_basal_rate_milliunits));
       setMaxBolus(milliunitsToUnits(updated.max_bolus_dose_milliunits));
       setSuccess("Safety limits updated successfully");
@@ -233,8 +296,8 @@ export default function SafetyLimitsPage() {
         max_bolus_dose_milliunits: defaults.max_bolus_dose_milliunits,
       });
       setLimits(updated);
-      setMinGlucose(String(updated.min_glucose_mgdl));
-      setMaxGlucose(String(updated.max_glucose_mgdl));
+      setMinGlucose(toDisplay(updated.min_glucose_mgdl));
+      setMaxGlucose(toDisplay(updated.max_glucose_mgdl));
       setMaxBasal(milliunitsToUnits(updated.max_basal_rate_milliunits));
       setMaxBolus(milliunitsToUnits(updated.max_bolus_dose_milliunits));
       setSuccess("Safety limits reset to defaults");
@@ -257,29 +320,41 @@ export default function SafetyLimitsPage() {
     setPendingAction(null);
   };
 
-  const minGNum = parseInt(minGlucose, 10);
-  const maxGNum = parseInt(maxGlucose, 10);
+  // Display-unit values (what the user typed / sees in inputs + preview).
+  const minGInput = parseFloat(minGlucose);
+  const maxGInput = parseFloat(maxGlucose);
   const basalNum = parseFloat(maxBasal);
   const bolusNum = parseFloat(maxBolus);
+  // Canonical integer mg/dL — all glucose-bound validation runs here.
+  // Range validity in DISPLAY space so the displayed bound (e.g. 27.8 mmol for
+  // the 500 ceiling) is accepted; the saved value is clamped to canonical mg/dL.
+  const minGInRange =
+    !isNaN(minGInput) &&
+    minGInput >= toDisplayNumber(MIN_GLUCOSE_BOUNDS.min, unit) &&
+    minGInput <= toDisplayNumber(MIN_GLUCOSE_BOUNDS.max, unit);
+  const maxGInRange =
+    !isNaN(maxGInput) &&
+    maxGInput >= toDisplayNumber(MAX_GLUCOSE_BOUNDS.min, unit) &&
+    maxGInput <= toDisplayNumber(MAX_GLUCOSE_BOUNDS.max, unit);
   const basalMuNum = isNaN(basalNum) ? NaN : unitsToMilliunits(basalNum);
   const bolusMuNum = isNaN(bolusNum) ? NaN : unitsToMilliunits(bolusNum);
 
-  const allParsed = [minGNum, maxGNum, basalNum, bolusNum].every(
+  const allParsed = [minGInput, maxGInput, basalNum, bolusNum].every(
     (n) => !isNaN(n)
   );
+  // Compare glucose in display space so the load-time round-trip "snap"
+  // doesn't read as an unsaved change; insulin compares in milliunits.
   const hasChanges =
     limits &&
-    (minGNum !== limits.min_glucose_mgdl ||
-      maxGNum !== limits.max_glucose_mgdl ||
+    (minGlucose !== toDisplay(limits.min_glucose_mgdl) ||
+      maxGlucose !== toDisplay(limits.max_glucose_mgdl) ||
       basalMuNum !== limits.max_basal_rate_milliunits ||
       bolusMuNum !== limits.max_bolus_dose_milliunits);
   const isValid =
     allParsed &&
-    minGNum >= 20 &&
-    minGNum <= 499 &&
-    maxGNum >= 21 &&
-    maxGNum <= 500 &&
-    minGNum < maxGNum &&
+    minGInRange &&
+    maxGInRange &&
+    minGInput < maxGInput &&
     basalMuNum >= 1 &&
     basalMuNum <= 15000 &&
     bolusMuNum >= 1 &&
@@ -474,22 +549,22 @@ export default function SafetyLimitsPage() {
                     htmlFor="min-glucose"
                     className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
                   >
-                    Minimum Glucose (mg/dL)
+                    Minimum Glucose ({unitLabel(unit)})
                   </label>
                   <input
                     id="min-glucose"
                     type="number"
-                    min={20}
-                    max={499}
-                    step={1}
+                    min={toDisplayNumber(MIN_GLUCOSE_BOUNDS.min, unit)}
+                    max={toDisplayNumber(MIN_GLUCOSE_BOUNDS.max, unit)}
+                    step={stepFor(unit)}
                     value={minGlucose}
                     onChange={(e) => setMinGlucose(e.target.value)}
                     disabled={isSaving || showConfirm}
-                    aria-invalid={!isNaN(minGNum) && (minGNum < 20 || minGNum > 499) ? true : undefined}
+                    aria-invalid={!isNaN(minGInput) && !minGInRange ? true : undefined}
                     className={clsx(
                       "w-full rounded-lg border px-3 py-2 text-sm",
                       "bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-200",
-                      !isNaN(minGNum) && (minGNum < 20 || minGNum > 499)
+                      !isNaN(minGInput) && !minGInRange
                         ? "border-red-500 focus:ring-red-500"
                         : "border-slate-300 dark:border-slate-700 focus:ring-orange-500",
                       "focus:outline-hidden focus:ring-2 focus:border-transparent",
@@ -501,7 +576,7 @@ export default function SafetyLimitsPage() {
                     id="min-glucose-hint"
                     className="text-xs text-slate-500 mt-1"
                   >
-                    Range: 20-499 mg/dL. Default: {defaults.min_glucose_mgdl} mg/dL
+                    Range: {toDisplayNumber(MIN_GLUCOSE_BOUNDS.min, unit)}-{toDisplayNumber(MIN_GLUCOSE_BOUNDS.max, unit)} {unitLabel(unit)}. Default: {toDisplay(defaults.min_glucose_mgdl)} {unitLabel(unit)}
                   </p>
                 </div>
 
@@ -511,22 +586,22 @@ export default function SafetyLimitsPage() {
                     htmlFor="max-glucose"
                     className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
                   >
-                    Maximum Glucose (mg/dL)
+                    Maximum Glucose ({unitLabel(unit)})
                   </label>
                   <input
                     id="max-glucose"
                     type="number"
-                    min={21}
-                    max={500}
-                    step={1}
+                    min={toDisplayNumber(MAX_GLUCOSE_BOUNDS.min, unit)}
+                    max={toDisplayNumber(MAX_GLUCOSE_BOUNDS.max, unit)}
+                    step={stepFor(unit)}
                     value={maxGlucose}
                     onChange={(e) => setMaxGlucose(e.target.value)}
                     disabled={isSaving || showConfirm}
-                    aria-invalid={!isNaN(maxGNum) && (maxGNum < 21 || maxGNum > 500) ? true : undefined}
+                    aria-invalid={!isNaN(maxGInput) && !maxGInRange ? true : undefined}
                     className={clsx(
                       "w-full rounded-lg border px-3 py-2 text-sm",
                       "bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-200",
-                      !isNaN(maxGNum) && (maxGNum < 21 || maxGNum > 500)
+                      !isNaN(maxGInput) && !maxGInRange
                         ? "border-red-500 focus:ring-red-500"
                         : "border-slate-300 dark:border-slate-700 focus:ring-orange-500",
                       "focus:outline-hidden focus:ring-2 focus:border-transparent",
@@ -538,20 +613,20 @@ export default function SafetyLimitsPage() {
                     id="max-glucose-hint"
                     className="text-xs text-slate-500 mt-1"
                   >
-                    Range: 21-500 mg/dL. Default: {defaults.max_glucose_mgdl} mg/dL
+                    Range: {toDisplayNumber(MAX_GLUCOSE_BOUNDS.min, unit)}-{toDisplayNumber(MAX_GLUCOSE_BOUNDS.max, unit)} {unitLabel(unit)}. Default: {toDisplay(defaults.max_glucose_mgdl)} {unitLabel(unit)}
                   </p>
                 </div>
               </div>
 
               {/* Visual preview for glucose bounds */}
-              {isValid && minGNum < maxGNum && (
+              {isValid && minGInput < maxGInput && (
                 <div className="bg-slate-100/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-300/50 dark:border-slate-700/50">
                   <p className="text-xs text-slate-500 mb-2">Valid Glucose Range</p>
                   <p className="text-lg font-semibold text-orange-700 dark:text-orange-400">
-                    {minGNum} - {maxGNum} mg/dL
+                    {minGInput} - {maxGInput} {unitLabel(unit)}
                   </p>
                   <p className="text-xs text-slate-500 mt-1">
-                    Readings below {minGNum} or above {maxGNum} mg/dL will be
+                    Readings below {minGInput} or above {maxGInput} {unitLabel(unit)} will be
                     rejected as sensor errors
                   </p>
                 </div>
