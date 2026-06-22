@@ -20,8 +20,8 @@ import com.glycemicgpt.mobile.domain.model.CgmReading
 import com.glycemicgpt.mobile.domain.model.CgmStats
 import com.glycemicgpt.mobile.domain.model.ConnectionState
 import com.glycemicgpt.mobile.domain.model.EnrichedBolusEvent
-import com.glycemicgpt.mobile.domain.model.InsulinSummary
 import com.glycemicgpt.mobile.domain.model.GlucoseUnit
+import com.glycemicgpt.mobile.domain.model.InsulinSummary
 import com.glycemicgpt.mobile.domain.model.IoBReading
 import com.glycemicgpt.mobile.domain.plugin.DevicePlugin
 import com.glycemicgpt.mobile.domain.plugin.asBolusCategoryProvider
@@ -161,10 +161,14 @@ class HomeViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), appSettingsStore.glucoseUnit)
 
     init {
-        // Refresh glucose range + display-unit preference from backend on screen load if stale (15 min)
+        // The display unit is a per-account preference with no local staleness clock, so reconcile
+        // it from the backend on every load (a cheap GET). It used to piggyback the glucose-range
+        // staleness gate, which meant a unit change made on another device wouldn't propagate on a
+        // cold open while the range was still fresh.
+        viewModelScope.launch { authRepository.refreshGlucoseUnit() }
+        // Refresh glucose range from backend on screen load if stale (15 min)
         if (glucoseRangeStore.isStale(maxAgeMs = RANGE_REFRESH_INTERVAL_MS)) {
             viewModelScope.launch { refreshGlucoseRange() }
-            viewModelScope.launch { authRepository.refreshGlucoseUnit() }
         }
         // Refresh safety limits from backend if stale (1 hour)
         if (safetyLimitsStore.isStale()) {

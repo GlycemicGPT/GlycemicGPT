@@ -1185,19 +1185,29 @@ class SettingsViewModel @Inject constructor(
      * Set the glucose display unit. The unit is a per-account preference, so this does an
      * optimistic local-cache set for instant feedback AND a backend PATCH so the choice
      * propagates to web, watch, and AI text. (Unlike [setThemeMode], which is per-device.)
-     * On PATCH failure the optimistic value stays and a transient error is surfaced; the next
-     * `/api/settings/glucose-unit` reconcile corrects it rather than reverting mid-session.
+     * On success the selector reflects whatever unit the server resolved to (in case it ever
+     * coerces the value); on PATCH failure the optimistic value stays and a transient error is
+     * surfaced; the next `/api/settings/glucose-unit` reconcile corrects it rather than reverting
+     * mid-session.
      */
     fun setGlucoseUnit(unit: GlucoseUnit) {
         appSettingsStore.glucoseUnit = unit
         _uiState.value = _uiState.value.copy(glucoseUnit = unit, glucoseUnitSyncError = null)
         viewModelScope.launch {
-            authRepository.updateGlucoseUnit(unit).onFailure { e ->
-                Timber.w(e, "Failed to sync glucose unit to backend")
-                _uiState.value = _uiState.value.copy(
-                    glucoseUnitSyncError = "Couldn't save to your account. It will retry on next sign-in.",
-                )
-            }
+            authRepository.updateGlucoseUnit(unit)
+                .onSuccess { resolved ->
+                    // Fold the server-resolved unit back into the selector so it self-corrects if
+                    // the backend ever returns a different value than we optimistically applied.
+                    if (resolved != _uiState.value.glucoseUnit) {
+                        _uiState.value = _uiState.value.copy(glucoseUnit = resolved)
+                    }
+                }
+                .onFailure { e ->
+                    Timber.w(e, "Failed to sync glucose unit to backend")
+                    _uiState.value = _uiState.value.copy(
+                        glucoseUnitSyncError = "Couldn't save to your account. It will retry on next sign-in.",
+                    )
+                }
         }
     }
 

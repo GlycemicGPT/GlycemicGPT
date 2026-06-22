@@ -2075,8 +2075,10 @@ private fun WatchDataTelemetryCard(
                 )
             } else {
                 TelemetryRow(
-                    label = "Last BG sent",
-                    value = telemetry.lastBgMgDl?.let { "$it mg/dL" },
+                    // The watch is always sent the canonical mg/dL wire value, regardless of the
+                    // user's display unit; label it so this reads as a diagnostic, not a UI value.
+                    label = "Last BG sent (wire, mg/dL)",
+                    value = telemetry.lastBgMgDl?.toString(),
                     timestampMs = telemetry.lastBgTimestampMs,
                 )
                 TelemetryRow(

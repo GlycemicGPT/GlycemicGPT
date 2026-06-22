@@ -165,6 +165,20 @@ class SettingsViewModelTest {
     }
 
     @Test
+    fun `setGlucoseUnit folds the server-resolved unit back into state`() = runTest {
+        // Optimistically applied MMOL, but the server resolves to MGDL; the selector must reflect
+        // whatever the backend returned rather than the optimistic value.
+        coEvery { authRepository.updateGlucoseUnit(GlucoseUnit.MMOL) } returns
+            Result.success(GlucoseUnit.MGDL)
+        val vm = createViewModel()
+
+        vm.setGlucoseUnit(GlucoseUnit.MMOL)
+
+        assertEquals(GlucoseUnit.MGDL, vm.uiState.value.glucoseUnit)
+        assertNull(vm.uiState.value.glucoseUnitSyncError)
+    }
+
+    @Test
     fun `setGlucoseUnit keeps the optimistic value and surfaces an error on PATCH failure`() = runTest {
         coEvery { authRepository.updateGlucoseUnit(GlucoseUnit.MMOL) } returns
             Result.failure(RuntimeException("offline"))

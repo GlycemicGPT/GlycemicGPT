@@ -471,6 +471,16 @@ class HomeViewModelTest {
         coVerify(atLeast = 1) { authRepository.refreshSafetyLimits() }
     }
 
+    @Test
+    fun `init reconciles the glucose unit even when the glucose range is fresh`() = runTest {
+        // The unit reconcile is decoupled from range staleness so a unit change made on another
+        // device propagates on a cold open even while the range cache is still fresh.
+        every { glucoseRangeStore.isStale(any()) } returns false
+        createViewModel()
+        advanceTimeBy(10_000); runCurrent()
+        coVerify(atLeast = 1) { authRepository.refreshGlucoseUnit() }
+    }
+
     // -- Plugin cards ----------------------------------------------------------
 
     // -- CGM Stats state ------------------------------------------------------
