@@ -17,10 +17,15 @@ package com.glycemicgpt.mobile.ble.read
  * mg/dL); [trendMgDlPerMin] is the rate of change. Optional fields are `null`/absent when their
  * presence flag is clear, matching the SIG record's flag-driven layout.
  *
- * TODO(mmol/L): this assumes the 700-series always reports mg/dL. The Bluetooth SIG "CGM Feature"
- * characteristic exposes the device's measurement unit; a real European mmol/L pump sample is needed
- * to confirm it and add a conversion (via the shared 18.0156 factor) here. Deferred -- hardware-blocked.
- * The canonical-mg/dL storage invariant is unaffected because no mmol/L source is parsed yet.
+ * Note(mmol/L): glucose here is mg/dL. Per the Bluetooth SIG CGM Service spec the Measurement
+ * glucose concentration is mandated mg/dL (no per-record unit flag), and the CGM Feature
+ * characteristic carries only capability/type and sample-location bits -- there is no
+ * measurement-unit field to read. So a spec-compliant 700-series cannot emit mmol/L here and the
+ * canonical-mg/dL invariant holds. The only residual is a proprietary Medtronic deviation, which
+ * needs a real European mmol/L-display sample to confirm (hardware-blocked; tracked in #809 and
+ * the crowd-sourced Medtronic validation #708). No conversion is added until such a sample exists;
+ * if one ever does, convert via the shared 18.0156 factor with the existing reject-outside-20..500
+ * ordering preserved.
  *
  * Use [parse] to decode a (already-decrypted) record; it throws [MedtronicReadException] on any
  * structural inconsistency rather than returning a half-populated object.
