@@ -113,6 +113,17 @@ def test_mmol_fingerstick_round_trips_through_display_across_clinical_range():
         assert reading["value"] == expected_mgdl
         assert mgdl_to_mmol(reading["value"]) == mmol_in
 
+    # Canonical safety-edge display equivalents (about 1.1 and 27.8 mmol/L).
+    # 1.1 mmol/L = 20 mg/dL (lower bound), 27.8 mmol/L = 501 mg/dL (just above upper bound --
+    # the fingerstick path does not clamp, storage layer enforces the range).
+    assert map_bg_check_treatment_to_glucose_reading(
+        _mmol_fingerstick(1.1), user_id="user-1", source="nightscout:conn-1"
+    )["value"] == round(1.1 * MGDL_PER_MMOL)
+
+    assert map_bg_check_treatment_to_glucose_reading(
+        _mmol_fingerstick(27.8), user_id="user-1", source="nightscout:conn-1"
+    )["value"] == round(27.8 * MGDL_PER_MMOL)
+
 
 def test_mbg_entry_is_treated_as_mgdl():
     """entries[type=mbg] have no unit field, always treated as mg/dL."""
@@ -128,6 +139,7 @@ def test_mbg_entry_is_treated_as_mgdl():
     )
     assert reading is not None
     assert reading["value"] == 120
+
 
 @pytest.mark.parametrize("mbg", [20, 500])
 def test_mbg_entry_bounds_are_treated_as_mgdl(mbg: int):
