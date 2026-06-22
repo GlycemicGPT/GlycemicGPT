@@ -57,8 +57,8 @@ class GlycemicWearDeviceApp : Application() {
                             WearDataContract.CGM_PATH -> {
                                 // The cached CGM item carries the account-global unit; hydrate it
                                 // alongside the reading so cold start renders in the right unit.
-                                // Skip when the key is absent (e.g. an item cached by a pre-53.3
-                                // phone) so it can't clobber the unit restored from prefs.
+                                // Skip when the key is absent (e.g. an item cached by an older
+                                // phone build) so it can't clobber the unit restored from prefs.
                                 dataMap.getString(WearDataContract.KEY_GLUCOSE_UNIT)?.let {
                                     WatchDataRepository.updateGlucoseUnit(GlucoseUnit.fromWire(it))
                                 }
