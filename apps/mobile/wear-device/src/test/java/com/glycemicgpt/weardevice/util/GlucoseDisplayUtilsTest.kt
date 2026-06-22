@@ -1,6 +1,7 @@
 package com.glycemicgpt.weardevice.util
 
 import android.graphics.Color
+import java.util.Locale
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -195,5 +196,50 @@ class GlucoseDisplayUtilsTest {
     fun `sanitizeThresholds high is at least low plus 1`() {
         val t = GlucoseDisplayUtils.sanitizeThresholds(150, 150, 55, 250)
         assertTrue("high > low", t.high > t.low)
+    }
+
+    // --- Display-only unit formatting ---
+
+    @Test
+    fun `MGDL_PER_MMOL is the canonical 18_0156 constant`() {
+        // A drift here desyncs the watch from the phone/backend for the same mg/dL.
+        assertEquals(18.0156, GlucoseDisplayUtils.MGDL_PER_MMOL, 0.0)
+    }
+
+    @Test
+    fun `formatGlucose renders mgdl as the raw integer`() {
+        assertEquals("70", GlucoseDisplayUtils.formatGlucose(70, GlucoseUnit.MGDL))
+        assertEquals("120", GlucoseDisplayUtils.formatGlucose(120, GlucoseUnit.MGDL))
+    }
+
+    @Test
+    fun `formatGlucose converts mmol to conventional clinical anchors`() {
+        assertEquals("3.9", GlucoseDisplayUtils.formatGlucose(70, GlucoseUnit.MMOL))
+        assertEquals("10.0", GlucoseDisplayUtils.formatGlucose(180, GlucoseUnit.MMOL))
+        assertEquals("6.7", GlucoseDisplayUtils.formatGlucose(120, GlucoseUnit.MMOL))
+        assertEquals("5.6", GlucoseDisplayUtils.formatGlucose(100, GlucoseUnit.MMOL))
+    }
+
+    @Test
+    fun `formatGlucose mmol uses a dot decimal under a comma-decimal locale`() {
+        val original = Locale.getDefault()
+        try {
+            Locale.setDefault(Locale.GERMANY)
+            assertEquals("6.7", GlucoseDisplayUtils.formatGlucose(120, GlucoseUnit.MMOL))
+        } finally {
+            Locale.setDefault(original)
+        }
+    }
+
+    @Test
+    fun `unitLabel returns the user-facing label`() {
+        assertEquals("mg/dL", GlucoseDisplayUtils.unitLabel(GlucoseUnit.MGDL))
+        assertEquals("mmol/L", GlucoseDisplayUtils.unitLabel(GlucoseUnit.MMOL))
+    }
+
+    @Test
+    fun `formatWithLabel appends the unit label`() {
+        assertEquals("120 mg/dL", GlucoseDisplayUtils.formatWithLabel(120, GlucoseUnit.MGDL))
+        assertEquals("6.7 mmol/L", GlucoseDisplayUtils.formatWithLabel(120, GlucoseUnit.MMOL))
     }
 }

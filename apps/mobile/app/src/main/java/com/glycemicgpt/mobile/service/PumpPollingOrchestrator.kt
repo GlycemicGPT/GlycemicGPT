@@ -254,9 +254,9 @@ class PumpPollingOrchestrator @Inject constructor(
             pumpDriver.getCgmStatus()
                 .onSuccess {
                     repository.saveCgm(it)
-                    // We send the raw mg/dL value plus a per-account unit flag so the watch can
-                    // render in the user's unit once it consumes the flag (watch-side rendering is
-                    // a follow-up; the watch still shows mg/dL today). The wire value stays mg/dL.
+                    // We send the raw mg/dL value plus a per-account unit flag so the watch
+                    // renders glucose in the user's unit. The wire value stays canonical mg/dL;
+                    // only the watch's displayed/spoken number converts.
                     val glucoseUnit = appSettingsStore.glucoseUnit
                     try {
                         wearDataSender.sendCgm(

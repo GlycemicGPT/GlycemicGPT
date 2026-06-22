@@ -164,6 +164,10 @@ class GlucoseUnitDisplayUiTest {
                             glucoseUnit = unit,
                             isDetailMode = true,
                             showPeriodSelector = false,
+                            // Pin both charts to the same "now" so the x-axis mapping is identical;
+                            // otherwise each chart samples the wall clock at its own composition
+                            // moment and the dots land a sub-pixel apart, failing the plot-diff below.
+                            nowMsOverride = now.toEpochMilli(),
                             modifier = Modifier.fillMaxWidth().height(200.dp),
                         )
                     }

@@ -20,9 +20,16 @@ import java.util.concurrent.TimeUnit
 class BgComplicationDataSource : SuspendingComplicationDataSourceService() {
 
     override fun getPreviewData(type: ComplicationType): ComplicationData {
-        val text = PlainComplicationText.Builder("120 \u2192").build()
+        // Show the sample reading in the user's configured unit so the picker preview
+        // matches what they will actually see (defaults to mg/dL before any sync).
+        WatchDataRepository.init(applicationContext)
+        val unit = WatchDataRepository.glucoseUnit.value
+        val sample = GlucoseDisplayUtils.formatGlucose(PREVIEW_MG_DL, unit)
+        val sampleWithLabel = GlucoseDisplayUtils.formatWithLabel(PREVIEW_MG_DL, unit)
+
+        val text = PlainComplicationText.Builder("$sample \u2192").build()
         val title = PlainComplicationText.Builder("BG").build()
-        val description = PlainComplicationText.Builder("Blood Glucose: 120 mg/dL").build()
+        val description = PlainComplicationText.Builder("Blood Glucose: $sampleWithLabel").build()
 
         return when (type) {
             ComplicationType.SHORT_TEXT ->
@@ -31,7 +38,7 @@ class BgComplicationDataSource : SuspendingComplicationDataSourceService() {
                     .build()
             ComplicationType.LONG_TEXT ->
                 LongTextComplicationData.Builder(
-                    text = PlainComplicationText.Builder("BG: 120 mg/dL \u2192").build(),
+                    text = PlainComplicationText.Builder("BG: $sampleWithLabel \u2192").build(),
                     contentDescription = description,
                 )
                     .setTitle(title)
@@ -42,17 +49,21 @@ class BgComplicationDataSource : SuspendingComplicationDataSourceService() {
 
     override suspend fun onComplicationRequest(request: ComplicationRequest): ComplicationData {
         WatchDataRepository.init(applicationContext)
+        val unit = WatchDataRepository.glucoseUnit.value
         val now = System.currentTimeMillis()
         val staleThresholdMs = 15 * 60_000L // 15 minutes
+        // Staleness/validity gates compare the raw mg/dL Int; only the rendered text converts.
         val cgmState = WatchDataRepository.cgm.value?.takeIf {
             val ageMs = now - it.timestampMs
             GlucoseDisplayUtils.isValidGlucose(it.mgDl) &&
                 ageMs in 0 until staleThresholdMs
         }
         val bgText = cgmState?.let {
-            "${it.mgDl} ${GlucoseDisplayUtils.trendSymbol(it.trend)}"
+            "${GlucoseDisplayUtils.formatGlucose(it.mgDl, unit)} ${GlucoseDisplayUtils.trendSymbol(it.trend)}"
         } ?: "--"
-        val descriptionText = cgmState?.let { "Blood Glucose: ${it.mgDl} mg/dL" } ?: "No data"
+        val descriptionText = cgmState?.let {
+            "Blood Glucose: ${GlucoseDisplayUtils.formatWithLabel(it.mgDl, unit)}"
+        } ?: "No data"
 
         val text = PlainComplicationText.Builder(bgText).build()
         val description = PlainComplicationText.Builder(descriptionText).build()
@@ -78,7 +89,8 @@ class BgComplicationDataSource : SuspendingComplicationDataSourceService() {
             ComplicationType.LONG_TEXT ->
                 LongTextComplicationData.Builder(
                     text = PlainComplicationText.Builder(
-                        "BG: ${cgmState?.mgDl ?: "--"} mg/dL ${cgmState?.let { GlucoseDisplayUtils.trendSymbol(it.trend) } ?: ""}",
+                        "BG: ${cgmState?.let { GlucoseDisplayUtils.formatWithLabel(it.mgDl, unit) } ?: "--"} " +
+                            (cgmState?.let { GlucoseDisplayUtils.trendSymbol(it.trend) } ?: ""),
                     ).build(),
                     contentDescription = description,
                 )
@@ -86,5 +98,10 @@ class BgComplicationDataSource : SuspendingComplicationDataSourceService() {
                     .build()
             else -> NoDataComplicationData()
         }
+    }
+
+    private companion object {
+        /** Representative sample value for the complication picker preview. */
+        const val PREVIEW_MG_DL = 120
     }
 }
