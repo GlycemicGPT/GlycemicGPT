@@ -121,6 +121,9 @@ fun GlucoseTrendChart(
     onClick: (() -> Unit)? = null,
     isDetailMode: Boolean = false,
     showPeriodSelector: Boolean = true,
+    // Test seam: pins the chart's "now" so the x-axis mapping is deterministic across
+    // renders (production passes null and samples the wall clock once per data change).
+    nowMsOverride: Long? = null,
     modifier: Modifier = Modifier,
 ) {
     val content: @Composable (Modifier) -> Unit = { innerModifier ->
@@ -137,6 +140,7 @@ fun GlucoseTrendChart(
             onClick = onClick,
             isDetailMode = isDetailMode,
             showPeriodSelector = showPeriodSelector,
+            nowMsOverride = nowMsOverride,
             modifier = innerModifier,
         )
     }
@@ -170,6 +174,7 @@ private fun GlucoseTrendChartContent(
     onClick: (() -> Unit)?,
     isDetailMode: Boolean,
     showPeriodSelector: Boolean = true,
+    nowMsOverride: Long? = null,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier) {
@@ -254,8 +259,8 @@ private fun GlucoseTrendChartContent(
             val axisLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
             val gridColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
             val iobColor = MaterialTheme.colorScheme.primary
-            val nowMs = remember(readings, iobReadings, basalReadings, bolusEvents, selectedPeriod) {
-                System.currentTimeMillis()
+            val nowMs = remember(readings, iobReadings, basalReadings, bolusEvents, selectedPeriod, nowMsOverride) {
+                nowMsOverride ?: System.currentTimeMillis()
             }
             val fullPeriodMs = selectedPeriod.hours * 3600_000L
             val fullStartMs = nowMs - fullPeriodMs
