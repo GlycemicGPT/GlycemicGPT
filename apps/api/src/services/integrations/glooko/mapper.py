@@ -195,6 +195,8 @@ def map_cgm_points(points: list[dict]) -> list[MappedGlucose]:
 
     Each point: ``{y: mg/dL, value: mg/dL*100, timestamp: UTC-ISO, calculated: bool}``.
     Glucose has no trend in graph/data -> the row gets ``NOT_COMPUTABLE`` at storage.
+
+    Glucose values here are in mg/dL.
     """
     out: list[MappedGlucose] = []
     for p in points:

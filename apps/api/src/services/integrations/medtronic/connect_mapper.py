@@ -51,6 +51,19 @@ _MAX_SKEW_HOURS = 26
 # AI-context / TIR / stats read filters in ``routers.integrations`` (all clamp to
 # 20..500), plus the ``GlucoseReading`` storage ``ge=20`` floor. A wider per-source
 # bound would just admit values those consumers silently drop.
+#
+# Unit safety (mmol/L): CarePartner RecentData carries NO unit field -- ``sg`` and
+# marker BG values reflect whatever unit the pump's locale is configured for, which
+# CAN be mmol/L on European pumps. This feed gives no per-record or profile unit hint
+# to detect or convert against, so values are ASSUMED mg/dL. The 20-500 clamp is the
+# only mmol guard available: the bulk of the mmol/L range (~2-19) falls below 20 and
+# is dropped, so a unit-confused follower value mostly becomes a gap rather than a
+# wrong reading. The residual gap is a very high real reading of ~20-27.8 mmol/L being
+# stored as a 20-27 "mg/dL" false low -- unavoidable here without unit metadata.
+# TODO: if CarePartner ever exposes a unit hint, detect mmol/L and skip (mirroring the
+# CareLink CSV path's header-based skip) rather than store, and only convert against a
+# confirmed real sample. Unlike the CareLink export -- which names the unit in its
+# column header -- this feed exposes no signal to branch on today.
 _SG_MIN_MGDL = 20
 _SG_MAX_MGDL = 500
 
@@ -157,7 +170,8 @@ def _carb_amount(m: dict) -> float | None:
 
 
 def _bg_value(m: dict) -> int | None:
-    """xDrip getBloodGlucose()."""
+    """xDrip getBloodGlucose().
+    Returns glucose values in mg/dL."""
     v = m.get("value")
     if v is None:
         v = _data_values(m).get("unitValue")
@@ -170,7 +184,8 @@ def _bg_value(m: dict) -> int | None:
 
 
 def map_recent_data(recent: dict) -> MappedRecords:
-    """Map a ``RecentData`` (display/message ``patientData``) dict to records."""
+    """Map a ``RecentData`` (display/message ``patientData``) dict to records.
+    Glucose values here are in mg/dL."""
     records = MappedRecords()
     if not isinstance(recent, dict):
         return records
