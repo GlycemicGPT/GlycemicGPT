@@ -49,11 +49,20 @@ async def test_glucose_unit_preference_round_trips_to_auth_me(client):
     me_response = await client.get("/api/auth/me", cookies=cookies)
 
     assert default_response.status_code == 200
-    assert default_response.json() == {"glucose_unit": "mgdl"}
+    # A fresh account's unit is a smart default (registration locale), so its
+    # provenance is "seed"; an explicit PATCH flips it to "user".
+    assert default_response.json() == {
+        "glucose_unit": "mgdl",
+        "glucose_unit_source": "seed",
+    }
     assert update_response.status_code == 200
-    assert update_response.json() == {"glucose_unit": "mmol"}
+    assert update_response.json() == {
+        "glucose_unit": "mmol",
+        "glucose_unit_source": "user",
+    }
     assert me_response.status_code == 200
     assert me_response.json()["glucose_unit"] == "mmol"
+    assert me_response.json()["glucose_unit_source"] == "user"
 
 
 async def test_glucose_unit_preference_rejects_unknown_value(client):
@@ -97,6 +106,115 @@ async def test_glucose_unit_requires_authentication(client):
 
     assert get_response.status_code == 401
     assert patch_response.status_code == 401
+
+
+async def _register(client, *, accept_language: str | None = None) -> dict:
+    """Register a fresh account (optionally with an Accept-Language header) and
+    return the auth cookies."""
+    email = unique_email("seed")
+    password = "SecurePass123"
+    headers = {"Accept-Language": accept_language} if accept_language else {}
+    await client.post(
+        "/api/auth/register",
+        json={"email": email, "password": password},
+        headers=headers,
+    )
+    login_response = await client.post(
+        "/api/auth/login",
+        json={"email": email, "password": password},
+    )
+    return {
+        settings.jwt_cookie_name: login_response.cookies.get(settings.jwt_cookie_name)
+    }
+
+
+async def test_registration_seeds_mmol_for_mmol_region_locale(client):
+    cookies = await _register(client, accept_language="en-GB,en;q=0.9")
+
+    response = await client.get("/api/settings/glucose-unit", cookies=cookies)
+
+    assert response.status_code == 200
+    assert response.json() == {"glucose_unit": "mmol", "glucose_unit_source": "seed"}
+
+
+async def test_registration_seeds_mgdl_for_us_locale(client):
+    cookies = await _register(client, accept_language="en-US,en;q=0.9")
+
+    response = await client.get("/api/settings/glucose-unit", cookies=cookies)
+
+    assert response.status_code == 200
+    # US is mg/dL: seeded value matches today's default, provenance still "seed".
+    assert response.json() == {"glucose_unit": "mgdl", "glucose_unit_source": "seed"}
+
+
+async def test_auth_me_exposes_seed_provenance_for_a_seeded_account(client):
+    """The web seed notice gates on `glucose_unit_source` read from /api/auth/me,
+    so the UserResponse serializer must carry the 'seed' value -- a separate path
+    from the settings GET asserted elsewhere."""
+    cookies = await _register(client, accept_language="en-GB")
+
+    response = await client.get("/api/auth/me", cookies=cookies)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["glucose_unit"] == "mmol"
+    assert body["glucose_unit_source"] == "seed"
+
+
+async def test_registration_seeds_mgdl_without_accept_language(client):
+    cookies = await _register(client, accept_language=None)
+
+    response = await client.get("/api/settings/glucose-unit", cookies=cookies)
+
+    assert response.status_code == 200
+    assert response.json()["glucose_unit"] == "mgdl"
+
+
+async def test_registration_seed_leaves_canonical_settings_in_mgdl(client):
+    """The mmol display seed must not convert canonical mg/dL settings."""
+    cookies = await _register(client, accept_language="en-GB")
+
+    unit_response = await client.get("/api/settings/glucose-unit", cookies=cookies)
+    range_response = await client.get(
+        "/api/settings/target-glucose-range", cookies=cookies
+    )
+
+    assert unit_response.json()["glucose_unit"] == "mmol"
+    # Default target range stays canonical mg/dL (70/180), NOT mmol-converted.
+    body = range_response.json()
+    assert body["low_target"] == 70.0
+    assert body["high_target"] == 180.0
+
+
+async def test_acknowledge_flips_seed_to_user_without_changing_unit(client):
+    cookies = await _register(client, accept_language="en-GB")
+
+    before = await client.get("/api/settings/glucose-unit", cookies=cookies)
+    ack = await client.post("/api/settings/glucose-unit/acknowledge", cookies=cookies)
+    after = await client.get("/api/settings/glucose-unit", cookies=cookies)
+
+    assert before.json() == {"glucose_unit": "mmol", "glucose_unit_source": "seed"}
+    assert ack.status_code == 200
+    # Dismiss = "treat the seeded unit as my choice": unit unchanged, source=user.
+    assert ack.json() == {"glucose_unit": "mmol", "glucose_unit_source": "user"}
+    assert after.json() == {"glucose_unit": "mmol", "glucose_unit_source": "user"}
+
+
+async def test_acknowledge_is_idempotent(client):
+    cookies = await _register(client, accept_language="en-GB")
+
+    first = await client.post("/api/settings/glucose-unit/acknowledge", cookies=cookies)
+    second = await client.post(
+        "/api/settings/glucose-unit/acknowledge", cookies=cookies
+    )
+
+    assert first.json() == {"glucose_unit": "mmol", "glucose_unit_source": "user"}
+    assert second.json() == {"glucose_unit": "mmol", "glucose_unit_source": "user"}
+
+
+async def test_acknowledge_requires_authentication(client):
+    response = await client.post("/api/settings/glucose-unit/acknowledge")
+    assert response.status_code == 401
 
 
 async def test_glucose_unit_forbidden_for_caregiver(client, db_session):

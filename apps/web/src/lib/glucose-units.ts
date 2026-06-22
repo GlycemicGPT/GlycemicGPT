@@ -18,6 +18,14 @@
 export type GlucoseUnit = "mgdl" | "mmol";
 
 /**
+ * Provenance of a stored glucose-unit preference. Mirrors the backend
+ * `GlucoseUnitSource` enum. `"seed"` is a smart default (registration locale or
+ * a confidently-mmol Nightscout) that is still overridable; `"user"` is an
+ * explicit choice. Drives the one-time smart-default notice (Story 53.10).
+ */
+export type GlucoseUnitSource = "seed" | "user";
+
+/**
  * The ONE canonical conversion factor: 1 mmol/L = 18.0156 mg/dL — the exact
  * glucose mass-to-molarity factor. Mirrors the backend's
  * `src/core/units.py` `MGDL_PER_MMOL`. Do NOT introduce a second value

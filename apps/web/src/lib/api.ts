@@ -7,7 +7,7 @@
  * Glucose unit preference on the current user + update endpoint
  */
 
-import type { GlucoseUnit } from "./glucose-units";
+import type { GlucoseUnit, GlucoseUnitSource } from "./glucose-units";
 
 /**
  * Resolve the API base URL.
@@ -1220,6 +1220,13 @@ export interface CurrentUserResponse {
    * `useGlucoseUnit`) so existing mg/dL behavior is preserved.
    */
   glucose_unit?: GlucoseUnit;
+  /**
+   * Provenance of `glucose_unit`. `"seed"` means a smart default (registration
+   * locale / confident Nightscout) that the user hasn't confirmed yet; the
+   * dashboard shows a one-time notice when it is `"seed"` and the unit is
+   * non-mgdl. Optional for deploy skew against an older API.
+   */
+  glucose_unit_source?: GlucoseUnitSource;
   created_at: string;
 }
 
@@ -1298,6 +1305,31 @@ export async function updateGlucoseUnit(
   }
 
   return response.json();
+}
+
+/**
+ * Acknowledge the smart-default glucose-unit notice without changing the unit
+ * (Story 53.10). Stamps the preference `source=user` server-side so the notice
+ * never recurs and a later seed never re-fires. Used when the user dismisses
+ * the dashboard notice without going to Settings; changing the unit there
+ * already flips the source via `updateGlucoseUnit`.
+ *
+ * Fire-and-forget: the caller refreshes the user context to pick up the new
+ * provenance, so this resolves to void rather than returning the (unused)
+ * acknowledged preference body.
+ */
+export async function acknowledgeGlucoseUnitSeed(): Promise<void> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/settings/glucose-unit/acknowledge`,
+    { method: "POST" }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to acknowledge glucose unit: ${response.status}`
+    );
+  }
 }
 
 /**

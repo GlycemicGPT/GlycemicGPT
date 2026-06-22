@@ -24,6 +24,9 @@ import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/** Backend glucose-unit provenance wire value flagging a still-unconfirmed smart default. */
+private const val GLUCOSE_UNIT_SOURCE_SEED = "seed"
+
 data class LoginResult(
     val success: Boolean,
     val email: String? = null,
@@ -130,6 +133,7 @@ class AuthRepository @Inject constructor(
         // The glucose unit is a per-account preference; reset to the neutral default so a stale
         // unit can't carry over to the next account before its reconcile lands.
         appSettingsStore.glucoseUnit = GlucoseUnit.MGDL
+        appSettingsStore.glucoseUnitSeedPending = false
         authManager.onLogout()
         scope.launch {
             deviceRepository.unregisterDevice()
@@ -197,6 +201,9 @@ class AuthRepository @Inject constructor(
             if (response.isSuccessful) {
                 val resolved = response.body()?.let { GlucoseUnit.fromWire(it.glucoseUnit) } ?: unit
                 appSettingsStore.glucoseUnit = resolved
+                // An explicit choice confirms the preference, so the one-time smart-default
+                // notice must not show (the backend also flips provenance to "user").
+                appSettingsStore.glucoseUnitSeedPending = false
                 Result.success(resolved)
             } else {
                 Result.failure(Exception("Server responded with HTTP ${response.code()}"))
@@ -205,6 +212,29 @@ class AuthRepository @Inject constructor(
             throw e
         } catch (e: Exception) {
             Timber.w(e, "Failed to update glucose unit")
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Acknowledge the smart-default glucose-unit notice without changing the unit (Story 53.10).
+     * Stamps provenance `source=user` server-side -- so the notice never recurs and a later seed
+     * never re-fires -- and clears the local pending flag. Used when the user dismisses the notice
+     * without picking a unit; picking one goes through [updateGlucoseUnit], which already confirms.
+     */
+    suspend fun acknowledgeGlucoseUnitSeed(): Result<Unit> {
+        return try {
+            val response = api.acknowledgeGlucoseUnitSeed()
+            if (response.isSuccessful) {
+                appSettingsStore.glucoseUnitSeedPending = false
+                Result.success(Unit)
+            } else {
+                Result.failure(Exception("Server responded with HTTP ${response.code()}"))
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "Failed to acknowledge glucose unit seed")
             Result.failure(e)
         }
     }
@@ -239,8 +269,19 @@ class AuthRepository @Inject constructor(
             val response = api.getGlucoseUnit()
             if (response.isSuccessful) {
                 response.body()?.let { body ->
-                    appSettingsStore.glucoseUnit = GlucoseUnit.fromWire(body.glucoseUnit)
-                    Timber.d("Glucose unit reconciled: %s", body.glucoseUnit)
+                    val unit = GlucoseUnit.fromWire(body.glucoseUnit)
+                    appSettingsStore.glucoseUnit = unit
+                    // A still-seed-owned non-mgdl preference drives the one-time smart-default
+                    // confirmation notice in Settings (Story 53.10). Reconcile clears it once the
+                    // account provenance is "user" (the user confirmed elsewhere).
+                    appSettingsStore.glucoseUnitSeedPending =
+                        body.glucoseUnitSource == GLUCOSE_UNIT_SOURCE_SEED &&
+                        unit != GlucoseUnit.MGDL
+                    Timber.d(
+                        "Glucose unit reconciled: %s (source=%s)",
+                        body.glucoseUnit,
+                        body.glucoseUnitSource,
+                    )
                 }
             }
         } catch (e: CancellationException) {

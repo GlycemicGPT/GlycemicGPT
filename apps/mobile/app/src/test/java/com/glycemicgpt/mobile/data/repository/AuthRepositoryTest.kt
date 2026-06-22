@@ -267,4 +267,75 @@ class AuthRepositoryTest {
 
         verify(exactly = 0) { appSettingsStore.glucoseUnit = any() }
     }
+
+    @Test
+    fun `refreshGlucoseUnit flags seed-pending for a seed-owned mmol preference`() = runTest {
+        coEvery { api.getGlucoseUnit() } returns Response.success(
+            GlucoseUnitResponse(glucoseUnit = "mmol", glucoseUnitSource = "seed"),
+        )
+
+        repository.refreshGlucoseUnit()
+
+        verify { appSettingsStore.glucoseUnit = GlucoseUnit.MMOL }
+        verify { appSettingsStore.glucoseUnitSeedPending = true }
+    }
+
+    @Test
+    fun `refreshGlucoseUnit does not flag seed-pending for a seed-owned mgdl preference`() =
+        runTest {
+            coEvery { api.getGlucoseUnit() } returns Response.success(
+                GlucoseUnitResponse(glucoseUnit = "mgdl", glucoseUnitSource = "seed"),
+            )
+
+            repository.refreshGlucoseUnit()
+
+            verify { appSettingsStore.glucoseUnitSeedPending = false }
+        }
+
+    @Test
+    fun `refreshGlucoseUnit does not flag seed-pending once the user has chosen`() = runTest {
+        coEvery { api.getGlucoseUnit() } returns Response.success(
+            GlucoseUnitResponse(glucoseUnit = "mmol", glucoseUnitSource = "user"),
+        )
+
+        repository.refreshGlucoseUnit()
+
+        verify { appSettingsStore.glucoseUnitSeedPending = false }
+    }
+
+    @Test
+    fun `updateGlucoseUnit clears seed-pending on success`() = runTest {
+        coEvery { api.patchGlucoseUnit(any()) } returns Response.success(
+            GlucoseUnitResponse(glucoseUnit = "mmol", glucoseUnitSource = "user"),
+        )
+
+        repository.updateGlucoseUnit(GlucoseUnit.MMOL)
+
+        verify { appSettingsStore.glucoseUnitSeedPending = false }
+    }
+
+    @Test
+    fun `acknowledgeGlucoseUnitSeed clears seed-pending and succeeds`() = runTest {
+        coEvery { api.acknowledgeGlucoseUnitSeed() } returns Response.success(
+            GlucoseUnitResponse(glucoseUnit = "mmol", glucoseUnitSource = "user"),
+        )
+
+        val result = repository.acknowledgeGlucoseUnitSeed()
+
+        assertTrue(result.isSuccess)
+        coVerify { api.acknowledgeGlucoseUnitSeed() }
+        verify { appSettingsStore.glucoseUnitSeedPending = false }
+    }
+
+    @Test
+    fun `acknowledgeGlucoseUnitSeed returns failure and leaves cache untouched on HTTP error`() =
+        runTest {
+            coEvery { api.acknowledgeGlucoseUnitSeed() } returns
+                Response.error(500, "boom".toResponseBody())
+
+            val result = repository.acknowledgeGlucoseUnitSeed()
+
+            assertTrue(result.isFailure)
+            verify(exactly = 0) { appSettingsStore.glucoseUnitSeedPending = any() }
+        }
 }

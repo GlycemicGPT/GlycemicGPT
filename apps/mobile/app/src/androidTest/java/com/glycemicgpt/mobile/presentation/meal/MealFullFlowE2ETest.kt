@@ -323,6 +323,7 @@ private class FakeMealApi : GlycemicGptApi {
     override suspend fun acknowledgeAlert(alertId: String) = notUsed()
     override suspend fun getGlucoseUnit() = notUsed()
     override suspend fun patchGlucoseUnit(request: GlucoseUnitUpdateRequest) = notUsed()
+    override suspend fun acknowledgeGlucoseUnitSeed() = notUsed()
     override suspend fun getGlucoseRange() = notUsed()
     override suspend fun getSafetyLimits() = notUsed()
     override suspend fun getAnalyticsConfig() = notUsed()

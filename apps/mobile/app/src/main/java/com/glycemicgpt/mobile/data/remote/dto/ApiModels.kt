@@ -114,10 +114,16 @@ data class GlucoseRangeResponse(
     @Json(name = "urgent_high") val urgentHigh: Float,
 )
 
-/** Per-account glucose display unit preference. [glucoseUnit] is the backend enum wire value ("mgdl"/"mmol"). */
+/**
+ * Per-account glucose display unit preference. [glucoseUnit] is the backend enum wire value
+ * ("mgdl"/"mmol"). [glucoseUnitSource] is the provenance ("seed"/"user"/null) -- "seed" with a
+ * non-mgdl unit drives the one-time smart-default confirmation notice (Story 53.10). Nullable so an
+ * older API that predates provenance is parsed safely.
+ */
 @JsonClass(generateAdapter = true)
 data class GlucoseUnitResponse(
     @Json(name = "glucose_unit") val glucoseUnit: String,
+    @Json(name = "glucose_unit_source") val glucoseUnitSource: String? = null,
 )
 
 @JsonClass(generateAdapter = true)

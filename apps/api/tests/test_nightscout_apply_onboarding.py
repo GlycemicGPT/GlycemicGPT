@@ -17,8 +17,9 @@ from unittest.mock import AsyncMock, patch
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete
+from sqlalchemy import delete, select, update
 
+from src.core.units import GlucoseUnit, GlucoseUnitSource
 from src.database import get_session_maker
 from src.main import app
 from src.models.insulin_config import InsulinConfig
@@ -1025,5 +1026,181 @@ async def test_apply_no_imports_returns_skipped(http_client):
         assert body["insulin_config"] is None
         assert body["pump_profile_id"] is None
         assert all(v is False for v in body["applied"].values())
+    finally:
+        await _cleanup([email])
+
+
+# ---------------------------------------------------------------------------
+# Smart-default glucose-unit seed (Story 53.10)
+# ---------------------------------------------------------------------------
+
+
+async def _read_user_unit(email: str) -> tuple[GlucoseUnit, GlucoseUnitSource | None]:
+    """Return the (glucose_unit, glucose_unit_source) for an account by email."""
+    async with get_session_maker()() as db:
+        user = (await db.execute(select(User).where(User.email == email))).scalar_one()
+        return user.glucose_unit, user.glucose_unit_source
+
+
+@pytest.mark.asyncio
+async def test_apply_seeds_mmol_unit_from_confident_mmol_nightscout(http_client):
+    """Connecting a confidently-mmol Nightscout flips the display preference to
+    mmol (source=seed) -- even with no settings imported -- while canonical
+    storage stays mg/dL."""
+    email = _unique_email("ns_seed_mmol")
+    cookies = await _register_and_login(http_client, email)
+    try:
+        connection_id = await _create_conn(http_client, cookies)
+        await _seed_snapshot(
+            connection_id=connection_id, user_email=email, units="mmol"
+        )
+
+        # Sanity: a fresh US-test-client account starts mg/dL via the seed default.
+        unit_before, source_before = await _read_user_unit(email)
+        assert unit_before == GlucoseUnit.MGDL
+        assert source_before == GlucoseUnitSource.SEED
+
+        with _patch_sync_ok():
+            resp = await http_client.post(
+                f"/api/integrations/nightscout/{connection_id}/apply-onboarding",
+                cookies=cookies,
+                json={},
+            )
+        assert resp.status_code == 200, resp.text
+
+        unit_after, source_after = await _read_user_unit(email)
+        assert unit_after == GlucoseUnit.MMOL
+        assert source_after == GlucoseUnitSource.SEED
+
+        # Canonical settings untouched: default target range stays mg/dL.
+        range_resp = await http_client.get(
+            "/api/settings/target-glucose-range", cookies=cookies
+        )
+        body = range_resp.json()
+        assert body["low_target"] == 70.0
+        assert body["high_target"] == 180.0
+    finally:
+        await _cleanup([email])
+
+
+@pytest.mark.asyncio
+async def test_apply_units_unknown_does_not_seed_unit(http_client):
+    """An unclassifiable source unit is NOT a confident mmol signal -> no seed."""
+    email = _unique_email("ns_seed_unknown")
+    cookies = await _register_and_login(http_client, email)
+    try:
+        connection_id = await _create_conn(http_client, cookies)
+        await _seed_snapshot(
+            connection_id=connection_id, user_email=email, units="weird_unit"
+        )
+        with _patch_sync_ok():
+            resp = await http_client.post(
+                f"/api/integrations/nightscout/{connection_id}/apply-onboarding",
+                cookies=cookies,
+                json={},  # no glucose-domain import -> no units_unknown 409 gate
+            )
+        assert resp.status_code == 200, resp.text
+
+        unit_after, source_after = await _read_user_unit(email)
+        assert unit_after == GlucoseUnit.MGDL
+        assert source_after == GlucoseUnitSource.SEED
+    finally:
+        await _cleanup([email])
+
+
+@pytest.mark.asyncio
+async def test_apply_confident_mgdl_does_not_seed_mmol(http_client):
+    """A confidently-mg/dL Nightscout must not seed mmol (units_unknown==False
+    is NOT sufficient -- only a confident mmol signal seeds)."""
+    email = _unique_email("ns_seed_mgdl")
+    cookies = await _register_and_login(http_client, email)
+    try:
+        connection_id = await _create_conn(http_client, cookies)
+        await _seed_snapshot(
+            connection_id=connection_id, user_email=email, units="mg/dl"
+        )
+        with _patch_sync_ok():
+            resp = await http_client.post(
+                f"/api/integrations/nightscout/{connection_id}/apply-onboarding",
+                cookies=cookies,
+                json={},
+            )
+        assert resp.status_code == 200, resp.text
+
+        unit_after, source_after = await _read_user_unit(email)
+        assert unit_after == GlucoseUnit.MGDL
+        assert source_after == GlucoseUnitSource.SEED
+    finally:
+        await _cleanup([email])
+
+
+@pytest.mark.asyncio
+async def test_apply_does_not_override_explicit_user_unit_choice(http_client):
+    """An explicit user choice (source=user) is never overridden by a mmol
+    Nightscout connect, even when the chosen unit is mg/dL."""
+    email = _unique_email("ns_seed_userset")
+    cookies = await _register_and_login(http_client, email)
+    try:
+        # User explicitly chooses mg/dL -> source=user.
+        patch_resp = await http_client.patch(
+            "/api/settings/glucose-unit",
+            cookies=cookies,
+            json={"glucose_unit": "mgdl"},
+        )
+        assert patch_resp.status_code == 200
+        assert patch_resp.json()["glucose_unit_source"] == "user"
+
+        connection_id = await _create_conn(http_client, cookies)
+        await _seed_snapshot(
+            connection_id=connection_id, user_email=email, units="mmol"
+        )
+        with _patch_sync_ok():
+            resp = await http_client.post(
+                f"/api/integrations/nightscout/{connection_id}/apply-onboarding",
+                cookies=cookies,
+                json={},
+            )
+        assert resp.status_code == 200, resp.text
+
+        unit_after, source_after = await _read_user_unit(email)
+        assert unit_after == GlucoseUnit.MGDL
+        assert source_after == GlucoseUnitSource.USER
+    finally:
+        await _cleanup([email])
+
+
+@pytest.mark.asyncio
+async def test_apply_does_not_re_seed_an_account_already_in_mmol(http_client):
+    """AC3 'never re-fire': a confident-mmol connect must not re-stamp an account
+    already in mmol. A legacy mmol account with NULL provenance must keep its NULL
+    source -- re-stamping it 'seed' would spuriously re-trigger the one-time notice."""
+    email = _unique_email("ns_seed_already_mmol")
+    cookies = await _register_and_login(http_client, email)
+    try:
+        # Simulate a legacy account: mmol display unit, provenance never recorded.
+        async with get_session_maker()() as db:
+            await db.execute(
+                update(User)
+                .where(User.email == email)
+                .values(glucose_unit=GlucoseUnit.MMOL, glucose_unit_source=None)
+            )
+            await db.commit()
+
+        connection_id = await _create_conn(http_client, cookies)
+        await _seed_snapshot(
+            connection_id=connection_id, user_email=email, units="mmol"
+        )
+        with _patch_sync_ok():
+            resp = await http_client.post(
+                f"/api/integrations/nightscout/{connection_id}/apply-onboarding",
+                cookies=cookies,
+                json={},
+            )
+        assert resp.status_code == 200, resp.text
+
+        # Untouched: still mmol, provenance NOT re-stamped to SEED.
+        unit_after, source_after = await _read_user_unit(email)
+        assert unit_after == GlucoseUnit.MMOL
+        assert source_after is None
     finally:
         await _cleanup([email])
