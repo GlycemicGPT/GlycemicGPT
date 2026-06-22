@@ -40,6 +40,7 @@ from src.services.chat_history import (
 )
 from src.services.diabetes_context import (
     build_diabetes_context,
+    verify_glucose_reading_citations,
     verify_meal_citations,
 )
 
@@ -268,8 +269,12 @@ async def handle_chat(
         )
 
     # Verify any meal carb figure the model cited against the user's logged
-    # meals before it reaches the user or is persisted.
+    # meals, and any glucose figure against the user's readings, before it
+    # reaches the user or is persisted.
     content = await verify_meal_citations(db, user_id, content, surface="chat")
+    content = await verify_glucose_reading_citations(
+        db, user_id, content, surface="chat"
+    )
 
     # Persist both messages (non-fatal -- still return the AI response on failure)
     try:
@@ -422,8 +427,12 @@ async def handle_chat_web(
         )
 
     # Verify any meal carb figure the model cited against the user's logged
-    # meals before it reaches the user or is persisted.
+    # meals, and any glucose figure against the user's readings, before it
+    # reaches the user or is persisted.
     content = await verify_meal_citations(db, user_id, content, surface="chat_web")
+    content = await verify_glucose_reading_citations(
+        db, user_id, content, surface="chat_web"
+    )
 
     # Persist both messages (non-fatal -- still return the AI response on failure)
     user_msg_id: uuid.UUID | None = None
@@ -629,9 +638,14 @@ async def handle_caregiver_chat(
             "Please try rephrasing your question." + SAFETY_DISCLAIMER
         )
 
-    # Verify cited meal carb figures against the *patient's* logged meals --
-    # the context was built from the patient's data.
+    # Verify cited meal carb figures against the *patient's* logged meals and
+    # glucose figures against the patient's readings -- the context was built
+    # from the patient's data, so the verification (and the patient's unit) is
+    # keyed on ``patient_id``.
     content = await verify_meal_citations(db, patient_id, content, surface="caregiver")
+    content = await verify_glucose_reading_citations(
+        db, patient_id, content, surface="caregiver"
+    )
 
     safe_content = html.escape(content)
 
@@ -738,9 +752,14 @@ async def handle_caregiver_chat_web(
             detail="The AI returned an empty response",
         )
 
-    # Verify cited meal carb figures against the *patient's* logged meals --
-    # the context was built from the patient's data.
+    # Verify cited meal carb figures against the *patient's* logged meals and
+    # glucose figures against the patient's readings -- the context was built
+    # from the patient's data, so the verification (and the patient's unit) is
+    # keyed on ``patient_id``.
     content = await verify_meal_citations(
+        db, patient_id, content, surface="caregiver_web"
+    )
+    content = await verify_glucose_reading_citations(
         db, patient_id, content, surface="caregiver_web"
     )
 

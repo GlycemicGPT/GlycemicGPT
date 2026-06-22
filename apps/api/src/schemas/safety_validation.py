@@ -23,6 +23,11 @@ class SuggestionType(str, enum.Enum):
 
     CARB_RATIO = "carb_ratio"
     CORRECTION_FACTOR = "correction_factor"
+    # A glucose figure the model spoke that does not trace to a logged reading
+    # (rounding-tolerant). Not a ratio/factor change: its FlaggedSuggestion's
+    # ``original_value``/``suggested_value`` carry the spoken value and nearest
+    # reading, both in canonical mg/dL, and ``change_pct`` is unused (0).
+    GLUCOSE_CITATION = "glucose_citation"
 
 
 class FlaggedSuggestion(BaseModel):

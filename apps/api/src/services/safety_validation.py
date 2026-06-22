@@ -6,10 +6,12 @@ ratio/factor changes stay within ±20% limits.
 """
 
 import re
+from collections.abc import Sequence
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.units import GlucoseUnit
 from src.logging_config import get_logger
 from src.models.safety_log import SafetyLog
 from src.schemas.safety_validation import (
@@ -210,6 +212,8 @@ def _extract_isf_changes(text: str) -> list[FlaggedSuggestion]:
 def validate_ai_suggestion(
     ai_text: str,
     suggestion_type: str,
+    records: Sequence[int] | None = None,
+    unit: GlucoseUnit = GlucoseUnit.MGDL,
 ) -> ValidationResult:
     """Validate an AI-generated suggestion against safety bounds.
 
@@ -217,14 +221,25 @@ def validate_ai_suggestion(
     1. Dangerous content (e.g., "double your dose")
     2. Carb ratio changes exceeding ±20%
     3. Correction factor changes exceeding ±20%
+    4. Glucose figures that don't trace to a logged reading (when ``records`` is
+       supplied)
 
     Args:
         ai_text: The AI-generated analysis text.
         suggestion_type: Type of analysis ("meal_analysis" or "correction_analysis").
+        records: Canonical mg/dL glucose readings the model was shown. When
+            provided, any spoken glucose figure that doesn't trace to one (within
+            the display-rounding band) is flagged. Omitted by callers that quote
+            no glucose data.
+        unit: The user's configured display unit (for the flag reason rendering).
 
     Returns:
         ValidationResult with status and any flagged items.
     """
+    # Imported lazily so this module can be imported without pulling in
+    # glucose_citation, which imports this module's regex patterns at top level.
+    from src.services.glucose_citation import find_glucose_citation_flags
+
     has_dangerous = _check_dangerous_content(ai_text)
     flagged_items: list[FlaggedSuggestion] = []
 
@@ -232,6 +247,16 @@ def validate_ai_suggestion(
     # (AI might mention both in any analysis)
     flagged_items.extend(_extract_carb_ratio_changes(ai_text))
     flagged_items.extend(_extract_isf_changes(ai_text))
+    if records:
+        # The glucose-citation flag is advisory (it appends a warning; it never
+        # gates output), and the dangerous-content check above is the real
+        # blocker. If the verifier somehow raises, fail open -- drop the advisory
+        # flag and log it -- rather than break the whole validation, matching how
+        # the analysis callers fail open when the allow-set can't be built.
+        try:
+            flagged_items.extend(find_glucose_citation_flags(ai_text, records, unit))
+        except Exception:
+            logger.warning("Glucose citation flagging failed", exc_info=True)
 
     # Determine status
     if has_dangerous:
@@ -254,8 +279,8 @@ def validate_ai_suggestion(
         for item in flagged_items:
             warnings.append(f"- {item.reason}")
         warning_block = (
-            "\n\n**Safety Warning:** The following suggestions exceed "
-            "recommended change limits:\n" + "\n".join(warnings) + "\n"
+            "\n\n**Safety Warning:** The following AI statements were flagged "
+            "by the safety system:\n" + "\n".join(warnings) + "\n"
             "Discuss these with your endocrinologist before making changes."
         )
         sanitized = ai_text + warning_block

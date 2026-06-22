@@ -26,6 +26,7 @@ from src.schemas.meal_analysis import MealPeriodData
 from src.services.ai_client import get_ai_client
 from src.services.diabetes_context import (
     PumpProfileSummary,
+    build_allowed_glucose,
     format_pump_profile_for_prompt,
     get_pump_profile_summary,
 )
@@ -362,8 +363,39 @@ async def generate_meal_analysis(
     )
 
     # Safety validation (Story 5.6). Unit-agnostic: the regexes accept either
-    # suffix and the ±20% check is unit-relative once a suffix matches.
-    safety_result = validate_ai_suggestion(ai_response.content, "meal_analysis")
+    # suffix and the ±20% check is unit-relative once a suffix matches. Any
+    # glucose figure the model spoke is also flagged if it doesn't trace to the
+    # period's readings; a failed allow-set fails open (no glucose flag) rather
+    # than break the analysis, matching the pump-profile fetch above. ``extra``
+    # admits the derived figures this prompt renders -- the spike threshold and
+    # each period's average peak / 2hr post-meal glucose -- so restating them is
+    # not mis-flagged as an unverifiable reading.
+    allowed_glucose: list[int] = []
+    try:
+        allow = await build_allowed_glucose(
+            db,
+            user.id,
+            window_start=period_start,
+            window_end=period_end,
+            extra=[
+                SPIKE_THRESHOLD,
+                *(mp.avg_peak_glucose for mp in meal_periods),
+                *(mp.avg_2hr_glucose for mp in meal_periods),
+            ],
+        )
+        allowed_glucose = allow.match
+    except Exception:
+        logger.warning(
+            "Failed to build glucose allow-set for meal analysis",
+            user_id=str(user.id),
+            exc_info=True,
+        )
+    safety_result = validate_ai_suggestion(
+        ai_response.content,
+        "meal_analysis",
+        records=allowed_glucose,
+        unit=unit,
+    )
 
     # Store the analysis with sanitized text
     analysis = MealAnalysis(

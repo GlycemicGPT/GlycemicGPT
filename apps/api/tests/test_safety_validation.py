@@ -263,6 +263,90 @@ class TestExtractISFChanges:
         assert isf[0].suggested_value == 2.5
 
 
+class TestGlucoseCitationFlagging:
+    """validate_ai_suggestion flags a spoken glucose figure that doesn't trace to
+    the supplied readings, while staying backward-compatible when none are."""
+
+    def test_no_records_does_not_flag_glucose(self):
+        # Default call (no readings) must behave exactly as before: a stray
+        # glucose figure is not flagged when there's nothing to verify against.
+        text = "Your glucose hit 250 mg/dL overnight."
+        result = validate_ai_suggestion(text, "daily_brief")
+        assert result.status == SafetyStatus.APPROVED
+        assert not any(
+            f.suggestion_type == SuggestionType.GLUCOSE_CITATION
+            for f in result.flagged_items
+        )
+
+    def test_matching_glucose_not_flagged(self):
+        text = "Your average was 6.7 mmol/L today."
+        result = validate_ai_suggestion(
+            text, "daily_brief", records=[120], unit=GlucoseUnit.MMOL
+        )
+        assert result.status == SafetyStatus.APPROVED
+        assert result.flagged_items == []
+
+    def test_mismatched_glucose_flagged(self):
+        text = "You spiked to 9.9 mmol/L last night."
+        result = validate_ai_suggestion(
+            text, "daily_brief", records=[99, 120], unit=GlucoseUnit.MMOL
+        )
+        assert result.status == SafetyStatus.FLAGGED
+        glucose_flags = [
+            f
+            for f in result.flagged_items
+            if f.suggestion_type == SuggestionType.GLUCOSE_CITATION
+        ]
+        assert len(glucose_flags) == 1
+        # The unit-correct reason is surfaced in the sanitized output.
+        assert "9.9 mmol/L" in result.sanitized_text
+
+    def test_glucose_flag_coexists_with_isf_flag(self):
+        text = (
+            "Your glucose read 9.9 mmol/L. Also move correction factor "
+            "from 1:60 to 1:40 mg/dL."
+        )
+        result = validate_ai_suggestion(
+            text, "correction_analysis", records=[120], unit=GlucoseUnit.MMOL
+        )
+        types = {f.suggestion_type for f in result.flagged_items}
+        assert SuggestionType.GLUCOSE_CITATION in types
+        assert SuggestionType.CORRECTION_FACTOR in types
+
+    def test_mgdl_glucose_flag_reason(self):
+        text = "Your reading was 250 mg/dL."
+        result = validate_ai_suggestion(
+            text, "meal_analysis", records=[120], unit=GlucoseUnit.MGDL
+        )
+        (flag,) = [
+            f
+            for f in result.flagged_items
+            if f.suggestion_type == SuggestionType.GLUCOSE_CITATION
+        ]
+        assert "250 mg/dL" in flag.reason
+        assert "1 mg/dL" in flag.reason
+
+    def test_glucose_flagging_failure_fails_open(self):
+        # The advisory glucose flag must never break validation: if the verifier
+        # raises, validation still completes without the glucose flag, and the
+        # dangerous-content gate is unaffected.
+        with patch(
+            "src.services.glucose_citation.find_glucose_citation_flags",
+            side_effect=RuntimeError("boom"),
+        ):
+            result = validate_ai_suggestion(
+                "Your reading was 250 mg/dL.",
+                "meal_analysis",
+                records=[120],
+                unit=GlucoseUnit.MGDL,
+            )
+        assert result.status == SafetyStatus.APPROVED
+        assert not any(
+            f.suggestion_type == SuggestionType.GLUCOSE_CITATION
+            for f in result.flagged_items
+        )
+
+
 class TestValidateAISuggestion:
     """Tests for validate_ai_suggestion."""
 

@@ -28,6 +28,7 @@ from src.schemas.correction_analysis import TimePeriodData
 from src.services.ai_client import get_ai_client
 from src.services.diabetes_context import (
     PumpProfileSummary,
+    build_allowed_glucose,
     format_pump_profile_for_prompt,
     get_pump_profile_summary,
 )
@@ -405,8 +406,39 @@ async def generate_correction_analysis(
     )
 
     # Safety validation (Story 5.6). Unit-agnostic: the regexes accept either
-    # suffix and the ±20% check is unit-relative once a suffix matches.
-    safety_result = validate_ai_suggestion(ai_response.content, "correction_analysis")
+    # suffix and the ±20% check is unit-relative once a suffix matches. Any
+    # glucose figure the model spoke is also flagged if it doesn't trace to the
+    # period's readings; a failed allow-set fails open (no glucose flag) rather
+    # than break the analysis, matching the pump-profile fetch above. ``extra``
+    # admits the derived figures this prompt renders -- the post-correction
+    # target, the over-correction threshold, and each period's average glucose
+    # drop -- so restating them is not mis-flagged as an unverifiable reading.
+    allowed_glucose: list[int] = []
+    try:
+        allow = await build_allowed_glucose(
+            db,
+            user.id,
+            window_start=period_start,
+            window_end=period_end,
+            extra=[
+                TARGET_GLUCOSE,
+                LOW_THRESHOLD,
+                *(tp.avg_glucose_drop for tp in time_periods),
+            ],
+        )
+        allowed_glucose = allow.match
+    except Exception:
+        logger.warning(
+            "Failed to build glucose allow-set for correction analysis",
+            user_id=str(user.id),
+            exc_info=True,
+        )
+    safety_result = validate_ai_suggestion(
+        ai_response.content,
+        "correction_analysis",
+        records=allowed_glucose,
+        unit=unit,
+    )
 
     # Store the analysis with sanitized text
     analysis = CorrectionAnalysis(
