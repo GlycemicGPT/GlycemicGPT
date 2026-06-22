@@ -12,10 +12,12 @@ from src.core.units import GlucoseUnit
 from src.services.diabetes_context import (
     MEAL_CONTEXT_HOURS,
     MEAL_DESCRIPTION_MAX_LEN,
+    GlucoseAllowSet,
     ProfileSegment,
     PumpProfileSummary,
     _sanitize_for_prompt,
     build_allowed_carbs,
+    build_allowed_glucose,
     build_diabetes_context,
     build_meals_section,
     build_pump_profile_section,
@@ -24,6 +26,7 @@ from src.services.diabetes_context import (
     format_meals_for_brief,
     format_pump_profile_for_prompt,
     get_pump_profile_summary,
+    verify_glucose_reading_citations,
     verify_meal_citations,
 )
 from src.services.meal_citation import SCRUB_TEMPLATE
@@ -830,3 +833,204 @@ class TestVerifyMealCitationsGate:
 
         assert "999" not in result
         assert "~60-80g carbs" in result
+
+
+def _mock_db_for_glucose(reading_values, target=None):
+    """Mock a db whose two execute calls return the glucose readings then the
+    target-range row (``build_allowed_glucose`` queries readings, then target)."""
+    db = AsyncMock()
+    readings_result = [(value,) for value in reading_values]
+    target_result = MagicMock()
+    target_result.scalar_one_or_none.return_value = target
+    db.execute = AsyncMock(side_effect=[readings_result, target_result])
+    return db
+
+
+@pytest.mark.asyncio
+class TestBuildAllowedGlucose:
+    """The glucose allow-set = real readings + rendered aggregates (avg, target
+    bounds) + configured pump thresholds + surface extras; readings are kept
+    separate as the referent basis."""
+
+    @pytest.fixture(autouse=True)
+    def _no_pump_profile(self, monkeypatch):
+        # Most cases don't exercise the pump profile; default it to absent so the
+        # readings/avg/target assertions are exact. The dedicated case re-patches.
+        monkeypatch.setattr(
+            "src.services.diabetes_context.get_pump_profile_summary",
+            AsyncMock(return_value=None),
+        )
+
+    async def test_includes_readings_avg_and_default_target(self, monkeypatch):
+        monkeypatch.setattr(
+            "src.services.cgm_source.get_excluded_cgm_sources",
+            AsyncMock(return_value=[]),
+        )
+        db = _mock_db_for_glucose([100, 140])  # avg 120, no target row
+
+        allow = await build_allowed_glucose(
+            db, uuid.uuid4(), window_start=datetime.now(UTC) - timedelta(hours=6)
+        )
+
+        assert allow.readings == [100, 140]
+        # readings + avg(120) + default target bounds 70/180
+        assert set(allow.match) == {100, 140, 120, 70, 180}
+
+    async def test_filters_out_of_range_readings(self, monkeypatch):
+        monkeypatch.setattr(
+            "src.services.cgm_source.get_excluded_cgm_sources",
+            AsyncMock(return_value=[]),
+        )
+        db = _mock_db_for_glucose([19, 20, 500, 501, 120])
+
+        allow = await build_allowed_glucose(
+            db, uuid.uuid4(), window_start=datetime.now(UTC) - timedelta(hours=6)
+        )
+
+        # 19 and 501 dropped; 20 and 500 are inclusive boundaries.
+        assert allow.readings == [20, 120, 500]
+
+    async def test_configured_target_bounds_used(self, monkeypatch):
+        monkeypatch.setattr(
+            "src.services.cgm_source.get_excluded_cgm_sources",
+            AsyncMock(return_value=[]),
+        )
+        target = SimpleNamespace(low_target=80.0, high_target=160.0)
+        db = _mock_db_for_glucose([120], target=target)
+
+        allow = await build_allowed_glucose(
+            db, uuid.uuid4(), window_start=datetime.now(UTC) - timedelta(hours=6)
+        )
+
+        assert 80 in allow.match and 160 in allow.match
+
+    async def test_extra_figures_added_to_match_not_readings(self, monkeypatch):
+        monkeypatch.setattr(
+            "src.services.cgm_source.get_excluded_cgm_sources",
+            AsyncMock(return_value=[]),
+        )
+        db = _mock_db_for_glucose([120])
+
+        allow = await build_allowed_glucose(
+            db,
+            uuid.uuid4(),
+            window_start=datetime.now(UTC) - timedelta(hours=6),
+            extra=[145.0, 0.0],  # a derived figure; the 0.0 placeholder is skipped
+        )
+
+        assert 145 in allow.match
+        assert 0 not in allow.match
+        assert allow.readings == [120]  # extras never count as referents
+
+    async def test_empty_readings_still_returns_target_bounds(self, monkeypatch):
+        monkeypatch.setattr(
+            "src.services.cgm_source.get_excluded_cgm_sources",
+            AsyncMock(return_value=[]),
+        )
+        db = _mock_db_for_glucose([])
+
+        allow = await build_allowed_glucose(
+            db, uuid.uuid4(), window_start=datetime.now(UTC) - timedelta(hours=6)
+        )
+
+        assert allow.readings == []
+        assert set(allow.match) == {70, 180}  # defaults only, no avg
+
+    async def test_includes_configured_pump_thresholds(self, monkeypatch):
+        # The model is shown the pump-profile segment targets + CGM alert levels,
+        # so a reply restating one must be matchable (not scrubbed as invented).
+        monkeypatch.setattr(
+            "src.services.cgm_source.get_excluded_cgm_sources",
+            AsyncMock(return_value=[]),
+        )
+        profile = _make_summary(
+            segments=[
+                ProfileSegment(
+                    time="00:00",
+                    start_minutes=0,
+                    basal_rate=0.5,
+                    correction_factor=50,
+                    carb_ratio=8,
+                    target_bg=100,
+                )
+            ],
+            cgm_high_alert_mgdl=200,
+            cgm_low_alert_mgdl=60,
+        )
+        monkeypatch.setattr(
+            "src.services.diabetes_context.get_pump_profile_summary",
+            AsyncMock(return_value=profile),
+        )
+        db = _mock_db_for_glucose([120])
+
+        allow = await build_allowed_glucose(
+            db, uuid.uuid4(), window_start=datetime.now(UTC) - timedelta(hours=6)
+        )
+
+        # segment target 100, CGM high 200, CGM low 60 all land in match.
+        assert {100, 200, 60} <= set(allow.match)
+        assert allow.readings == [120]  # thresholds are not reading referents
+
+
+@pytest.mark.asyncio
+class TestVerifyGlucoseReadingCitations:
+    """The chat/brief choke-point: corrects-or-scrubs, fails closed, PHI-free."""
+
+    async def test_empty_content_passthrough(self):
+        db = AsyncMock()
+        result = await verify_glucose_reading_citations(
+            db, uuid.uuid4(), "", surface="chat", unit=GlucoseUnit.MGDL
+        )
+        assert result == ""
+        db.execute.assert_not_called()
+
+    async def test_corrects_against_single_referent(self, monkeypatch):
+        # Match set padded with target bounds, single real reading referent 120.
+        monkeypatch.setattr(
+            "src.services.diabetes_context.build_allowed_glucose",
+            AsyncMock(
+                return_value=GlucoseAllowSet(match=[70, 120, 180], readings=[120])
+            ),
+        )
+        result = await verify_glucose_reading_citations(
+            AsyncMock(),
+            uuid.uuid4(),
+            "Your glucose is 200 mg/dL now.",
+            surface="chat",
+            unit=GlucoseUnit.MGDL,
+        )
+        assert "200" not in result
+        assert "120 mg/dL" in result
+
+    async def test_unit_auto_resolved_when_not_passed(self, monkeypatch):
+        monkeypatch.setattr(
+            "src.services.glucose_unit.resolve_glucose_unit",
+            AsyncMock(return_value=GlucoseUnit.MMOL),
+        )
+        monkeypatch.setattr(
+            "src.services.diabetes_context.build_allowed_glucose",
+            AsyncMock(return_value=GlucoseAllowSet(match=[120], readings=[120])),
+        )
+        result = await verify_glucose_reading_citations(
+            AsyncMock(),
+            uuid.uuid4(),
+            "Your glucose is 9.9 mmol/L now.",
+            surface="chat",
+        )
+        # Corrected into the resolved unit (mmol): 120 mg/dL -> 6.7 mmol/L.
+        assert "6.7 mmol/L" in result
+
+    async def test_fail_closed_scrubs_when_allow_set_raises(self, monkeypatch):
+        monkeypatch.setattr(
+            "src.services.diabetes_context.build_allowed_glucose",
+            AsyncMock(side_effect=RuntimeError("db down")),
+        )
+        result = await verify_glucose_reading_citations(
+            AsyncMock(),
+            uuid.uuid4(),
+            "Your glucose is 120 mg/dL.",
+            surface="chat",
+            unit=GlucoseUnit.MGDL,
+        )
+        assert "120" not in result
+        assert "can't verify" in result
