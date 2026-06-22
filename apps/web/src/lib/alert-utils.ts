@@ -94,7 +94,12 @@ export function formatAlertTitle(alertType: string): string {
   );
 }
 
-/** Minimal alert shape needed to render a glucose summary line. */
+/**
+ * Minimal alert shape needed to render a glucose summary line. Kept as a local
+ * structural type (not a `Pick<>` of one payload) so the formatter stays
+ * decoupled from its two callers — the SSE `AlertEventData` (toast) and the REST
+ * `PredictiveAlert` (card) both satisfy it without privileging either.
+ */
 interface AlertGlucoseFields {
   alert_type: string;
   current_value: number;

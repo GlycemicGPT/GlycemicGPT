@@ -464,18 +464,19 @@ async def get_caregiver_patient_status(
     glucose_data: CaregiverGlucoseData | None = None
     iob_data: CaregiverIoBData | None = None
     # The PATIENT's display unit (never the caregiver's). Only meaningful when a
-    # glucose value is returned, so it is resolved inside the glucose block and
-    # defaults to mg/dL otherwise.
+    # glucose value is actually returned, so it is resolved alongside the reading
+    # and defaults to mg/dL otherwise.
     glucose_unit = GlucoseUnit.MGDL
 
     # Glucose data (if permitted)
     if permissions.can_view_glucose:
         from src.services.dexcom_sync import get_latest_glucose_reading
-        from src.services.glucose_unit import resolve_glucose_unit
 
-        glucose_unit = await resolve_glucose_unit(db, patient_id)
         reading = await get_latest_glucose_reading(db, patient_id)
         if reading is not None:
+            from src.services.glucose_unit import resolve_glucose_unit
+
+            glucose_unit = await resolve_glucose_unit(db, patient_id)
             now = datetime.now(UTC)
             delta = now - reading.reading_timestamp
             minutes_ago = int(delta.total_seconds() / 60)
