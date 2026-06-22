@@ -16,6 +16,7 @@ import com.glycemicgpt.mobile.data.repository.LoginResult
 import com.glycemicgpt.mobile.data.update.AppUpdateChecker
 import com.glycemicgpt.mobile.data.update.DownloadResult
 import com.glycemicgpt.mobile.data.update.UpdateCheckResult
+import com.glycemicgpt.mobile.domain.model.GlucoseUnit
 import com.glycemicgpt.mobile.data.update.UpdateInfo
 import com.glycemicgpt.mobile.data.update.WearAppUpdateChecker
 import com.glycemicgpt.mobile.wear.WatchFacePusher
@@ -47,6 +48,7 @@ import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -64,6 +66,7 @@ class SettingsViewModelTest {
     private val appSettingsStore = mockk<AppSettingsStore>(relaxed = true) {
         every { backendSyncEnabled } returns true
         every { dataRetentionDays } returns 7
+        every { glucoseUnit } returns GlucoseUnit.MGDL
         every { watchFaceShowIoB } returns true
         every { watchFaceShowGraph } returns true
         every { watchFaceShowAlert } returns true
@@ -137,6 +140,40 @@ class SettingsViewModelTest {
         assertFalse(state.isPumpPaired)
         assertTrue(state.backendSyncEnabled)
         assertEquals(7, state.dataRetentionDays)
+    }
+
+    @Test
+    fun `loadState reads the cached glucose unit`() {
+        every { appSettingsStore.glucoseUnit } returns GlucoseUnit.MMOL
+        val vm = createViewModel()
+
+        assertEquals(GlucoseUnit.MMOL, vm.uiState.value.glucoseUnit)
+    }
+
+    @Test
+    fun `setGlucoseUnit optimistically caches locally and PATCHes the account`() = runTest {
+        coEvery { authRepository.updateGlucoseUnit(GlucoseUnit.MMOL) } returns
+            Result.success(GlucoseUnit.MMOL)
+        val vm = createViewModel()
+
+        vm.setGlucoseUnit(GlucoseUnit.MMOL)
+
+        verify { appSettingsStore.glucoseUnit = GlucoseUnit.MMOL }
+        coVerify { authRepository.updateGlucoseUnit(GlucoseUnit.MMOL) }
+        assertEquals(GlucoseUnit.MMOL, vm.uiState.value.glucoseUnit)
+        assertNull(vm.uiState.value.glucoseUnitSyncError)
+    }
+
+    @Test
+    fun `setGlucoseUnit keeps the optimistic value and surfaces an error on PATCH failure`() = runTest {
+        coEvery { authRepository.updateGlucoseUnit(GlucoseUnit.MMOL) } returns
+            Result.failure(RuntimeException("offline"))
+        val vm = createViewModel()
+
+        vm.setGlucoseUnit(GlucoseUnit.MMOL)
+
+        assertEquals(GlucoseUnit.MMOL, vm.uiState.value.glucoseUnit)
+        assertNotNull(vm.uiState.value.glucoseUnitSyncError)
     }
 
     @Test

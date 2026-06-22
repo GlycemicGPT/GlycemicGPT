@@ -56,10 +56,12 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.glycemicgpt.mobile.domain.compute.DashboardComputations
+import com.glycemicgpt.mobile.domain.format.GlucoseFormat
 import com.glycemicgpt.mobile.domain.model.BasalReading
 import com.glycemicgpt.mobile.domain.model.BolusEvent
 import com.glycemicgpt.mobile.domain.model.BolusType
 import com.glycemicgpt.mobile.domain.model.CgmReading
+import com.glycemicgpt.mobile.domain.model.GlucoseUnit
 import com.glycemicgpt.mobile.domain.model.PumpActivityMode
 import com.glycemicgpt.mobile.domain.model.IoBReading
 import com.glycemicgpt.mobile.presentation.theme.BolusTypeColors
@@ -115,6 +117,7 @@ fun GlucoseTrendChart(
     onPeriodSelected: (ChartPeriod) -> Unit,
     thresholds: GlucoseThresholds = GlucoseThresholds(),
     categoryLabels: Map<String, String> = emptyMap(),
+    glucoseUnit: GlucoseUnit = GlucoseUnit.MGDL,
     onClick: (() -> Unit)? = null,
     isDetailMode: Boolean = false,
     showPeriodSelector: Boolean = true,
@@ -130,6 +133,7 @@ fun GlucoseTrendChart(
             onPeriodSelected = onPeriodSelected,
             thresholds = thresholds,
             categoryLabels = categoryLabels,
+            glucoseUnit = glucoseUnit,
             onClick = onClick,
             isDetailMode = isDetailMode,
             showPeriodSelector = showPeriodSelector,
@@ -162,6 +166,7 @@ private fun GlucoseTrendChartContent(
     onPeriodSelected: (ChartPeriod) -> Unit,
     thresholds: GlucoseThresholds,
     categoryLabels: Map<String, String>,
+    glucoseUnit: GlucoseUnit,
     onClick: (() -> Unit)?,
     isDetailMode: Boolean,
     showPeriodSelector: Boolean = true,
@@ -384,6 +389,7 @@ private fun GlucoseTrendChartContent(
                         gridColor = gridColor,
                         iobColor = iobColor,
                         thresholds = thresholds,
+                        glucoseUnit = glucoseUnit,
                         categoryLabels = categoryLabels,
                     )
                 }
@@ -416,7 +422,7 @@ private fun GlucoseTrendChartContent(
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
-                                text = "${tt.reading.glucoseMgDl} mg/dL",
+                                text = GlucoseFormat.formatWithLabel(tt.reading.glucoseMgDl, glucoseUnit),
                                 style = MaterialTheme.typography.labelLarge,
                                 color = color,
                             )
@@ -551,6 +557,7 @@ private fun DrawScope.drawGlucoseChart(
     gridColor: Color,
     iobColor: Color,
     thresholds: GlucoseThresholds = GlucoseThresholds(),
+    glucoseUnit: GlucoseUnit = GlucoseUnit.MGDL,
     categoryLabels: Map<String, String> = emptyMap(),
 ) {
     // Guard against zero-span viewport (prevents division by zero throughout)
@@ -592,12 +599,13 @@ private fun DrawScope.drawGlucoseChart(
         )
     }
 
-    // Y-axis labels (left: glucose)
+    // Y-axis labels (left: glucose). Geometry above stays mg/dL; only the rendered
+    // string converts to the user's unit.
     val yLabelValues = listOf(thresholds.low, thresholds.high, thresholds.urgentHigh)
     val labelStyle = TextStyle(fontSize = 10.sp, color = axisLabelColor)
     for (value in yLabelValues) {
         val y = topPadding + chartHeight * (1f - (value - yMin) / yRange)
-        val textResult = textMeasurer.measure("$value", labelStyle)
+        val textResult = textMeasurer.measure(GlucoseFormat.format(value, glucoseUnit), labelStyle)
         drawText(
             textResult,
             topLeft = Offset(

@@ -22,10 +22,12 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.glycemicgpt.mobile.domain.format.GlucoseFormat
 import com.glycemicgpt.mobile.domain.model.BasalReading
 import com.glycemicgpt.mobile.domain.model.BatteryStatus
 import com.glycemicgpt.mobile.domain.model.CgmReading
 import com.glycemicgpt.mobile.domain.model.CgmTrend
+import com.glycemicgpt.mobile.domain.model.GlucoseUnit
 import com.glycemicgpt.mobile.domain.model.PumpActivityMode
 import com.glycemicgpt.mobile.domain.model.IoBReading
 import com.glycemicgpt.mobile.domain.model.ReservoirReading
@@ -79,11 +81,15 @@ fun GlucoseHero(
     battery: BatteryStatus?,
     reservoir: ReservoirReading?,
     thresholds: GlucoseThresholds = GlucoseThresholds(),
+    glucoseUnit: GlucoseUnit = GlucoseUnit.MGDL,
     modifier: Modifier = Modifier,
 ) {
     val a11yDescription = if (cgm != null) {
         buildString {
-            append("Glucose ${cgm.glucoseMgDl} milligrams per deciliter, ")
+            append(
+                "Glucose ${GlucoseFormat.format(cgm.glucoseMgDl, glucoseUnit)} " +
+                    "${GlucoseFormat.spokenUnit(glucoseUnit)}, ",
+            )
             append(cgm.trendArrow.name.lowercase().replace('_', ' '))
             if (iob != null) append(", insulin on board %.2f units".format(iob.iob))
             if (basalRate != null) append(", basal rate %.2f units per hour".format(basalRate.rate))
@@ -117,7 +123,7 @@ fun GlucoseHero(
                     horizontalArrangement = Arrangement.Center,
                 ) {
                     Text(
-                        text = "${cgm.glucoseMgDl}",
+                        text = GlucoseFormat.format(cgm.glucoseMgDl, glucoseUnit),
                         fontSize = 64.sp,
                         fontWeight = FontWeight.Bold,
                         color = color,
@@ -135,7 +141,7 @@ fun GlucoseHero(
                 }
 
                 Text(
-                    text = "mg/dL",
+                    text = GlucoseFormat.label(glucoseUnit),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -194,7 +200,7 @@ fun GlucoseHero(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
-                    text = "mg/dL",
+                    text = GlucoseFormat.label(glucoseUnit),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

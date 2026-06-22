@@ -11,6 +11,8 @@ import com.glycemicgpt.mobile.data.remote.dto.DeviceRegistrationRequest
 import com.glycemicgpt.mobile.data.remote.dto.DeviceRegistrationResponse
 import com.glycemicgpt.mobile.data.remote.dto.PluginDeclarationRequest
 import com.glycemicgpt.mobile.data.remote.dto.GlucoseRangeResponse
+import com.glycemicgpt.mobile.data.remote.dto.GlucoseUnitResponse
+import com.glycemicgpt.mobile.data.remote.dto.GlucoseUnitUpdateRequest
 import com.glycemicgpt.mobile.data.remote.dto.SafetyLimitsResponse
 import com.glycemicgpt.mobile.data.remote.dto.HealthResponse
 import com.glycemicgpt.mobile.data.remote.dto.LoginRequest
@@ -78,6 +80,13 @@ interface GlycemicGptApi {
 
     @POST("/api/v1/alerts/{alertId}/acknowledge")
     suspend fun acknowledgeAlert(@Path("alertId") alertId: String): Response<AcknowledgeResponse>
+
+    // Glucose display unit preference (per-account; backend exposes both GET and PATCH)
+    @GET("/api/settings/glucose-unit")
+    suspend fun getGlucoseUnit(): Response<GlucoseUnitResponse>
+
+    @PATCH("/api/settings/glucose-unit")
+    suspend fun patchGlucoseUnit(@Body request: GlucoseUnitUpdateRequest): Response<GlucoseUnitResponse>
 
     // Glucose range settings
     @GET("/api/settings/target-glucose-range")

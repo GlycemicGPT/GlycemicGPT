@@ -98,6 +98,7 @@ fun HomeScreen(
     val pumpLabelMap by viewModel.pumpLabelMap.collectAsState()
     val showPumpLabels by viewModel.showPumpLabels.collectAsState()
     val retentionDays by viewModel.dataRetentionDays.collectAsState()
+    val glucoseUnit by viewModel.glucoseUnit.collectAsState()
 
     PullToRefreshBox(
         isRefreshing = isRefreshing,
@@ -128,6 +129,7 @@ fun HomeScreen(
                 battery = battery,
                 reservoir = reservoir,
                 thresholds = thresholds,
+                glucoseUnit = glucoseUnit,
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -148,6 +150,7 @@ fun HomeScreen(
                 onPeriodSelected = { viewModel.onPeriodSelected(it) },
                 thresholds = thresholds,
                 categoryLabels = categoryLabels,
+                glucoseUnit = glucoseUnit,
                 onClick = onNavigateToChartDetail,
             )
 
@@ -159,6 +162,7 @@ fun HomeScreen(
                 selectedPeriod = selectedTirPeriod,
                 onPeriodSelected = { viewModel.onTirPeriodSelected(it) },
                 thresholds = thresholds,
+                glucoseUnit = glucoseUnit,
                 maxRetentionDays = retentionDays,
             )
 
@@ -169,6 +173,7 @@ fun HomeScreen(
                 stats = cgmStats,
                 selectedPeriod = selectedCgmStatsPeriod,
                 onPeriodSelected = { viewModel.onCgmStatsPeriodSelected(it) },
+                glucoseUnit = glucoseUnit,
                 maxRetentionDays = retentionDays,
             )
 

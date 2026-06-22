@@ -1,6 +1,7 @@
 package com.glycemicgpt.mobile.service
 
 import com.glycemicgpt.mobile.data.local.entity.AlertEntity
+import com.glycemicgpt.mobile.domain.model.GlucoseUnit
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -94,29 +95,43 @@ class AlertNotificationManagerTest {
     @Test
     fun `notification title includes severity prefix and glucose value`() {
         val alert = makeAlert(severity = "emergency", currentValue = 320.0)
-        val title = buildTitle(alert)
+        val title = formatAlertTitle(alert, GlucoseUnit.MGDL)
         assertEquals("EMERGENCY: 320 mg/dL", title)
     }
 
     @Test
     fun `notification title includes patient name for caregivers`() {
         val alert = makeAlert(severity = "urgent", currentValue = 55.0, patientName = "Alice")
-        val title = buildTitle(alert)
+        val title = formatAlertTitle(alert, GlucoseUnit.MGDL)
         assertEquals("URGENT: 55 mg/dL - Alice", title)
     }
 
     @Test
     fun `warning title uses mixed case`() {
         val alert = makeAlert(severity = "warning", currentValue = 200.0)
-        val title = buildTitle(alert)
+        val title = formatAlertTitle(alert, GlucoseUnit.MGDL)
         assertEquals("Warning: 200 mg/dL", title)
     }
 
     @Test
     fun `info title uses mixed case`() {
         val alert = makeAlert(severity = "info", currentValue = 180.0)
-        val title = buildTitle(alert)
+        val title = formatAlertTitle(alert, GlucoseUnit.MGDL)
         assertEquals("Info: 180 mg/dL", title)
+    }
+
+    @Test
+    fun `notification title renders glucose value in mmol when selected`() {
+        val alert = makeAlert(severity = "emergency", currentValue = 320.0)
+        // 320 / 18.0156 = 17.76 -> 17.8 mmol/L
+        assertEquals("EMERGENCY: 17.8 mmol/L", formatAlertTitle(alert, GlucoseUnit.MMOL))
+    }
+
+    @Test
+    fun `mmol notification title keeps the patient suffix`() {
+        val alert = makeAlert(severity = "urgent", currentValue = 55.0, patientName = "Alice")
+        // 55 / 18.0156 = 3.05 -> 3.1 mmol/L
+        assertEquals("URGENT: 3.1 mmol/L - Alice", formatAlertTitle(alert, GlucoseUnit.MMOL))
     }
 
     // --- Stable notification ID tests ---
@@ -260,17 +275,6 @@ class AlertNotificationManagerTest {
     }
 
     // --- Helper mirrors for testing without Android context ---
-
-    private fun buildTitle(alert: AlertEntity): String {
-        val prefix = when (alert.severity) {
-            "emergency" -> "EMERGENCY"
-            "urgent" -> "URGENT"
-            "warning" -> "Warning"
-            else -> "Info"
-        }
-        val patientSuffix = alert.patientName?.let { " - $it" } ?: ""
-        return "$prefix: ${alert.currentValue.toInt()} mg/dL$patientSuffix"
-    }
 
     private fun stableNotificationId(alert: AlertEntity): Int {
         val key = "${alert.alertType}|${alert.patientName ?: ""}"

@@ -25,6 +25,7 @@ import com.glycemicgpt.mobile.data.remote.dto.CommonFoodResponse
 import com.glycemicgpt.mobile.data.remote.dto.CommonFoodUpdateRequest
 import com.glycemicgpt.mobile.data.remote.dto.DeviceRegistrationRequest
 import com.glycemicgpt.mobile.data.remote.dto.EstimateDispersionResponse
+import com.glycemicgpt.mobile.data.remote.dto.GlucoseUnitUpdateRequest
 import com.glycemicgpt.mobile.data.remote.dto.FoodRecordCorrectionRequest
 import com.glycemicgpt.mobile.data.remote.dto.FoodRecordIdentityRequest
 import com.glycemicgpt.mobile.data.remote.dto.FoodRecordListResponse
@@ -320,6 +321,8 @@ private class FakeMealApi : GlycemicGptApi {
     override suspend fun unregisterDevice(deviceToken: String) = notUsed()
     override suspend fun getPendingAlerts() = notUsed()
     override suspend fun acknowledgeAlert(alertId: String) = notUsed()
+    override suspend fun getGlucoseUnit() = notUsed()
+    override suspend fun patchGlucoseUnit(request: GlucoseUnitUpdateRequest) = notUsed()
     override suspend fun getGlucoseRange() = notUsed()
     override suspend fun getSafetyLimits() = notUsed()
     override suspend fun getAnalyticsConfig() = notUsed()

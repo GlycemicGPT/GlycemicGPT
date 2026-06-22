@@ -1,6 +1,7 @@
 package com.glycemicgpt.mobile.presentation.home
 
 import com.glycemicgpt.mobile.data.local.dao.TimeInRangeCounts
+import com.glycemicgpt.mobile.domain.model.GlucoseUnit
 import com.glycemicgpt.mobile.domain.model.TimeInRangeData
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -121,30 +122,47 @@ class TimeInRangeBarTest {
         assertEquals("100%", formatTirPercent(100f))
     }
 
-    // -- Dynamic target range label -------------------------------------------
+    // -- Dynamic target range label (calls real production function) ------------
 
     @Test
-    fun `target range label uses default thresholds`() {
-        val thresholds = GlucoseThresholds()
-        val label = "Target: ${thresholds.low}-${thresholds.high} mg/dL"
-        assertEquals("Target: 70-180 mg/dL", label)
+    fun `target range label uses default thresholds in mgdl`() {
+        assertEquals(
+            "Target: 70-180 mg/dL",
+            tirTargetLabel(GlucoseThresholds(), GlucoseUnit.MGDL),
+        )
     }
 
     @Test
-    fun `target range label uses custom thresholds`() {
+    fun `target range label uses custom thresholds in mgdl`() {
         val thresholds = GlucoseThresholds(urgentLow = 60, low = 90, high = 230, urgentHigh = 330)
-        val label = "Target: ${thresholds.low}-${thresholds.high} mg/dL"
-        assertEquals("Target: 90-230 mg/dL", label)
+        assertEquals("Target: 90-230 mg/dL", tirTargetLabel(thresholds, GlucoseUnit.MGDL))
     }
 
     @Test
-    fun `legend labels reflect custom thresholds`() {
+    fun `target range label converts to mmol`() {
+        // 70 -> 3.9, 180 -> 10.0
+        assertEquals(
+            "Target: 3.9-10.0 mmol/L",
+            tirTargetLabel(GlucoseThresholds(), GlucoseUnit.MMOL),
+        )
+    }
+
+    @Test
+    fun `legend labels reflect custom thresholds in mgdl`() {
         val thresholds = GlucoseThresholds(urgentLow = 60, low = 90, high = 230, urgentHigh = 330)
-        assertEquals("<60", "<${thresholds.urgentLow}")
-        assertEquals("60-90", "${thresholds.urgentLow}-${thresholds.low}")
-        assertEquals("90-230", "${thresholds.low}-${thresholds.high}")
-        assertEquals("230-330", "${thresholds.high}-${thresholds.urgentHigh}")
-        assertEquals(">330", ">${thresholds.urgentHigh}")
+        assertEquals(
+            listOf("<60", "60-90", "90-230", "230-330", ">330"),
+            tirBucketLabels(thresholds, GlucoseUnit.MGDL),
+        )
+    }
+
+    @Test
+    fun `legend labels convert to mmol`() {
+        // 55 -> 3.1, 70 -> 3.9, 180 -> 10.0, 250 -> 13.9
+        assertEquals(
+            listOf("<3.1", "3.1-3.9", "3.9-10.0", "10.0-13.9", ">13.9"),
+            tirBucketLabels(GlucoseThresholds(), GlucoseUnit.MMOL),
+        )
     }
 
     // -- Helper: mirrors repository logic for percentage math tests -----------

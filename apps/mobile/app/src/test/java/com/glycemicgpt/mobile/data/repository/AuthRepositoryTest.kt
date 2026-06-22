@@ -2,6 +2,7 @@ package com.glycemicgpt.mobile.data.repository
 
 import android.content.Context
 import com.glycemicgpt.mobile.data.auth.AuthManager
+import com.glycemicgpt.mobile.data.local.AppSettingsStore
 import com.glycemicgpt.mobile.data.local.AuthTokenStore
 import com.glycemicgpt.mobile.data.local.GlucoseRangeStore
 import com.glycemicgpt.mobile.data.local.AnalyticsSettingsStore
@@ -9,9 +10,11 @@ import com.glycemicgpt.mobile.data.local.PumpProfileStore
 import com.glycemicgpt.mobile.data.local.SafetyLimitsStore
 import com.glycemicgpt.mobile.data.remote.GlycemicGptApi
 import com.glycemicgpt.mobile.data.remote.dto.GlucoseRangeResponse
+import com.glycemicgpt.mobile.data.remote.dto.GlucoseUnitResponse
 import com.glycemicgpt.mobile.data.remote.dto.HealthResponse
 import com.glycemicgpt.mobile.data.remote.dto.LoginResponse
 import com.glycemicgpt.mobile.data.remote.dto.UserDto
+import com.glycemicgpt.mobile.domain.model.GlucoseUnit
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -42,13 +45,14 @@ class AuthRepositoryTest {
     private val safetyLimitsStore = mockk<SafetyLimitsStore>(relaxed = true)
     private val analyticsSettingsStore = mockk<AnalyticsSettingsStore>(relaxed = true)
     private val pumpProfileStore = mockk<PumpProfileStore>(relaxed = true)
+    private val appSettingsStore = mockk<AppSettingsStore>(relaxed = true)
     private val api = mockk<GlycemicGptApi>()
     private val deviceRepository = mockk<DeviceRepository>(relaxed = true)
     private val authManager = mockk<AuthManager>(relaxed = true)
 
     private val repository = AuthRepository(
         appContext, authTokenStore, glucoseRangeStore, safetyLimitsStore,
-        analyticsSettingsStore, pumpProfileStore, api, deviceRepository, authManager,
+        analyticsSettingsStore, pumpProfileStore, appSettingsStore, api, deviceRepository, authManager,
     )
 
     private val testScope = TestScope(UnconfinedTestDispatcher())
@@ -199,6 +203,7 @@ class AuthRepositoryTest {
         verify { safetyLimitsStore.clear() }
         verify { analyticsSettingsStore.clear() }
         verify { pumpProfileStore.clear() }
+        verify { appSettingsStore.glucoseUnit = GlucoseUnit.MGDL }
         verify { authManager.onLogout() }
     }
 
@@ -217,5 +222,49 @@ class AuthRepositoryTest {
     @Test
     fun `isValidUrl rejects malformed URL`() {
         assertFalse(repository.isValidUrl("not-a-url"))
+    }
+
+    @Test
+    fun `updateGlucoseUnit PATCHes the account and caches the server value`() = runTest {
+        coEvery { api.patchGlucoseUnit(any()) } returns Response.success(
+            GlucoseUnitResponse(glucoseUnit = "mmol"),
+        )
+
+        val result = repository.updateGlucoseUnit(GlucoseUnit.MMOL)
+
+        assertTrue(result.isSuccess)
+        assertEquals(GlucoseUnit.MMOL, result.getOrNull())
+        coVerify { api.patchGlucoseUnit(match { it.glucoseUnit == "mmol" }) }
+        verify { appSettingsStore.glucoseUnit = GlucoseUnit.MMOL }
+    }
+
+    @Test
+    fun `updateGlucoseUnit returns failure and leaves cache untouched on HTTP error`() = runTest {
+        coEvery { api.patchGlucoseUnit(any()) } returns Response.error(500, "boom".toResponseBody())
+
+        val result = repository.updateGlucoseUnit(GlucoseUnit.MMOL)
+
+        assertTrue(result.isFailure)
+        verify(exactly = 0) { appSettingsStore.glucoseUnit = any() }
+    }
+
+    @Test
+    fun `refreshGlucoseUnit writes the backend value into the cache`() = runTest {
+        coEvery { api.getGlucoseUnit() } returns Response.success(
+            GlucoseUnitResponse(glucoseUnit = "mmol"),
+        )
+
+        repository.refreshGlucoseUnit()
+
+        verify { appSettingsStore.glucoseUnit = GlucoseUnit.MMOL }
+    }
+
+    @Test
+    fun `refreshGlucoseUnit leaves cache untouched when the backend call fails`() = runTest {
+        coEvery { api.getGlucoseUnit() } throws java.io.IOException("offline")
+
+        repository.refreshGlucoseUnit()
+
+        verify(exactly = 0) { appSettingsStore.glucoseUnit = any() }
     }
 }

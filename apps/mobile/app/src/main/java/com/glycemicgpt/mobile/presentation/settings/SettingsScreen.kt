@@ -79,6 +79,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.glycemicgpt.mobile.data.local.AlertSoundCategory
+import com.glycemicgpt.mobile.domain.format.GlucoseFormat
+import com.glycemicgpt.mobile.domain.model.GlucoseUnit
 import com.glycemicgpt.mobile.domain.plugin.PluginMetadata
 import com.glycemicgpt.mobile.plugin.RuntimePluginInfo
 import com.glycemicgpt.mobile.presentation.plugin.PluginSettingsRenderer
@@ -273,6 +275,14 @@ fun SettingsScreen(
         ThemeSection(
             currentTheme = state.themeMode,
             onThemeChange = settingsViewModel::setThemeMode,
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        GlucoseUnitsSection(
+            currentUnit = state.glucoseUnit,
+            syncError = state.glucoseUnitSyncError,
+            onUnitChange = settingsViewModel::setGlucoseUnit,
         )
 
         Spacer(modifier = Modifier.height(20.dp))
@@ -2184,6 +2194,67 @@ private fun BatteryOptimizationCard(
                     .testTag("disable_battery_optimization_button"),
             ) {
                 Text("Disable Battery Optimization")
+            }
+        }
+    }
+}
+
+@Composable
+private fun GlucoseUnitsSection(
+    currentUnit: GlucoseUnit,
+    syncError: String?,
+    onUnitChange: (GlucoseUnit) -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+        ) {
+            Text(
+                text = "Glucose Units",
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Text(
+                text = "Choose how glucose values are displayed across the app",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                GlucoseUnit.entries.forEach { unit ->
+                    val testTag = when (unit) {
+                        GlucoseUnit.MGDL -> "glucose_unit_mgdl"
+                        GlucoseUnit.MMOL -> "glucose_unit_mmol"
+                    }
+                    OutlinedButton(
+                        onClick = { onUnitChange(unit) },
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag(testTag),
+                        colors = if (currentUnit == unit) {
+                            ButtonDefaults.outlinedButtonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary,
+                            )
+                        } else {
+                            ButtonDefaults.outlinedButtonColors()
+                        },
+                    ) {
+                        Text(GlucoseFormat.label(unit), style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+            }
+            if (syncError != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = syncError,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
             }
         }
     }

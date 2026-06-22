@@ -35,6 +35,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.glycemicgpt.mobile.data.local.AppSettingsStore
+import com.glycemicgpt.mobile.domain.format.GlucoseFormat
+import com.glycemicgpt.mobile.domain.model.GlucoseUnit
 import com.glycemicgpt.mobile.domain.model.TimeInRangeData
 import com.glycemicgpt.mobile.presentation.theme.GlucoseColors
 
@@ -64,23 +66,26 @@ fun TimeInRangeBar(
     selectedPeriod: TirPeriod,
     onPeriodSelected: (TirPeriod) -> Unit,
     thresholds: GlucoseThresholds = GlucoseThresholds(),
+    glucoseUnit: GlucoseUnit = GlucoseUnit.MGDL,
     maxRetentionDays: Int = AppSettingsStore.DEFAULT_RETENTION_DAYS,
     modifier: Modifier = Modifier,
 ) {
     val safeRetention = maxRetentionDays.coerceAtLeast(1)
     val availablePeriods = TirPeriod.entries.filter { it.hours / 24 <= safeRetention }
     val effectivePeriod = if (selectedPeriod in availablePeriods) selectedPeriod else availablePeriods.first()
+    val bucketLabels = tirBucketLabels(thresholds, glucoseUnit)
     val a11yDescription = if (data != null && data.totalReadings > 0) {
+        val targetSpoken = "${GlucoseFormat.format(thresholds.low, glucoseUnit)}-" +
+            "${GlucoseFormat.format(thresholds.high, glucoseUnit)} ${GlucoseFormat.spokenUnit(glucoseUnit)}"
         ("Time in range: %.0f%% urgent low, %.0f%% low, %.0f%% in range, " +
             "%.0f%% high, %.0f%% urgent high, " +
-            "target %d-%d mg/dL, %d readings over %s").format(
+            "target %s, %d readings over %s").format(
                 data.urgentLowPercent,
                 data.lowPercent,
                 data.inRangePercent,
                 data.highPercent,
                 data.urgentHighPercent,
-                thresholds.low,
-                thresholds.high,
+                targetSpoken,
                 data.totalReadings,
                 effectivePeriod.label,
             )
@@ -180,17 +185,17 @@ fun TimeInRangeBar(
                 ) {
                     LegendEntry(
                         color = ColorUrgentLow,
-                        label = "<${thresholds.urgentLow}",
+                        label = bucketLabels[0],
                         percent = data.urgentLowPercent,
                     )
                     LegendEntry(
                         color = ColorLow,
-                        label = "${thresholds.urgentLow}-${thresholds.low}",
+                        label = bucketLabels[1],
                         percent = data.lowPercent,
                     )
                     LegendEntry(
                         color = ColorInRange,
-                        label = "${thresholds.low}-${thresholds.high}",
+                        label = bucketLabels[2],
                         percent = data.inRangePercent,
                     )
                 }
@@ -201,12 +206,12 @@ fun TimeInRangeBar(
                 ) {
                     LegendEntry(
                         color = ColorHigh,
-                        label = "${thresholds.high}-${thresholds.urgentHigh}",
+                        label = bucketLabels[3],
                         percent = data.highPercent,
                     )
                     LegendEntry(
                         color = ColorUrgentHigh,
-                        label = ">${thresholds.urgentHigh}",
+                        label = bucketLabels[4],
                         percent = data.urgentHighPercent,
                     )
                 }
@@ -215,7 +220,7 @@ fun TimeInRangeBar(
 
                 // Target range
                 Text(
-                    text = "Target: ${thresholds.low}-${thresholds.high} mg/dL",
+                    text = tirTargetLabel(thresholds, glucoseUnit),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
@@ -310,6 +315,27 @@ private fun LegendEntry(
         )
     }
 }
+
+/**
+ * The five stacked-bar legend bucket-boundary labels (`<55`, `55-70`, ...) rendered in the
+ * user's unit. The bucket COUNTS / TIR percentages stay SQL-computed in mg/dL; only these
+ * boundary strings convert.
+ */
+internal fun tirBucketLabels(thresholds: GlucoseThresholds, unit: GlucoseUnit): List<String> {
+    fun v(value: Int) = GlucoseFormat.format(value, unit)
+    return listOf(
+        "<${v(thresholds.urgentLow)}",
+        "${v(thresholds.urgentLow)}-${v(thresholds.low)}",
+        "${v(thresholds.low)}-${v(thresholds.high)}",
+        "${v(thresholds.high)}-${v(thresholds.urgentHigh)}",
+        ">${v(thresholds.urgentHigh)}",
+    )
+}
+
+/** The "Target: low-high mg/dL" caption rendered in the user's unit. */
+internal fun tirTargetLabel(thresholds: GlucoseThresholds, unit: GlucoseUnit): String =
+    "Target: ${GlucoseFormat.format(thresholds.low, unit)}-" +
+        "${GlucoseFormat.format(thresholds.high, unit)} ${GlucoseFormat.label(unit)}"
 
 internal fun qualityAssessment(inRangePercent: Float): Pair<String, Color> = when {
     inRangePercent >= 70f -> "Excellent" to ColorInRange

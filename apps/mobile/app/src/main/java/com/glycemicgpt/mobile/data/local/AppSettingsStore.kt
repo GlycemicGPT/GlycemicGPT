@@ -4,8 +4,12 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import com.glycemicgpt.mobile.domain.model.GlucoseUnit
 import com.glycemicgpt.mobile.presentation.theme.ThemeMode
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -126,6 +130,36 @@ class AppSettingsStore @Inject constructor(
             prefs.edit().putString(KEY_THEME_MODE, value.name).apply()
         }
 
+    /**
+     * User-selected glucose display unit. The unit is a *per-account* preference
+     * (PATCHed to the backend and reconciled from it); this stored value is only
+     * an offline cache / pre-sync fallback. Stored as the enum name, mirroring the
+     * [themeMode] string-stored pattern, and defaults to [GlucoseUnit.MGDL] before
+     * the first backend sync.
+     */
+    var glucoseUnit: GlucoseUnit
+        get() = GlucoseUnit.fromName(prefs.getString(KEY_GLUCOSE_UNIT, GlucoseUnit.MGDL.name))
+        set(value) {
+            prefs.edit().putString(KEY_GLUCOSE_UNIT, value.name).apply()
+        }
+
+    /**
+     * Emits the current [glucoseUnit] and re-emits whenever it changes, so display
+     * surfaces update live when the user toggles the unit or a backend reconcile
+     * writes the cache. Uses the same change-listener mechanism the activity relies
+     * on for live theme switching.
+     */
+    fun glucoseUnitFlow(): Flow<GlucoseUnit> = callbackFlow {
+        trySend(glucoseUnit)
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == KEY_GLUCOSE_UNIT || key == null) {
+                trySend(glucoseUnit)
+            }
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        awaitClose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+
     // Watch face config persistence
     var watchFaceShowIoB: Boolean
         get() = prefs.getBoolean(KEY_WATCHFACE_SHOW_IOB, true)
@@ -202,6 +236,7 @@ class AppSettingsStore @Inject constructor(
         private const val KEY_DEVICE_TOKEN = "device_token"
         private const val KEY_SHOW_PUMP_LABELS = "show_pump_labels"
         internal const val KEY_THEME_MODE = "theme_mode"
+        internal const val KEY_GLUCOSE_UNIT = "glucose_unit"
         const val DEFAULT_RETENTION_DAYS = 7
         const val MIN_RETENTION_DAYS = 1
         const val MAX_RETENTION_DAYS = 30

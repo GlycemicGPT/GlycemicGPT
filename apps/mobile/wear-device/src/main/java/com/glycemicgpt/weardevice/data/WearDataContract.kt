@@ -25,6 +25,8 @@ object WearDataContract {
     const val KEY_CGM_MG_DL = "cgm_mgdl"
     const val KEY_CGM_TREND = "cgm_trend"
     const val KEY_CGM_TIMESTAMP = "cgm_ts"
+    // Per-account glucose display unit ("mgdl"/"mmol"); value stays raw mg/dL, watch formats.
+    const val KEY_GLUCOSE_UNIT = "glucose_unit"
     const val KEY_GLUCOSE_LOW = "glucose_low"
     const val KEY_GLUCOSE_HIGH = "glucose_high"
     const val KEY_GLUCOSE_URGENT_LOW = "glucose_urg_low"
