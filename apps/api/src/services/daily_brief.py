@@ -43,6 +43,7 @@ from src.services.diabetes_context import (
     format_meals_for_brief,
     format_pump_profile_for_prompt,
     get_pump_profile_summary,
+    verify_glucose_reading_citations,
     verify_meal_citations,
 )
 from src.services.safety_validation import log_safety_validation, validate_ai_suggestion
@@ -497,6 +498,21 @@ async def generate_daily_brief(
         window_start=period_start,
         window_end=period_end,
         now=period_end,
+    )
+    # Correct-or-scrub any glucose figure the same way, over the brief's period,
+    # so the brief handles its glucose and carb numbers consistently. The brief
+    # renders the period average (computed over the unfiltered period readings),
+    # so pass it as an extra allowed figure rather than let the allow-set
+    # recompute a slightly different one.
+    verified_text = await verify_glucose_reading_citations(
+        db,
+        user.id,
+        verified_text,
+        surface="daily_brief",
+        unit=unit,
+        window_start=period_start,
+        window_end=period_end,
+        extra=[metrics.average_glucose],
     )
 
     # Safety validation (Story 5.6)

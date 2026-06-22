@@ -9,6 +9,7 @@ correction analysis, and chat all share the same context pipeline.
 """
 
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from functools import partial
@@ -27,6 +28,7 @@ from src.core.units import (
 )
 from src.logging_config import get_logger
 from src.services.alert_notifier import trend_description
+from src.services.glucose_citation import verify_glucose_citations
 from src.services.iob_projection import get_iob_projection, get_user_dia
 from src.services.meal_citation import AllowedCarb, verify_carb_citations
 from src.vision.carb_contract import (
@@ -586,6 +588,203 @@ async def verify_meal_citations(
             corrected=outcome.citations_corrected,
             scrubbed=outcome.citations_scrubbed,
             timestamp_mismatches=outcome.timestamp_mismatches,
+        )
+    return outcome.text
+
+
+@dataclass(frozen=True)
+class GlucoseAllowSet:
+    """The glucose figures a model response may cite for a window.
+
+    ``match`` is every value a cited figure may verify against: the user's
+    distinct readings plus the rendered aggregates (window average, target
+    bounds) and any surface-specific ``extra`` figures the prompt also showed.
+    ``readings`` is the distinct real readings alone -- the referent basis for
+    single-reading correction, kept separate so the padded aggregates can't mask
+    a flat-line user as multi-referent.
+    """
+
+    match: list[int]
+    readings: list[int]
+
+
+async def build_allowed_glucose(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    *,
+    window_start: datetime,
+    window_end: datetime | None = None,
+    limit: int | None = None,
+    extra: Sequence[float] = (),
+) -> GlucoseAllowSet:
+    """Build the set of glucose figures the model was allowed to cite for a window.
+
+    The allow-set is the user's real ``GlucoseReading`` values (canonical mg/dL,
+    primary-CGM-only and ``20-500``-filtered, exactly as ``build_glucose_section``
+    selects them) plus the rendered aggregates the model also saw: the window
+    average and the configured target-range bounds. A figure the model utters that
+    matches one of these within the display band traces to real data; anything
+    else is an invention.
+
+    ``limit`` selects the newest N readings (matching ``build_glucose_section``'s
+    cap for chat) so the allow-set average equals the one the model was shown;
+    surfaces whose prompt computes the average differently (the daily brief) or
+    renders derived figures/constants (the correction and meal analyses) pass
+    those exact values via ``extra`` instead. Returns distinct values so a busy
+    window can't bloat the comparison set.
+    """
+    from src.models.glucose import GlucoseReading
+    from src.models.target_glucose_range import TargetGlucoseRange
+    from src.services.cgm_source import (
+        get_excluded_cgm_sources,
+        glucose_source_exclusion_clause,
+    )
+
+    excluded = await get_excluded_cgm_sources(db, user_id)
+    conditions = [
+        GlucoseReading.user_id == user_id,
+        GlucoseReading.reading_timestamp >= window_start,
+        *glucose_source_exclusion_clause(excluded),
+    ]
+    if window_end is not None:
+        conditions.append(GlucoseReading.reading_timestamp < window_end)
+
+    stmt = select(GlucoseReading.value).where(*conditions)
+    if limit is not None:
+        stmt = stmt.order_by(GlucoseReading.reading_timestamp.desc()).limit(limit)
+    result = await db.execute(stmt)
+    values = [value for (value,) in result if 20 <= value <= 500]
+
+    readings = sorted(set(values))
+    match: set[int] = set(readings)
+    if values:
+        # Mirrors ``build_glucose_section``'s ``sum(values) / len(values)`` so the
+        # rendered average lands in the allow-set; the +/-1 band absorbs the
+        # display rounding.
+        match.add(round(sum(values) / len(values)))
+
+    target = (
+        await db.execute(
+            select(TargetGlucoseRange).where(TargetGlucoseRange.user_id == user_id)
+        )
+    ).scalar_one_or_none()
+    match.add(int(target.low_target if target else DEFAULT_LOW_TARGET))
+    match.add(int(target.high_target if target else DEFAULT_HIGH_TARGET))
+
+    # The model is also shown the user's configured thresholds -- pump-profile
+    # segment targets and the CGM high/low alert levels (rendered into every chat
+    # prompt by build_diabetes_context and into the analysis prompts) -- so a
+    # reply faithfully restating one is not an invention and must not be scrubbed.
+    # Fetched fail-soft: a profile read error must not empty the allow-set (which
+    # would fail-closed scrub every figure in chat). Non-configured clinical
+    # anchors (54, 250...) are deliberately NOT seeded -- the directive/threshold
+    # exemption already passes those through, and seeding them as always-citable
+    # would mask a genuine misquote that happens to equal an anchor.
+    try:
+        profile = await get_pump_profile_summary(db, user_id)
+    except Exception:
+        logger.warning(
+            "Pump-profile fetch for glucose allow-set failed",
+            user_id=str(user_id),
+            exc_info=True,
+        )
+        profile = None
+    if profile is not None:
+        thresholds = [segment.target_bg for segment in profile.segments]
+        thresholds += [profile.cgm_high_alert_mgdl, profile.cgm_low_alert_mgdl]
+        for value in thresholds:
+            if value is not None and 20 <= value <= 500:
+                match.add(int(round(value)))
+
+    # Surface-specific rendered figures (a brief's exact average, an analysis'
+    # post-correction target / average glucose drop). Zero/empty placeholders are
+    # skipped -- they are "no data", not a citable figure.
+    for value in extra:
+        if value and value > 0:
+            match.add(int(round(value)))
+
+    return GlucoseAllowSet(match=sorted(match), readings=readings)
+
+
+async def verify_glucose_reading_citations(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    content: str,
+    *,
+    surface: str,
+    unit: GlucoseUnit | None = None,
+    window_start: datetime | None = None,
+    window_end: datetime | None = None,
+    extra: Sequence[float] = (),
+) -> str:
+    """Verify glucose figures in a model response against the user's readings.
+
+    The output-side choke-point for chat and the daily brief: it corrects or
+    scrubs any spoken glucose number that doesn't trace to the user's data,
+    mirroring the carb verifier at the same call sites so a single reply never
+    handles its glucose and carb figures with two different models. ``window_start``
+    defaults to the chat glucose window (``now - GLUCOSE_CONTEXT_HOURS``), and in
+    that default case the allow-set is capped to ``GLUCOSE_MAX_READINGS`` to match
+    what ``build_glucose_section`` rendered; callers with their own period pass it
+    (and their exact aggregates via ``extra``). ``unit`` is resolved from the data
+    owner when not supplied.
+
+    Fail-closed on the allow-set (a read failure scrubs every figure -- we never
+    emit a glucose number we couldn't verify), matching ``verify_meal_citations``.
+    A verifier exception (should be impossible on ``str`` input) returns the
+    content unchanged. Logs PHI-free counts only.
+    """
+    if not content:
+        return content
+
+    now = datetime.now(UTC)
+    limit: int | None = None
+    if window_start is None:
+        window_start = now - timedelta(hours=GLUCOSE_CONTEXT_HOURS)
+        limit = GLUCOSE_MAX_READINGS  # match build_glucose_section's chat cap
+    if unit is None:
+        from src.services.glucose_unit import resolve_glucose_unit
+
+        unit = await resolve_glucose_unit(db, user_id)
+
+    try:
+        allow = await build_allowed_glucose(
+            db,
+            user_id,
+            window_start=window_start,
+            window_end=window_end,
+            limit=limit,
+            extra=extra,
+        )
+        records, referents = allow.match, allow.readings
+    except Exception:
+        logger.warning(
+            "Glucose citation allow-set build failed; scrubbing unverifiable figures",
+            surface=surface,
+            user_id=str(user_id),
+            exc_info=True,
+        )
+        records, referents = [], []  # fail closed -> every glucose figure is scrubbed
+
+    try:
+        outcome = verify_glucose_citations(content, records, unit, referents=referents)
+    except Exception:
+        logger.warning(
+            "Glucose citation verification raised; returning content unchanged",
+            surface=surface,
+            user_id=str(user_id),
+            exc_info=True,
+        )
+        return content
+
+    if outcome.changed:
+        logger.info(
+            "Glucose citation rewrite",
+            surface=surface,
+            seen=outcome.citations_seen,
+            matched=outcome.citations_matched,
+            corrected=outcome.citations_corrected,
+            scrubbed=outcome.citations_scrubbed,
         )
     return outcome.text
 
