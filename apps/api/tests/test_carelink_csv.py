@@ -323,6 +323,7 @@ def test_carelink_mmol_header_detected_and_glucose_skipped():
     )
     export = parse_carelink_csv(csv_text)
     assert export.section_count == 1
+    assert len(export.rows) == 1
     # Glucose values must be None -- skipped, not stored as raw mmol numbers
     for row in export.rows:
         assert row.bg_mgdl is None
