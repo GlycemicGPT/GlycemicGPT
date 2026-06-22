@@ -5,6 +5,8 @@ All CSV content here is synthetic -- no real patient data.
 
 from datetime import datetime
 
+from loguru import logger
+
 from src.services.integrations.medtronic.carelink_csv import (
     CareLinkRow,
     parse_carelink_csv,
@@ -325,6 +327,38 @@ def test_carelink_mmol_header_detected_and_glucose_skipped():
     for row in export.rows:
         assert row.bg_mgdl is None
         assert row.sensor_glucose_mgdl is None
+
+
+def test_carelink_mmol_section_drops_populated_mgdl_columns_and_warns():
+    """A mmol section that ALSO carries populated mg/dL-named glucose columns still
+    drops glucose, and emits the operator warning.
+
+    This is the enforcement guard: the mmol headers signal the section's true unit, so
+    even the mg/dL-named values (180/200 here) must be dropped -- without the explicit
+    ``is_mmol_section`` skip they would be stored as mg/dL. Non-glucose fields (basal)
+    are retained. The earlier mmol-only test passes incidentally because the mg/dL alias
+    simply isn't present; this one cannot.
+    """
+    csv_text = (
+        "Index,Date,Time,BG Source,BG Reading (mg/dL),BG Reading (mmol/L),"
+        "Sensor Glucose (mg/dL),Sensor Glucose (mmol/L),Basal Rate (U/h)\n"
+        "0,2026-05-06,11:30:00,Meter,180,10.0,200,11.1,0.85\n"
+    )
+    messages: list[str] = []
+    sink_id = logger.add(lambda m: messages.append(str(m)), level="WARNING")
+    try:
+        export = parse_carelink_csv(csv_text)
+    finally:
+        logger.remove(sink_id)
+
+    assert export.section_count == 1
+    row = export.rows[0]
+    assert row.bg_mgdl is None
+    assert row.sensor_glucose_mgdl is None
+    # Non-glucose fields survive the glucose-only skip.
+    assert row.basal_rate_uh == 0.85
+    # The skip is announced so an operator can see a section was partially dropped.
+    assert any("mmol/L headers" in m for m in messages)
 
 
 def test_carelink_mgdl_header_still_works():

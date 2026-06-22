@@ -17,6 +17,11 @@ package com.glycemicgpt.mobile.ble.read
  * mg/dL); [trendMgDlPerMin] is the rate of change. Optional fields are `null`/absent when their
  * presence flag is clear, matching the SIG record's flag-driven layout.
  *
+ * TODO(mmol/L): this assumes the 700-series always reports mg/dL. The Bluetooth SIG "CGM Feature"
+ * characteristic exposes the device's measurement unit; a real European mmol/L pump sample is needed
+ * to confirm it and add a conversion (via the shared 18.0156 factor) here. Deferred -- hardware-blocked.
+ * The canonical-mg/dL storage invariant is unaffected because no mmol/L source is parsed yet.
+ *
  * Use [parse] to decode a (already-decrypted) record; it throws [MedtronicReadException] on any
  * structural inconsistency rather than returning a half-populated object.
  */

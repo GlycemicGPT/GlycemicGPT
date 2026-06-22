@@ -9,6 +9,7 @@ foundation).
 
 from __future__ import annotations
 
+from src.core.units import MGDL_PER_MMOL, mgdl_to_mmol
 from src.services.integrations.nightscout._glucose_mapper import (
     map_bg_check_treatment_to_glucose_reading,
     map_entry_to_glucose_reading,
@@ -77,6 +78,38 @@ def test_mgdl_fingerstick_passes_through_without_conversion():
 
     assert reading is not None
     assert reading["value"] == 120
+
+
+def test_mmol_fingerstick_round_trips_through_display_across_clinical_range():
+    """mmol/L BG-Check ingestion -> stored mg/dL -> mmol/L display round-trips within
+    one display step across ~2.0-25.0 mmol/L, with the 3.9/6.7/10.0 anchors pinned.
+
+    A mis-converted ingestion would silently shift a stored reading (e.g. a hypo
+    threshold read low-but-not-low), so this exercises the mmol->mg/dL->mmol loop on the
+    one ingestion path that converts. It complements the display-direction round-trip in
+    test_threshold_unit_round_trip.py rather than duplicating it.
+    """
+    for tenths in range(20, 251):  # 2.0 .. 25.0 mmol/L in 0.1 steps
+        mmol_in = round(tenths * 0.1, 1)
+        reading = map_bg_check_treatment_to_glucose_reading(
+            _mmol_fingerstick(mmol_in), user_id="user-1", source="nightscout:conn-1"
+        )
+        assert reading is not None
+        stored_mgdl = reading["value"]
+        # Ingestion converts via the single shared constant and rounds to integer mg/dL.
+        assert stored_mgdl == round(mmol_in * MGDL_PER_MMOL)
+        # Round-tripping back to the display unit lands within half a display step.
+        assert abs(mgdl_to_mmol(stored_mgdl) - mmol_in) <= 0.1 + 1e-9
+
+    # Clinical anchors land exactly when displayed back (the hazard cases).
+    anchors = {3.9: 70, 6.7: 121, 10.0: 180}
+    for mmol_in, expected_mgdl in anchors.items():
+        reading = map_bg_check_treatment_to_glucose_reading(
+            _mmol_fingerstick(mmol_in), user_id="user-1", source="nightscout:conn-1"
+        )
+        assert reading is not None
+        assert reading["value"] == expected_mgdl
+        assert mgdl_to_mmol(reading["value"]) == mmol_in
 
 
 def test_mbg_entry_is_treated_as_mgdl():
