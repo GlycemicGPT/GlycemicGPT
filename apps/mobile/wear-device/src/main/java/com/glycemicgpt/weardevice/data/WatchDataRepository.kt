@@ -2,6 +2,7 @@ package com.glycemicgpt.weardevice.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.glycemicgpt.weardevice.util.GlucoseUnit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -14,6 +15,7 @@ object WatchDataRepository {
     private const val KEY_CGM_HISTORY = "cgm_history"
     private const val KEY_CURRENT_CGM = "current_cgm"
     private const val KEY_CURRENT_IOB = "current_iob"
+    private const val KEY_CURRENT_GLUCOSE_UNIT = "current_glucose_unit"
 
     private var prefs: SharedPreferences? = null
 
@@ -24,6 +26,7 @@ object WatchDataRepository {
         if (_cgmHistory.value.isEmpty()) restoreCgmHistory()
         if (_cgm.value == null) restoreCurrentCgm()
         if (_iob.value == null) restoreCurrentIoB()
+        restoreGlucoseUnit()
         Timber.d("WatchDataRepository initialized with persisted data")
     }
 
@@ -127,6 +130,14 @@ object WatchDataRepository {
     private val _watchFaceConfig = MutableStateFlow(WatchFaceConfigState())
     val watchFaceConfig: StateFlow<WatchFaceConfigState> = _watchFaceConfig.asStateFlow()
 
+    /**
+     * Per-account glucose display unit. Carried on `CGM_PATH` (not the config
+     * payload), so the wire value stays raw mg/dL and only the rendered number
+     * converts. Standalone state -- never written into [CgmState] or the CGM CSV.
+     */
+    private val _glucoseUnit = MutableStateFlow(GlucoseUnit.MGDL)
+    val glucoseUnit: StateFlow<GlucoseUnit> = _glucoseUnit.asStateFlow()
+
     fun updateIoB(iob: Float, timestampMs: Long) {
         _iob.value = IoBState(iob, timestampMs)
         persistCurrentIoB()
@@ -202,6 +213,17 @@ object WatchDataRepository {
 
     fun updateCategoryLabels(labels: Map<String, String>) {
         _categoryLabels.value = labels
+    }
+
+    /**
+     * Set the per-account display unit (from the unit token on `CGM_PATH`).
+     * Persists so a cold-started watch renders its restored last reading in the
+     * correct unit instead of defaulting to mg/dL until the next push arrives.
+     */
+    fun updateGlucoseUnit(unit: GlucoseUnit) {
+        if (_glucoseUnit.value == unit) return
+        _glucoseUnit.value = unit
+        persistGlucoseUnit()
     }
 
     private val VALID_GRAPH_RANGES = setOf(1, 3, 6)
@@ -356,5 +378,16 @@ object WatchDataRepository {
             Timber.w(e, "Failed to restore current IoB from cache")
             p.edit().remove(KEY_CURRENT_IOB).apply()
         }
+    }
+
+    /** Persist the display unit as its wire token (`"mgdl"`/`"mmol"`). */
+    private fun persistGlucoseUnit() {
+        prefs?.edit()?.putString(KEY_CURRENT_GLUCOSE_UNIT, _glucoseUnit.value.wireValue)?.apply()
+    }
+
+    private fun restoreGlucoseUnit() {
+        val p = prefs ?: return
+        // fromWire never throws and defaults to MGDL on absence/corruption.
+        _glucoseUnit.value = GlucoseUnit.fromWire(p.getString(KEY_CURRENT_GLUCOSE_UNIT, null))
     }
 }
