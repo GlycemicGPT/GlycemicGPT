@@ -11,8 +11,12 @@ from __future__ import annotations
 
 from src.services.integrations.nightscout._glucose_mapper import (
     map_bg_check_treatment_to_glucose_reading,
+    map_entry_to_glucose_reading,
 )
-from src.services.integrations.nightscout.models import NightscoutTreatment
+from src.services.integrations.nightscout.models import (
+    NightscoutEntry,
+    NightscoutTreatment,
+)
 
 
 def _mmol_fingerstick(glucose_mmol: float) -> NightscoutTreatment:
@@ -71,5 +75,21 @@ def test_mgdl_fingerstick_passes_through_without_conversion():
         source="nightscout:conn-1",
     )
 
+    assert reading is not None
+    assert reading["value"] == 120
+
+
+def test_mbg_entry_is_treated_as_mgdl():
+    """entries[type=mbg] have no unit field, always treated as mg/dL."""
+    entry = NightscoutEntry.model_validate(
+        {
+            "type": "mbg",
+            "mbg": 120,
+            "date": 1746527400000,
+        }
+    )
+    reading = map_entry_to_glucose_reading(
+        entry, user_id="user-1", source="nightscout:conn-1"
+    )
     assert reading is not None
     assert reading["value"] == 120

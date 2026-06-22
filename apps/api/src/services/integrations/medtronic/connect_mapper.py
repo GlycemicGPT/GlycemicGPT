@@ -157,7 +157,8 @@ def _carb_amount(m: dict) -> float | None:
 
 
 def _bg_value(m: dict) -> int | None:
-    """xDrip getBloodGlucose()."""
+    """xDrip getBloodGlucose().
+    Returns glucose values in mg/dL."""
     v = m.get("value")
     if v is None:
         v = _data_values(m).get("unitValue")
@@ -170,7 +171,8 @@ def _bg_value(m: dict) -> int | None:
 
 
 def map_recent_data(recent: dict) -> MappedRecords:
-    """Map a ``RecentData`` (display/message ``patientData``) dict to records."""
+    """Map a ``RecentData`` (display/message ``patientData``) dict to records.
+    Glucose values here are in mg/dL."""
     records = MappedRecords()
     if not isinstance(recent, dict):
         return records

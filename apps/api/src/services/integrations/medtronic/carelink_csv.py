@@ -23,12 +23,16 @@ import io
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from loguru import logger
+
 # --- Canonical CareLink column names (observed in the v15.x export header) ---
 COL_INDEX = "Index"
 COL_DATE = "Date"
 COL_TIME = "Time"
 COL_BG_SOURCE = "BG Source"
-COL_BG_READING = "BG Reading (mg/dL)"
+COL_BG_READING_MGDL = "BG Reading (mg/dL)"
+COL_BG_READING_MMOL = "BG Reading (mmol/L)"
+COL_BG_READING = COL_BG_READING_MGDL
 COL_BASAL_RATE = "Basal Rate (U/h)"
 COL_TEMP_BASAL_AMOUNT = "Temp Basal Amount"
 COL_TEMP_BASAL_TYPE = "Temp Basal Type"
@@ -39,7 +43,9 @@ COL_BOLUS_DELIVERED = "Bolus Volume Delivered (U)"
 COL_BOLUS_SOURCE = "Bolus Source"
 COL_BWZ_CARB_INPUT = "BWZ Carb Input (grams)"
 COL_BWZ_ACTIVE_INSULIN = "BWZ Active Insulin (U)"
-COL_SENSOR_GLUCOSE = "Sensor Glucose (mg/dL)"
+COL_SENSOR_GLUCOSE_MGDL = "Sensor Glucose (mg/dL)"
+COL_SENSOR_GLUCOSE_MMOL = "Sensor Glucose (mmol/L)"
+COL_SENSOR_GLUCOSE = COL_SENSOR_GLUCOSE_MGDL
 COL_ISIG = "ISIG Value"
 COL_ALERT = "Alert"
 COL_SUSPEND = "Suspend"
@@ -195,6 +201,7 @@ def parse_carelink_csv(text: str, *, keep_raw: bool = False) -> CareLinkExport:
 
     header: list[str] | None = None
     col: dict[str, int] = {}
+    is_mmol_section: bool = False
 
     def get(row: list[str], name: str) -> str | None:
         i = col.get(name)
@@ -212,6 +219,17 @@ def parse_carelink_csv(text: str, *, keep_raw: bool = False) -> CareLinkExport:
             header = [c.strip() for c in fields_]
             col = {name: i for i, name in enumerate(header)}
             export.section_count += 1
+            # Detect European mmol/L export headers. Exact format is unconfirmed
+            # without a real sample, so log and skip glucose rows rather than
+            # risk storing a mis-converted value.
+            is_mmol_section = (
+                COL_BG_READING_MMOL in col or COL_SENSOR_GLUCOSE_MMOL in col
+            )
+            if is_mmol_section:
+                logger.warning(
+                    "CareLink CSV section has mmol/L headers, exact European format unconfirmed. "
+                    "Glucose rows will be skipped to avoid mis-storing unconverted values"
+                )
             continue
 
         # Metadata preamble lines (before the first header). Lift a few useful

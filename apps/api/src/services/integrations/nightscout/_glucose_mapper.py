@@ -103,6 +103,8 @@ def map_entry_to_glucose_reading(
     elif entry.type == "mbg":
         if entry.mbg is None:
             return None
+        # The entries schema has no unit field -- Nightscout always serves mbg entries as mg/dL,
+        # no conversion needed.
         value = int(round(entry.mbg))
         # Fingersticks have no trend signal -- meter readings are
         # point-in-time.

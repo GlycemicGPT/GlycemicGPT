@@ -311,3 +311,29 @@ def test_raw_is_empty_unless_keep_raw():
     assert parse_carelink_csv(csv_text).rows[0].raw == {}
     kept = parse_carelink_csv(csv_text, keep_raw=True).rows[0].raw
     assert kept.get("Basal Rate (U/h)") == "0.7"
+
+
+def test_carelink_mmol_header_detected_and_glucose_skipped():
+    """CareLink CSV with mmol/L headers: glucose rows are skipped visibly."""
+    csv_text = (
+        "Index,Date,Time,BG Source,BG Reading (mmol/L),Sensor Glucose (mmol/L)\n"
+        "0,2026-05-06,11:30:00,Meter,5.5,6.1\n"
+    )
+    export = parse_carelink_csv(csv_text)
+    assert export.section_count == 1
+    # Glucose values must be None -- skipped, not stored as raw mmol numbers
+    for row in export.rows:
+        assert row.bg_mgdl is None
+        assert row.sensor_glucose_mgdl is None
+
+
+def test_carelink_mgdl_header_still_works():
+    """CareLink CSV with mg/dL headers continues to parse correctly."""
+    csv_text = (
+        "Index,Date,Time,BG Source,BG Reading (mg/dL),Sensor Glucose (mg/dL)\n"
+        "0,2026-05-06,11:30:00,Meter,120,145\n"
+    )
+    export = parse_carelink_csv(csv_text)
+    assert export.section_count == 1
+    assert export.rows[0].bg_mgdl == 120
+    assert export.rows[0].sensor_glucose_mgdl == 145
