@@ -1346,6 +1346,11 @@ export interface CaregiverPatientStatus {
   glucose: CaregiverGlucoseData | null;
   iob: CaregiverIoBData | null;
   permissions: CaregiverPermissions;
+  /**
+   * The PATIENT's preferred display unit (never the viewing caregiver's). The
+   * glucose `value` stays canonical mg/dL; this only selects the render unit.
+   */
+  glucose_unit: GlucoseUnit;
 }
 
 export interface CaregiverGlucoseHistoryReading {

@@ -4,7 +4,7 @@
  * arrow buckets don't collapse), never a naive toFixed(1).
  */
 
-import { render } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { AlertCard } from "@/components/dashboard/alert-card";
 import type { PredictiveAlert } from "@/lib/api";
 
@@ -47,5 +47,41 @@ describe("AlertCard glucose unit", () => {
     expect(container.textContent).toContain("mmol/L");
     // 3 mg/dL/min -> 0.17 mmol/L/min (2 decimals; 1 decimal would collapse to 0.2)
     expect(container.textContent).toContain("+0.17 mmol/L/min");
+  });
+});
+
+describe("AlertCard message body", () => {
+  it("suppresses the frozen mg/dL message for a glucose alert (numbers come from fields)", () => {
+    render(
+      <AlertCard
+        alert={makeAlert({
+          alert_type: "low_warning",
+          message: "Low glucose warning: 70 mg/dL (threshold: 70)",
+        })}
+        onAcknowledge={jest.fn()}
+      />
+    );
+    // The structured glucose number is rendered from the fields...
+    expect(screen.getByText("180")).toBeInTheDocument();
+    // ...and the persisted message body is NOT echoed (its "(threshold: …)"
+    // text exists nowhere else on the card), so it can never read a stale unit.
+    expect(screen.queryByText(/threshold/i)).toBeNull();
+  });
+
+  it("renders an iob_warning message verbatim (insulin units, never unit-stale)", () => {
+    const message = "High insulin on board: 2.5 units (threshold: 2.0)";
+    render(
+      <AlertCard
+        alert={makeAlert({
+          alert_type: "iob_warning",
+          predicted_value: null,
+          prediction_minutes: null,
+          iob_value: 2.5,
+          message,
+        })}
+        onAcknowledge={jest.fn()}
+      />
+    );
+    expect(screen.getByText(message)).toBeInTheDocument();
   });
 });

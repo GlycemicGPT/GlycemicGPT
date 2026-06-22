@@ -122,8 +122,15 @@ export function AlertCard({
         )}
       </div>
 
-      {/* Message / Recommended action */}
-      <p className={clsx("text-sm mb-3", config.text)}>{alert.message}</p>
+      {/* The glucose value/prediction is already rendered live, in the active
+          unit, in the block above — so no message echo is shown for glucose
+          alerts (and the persisted mg/dL string is never the display source on a
+          mmol surface). IoB warnings are the exception: their threshold context
+          lives only in the message, and it is in insulin units, so it is never
+          unit-stale and is shown verbatim. */}
+      {alert.alert_type === "iob_warning" && (
+        <p className={clsx("text-sm mb-3", config.text)}>{alert.message}</p>
+      )}
 
       {/* Metadata */}
       <div className="flex items-center gap-4 mb-4 text-xs text-slate-500">
