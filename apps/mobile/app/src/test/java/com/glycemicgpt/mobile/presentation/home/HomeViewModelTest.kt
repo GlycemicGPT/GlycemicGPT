@@ -16,6 +16,7 @@ import com.glycemicgpt.mobile.domain.model.CgmReading
 import com.glycemicgpt.mobile.domain.model.CgmTrend
 import com.glycemicgpt.mobile.domain.model.BolusEvent
 import com.glycemicgpt.mobile.domain.model.ConnectionState
+import com.glycemicgpt.mobile.domain.model.GlucoseUnit
 import com.glycemicgpt.mobile.domain.model.IoBReading
 import com.glycemicgpt.mobile.domain.model.PumpActivityMode
 import com.glycemicgpt.mobile.domain.model.ReservoirReading
@@ -129,6 +130,8 @@ class HomeViewModelTest {
     private val appSettingsStore = mockk<AppSettingsStore>(relaxed = true) {
         every { showPumpLabels } returns false
         every { dataRetentionDays } returns 7
+        every { glucoseUnit } returns GlucoseUnit.MGDL
+        every { glucoseUnitFlow() } returns flowOf(GlucoseUnit.MGDL)
     }
 
     private val authRepository = mockk<AuthRepository>(relaxed = true)
@@ -230,6 +233,26 @@ class HomeViewModelTest {
         advanceTimeBy(10_000); runCurrent()
 
         assertFalse(vm.isRefreshing.value)
+    }
+
+    @Test
+    fun `glucoseUnit seeds from the cache and propagates flow emissions`() = runTest {
+        val unitFlow = MutableStateFlow(GlucoseUnit.MGDL)
+        every { appSettingsStore.glucoseUnit } returns GlucoseUnit.MGDL
+        every { appSettingsStore.glucoseUnitFlow() } returns unitFlow
+        val vm = createViewModel()
+
+        // Subscribe so the WhileSubscribed stateIn starts collecting upstream.
+        val collected = mutableListOf<GlucoseUnit>()
+        val job = backgroundScope.launch(testDispatcher) { vm.glucoseUnit.collect { collected.add(it) } }
+        runCurrent()
+        assertEquals(GlucoseUnit.MGDL, vm.glucoseUnit.value)
+
+        unitFlow.value = GlucoseUnit.MMOL
+        runCurrent()
+        assertEquals(GlucoseUnit.MMOL, vm.glucoseUnit.value)
+
+        job.cancel()
     }
 
     @Test
@@ -446,6 +469,16 @@ class HomeViewModelTest {
         createViewModel()
         advanceTimeBy(10_000); runCurrent()
         coVerify(atLeast = 1) { authRepository.refreshSafetyLimits() }
+    }
+
+    @Test
+    fun `init reconciles the glucose unit even when the glucose range is fresh`() = runTest {
+        // The unit reconcile is decoupled from range staleness so a unit change made on another
+        // device propagates on a cold open even while the range cache is still fresh.
+        every { glucoseRangeStore.isStale(any()) } returns false
+        createViewModel()
+        advanceTimeBy(10_000); runCurrent()
+        coVerify(atLeast = 1) { authRepository.refreshGlucoseUnit() }
     }
 
     // -- Plugin cards ----------------------------------------------------------

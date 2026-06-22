@@ -4,12 +4,15 @@ import android.content.Context
 import com.glycemicgpt.mobile.BuildConfig
 import com.glycemicgpt.mobile.data.auth.AuthManager
 import com.glycemicgpt.mobile.data.local.AnalyticsSettingsStore
+import com.glycemicgpt.mobile.data.local.AppSettingsStore
 import com.glycemicgpt.mobile.data.local.AuthTokenStore
 import com.glycemicgpt.mobile.data.local.GlucoseRangeStore
 import com.glycemicgpt.mobile.data.local.PumpProfileStore
 import com.glycemicgpt.mobile.data.local.SafetyLimitsStore
 import com.glycemicgpt.mobile.data.remote.GlycemicGptApi
+import com.glycemicgpt.mobile.data.remote.dto.GlucoseUnitUpdateRequest
 import com.glycemicgpt.mobile.data.remote.dto.LoginRequest
+import com.glycemicgpt.mobile.domain.model.GlucoseUnit
 import com.glycemicgpt.mobile.service.AlertStreamService
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlin.coroutines.cancellation.CancellationException
@@ -35,6 +38,7 @@ class AuthRepository @Inject constructor(
     private val safetyLimitsStore: SafetyLimitsStore,
     private val analyticsSettingsStore: AnalyticsSettingsStore,
     private val pumpProfileStore: PumpProfileStore,
+    private val appSettingsStore: AppSettingsStore,
     private val api: GlycemicGptApi,
     private val deviceRepository: DeviceRepository,
     private val authManager: AuthManager,
@@ -94,6 +98,7 @@ class AuthRepository @Inject constructor(
                 }
                 scope.launch { fetchGlucoseRange() }
                 scope.launch { fetchSafetyLimits() }
+                scope.launch { fetchGlucoseUnit() }
                 AlertStreamService.start(appContext)
 
                 LoginResult(success = true, email = body.user.email)
@@ -122,6 +127,9 @@ class AuthRepository @Inject constructor(
         safetyLimitsStore.clear()
         analyticsSettingsStore.clear()
         pumpProfileStore.clear()
+        // The glucose unit is a per-account preference; reset to the neutral default so a stale
+        // unit can't carry over to the next account before its reconcile lands.
+        appSettingsStore.glucoseUnit = GlucoseUnit.MGDL
         authManager.onLogout()
         scope.launch {
             deviceRepository.unregisterDevice()
@@ -171,6 +179,36 @@ class AuthRepository @Inject constructor(
         fetchSafetyLimits()
     }
 
+    /** Reconcile the cached glucose display unit from the backend (the account is the source of truth). */
+    suspend fun refreshGlucoseUnit() {
+        fetchGlucoseUnit()
+    }
+
+    /**
+     * Write the user's glucose display unit to the account (`PATCH /api/settings/glucose-unit`)
+     * and reconcile the local cache to whatever the server returns. The unit is a per-account
+     * preference, so this -- not the local cache -- is what makes it consistent across web,
+     * phone, watch, and AI text. On failure the optimistic local cache is left intact (the next
+     * reconcile will correct it); the [Result] lets the caller surface a transient error.
+     */
+    suspend fun updateGlucoseUnit(unit: GlucoseUnit): Result<GlucoseUnit> {
+        return try {
+            val response = api.patchGlucoseUnit(GlucoseUnitUpdateRequest(glucoseUnit = unit.wireValue))
+            if (response.isSuccessful) {
+                val resolved = response.body()?.let { GlucoseUnit.fromWire(it.glucoseUnit) } ?: unit
+                appSettingsStore.glucoseUnit = resolved
+                Result.success(resolved)
+            } else {
+                Result.failure(Exception("Server responded with HTTP ${response.code()}"))
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "Failed to update glucose unit")
+            Result.failure(e)
+        }
+    }
+
     private suspend fun fetchGlucoseRange() {
         try {
             val response = api.getGlucoseRange()
@@ -193,6 +231,23 @@ class AuthRepository @Inject constructor(
             throw e
         } catch (e: Exception) {
             Timber.w(e, "Failed to fetch glucose range settings")
+        }
+    }
+
+    private suspend fun fetchGlucoseUnit() {
+        try {
+            val response = api.getGlucoseUnit()
+            if (response.isSuccessful) {
+                response.body()?.let { body ->
+                    appSettingsStore.glucoseUnit = GlucoseUnit.fromWire(body.glucoseUnit)
+                    Timber.d("Glucose unit reconciled: %s", body.glucoseUnit)
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Keep the cached unit (ultimately MGDL) on any failure.
+            Timber.w(e, "Failed to fetch glucose unit preference")
         }
     }
 

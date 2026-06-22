@@ -65,6 +65,7 @@ fun ChartDetailScreen(
     val selectedPeriod by viewModel.selectedPeriod.collectAsState()
     val thresholds by viewModel.glucoseThresholds.collectAsState()
     val categoryLabels by viewModel.categoryLabels.collectAsState()
+    val glucoseUnit by viewModel.glucoseUnit.collectAsState()
     val retentionDays by viewModel.dataRetentionDays.collectAsState()
     val safeRetention = retentionDays.coerceAtLeast(1)
     val availablePeriods = ChartPeriod.entries.filter { it.hours / 24 <= safeRetention }
@@ -128,6 +129,7 @@ fun ChartDetailScreen(
             onPeriodSelected = { viewModel.onPeriodSelected(it) },
             thresholds = thresholds,
             categoryLabels = categoryLabels,
+            glucoseUnit = glucoseUnit,
             isDetailMode = true,
             showPeriodSelector = false,
             modifier = Modifier

@@ -16,7 +16,10 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.glycemicgpt.mobile.data.local.AlertSoundCategory
 import com.glycemicgpt.mobile.data.local.AlertSoundStore
+import com.glycemicgpt.mobile.data.local.AppSettingsStore
 import com.glycemicgpt.mobile.data.local.entity.AlertEntity
+import com.glycemicgpt.mobile.domain.format.GlucoseFormat
+import com.glycemicgpt.mobile.domain.model.GlucoseUnit
 import com.glycemicgpt.mobile.presentation.MainActivity
 import dagger.hilt.android.qualifiers.ApplicationContext
 import timber.log.Timber
@@ -27,6 +30,7 @@ import javax.inject.Singleton
 class AlertNotificationManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val alertSoundStore: AlertSoundStore,
+    private val appSettingsStore: AppSettingsStore,
 ) {
     companion object {
         private const val GROUP_KEY = "com.glycemicgpt.ALERTS"
@@ -368,14 +372,22 @@ class AlertNotificationManager @Inject constructor(
         }
     }
 
-    private fun buildTitle(alert: AlertEntity): String {
-        val prefix = when (alert.severity) {
-            "emergency" -> "EMERGENCY"
-            "urgent" -> "URGENT"
-            "warning" -> "Warning"
-            else -> "Info"
-        }
-        val patientSuffix = alert.patientName?.let { " - $it" } ?: ""
-        return "$prefix: ${alert.currentValue.toInt()} mg/dL$patientSuffix"
+    private fun buildTitle(alert: AlertEntity): String =
+        formatAlertTitle(alert, appSettingsStore.glucoseUnit)
+}
+
+/**
+ * Builds a notification title (`"EMERGENCY: 320 mg/dL - Alice"`) with the glucose value rendered
+ * in [unit]. Pure -- no Android dependencies -- so it can be exercised directly in unit tests.
+ * Alert detection and the stored [AlertEntity.currentValue] stay canonical mg/dL.
+ */
+internal fun formatAlertTitle(alert: AlertEntity, unit: GlucoseUnit): String {
+    val prefix = when (alert.severity) {
+        "emergency" -> "EMERGENCY"
+        "urgent" -> "URGENT"
+        "warning" -> "Warning"
+        else -> "Info"
     }
+    val patientSuffix = alert.patientName?.let { " - $it" } ?: ""
+    return "$prefix: ${GlucoseFormat.formatWithLabel(alert.currentValue.toInt(), unit)}$patientSuffix"
 }

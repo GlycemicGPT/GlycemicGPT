@@ -95,6 +95,20 @@ class DashboardComputationsTest {
     }
 
     @Test
+    fun `GMI is derived from the raw mgdl mean, never a display-converted value`() {
+        // GMI must keep eating the mg/dL mean even when the dashboard shows the mean in mmol/L.
+        // Feeding the mmol mean (120 / 18.0156 = 6.66) into the formula would give ~3.47 -- guard it.
+        val stats = DashboardComputations.computeCgmStats(listOf(cgm(120), cgm(120)))!!
+        val mmolMean = 120f / 18.0156f
+        val gmiFromMmolMean = 3.31f + 0.02392f * mmolMean
+        assertEquals(6.18f, stats.gmi, 0.01f)
+        assertTrue(
+            "GMI must not be computed from the mmol-converted mean",
+            kotlin.math.abs(stats.gmi - gmiFromMmolMean) > 0.5f,
+        )
+    }
+
+    @Test
     fun `computeCgmStats computes non-zero stdDev`() {
         val readings = listOf(cgm(100), cgm(200), cgm(150))
         val stats = DashboardComputations.computeCgmStats(readings)!!

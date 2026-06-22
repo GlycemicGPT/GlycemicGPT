@@ -24,6 +24,7 @@ import com.glycemicgpt.mobile.data.local.PumpCredentialStore
 import com.glycemicgpt.mobile.data.local.SafetyLimitsStore
 import com.glycemicgpt.mobile.data.repository.AuthRepository
 import com.glycemicgpt.mobile.data.update.AppUpdateChecker
+import com.glycemicgpt.mobile.domain.model.GlucoseUnit
 import com.glycemicgpt.mobile.service.AlertNotificationManager
 import com.glycemicgpt.mobile.service.AlertStreamService
 import com.glycemicgpt.mobile.service.PumpConnectionService
@@ -201,6 +202,9 @@ data class SettingsUiState(
     // Appearance
     val themeMode: com.glycemicgpt.mobile.presentation.theme.ThemeMode =
         com.glycemicgpt.mobile.presentation.theme.ThemeMode.System,
+    // Glucose display unit (per-account preference)
+    val glucoseUnit: GlucoseUnit = GlucoseUnit.MGDL,
+    val glucoseUnitSyncError: String? = null,
 )
 
 private const val AUTO_DISMISS_MS = 5_000L
@@ -320,6 +324,7 @@ class SettingsViewModel @Inject constructor(
             runtimePlugins = pluginRegistry.runtimePlugins.value,
             showPumpLabels = appSettingsStore.showPumpLabels,
             themeMode = appSettingsStore.themeMode,
+            glucoseUnit = appSettingsStore.glucoseUnit,
             watchFaceConfig = loadPersistedWatchFaceConfig(),
         ).withActivePumpFields()
 
@@ -1174,6 +1179,36 @@ class SettingsViewModel @Inject constructor(
     fun setThemeMode(mode: com.glycemicgpt.mobile.presentation.theme.ThemeMode) {
         appSettingsStore.themeMode = mode
         _uiState.value = _uiState.value.copy(themeMode = mode)
+    }
+
+    /**
+     * Set the glucose display unit. The unit is a per-account preference, so this does an
+     * optimistic local-cache set for instant feedback AND a backend PATCH so the choice
+     * propagates to web, watch, and AI text. (Unlike [setThemeMode], which is per-device.)
+     * On success the selector reflects whatever unit the server resolved to (in case it ever
+     * coerces the value); on PATCH failure the optimistic value stays and a transient error is
+     * surfaced; the next `/api/settings/glucose-unit` reconcile corrects it rather than reverting
+     * mid-session.
+     */
+    fun setGlucoseUnit(unit: GlucoseUnit) {
+        appSettingsStore.glucoseUnit = unit
+        _uiState.value = _uiState.value.copy(glucoseUnit = unit, glucoseUnitSyncError = null)
+        viewModelScope.launch {
+            authRepository.updateGlucoseUnit(unit)
+                .onSuccess { resolved ->
+                    // Fold the server-resolved unit back into the selector so it self-corrects if
+                    // the backend ever returns a different value than we optimistically applied.
+                    if (resolved != _uiState.value.glucoseUnit) {
+                        _uiState.value = _uiState.value.copy(glucoseUnit = resolved)
+                    }
+                }
+                .onFailure { e ->
+                    Timber.w(e, "Failed to sync glucose unit to backend")
+                    _uiState.value = _uiState.value.copy(
+                        glucoseUnitSyncError = "Couldn't save to your account. It will retry on next sign-in.",
+                    )
+                }
+        }
     }
 
     fun setOverrideSilentForLow(enabled: Boolean) {

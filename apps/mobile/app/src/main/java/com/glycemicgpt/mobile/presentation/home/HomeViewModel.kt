@@ -20,6 +20,7 @@ import com.glycemicgpt.mobile.domain.model.CgmReading
 import com.glycemicgpt.mobile.domain.model.CgmStats
 import com.glycemicgpt.mobile.domain.model.ConnectionState
 import com.glycemicgpt.mobile.domain.model.EnrichedBolusEvent
+import com.glycemicgpt.mobile.domain.model.GlucoseUnit
 import com.glycemicgpt.mobile.domain.model.InsulinSummary
 import com.glycemicgpt.mobile.domain.model.IoBReading
 import com.glycemicgpt.mobile.domain.plugin.DevicePlugin
@@ -151,7 +152,20 @@ class HomeViewModel @Inject constructor(
     private val _dataRetentionDays = MutableStateFlow(appSettingsStore.dataRetentionDays)
     val dataRetentionDays: StateFlow<Int> = _dataRetentionDays.asStateFlow()
 
+    /**
+     * The user's glucose display unit. Reactive so the dashboard re-renders the moment
+     * the unit changes in Settings or a backend reconcile writes the cache. All glucose
+     * math/color/threshold logic stays mg/dL; only the displayed number + label convert.
+     */
+    val glucoseUnit: StateFlow<GlucoseUnit> = appSettingsStore.glucoseUnitFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), appSettingsStore.glucoseUnit)
+
     init {
+        // The display unit is a per-account preference with no local staleness clock, so reconcile
+        // it from the backend on every load (a cheap GET). It used to piggyback the glucose-range
+        // staleness gate, which meant a unit change made on another device wouldn't propagate on a
+        // cold open while the range was still fresh.
+        viewModelScope.launch { authRepository.refreshGlucoseUnit() }
         // Refresh glucose range from backend on screen load if stale (15 min)
         if (glucoseRangeStore.isStale(maxAgeMs = RANGE_REFRESH_INTERVAL_MS)) {
             viewModelScope.launch { refreshGlucoseRange() }
@@ -340,6 +354,7 @@ class HomeViewModel @Inject constructor(
             try {
                 // Refresh settings concurrently -- don't block BLE reads
                 launch { refreshGlucoseRange() }
+                launch { authRepository.refreshGlucoseUnit() }
                 launch { refreshAnalyticsConfig() }
                 launch { refreshPumpProfile() }
                 // If backend call fails, refreshSafetyLimits re-reads the store's
