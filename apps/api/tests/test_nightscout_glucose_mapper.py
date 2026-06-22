@@ -9,6 +9,8 @@ foundation).
 
 from __future__ import annotations
 
+import pytest
+
 from src.core.units import MGDL_PER_MMOL, mgdl_to_mmol
 from src.services.integrations.nightscout._glucose_mapper import (
     map_bg_check_treatment_to_glucose_reading,
@@ -126,3 +128,23 @@ def test_mbg_entry_is_treated_as_mgdl():
     )
     assert reading is not None
     assert reading["value"] == 120
+
+@pytest.mark.parametrize("mbg", [20, 500])
+def test_mbg_entry_bounds_are_treated_as_mgdl(mbg: int):
+    """Canonical safety edges (20 and 500 mg/dL) pass through without conversion.
+
+    Covers the platform-wide glucose safety bounds (MIN/MAX_GLUCOSE_MGDL)
+    for the mbg entry path, per coding guidelines.
+    """
+    entry = NightscoutEntry.model_validate(
+        {
+            "type": "mbg",
+            "mbg": mbg,
+            "date": 1746527400000,
+        }
+    )
+    reading = map_entry_to_glucose_reading(
+        entry, user_id="user-1", source="nightscout:conn-1"
+    )
+    assert reading is not None
+    assert reading["value"] == mbg
