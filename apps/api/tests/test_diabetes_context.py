@@ -849,7 +849,17 @@ def _mock_db_for_glucose(reading_values, target=None):
 @pytest.mark.asyncio
 class TestBuildAllowedGlucose:
     """The glucose allow-set = real readings + rendered aggregates (avg, target
-    bounds) + surface extras; readings are kept separate as the referent basis."""
+    bounds) + configured pump thresholds + surface extras; readings are kept
+    separate as the referent basis."""
+
+    @pytest.fixture(autouse=True)
+    def _no_pump_profile(self, monkeypatch):
+        # Most cases don't exercise the pump profile; default it to absent so the
+        # readings/avg/target assertions are exact. The dedicated case re-patches.
+        monkeypatch.setattr(
+            "src.services.diabetes_context.get_pump_profile_summary",
+            AsyncMock(return_value=None),
+        )
 
     async def test_includes_readings_avg_and_default_target(self, monkeypatch):
         monkeypatch.setattr(
@@ -925,6 +935,41 @@ class TestBuildAllowedGlucose:
 
         assert allow.readings == []
         assert set(allow.match) == {70, 180}  # defaults only, no avg
+
+    async def test_includes_configured_pump_thresholds(self, monkeypatch):
+        # The model is shown the pump-profile segment targets + CGM alert levels,
+        # so a reply restating one must be matchable (not scrubbed as invented).
+        monkeypatch.setattr(
+            "src.services.cgm_source.get_excluded_cgm_sources",
+            AsyncMock(return_value=[]),
+        )
+        profile = _make_summary(
+            segments=[
+                ProfileSegment(
+                    time="00:00",
+                    start_minutes=0,
+                    basal_rate=0.5,
+                    correction_factor=50,
+                    carb_ratio=8,
+                    target_bg=100,
+                )
+            ],
+            cgm_high_alert_mgdl=200,
+            cgm_low_alert_mgdl=60,
+        )
+        monkeypatch.setattr(
+            "src.services.diabetes_context.get_pump_profile_summary",
+            AsyncMock(return_value=profile),
+        )
+        db = _mock_db_for_glucose([120])
+
+        allow = await build_allowed_glucose(
+            db, uuid.uuid4(), window_start=datetime.now(UTC) - timedelta(hours=6)
+        )
+
+        # segment target 100, CGM high 200, CGM low 60 all land in match.
+        assert {100, 200, 60} <= set(allow.match)
+        assert allow.readings == [120]  # thresholds are not reading referents
 
 
 @pytest.mark.asyncio

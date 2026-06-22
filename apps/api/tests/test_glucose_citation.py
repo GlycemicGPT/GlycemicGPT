@@ -76,15 +76,14 @@ class TestExtractor:
 
     def test_extracts_mgdl_and_mmol(self):
         cites = _extract("BG was 120 mg/dL, now 6.7 mmol/L")
-        assert [(c.values, c.unit) for c in cites] == [
-            ((120.0,), GlucoseUnit.MGDL),
-            ((6.7,), GlucoseUnit.MMOL),
+        assert [(c.value, c.unit) for c in cites] == [
+            (120.0, GlucoseUnit.MGDL),
+            (6.7, GlucoseUnit.MMOL),
         ]
 
-    def test_extracts_range(self):
-        (cite,) = _extract("ranged from 70 to 180 mg/dL")
-        assert cite.values == (70.0, 180.0)
-        assert cite.is_range
+    def test_range_not_extracted_passes_through(self):
+        # A range states bounds (a target/summary), not a reading -> pass through.
+        assert _extract("ranged from 70 to 180 mg/dL") == []
 
     def test_ignores_isf_one_to_x(self):
         assert _extract("Adjust ISF from 1:50 to 1:45 mg/dL") == []
@@ -134,7 +133,7 @@ class TestCommaSeparators:
     def test_thousands_comma_parses_whole(self):
         # "1,025" is 1025 (out of range) -> not the orphan "1,120".
         cites = _extract("Reading was 1,025 mg/dL.")
-        assert cites[0].values == (1025.0,)
+        assert cites[0].value == 1025.0
 
     def test_comma_decimal_flag_reason_is_clean(self):
         (flag,) = find_glucose_citation_flags(
@@ -154,7 +153,7 @@ class TestIsfExclusionPrecision:
         )
         cites = _extract(text)
         # Only the real reading 250 is a glucose citation; the ISF figures are not.
-        assert [c.values for c in cites] == [(250.0,)]
+        assert [c.value for c in cites] == [250.0]
 
     def test_hallucinated_reading_beside_isf_keyword_is_corrected(self):
         text = "correction factor note: BG 250 mg/dL today, move 50 to 45 mg/dL"
@@ -202,19 +201,37 @@ class TestRewrite:
         assert "can't verify" in outcome.text
         assert outcome.citations_scrubbed == 1
 
-    def test_range_mismatch_scrubbed_not_corrected(self):
-        # A range can't be corrected to a single referent, so it is scrubbed.
-        outcome = verify_glucose_citations(
-            "ranged 40 to 300 mg/dL", [120], GlucoseUnit.MGDL
-        )
-        assert outcome.citations_scrubbed == 1
-        assert "300" not in outcome.text
-
-    def test_range_within_data_matched(self):
-        text = "ranged 70 to 180 mg/dL"
-        outcome = verify_glucose_citations(text, [70, 120, 180], GlucoseUnit.MGDL)
+    def test_range_passes_through_untouched(self):
+        # A range states bounds, not a reading, so it is never corrected/scrubbed
+        # -- even one that doesn't trace to the data is left exactly as written.
+        text = "ranged 40 to 300 mg/dL"
+        outcome = verify_glucose_citations(text, [120], GlucoseUnit.MGDL)
         assert outcome.text == text
-        assert outcome.citations_matched == 1
+        assert outcome.citations_seen == 0
+
+    def test_directive_threshold_passes_through(self):
+        # A hypo-treatment threshold must never be "corrected" to the reading.
+        for text, unit in [
+            ("Call if below 3.9 mmol/L.", GlucoseUnit.MMOL),
+            ("Severe low is 54 mg/dL.", GlucoseUnit.MGDL),
+            ("Keep above 5.0 mmol/L.", GlucoseUnit.MMOL),
+            ("Your target is 6.7 mmol/L.", GlucoseUnit.MMOL),
+        ]:
+            outcome = verify_glucose_citations(text, [120], unit)
+            assert outcome.text == text
+            assert outcome.citations_seen == 0
+
+    def test_reading_still_acted_on_beside_a_threshold(self):
+        # A genuine reading misquote is still corrected even when the same reply
+        # also states a (passed-through) threshold.
+        outcome = verify_glucose_citations(
+            "Your glucose is 200 mg/dL; call if below 3.9 mmol/L.",
+            [120],
+            GlucoseUnit.MGDL,
+        )
+        assert "120 mg/dL" in outcome.text  # the reading is corrected
+        assert "below 3.9 mmol/L" in outcome.text  # the threshold is untouched
+        assert outcome.citations_corrected == 1
 
     def test_empty_records_scrubs_every_figure(self):
         outcome = verify_glucose_citations(

@@ -20,10 +20,13 @@ Design (mirrors ``meal_citation``):
   * Deterministic and pure -- ``re`` extraction + the shared rounding-tolerant
     band (``core.units.glucose_display_matches``: +/-1 mg/dL or +/-0.1 mmol/L,
     never equality). No second LLM call.
-  * The extractor matches a number anchored to glucose by a per-volume unit
-    suffix (``mg/dL`` / ``mmol/L``) and excludes the ``1:X`` ISF / carb-ratio
-    forms and ISF *rates* ("50 mg/dL per unit"), so a correction-factor figure is
-    never mis-flagged as a glucose reading (those are the safety layer's job).
+  * The extractor only acts on a figure presented as the user's *reading*. A
+    number anchored to glucose by a per-volume unit suffix (``mg/dL`` /
+    ``mmol/L``) is a candidate, but ``1:X`` ISF / carb-ratio forms, ISF *rates*
+    ("50 mg/dL per unit"), low-to-high ranges, and threshold/directive figures
+    (targets, alert levels, "call if below 3.9 mmol/L") are passed through
+    untouched -- they are not readings, and correcting or scrubbing them would
+    fabricate or strip a level the user might act on.
   * Two consumption models share one extraction + match core:
       - rewrite (``verify_glucose_citations``): correct-or-scrub the reply text,
         for the chat handlers and the daily brief -- consistent with the carb
@@ -62,15 +65,16 @@ from src.services.safety_validation import (
 )
 
 # ── Extraction regexes ──
-# A glucose citation is a number (single value or low-to-high range) immediately
-# carrying a per-volume glucose unit. Requiring the ``/dL`` // ``/L`` denominator
-# excludes a bare "mg"/"mmol" (the abbreviated ISF suffix) and a carb "g/dL"
-# concentration. 1-4 integer digits so a hallucinated out-of-range value
-# (e.g. "1200 mg/dL") is still caught and flagged rather than silently skipped;
-# optional comma-grouped thousands and an optional decimal written with a dot OR
-# a comma -- mmol/L users (and European-locale model output) routinely write
-# "6,7 mmol/L", and the whole token must be captured, never half-read as "7".
-# ``_to_float`` normalizes the separators.
+# A candidate is a number immediately carrying a per-volume glucose unit.
+# Requiring the ``/dL`` // ``/L`` denominator excludes a bare "mg"/"mmol" (the
+# abbreviated ISF suffix) and a carb "g/dL" concentration. 1-4 integer digits so
+# a hallucinated out-of-range value (e.g. "1200 mg/dL") is still caught and
+# flagged rather than silently skipped; optional comma-grouped thousands and an
+# optional decimal written with a dot OR a comma -- mmol/L users (and
+# European-locale model output) routinely write "6,7 mmol/L", and the whole token
+# must be captured, never half-read as "7" (``_to_float`` normalizes them). The
+# optional range group lets a "X to Y unit" span match (and be skipped) as one
+# unit, so its trailing endpoint isn't half-extracted as a lone reading.
 _NUM = r"\d{1,4}(?:,\d{3})*(?:[.,]\d+)?"
 # Range separator: hyphen, en/em dash, or "to". Spaces/tabs only (not ``\s``) so
 # it cannot span newlines; a flat alternation with no nested quantifier.
@@ -97,17 +101,36 @@ _RATE_AFTER = re.compile(
 # value after the colon is never treated as a glucose reading.
 _ONE_TO_X = re.compile(r"1\s*:\s*\d+(?:\.\d+)?")
 
+# A figure governed by a directive / threshold word is a target or alert level
+# the model was told to state, NOT the user's reading -- e.g. "call if below
+# 3.9 mmol/L", "keep above 5.0", "target is 6.7", "severe low is 54 mg/dL".
+# Correcting such a figure to the current reading would fabricate a wrong
+# threshold a user might act on, so it is passed through untouched. The window is
+# short so only a directly-governing word counts (a far-away "if" in the same
+# sentence must not exempt a genuine "your glucose is N" reading); the tail
+# forbids a sentence terminator or another digit between the word and the number.
+_DIRECTIVE_BEFORE_RE = re.compile(
+    r"\b(?:below|above|under|over|if|call|treat|target|keep|stay|aim|alert|"
+    r"less\s+than|greater\s+than|severe\s+low|low\s+is|high\s+is)\b[^.;!?\d\n]*$",
+    re.IGNORECASE,
+)
+_DIRECTIVE_LOOKBACK = 16
+
 
 @dataclass(frozen=True)
 class _Citation:
-    """One extracted glucose-figure span (``values`` holds 1 value, or 2 for a
-    range), tagged with the unit its suffix named."""
+    """One extracted single-value glucose *reading* span, tagged with its unit.
+
+    Only a figure presented as the user's reading is extracted. Ranges and
+    threshold/directive figures (targets, alerts, "call if below N") are not
+    readings -- correcting or scrubbing them would fabricate or strip a level the
+    user might act on -- so they are never extracted and pass through untouched.
+    """
 
     start: int
     end: int
-    values: tuple[float, ...]
+    value: float
     unit: GlucoseUnit
-    is_range: bool
 
 
 @dataclass(frozen=True)
@@ -185,14 +208,11 @@ def verify_glucose_citation(
     )
 
 
-def _value_matches_any(value: float, unit: GlucoseUnit, records: Sequence[int]) -> bool:
-    return any(glucose_display_matches(record, value, unit) for record in records)
-
-
 def _citation_matches(citation: _Citation, records: Sequence[int]) -> bool:
-    """A citation verifies iff every endpoint traces to some allowed reading."""
-    return all(
-        _value_matches_any(value, citation.unit, records) for value in citation.values
+    """A citation verifies iff its value traces to some allowed reading."""
+    return any(
+        glucose_display_matches(record, citation.value, citation.unit)
+        for record in records
     )
 
 
@@ -223,11 +243,19 @@ def _is_excluded(start: int, end: int, excluded: list[tuple[int, int]]) -> bool:
     return any(s_start <= start < s_end for s_start, s_end in excluded)
 
 
-def _extract(text: str) -> list[_Citation]:
-    """Return non-overlapping glucose-figure spans, sorted by position.
+def _directive_before(text: str, start: int) -> bool:
+    window = text[max(0, start - _DIRECTIVE_LOOKBACK) : start]
+    return bool(_DIRECTIVE_BEFORE_RE.search(window))
 
-    Drops candidates that are ISF/carb-ratio figures or ISF rates, then resolves
-    overlaps left-to-right so each figure is verified exactly once.
+
+def _extract(text: str) -> list[_Citation]:
+    """Return non-overlapping glucose-*reading* spans, sorted by position.
+
+    Drops anything that is not a reading the verifier should act on: ISF/
+    carb-ratio figures and ISF rates (left to ``safety_validation``), low-to-high
+    ranges and threshold/directive figures (targets/alerts the model was told to
+    state -- never the user's reading). Then resolves overlaps left-to-right so
+    each reading is verified exactly once.
     """
     excluded = _excluded_spans(text)
     candidates: list[_Citation] = []
@@ -236,21 +264,26 @@ def _extract(text: str) -> list[_Citation]:
             continue
         if _RATE_AFTER.match(text, match.end()):
             continue
-        unit = _unit_from_suffix(match.group("unit"))
-        low = _to_float(match.group("low"))
-        high = match.group("high")
-        values = (low,) if high is None else (low, _to_float(high))
+        # A range ("70 to 180 mg/dL", "3.9-10.0") states bounds, not a reading.
+        if match.group("high") is not None:
+            continue
+        # A figure governed by a threshold/directive word is a target/alert level.
+        if _directive_before(text, match.start()):
+            continue
         candidates.append(
             _Citation(
                 start=match.start(),
                 end=match.end(),
-                values=values,
-                unit=unit,
-                is_range=high is not None,
+                value=_to_float(match.group("low")),
+                unit=_unit_from_suffix(match.group("unit")),
             )
         )
 
     # Resolve overlaps left-to-right: earliest start wins, longer span on a tie.
+    # Candidates are sorted by start, so a span overlaps the kept set iff its
+    # start falls before the furthest end kept so far -- an O(n) running-max
+    # check rather than rescanning every kept span, keeping the pass linear in
+    # the reading count for adversarially long output.
     candidates.sort(key=lambda c: (c.start, -(c.end - c.start)))
     kept: list[_Citation] = []
     max_end = 0
@@ -310,7 +343,7 @@ def verify_glucose_citations(
         if _citation_matches(citation, records):
             pieces.append(text[citation.start : citation.end])
             matched += 1
-        elif single_referent and not citation.is_range:
+        elif single_referent:
             # One reading to point at: correct the misquote rather than blank it.
             pieces.append(format_glucose(next(iter(referent_pool)), unit))
             corrected += 1
@@ -360,7 +393,7 @@ def find_glucose_citation_flags(
         if _citation_matches(citation, records):
             continue
 
-        spoken = citation.values[0]
+        spoken = citation.value
         spoken_unit = citation.unit
         spoken_mgdl = (
             spoken * MGDL_PER_MMOL if spoken_unit == GlucoseUnit.MMOL else spoken
@@ -368,10 +401,7 @@ def find_glucose_citation_flags(
         nearest = _nearest_record(spoken_mgdl, records)
         nearest_display = format_glucose(nearest, spoken_unit)
         spoken_text = (
-            f"{_display(citation.values[0], spoken_unit)}-"
-            f"{_display(citation.values[1], spoken_unit)} {glucose_unit_label(spoken_unit)}"
-            if citation.is_range
-            else f"{_display(spoken, spoken_unit)} {glucose_unit_label(spoken_unit)}"
+            f"{_display(spoken, spoken_unit)} {glucose_unit_label(spoken_unit)}"
         )
         flags.append(
             FlaggedSuggestion(

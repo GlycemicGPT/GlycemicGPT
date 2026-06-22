@@ -326,6 +326,23 @@ class TestGlucoseCitationFlagging:
         assert "250 mg/dL" in flag.reason
         assert "1 mg/dL" in flag.reason
 
+    def test_rendered_derived_figures_not_flagged(self):
+        # An analysis restating its own rendered figures (peak / 2hr post-meal
+        # glucose) must not be flagged: those are in the match-set via `extra`.
+        # Guards a regression that passes records=allow.readings (raw readings
+        # only) instead of allow.match (readings + aggregates + extras).
+        match = [110, 120, 140, 180]  # readings + peak 180 + 2hr 140 (extras)
+        result = validate_ai_suggestion(
+            "Average peak was 180 mg/dL and 2hr post-meal was 140 mg/dL.",
+            "meal_analysis",
+            records=match,
+            unit=GlucoseUnit.MGDL,
+        )
+        assert not any(
+            f.suggestion_type == SuggestionType.GLUCOSE_CITATION
+            for f in result.flagged_items
+        )
+
     def test_glucose_flagging_failure_fails_open(self):
         # The advisory glucose flag must never break validation: if the verifier
         # raises, validation still completes without the glucose flag, and the

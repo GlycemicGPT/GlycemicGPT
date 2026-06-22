@@ -671,6 +671,31 @@ async def build_allowed_glucose(
     match.add(int(target.low_target if target else DEFAULT_LOW_TARGET))
     match.add(int(target.high_target if target else DEFAULT_HIGH_TARGET))
 
+    # The model is also shown the user's configured thresholds -- pump-profile
+    # segment targets and the CGM high/low alert levels (rendered into every chat
+    # prompt by build_diabetes_context and into the analysis prompts) -- so a
+    # reply faithfully restating one is not an invention and must not be scrubbed.
+    # Fetched fail-soft: a profile read error must not empty the allow-set (which
+    # would fail-closed scrub every figure in chat). Non-configured clinical
+    # anchors (54, 250...) are deliberately NOT seeded -- the directive/threshold
+    # exemption already passes those through, and seeding them as always-citable
+    # would mask a genuine misquote that happens to equal an anchor.
+    try:
+        profile = await get_pump_profile_summary(db, user_id)
+    except Exception:
+        logger.warning(
+            "Pump-profile fetch for glucose allow-set failed",
+            user_id=str(user_id),
+            exc_info=True,
+        )
+        profile = None
+    if profile is not None:
+        thresholds = [segment.target_bg for segment in profile.segments]
+        thresholds += [profile.cgm_high_alert_mgdl, profile.cgm_low_alert_mgdl]
+        for value in thresholds:
+            if value is not None and 20 <= value <= 500:
+                match.add(int(round(value)))
+
     # Surface-specific rendered figures (a brief's exact average, an analysis'
     # post-correction target / average glucose drop). Zero/empty placeholders are
     # skipped -- they are "no data", not a citable figure.
