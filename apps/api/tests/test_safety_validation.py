@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from httpx import ASGITransport, AsyncClient
 
 from src.config import settings
+from src.core.units import GlucoseUnit
 from src.main import app
 from src.schemas.safety_validation import SafetyStatus, SuggestionType
 from src.services.safety_validation import (
@@ -210,6 +211,158 @@ class TestExtractISFChanges:
         flagged = _extract_isf_changes(text)
         assert len(flagged) == 0
 
+    # ── The ±20% ISF flag must still fire when the model reports in mmol/L ──
+
+    def test_mmol_isf_exceeds_bounds_flagged(self):
+        """A >20% ISF change suffixed mmol/L still fires the over-change flag."""
+        # 1:2.8 to 1:2.0 = 28.6% change
+        text = "Consider adjusting correction factor from 1:2.8 to 1:2.0 mmol/L."
+        flagged = _extract_isf_changes(text)
+        assert len(flagged) == 1
+        assert flagged[0].suggestion_type == SuggestionType.CORRECTION_FACTOR
+        assert flagged[0].original_value == 2.8
+        assert flagged[0].suggested_value == 2.0
+        # Reason echoes the unit the model actually used, not mg/dL.
+        assert "mmol/L" in flagged[0].reason
+        assert "mg/dL" not in flagged[0].reason
+
+    def test_mmol_isf_within_bounds_not_flagged(self):
+        """A ≤20% ISF change suffixed mmol/L is not flagged (parity with mg/dL)."""
+        # 1:2.8 to 1:2.6 = 7.1% change
+        text = "Consider moving from 1:2.8 to 1:2.6 mmol/L for mornings."
+        flagged = _extract_isf_changes(text)
+        assert len(flagged) == 0
+
+    def test_mmol_isf_context_keyword_without_prefix(self):
+        """mmol/L ISF stated without a 1: prefix is still caught by context."""
+        text = "Your ISF should change from 2.8 to 2.0 mmol/L for mornings."
+        flagged = _extract_isf_changes(text)
+        assert len(flagged) == 1
+        assert "mmol/L" in flagged[0].reason
+
+    def test_mmol_suffix_distinguishes_isf_from_carb_ratio(self):
+        """A 1:X change suffixed mmol/L is an ISF, never a carb ratio -- the
+        negative lookahead must exclude it from the carb-ratio matcher."""
+        text = "Adjust from 1:8 to 1:5 mmol/L."
+        assert len(_extract_carb_ratio_changes(text)) == 0
+        isf = _extract_isf_changes(text)
+        assert len(isf) == 1
+        assert isf[0].suggestion_type == SuggestionType.CORRECTION_FACTOR
+
+    def test_decimal_mmol_isf_not_partially_matched_as_carb_ratio(self):
+        """A *decimal* mmol/L ISF (routine for mmol correction factors) must not
+        be truncated to its integer part and mis-flagged as a carb ratio -- the
+        lookahead's `(?!\\.\\d)` guard prevents consuming `1:3.5 to 1:2` out of
+        `1:3.5 to 1:2.5 mmol/L`. It must flag ONLY as a correction factor."""
+        text = "Consider correction factor from 1:3.5 to 1:2.5 mmol/L."  # 28.6%
+        assert len(_extract_carb_ratio_changes(text)) == 0
+        isf = _extract_isf_changes(text)
+        assert len(isf) == 1
+        assert isf[0].suggestion_type == SuggestionType.CORRECTION_FACTOR
+        assert isf[0].original_value == 3.5
+        assert isf[0].suggested_value == 2.5
+
+
+class TestGlucoseCitationFlagging:
+    """validate_ai_suggestion flags a spoken glucose figure that doesn't trace to
+    the supplied readings, while staying backward-compatible when none are."""
+
+    def test_no_records_does_not_flag_glucose(self):
+        # Default call (no readings) must behave exactly as before: a stray
+        # glucose figure is not flagged when there's nothing to verify against.
+        text = "Your glucose hit 250 mg/dL overnight."
+        result = validate_ai_suggestion(text, "daily_brief")
+        assert result.status == SafetyStatus.APPROVED
+        assert not any(
+            f.suggestion_type == SuggestionType.GLUCOSE_CITATION
+            for f in result.flagged_items
+        )
+
+    def test_matching_glucose_not_flagged(self):
+        text = "Your average was 6.7 mmol/L today."
+        result = validate_ai_suggestion(
+            text, "daily_brief", records=[120], unit=GlucoseUnit.MMOL
+        )
+        assert result.status == SafetyStatus.APPROVED
+        assert result.flagged_items == []
+
+    def test_mismatched_glucose_flagged(self):
+        text = "You spiked to 9.9 mmol/L last night."
+        result = validate_ai_suggestion(
+            text, "daily_brief", records=[99, 120], unit=GlucoseUnit.MMOL
+        )
+        assert result.status == SafetyStatus.FLAGGED
+        glucose_flags = [
+            f
+            for f in result.flagged_items
+            if f.suggestion_type == SuggestionType.GLUCOSE_CITATION
+        ]
+        assert len(glucose_flags) == 1
+        # The unit-correct reason is surfaced in the sanitized output.
+        assert "9.9 mmol/L" in result.sanitized_text
+
+    def test_glucose_flag_coexists_with_isf_flag(self):
+        text = (
+            "Your glucose read 9.9 mmol/L. Also move correction factor "
+            "from 1:60 to 1:40 mg/dL."
+        )
+        result = validate_ai_suggestion(
+            text, "correction_analysis", records=[120], unit=GlucoseUnit.MMOL
+        )
+        types = {f.suggestion_type for f in result.flagged_items}
+        assert SuggestionType.GLUCOSE_CITATION in types
+        assert SuggestionType.CORRECTION_FACTOR in types
+
+    def test_mgdl_glucose_flag_reason(self):
+        text = "Your reading was 250 mg/dL."
+        result = validate_ai_suggestion(
+            text, "meal_analysis", records=[120], unit=GlucoseUnit.MGDL
+        )
+        (flag,) = [
+            f
+            for f in result.flagged_items
+            if f.suggestion_type == SuggestionType.GLUCOSE_CITATION
+        ]
+        assert "250 mg/dL" in flag.reason
+        assert "1 mg/dL" in flag.reason
+
+    def test_rendered_derived_figures_not_flagged(self):
+        # An analysis restating its own rendered figures (peak / 2hr post-meal
+        # glucose) must not be flagged: those are in the match-set via `extra`.
+        # Guards a regression that passes records=allow.readings (raw readings
+        # only) instead of allow.match (readings + aggregates + extras).
+        match = [110, 120, 140, 180]  # readings + peak 180 + 2hr 140 (extras)
+        result = validate_ai_suggestion(
+            "Average peak was 180 mg/dL and 2hr post-meal was 140 mg/dL.",
+            "meal_analysis",
+            records=match,
+            unit=GlucoseUnit.MGDL,
+        )
+        assert not any(
+            f.suggestion_type == SuggestionType.GLUCOSE_CITATION
+            for f in result.flagged_items
+        )
+
+    def test_glucose_flagging_failure_fails_open(self):
+        # The advisory glucose flag must never break validation: if the verifier
+        # raises, validation still completes without the glucose flag, and the
+        # dangerous-content gate is unaffected.
+        with patch(
+            "src.services.glucose_citation.find_glucose_citation_flags",
+            side_effect=RuntimeError("boom"),
+        ):
+            result = validate_ai_suggestion(
+                "Your reading was 250 mg/dL.",
+                "meal_analysis",
+                records=[120],
+                unit=GlucoseUnit.MGDL,
+            )
+        assert result.status == SafetyStatus.APPROVED
+        assert not any(
+            f.suggestion_type == SuggestionType.GLUCOSE_CITATION
+            for f in result.flagged_items
+        )
+
 
 class TestValidateAISuggestion:
     """Tests for validate_ai_suggestion."""
@@ -402,7 +555,7 @@ class TestMealAnalysisSafetyIntegration:
         )
         mock_get_client.return_value = mock_client
 
-        mock_user = SimpleNamespace(id=uuid.uuid4())
+        mock_user = SimpleNamespace(id=uuid.uuid4(), glucose_unit=GlucoseUnit.MGDL)
         mock_db = AsyncMock()
 
         analysis = await generate_meal_analysis(mock_user, mock_db, days=7)
@@ -461,7 +614,7 @@ class TestMealAnalysisSafetyIntegration:
         )
         mock_get_client.return_value = mock_client
 
-        mock_user = SimpleNamespace(id=uuid.uuid4())
+        mock_user = SimpleNamespace(id=uuid.uuid4(), glucose_unit=GlucoseUnit.MGDL)
         mock_db = AsyncMock()
 
         analysis = await generate_meal_analysis(mock_user, mock_db, days=7)
@@ -531,7 +684,7 @@ class TestCorrectionAnalysisSafetyIntegration:
         )
         mock_get_client.return_value = mock_client
 
-        mock_user = SimpleNamespace(id=uuid.uuid4())
+        mock_user = SimpleNamespace(id=uuid.uuid4(), glucose_unit=GlucoseUnit.MGDL)
         mock_db = AsyncMock()
 
         analysis = await generate_correction_analysis(mock_user, mock_db, days=7)

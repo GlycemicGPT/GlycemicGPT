@@ -9,6 +9,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from src.config import settings
+from src.core.units import GlucoseUnit
 from src.main import app
 from src.models.ai_provider import AIProviderType
 from src.schemas.ai_response import AIResponse, AIUsage
@@ -18,6 +19,7 @@ from src.services.daily_brief import (
     LOW_THRESHOLD,
     MIN_READINGS,
     _build_analysis_prompt,
+    _build_system_prompt,
     calculate_metrics,
 )
 
@@ -263,6 +265,46 @@ class TestBuildAnalysisPrompt:
         assert "4" in prompt  # corrections
         assert "35.2 units" in prompt
 
+    def test_prompt_mgdl_unchanged_from_legacy(self):
+        """mg/dL output is byte-identical to the pre-unit format (default unit)."""
+        metrics = DailyBriefMetrics(
+            time_in_range_pct=75.5,
+            average_glucose=142.3,
+            low_count=2,
+            high_count=5,
+            readings_count=288,
+            correction_count=4,
+            total_insulin=35.2,
+        )
+
+        prompt = _build_analysis_prompt(metrics, 24, unit=GlucoseUnit.MGDL)
+
+        assert "- Average glucose: 142 mg/dL" in prompt
+        assert "- Time in range (70-180): 75.5%" in prompt
+        assert "- Low readings (<70): 2" in prompt
+        assert "- High readings (>180): 5" in prompt
+
+    def test_prompt_renders_mmol_unit(self):
+        """mmol/L users see the average and anchors converted; mg/dL never
+        leaks. 145 -> 8.0, 70 -> 3.9, 180 -> 10.0."""
+        metrics = DailyBriefMetrics(
+            time_in_range_pct=75.5,
+            average_glucose=145.0,
+            low_count=2,
+            high_count=5,
+            readings_count=288,
+            correction_count=4,
+            total_insulin=35.2,
+        )
+
+        prompt = _build_analysis_prompt(metrics, 24, unit=GlucoseUnit.MMOL)
+
+        assert "- Average glucose: 8.0 mmol/L" in prompt
+        assert "- Time in range (3.9-10.0): 75.5%" in prompt
+        assert "- Low readings (<3.9): 2" in prompt
+        assert "- High readings (>10.0): 5" in prompt
+        assert "mg/dL" not in prompt
+
     def test_prompt_without_insulin_data(self):
         """Test that insulin line is omitted when data is None."""
         metrics = DailyBriefMetrics(
@@ -326,6 +368,15 @@ class TestBuildAnalysisPrompt:
         assert "never as dosing inputs" in lowered
         assert "never suggest a dose" in lowered
 
+    def test_system_prompt_states_user_unit(self):
+        """The brief's system prompt names the user's report unit."""
+        assert "Report all glucose values in mg/dL" in _build_system_prompt(
+            GlucoseUnit.MGDL
+        )
+        assert "Report all glucose values in mmol/L" in _build_system_prompt(
+            GlucoseUnit.MMOL
+        )
+
 
 class TestGenerateDailyBrief:
     """Tests for the generate_daily_brief service function."""
@@ -357,7 +408,7 @@ class TestGenerateDailyBrief:
         mock_client.generate.return_value = _mock_ai_response()
         mock_get_client.return_value = mock_client
 
-        mock_user = SimpleNamespace(id=uuid.uuid4())
+        mock_user = SimpleNamespace(id=uuid.uuid4(), glucose_unit=GlucoseUnit.MGDL)
         mock_db = AsyncMock()
 
         brief = await generate_daily_brief(mock_user, mock_db, hours=24)
@@ -397,7 +448,7 @@ class TestGenerateDailyBrief:
             correction_count=0,
         )
 
-        mock_user = SimpleNamespace(id=uuid.uuid4())
+        mock_user = SimpleNamespace(id=uuid.uuid4(), glucose_unit=GlucoseUnit.MGDL)
         mock_db = AsyncMock()
 
         with pytest.raises(HTTPException) as exc_info:
@@ -429,7 +480,7 @@ class TestGenerateDailyBrief:
         mock_client.generate.side_effect = RuntimeError("AI provider failed")
         mock_get_client.return_value = mock_client
 
-        mock_user = SimpleNamespace(id=uuid.uuid4())
+        mock_user = SimpleNamespace(id=uuid.uuid4(), glucose_unit=GlucoseUnit.MGDL)
         mock_db = AsyncMock()
 
         with pytest.raises(RuntimeError, match="AI provider failed"):
@@ -461,7 +512,7 @@ class TestGenerateDailyBrief:
         mock_client.generate.return_value = _mock_ai_response()
         mock_get_client.return_value = mock_client
 
-        mock_user = SimpleNamespace(id=uuid.uuid4())
+        mock_user = SimpleNamespace(id=uuid.uuid4(), glucose_unit=GlucoseUnit.MGDL)
         mock_db = AsyncMock()
 
         brief = await generate_daily_brief(mock_user, mock_db, hours=48)

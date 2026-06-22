@@ -11,6 +11,7 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.units import GlucoseUnit, format_glucose
 from src.logging_config import get_logger
 from src.models.alert import Alert, AlertSeverity, AlertType
 from src.services.telegram_bot import (
@@ -67,11 +68,16 @@ def trend_description(trend_rate: float | None) -> str:
     return "\u2193\u2193 falling fast"
 
 
-def format_alert_message(alert: Alert) -> str:
+def format_alert_message(
+    alert: Alert,
+    unit: GlucoseUnit = GlucoseUnit.MGDL,
+) -> str:
     """Format an Alert into a rich HTML Telegram message.
 
     Args:
         alert: The Alert model instance.
+        unit: The patient's glucose display unit; the current and predicted
+            glucose render in it (stored values stay canonical mg/dL).
 
     Returns:
         HTML-formatted message string for Telegram.
@@ -84,13 +90,14 @@ def format_alert_message(alert: Alert) -> str:
     lines = [
         f"{emoji} <b>{headline}</b>",
         "",
-        f"\U0001f4c9 <b>Glucose:</b> {alert.current_value:.0f} mg/dL",
+        f"\U0001f4c9 <b>Glucose:</b> {format_glucose(alert.current_value, unit)}",
         f"\U0001f4c8 <b>Trend:</b> {trend}",
     ]
 
     if alert.predicted_value is not None and alert.prediction_minutes is not None:
         lines.append(
-            f"\U0001f52e <b>Predicted:</b> {alert.predicted_value:.0f} mg/dL "
+            f"\U0001f52e <b>Predicted:</b> "
+            f"{format_glucose(alert.predicted_value, unit)} "
             f"in {alert.prediction_minutes} min"
         )
 
@@ -113,6 +120,7 @@ def format_escalation_contact_message(
     alert: Alert,
     user_email: str,
     tier_label: str,
+    unit: GlucoseUnit = GlucoseUnit.MGDL,
 ) -> str:
     """Format a Telegram message for an emergency contact escalation.
 
@@ -120,6 +128,8 @@ def format_escalation_contact_message(
         alert: The Alert model instance.
         user_email: The user's email for identification.
         tier_label: Human-readable tier label.
+        unit: The PATIENT's glucose display unit -- the contact sees the
+            patient's glucose in the patient's unit, never the contact's own.
 
     Returns:
         HTML-formatted message string for Telegram.
@@ -137,7 +147,7 @@ def format_escalation_contact_message(
         f"<b>{safe_email}</b> has an unacknowledged glucose alert.",
         "",
         f"\U0001f4cb <b>Alert:</b> {headline}",
-        f"\U0001f4c9 <b>Glucose:</b> {alert.current_value:.0f} mg/dL",
+        f"\U0001f4c9 <b>Glucose:</b> {format_glucose(alert.current_value, unit)}",
         f"\U0001f4c8 <b>Trend:</b> {trend}",
         "",
         "Please check on them immediately.",
@@ -150,6 +160,7 @@ async def notify_user_of_alerts(
     db: AsyncSession,
     user_id: uuid.UUID,
     alerts: list[Alert],
+    unit: GlucoseUnit = GlucoseUnit.MGDL,
 ) -> int:
     """Send Telegram notifications to the user for newly created alerts.
 
@@ -160,6 +171,7 @@ async def notify_user_of_alerts(
         db: Database session (for looking up TelegramLink).
         user_id: The user's UUID.
         alerts: List of newly created Alert instances.
+        unit: The patient's glucose display unit for the rendered messages.
 
     Returns:
         Number of messages successfully sent.
@@ -178,7 +190,7 @@ async def notify_user_of_alerts(
     sent_count = 0
     for alert in alerts:
         try:
-            message = format_alert_message(alert)
+            message = format_alert_message(alert, unit)
             await send_message(link.chat_id, message)
             sent_count += 1
             logger.info(

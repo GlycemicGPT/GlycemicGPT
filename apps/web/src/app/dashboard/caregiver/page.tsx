@@ -49,13 +49,14 @@ import {
 const REFRESH_INTERVAL_MS = 60_000;
 
 /**
- * Patient glucose renders in the PATIENT's unit, never the
- * caregiver's own preference. The patient's `glucose_unit` is not yet carried
- * on the caregiver status payload (added later); until then we fall
- * back to the canonical mg/dL — NOT `useGlucoseUnit()` (the viewer's unit).
- * When the caregiver payload carries the patient's unit, replace this with it.
+ * Patient glucose renders in the PATIENT's unit, never the caregiver's own
+ * preference. The unit comes from the patient's own `glucose_unit` on the
+ * caregiver status payload — NOT `useGlucoseUnit()` (the viewer's unit).
+ * Falls back to canonical mg/dL while a status is still loading.
  */
-const PATIENT_GLUCOSE_UNIT: GlucoseUnit = "mgdl";
+function patientUnit(status: CaregiverPatientStatus | null): GlucoseUnit {
+  return status?.glucose_unit ?? "mgdl";
+}
 
 function getTrendArrow(trend: string): string {
   const arrows: Record<string, string> = {
@@ -123,6 +124,10 @@ export default function CaregiverDashboardPage() {
   // Whether we're in multi-patient mode (show grid overview)
   const isMultiPatient = patients.length > 1;
   const showOverview = isMultiPatient && !selectedPatientId;
+
+  // Detail-view glucose renders in the selected patient's unit (overview cards
+  // resolve each patient's own unit individually).
+  const detailUnit = patientUnit(status);
 
   // Redirect non-caregivers away from this page
   useEffect(() => {
@@ -421,6 +426,7 @@ export default function CaregiverDashboardPage() {
               {patients.map((patient) => {
                 const ps = patientStatuses.get(patient.patient_id) || null;
                 const dotColor = getStatusDotColor(ps);
+                const unit = patientUnit(ps);
                 const g =
                   ps?.permissions.can_view_glucose && ps?.glucose
                     ? ps.glucose
@@ -458,9 +464,9 @@ export default function CaregiverDashboardPage() {
                               getGlucoseColor(g.value)
                             )}
                           >
-                            {formatGlucose(g.value, PATIENT_GLUCOSE_UNIT)}
+                            {formatGlucose(g.value, unit)}
                           </span>
-                          <span className="text-sm text-slate-500 dark:text-slate-400">{unitLabel(PATIENT_GLUCOSE_UNIT)}</span>
+                          <span className="text-sm text-slate-500 dark:text-slate-400">{unitLabel(unit)}</span>
                           <span className="text-lg">
                             {getTrendArrow(g.trend)}
                           </span>
@@ -562,9 +568,9 @@ export default function CaregiverDashboardPage() {
                         getGlucoseColor(status.glucose.value)
                       )}
                     >
-                      {formatGlucose(status.glucose.value, PATIENT_GLUCOSE_UNIT)}
+                      {formatGlucose(status.glucose.value, detailUnit)}
                     </span>
-                    <span className="text-2xl text-slate-500 dark:text-slate-400">{unitLabel(PATIENT_GLUCOSE_UNIT)}</span>
+                    <span className="text-2xl text-slate-500 dark:text-slate-400">{unitLabel(detailUnit)}</span>
                     <span className="text-2xl">
                       {getTrendArrow(status.glucose.trend)}
                     </span>
@@ -584,7 +590,7 @@ export default function CaregiverDashboardPage() {
                     {status.glucose.trend_rate !== null && (
                       <span>
                         {status.glucose.trend_rate > 0 ? "+" : ""}
-                        {formatTrendRate(status.glucose.trend_rate, PATIENT_GLUCOSE_UNIT)} {unitLabel(PATIENT_GLUCOSE_UNIT)}/min
+                        {formatTrendRate(status.glucose.trend_rate, detailUnit)} {unitLabel(detailUnit)}/min
                       </span>
                     )}
                   </div>
