@@ -251,13 +251,15 @@ func captureRedirect(ctx context.Context, authorizeURL string, headless bool, br
 	}
 	defer os.RemoveAll(tmp)
 
-	browserPath, err := findBrowserExecPath(browser)
-	if err != nil {
+	var opts []chromedp.ExecAllocatorOption
+	if browserPath, err := findBrowserExecPath(browser); err == nil {
+		opts = append(opts, chromedp.ExecPath(browserPath))
+	} else if browser != "" {
 		return "", err
 	}
 
-	opts := append(chromedp.DefaultExecAllocatorOptions[:],
-		chromedp.ExecPath(browserPath),
+	opts = append(opts, chromedp.DefaultExecAllocatorOptions[:]...)
+	opts = append(opts,
 		chromedp.Flag("headless", headless),
 		chromedp.UserDataDir(tmp),
 		chromedp.NoFirstRun,

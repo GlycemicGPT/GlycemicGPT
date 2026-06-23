@@ -68,8 +68,8 @@ go test ./...
 Chrome, Edge, Brave, or Chromium installed locally. The helper auto-detects
 common executable names and app bundle locations. If your browser is installed
 somewhere custom, pass `--browser /path/to/browser` (or a command on your
-`PATH`). Firefox-only users get a clear error message; Firefox support (via
-Marionette) is a follow-up.
+`PATH`). If you only have Firefox or Safari, use the Python/Playwright fallback
+(`tools/medtronic-connect-login/`) for the login flow.
 
 ## Scope (v1)
 
