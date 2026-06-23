@@ -12,6 +12,22 @@ class GlucoseUnit(str, enum.Enum):
     MMOL = "mmol"
 
 
+class GlucoseUnitSource(str, enum.Enum):
+    """Provenance of a user's stored glucose-unit preference.
+
+    ``SEED`` -- the value was set by a smart default (registration locale or a
+    confidently-mmol Nightscout connection), so it is still overridable and a
+    one-time confirmation notice may be shown. ``USER`` -- the user has made an
+    explicit choice (toggled the unit, or dismissed the seed notice), so the
+    seed must never re-fire and the notice must never recur. The column is
+    nullable: ``NULL`` means a legacy account predating provenance tracking,
+    which is treated as seed-neutral (never seed-owned, never user-confirmed).
+    """
+
+    SEED = "seed"
+    USER = "user"
+
+
 # 1 mmol/L = 18.0156 mg/dL -- the exact glucose mass-to-molarity factor
 # (molar mass 180.156 g/mol / 10) and the ADA / IFCC consensus value. This
 # is the single canonical factor so ingestion, onboarding, and display

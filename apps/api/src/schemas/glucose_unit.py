@@ -2,7 +2,7 @@
 
 from pydantic import BaseModel, Field
 
-from src.core.units import GlucoseUnit
+from src.core.units import GlucoseUnit, GlucoseUnitSource
 
 
 class GlucoseUnitPreferenceResponse(BaseModel):
@@ -10,6 +10,14 @@ class GlucoseUnitPreferenceResponse(BaseModel):
 
     glucose_unit: GlucoseUnit = Field(
         ..., description="Preferred glucose display unit: mgdl or mmol"
+    )
+    glucose_unit_source: GlucoseUnitSource | None = Field(
+        default=None,
+        description=(
+            "Provenance of the preference: 'seed' (smart default, overridable),"
+            " 'user' (explicit choice), or null (legacy). Drives the one-time"
+            " confirmation notice."
+        ),
     )
 
 

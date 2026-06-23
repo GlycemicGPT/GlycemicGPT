@@ -41,6 +41,7 @@ import {
   InsulinSummaryStats,
   BolusReviewTable,
   DataSourcesFreshnessCard,
+  GlucoseUnitSeedNotice,
   PERIOD_LABELS,
 } from "@/components/dashboard";
 import { useGlucoseStreamContext, useUserContext } from "@/providers";
@@ -220,6 +221,9 @@ export default function DashboardPage() {
         errorMessage={error?.message}
         onReconnect={reconnect}
       />
+
+      {/* One-time smart-default glucose-unit notice */}
+      <GlucoseUnitSeedNotice />
 
       {/* Page header - using div instead of header to avoid banner role confusion inside main */}
       <AnimatedCard>

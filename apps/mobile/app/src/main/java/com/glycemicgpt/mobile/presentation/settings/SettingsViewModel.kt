@@ -205,6 +205,9 @@ data class SettingsUiState(
     // Glucose display unit (per-account preference)
     val glucoseUnit: GlucoseUnit = GlucoseUnit.MGDL,
     val glucoseUnitSyncError: String? = null,
+    // One-time smart-default notice: the unit was seeded (region / Nightscout) and not yet
+    // confirmed. Cleared when the user picks a unit or dismisses the notice.
+    val seedNeedsConfirm: Boolean = false,
 )
 
 private const val AUTO_DISMISS_MS = 5_000L
@@ -325,6 +328,7 @@ class SettingsViewModel @Inject constructor(
             showPumpLabels = appSettingsStore.showPumpLabels,
             themeMode = appSettingsStore.themeMode,
             glucoseUnit = appSettingsStore.glucoseUnit,
+            seedNeedsConfirm = appSettingsStore.glucoseUnitSeedPending,
             watchFaceConfig = loadPersistedWatchFaceConfig(),
         ).withActivePumpFields()
 
@@ -339,6 +343,15 @@ class SettingsViewModel @Inject constructor(
             }
             if (safetyLimitsStore.isStale()) {
                 viewModelScope.launch { authRepository.refreshSafetyLimits() }
+            }
+            // Reconcile the per-account glucose unit so the seed-confirmation notice
+            // reflects the latest account provenance when Settings opens.
+            viewModelScope.launch {
+                authRepository.refreshGlucoseUnit()
+                _uiState.value = _uiState.value.copy(
+                    glucoseUnit = appSettingsStore.glucoseUnit,
+                    seedNeedsConfirm = appSettingsStore.glucoseUnitSeedPending,
+                )
             }
         }
         if (pumpCredentialStore.isPaired()) {
@@ -1192,7 +1205,13 @@ class SettingsViewModel @Inject constructor(
      */
     fun setGlucoseUnit(unit: GlucoseUnit) {
         appSettingsStore.glucoseUnit = unit
-        _uiState.value = _uiState.value.copy(glucoseUnit = unit, glucoseUnitSyncError = null)
+        // Picking a unit confirms the preference, so dismiss the smart-default notice. The backend
+        // PATCH (and the optimistic local clear in updateGlucoseUnit) flip provenance to "user".
+        _uiState.value = _uiState.value.copy(
+            glucoseUnit = unit,
+            glucoseUnitSyncError = null,
+            seedNeedsConfirm = false,
+        )
         viewModelScope.launch {
             authRepository.updateGlucoseUnit(unit)
                 .onSuccess { resolved ->
@@ -1208,6 +1227,21 @@ class SettingsViewModel @Inject constructor(
                         glucoseUnitSyncError = "Couldn't save to your account. It will retry on next sign-in.",
                     )
                 }
+        }
+    }
+
+    /**
+     * Dismiss the one-time smart-default glucose-unit notice without changing the unit.
+     * Hides it immediately, then acknowledges server-side so it never recurs
+     * (the backend stamps provenance "user"). Best-effort: a failed ack leaves the local flag
+     * cleared for this session and the next reconcile re-checks provenance.
+     */
+    fun dismissGlucoseUnitSeedNotice() {
+        appSettingsStore.glucoseUnitSeedPending = false
+        _uiState.value = _uiState.value.copy(seedNeedsConfirm = false)
+        viewModelScope.launch {
+            authRepository.acknowledgeGlucoseUnitSeed()
+                .onFailure { e -> Timber.w(e, "Failed to acknowledge glucose unit seed notice") }
         }
     }
 

@@ -10,7 +10,7 @@ from datetime import datetime
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 from src.core.disclaimer import has_acknowledged_current
-from src.core.units import GlucoseUnit
+from src.core.units import GlucoseUnit, GlucoseUnitSource
 from src.models.user import UserRole
 
 
@@ -73,6 +73,14 @@ class UserResponse(BaseModel):
     glucose_unit: GlucoseUnit = Field(
         default=GlucoseUnit.MGDL,
         description="Preferred glucose display unit: mgdl or mmol",
+    )
+    glucose_unit_source: GlucoseUnitSource | None = Field(
+        default=None,
+        description=(
+            "Provenance of glucose_unit: 'seed' (smart default, overridable),"
+            " 'user' (explicit choice), or null (legacy). Drives the one-time"
+            " smart-default notice."
+        ),
     )
     created_at: datetime
 

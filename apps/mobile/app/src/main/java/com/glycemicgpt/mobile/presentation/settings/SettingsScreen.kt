@@ -282,7 +282,9 @@ fun SettingsScreen(
         GlucoseUnitsSection(
             currentUnit = state.glucoseUnit,
             syncError = state.glucoseUnitSyncError,
+            seedNeedsConfirm = state.seedNeedsConfirm,
             onUnitChange = settingsViewModel::setGlucoseUnit,
+            onDismissSeedNotice = settingsViewModel::dismissGlucoseUnitSeedNotice,
         )
 
         Spacer(modifier = Modifier.height(20.dp))
@@ -2205,7 +2207,9 @@ private fun BatteryOptimizationCard(
 private fun GlucoseUnitsSection(
     currentUnit: GlucoseUnit,
     syncError: String?,
+    seedNeedsConfirm: Boolean,
     onUnitChange: (GlucoseUnit) -> Unit,
+    onDismissSeedNotice: () -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -2222,6 +2226,38 @@ private fun GlucoseUnitsSection(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            if (seedNeedsConfirm) {
+                // One-time smart-default notice: the unit was guessed from the
+                // user's region or Nightscout and hasn't been confirmed. Never blocks the UI.
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("glucose_unit_seed_notice"),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Info,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "We set this to ${GlucoseFormat.label(currentUnit)} based on your " +
+                            "region or your Nightscout. Change it anytime below.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(
+                        onClick = onDismissSeedNotice,
+                        modifier = Modifier.testTag("glucose_unit_seed_dismiss"),
+                    ) {
+                        Text("Got it")
+                    }
+                }
+            }
             Spacer(modifier = Modifier.height(12.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),

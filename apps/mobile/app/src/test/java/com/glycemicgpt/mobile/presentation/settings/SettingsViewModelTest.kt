@@ -191,6 +191,65 @@ class SettingsViewModelTest {
     }
 
     @Test
+    fun `loadState exposes the seed-confirm flag from the store`() {
+        every { appSettingsStore.glucoseUnitSeedPending } returns true
+
+        val vm = createViewModel()
+
+        assertTrue(vm.uiState.value.seedNeedsConfirm)
+    }
+
+    @Test
+    fun `loadState leaves seed-confirm false when the store flag is unset`() {
+        every { appSettingsStore.glucoseUnitSeedPending } returns false
+
+        val vm = createViewModel()
+
+        assertFalse(vm.uiState.value.seedNeedsConfirm)
+    }
+
+    @Test
+    fun `setGlucoseUnit dismisses the seed-confirm notice`() = runTest {
+        // Picking a unit confirms the preference, so the one-time notice must clear immediately.
+        every { appSettingsStore.glucoseUnitSeedPending } returns true
+        coEvery { authRepository.updateGlucoseUnit(GlucoseUnit.MMOL) } returns
+            Result.success(GlucoseUnit.MMOL)
+        val vm = createViewModel()
+        assertTrue(vm.uiState.value.seedNeedsConfirm)
+
+        vm.setGlucoseUnit(GlucoseUnit.MMOL)
+
+        assertFalse(vm.uiState.value.seedNeedsConfirm)
+    }
+
+    @Test
+    fun `dismissGlucoseUnitSeedNotice hides the notice, clears the flag, and acks the server`() =
+        runTest {
+            every { appSettingsStore.glucoseUnitSeedPending } returns true
+            coEvery { authRepository.acknowledgeGlucoseUnitSeed() } returns Result.success(Unit)
+            val vm = createViewModel()
+            assertTrue(vm.uiState.value.seedNeedsConfirm)
+
+            vm.dismissGlucoseUnitSeedNotice()
+
+            assertFalse(vm.uiState.value.seedNeedsConfirm)
+            verify { appSettingsStore.glucoseUnitSeedPending = false }
+            coVerify { authRepository.acknowledgeGlucoseUnitSeed() }
+        }
+
+    @Test
+    fun `dismissGlucoseUnitSeedNotice keeps the notice hidden even if the ack fails`() = runTest {
+        every { appSettingsStore.glucoseUnitSeedPending } returns true
+        coEvery { authRepository.acknowledgeGlucoseUnitSeed() } returns
+            Result.failure(RuntimeException("offline"))
+        val vm = createViewModel()
+
+        vm.dismissGlucoseUnitSeedNotice()
+
+        assertFalse(vm.uiState.value.seedNeedsConfirm)
+    }
+
+    @Test
     fun `loadState restores user email when logged in`() {
         every { authRepository.hasActiveSession() } returns true
         every { authRepository.getUserEmail() } returns "saved@test.com"
