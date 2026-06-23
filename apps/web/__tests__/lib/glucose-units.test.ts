@@ -20,6 +20,43 @@ describe("glucose-units", () => {
     });
   });
 
+  describe("cross-surface consistency contract", () => {
+    // The shared fixture every surface must agree on: a stored mg/dL value and
+    // the exact mmol/L string each client renders for it. Asserted identically
+    // here, in the phone (GlucoseFormat.format -> "%.1f"), the watch
+    // (GlucoseDisplayUtils.formatGlucose), and the API (format_glucose_value).
+    // Each string is round(x / 18.0156, 1) to one decimal; a drift in the factor
+    // or the round-LAST rule on any surface breaks its copy of this table. None
+    // of the 8 lands on a .x5 mmol tie, so JS toFixed, Java %.1f, and Python
+    // round all produce the same string.
+    const CROSS_SURFACE_MMOL: Array<[number, string]> = [
+      [54, "3.0"],
+      [70, "3.9"],
+      [99, "5.5"],
+      [100, "5.6"],
+      [120, "6.7"],
+      [180, "10.0"],
+      [250, "13.9"],
+      [400, "22.2"],
+    ];
+
+    it.each(CROSS_SURFACE_MMOL)(
+      "renders %d mg/dL as %s mmol/L on every surface",
+      (mgdl, expected) => {
+        expect(formatGlucose(mgdl, "mmol")).toBe(expected);
+      }
+    );
+
+    it.each(CROSS_SURFACE_MMOL)(
+      "keeps %d mg/dL as the raw integer string in mg/dL mode",
+      (mgdl) => {
+        // Only the displayed number changes with the unit; the stored value
+        // (and its mg/dL rendering) never does.
+        expect(formatGlucose(mgdl, "mgdl")).toBe(String(mgdl));
+      }
+    );
+  });
+
   describe("clinical anchors", () => {
     // 70 / 18.0156 = 3.886 -> 3.9 ; 180 -> 9.99 -> 10.0 ; 120 -> 6.66 -> 6.7
     it("formats 70 mg/dL as 3.9 mmol", () => {
@@ -72,6 +109,18 @@ describe("glucose-units", () => {
       // 3 mg/dL/min / 18.0156 = 0.166 -> 0.17 (1 decimal would collapse to 0.2)
       expect(formatTrendRate(3, "mmol")).toBe("0.17");
       expect(formatTrendRate(1, "mmol")).toBe("0.06");
+    });
+    it("converts the rate offset-free (a rate has no zero anchor)", () => {
+      // A rate divides by 18.0156 with NO offset, unlike a glucose value -- so a
+      // negative rate converts just as cleanly as a positive one. Expected
+      // strings are computed by hand (1/18.0156=0.0555->"0.06",
+      // 3/18.0156=0.1665->"0.17", -1.5/18.0156=-0.0832->"-0.08") so the
+      // assertion is grounded in the offset-free result, not the helper itself.
+      expect(formatTrendRate(1, "mmol")).toBe("0.06");
+      expect(formatTrendRate(3, "mmol")).toBe("0.17");
+      expect(formatTrendRate(-1.5, "mmol")).toBe("-0.08");
+      // mg/dL keeps one decimal and never converts.
+      expect(formatTrendRate(-1.5, "mgdl")).toBe("-1.5");
     });
   });
 
