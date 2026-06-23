@@ -28,6 +28,7 @@ from src.core.token_blacklist import (
     blacklist_token,
     consume_token_once,
 )
+from src.core.units import GlucoseUnitSource
 from src.database import get_db
 from src.deployment_check import request_is_insecure_http
 from src.logging_config import get_logger
@@ -46,6 +47,7 @@ from src.schemas.auth import (
     UserRegistrationResponse,
     UserResponse,
 )
+from src.services.glucose_unit_seed import glucose_unit_for_locale
 
 logger = get_logger(__name__)
 
@@ -107,6 +109,7 @@ async def _blacklist_current_token(request: Request) -> None:
 )
 async def register_user(
     request: UserRegistrationRequest,
+    http_request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> UserRegistrationResponse:
     """Register a new user account.
@@ -115,8 +118,16 @@ async def register_user(
     Password is hashed using bcrypt before storage.
     New users are assigned the 'diabetic' role by default.
 
+    Seeds an overridable glucose display unit from the request's
+    ``Accept-Language`` region: an mmol-region locale starts the
+    account in mmol/L, everything else in mg/dL (today's default). The seed is
+    a display-preference-only best guess marked ``source=seed`` so the manual
+    toggle always wins and a one-time notice can offer a correction; canonical
+    storage is untouched.
+
     Args:
         request: Registration request with email and password
+        http_request: The HTTP request (for the ``Accept-Language`` locale seed)
         db: Database session
 
     Returns:
@@ -140,6 +151,11 @@ async def register_user(
             detail="Registration failed. Please try again or contact support.",
         )
 
+    # Smart-default the glucose display unit from the request locale. This is a
+    # best guess, not a detector -- marked ``source=seed`` so the manual toggle
+    # always overrides it and the one-time notice can offer a correction.
+    seeded_unit = glucose_unit_for_locale(http_request.headers.get("Accept-Language"))
+
     # Create new user
     user = User(
         email=request.email.lower(),
@@ -148,6 +164,8 @@ async def register_user(
         is_active=True,
         email_verified=False,
         disclaimer_acknowledged=False,
+        glucose_unit=seeded_unit,
+        glucose_unit_source=GlucoseUnitSource.SEED,
     )
 
     try:

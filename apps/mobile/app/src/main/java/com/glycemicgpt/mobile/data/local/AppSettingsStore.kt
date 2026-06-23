@@ -144,6 +144,20 @@ class AppSettingsStore @Inject constructor(
         }
 
     /**
+     * Whether the current [glucoseUnit] is a still-unconfirmed smart default
+     * (server provenance "seed") with a non-mgdl value, so Settings should show
+     * the one-time confirmation notice. Reconciled from
+     * `GET /api/settings/glucose-unit`; cleared when the user confirms (toggles
+     * the unit or dismisses the notice) and reset on logout. Local cache only --
+     * the account value remains the source of truth.
+     */
+    var glucoseUnitSeedPending: Boolean
+        get() = prefs.getBoolean(KEY_GLUCOSE_UNIT_SEED_PENDING, false)
+        set(value) {
+            prefs.edit().putBoolean(KEY_GLUCOSE_UNIT_SEED_PENDING, value).apply()
+        }
+
+    /**
      * Emits the current [glucoseUnit] and re-emits whenever it changes, so display
      * surfaces update live when the user toggles the unit or a backend reconcile
      * writes the cache. Uses the same change-listener mechanism the activity relies
@@ -237,6 +251,7 @@ class AppSettingsStore @Inject constructor(
         private const val KEY_SHOW_PUMP_LABELS = "show_pump_labels"
         internal const val KEY_THEME_MODE = "theme_mode"
         internal const val KEY_GLUCOSE_UNIT = "glucose_unit"
+        internal const val KEY_GLUCOSE_UNIT_SEED_PENDING = "glucose_unit_seed_pending"
         const val DEFAULT_RETENTION_DAYS = 7
         const val MIN_RETENTION_DAYS = 1
         const val MAX_RETENTION_DAYS = 30

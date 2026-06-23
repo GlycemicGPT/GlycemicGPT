@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.auth import get_current_user, require_diabetic_or_admin
+from src.core.units import GlucoseUnitSource
 from src.database import get_db
 from src.logging_config import get_logger
 from src.models.user import User
@@ -124,8 +125,17 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 async def get_glucose_unit(
     user: User = Depends(get_current_user),
 ) -> GlucoseUnitPreferenceResponse:
-    """Get the current user's glucose display unit preference."""
-    return GlucoseUnitPreferenceResponse(glucose_unit=user.glucose_unit)
+    """Get the current user's glucose display unit preference.
+
+    Includes the provenance (``glucose_unit_source``) so clients can show the
+    one-time smart-default notice. The phone reconciles its unit
+    from this endpoint -- not ``/api/auth/me`` -- so the source is exposed here
+    as well as on ``UserResponse``.
+    """
+    return GlucoseUnitPreferenceResponse(
+        glucose_unit=user.glucose_unit,
+        glucose_unit_source=user.glucose_unit_source,
+    )
 
 
 @router.patch(
@@ -138,11 +148,45 @@ async def patch_glucose_unit(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> GlucoseUnitPreferenceResponse:
-    """Update the current user's glucose display unit preference."""
+    """Update the current user's glucose display unit preference.
+
+    An explicit choice marks the preference ``source=user`` so a region or
+    Nightscout seed can never override it and the smart-default notice never
+    recurs.
+    """
     user.glucose_unit = body.glucose_unit
+    user.glucose_unit_source = GlucoseUnitSource.USER
     await db.commit()
     await db.refresh(user)
-    return GlucoseUnitPreferenceResponse(glucose_unit=user.glucose_unit)
+    return GlucoseUnitPreferenceResponse(
+        glucose_unit=user.glucose_unit,
+        glucose_unit_source=user.glucose_unit_source,
+    )
+
+
+@router.post(
+    "/glucose-unit/acknowledge",
+    response_model=GlucoseUnitPreferenceResponse,
+    dependencies=[Depends(require_diabetic_or_admin)],
+)
+async def acknowledge_glucose_unit_seed(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> GlucoseUnitPreferenceResponse:
+    """Acknowledge the smart-default glucose-unit notice without changing it.
+
+    Dismissing the one-time notice means "treat the seeded unit as my choice":
+    it stamps ``source=user`` (leaving the unit value untouched) so the notice
+    never recurs and a later seed never re-fires. Idempotent --
+    a re-ack on an already-user-owned preference is a no-op write.
+    """
+    user.glucose_unit_source = GlucoseUnitSource.USER
+    await db.commit()
+    await db.refresh(user)
+    return GlucoseUnitPreferenceResponse(
+        glucose_unit=user.glucose_unit,
+        glucose_unit_source=user.glucose_unit_source,
+    )
 
 
 @router.get(

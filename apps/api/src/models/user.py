@@ -11,7 +11,7 @@ from sqlalchemy import DateTime, Enum, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from src.core.units import GlucoseUnit
+from src.core.units import GlucoseUnit, GlucoseUnitSource
 from src.models.base import Base, TimestampMixin
 
 
@@ -43,6 +43,10 @@ class User(Base, TimestampMixin):
             (NULL until first acknowledged). A mismatch with the current
             DISCLAIMER_VERSION re-prompts the user; see src.core.disclaimer.
         glucose_unit: User's preferred glucose display unit
+        glucose_unit_source: Provenance of glucose_unit (seed | user | NULL).
+            A smart default writes ``seed``; an explicit user choice (toggle or
+            dismissed notice) writes ``user``; NULL is a legacy account. Gates
+            re-seeding and the one-time confirmation notice.
         last_login_at: Timestamp of last successful login
     """
 
@@ -99,6 +103,21 @@ class User(Base, TimestampMixin):
         nullable=False,
         default=GlucoseUnit.MGDL,
         server_default=GlucoseUnit.MGDL.value,
+    )
+    # Provenance of glucose_unit. Nullable so legacy accounts (and the column's
+    # pre-seed state) read as seed-neutral. A smart default sets ``seed``; the
+    # PATCH and the dismiss-ack set ``user`` so the seed never re-fires and the
+    # one-time notice never recurs. Display-preference only --
+    # this never affects stored values or the 20-500 mg/dL invariant.
+    glucose_unit_source: Mapped[GlucoseUnitSource | None] = mapped_column(
+        Enum(
+            GlucoseUnitSource,
+            name="glucoseunitsource",
+            create_type=False,
+            values_callable=lambda e: [member.value for member in e],
+        ),
+        nullable=True,
+        default=None,
     )
     display_name: Mapped[str | None] = mapped_column(
         String(100),
