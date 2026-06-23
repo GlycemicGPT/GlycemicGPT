@@ -289,6 +289,7 @@ class AuthRepositoryTest {
 
             repository.refreshGlucoseUnit()
 
+            verify { appSettingsStore.glucoseUnit = GlucoseUnit.MGDL }
             verify { appSettingsStore.glucoseUnitSeedPending = false }
         }
 
@@ -300,6 +301,7 @@ class AuthRepositoryTest {
 
         repository.refreshGlucoseUnit()
 
+        verify { appSettingsStore.glucoseUnit = GlucoseUnit.MMOL }
         verify { appSettingsStore.glucoseUnitSeedPending = false }
     }
 

@@ -22,6 +22,7 @@ from sqlalchemy import delete, select, update
 from src.core.units import GlucoseUnit, GlucoseUnitSource
 from src.database import get_session_maker
 from src.main import app
+from src.models.glucose import GlucoseReading, TrendDirection
 from src.models.insulin_config import InsulinConfig
 from src.models.nightscout_connection import (
     NightscoutConnection,
@@ -66,6 +67,9 @@ async def _cleanup(emails: list[str]) -> None:
         result = await db.execute(User.__table__.select().where(User.email.in_(emails)))
         ids = [row.id for row in result.fetchall()]
         if ids:
+            await db.execute(
+                delete(GlucoseReading).where(GlucoseReading.user_id.in_(ids))
+            )
             # Snapshots first (FK to connection AND user).
             await db.execute(
                 delete(NightscoutProfileSnapshot).where(
@@ -1031,7 +1035,7 @@ async def test_apply_no_imports_returns_skipped(http_client):
 
 
 # ---------------------------------------------------------------------------
-# Smart-default glucose-unit seed (Story 53.10)
+# Smart-default glucose-unit seed
 # ---------------------------------------------------------------------------
 
 
@@ -1040,6 +1044,36 @@ async def _read_user_unit(email: str) -> tuple[GlucoseUnit, GlucoseUnitSource | 
     async with get_session_maker()() as db:
         user = (await db.execute(select(User).where(User.email == email))).scalar_one()
         return user.glucose_unit, user.glucose_unit_source
+
+
+async def _seed_glucose_reading(email: str, value_mgdl: int) -> uuid.UUID:
+    """Persist one canonical mg/dL glucose reading for the account; return its id."""
+    async with get_session_maker()() as db:
+        user_id = (
+            await db.execute(select(User.id).where(User.email == email))
+        ).scalar_one()
+        reading = GlucoseReading(
+            id=uuid.uuid4(),
+            user_id=user_id,
+            value=value_mgdl,
+            reading_timestamp=datetime.now(UTC),
+            trend=TrendDirection.FLAT,
+            received_at=datetime.now(UTC),
+            source="test",
+        )
+        db.add(reading)
+        await db.commit()
+        return reading.id
+
+
+async def _read_glucose_value(reading_id: uuid.UUID) -> int:
+    """Return the stored mg/dL value of a glucose reading by id."""
+    async with get_session_maker()() as db:
+        return (
+            await db.execute(
+                select(GlucoseReading.value).where(GlucoseReading.id == reading_id)
+            )
+        ).scalar_one()
 
 
 @pytest.mark.asyncio
@@ -1054,6 +1088,9 @@ async def test_apply_seeds_mmol_unit_from_confident_mmol_nightscout(http_client)
         await _seed_snapshot(
             connection_id=connection_id, user_email=email, units="mmol"
         )
+
+        # A pre-existing canonical mg/dL reading must survive the seed untouched.
+        reading_id = await _seed_glucose_reading(email, 123)
 
         # Sanity: a fresh US-test-client account starts mg/dL via the seed default.
         unit_before, source_before = await _read_user_unit(email)
@@ -1071,6 +1108,10 @@ async def test_apply_seeds_mmol_unit_from_confident_mmol_nightscout(http_client)
         unit_after, source_after = await _read_user_unit(email)
         assert unit_after == GlucoseUnit.MMOL
         assert source_after == GlucoseUnitSource.SEED
+
+        # Safety invariant: the display seed must not rewrite any stored glucose
+        # value. The reading stays the exact canonical mg/dL integer it was.
+        assert await _read_glucose_value(reading_id) == 123
 
         # Canonical settings untouched: default target range stays mg/dL.
         range_resp = await http_client.get(
@@ -1171,7 +1212,7 @@ async def test_apply_does_not_override_explicit_user_unit_choice(http_client):
 
 @pytest.mark.asyncio
 async def test_apply_does_not_re_seed_an_account_already_in_mmol(http_client):
-    """AC3 'never re-fire': a confident-mmol connect must not re-stamp an account
+    """'never re-fire': a confident-mmol connect must not re-stamp an account
     already in mmol. A legacy mmol account with NULL provenance must keep its NULL
     source -- re-stamping it 'seed' would spuriously re-trigger the one-time notice."""
     email = _unique_email("ns_seed_already_mmol")

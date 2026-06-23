@@ -21,7 +21,7 @@ export type GlucoseUnit = "mgdl" | "mmol";
  * Provenance of a stored glucose-unit preference. Mirrors the backend
  * `GlucoseUnitSource` enum. `"seed"` is a smart default (registration locale or
  * a confidently-mmol Nightscout) that is still overridable; `"user"` is an
- * explicit choice. Drives the one-time smart-default notice (Story 53.10).
+ * explicit choice. Drives the one-time smart-default notice.
  */
 export type GlucoseUnitSource = "seed" | "user";
 

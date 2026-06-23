@@ -1,5 +1,5 @@
 /**
- * Story 53.10: GlucoseUnitSeedNotice tests.
+ * GlucoseUnitSeedNotice tests.
  *
  * The one-time smart-default notice must appear ONLY for a still-seed-owned
  * non-mgdl preference, never for an mg/dL default or an explicit user choice,

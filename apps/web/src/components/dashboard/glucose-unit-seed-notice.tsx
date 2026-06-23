@@ -3,8 +3,8 @@
 /**
  * GlucoseUnitSeedNotice Component
  *
- * Story 53.10: a one-time, dismissible notice shown when the account's glucose
- * unit was set by a smart default (registration locale or a confidently-mmol
+ * A one-time, dismissible notice shown when the account's glucose unit was set
+ * by a smart default (registration locale or a confidently-mmol
  * Nightscout) and is still seed-owned and non-mgdl. It is the visible safety
  * valve for an overridable best guess -- it never blocks the UI and never
  * appears for mg/dL-defaulted users.

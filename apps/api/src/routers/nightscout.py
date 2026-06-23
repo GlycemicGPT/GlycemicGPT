@@ -986,7 +986,7 @@ async def apply_onboarding(  # noqa: PLR0912, PLR0915  -- linear, readable orche
         conn.initial_sync_window_days = request.initial_sync_window_days
         applied["initial_sync_window_days"] = True
 
-    # ---- smart-default glucose unit (Story 53.10) -----------------------
+    # ---- smart-default glucose unit -------------------------------------
     # A confidently-mmol Nightscout (units_converted is True only for a
     # classified-mmol source -- never for an unknown or mg/dL one) is a strong
     # signal the user thinks in mmol/L. Seed the *display* preference only,

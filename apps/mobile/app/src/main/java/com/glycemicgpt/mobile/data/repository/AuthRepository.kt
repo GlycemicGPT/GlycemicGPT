@@ -217,7 +217,7 @@ class AuthRepository @Inject constructor(
     }
 
     /**
-     * Acknowledge the smart-default glucose-unit notice without changing the unit (Story 53.10).
+     * Acknowledge the smart-default glucose-unit notice without changing the unit.
      * Stamps provenance `source=user` server-side -- so the notice never recurs and a later seed
      * never re-fires -- and clears the local pending flag. Used when the user dismisses the notice
      * without picking a unit; picking one goes through [updateGlucoseUnit], which already confirms.
@@ -272,7 +272,7 @@ class AuthRepository @Inject constructor(
                     val unit = GlucoseUnit.fromWire(body.glucoseUnit)
                     appSettingsStore.glucoseUnit = unit
                     // A still-seed-owned non-mgdl preference drives the one-time smart-default
-                    // confirmation notice in Settings (Story 53.10). Reconcile clears it once the
+                    // confirmation notice in Settings. Reconcile clears it once the
                     // account provenance is "user" (the user confirmed elsewhere).
                     appSettingsStore.glucoseUnitSeedPending =
                         body.glucoseUnitSource == GLUCOSE_UNIT_SOURCE_SEED &&

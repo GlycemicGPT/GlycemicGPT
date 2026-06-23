@@ -206,7 +206,7 @@ data class SettingsUiState(
     val glucoseUnit: GlucoseUnit = GlucoseUnit.MGDL,
     val glucoseUnitSyncError: String? = null,
     // One-time smart-default notice: the unit was seeded (region / Nightscout) and not yet
-    // confirmed (Story 53.10). Cleared when the user picks a unit or dismisses the notice.
+    // confirmed. Cleared when the user picks a unit or dismisses the notice.
     val seedNeedsConfirm: Boolean = false,
 )
 
@@ -1231,8 +1231,8 @@ class SettingsViewModel @Inject constructor(
     }
 
     /**
-     * Dismiss the one-time smart-default glucose-unit notice without changing the unit
-     * (Story 53.10). Hides it immediately, then acknowledges server-side so it never recurs
+     * Dismiss the one-time smart-default glucose-unit notice without changing the unit.
+     * Hides it immediately, then acknowledges server-side so it never recurs
      * (the backend stamps provenance "user"). Best-effort: a failed ack leaves the local flag
      * cleared for this session and the next reconcile re-checks provenance.
      */

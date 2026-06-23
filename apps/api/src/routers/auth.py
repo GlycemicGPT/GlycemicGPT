@@ -119,7 +119,7 @@ async def register_user(
     New users are assigned the 'diabetic' role by default.
 
     Seeds an overridable glucose display unit from the request's
-    ``Accept-Language`` region (Story 53.10): an mmol-region locale starts the
+    ``Accept-Language`` region: an mmol-region locale starts the
     account in mmol/L, everything else in mg/dL (today's default). The seed is
     a display-preference-only best guess marked ``source=seed`` so the manual
     toggle always wins and a one-time notice can offer a correction; canonical

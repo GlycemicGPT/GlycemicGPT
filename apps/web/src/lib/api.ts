@@ -1308,8 +1308,8 @@ export async function updateGlucoseUnit(
 }
 
 /**
- * Acknowledge the smart-default glucose-unit notice without changing the unit
- * (Story 53.10). Stamps the preference `source=user` server-side so the notice
+ * Acknowledge the smart-default glucose-unit notice without changing the unit.
+ * Stamps the preference `source=user` server-side so the notice
  * never recurs and a later seed never re-fires. Used when the user dismisses
  * the dashboard notice without going to Settings; changing the unit there
  * already flips the source via `updateGlucoseUnit`.

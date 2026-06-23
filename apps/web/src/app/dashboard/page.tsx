@@ -222,7 +222,7 @@ export default function DashboardPage() {
         onReconnect={reconnect}
       />
 
-      {/* One-time smart-default glucose-unit notice - Story 53.10 */}
+      {/* One-time smart-default glucose-unit notice */}
       <GlucoseUnitSeedNotice />
 
       {/* Page header - using div instead of header to avoid banner role confusion inside main */}

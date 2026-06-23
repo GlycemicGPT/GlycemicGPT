@@ -1,4 +1,4 @@
-"""Unit tests for the locale -> glucose-unit seed mapping (Story 53.10).
+"""Unit tests for the locale -> glucose-unit seed mapping.
 
 Covers the pure ``glucose_unit_for_locale`` mapping: the mmol-region set, the
 mg/dL miss/absent fallback, and BCP-47 tag parsing edge cases. The seed is a

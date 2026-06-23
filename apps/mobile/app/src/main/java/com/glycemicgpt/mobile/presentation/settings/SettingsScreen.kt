@@ -2227,7 +2227,7 @@ private fun GlucoseUnitsSection(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (seedNeedsConfirm) {
-                // One-time smart-default notice (Story 53.10): the unit was guessed from the
+                // One-time smart-default notice: the unit was guessed from the
                 // user's region or Nightscout and hasn't been confirmed. Never blocks the UI.
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(

@@ -46,7 +46,7 @@ class User(Base, TimestampMixin):
         glucose_unit_source: Provenance of glucose_unit (seed | user | NULL).
             A smart default writes ``seed``; an explicit user choice (toggle or
             dismissed notice) writes ``user``; NULL is a legacy account. Gates
-            re-seeding and the one-time confirmation notice (see Story 53.10).
+            re-seeding and the one-time confirmation notice.
         last_login_at: Timestamp of last successful login
     """
 
@@ -107,7 +107,7 @@ class User(Base, TimestampMixin):
     # Provenance of glucose_unit. Nullable so legacy accounts (and the column's
     # pre-seed state) read as seed-neutral. A smart default sets ``seed``; the
     # PATCH and the dismiss-ack set ``user`` so the seed never re-fires and the
-    # one-time notice never recurs (Story 53.10). Display-preference only --
+    # one-time notice never recurs. Display-preference only --
     # this never affects stored values or the 20-500 mg/dL invariant.
     glucose_unit_source: Mapped[GlucoseUnitSource | None] = mapped_column(
         Enum(

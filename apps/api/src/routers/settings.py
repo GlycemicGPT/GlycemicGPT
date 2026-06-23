@@ -128,7 +128,7 @@ async def get_glucose_unit(
     """Get the current user's glucose display unit preference.
 
     Includes the provenance (``glucose_unit_source``) so clients can show the
-    one-time smart-default notice (Story 53.10). The phone reconciles its unit
+    one-time smart-default notice. The phone reconciles its unit
     from this endpoint -- not ``/api/auth/me`` -- so the source is exposed here
     as well as on ``UserResponse``.
     """
@@ -152,7 +152,7 @@ async def patch_glucose_unit(
 
     An explicit choice marks the preference ``source=user`` so a region or
     Nightscout seed can never override it and the smart-default notice never
-    recurs (Story 53.10).
+    recurs.
     """
     user.glucose_unit = body.glucose_unit
     user.glucose_unit_source = GlucoseUnitSource.USER
@@ -177,7 +177,7 @@ async def acknowledge_glucose_unit_seed(
 
     Dismissing the one-time notice means "treat the seeded unit as my choice":
     it stamps ``source=user`` (leaving the unit value untouched) so the notice
-    never recurs and a later seed never re-fires (Story 53.10). Idempotent --
+    never recurs and a later seed never re-fires. Idempotent --
     a re-ack on an already-user-owned preference is a no-op write.
     """
     user.glucose_unit_source = GlucoseUnitSource.USER

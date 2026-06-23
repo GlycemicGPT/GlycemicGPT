@@ -2,8 +2,8 @@
 
 Tracks whether a user's ``glucose_unit`` was set by a smart default (``seed``)
 or an explicit user choice (``user``), so a region/Nightscout seed never
-overrides a manual choice and the one-time confirmation notice never recurs
-(Story 53.10). Nullable: existing rows stay NULL (seed-neutral); no backfill.
+overrides a manual choice and the one-time confirmation notice never recurs.
+Nullable: existing rows stay NULL (seed-neutral); no backfill.
 Display-preference only -- no stored glucose value or bound changes.
 
 Revision ID: 076_glucose_unit_source

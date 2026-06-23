@@ -79,7 +79,7 @@ class UserResponse(BaseModel):
         description=(
             "Provenance of glucose_unit: 'seed' (smart default, overridable),"
             " 'user' (explicit choice), or null (legacy). Drives the one-time"
-            " smart-default notice (Story 53.10)."
+            " smart-default notice."
         ),
     )
     created_at: datetime

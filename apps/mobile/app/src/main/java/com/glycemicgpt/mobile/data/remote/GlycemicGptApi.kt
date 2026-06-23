@@ -88,7 +88,7 @@ interface GlycemicGptApi {
     @PATCH("/api/settings/glucose-unit")
     suspend fun patchGlucoseUnit(@Body request: GlucoseUnitUpdateRequest): Response<GlucoseUnitResponse>
 
-    // Acknowledge the smart-default unit notice without changing the unit (Story 53.10):
+    // Acknowledge the smart-default unit notice without changing the unit:
     // stamps source=user server-side so the notice never recurs.
     @POST("/api/settings/glucose-unit/acknowledge")
     suspend fun acknowledgeGlucoseUnitSeed(): Response<GlucoseUnitResponse>

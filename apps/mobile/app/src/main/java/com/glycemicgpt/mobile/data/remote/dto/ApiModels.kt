@@ -117,7 +117,7 @@ data class GlucoseRangeResponse(
 /**
  * Per-account glucose display unit preference. [glucoseUnit] is the backend enum wire value
  * ("mgdl"/"mmol"). [glucoseUnitSource] is the provenance ("seed"/"user"/null) -- "seed" with a
- * non-mgdl unit drives the one-time smart-default confirmation notice (Story 53.10). Nullable so an
+ * non-mgdl unit drives the one-time smart-default confirmation notice. Nullable so an
  * older API that predates provenance is parsed safely.
  */
 @JsonClass(generateAdapter = true)

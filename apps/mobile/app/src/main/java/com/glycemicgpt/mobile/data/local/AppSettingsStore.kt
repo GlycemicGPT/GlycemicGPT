@@ -146,7 +146,7 @@ class AppSettingsStore @Inject constructor(
     /**
      * Whether the current [glucoseUnit] is a still-unconfirmed smart default
      * (server provenance "seed") with a non-mgdl value, so Settings should show
-     * the one-time confirmation notice (Story 53.10). Reconciled from
+     * the one-time confirmation notice. Reconciled from
      * `GET /api/settings/glucose-unit`; cleared when the user confirms (toggles
      * the unit or dismisses the notice) and reset on logout. Local cache only --
      * the account value remains the source of truth.
