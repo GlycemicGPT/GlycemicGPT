@@ -3,15 +3,16 @@
 // authorization code to a GlycemicGPT instance over its API.
 //
 // WHY THIS EXISTS
-//   Medtronic's CarePartner login can only be completed interactively in a
-//   browser, and on success Auth0 redirects to a *mobile-app* URL scheme
-//   (com.medtronic.carepartner:/sso?code=...) that no web app and no server
-//   can receive. So a tiny native helper on the user's machine drives the
-//   login in their own installed Chrome (or Edge / Brave / Chromium -- any
-//   Chromium-protocol-compatible browser), intercepts that 302 at the
-//   DevTools-Protocol layer, and POSTs the code to the user's GlycemicGPT
-//   backend. The backend does the actual Auth0 code -> refresh-token exchange
-//   server-side, so the refresh token NEVER reaches this binary.
+//
+//	Medtronic's CarePartner login can only be completed interactively in a
+//	browser, and on success Auth0 redirects to a *mobile-app* URL scheme
+//	(com.medtronic.carepartner:/sso?code=...) that no web app and no server
+//	can receive. So a tiny native helper on the user's machine drives the
+//	login in their own installed Chrome (or Edge / Brave / Chromium -- any
+//	Chromium-protocol-compatible browser), intercepts that 302 at the
+//	DevTools-Protocol layer, and POSTs the code to the user's GlycemicGPT
+//	backend. The backend does the actual Auth0 code -> refresh-token exchange
+//	server-side, so the refresh token NEVER reaches this binary.
 //
 // WHAT IT NEVER SEES
 //   - The user's CareLink password (typed directly into Medtronic's page).
@@ -35,6 +36,9 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -65,6 +69,7 @@ type flags struct {
 	region   string
 	timeout  time.Duration
 	headless bool
+	browser  string
 }
 
 // parseFlags is split out so it can be unit-tested without a running browser.
@@ -77,6 +82,7 @@ func parseFlags(args []string) (*flags, error) {
 		region   = fs.String("region", "US", "CarePartner region: US, or EU for non-US (UK/EU/AU/ZA/...)")
 		timeout  = fs.Duration("timeout", 5*time.Minute, "How long to wait for you to finish the browser login")
 		headless = fs.Bool("headless", false, "Run the browser headless (NOT recommended -- you must solve a captcha)")
+		browser  = fs.String("browser", "", "Optional browser executable path or command (Chrome, Edge, Brave, or Chromium)")
 	)
 	if err := fs.Parse(args); err != nil {
 		return nil, err
@@ -91,6 +97,7 @@ func parseFlags(args []string) (*flags, error) {
 		region:   strings.ToUpper(*region),
 		timeout:  *timeout,
 		headless: *headless,
+		browser:  strings.TrimSpace(*browser),
 	}, nil
 }
 
@@ -157,10 +164,85 @@ func getAuthorize(ctx context.Context, f *flags) (*authorizeResponse, error) {
 	return &out, nil
 }
 
+func browserExecCandidates() []string {
+	switch runtime.GOOS {
+	case "darwin":
+		homes := []string{"/Applications"}
+		if home, err := os.UserHomeDir(); err == nil {
+			homes = append(homes, filepath.Join(home, "Applications"))
+		}
+		apps := []string{
+			"Google Chrome.app/Contents/MacOS/Google Chrome",
+			"Chromium.app/Contents/MacOS/Chromium",
+			"Brave Browser.app/Contents/MacOS/Brave Browser",
+			"Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+		}
+		out := make([]string, 0, len(homes)*len(apps)+4)
+		for _, home := range homes {
+			for _, app := range apps {
+				out = append(out, filepath.Join(home, app))
+			}
+		}
+		return append(out, "google-chrome", "chromium", "brave-browser", "microsoft-edge")
+	case "windows":
+		var out []string
+		for _, base := range []string{os.Getenv("LOCALAPPDATA"), os.Getenv("PROGRAMFILES"), os.Getenv("PROGRAMFILES(X86)")} {
+			if base == "" {
+				continue
+			}
+			out = append(out,
+				filepath.Join(base, "Google", "Chrome", "Application", "chrome.exe"),
+				filepath.Join(base, "Microsoft", "Edge", "Application", "msedge.exe"),
+				filepath.Join(base, "BraveSoftware", "Brave-Browser", "Application", "brave.exe"),
+			)
+		}
+		return append(out, "chrome.exe", "msedge.exe", "brave.exe", "chromium.exe")
+	default:
+		return []string{
+			"google-chrome", "google-chrome-stable", "chrome",
+			"chromium", "chromium-browser",
+			"brave-browser", "brave",
+			"microsoft-edge", "microsoft-edge-stable", "msedge",
+		}
+	}
+}
+
+func executablePath(candidate string) (string, bool) {
+	if candidate == "" {
+		return "", false
+	}
+	if filepath.IsAbs(candidate) || strings.ContainsAny(candidate, `/\\`) {
+		info, err := os.Stat(candidate)
+		if err == nil && !info.IsDir() {
+			return candidate, true
+		}
+		return "", false
+	}
+	if path, err := exec.LookPath(candidate); err == nil {
+		return path, true
+	}
+	return "", false
+}
+
+func findBrowserExecPath(requested string) (string, error) {
+	if requested != "" {
+		if path, ok := executablePath(requested); ok {
+			return path, nil
+		}
+		return "", fmt.Errorf("browser %q was not found or is not executable", requested)
+	}
+	for _, candidate := range browserExecCandidates() {
+		if path, ok := executablePath(candidate); ok {
+			return path, nil
+		}
+	}
+	return "", errors.New("no supported Chromium-family browser found (install Chrome, Edge, Brave, or Chromium, or pass --browser /path/to/browser)")
+}
+
 // captureRedirect launches the user's installed Chromium-family browser at the
 // supplied authorize_url, lets the user complete the CareLink login + captcha,
 // and returns the captured 302 Location (custom-scheme URL carrying the code).
-func captureRedirect(ctx context.Context, authorizeURL string, headless bool) (string, error) {
+func captureRedirect(ctx context.Context, authorizeURL string, headless bool, browser string) (string, error) {
 	// Use a fresh temporary user-data dir so we don't touch the user's normal
 	// browser profile.
 	tmp, err := os.MkdirTemp("", "glycemicgpt-connect-*")
@@ -169,7 +251,13 @@ func captureRedirect(ctx context.Context, authorizeURL string, headless bool) (s
 	}
 	defer os.RemoveAll(tmp)
 
+	browserPath, err := findBrowserExecPath(browser)
+	if err != nil {
+		return "", err
+	}
+
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.ExecPath(browserPath),
 		chromedp.Flag("headless", headless),
 		chromedp.UserDataDir(tmp),
 		chromedp.NoFirstRun,
@@ -303,7 +391,7 @@ func run() error {
 	}
 
 	fmt.Println("  [2/3]  Opening your browser  -  sign in to CareLink (solve the captcha if it appears)")
-	redirect, err := captureRedirect(ctx, start.AuthorizeURL, cli.headless)
+	redirect, err := captureRedirect(ctx, start.AuthorizeURL, cli.headless, cli.browser)
 	if err != nil {
 		return err
 	}

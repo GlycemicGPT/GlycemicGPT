@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"strings"
+	"testing"
+)
 
 func TestIsCaptureRedirect_MatchesCarePartnerWithCode(t *testing.T) {
 	for _, status := range []int{301, 302, 303, 307, 308} {
@@ -82,12 +86,16 @@ func TestParseFlags_NormalisesRegionUpper(t *testing.T) {
 		"--pair", "tok",
 		"--username", "u",
 		"--region", "eu",
+		"--browser", "brave-browser",
 	})
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
 	if got.region != "EU" {
 		t.Errorf("region upper: %q", got.region)
+	}
+	if got.browser != "brave-browser" {
+		t.Errorf("browser flag: %q", got.browser)
 	}
 }
 
@@ -102,5 +110,38 @@ func TestParseFlags_RejectsMissingRequired(t *testing.T) {
 		if _, err := parseFlags(c); err == nil {
 			t.Errorf("expected err for %v", c)
 		}
+	}
+}
+
+func TestBrowserExecCandidates_IncludeEdgeAndBrave(t *testing.T) {
+	joined := strings.Join(browserExecCandidates(), "\n")
+	for _, want := range []string{"brave", "edge"} {
+		if !strings.Contains(strings.ToLower(joined), want) {
+			t.Errorf("browser candidates should include %s; got %q", want, joined)
+		}
+	}
+}
+
+func TestFindBrowserExecPath_AcceptsExplicitExecutable(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatalf("os.Executable: %v", err)
+	}
+	got, err := findBrowserExecPath(exe)
+	if err != nil {
+		t.Fatalf("findBrowserExecPath(%q): %v", exe, err)
+	}
+	if got != exe {
+		t.Errorf("explicit executable path: got %q want %q", got, exe)
+	}
+}
+
+func TestFindBrowserExecPath_RejectsMissingExplicitBrowser(t *testing.T) {
+	_, err := findBrowserExecPath("/definitely/not/a/browser")
+	if err == nil {
+		t.Fatal("expected missing browser error")
+	}
+	if !strings.Contains(err.Error(), "was not found") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

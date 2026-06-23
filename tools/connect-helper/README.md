@@ -61,11 +61,15 @@ go test ./...
 | `--region`   | `US`       | `US`, or `EU` for any non-US account (UK/EU/AU/ZA/…). |
 | `--timeout`  | `5m`       | How long to wait for the human to finish the browser login. |
 | `--headless` | off        | Don't use — CarePartner requires a captcha. |
+| `--browser`  | auto       | Optional browser executable path or command when auto-detection cannot find your Chrome, Edge, Brave, or Chromium install. |
 
 ## Browser requirement
 
-Chrome, Edge, Brave, or Chromium installed locally. Firefox-only users get a
-clear error message; Firefox support (via Marionette) is a follow-up.
+Chrome, Edge, Brave, or Chromium installed locally. The helper auto-detects
+common executable names and app bundle locations. If your browser is installed
+somewhere custom, pass `--browser /path/to/browser` (or a command on your
+`PATH`). Firefox-only users get a clear error message; Firefox support (via
+Marionette) is a follow-up.
 
 ## Scope (v1)
 
