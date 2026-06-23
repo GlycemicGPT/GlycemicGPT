@@ -1,0 +1,127 @@
+name: Planning ID Check
+
+# Fails a PR that introduces internal BMAD planning identifiers (`Story <n.n>`,
+# `AC<nn>`, `locked decision N`, `LOCKED #N`) into committed source under
+# `apps/` or `plugins/`. Those identifiers live in the gitignored planning
+# artifacts and must never ship in code, comments, docstrings, or test names.
+#
+# Mirrors attribution-check.yml's fork-safe pattern: runs on `pull_request_target`
+# so it works for fork PRs with a writable token, but deliberately does NOT check
+# out the PR head into the working tree -- the PR commits are fetched as a
+# remote-only ref and inspected as text (git diff) by the trusted base-checkout
+# script. No PR-supplied code is ever executed. See CONTRIBUTING.md "How CI
+# handles fork PRs".
+
+on:
+  pull_request_target:
+    branches: [main, develop]
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: planning-id-check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check-planning-ids:
+    name: Planning ID Check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout base ref (NOT the PR head)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          # No `ref:` -- under pull_request_target the default is the PR's base
+          # branch, so the scan script we run below is the trusted base version.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch PR commits as remote-only ref
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          # Text-inspection only: pull the PR head into a remote ref without
+          # materialising any PR files into the working tree.
+          git fetch --no-tags origin \
+            "+refs/pull/${PR_NUMBER}/head:refs/remotes/pr/${PR_NUMBER}"
+
+      - name: Scan PR diff for planning identifiers
+        id: scan
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          git fetch origin "${BASE_REF}" --depth=1 2>/dev/null || true
+          set +e
+          OUT=$(scripts/ci/check-planning-ids.sh \
+            "origin/${BASE_REF}" "refs/remotes/pr/${PR_NUMBER}" 2>&1)
+          CODE=$?
+          set -e
+          echo "${OUT}"
+          FINDINGS_FILE=$(mktemp)
+          printf '%s\n' "${OUT}" > "${FINDINGS_FILE}"
+          {
+            echo "findings_file=${FINDINGS_FILE}"
+            echo "passed=$( [ "${CODE}" -eq 0 ] && echo true || echo false )"
+          } >> "${GITHUB_OUTPUT}"
+          exit "${CODE}"
+
+      - name: Post planning-ID findings to PR
+        if: always() && steps.scan.outputs.passed != ''
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          PASSED: ${{ steps.scan.outputs.passed }}
+          FINDINGS_FILE: ${{ steps.scan.outputs.findings_file }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const passed = process.env.PASSED === 'true';
+            const prNumber = context.payload.pull_request?.number;
+            if (!prNumber) return;
+
+            const marker = '<!-- planning-id-check-comment -->';
+            const repo = context.repo;
+
+            // Paginate so the sticky marker is found on PRs with >100 comments.
+            const comments = await github.paginate(
+              github.rest.issues.listComments,
+              { ...repo, issue_number: prNumber, per_page: 100 },
+            );
+            const existing = comments.find((c) => c.body?.includes(marker));
+
+            let body;
+            if (passed) {
+              body = [
+                marker,
+                '## :white_check_mark: Planning ID Check: Passed',
+                '',
+                'No internal planning identifiers (`Story <n.n>`, `AC<nn>`, `locked decision N`) in the diff.',
+              ].join('\n');
+            } else {
+              const fs = require('fs');
+              let out = '';
+              try { out = fs.readFileSync(process.env.FINDINGS_FILE, 'utf8'); } catch {}
+              body = [
+                marker,
+                '## :yellow_circle: Planning ID Check: Failed',
+                '',
+                'This PR adds internal BMAD planning identifiers (`Story <n.n>`, `AC<nn>`, `locked decision N`) to committed source. Those belong in the gitignored planning artifacts, not in shipped code, comments, docstrings, or test names.',
+                '',
+                '### Findings',
+                '```',
+                out.trim(),
+                '```',
+                '',
+                '**Fix:** remove the `Story` / `AC` / `locked-decision` tokens from the flagged lines, keeping the descriptive prose, then push.',
+              ].join('\n');
+            }
+
+            if (existing) {
+              await github.rest.issues.updateComment({ ...repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ ...repo, issue_number: prNumber, body });
+            }
