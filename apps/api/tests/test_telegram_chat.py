@@ -31,6 +31,7 @@ from src.services.telegram_chat import (
     _resolve_max_tokens_for_user,
     _truncate_response,
     handle_caregiver_chat,
+    handle_caregiver_chat_web,
     handle_chat,
 )
 
@@ -1254,6 +1255,36 @@ class TestCaregiverChatPatientUnit:
         db.execute.return_value = mock_result
 
         await handle_caregiver_chat(db, uuid.uuid4(), patient.id, "How is my patient?")
+
+        mock_context.assert_awaited_once()
+        args, kwargs = mock_context.call_args
+        assert args[1] == patient.id  # context built for the patient
+        assert kwargs["unit"] == GlucoseUnit.MMOL  # in the patient's unit
+
+    @pytest.mark.asyncio
+    @patch("src.services.telegram_chat.build_diabetes_context", new_callable=AsyncMock)
+    @patch("src.services.telegram_chat.get_ai_client", new_callable=AsyncMock)
+    async def test_web_context_built_in_patient_unit(
+        self, mock_get_client, mock_context
+    ):
+        """The web caregiver chat builds context in the PATIENT's unit too --
+        the seam where the dashboard caregiver view resolves the patient's
+        preference, distinct from the Telegram path above."""
+        mock_context.return_value = "[Glucose]\n- Current: 6.7 mmol/L (stable)"
+        mock_client = AsyncMock()
+        mock_client.generate.return_value = make_ai_response("Looks stable.")
+        mock_get_client.return_value = mock_client
+
+        patient = make_user()
+        patient.glucose_unit = GlucoseUnit.MMOL
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = patient
+        db = AsyncMock()
+        db.execute.return_value = mock_result
+
+        await handle_caregiver_chat_web(
+            db, uuid.uuid4(), patient.id, "How is my patient?"
+        )
 
         mock_context.assert_awaited_once()
         args, kwargs = mock_context.call_args

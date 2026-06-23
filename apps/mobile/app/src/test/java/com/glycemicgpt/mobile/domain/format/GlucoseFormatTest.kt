@@ -108,6 +108,30 @@ class GlucoseFormatTest {
     }
 
     @Test
+    fun `mmol fixture matches the cross-surface contract`() {
+        // The shared mg/dL -> mmol/L fixture every surface must render the same
+        // way: here, the web (formatGlucose -> toFixed(1)), the watch
+        // (GlucoseDisplayUtils.formatGlucose), and the API (format_glucose_value).
+        // Each string is round(x / 18.0156, 1); none of the 8 lands on a .x5
+        // mmol tie, so %.1f, JS toFixed, and Python round all agree.
+        val crossSurface = linkedMapOf(
+            54 to "3.0",
+            70 to "3.9",
+            99 to "5.5",
+            100 to "5.6",
+            120 to "6.7",
+            180 to "10.0",
+            250 to "13.9",
+            400 to "22.2",
+        )
+        for ((mgDl, expected) in crossSurface) {
+            assertEquals("$mgDl mg/dL -> mmol", expected, GlucoseFormat.format(mgDl, GlucoseUnit.MMOL))
+            // mg/dL stays the raw integer; only the displayed number changes.
+            assertEquals("$mgDl mg/dL", mgDl.toString(), GlucoseFormat.format(mgDl, GlucoseUnit.MGDL))
+        }
+    }
+
+    @Test
     fun `boundary values format cleanly`() {
         assertEquals("1.1", GlucoseFormat.format(20, GlucoseUnit.MMOL))
         assertEquals("27.8", GlucoseFormat.format(500, GlucoseUnit.MMOL))
