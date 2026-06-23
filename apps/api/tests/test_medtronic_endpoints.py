@@ -20,6 +20,7 @@ from src.services.integrations.medtronic.client import (
     CareLinkAvailability,
     CareLinkError,
     CareLinkReportTimeoutError,
+    CareLinkTransportError,
 )
 from src.services.integrations.medtronic.sync import CareLinkSyncResult
 
@@ -143,7 +144,11 @@ async def test_availability_expired_token_401(mock_build):
 
 @patch("src.routers.integrations._build_carelink_client")
 async def test_availability_service_error_503(mock_build):
-    mock_build.return_value = _FakeClient(raise_exc=CareLinkError("boom"))
+    """A reachable-host failure (4xx/5xx, bad response shape) surfaces the
+    'unexpected response' message, not the generic 'unable to reach' message."""
+    mock_build.return_value = _FakeClient(
+        raise_exc=CareLinkError("CareLink request to /patient/users/me failed: 404")
+    )
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
     ) as client:
@@ -152,6 +157,27 @@ async def test_availability_service_error_503(mock_build):
             AVAIL_PATH, json={"region": "US"}, headers=_HDR, cookies=cookies
         )
     assert resp.status_code == 503, resp.text
+    assert "unexpected response" in resp.json()["detail"].lower()
+
+
+@patch("src.routers.integrations._build_carelink_client")
+async def test_availability_transport_error_503(mock_build):
+    """A true transport failure (DNS, TLS, connection timeout) keeps the
+    'unable to reach CareLink' connectivity message."""
+    mock_build.return_value = _FakeClient(
+        raise_exc=CareLinkTransportError(
+            "CareLink network error on GET /patient/users/me: timed out"
+        )
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        cookies = await _login(client)
+        resp = await client.post(
+            AVAIL_PATH, json={"region": "US"}, headers=_HDR, cookies=cookies
+        )
+    assert resp.status_code == 503, resp.text
+    assert "unable to reach carelink" in resp.json()["detail"].lower()
 
 
 async def test_availability_bad_region_422():
@@ -264,6 +290,44 @@ async def test_import_timeout_504(mock_build, mock_sync):
             IMPORT_PATH, json=_import_body(), headers=_HDR, cookies=cookies
         )
     assert resp.status_code == 504, resp.text
+
+
+@patch("src.routers.integrations.sync_carelink_for_user", new_callable=AsyncMock)
+@patch("src.routers.integrations._build_carelink_client")
+async def test_import_transport_error_503(mock_build, mock_sync):
+    """A true transport failure during import keeps the 'unable to reach
+    CareLink' connectivity message."""
+    mock_build.return_value = _FakeClient()
+    mock_sync.side_effect = CareLinkTransportError(
+        "CareLink network error on GET /patient/reports/reportCsv: timed out"
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        cookies = await _login(client)
+        resp = await client.post(
+            IMPORT_PATH, json=_import_body(), headers=_HDR, cookies=cookies
+        )
+    assert resp.status_code == 503, resp.text
+    assert "unable to reach carelink" in resp.json()["detail"].lower()
+
+
+@patch("src.routers.integrations.sync_carelink_for_user", new_callable=AsyncMock)
+@patch("src.routers.integrations._build_carelink_client")
+async def test_import_unexpected_response_503(mock_build, mock_sync):
+    """A reachable-host failure during import (4xx/5xx, bad CSV shape) surfaces
+    the 'unexpected response' message, not the connectivity message."""
+    mock_build.return_value = _FakeClient()
+    mock_sync.side_effect = CareLinkError("generateReport did not return a report uuid")
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        cookies = await _login(client)
+        resp = await client.post(
+            IMPORT_PATH, json=_import_body(), headers=_HDR, cookies=cookies
+        )
+    assert resp.status_code == 503, resp.text
+    assert "unexpected response" in resp.json()["detail"].lower()
 
 
 async def test_token_not_leaked_in_validation_error():

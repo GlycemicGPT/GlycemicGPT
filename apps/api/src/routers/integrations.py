@@ -13,6 +13,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+import sentry_sdk
 from fastapi import (
     APIRouter,
     Cookie,
@@ -209,6 +210,7 @@ from src.services.integrations.medtronic.client import (
     CareLinkClient,
     CareLinkError,
     CareLinkReportTimeoutError,
+    CareLinkTransportError,
 )
 from src.services.integrations.medtronic.connect_auth import (
     ConnectTokenError,
@@ -1917,10 +1919,32 @@ async def get_medtronic_availability(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="CareLink session is invalid or expired. Reconnect and try again.",
         ) from e
-    except CareLinkError as e:
+    except CareLinkTransportError as e:
+        # Transient connectivity failure (DNS/TLS/timeout). Logged but NOT sent to
+        # Sentry: 503s are excluded from Sentry capture (see observability.py) so
+        # outages don't flood it. The reachable-host branch below DOES capture.
+        logger.warning(
+            "CareLink availability failed - transport error",
+            user_id=str(current_user.id),
+            error=str(e),
+        )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Unable to reach CareLink. Please try again later.",
+        ) from e
+    except CareLinkError as e:
+        logger.warning(
+            "CareLink availability failed - unexpected response",
+            user_id=str(current_user.id),
+            error=str(e),
+        )
+        # A reachable host returning a bad response is a real API-contract defect,
+        # so capture it explicitly (the 503 it maps to is otherwise excluded from
+        # Sentry auto-capture; see observability.py).
+        sentry_sdk.capture_exception(e)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="CareLink returned an unexpected response. Please try again later.",
         ) from e
     finally:
         await client.aclose()
@@ -1977,10 +2001,32 @@ async def import_medtronic_range(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
             detail="CareLink took too long to generate the report. Try a smaller range.",
         ) from e
-    except CareLinkError as e:
+    except CareLinkTransportError as e:
+        # Transient connectivity failure (DNS/TLS/timeout). Logged but NOT sent to
+        # Sentry: 503s are excluded from Sentry capture (see observability.py) so
+        # outages don't flood it. The reachable-host branch below DOES capture.
+        logger.warning(
+            "CareLink import failed - transport error",
+            user_id=str(current_user.id),
+            error=str(e),
+        )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Unable to reach CareLink. Please try again later.",
+        ) from e
+    except CareLinkError as e:
+        logger.warning(
+            "CareLink import failed - unexpected response",
+            user_id=str(current_user.id),
+            error=str(e),
+        )
+        # A reachable host returning a bad response is a real API-contract defect,
+        # so capture it explicitly (the 503 it maps to is otherwise excluded from
+        # Sentry auto-capture; see observability.py).
+        sentry_sdk.capture_exception(e)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="CareLink returned an unexpected response. Please try again later.",
         ) from e
     finally:
         await client.aclose()
