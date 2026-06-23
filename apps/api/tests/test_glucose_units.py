@@ -149,6 +149,45 @@ class TestPromptInstruction:
         assert "one decimal" in text
 
 
+# The shared cross-surface fixture: a stored mg/dL value and the exact mmol/L
+# string every client must render for it. This list is mirrored byte-for-byte in
+# the web (``formatGlucose(x, "mmol")`` -> ``toFixed(1)``), the phone
+# (``GlucoseFormat.format(x, MMOL)`` -> ``String.format("%.1f")``), and the watch
+# (``GlucoseDisplayUtils.formatGlucose(x, MMOL)``) test suites -- the duplicate
+# copies are deliberate cross-language anchors, so a drift on any one surface
+# fails there. (The same-factor pure-division property is already proven by
+# ``TestRoundTripNoDrift.test_anchors_are_pure_division_of_the_one_factor``; this
+# table instead pins the exact shared strings.) None of the 8 lands on a ``.x5``
+# mmol tie, so JS round-half-away, Java round-half-up, and Python round-half-even
+# all agree -- the strings are identical across languages.
+CROSS_SURFACE_MMOL = {
+    54: "3.0",
+    70: "3.9",
+    99: "5.5",
+    100: "5.6",
+    120: "6.7",
+    180: "10.0",
+    250: "13.9",
+    400: "22.2",
+}
+
+
+class TestCrossSurfaceContract:
+    """The one fixture proving every surface renders the same stored mg/dL value
+    the same way -- a reading can never read 6.7 mmol/L on the phone and 6.6 on
+    the web for the same 120 mg/dL."""
+
+    @pytest.mark.parametrize("mgdl,expected", CROSS_SURFACE_MMOL.items())
+    def test_mmol_string_matches_the_cross_surface_fixture(self, mgdl, expected):
+        assert format_glucose_value(mgdl, GlucoseUnit.MMOL) == expected
+
+    @pytest.mark.parametrize("mgdl", CROSS_SURFACE_MMOL)
+    def test_mgdl_string_stays_the_whole_number(self, mgdl):
+        # mg/dL renders the raw integer on every surface; only the displayed
+        # number, never the stored value, changes with the unit.
+        assert format_glucose_value(mgdl, GlucoseUnit.MGDL) == str(mgdl)
+
+
 class TestResolveGlucoseUnit:
     """The by-user_id resolver used by the alert/escalation/command paths."""
 
