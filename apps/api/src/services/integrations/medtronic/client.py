@@ -29,7 +29,7 @@ import asyncio
 import random
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from urllib.parse import urlparse
 
 import httpx
@@ -215,7 +215,9 @@ class CareLinkClient:
     async def get_patient_id(self) -> str:
         """Fetch the patient/account id required by generateReport."""
         data = self._json(await self._get("/patient/users/me"))
-        # Response field name unconfirmed live -- accept the likely candidates.
+        # US returns `patientId`; EU/OUS returns `accountId` (no patientId, role
+        # PATIENT_OUS) -- both confirmed live (#811). The ordered fallback covers
+        # both regions; loginId/id are extra tolerance for unconfirmed variants.
         pid = _first(data, "patientId", "accountId", "loginId", "id")
         if pid is None:
             raise CareLinkError("Could not find patient id in /patient/users/me")
@@ -302,7 +304,17 @@ class CareLinkClient:
         client_time: datetime | None = None,
     ) -> dict:
         """Mirror the observed generateReport body: CSV only, all PDF report
-        sections off, aggregated CSV enabled."""
+        sections off, aggregated CSV enabled.
+
+        Includes the ``*PeriodB`` comparison window -- the equal-length range
+        immediately preceding [start_date, end_date]. A live EU capture (#811)
+        showed CareLink's UI sends this pair and that the EU host returned 400
+        without it; that capture was a comparison report, so whether EU strictly
+        requires it for this CSV-only body is pending a live EU re-test. Assumes
+        start_date <= end_date (enforced upstream by MedtronicImportRequest).
+        """
+        period_b_end = start_date - timedelta(days=1)
+        period_b_start = period_b_end - (end_date - start_date)
         return {
             "clientTime": (client_time or datetime.now(UTC)).isoformat(),
             "dailyDetailReportDays": [],
@@ -323,6 +335,8 @@ class CareLinkClient:
             "reportShowInsulinAssessment": False,
             "startDate": start_date.strftime("%Y-%m-%d"),
             "endDate": end_date.strftime("%Y-%m-%d"),
+            "startDatePeriodB": period_b_start.strftime("%Y-%m-%d"),
+            "endDatePeriodB": period_b_end.strftime("%Y-%m-%d"),
         }
 
     @staticmethod

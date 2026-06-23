@@ -58,6 +58,22 @@ async def test_get_patient_id_tolerant_field():
         assert await client.get_patient_id() == "50497203"
 
 
+async def test_get_patient_id_eu_accountid_fallback():
+    """EU/OUS /users/me has no patientId; the id lives in accountId (role
+    PATIENT_OUS). _first must resolve accountId -- not the unrelated 'id' -- as
+    the generateReport patientId (#811)."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/patient/users/me"
+        return httpx.Response(
+            200,
+            json={"id": "auth0|abc", "accountId": "52266805", "role": "PATIENT_OUS"},
+        )
+
+    async with _make_client(handler) as client:
+        assert await client.get_patient_id() == "52266805"
+
+
 async def test_export_csv_full_job_flow():
     """generateReport -> reportStatus (pending then ready) -> reportCsv."""
     captured = {}
@@ -99,6 +115,22 @@ async def test_export_csv_full_job_flow():
     assert body["startDate"] == "2025-01-18"
     assert body["endDate"] == "2025-01-31"
     assert body["reportShowLogbook"] is False
+    # The *PeriodB comparison window (the equal-length range immediately before
+    # [start, end]) is sent by CareLink's UI and required by the EU endpoint (#811).
+    assert body["startDatePeriodB"] == "2025-01-04"
+    assert body["endDatePeriodB"] == "2025-01-17"
+
+
+def test_generate_report_body_period_b_one_day():
+    """A 1-day import (start == end) yields a single-day PeriodB window
+    (start - 1d), the smallest valid comparison window (#811)."""
+    body = CareLinkClient._build_generate_report_body(
+        patient_id="1", start_date=date(2025, 3, 1), end_date=date(2025, 3, 1)
+    )
+    assert body["startDate"] == "2025-03-01"
+    assert body["endDate"] == "2025-03-01"
+    assert body["startDatePeriodB"] == "2025-02-28"
+    assert body["endDatePeriodB"] == "2025-02-28"
 
 
 async def test_export_csv_times_out_if_never_ready():
