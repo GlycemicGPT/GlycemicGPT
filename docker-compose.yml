@@ -91,9 +91,6 @@ services:
       AI_SIDECAR_API_KEY: ${SIDECAR_API_KEY:-}
       CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:3000"]}
       FASTEMBED_CACHE_PATH: /app/.cache/fastembed
-      # Meal-photo carb estimation -- BETA, off by default. Requires a
-      # vision-capable AI provider.
-      MEAL_INTELLIGENCE_ENABLED: ${MEAL_INTELLIGENCE_ENABLED:-false}
       # Sentry error monitoring (Sentry for Good) -- empty default = disabled.
       # Set only in the project's own dev/CI/staging; never in a distributed build.
       GLYCEMICGPT_SENTRY_DSN: ${GLYCEMICGPT_SENTRY_DSN:-}

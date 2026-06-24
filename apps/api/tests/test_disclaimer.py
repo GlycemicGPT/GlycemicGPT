@@ -547,6 +547,7 @@ class TestUserResponseDisclaimerGating:
             "role": UserRole.DIABETIC,
             "is_active": True,
             "email_verified": True,
+            "meal_intelligence_enabled": True,
             "created_at": datetime.now(UTC),
         }
 

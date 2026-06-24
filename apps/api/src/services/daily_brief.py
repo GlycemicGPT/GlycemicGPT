@@ -12,7 +12,6 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.config import settings
 from src.core.units import (
     GlucoseUnit,
     format_glucose,
@@ -455,10 +454,10 @@ async def generate_daily_brief(
             exc_info=True,
         )
 
-    # Logged meals for the period -- gated on the meal-intelligence
-    # feature so the brief stays unchanged while the flag is off.
+    # Logged meals for the period -- gated on the user's meal-intelligence
+    # preference so the brief stays unchanged while the feature is off.
     meals_context = None
-    if settings.meal_intelligence_enabled:
+    if user.meal_intelligence_enabled:
         try:
             meals_context = await format_meals_for_brief(
                 db, user.id, period_start, period_end

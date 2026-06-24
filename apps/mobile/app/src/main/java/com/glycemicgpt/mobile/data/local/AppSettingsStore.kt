@@ -174,6 +174,36 @@ class AppSettingsStore @Inject constructor(
         awaitClose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
     }
 
+    /**
+     * Whether the meal-intelligence feature is enabled for this account. Gates the
+     * meal surfaces (the "Log a meal" FAB + meal endpoints). A *per-account*
+     * preference (PATCHed to the backend and reconciled from it); this stored
+     * value is an offline cache / pre-sync fallback that defaults ON before the
+     * first backend sync, mirroring the server default.
+     */
+    var mealIntelligenceEnabled: Boolean
+        get() = prefs.getBoolean(KEY_MEAL_INTELLIGENCE_ENABLED, true)
+        set(value) {
+            prefs.edit().putBoolean(KEY_MEAL_INTELLIGENCE_ENABLED, value).apply()
+        }
+
+    /**
+     * Emits the current [mealIntelligenceEnabled] and re-emits whenever it
+     * changes, so the home FAB and meal surfaces appear/disappear live when the
+     * user toggles the setting or a backend reconcile writes the cache. Uses the
+     * same change-listener mechanism as [glucoseUnitFlow].
+     */
+    fun mealIntelligenceEnabledFlow(): Flow<Boolean> = callbackFlow {
+        trySend(mealIntelligenceEnabled)
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == KEY_MEAL_INTELLIGENCE_ENABLED || key == null) {
+                trySend(mealIntelligenceEnabled)
+            }
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        awaitClose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+
     // Watch face config persistence
     var watchFaceShowIoB: Boolean
         get() = prefs.getBoolean(KEY_WATCHFACE_SHOW_IOB, true)
@@ -252,6 +282,7 @@ class AppSettingsStore @Inject constructor(
         internal const val KEY_THEME_MODE = "theme_mode"
         internal const val KEY_GLUCOSE_UNIT = "glucose_unit"
         internal const val KEY_GLUCOSE_UNIT_SEED_PENDING = "glucose_unit_seed_pending"
+        internal const val KEY_MEAL_INTELLIGENCE_ENABLED = "meal_intelligence_enabled"
         const val DEFAULT_RETENTION_DAYS = 7
         const val MIN_RETENTION_DAYS = 1
         const val MAX_RETENTION_DAYS = 30

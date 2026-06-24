@@ -2,6 +2,7 @@ package com.glycemicgpt.mobile.presentation.meal
 
 import android.content.Context
 import android.net.Uri
+import com.glycemicgpt.mobile.data.local.AppSettingsStore
 import com.glycemicgpt.mobile.data.meal.CarbConfidence
 import com.glycemicgpt.mobile.data.meal.CarbRange
 import com.glycemicgpt.mobile.data.meal.CommonFood
@@ -40,6 +41,7 @@ class MealLogViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
     private val repository = mockk<MealRepository>()
+    private val appSettingsStore = mockk<AppSettingsStore>()
     private val context = mockk<Context>(relaxed = true)
     private val uri = mockk<Uri>(relaxed = true)
 
@@ -63,6 +65,9 @@ class MealLogViewModelTest {
         mockkObject(MealPhotoFiles)
         justRun { MealPhotoFiles.clearCaptures(any()) }
         justRun { MealPhotoFiles.deleteCapture(any(), any()) }
+        // Default: the per-account meal-intelligence setting is ON, so availability
+        // defers to the server probe (the behavior most tests assert).
+        every { appSettingsStore.mealIntelligenceEnabled } returns true
     }
 
     @After
@@ -73,7 +78,7 @@ class MealLogViewModelTest {
     }
 
     private fun viewModel(): MealLogViewModel =
-        MealLogViewModel(repository, context, testDispatcher)
+        MealLogViewModel(repository, appSettingsStore, context, testDispatcher)
 
     private fun stubAvailable() {
         coEvery { repository.probeAvailability() } returns Result.success(Unit)
@@ -94,6 +99,16 @@ class MealLogViewModelTest {
         val vm = viewModel()
         advanceUntilIdle()
         assertEquals(MealLogPageState.Disabled, vm.uiState.value.pageState)
+    }
+
+    @Test
+    fun `local setting off resolves to Disabled without a probe`() = runTest(testDispatcher) {
+        every { appSettingsStore.mealIntelligenceEnabled } returns false
+        val vm = viewModel()
+        advanceUntilIdle()
+        assertEquals(MealLogPageState.Disabled, vm.uiState.value.pageState)
+        // The local gate short-circuits -- no server round-trip when off.
+        coVerify(exactly = 0) { repository.probeAvailability() }
     }
 
     @Test

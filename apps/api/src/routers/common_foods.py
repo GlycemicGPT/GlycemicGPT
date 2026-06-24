@@ -4,8 +4,8 @@ Manage the baselines a user saves for foods they eat often: list, fetch,
 rename + update baseline values, and delete. Promotion ("save as common food")
 and linking live on the food-records router, since they act on a record.
 
-The feature is flag-gated (``meal_intelligence_enabled``) and BETA. Every query
-is scoped to the authenticated owner.
+The feature is gated by the user's own ``meal_intelligence_enabled`` preference.
+Every query is scoped to the authenticated owner.
 
 Safety: a common food is a descriptive baseline, never a dose. No endpoint here
 returns or computes insulin, and common-food values never flow into IoB /
@@ -51,7 +51,7 @@ async def list_common_foods(
     offset: int = 0,
 ) -> CommonFoodListResponse:
     """List the current user's common foods, most recently updated first."""
-    require_meal_intelligence()
+    require_meal_intelligence(current_user)
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
 
@@ -85,7 +85,7 @@ async def get_common_food(
     db: AsyncSession = Depends(get_db),
 ) -> CommonFoodResponse:
     """Get one of the current user's common foods."""
-    require_meal_intelligence()
+    require_meal_intelligence(current_user)
     common_food = await get_owned_common_food(common_food_id, current_user.id, db)
     return CommonFoodResponse.model_validate(common_food)
 
@@ -107,7 +107,7 @@ async def update_common_food(
     db: AsyncSession = Depends(get_db),
 ) -> CommonFoodResponse:
     """Rename and/or update a common food's baseline carbs/nutrition."""
-    require_meal_intelligence()
+    require_meal_intelligence(current_user)
     common_food = await get_owned_common_food(common_food_id, current_user.id, db)
     try:
         common_food = await common_food_service.update_common_food(
@@ -137,8 +137,12 @@ async def delete_common_food(
     current_user: DiabeticOrAdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    """Delete a common food. Linked records are unlinked (FK ON DELETE SET NULL)."""
-    require_meal_intelligence()
+    """Delete a common food. Linked records are unlinked (FK ON DELETE SET NULL).
+
+    Deliberately NOT gated on the meal-intelligence preference: a user who turns
+    the feature off must still be able to delete data they already created.
+    Owner-scoping below is the access control.
+    """
     common_food = await get_owned_common_food(common_food_id, current_user.id, db)
     await db.delete(common_food)
     await db.commit()

@@ -19,6 +19,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.glycemicgpt.mobile.data.local.AppSettingsStore
 import com.glycemicgpt.mobile.data.remote.GlycemicGptApi
 import com.glycemicgpt.mobile.data.remote.dto.ChatRequest
 import com.glycemicgpt.mobile.data.remote.dto.CommonFoodResponse
@@ -26,6 +27,7 @@ import com.glycemicgpt.mobile.data.remote.dto.CommonFoodUpdateRequest
 import com.glycemicgpt.mobile.data.remote.dto.DeviceRegistrationRequest
 import com.glycemicgpt.mobile.data.remote.dto.EstimateDispersionResponse
 import com.glycemicgpt.mobile.data.remote.dto.GlucoseUnitUpdateRequest
+import com.glycemicgpt.mobile.data.remote.dto.MealIntelligenceUpdateRequest
 import com.glycemicgpt.mobile.data.remote.dto.FoodRecordCorrectionRequest
 import com.glycemicgpt.mobile.data.remote.dto.FoodRecordIdentityRequest
 import com.glycemicgpt.mobile.data.remote.dto.FoodRecordListResponse
@@ -158,7 +160,10 @@ class MealFullFlowE2ETest {
     /** Build the real repository + view models against [api] (same instance for both API seams). */
     private fun buildViewModels(api: FakeMealApi) {
         val repository = MealRepository(api, api, Moshi.Builder().build())
-        mealLogVm = MealLogViewModel(repository, context, Dispatchers.IO)
+        // Meal intelligence is per-account and defaults ON; pin it on so the flow
+        // is deterministic regardless of any persisted state on the device.
+        val appSettingsStore = AppSettingsStore(context).apply { mealIntelligenceEnabled = true }
+        mealLogVm = MealLogViewModel(repository, appSettingsStore, context, Dispatchers.IO)
         historyVm = MealHistoryViewModel(repository)
     }
 
@@ -324,6 +329,8 @@ private class FakeMealApi : GlycemicGptApi {
     override suspend fun getGlucoseUnit() = notUsed()
     override suspend fun patchGlucoseUnit(request: GlucoseUnitUpdateRequest) = notUsed()
     override suspend fun acknowledgeGlucoseUnitSeed() = notUsed()
+    override suspend fun getMealIntelligence() = notUsed()
+    override suspend fun patchMealIntelligence(request: MealIntelligenceUpdateRequest) = notUsed()
     override suspend fun getGlucoseRange() = notUsed()
     override suspend fun getSafetyLimits() = notUsed()
     override suspend fun getAnalyticsConfig() = notUsed()

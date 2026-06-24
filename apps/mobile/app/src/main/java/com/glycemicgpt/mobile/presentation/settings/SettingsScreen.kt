@@ -165,30 +165,16 @@ fun SettingsScreen(
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        // -- Meal Intelligence Section (Epic 50) --
-        SectionHeader(title = "Meal Intelligence")
-        OutlinedButton(
-            onClick = onNavigateToMealLog,
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("meal_log_button"),
-        ) {
-            Icon(
-                imageVector = Icons.Default.Restaurant,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
+        // -- Meal Intelligence Section (Epic 50) -- per-account state, so render it
+        // only when signed in (the toggle writes the local cache optimistically).
+        if (state.isLoggedIn) {
+            MealIntelligenceSection(
+                state = state,
+                onToggle = settingsViewModel::setMealIntelligenceEnabled,
+                onNavigateToMealLog = onNavigateToMealLog,
             )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("Log a meal")
+            Spacer(modifier = Modifier.height(20.dp))
         }
-        Text(
-            text = "Estimate a meal's carbs from a photo. Estimates are a guess to verify before dosing.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 4.dp),
-        )
-
-        Spacer(modifier = Modifier.height(20.dp))
 
         // -- Notifications Section --
         SectionHeader(title = "Notifications")
@@ -1073,6 +1059,91 @@ private fun PumpSection(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun MealIntelligenceSection(
+    state: SettingsUiState,
+    onToggle: (Boolean) -> Unit,
+    onNavigateToMealLog: () -> Unit,
+) {
+    SectionHeader(title = "Meal Intelligence")
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Restaurant,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp),
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = "Meal Intelligence",
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                        Text(
+                            text = "Estimate a meal's carbs from a photo. Needs a vision-capable AI provider.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                Switch(
+                    checked = state.mealIntelligenceEnabled,
+                    onCheckedChange = onToggle,
+                    modifier = Modifier.testTag("meal_intelligence_toggle"),
+                )
+            }
+            state.mealIntelligenceSyncError?.let { syncError ->
+                Text(
+                    text = syncError,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
+        }
+    }
+    // The "Log a meal" entry point and the Home FAB are shown only when the
+    // feature is on; toggling it off hides them (the meal screen also guards
+    // itself server-side via probeAvailability).
+    if (state.mealIntelligenceEnabled) {
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = onNavigateToMealLog,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("meal_log_button"),
+        ) {
+            Icon(
+                imageVector = Icons.Default.Restaurant,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Log a meal")
+        }
+        Text(
+            text = "Estimates are a guess to verify before dosing.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp),
+        )
     }
 }
 

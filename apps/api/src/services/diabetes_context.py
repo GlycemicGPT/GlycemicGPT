@@ -18,7 +18,6 @@ from typing import TYPE_CHECKING
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.config import settings
 from src.core.units import (
     GlucoseUnit,
     format_correction_factor_value,
@@ -31,6 +30,7 @@ from src.services.alert_notifier import trend_description
 from src.services.glucose_citation import verify_glucose_citations
 from src.services.iob_projection import get_iob_projection, get_user_dia
 from src.services.meal_citation import AllowedCarb, verify_carb_citations
+from src.services.meal_intelligence import is_meal_intelligence_enabled
 from src.vision.carb_contract import (
     MEAL_ESTIMATE_QUALIFIER,
     NEVER_DOSE_PROHIBITION,
@@ -544,7 +544,7 @@ async def verify_meal_citations(
     the content unchanged rather than break the reply; the model's *input* was
     already scrubbed by the context layer. Logs PHI-free counts only (AC6).
     """
-    if not settings.meal_intelligence_enabled or not content:
+    if not content or not await is_meal_intelligence_enabled(db, user_id):
         return content
 
     now = now or datetime.now(UTC)
@@ -954,7 +954,7 @@ async def build_diabetes_context(
     # Logged meals are only surfaced when the meal-intelligence feature is on
     # Gated here -- not inside the builder -- so the feature stays
     # fully invisible (no query, no section) while the flag is off.
-    if settings.meal_intelligence_enabled:
+    if await is_meal_intelligence_enabled(db, user_id):
         builders.append(("meals", partial(build_meals_section, db, user_id)))
 
     sections: list[str] = []
