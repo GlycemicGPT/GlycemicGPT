@@ -872,7 +872,7 @@ class TestCaregiverRouting:
 # ---------------------------------------------------------------------------
 # /chronicle tips command tests
 # ---------------------------------------------------------------------------
-class TestHandleChroniclesTips:
+class TestHandleChronicleTips:
     """Tests for _handle_chronicle_tips."""
 
     @pytest.mark.asyncio
@@ -920,20 +920,28 @@ class TestHandleChroniclesTips:
         "src.services.telegram_commands.get_recent_user_messages",
         new_callable=AsyncMock,
     )
-    @patch(
-        "src.services.telegram_commands._handle_chronicle_tips",
-        new_callable=AsyncMock,
-    )
-    async def test_no_ai_provider_returns_message(self, mock_tips, mock_history):
-        """When no AI provider is configured, returns a setup message."""
-        mock_tips.return_value = "\u2139\ufe0f No AI provider configured."
+    async def test_no_ai_provider_returns_message(self, mock_history):
+        """When no AI provider is configured (404), returns a setup message."""
+        from fastapi import HTTPException
 
+        mock_history.return_value = ["how do I track my meals?"]
+
+        mock_user = MagicMock()
         db = AsyncMock()
-        user_id = uuid.uuid4()
+        mock_user_result = MagicMock()
+        mock_user_result.scalar_one_or_none.return_value = mock_user
+        db.execute.return_value = mock_user_result
 
-        result = await mock_tips(db, user_id)
+        from src.services.telegram_commands import _handle_chronicle_tips
 
-        assert "No AI provider configured" in result
+        with patch(
+            "src.services.ai_client.get_ai_client",
+            new_callable=AsyncMock,
+            side_effect=HTTPException(status_code=404, detail="No provider"),
+        ):
+            msg = await _handle_chronicle_tips(db, uuid.uuid4())
+
+        assert "No AI provider configured" in msg
 
     @pytest.mark.asyncio
     @patch(

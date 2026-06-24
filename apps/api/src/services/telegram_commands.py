@@ -217,6 +217,7 @@ _CHRONICLE_SAFETY_DISCLAIMER = (
 )
 
 _CHRONICLE_MAX_RESPONSE_TOKENS = 600
+# Telegram's hard per-message character limit
 _CHRONICLE_TELEGRAM_MAX_LENGTH = 4096
 
 
