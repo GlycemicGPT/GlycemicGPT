@@ -12,6 +12,7 @@ import com.glycemicgpt.mobile.data.local.SafetyLimitsStore
 import com.glycemicgpt.mobile.data.remote.GlycemicGptApi
 import com.glycemicgpt.mobile.data.remote.dto.GlucoseUnitUpdateRequest
 import com.glycemicgpt.mobile.data.remote.dto.LoginRequest
+import com.glycemicgpt.mobile.data.remote.dto.MealIntelligenceUpdateRequest
 import com.glycemicgpt.mobile.domain.model.GlucoseUnit
 import com.glycemicgpt.mobile.service.AlertStreamService
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -102,6 +103,7 @@ class AuthRepository @Inject constructor(
                 scope.launch { fetchGlucoseRange() }
                 scope.launch { fetchSafetyLimits() }
                 scope.launch { fetchGlucoseUnit() }
+                scope.launch { fetchMealIntelligence() }
                 AlertStreamService.start(appContext)
 
                 LoginResult(success = true, email = body.user.email)
@@ -134,6 +136,9 @@ class AuthRepository @Inject constructor(
         // unit can't carry over to the next account before its reconcile lands.
         appSettingsStore.glucoseUnit = GlucoseUnit.MGDL
         appSettingsStore.glucoseUnitSeedPending = false
+        // Meal intelligence is per-account; reset to the default (ON) so a stale
+        // value can't carry over to the next account before its reconcile lands.
+        appSettingsStore.mealIntelligenceEnabled = true
         authManager.onLogout()
         scope.launch {
             deviceRepository.unregisterDevice()
@@ -186,6 +191,37 @@ class AuthRepository @Inject constructor(
     /** Reconcile the cached glucose display unit from the backend (the account is the source of truth). */
     suspend fun refreshGlucoseUnit() {
         fetchGlucoseUnit()
+    }
+
+    /** Reconcile the cached meal-intelligence preference from the backend (the account is the source of truth). */
+    suspend fun refreshMealIntelligence() {
+        fetchMealIntelligence()
+    }
+
+    /**
+     * Write the user's meal-intelligence preference to the account
+     * (`PATCH /api/settings/meal-intelligence`) and reconcile the local cache to
+     * whatever the server returns. The preference is per-account, so this -- not the
+     * local cache -- is what gates the meal surfaces consistently across web, phone,
+     * and watch. On failure the optimistic local cache is left intact (the next
+     * reconcile corrects it); the [Result] lets the caller surface a transient error.
+     */
+    suspend fun updateMealIntelligence(enabled: Boolean): Result<Boolean> {
+        return try {
+            val response = api.patchMealIntelligence(MealIntelligenceUpdateRequest(enabled = enabled))
+            if (response.isSuccessful) {
+                val resolved = response.body()?.enabled ?: enabled
+                appSettingsStore.mealIntelligenceEnabled = resolved
+                Result.success(resolved)
+            } else {
+                Result.failure(Exception("Server responded with HTTP ${response.code()}"))
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "Failed to update meal intelligence preference")
+            Result.failure(e)
+        }
     }
 
     /**
@@ -289,6 +325,23 @@ class AuthRepository @Inject constructor(
         } catch (e: Exception) {
             // Keep the cached unit (ultimately MGDL) on any failure.
             Timber.w(e, "Failed to fetch glucose unit preference")
+        }
+    }
+
+    private suspend fun fetchMealIntelligence() {
+        try {
+            val response = api.getMealIntelligence()
+            if (response.isSuccessful) {
+                response.body()?.let { body ->
+                    appSettingsStore.mealIntelligenceEnabled = body.enabled
+                    Timber.d("Meal intelligence reconciled: %b", body.enabled)
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Keep the cached value (ultimately the default ON) on any failure.
+            Timber.w(e, "Failed to fetch meal intelligence preference")
         }
     }
 

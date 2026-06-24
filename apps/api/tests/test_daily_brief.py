@@ -408,7 +408,11 @@ class TestGenerateDailyBrief:
         mock_client.generate.return_value = _mock_ai_response()
         mock_get_client.return_value = mock_client
 
-        mock_user = SimpleNamespace(id=uuid.uuid4(), glucose_unit=GlucoseUnit.MGDL)
+        mock_user = SimpleNamespace(
+            id=uuid.uuid4(),
+            glucose_unit=GlucoseUnit.MGDL,
+            meal_intelligence_enabled=False,
+        )
         mock_db = AsyncMock()
 
         brief = await generate_daily_brief(mock_user, mock_db, hours=24)
@@ -448,7 +452,11 @@ class TestGenerateDailyBrief:
             correction_count=0,
         )
 
-        mock_user = SimpleNamespace(id=uuid.uuid4(), glucose_unit=GlucoseUnit.MGDL)
+        mock_user = SimpleNamespace(
+            id=uuid.uuid4(),
+            glucose_unit=GlucoseUnit.MGDL,
+            meal_intelligence_enabled=False,
+        )
         mock_db = AsyncMock()
 
         with pytest.raises(HTTPException) as exc_info:
@@ -480,7 +488,11 @@ class TestGenerateDailyBrief:
         mock_client.generate.side_effect = RuntimeError("AI provider failed")
         mock_get_client.return_value = mock_client
 
-        mock_user = SimpleNamespace(id=uuid.uuid4(), glucose_unit=GlucoseUnit.MGDL)
+        mock_user = SimpleNamespace(
+            id=uuid.uuid4(),
+            glucose_unit=GlucoseUnit.MGDL,
+            meal_intelligence_enabled=False,
+        )
         mock_db = AsyncMock()
 
         with pytest.raises(RuntimeError, match="AI provider failed"):
@@ -512,7 +524,11 @@ class TestGenerateDailyBrief:
         mock_client.generate.return_value = _mock_ai_response()
         mock_get_client.return_value = mock_client
 
-        mock_user = SimpleNamespace(id=uuid.uuid4(), glucose_unit=GlucoseUnit.MGDL)
+        mock_user = SimpleNamespace(
+            id=uuid.uuid4(),
+            glucose_unit=GlucoseUnit.MGDL,
+            meal_intelligence_enabled=False,
+        )
         mock_db = AsyncMock()
 
         brief = await generate_daily_brief(mock_user, mock_db, hours=48)

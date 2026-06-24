@@ -52,6 +52,10 @@ from src.schemas.insulin_config import (
     InsulinConfigResponse,
     InsulinConfigUpdate,
 )
+from src.schemas.meal_intelligence import (
+    MealIntelligenceResponse,
+    MealIntelligenceUpdate,
+)
 from src.schemas.plugin_declaration import (
     PluginDeclarationCreate,
     PluginDeclarationResponse,
@@ -187,6 +191,44 @@ async def acknowledge_glucose_unit_seed(
         glucose_unit=user.glucose_unit,
         glucose_unit_source=user.glucose_unit_source,
     )
+
+
+@router.get(
+    "/meal-intelligence",
+    response_model=MealIntelligenceResponse,
+    dependencies=[Depends(require_diabetic_or_admin)],
+)
+async def get_meal_intelligence(
+    user: User = Depends(get_current_user),
+) -> MealIntelligenceResponse:
+    """Get the current user's meal-intelligence feature preference.
+
+    Clients gate their meal surfaces (the web "Meals" nav item and the mobile
+    "Log a meal" button) on this value -- it is the single source of truth for
+    whether the feature is on, replacing the former env-var probe.
+    """
+    return MealIntelligenceResponse(enabled=user.meal_intelligence_enabled)
+
+
+@router.patch(
+    "/meal-intelligence",
+    response_model=MealIntelligenceResponse,
+    dependencies=[Depends(require_diabetic_or_admin)],
+)
+async def patch_meal_intelligence(
+    body: MealIntelligenceUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> MealIntelligenceResponse:
+    """Enable or disable the meal-intelligence feature for the current user.
+
+    Owner-scoped: the user is resolved from the session, never from a request
+    parameter, so a caller can only change their own preference.
+    """
+    user.meal_intelligence_enabled = body.enabled
+    await db.commit()
+    await db.refresh(user)
+    return MealIntelligenceResponse(enabled=user.meal_intelligence_enabled)
 
 
 @router.get(

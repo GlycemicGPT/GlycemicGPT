@@ -13,6 +13,7 @@ import com.glycemicgpt.mobile.data.remote.dto.GlucoseRangeResponse
 import com.glycemicgpt.mobile.data.remote.dto.GlucoseUnitResponse
 import com.glycemicgpt.mobile.data.remote.dto.HealthResponse
 import com.glycemicgpt.mobile.data.remote.dto.LoginResponse
+import com.glycemicgpt.mobile.data.remote.dto.MealIntelligenceResponse
 import com.glycemicgpt.mobile.data.remote.dto.UserDto
 import com.glycemicgpt.mobile.domain.model.GlucoseUnit
 import io.mockk.coEvery
@@ -266,6 +267,52 @@ class AuthRepositoryTest {
         repository.refreshGlucoseUnit()
 
         verify(exactly = 0) { appSettingsStore.glucoseUnit = any() }
+    }
+
+    @Test
+    fun `updateMealIntelligence PATCHes the account and caches the server value`() = runTest {
+        coEvery { api.patchMealIntelligence(any()) } returns Response.success(
+            MealIntelligenceResponse(enabled = false),
+        )
+
+        val result = repository.updateMealIntelligence(false)
+
+        assertTrue(result.isSuccess)
+        assertEquals(false, result.getOrNull())
+        coVerify { api.patchMealIntelligence(match { !it.enabled }) }
+        verify { appSettingsStore.mealIntelligenceEnabled = false }
+    }
+
+    @Test
+    fun `updateMealIntelligence returns failure and leaves cache untouched on HTTP error`() =
+        runTest {
+            coEvery { api.patchMealIntelligence(any()) } returns
+                Response.error(500, "boom".toResponseBody())
+
+            val result = repository.updateMealIntelligence(false)
+
+            assertTrue(result.isFailure)
+            verify(exactly = 0) { appSettingsStore.mealIntelligenceEnabled = any() }
+        }
+
+    @Test
+    fun `refreshMealIntelligence writes the backend value into the cache`() = runTest {
+        coEvery { api.getMealIntelligence() } returns Response.success(
+            MealIntelligenceResponse(enabled = false),
+        )
+
+        repository.refreshMealIntelligence()
+
+        verify { appSettingsStore.mealIntelligenceEnabled = false }
+    }
+
+    @Test
+    fun `refreshMealIntelligence leaves cache untouched when the backend call fails`() = runTest {
+        coEvery { api.getMealIntelligence() } throws java.io.IOException("offline")
+
+        repository.refreshMealIntelligence()
+
+        verify(exactly = 0) { appSettingsStore.mealIntelligenceEnabled = any() }
     }
 
     @Test

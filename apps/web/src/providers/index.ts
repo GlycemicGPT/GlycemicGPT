@@ -21,9 +21,4 @@ export {
 
 export { UserProvider, useUserContext } from "./user-provider";
 
-export {
-  MealIntelligenceProvider,
-  useMealIntelligenceContext,
-} from "./meal-intelligence-provider";
-
 export { ThemeProvider, useTheme } from "./theme-provider";

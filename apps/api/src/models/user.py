@@ -47,6 +47,10 @@ class User(Base, TimestampMixin):
             A smart default writes ``seed``; an explicit user choice (toggle or
             dismissed notice) writes ``user``; NULL is a legacy account. Gates
             re-seeding and the one-time confirmation notice.
+        meal_intelligence_enabled: Whether the meal-intelligence (vision carb
+            estimation) feature is on for this user. Defaults ON so the shipped
+            feature is discoverable; the user can disable it from Settings. This
+            is the sole gate -- it replaced the former global env flag.
         last_login_at: Timestamp of last successful login
     """
 
@@ -118,6 +122,15 @@ class User(Base, TimestampMixin):
         ),
         nullable=True,
         default=None,
+    )
+    # Per-user gate for the meal-intelligence feature (vision carb estimation).
+    # Defaults ON (discoverable); a user can disable it from Settings. This is
+    # the only gate -- it replaced the global ``MEAL_INTELLIGENCE_ENABLED`` env
+    # flag, so every meal endpoint and service-layer side-effect keys off it.
+    meal_intelligence_enabled: Mapped[bool] = mapped_column(
+        nullable=False,
+        default=True,
+        server_default="true",
     )
     display_name: Mapped[str | None] = mapped_column(
         String(100),

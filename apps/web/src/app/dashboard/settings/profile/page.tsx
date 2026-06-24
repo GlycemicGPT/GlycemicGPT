@@ -17,6 +17,7 @@ import {
   Key,
   Shield,
   Droplet,
+  UtensilsCrossed,
 } from "lucide-react";
 import Link from "next/link";
 import clsx from "clsx";
@@ -24,6 +25,7 @@ import {
   getCurrentUser,
   updateProfile,
   updateGlucoseUnit,
+  updateMealIntelligence,
   changePassword,
   type CurrentUserResponse,
 } from "@/lib/api";
@@ -58,6 +60,10 @@ export default function ProfilePage() {
   // endpoint and refreshes the shared user context so the dashboard re-renders.
   const { refreshUser } = useUserContext();
   const [isSavingUnit, setIsSavingUnit] = useState(false);
+
+  // Meal-intelligence feature toggle. Persists via the dedicated endpoint and
+  // refreshes the user context so the "Meals" nav appears/disappears.
+  const [isSavingMeal, setIsSavingMeal] = useState(false);
 
   // Password form
   const [showPasswordForm, setShowPasswordForm] = useState(false);
@@ -172,6 +178,44 @@ export default function ProfilePage() {
       );
     } finally {
       setIsSavingUnit(false);
+    }
+  };
+
+  const handleToggleMealIntelligence = async (enabled: boolean) => {
+    if (
+      !profile ||
+      (profile.meal_intelligence_enabled ?? true) === enabled ||
+      isSavingMeal
+    )
+      return;
+    setIsSavingMeal(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      await updateMealIntelligence(enabled);
+      // Persisted. Update local state + report success BEFORE the best-effort
+      // context refresh so a refresh failure never reads as a save failure.
+      setProfile((prev) =>
+        prev ? { ...prev, meal_intelligence_enabled: enabled } : prev
+      );
+      setSuccess(
+        enabled ? "Meal Intelligence enabled" : "Meal Intelligence disabled"
+      );
+      // Propagate to the shared user context so the Meals nav (and meal
+      // surfaces) appear/disappear immediately. Best-effort: already saved.
+      try {
+        await refreshUser();
+      } catch {
+        // Non-fatal — the preference is persisted.
+      }
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to update meal intelligence"
+      );
+    } finally {
+      setIsSavingMeal(false);
     }
   };
 
@@ -435,6 +479,81 @@ export default function ProfilePage() {
               ? "Saving..."
               : "Your glucose data is always stored in mg/dL; this only changes how it is displayed."}
           </p>
+        </div>
+      )}
+
+      {/* Meal Intelligence */}
+      {!isLoading && profile && (
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="p-2 bg-emerald-500/10 rounded-lg">
+              <UtensilsCrossed className="h-5 w-5 text-emerald-400" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold">Meal Intelligence</h2>
+              <p className="text-xs text-slate-500">
+                Estimate carbs from a meal photo and log meals
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between gap-4 max-w-md">
+            <div>
+              <label
+                htmlFor="meal-intelligence-toggle"
+                className="text-sm font-medium text-slate-600 dark:text-slate-300"
+              >
+                Enable Meal Intelligence
+              </label>
+              <p className="text-xs text-slate-500">
+                Requires a vision-capable AI provider. Turning it on without one
+                shows the feature, but carb estimates will be unavailable.
+              </p>
+            </div>
+            <button
+              id="meal-intelligence-toggle"
+              type="button"
+              role="switch"
+              aria-checked={profile.meal_intelligence_enabled ?? true}
+              onClick={() =>
+                handleToggleMealIntelligence(
+                  !(profile.meal_intelligence_enabled ?? true)
+                )
+              }
+              disabled={isSavingMeal || isOffline}
+              title={
+                isOffline
+                  ? "Cannot change this while disconnected"
+                  : undefined
+              }
+              className={clsx(
+                "relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent",
+                "transition-colors duration-200 ease-in-out",
+                "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-emerald-500",
+                "disabled:opacity-50 disabled:cursor-not-allowed",
+                (profile.meal_intelligence_enabled ?? true)
+                  ? "bg-emerald-600"
+                  : "bg-slate-300 dark:bg-slate-700"
+              )}
+            >
+              <span
+                className={clsx(
+                  "pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-xs",
+                  "transform transition duration-200 ease-in-out",
+                  (profile.meal_intelligence_enabled ?? true)
+                    ? "translate-x-5"
+                    : "translate-x-0"
+                )}
+              />
+            </button>
+          </div>
+
+          {isSavingMeal && (
+            <p className="text-xs text-slate-500 mt-3 flex items-center gap-1.5">
+              <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+              Saving...
+            </p>
+          )}
         </div>
       )}
 

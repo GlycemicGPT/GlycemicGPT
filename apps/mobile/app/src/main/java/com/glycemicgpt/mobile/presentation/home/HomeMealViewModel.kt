@@ -2,10 +2,12 @@ package com.glycemicgpt.mobile.presentation.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.glycemicgpt.mobile.data.local.AppSettingsStore
 import com.glycemicgpt.mobile.data.meal.FoodRecord
 import com.glycemicgpt.mobile.data.meal.MealException
 import com.glycemicgpt.mobile.data.repository.MealRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -31,25 +33,55 @@ data class HomeMealUiState(
 @HiltViewModel
 class HomeMealViewModel @Inject constructor(
     private val repository: MealRepository,
+    private val appSettingsStore: AppSettingsStore,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeMealUiState())
     val uiState: StateFlow<HomeMealUiState> = _uiState.asStateFlow()
 
+    // The in-flight probe, cancelled when the setting flips off so a late response
+    // can't re-expose the FAB after the user turned the feature off.
+    private var refreshJob: Job? = null
+
     init {
-        refresh()
+        // The per-account setting (cached locally) gates the FAB instantly when the
+        // user toggles it -- no network round-trip. When on, confirm against the
+        // server probe (which also surfaces the most recent meal).
+        viewModelScope.launch {
+            appSettingsStore.mealIntelligenceEnabledFlow().collect { enabled ->
+                if (enabled) {
+                    refresh()
+                } else {
+                    refreshJob?.cancel()
+                    _uiState.update {
+                        it.copy(recentMeal = null, mealLoggingAvailable = false)
+                    }
+                }
+            }
+        }
     }
 
     /** Re-fetch the most recent meal; safe to call on Home resume / pull-to-refresh. */
     fun refresh() {
-        viewModelScope.launch {
+        // The local setting gates the FAB without a round-trip; skip the probe when off.
+        if (!appSettingsStore.mealIntelligenceEnabled) {
+            refreshJob?.cancel()
+            _uiState.update { it.copy(recentMeal = null, mealLoggingAvailable = false) }
+            return
+        }
+        refreshJob?.cancel()
+        refreshJob = viewModelScope.launch {
             repository.listFoodRecords(limit = 1)
                 .onSuccess { records ->
+                    // Re-check: the toggle may have flipped off while the probe was
+                    // in flight, in which case the off-handler already hid the FAB.
+                    if (!appSettingsStore.mealIntelligenceEnabled) return@onSuccess
                     _uiState.update {
                         it.copy(recentMeal = records.firstOrNull(), mealLoggingAvailable = true)
                     }
                 }
                 .onFailure { e ->
+                    if (!appSettingsStore.mealIntelligenceEnabled) return@onFailure
                     _uiState.update {
                         it.copy(
                             recentMeal = null,

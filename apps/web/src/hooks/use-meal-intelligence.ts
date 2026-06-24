@@ -1,49 +1,27 @@
+"use client";
+
 /**
  * useMealIntelligence -- resolves whether the meal-photo feature is enabled.
  *
- * There is no server flag endpoint, so this probes the food-records list once on
- * mount (see `getMealIntelligenceStatus`). `enabled` is `null` while resolving,
- * then `false` only when the server explicitly reports the feature is off, else
- * `true`. Mirrors the mobile client's reactive availability probe.
+ * Reads the per-user `meal_intelligence_enabled` preference from the shared
+ * UserProvider context (one /api/auth/me fetch for the whole dashboard), so the
+ * "Meals" nav and meal surfaces gate on the setting without a separate probe.
+ * `enabled` is `null` while the user is loading, then the boolean; an absent
+ * field (deploy skew against an older API) defaults to `true` so the feature
+ * stays visible rather than vanishing on a version mismatch.
  */
 
-"use client";
-
-import { useState, useEffect } from "react";
-import { getMealIntelligenceStatus } from "@/lib/api";
+import { useUserContext } from "@/providers";
 
 export interface UseMealIntelligenceReturn {
-  /** null while the probe is in flight; true/false once resolved. */
+  /** null while the user is loading; true/false once resolved. Gating keys off this. */
   enabled: boolean | null;
+  /** The shared user-context loading flag (kept for API symmetry); gate on `enabled`. */
   isLoading: boolean;
 }
 
 export function useMealIntelligence(): UseMealIntelligenceReturn {
-  const [enabled, setEnabled] = useState<boolean | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function probe() {
-      // getMealIntelligenceStatus never rejects (it degrades to enabled on a
-      // transient failure), so a throw here would be unexpected; keep the guard
-      // so the nav simply stays hidden rather than crashing.
-      try {
-        const { enabled: isEnabled } = await getMealIntelligenceStatus();
-        if (!cancelled) setEnabled(isEnabled);
-      } catch {
-        if (!cancelled) setEnabled(false);
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
-    }
-
-    probe();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
+  const { user, isLoading } = useUserContext();
+  const enabled = user ? (user.meal_intelligence_enabled ?? true) : null;
   return { enabled, isLoading };
 }

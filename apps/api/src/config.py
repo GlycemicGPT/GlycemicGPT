@@ -152,10 +152,10 @@ class Settings(BaseSettings):
     # Food-photo uploads (meal-photo carb estimation)
     # Private, owner-scoped storage volume for meal photos. Never web-served;
     # files are re-encoded on upload (EXIF stripped). 5 MB cap mirrors the
-    # sidecar's image limit. Vision carb estimation is opt-in behind this flag.
+    # sidecar's image limit. Vision carb estimation is opt-in per user via the
+    # ``users.meal_intelligence_enabled`` preference (no global env flag).
     upload_dir: str = "/uploads"
     food_image_max_bytes: int = Field(default=5 * 1024 * 1024, ge=1)
-    meal_intelligence_enabled: bool = False
     # Timeout (seconds) for the sidecar vision call; longer than the text
     # timeout because a CLI vision provider can take tens of seconds.
     vision_request_timeout_seconds: float = Field(default=120.0, gt=0)

@@ -82,6 +82,13 @@ class UserResponse(BaseModel):
             " smart-default notice."
         ),
     )
+    meal_intelligence_enabled: bool = Field(
+        default=True,
+        description=(
+            "Whether the meal-intelligence feature is enabled for this user."
+            " Clients gate their meal surfaces on this value."
+        ),
+    )
     created_at: datetime
 
     @model_validator(mode="after")

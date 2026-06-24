@@ -234,8 +234,9 @@ fun HomeScreen(
             }
         }
 
-        // Extended camera FAB (Epic 50) — overlaid in the pull-to-refresh BoxScope, hidden only
-        // when the server has the feature off.
+        // Extended camera FAB (Epic 50) — overlaid in the pull-to-refresh BoxScope, hidden when
+        // the user's per-account meal-intelligence setting is off (instant on toggle) or the
+        // server reports the feature disabled.
         if (mealState.mealLoggingAvailable) {
             MealFab(
                 onClick = onNavigateToMealLog,

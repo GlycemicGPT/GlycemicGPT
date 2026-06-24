@@ -166,6 +166,10 @@ class HomeViewModel @Inject constructor(
         // staleness gate, which meant a unit change made on another device wouldn't propagate on a
         // cold open while the range was still fresh.
         viewModelScope.launch { authRepository.refreshGlucoseUnit() }
+        // Same rationale for the per-account meal-intelligence setting: reconcile it on every cold
+        // open so a toggle made on another device propagates to the Home FAB (writing the cache
+        // re-emits the settings flow that drives FAB visibility).
+        viewModelScope.launch { authRepository.refreshMealIntelligence() }
         // Refresh glucose range from backend on screen load if stale (15 min)
         if (glucoseRangeStore.isStale(maxAgeMs = RANGE_REFRESH_INTERVAL_MS)) {
             viewModelScope.launch { refreshGlucoseRange() }
@@ -355,6 +359,7 @@ class HomeViewModel @Inject constructor(
                 // Refresh settings concurrently -- don't block BLE reads
                 launch { refreshGlucoseRange() }
                 launch { authRepository.refreshGlucoseUnit() }
+                launch { authRepository.refreshMealIntelligence() }
                 launch { refreshAnalyticsConfig() }
                 launch { refreshPumpProfile() }
                 // If backend call fails, refreshSafetyLimits re-reads the store's

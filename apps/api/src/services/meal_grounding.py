@@ -22,7 +22,6 @@ is preserved by the callers (the persistent qualifier on every estimate surface)
 
 import uuid
 
-from src.config import settings
 from src.logging_config import get_logger
 from src.models.knowledge_chunk import KnowledgeChunk
 from src.schemas.food_record import GroundingDetail
@@ -72,6 +71,7 @@ async def ground_estimate(
     identity: str | None,
     *,
     identity_confirmed: bool,
+    meal_intelligence_enabled: bool,
     exclude_food_record_id: uuid.UUID | str | None = None,
 ) -> GroundingDetail | None:
     """Return the best grounding for a *confirmed-identity* estimate, or None.
@@ -92,10 +92,11 @@ async def ground_estimate(
     ``exclude_food_record_id`` is forwarded to own-history recall so the record
     being grounded never recalls itself (a first log must not cite itself).
     """
-    # Defence in depth: the only callers are already flag-gated, but enforce the
-    # feature flag at this boundary too so a future caller can't run grounding
-    # (embedding + external fetch) while meal intelligence is off.
-    if not settings.meal_intelligence_enabled:
+    # Defence in depth: the only caller already gates on the user's preference,
+    # but the resolved gate state is threaded in and re-checked here so a future
+    # caller can't run grounding (embedding + external fetch) while meal
+    # intelligence is off for the user.
+    if not meal_intelligence_enabled:
         return None
 
     # The identity gate (AC3): never ground an unconfirmed / uncorrected label.
@@ -141,6 +142,8 @@ async def ground_estimate(
 async def suggest_identity(
     user_id: uuid.UUID,
     food_description: str | None,
+    *,
+    meal_intelligence_enabled: bool,
 ) -> str | None:
     """Suggest a confirmable identity from the user's own history (Story 50.H2 AC4).
 
@@ -149,8 +152,11 @@ async def suggest_identity(
     suggestion -- it never grounds anything by itself (that waits for the user to
     confirm); the safe fast path is the user confirming the suggestion. Returns
     the recalled food name, or None when nothing close enough was logged before.
+
+    ``meal_intelligence_enabled`` is the caller's resolved per-user gate state,
+    re-checked here as defence in depth (the caller already gates).
     """
-    if not settings.meal_intelligence_enabled:
+    if not meal_intelligence_enabled:
         return None
     description = (food_description or "").strip()
     if not description:
