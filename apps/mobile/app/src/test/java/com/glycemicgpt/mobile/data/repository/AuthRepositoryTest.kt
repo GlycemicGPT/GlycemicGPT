@@ -205,6 +205,9 @@ class AuthRepositoryTest {
         verify { analyticsSettingsStore.clear() }
         verify { pumpProfileStore.clear() }
         verify { appSettingsStore.glucoseUnit = GlucoseUnit.MGDL }
+        // Meal intelligence is per-account; logout resets it to the default (ON)
+        // so a stale value can't carry into the next account before its reconcile.
+        verify { appSettingsStore.mealIntelligenceEnabled = true }
         verify { authManager.onLogout() }
     }
 

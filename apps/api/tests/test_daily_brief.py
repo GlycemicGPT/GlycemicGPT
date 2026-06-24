@@ -432,6 +432,79 @@ class TestGenerateDailyBrief:
         mock_db.flush.assert_called_once()
         mock_db.commit.assert_called_once()
 
+    @patch("src.services.daily_brief.format_meals_for_brief", new_callable=AsyncMock)
+    @patch("src.services.daily_brief.notify_user_of_brief", new_callable=AsyncMock)
+    @patch("src.services.daily_brief.get_ai_client")
+    @patch("src.services.daily_brief.calculate_metrics")
+    @patch(
+        "src.services.daily_brief.get_excluded_cgm_sources",
+        new=AsyncMock(return_value=[]),
+    )
+    async def test_meal_section_included_when_user_enabled(
+        self, mock_calc, mock_get_client, mock_notify, mock_meals
+    ):
+        """The per-user gate ON -> the logged-meals section is fetched for the brief."""
+        from src.services.daily_brief import generate_daily_brief
+
+        mock_calc.return_value = DailyBriefMetrics(
+            time_in_range_pct=72.5,
+            average_glucose=145.0,
+            low_count=1,
+            high_count=8,
+            readings_count=288,
+            correction_count=5,
+            total_insulin=40.0,
+        )
+        mock_client = AsyncMock()
+        mock_client.generate.return_value = _mock_ai_response()
+        mock_get_client.return_value = mock_client
+        mock_meals.return_value = "[Logged meals]\n- sentinel meal"
+        mock_user = SimpleNamespace(
+            id=uuid.uuid4(),
+            glucose_unit=GlucoseUnit.MGDL,
+            meal_intelligence_enabled=True,
+        )
+
+        await generate_daily_brief(mock_user, AsyncMock(), hours=24)
+
+        mock_meals.assert_called_once()
+
+    @patch("src.services.daily_brief.format_meals_for_brief", new_callable=AsyncMock)
+    @patch("src.services.daily_brief.notify_user_of_brief", new_callable=AsyncMock)
+    @patch("src.services.daily_brief.get_ai_client")
+    @patch("src.services.daily_brief.calculate_metrics")
+    @patch(
+        "src.services.daily_brief.get_excluded_cgm_sources",
+        new=AsyncMock(return_value=[]),
+    )
+    async def test_meal_section_suppressed_when_user_disabled(
+        self, mock_calc, mock_get_client, mock_notify, mock_meals
+    ):
+        """The per-user gate OFF -> the logged-meals section is never fetched."""
+        from src.services.daily_brief import generate_daily_brief
+
+        mock_calc.return_value = DailyBriefMetrics(
+            time_in_range_pct=72.5,
+            average_glucose=145.0,
+            low_count=1,
+            high_count=8,
+            readings_count=288,
+            correction_count=5,
+            total_insulin=40.0,
+        )
+        mock_client = AsyncMock()
+        mock_client.generate.return_value = _mock_ai_response()
+        mock_get_client.return_value = mock_client
+        mock_user = SimpleNamespace(
+            id=uuid.uuid4(),
+            glucose_unit=GlucoseUnit.MGDL,
+            meal_intelligence_enabled=False,
+        )
+
+        await generate_daily_brief(mock_user, AsyncMock(), hours=24)
+
+        mock_meals.assert_not_called()
+
     @patch("src.services.daily_brief.calculate_metrics")
     @patch(
         "src.services.daily_brief.get_excluded_cgm_sources",

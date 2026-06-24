@@ -92,7 +92,9 @@ async def correct_food_record(
 
     # Re-index own-history RAG so a future photo recalls the user's corrected
     # value (the truth) rather than the original AI estimate. Best-effort -- a
-    # re-index failure must not fail the correction response.
+    # re-index failure must not fail the correction response. The gate read is
+    # intentionally outside the try: a flag-resolution error fails closed
+    # (surfaces) rather than silently running the gated re-index.
     if await is_meal_intelligence_enabled(db, record.user_id):
         try:
             await meal_rag.index_food_record(record)
@@ -125,7 +127,9 @@ async def confirm_food_identity(
     record.identity_confirmed = True
 
     # Resolve the per-user gate once for this confirmation; it guards both the
-    # grounding call and the post-commit re-index/audit below.
+    # grounding call and the post-commit re-index/audit below. Awaited outside the
+    # best-effort try blocks by design: a flag-resolution error fails closed
+    # (surfaces) rather than silently running the gated work.
     meal_enabled = await is_meal_intelligence_enabled(db, record.user_id)
 
     # Identity is confirmed -> grounding may now run, keyed on the confirmed name.
@@ -289,7 +293,9 @@ async def promote_to_common_food(
 
     # Index the named baseline (and re-index the now-linked record) into
     # own-history RAG so a future photo of this food recalls the user's curated
-    # baseline. Best-effort -- an indexing failure must not fail the promotion.
+    # baseline. Best-effort -- an indexing failure must not fail the promotion. The
+    # gate read is intentionally outside the try: a flag-resolution error fails
+    # closed (surfaces) rather than silently running the gated indexing.
     if await is_meal_intelligence_enabled(db, record.user_id):
         try:
             await meal_rag.index_common_food(common_food)

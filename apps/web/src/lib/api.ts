@@ -4700,8 +4700,9 @@ export async function deleteFoodRecord(recordId: string): Promise<void> {
 // Mirrors `CommonFoodResponse` (apps/api/src/schemas/common_food.py). It is a
 // descriptive baseline only: there is deliberately no dose/insulin field, and
 // these values never flow into IoB / treatment_safety / carb-ratio math. Every
-// endpoint is owner-scoped + flag-gated server-side (a 404 whose detail says the
-// feature is "not enabled" means the global flag is off). Failures throw
+// endpoint is owner-scoped + gated server-side on the user's meal-intelligence
+// preference (a 404 whose detail says the feature is "not enabled" means the user
+// has it turned off). Failures throw
 // `MealApiError` so callers can map status to UX (409 name-in-use, 422 range).
 // ============================================================================
 

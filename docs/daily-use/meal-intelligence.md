@@ -7,7 +7,7 @@ Meal Intelligence lets you take a photo of a meal and get an AI **estimate** of 
 
 > **Photo carb estimates are AI guesses, frequently wrong, and a rough starting point only — never calculate an insulin dose or bolus from them.** The AI looks at an image and *guesses*; it regularly misjudges portions and sometimes misidentifies the food entirely. Treat every number as a ballpark to sanity-check against your own carb counting. Always verify carbs yourself before dosing, and consult your healthcare provider about your diabetes management.
 
-This is an **experimental (alpha) feature**, off by default, that you turn on explicitly. It is **not** FDA-cleared and is **not** a carb-counting authority.
+This is an **experimental feature**, **on by default**, that you can turn off (or back on) at any time from Settings. It is **not** FDA-cleared and is **not** a carb-counting authority.
 
 ## What it does
 
@@ -30,11 +30,13 @@ The feature is designed so a guess can never quietly turn into a dose:
 
 - **Misidentification is the most common error** — look-alike foods (a Linzer torte read as a Bakewell tart, crème catalana as crème brûlée) can be confidently wrong.
 - **Run-to-run variance** — the same photo can yield different numbers; the confidence range is meant to surface that, not hide it.
-- **Accuracy is honest, not perfect** — on a labeled test set the estimate was within a useful band most of the time, but tail cases can be far off. This is why it's alpha and why you must verify.
+- **Accuracy is honest, not perfect** — on a labeled test set the estimate was within a useful band most of the time, but tail cases can be far off. This is why it stays experimental and why you must verify.
 
-## Turning it on
+## Turning it on or off
 
-Meal Intelligence is flag-gated and off by default. When enabled, it appears in the mobile app's meal-capture surfaces. Because it sends a food photo to your configured AI provider, the same BYOAI data-handling rules apply as the rest of the app — review your provider's policy.
+Meal Intelligence is **on by default**. You control it per-account from **Settings → Meal Intelligence** in both the web app and the phone app — turn it off to hide the meal surfaces (the "Log a meal" button, the Meals area, and the photo-capture flow), or back on to restore them. There's no environment variable or operator step: it's an ordinary in-app preference, like your glucose display unit, and your choice syncs across your devices.
+
+To actually produce estimates the feature needs a **vision-capable AI provider** configured — with it on but no vision provider, the surfaces appear but a photo estimate returns a clear "not available" error rather than a guess. Because it sends a food photo to your configured AI provider, the same BYOAI data-handling rules apply as the rest of the app — review your provider's policy.
 
 If you run a **local model**, note that meal photos have a higher quality bar than text chat: an unverified local model is refused for photo estimates (with a clear message) rather than allowed to produce a low-quality guess. See [Local AI Vision](../concepts/local-ai-vision.md) for which models clear the bar and why cloud is the verified path for photos today.
 
