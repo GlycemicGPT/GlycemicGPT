@@ -19,6 +19,9 @@ logger = get_logger(__name__)
 # A new conversation starts after this many minutes of inactivity
 CONVERSATION_INACTIVITY_MINUTES = 30
 
+# Maximum user messages to fetch across all conversations for /chronicle tips
+CHRONICLE_HISTORY_LIMIT = 30
+
 # Maximum number of turns (user+assistant pairs) to include as context
 MAX_HISTORY_TURNS = 10
 
@@ -206,6 +209,40 @@ async def get_conversation_messages(
     messages = list(result.scalars().all())
 
     return messages, total
+
+
+async def get_recent_user_messages(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    limit: int = CHRONICLE_HISTORY_LIMIT,
+) -> list[str]:
+    """Get recent user messages across all conversations.
+
+    Fetches the most recent user-authored messages regardless of which
+    conversation they belong to. Used by /chronicle tips to analyse
+    session-level usage patterns.
+
+    Args:
+        db: Database session.
+        user_id: User's UUID.
+        limit: Maximum number of messages to return.
+
+    Returns:
+        List of message content strings in chronological order (oldest first).
+    """
+    result = await db.execute(
+        select(ChatMessage.content)
+        .where(
+            ChatMessage.user_id == user_id,
+            ChatMessage.role == ChatRole.USER,
+        )
+        .order_by(ChatMessage.created_at.desc())
+        .limit(limit)
+    )
+    rows = result.scalars().all()
+
+    # Reverse so the oldest message comes first
+    return list(reversed(rows))
 
 
 async def clear_conversation(

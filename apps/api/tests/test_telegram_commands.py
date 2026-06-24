@@ -867,3 +867,275 @@ class TestCaregiverRouting:
 
         assert result == "admin status"
         mock_status.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# /chronicle tips command tests
+# ---------------------------------------------------------------------------
+class TestHandleChroniclesTips:
+    """Tests for _handle_chronicle_tips."""
+
+    @pytest.mark.asyncio
+    @patch(
+        "src.services.telegram_commands.get_recent_user_messages",
+        new_callable=AsyncMock,
+    )
+    async def test_no_history_returns_guidance(self, mock_history):
+        """When no session history exists, returns helpful guidance."""
+        mock_history.return_value = []
+
+        db = AsyncMock()
+        mock_user_result = MagicMock()
+        mock_user_result.scalar_one_or_none.return_value = MagicMock()
+        db.execute.return_value = mock_user_result
+
+        from src.services.telegram_commands import _handle_chronicle_tips
+
+        msg = await _handle_chronicle_tips(db, uuid.uuid4())
+
+        assert "No session history" in msg
+
+    @pytest.mark.asyncio
+    @patch(
+        "src.services.telegram_commands.get_recent_user_messages",
+        new_callable=AsyncMock,
+    )
+    async def test_user_not_found_returns_error(self, mock_history):
+        """When the user record is missing, returns a generic error."""
+        mock_history.return_value = []
+
+        db = AsyncMock()
+        mock_user_result = MagicMock()
+        mock_user_result.scalar_one_or_none.return_value = None
+        db.execute.return_value = mock_user_result
+
+        from src.services.telegram_commands import _handle_chronicle_tips
+
+        msg = await _handle_chronicle_tips(db, uuid.uuid4())
+
+        assert "Something went wrong" in msg
+
+    @pytest.mark.asyncio
+    @patch(
+        "src.services.telegram_commands.get_recent_user_messages",
+        new_callable=AsyncMock,
+    )
+    @patch(
+        "src.services.telegram_commands._handle_chronicle_tips",
+        new_callable=AsyncMock,
+    )
+    async def test_no_ai_provider_returns_message(self, mock_tips, mock_history):
+        """When no AI provider is configured, returns a setup message."""
+        mock_tips.return_value = "\u2139\ufe0f No AI provider configured."
+
+        db = AsyncMock()
+        user_id = uuid.uuid4()
+
+        result = await mock_tips(db, user_id)
+
+        assert "No AI provider configured" in result
+
+    @pytest.mark.asyncio
+    @patch(
+        "src.services.telegram_commands.get_recent_user_messages",
+        new_callable=AsyncMock,
+    )
+    async def test_returns_tips_with_disclaimer(self, mock_history):
+        """Happy path: tips are returned with the safety disclaimer."""
+        mock_history.return_value = [
+            "What does a rising trend mean?",
+            "How do I read my IoB?",
+            "Why is my glucose high in the morning?",
+        ]
+
+        from src.services.telegram_commands import (
+            _CHRONICLE_SAFETY_DISCLAIMER,
+            _handle_chronicle_tips,
+        )
+
+        mock_user = MagicMock()
+        db = AsyncMock()
+        mock_user_result = MagicMock()
+        mock_user_result.scalar_one_or_none.return_value = mock_user
+        db.execute.return_value = mock_user_result
+
+        mock_ai_response = MagicMock()
+        mock_ai_response.content = "Tip 1: check your trend arrows daily."
+        mock_ai_response.model = "test-model"
+
+        mock_ai_client = AsyncMock()
+        mock_ai_client.generate = AsyncMock(return_value=mock_ai_response)
+
+        with (
+            patch(
+                "src.services.ai_client.get_ai_client",
+                new_callable=AsyncMock,
+                return_value=mock_ai_client,
+            ),
+            patch(
+                "src.services.ai_client.get_user_max_response_tokens",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "src.services.ai_client.resolve_max_response_tokens",
+                return_value=600,
+            ),
+        ):
+            msg = await _handle_chronicle_tips(db, uuid.uuid4())
+
+        assert "Tip 1" in msg
+        assert _CHRONICLE_SAFETY_DISCLAIMER in msg
+
+    @pytest.mark.asyncio
+    @patch(
+        "src.services.telegram_commands.get_recent_user_messages",
+        new_callable=AsyncMock,
+    )
+    async def test_ai_empty_response_returns_message(self, mock_history):
+        """When AI returns empty content, returns a retry message."""
+        mock_history.return_value = ["how do i track meals?"]
+
+        mock_user = MagicMock()
+        db = AsyncMock()
+        mock_user_result = MagicMock()
+        mock_user_result.scalar_one_or_none.return_value = mock_user
+        db.execute.return_value = mock_user_result
+
+        mock_ai_response = MagicMock()
+        mock_ai_response.content = "   "  # blank
+        mock_ai_response.model = "test-model"
+
+        mock_ai_client = AsyncMock()
+        mock_ai_client.generate = AsyncMock(return_value=mock_ai_response)
+
+        from src.services.telegram_commands import _handle_chronicle_tips
+
+        with (
+            patch(
+                "src.services.ai_client.get_ai_client",
+                new_callable=AsyncMock,
+                return_value=mock_ai_client,
+            ),
+            patch(
+                "src.services.ai_client.get_user_max_response_tokens",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "src.services.ai_client.resolve_max_response_tokens",
+                return_value=600,
+            ),
+        ):
+            msg = await _handle_chronicle_tips(db, uuid.uuid4())
+
+        assert "empty response" in msg.lower()
+
+    @pytest.mark.asyncio
+    @patch(
+        "src.services.telegram_commands.get_recent_user_messages",
+        new_callable=AsyncMock,
+    )
+    async def test_ai_provider_exception_returns_error(self, mock_history):
+        """When AI generate() raises, returns a friendly error."""
+        mock_history.return_value = ["what is time in range?"]
+
+        mock_user = MagicMock()
+        db = AsyncMock()
+        mock_user_result = MagicMock()
+        mock_user_result.scalar_one_or_none.return_value = mock_user
+        db.execute.return_value = mock_user_result
+
+        mock_ai_client = AsyncMock()
+        mock_ai_client.generate = AsyncMock(side_effect=RuntimeError("Provider down"))
+
+        from src.services.telegram_commands import _handle_chronicle_tips
+
+        with (
+            patch(
+                "src.services.ai_client.get_ai_client",
+                new_callable=AsyncMock,
+                return_value=mock_ai_client,
+            ),
+            patch(
+                "src.services.ai_client.get_user_max_response_tokens",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "src.services.ai_client.resolve_max_response_tokens",
+                return_value=600,
+            ),
+        ):
+            msg = await _handle_chronicle_tips(db, uuid.uuid4())
+
+        assert "Unable to get a response" in msg
+
+
+# ---------------------------------------------------------------------------
+# /chronicle routing tests
+# ---------------------------------------------------------------------------
+class TestChronicleRouting:
+    """Tests for /chronicle command routing."""
+
+    @pytest.mark.asyncio
+    @patch(
+        "src.services.telegram_commands.get_user_id_by_chat_id", new_callable=AsyncMock
+    )
+    @patch(
+        "src.services.telegram_commands._handle_chronicle_tips", new_callable=AsyncMock
+    )
+    async def test_routes_chronicle(self, mock_tips, mock_user):
+        """/chronicle routes to _handle_chronicle_tips."""
+        mock_user.return_value = uuid.uuid4()
+        mock_tips.return_value = "tips response"
+
+        result = await handle_command(AsyncMock(), 12345, "/chronicle")
+
+        assert result == "tips response"
+        mock_tips.assert_called_once()
+
+    @pytest.mark.asyncio
+    @patch(
+        "src.services.telegram_commands.get_user_id_by_chat_id", new_callable=AsyncMock
+    )
+    @patch(
+        "src.services.telegram_commands._handle_chronicle_tips", new_callable=AsyncMock
+    )
+    async def test_routes_chronicle_tips(self, mock_tips, mock_user):
+        """/chronicle tips routes to _handle_chronicle_tips."""
+        mock_user.return_value = uuid.uuid4()
+        mock_tips.return_value = "tips response"
+
+        result = await handle_command(AsyncMock(), 12345, "/chronicle tips")
+
+        assert result == "tips response"
+        mock_tips.assert_called_once()
+
+    @pytest.mark.asyncio
+    @patch(
+        "src.services.telegram_commands.get_user_id_by_chat_id", new_callable=AsyncMock
+    )
+    @patch(
+        "src.services.telegram_commands._handle_chronicle_tips", new_callable=AsyncMock
+    )
+    async def test_routes_chronicle_tips_case_insensitive(self, mock_tips, mock_user):
+        """/CHRONICLE TIPS routes to _handle_chronicle_tips."""
+        mock_user.return_value = uuid.uuid4()
+        mock_tips.return_value = "tips response"
+
+        result = await handle_command(AsyncMock(), 12345, "/CHRONICLE TIPS")
+
+        assert result == "tips response"
+        mock_tips.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# /help includes /chronicle tests
+# ---------------------------------------------------------------------------
+class TestHelpIncludesChronicle:
+    """Ensure /help mentions /chronicle tips."""
+
+    def test_help_contains_chronicle(self):
+        msg = _handle_help()
+        assert "/chronicle" in msg

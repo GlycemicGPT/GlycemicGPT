@@ -8,10 +8,12 @@ import pytest
 
 from src.models.chat_message import ChatRole
 from src.services.chat_history import (
+    CHRONICLE_HISTORY_LIMIT,
     CONVERSATION_INACTIVITY_MINUTES,
     clear_conversation,
     get_or_create_conversation,
     get_recent_messages,
+    get_recent_user_messages,
     store_message,
 )
 
@@ -179,3 +181,62 @@ class TestClearConversation:
 
         deleted = await clear_conversation(db, uuid.uuid4())
         assert deleted == 25
+
+
+class TestGetRecentUserMessages:
+    """Tests for get_recent_user_messages (used by /chronicle tips)."""
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_list_when_no_messages(self):
+        db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = []
+        db.execute.return_value = mock_result
+
+        messages = await get_recent_user_messages(db, uuid.uuid4())
+        assert messages == []
+
+    @pytest.mark.asyncio
+    async def test_returns_messages_in_chronological_order(self):
+        """DB returns newest-first (DESC); the function reverses to oldest-first."""
+        db = AsyncMock()
+        mock_result = MagicMock()
+        # Simulate DB returning newest first
+        mock_result.scalars.return_value.all.return_value = [
+            "What is my IoB?",  # newest
+            "How do I read my trend?",  # older
+        ]
+        db.execute.return_value = mock_result
+
+        messages = await get_recent_user_messages(db, uuid.uuid4())
+
+        assert len(messages) == 2
+        assert messages[0] == "How do I read my trend?"  # oldest first
+        assert messages[1] == "What is my IoB?"
+
+    @pytest.mark.asyncio
+    async def test_uses_default_limit(self):
+        db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = []
+        db.execute.return_value = mock_result
+
+        await get_recent_user_messages(db, uuid.uuid4())
+
+        db.execute.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_respects_custom_limit(self):
+        db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = []
+        db.execute.return_value = mock_result
+
+        await get_recent_user_messages(db, uuid.uuid4(), limit=5)
+
+        db.execute.assert_called_once()
+
+    def test_chronicle_history_limit_constant(self):
+        """CHRONICLE_HISTORY_LIMIT is exported and is a positive integer."""
+        assert isinstance(CHRONICLE_HISTORY_LIMIT, int)
+        assert CHRONICLE_HISTORY_LIMIT > 0
