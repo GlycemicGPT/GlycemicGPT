@@ -3,15 +3,16 @@
 // authorization code to a GlycemicGPT instance over its API.
 //
 // WHY THIS EXISTS
-//   Medtronic's CarePartner login can only be completed interactively in a
-//   browser, and on success Auth0 redirects to a *mobile-app* URL scheme
-//   (com.medtronic.carepartner:/sso?code=...) that no web app and no server
-//   can receive. So a tiny native helper on the user's machine drives the
-//   login in their own installed Chrome (or Edge / Brave / Chromium -- any
-//   Chromium-protocol-compatible browser), intercepts that 302 at the
-//   DevTools-Protocol layer, and POSTs the code to the user's GlycemicGPT
-//   backend. The backend does the actual Auth0 code -> refresh-token exchange
-//   server-side, so the refresh token NEVER reaches this binary.
+//
+//	Medtronic's CarePartner login can only be completed interactively in a
+//	browser, and on success Auth0 redirects to a *mobile-app* URL scheme
+//	(com.medtronic.carepartner:/sso?code=...) that no web app and no server
+//	can receive. So a tiny native helper on the user's machine drives the
+//	login in their own installed Chrome (or Edge / Brave / Chromium -- any
+//	Chromium-protocol-compatible browser), intercepts that 302 at the
+//	DevTools-Protocol layer, and POSTs the code to the user's GlycemicGPT
+//	backend. The backend does the actual Auth0 code -> refresh-token exchange
+//	server-side, so the refresh token NEVER reaches this binary.
 //
 // WHAT IT NEVER SEES
 //   - The user's CareLink password (typed directly into Medtronic's page).
@@ -35,6 +36,9 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -65,6 +69,7 @@ type flags struct {
 	region   string
 	timeout  time.Duration
 	headless bool
+	browser  string
 }
 
 // parseFlags is split out so it can be unit-tested without a running browser.
@@ -77,6 +82,7 @@ func parseFlags(args []string) (*flags, error) {
 		region   = fs.String("region", "US", "CarePartner region: US, or EU for non-US (UK/EU/AU/ZA/...)")
 		timeout  = fs.Duration("timeout", 5*time.Minute, "How long to wait for you to finish the browser login")
 		headless = fs.Bool("headless", false, "Run the browser headless (NOT recommended -- you must solve a captcha)")
+		browser  = fs.String("browser", "", "Optional browser executable path or command (Chrome, Edge, Brave, or Chromium)")
 	)
 	if err := fs.Parse(args); err != nil {
 		return nil, err
@@ -91,6 +97,7 @@ func parseFlags(args []string) (*flags, error) {
 		region:   strings.ToUpper(*region),
 		timeout:  *timeout,
 		headless: *headless,
+		browser:  strings.TrimSpace(*browser),
 	}, nil
 }
 
@@ -157,10 +164,106 @@ func getAuthorize(ctx context.Context, f *flags) (*authorizeResponse, error) {
 	return &out, nil
 }
 
+// browserExecCandidates returns the ordered list of Chromium-family browser
+// executables to probe when the user did not pass --browser. It reads the real
+// host environment; the pure logic lives in browserExecCandidatesFor so each
+// OS branch can be table-tested from a single-platform runner.
+func browserExecCandidates() []string {
+	home, _ := os.UserHomeDir()
+	return browserExecCandidatesFor(runtime.GOOS, home, os.Getenv)
+}
+
+// browserExecCandidatesFor is the pure core of browserExecCandidates: no direct
+// os calls, so the darwin/windows branches (unreachable when `go test` runs on
+// Linux) can still be asserted in unit tests. `home` is the user's home dir ("",
+// if unknown) and `getenv` resolves Windows install-root variables.
+func browserExecCandidatesFor(goos, home string, getenv func(string) string) []string {
+	switch goos {
+	case "darwin":
+		homes := []string{"/Applications"}
+		if home != "" {
+			homes = append(homes, filepath.Join(home, "Applications"))
+		}
+		apps := []string{
+			"Google Chrome.app/Contents/MacOS/Google Chrome",
+			"Chromium.app/Contents/MacOS/Chromium",
+			"Brave Browser.app/Contents/MacOS/Brave Browser",
+			"Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+		}
+		out := make([]string, 0, len(homes)*len(apps)+4)
+		for _, h := range homes {
+			for _, app := range apps {
+				out = append(out, filepath.Join(h, app))
+			}
+		}
+		return append(out, "google-chrome", "chromium", "brave-browser", "microsoft-edge")
+	case "windows":
+		var out []string
+		for _, base := range []string{getenv("LOCALAPPDATA"), getenv("PROGRAMFILES"), getenv("PROGRAMFILES(X86)")} {
+			if base == "" {
+				continue
+			}
+			out = append(out,
+				filepath.Join(base, "Google", "Chrome", "Application", "chrome.exe"),
+				filepath.Join(base, "Microsoft", "Edge", "Application", "msedge.exe"),
+				filepath.Join(base, "BraveSoftware", "Brave-Browser", "Application", "brave.exe"),
+			)
+		}
+		return append(out, "chrome.exe", "msedge.exe", "brave.exe", "chromium.exe")
+	default:
+		return []string{
+			"google-chrome", "google-chrome-stable", "chrome",
+			"chromium", "chromium-browser",
+			"brave-browser", "brave",
+			"microsoft-edge", "microsoft-edge-stable", "msedge",
+		}
+	}
+}
+
+// executablePath resolves a --browser value (or an auto-detect candidate) to a
+// concrete executable. A value containing a path separator is treated as a
+// filesystem path and stat'd directly (rejecting directories); a bare name is
+// looked up on PATH. The bool reports whether a usable executable was found.
+func executablePath(candidate string) (string, bool) {
+	if candidate == "" {
+		return "", false
+	}
+	if filepath.IsAbs(candidate) || strings.ContainsAny(candidate, `/\`) {
+		info, err := os.Stat(candidate)
+		if err == nil && !info.IsDir() {
+			return candidate, true
+		}
+		return "", false
+	}
+	if path, err := exec.LookPath(candidate); err == nil {
+		return path, true
+	}
+	return "", false
+}
+
+// findBrowserExecPath resolves which browser to drive. An explicit --browser
+// that can't be resolved is a hard error (the user named a specific binary);
+// with no request it probes the per-OS candidates and returns an actionable
+// error naming the supported browsers and the --browser escape hatch.
+func findBrowserExecPath(requested string) (string, error) {
+	if requested != "" {
+		if path, ok := executablePath(requested); ok {
+			return path, nil
+		}
+		return "", fmt.Errorf("browser %q was not found or is not executable", requested)
+	}
+	for _, candidate := range browserExecCandidates() {
+		if path, ok := executablePath(candidate); ok {
+			return path, nil
+		}
+	}
+	return "", errors.New("no supported Chromium-family browser found (install Chrome, Edge, Brave, or Chromium, or pass --browser /path/to/browser)")
+}
+
 // captureRedirect launches the user's installed Chromium-family browser at the
 // supplied authorize_url, lets the user complete the CareLink login + captcha,
 // and returns the captured 302 Location (custom-scheme URL carrying the code).
-func captureRedirect(ctx context.Context, authorizeURL string, headless bool) (string, error) {
+func captureRedirect(ctx context.Context, authorizeURL string, headless bool, browser string) (string, error) {
 	// Use a fresh temporary user-data dir so we don't touch the user's normal
 	// browser profile.
 	tmp, err := os.MkdirTemp("", "glycemicgpt-connect-*")
@@ -169,7 +272,22 @@ func captureRedirect(ctx context.Context, authorizeURL string, headless bool) (s
 	}
 	defer os.RemoveAll(tmp)
 
-	opts := append(chromedp.DefaultExecAllocatorOptions[:],
+	var opts []chromedp.ExecAllocatorOption
+	if browserPath, err := findBrowserExecPath(browser); err == nil {
+		opts = append(opts, chromedp.ExecPath(browserPath))
+	} else if browser != "" {
+		// An explicit --browser we couldn't resolve is fatal: never silently
+		// launch a different browser than the one the user named.
+		return "", err
+	}
+	// If auto-detection found nothing (browser == "" and no candidate matched),
+	// fall through WITHOUT an ExecPath on purpose: chromedp's own findExecPath
+	// covers a few targets our candidate list omits (headless_shell, the Chrome
+	// beta/unstable channels, some absolute/snap paths). If that also fails, the
+	// actionable error surfaces at the network.Enable() call below.
+
+	opts = append(opts, chromedp.DefaultExecAllocatorOptions[:]...)
+	opts = append(opts,
 		chromedp.Flag("headless", headless),
 		chromedp.UserDataDir(tmp),
 		chromedp.NoFirstRun,
@@ -213,7 +331,10 @@ func captureRedirect(ctx context.Context, authorizeURL string, headless bool) (s
 
 	// Enable the Network domain so the events above actually fire.
 	if err := chromedp.Run(browserCtx, network.Enable()); err != nil {
-		return "", fmt.Errorf("enabling DevTools network events (is Chrome/Edge installed?): %w", err)
+		// network.Enable is the first command that actually launches the
+		// browser, so a failure here almost always means no Chromium-family
+		// browser could be started -- not that DevTools itself is broken.
+		return "", fmt.Errorf("could not start a Chromium-family browser (Chrome, Edge, Brave, or Chromium); if yours is installed in a custom location, pass --browser /path/to/browser: %w", err)
 	}
 
 	// Initial navigation: don't fail the run on a transient error (the post-
@@ -303,7 +424,7 @@ func run() error {
 	}
 
 	fmt.Println("  [2/3]  Opening your browser  -  sign in to CareLink (solve the captcha if it appears)")
-	redirect, err := captureRedirect(ctx, start.AuthorizeURL, cli.headless)
+	redirect, err := captureRedirect(ctx, start.AuthorizeURL, cli.headless, cli.browser)
 	if err != nil {
 		return err
 	}

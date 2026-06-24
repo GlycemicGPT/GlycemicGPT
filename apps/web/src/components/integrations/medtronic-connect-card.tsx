@@ -46,6 +46,42 @@ function detectOS(): HelperOS {
   return ua.includes("win") ? "windows" : "linux-mac";
 }
 
+/** POSIX single-quote (close, escaped quote, reopen) for safe bash embedding. */
+function shSingleQuote(s: string): string {
+  return `'${s.replace(/'/g, "'\\''")}'`;
+}
+
+/** PowerShell single-quote (double any embedded quote) for safe embedding. */
+function psSingleQuote(s: string): string {
+  return `'${s.replace(/'/g, "''")}'`;
+}
+
+/**
+ * Assemble the copy-paste command that downloads and runs the helper installer
+ * from `url`. Exported and pure so the shell-quoting is unit-testable. Both the
+ * URL and the optional --browser path are single-quoted for the target shell, so
+ * a value with a space or quote can't break out. A custom browser is forwarded
+ * via `bash -s --` / a PowerShell script block (a plain `| iex` can't pass
+ * arguments); it stays in the pasted command and never reaches the server.
+ */
+export function buildHelperCommand(
+  url: string,
+  os: HelperOS,
+  browserPath: string
+): string {
+  const customBrowser = browserPath.trim();
+  if (os === "windows") {
+    if (customBrowser) {
+      return `& ([scriptblock]::Create((iwr ${psSingleQuote(url)} -UseBasicParsing).Content)) --browser ${psSingleQuote(customBrowser)}`;
+    }
+    return `iwr ${psSingleQuote(url)} -UseBasicParsing | iex`;
+  }
+  if (customBrowser) {
+    return `curl -fsSL ${shSingleQuote(url)} | bash -s -- --browser ${shSingleQuote(customBrowser)}`;
+  }
+  return `curl -fsSL ${shSingleQuote(url)} | bash`;
+}
+
 export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
   const [status, setStatus] = useState<MedtronicConnectStatus | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -85,6 +121,11 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
     typeof window !== "undefined" ? window.location.origin : ""
   );
   const [selectedOS, setSelectedOS] = useState<HelperOS>(() => detectOS());
+
+  // Optional explicit browser path for the helper's --browser flag, for users
+  // whose Chrome/Edge/Brave/Chromium is installed somewhere auto-detection
+  // can't find. Stays in the copy-paste command; never sent to the server.
+  const [browserPath, setBrowserPath] = useState<string>("");
 
   useEffect(() => {
     let cancelled = false;
@@ -178,12 +219,8 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
     } catch {
       return "";
     }
-    if (selectedOS === "windows") {
-      // PowerShell single-quoted; the URL has no ' so no doubling needed.
-      return `iwr '${url}' -UseBasicParsing | iex`;
-    }
-    return `curl -fsSL '${url}' | bash`;
-  }, [pairing, instanceUrl, selectedOS]);
+    return buildHelperCommand(url, selectedOS, browserPath);
+  }, [pairing, instanceUrl, selectedOS, browserPath]);
 
   // Non-empty but unparseable instance URL -> show an inline error instead of
   // silently rendering no command (and never throw during render).
@@ -202,11 +239,10 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
   // download a binary -- same backend endpoints, same flow, just heavier deps.
   const pythonCommand = useMemo(() => {
     if (!pairing) return "";
-    const q = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
-    const api = q(instanceUrl || "https://your-glycemicgpt-instance");
-    const user = q(username.trim());
-    const pair = q(pairing.pairing_token);
-    const region = q(regionCode);
+    const api = shSingleQuote(instanceUrl || "https://your-glycemicgpt-instance");
+    const user = shSingleQuote(username.trim());
+    const pair = shSingleQuote(pairing.pairing_token);
+    const region = shSingleQuote(regionCode);
     return [
       "uv run tools/medtronic-connect-login/medtronic_connect_login.py \\",
       `  --api ${api} \\`,
@@ -428,11 +464,41 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
                 ))}
               </div>
 
+              {/* Optional --browser path for installs auto-detect can't find. */}
+              <div>
+                <label
+                  htmlFor="connect-browser-path"
+                  className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1"
+                >
+                  Browser path (optional)
+                </label>
+                <input
+                  id="connect-browser-path"
+                  type="text"
+                  value={browserPath}
+                  onChange={(e) => setBrowserPath(e.target.value)}
+                  className={clsx(inputClass, "max-w-md")}
+                  spellCheck={false}
+                  placeholder={
+                    selectedOS === "windows"
+                      ? "e.g. C:\\Program Files\\BraveSoftware\\...\\brave.exe"
+                      : "e.g. /Applications/Brave Browser.app/Contents/MacOS/Brave Browser"
+                  }
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  Only if the helper can&apos;t find your browser on its own —
+                  point it at a Chrome, Edge, Brave, or Chromium executable.
+                </p>
+              </div>
+
               <p className="text-xs text-slate-500">
                 Paste this one line into a terminal on your computer. It runs
                 a small one-time connector from your own GlycemicGPT, opens
                 your browser to CareLink, and connects automatically. No
-                installs; requires Chrome, Edge, Brave, or Chromium.
+                installs; requires Chrome, Edge, Brave, or Chromium (auto-detected,
+                or set a path above for a custom install). No Chromium-family
+                browser at all? The Advanced → Python CLI below works on its own
+                — it uses a bundled browser engine.
               </p>
 
               <pre className="overflow-x-auto rounded-md border border-slate-700 bg-slate-950 p-3 text-xs text-slate-200">
@@ -469,8 +535,10 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
                   {pythonCommand}
                 </pre>
                 <p className="mt-1">
-                  Equivalent flow using the in-tree Python helper. Useful for
-                  devs / Firefox-only users; otherwise prefer the one-liner above.
+                  Equivalent flow using the in-tree Python helper. It runs the
+                  login through a bundled browser engine, so it works even with
+                  no Chromium-family browser installed (handy for Firefox/Safari
+                  users and devs); otherwise prefer the one-liner above.
                 </p>
               </details>
 
