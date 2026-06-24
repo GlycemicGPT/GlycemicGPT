@@ -403,7 +403,13 @@ def _normalize_pump_event(event, _seen_ids: set | None = None) -> dict | None:
     if "IOB" in d:
         d["iob"] = _float("IOB")
 
-    # Normalize BG from pump (event ID 16: LidBgReadingTaken)
+    # Normalize BG from pump (event ID 16: LidBgReadingTaken). Tandem t:connect
+    # reports glucose in canonical mg/dL (the t:slim X2 stores and transmits BG in
+    # mg/dL), so no unit conversion is applied here -- parity with the Medtronic
+    # CareLink/Connect mappers, which document the same mg/dL invariant. (Unlike
+    # the Medtronic CarePartner follower feed, the Tandem API is not known to emit
+    # mmol/L, so there is no unit-ambiguity guard to mirror; revisit if a mmol/L
+    # Tandem source is ever confirmed.)
     if "BG" in d:
         d["bg"] = _int("BG")
 
