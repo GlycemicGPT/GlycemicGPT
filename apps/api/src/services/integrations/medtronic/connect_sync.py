@@ -33,6 +33,7 @@ from src.models.medtronic_connect_state import (
     STATUS_ERROR,
     MedtronicConnectState,
 )
+from src.services.glucose_unit import resolve_glucose_unit
 
 from .connect_auth import ConnectTokenError, ConnectTokenProvider, get_region
 from .connect_client import CareLinkConnectClient, ConnectAuthError, ConnectError
@@ -158,7 +159,13 @@ async def _sync_connect_for_user_locked(
             patient_id=patient_id,
         ) as client:
             recent = await client.get_recent_data()
-        records = map_recent_data(recent)
+        # The CarePartner feed carries no unit; a mmol/L-configured EU pump returns
+        # bare mmol/L numbers. Thread the data owner's glucose-unit preference into
+        # the mapper so a mmol/L user's ambiguous high (~20-27.8 mmol/L) is dropped
+        # rather than stored as a false mg/dL severe low (GLY-59). mg/dL and
+        # unknown-preference users are unaffected.
+        glucose_unit = await resolve_glucose_unit(db, state.user_id)
+        records = map_recent_data(recent, glucose_unit=glucose_unit)
         # commit=False: defer to the single final commit below so glucose +
         # events + the connected-state update land atomically.
         store = await store_carelink_records(
