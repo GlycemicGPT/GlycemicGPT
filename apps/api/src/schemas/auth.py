@@ -83,10 +83,11 @@ class UserResponse(BaseModel):
         ),
     )
     meal_intelligence_enabled: bool = Field(
-        default=True,
+        ...,
         description=(
             "Whether the meal-intelligence feature is enabled for this user."
-            " Clients gate their meal surfaces on this value."
+            " Clients gate their meal surfaces on this value. Required (no"
+            " default) so a missing value fails loudly rather than fail-open."
         ),
     )
     created_at: datetime

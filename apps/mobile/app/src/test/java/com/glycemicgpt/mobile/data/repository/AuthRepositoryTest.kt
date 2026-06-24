@@ -316,6 +316,27 @@ class AuthRepositoryTest {
     }
 
     @Test
+    fun `refreshMealIntelligence fails closed on a 403 (forbidden account)`() = runTest {
+        coEvery { api.getMealIntelligence() } returns
+            Response.error(403, "forbidden".toResponseBody())
+
+        repository.refreshMealIntelligence()
+
+        verify { appSettingsStore.mealIntelligenceEnabled = false }
+    }
+
+    @Test
+    fun `updateMealIntelligence fails closed on a 401`() = runTest {
+        coEvery { api.patchMealIntelligence(any()) } returns
+            Response.error(401, "unauthorized".toResponseBody())
+
+        val result = repository.updateMealIntelligence(true)
+
+        assertTrue(result.isFailure)
+        verify { appSettingsStore.mealIntelligenceEnabled = false }
+    }
+
+    @Test
     fun `refreshGlucoseUnit flags seed-pending for a seed-owned mmol preference`() = runTest {
         coEvery { api.getGlucoseUnit() } returns Response.success(
             GlucoseUnitResponse(glucoseUnit = "mmol", glucoseUnitSource = "seed"),

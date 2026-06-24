@@ -971,6 +971,9 @@ class TestPrecedence:
             patch.object(
                 nutrition_sources, "lookup_published_nutrition", AsyncMock()
             ) as lookup,
+            patch.object(
+                restaurant_nutrition, "lookup_restaurant", AsyncMock()
+            ) as restaurant,
         ):
             detail = await meal_grounding.ground_estimate(
                 uuid.uuid4(),
@@ -986,6 +989,7 @@ class TestPrecedence:
         # The gate short-circuits before any recall or external lookup runs.
         recall.assert_not_awaited()
         lookup.assert_not_awaited()
+        restaurant.assert_not_awaited()
 
     async def test_unconfirmed_identity_is_never_grounded(self):
         # The H2 gate: even with a strong corrected own-history match and a

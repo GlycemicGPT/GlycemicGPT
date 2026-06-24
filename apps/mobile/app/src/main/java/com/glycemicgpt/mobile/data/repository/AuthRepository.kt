@@ -214,6 +214,11 @@ class AuthRepository @Inject constructor(
                 appSettingsStore.mealIntelligenceEnabled = resolved
                 Result.success(resolved)
             } else {
+                if (response.code() == 401 || response.code() == 403) {
+                    // The account is forbidden this setting (e.g. caregiver 403) or
+                    // unauthenticated: fail closed so meal surfaces don't stay on.
+                    appSettingsStore.mealIntelligenceEnabled = false
+                }
                 Result.failure(Exception("Server responded with HTTP ${response.code()}"))
             }
         } catch (e: CancellationException) {
@@ -336,11 +341,16 @@ class AuthRepository @Inject constructor(
                     appSettingsStore.mealIntelligenceEnabled = body.enabled
                     Timber.d("Meal intelligence reconciled: %b", body.enabled)
                 }
+            } else if (response.code() == 401 || response.code() == 403) {
+                // The account is forbidden this setting (e.g. caregiver 403) or the
+                // session expired: fail closed so a cached/default-ON value can't
+                // leave meal surfaces visible for an account the backend rejects.
+                appSettingsStore.mealIntelligenceEnabled = false
             }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            // Keep the cached value (ultimately the default ON) on any failure.
+            // Keep the cached value (ultimately the default ON) on a transient/network failure.
             Timber.w(e, "Failed to fetch meal intelligence preference")
         }
     }

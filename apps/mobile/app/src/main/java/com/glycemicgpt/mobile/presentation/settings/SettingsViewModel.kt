@@ -363,6 +363,8 @@ class SettingsViewModel @Inject constructor(
                 authRepository.refreshMealIntelligence()
                 _uiState.value = _uiState.value.copy(
                     mealIntelligenceEnabled = appSettingsStore.mealIntelligenceEnabled,
+                    // A successful reconcile supersedes any prior PATCH sync error.
+                    mealIntelligenceSyncError = null,
                 )
             }
         }

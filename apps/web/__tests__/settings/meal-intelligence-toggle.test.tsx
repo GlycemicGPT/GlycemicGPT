@@ -74,4 +74,7 @@ it("renders the toggle off for a disabled user and enables it via the endpoint",
 
   await waitFor(() => expect(mockUpdateMeal).toHaveBeenCalledWith(true));
   await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "true"));
+  // The sidebar "Meals" nav reads from shared user context, so re-enabling must
+  // refresh it too -- a regression that skipped this would hide the nav.
+  expect(mockRefreshUser).toHaveBeenCalled();
 });
