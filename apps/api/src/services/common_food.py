@@ -62,6 +62,10 @@ class DuplicateCommonFoodError(CommonFoodError):
     """A common food with the same (normalized) name already exists."""
 
 
+class RecordGoneError(CommonFoodError):
+    """The food record was concurrently deleted mid-promotion (re-fetch found nothing)."""
+
+
 async def correct_food_record(
     db: AsyncSession,
     record: FoodRecord,
@@ -243,9 +247,17 @@ async def promote_to_common_food(
     if not normalized:
         raise CarbValidationError("Common food name must not be empty.")
 
+    # Capture the record's identifiers before the flush below. The unique-constraint
+    # race fallback rolls the session back, which expires ``record``; reading an
+    # expired column afterwards (``record.id`` / ``record.user_id``) triggers a lazy
+    # reload, and on a concurrently-deleted row that reload fails outright before we
+    # could null-check it. Holding the ids in locals keeps the fallback reload-free.
+    record_id = record.id
+    user_id = record.user_id
+
     existing = await db.scalar(
         select(CommonFood).where(
-            CommonFood.user_id == record.user_id,
+            CommonFood.user_id == user_id,
             CommonFood.normalized_name == normalized,
         )
     )
@@ -257,7 +269,7 @@ async def promote_to_common_food(
         common_food.nutrition_json = nutrition
     else:
         common_food = CommonFood(
-            user_id=record.user_id,
+            user_id=user_id,
             name=name.strip(),
             normalized_name=normalized,
             carbs_low=low,
@@ -273,14 +285,20 @@ async def promote_to_common_food(
         await db.rollback()
         common_food = await db.scalar(
             select(CommonFood).where(
-                CommonFood.user_id == record.user_id,
+                CommonFood.user_id == user_id,
                 CommonFood.normalized_name == normalized,
             )
         )
         if common_food is None:  # pragma: no cover - defensive
             raise
-        # Re-bind the record (the rollback expired it) before linking below.
-        record = await db.get(FoodRecord, record.id)
+        # Re-bind the record (the rollback expired it) before linking below. A
+        # concurrent delete between the initial fetch and here leaves nothing to
+        # re-bind; fail cleanly instead of dereferencing None into a 500.
+        record = await db.get(FoodRecord, record_id)
+        if record is None:
+            raise RecordGoneError(
+                "The food record was deleted before it could be saved as a common food."
+            )
         common_food.name = name.strip()
         common_food.carbs_low = low
         common_food.carbs_high = high
@@ -296,7 +314,7 @@ async def promote_to_common_food(
     # baseline. Best-effort -- an indexing failure must not fail the promotion. The
     # gate read is intentionally outside the try: a flag-resolution error fails
     # closed (surfaces) rather than silently running the gated indexing.
-    if await is_meal_intelligence_enabled(db, record.user_id):
+    if await is_meal_intelligence_enabled(db, user_id):
         try:
             await meal_rag.index_common_food(common_food)
             await meal_rag.index_food_record(record)
