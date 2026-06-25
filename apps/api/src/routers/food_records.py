@@ -408,6 +408,13 @@ async def save_record_as_common_food(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
+    except common_food_service.RecordGoneError as exc:
+        # The record was deleted out from under the promotion (concurrent delete
+        # during the unique-constraint race fallback): 404, matching how a
+        # missing record signals not-found elsewhere in this router.
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
     return CommonFoodResponse.model_validate(common_food)
 
 

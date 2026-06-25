@@ -27,6 +27,7 @@ from src.models.ai_provider import (
     AIProviderType,
 )
 from src.models.food_record import FoodRecord, FoodRecordSource
+from src.services import common_food as common_food_service
 from src.services import food_image, food_vision
 from src.vision import carb_contract
 
@@ -1248,6 +1249,88 @@ class TestCommonFoods:
         assert body["carbs_low"] == 70
         # _estimate_json seeds AI nutrition {"protein_grams": 12, "calories": 520}.
         assert body["nutrition_json"] == {"protein_grams": 12, "calories": 520}
+
+    async def test_promote_concurrent_delete_raises_record_gone(self):
+        # Real-DB exercise of the unique-constraint race fallback. That path rolls the
+        # session back, which EXPIRES the committed in-session record; the re-fetch must
+        # use the ids captured before the rollback, otherwise reloading the expired
+        # (and concurrently-deleted) row blows up (greenlet/IO error) before the
+        # null-check. A mocked or uncommitted in-memory record can't reproduce that
+        # post-rollback expiry, so this is the test that actually guards the fix.
+        #
+        # Dedicated sessions (not the db_session fixture) keep the in-test rollback and
+        # the out-of-band delete on this loop. The record is loaded persistent into the
+        # promotion session, then deleted in a separate committed transaction (a true
+        # concurrent delete); the committed winner baseline survives the rollback as the
+        # "lost the race" winner.
+        from sqlalchemy import delete
+        from sqlalchemy.exc import IntegrityError
+
+        from src.database import get_session_maker
+        from src.models.common_food import CommonFood
+
+        session_maker = get_session_maker()
+        async with session_maker() as db:
+            user = await _new_user(db, "race")
+            db.add(
+                CommonFood(
+                    user_id=user.id,
+                    name="Bagel",
+                    normalized_name="bagel",
+                    carbs_low=40,
+                    carbs_high=55,
+                )
+            )
+            record = FoodRecord(
+                user_id=user.id,
+                filename="m.png",
+                file_type="image/png",
+                file_size_bytes=10,
+                storage_path="x",
+                carbs_low=40,
+                carbs_high=55,
+                nutrition_json={"protein_grams": 12, "calories": 520},
+            )
+            db.add(record)
+            await db.commit()
+            await db.refresh(record)  # record is now persistent + live in this session
+            record_id = record.id
+
+            # A concurrent request deletes the record after it was loaded here but
+            # before the promotion's fallback re-fetch.
+            async with session_maker() as concurrent:
+                await concurrent.execute(
+                    delete(FoodRecord).where(FoodRecord.id == record_id)
+                )
+                await concurrent.commit()
+
+            # Force the unique-constraint race fallback. Only the explicit flush is
+            # patched; autoflush goes through the sync session, so lookups still run.
+            with (
+                patch.object(
+                    db,
+                    "flush",
+                    AsyncMock(side_effect=IntegrityError("dup", {}, Exception())),
+                ),
+                pytest.raises(common_food_service.RecordGoneError),
+            ):
+                await common_food_service.promote_to_common_food(db, record, "Bagel")
+
+    async def test_save_as_common_food_record_gone_returns_404(self, auth_client):
+        # The router maps a concurrent-delete RecordGoneError to a clean 404, the way
+        # a missing record reads elsewhere in this router (never a 500).
+        client, _ = auth_client
+        record_id = (await _create_record(client))["id"]
+        with patch.object(
+            common_food_service,
+            "promote_to_common_food",
+            AsyncMock(side_effect=common_food_service.RecordGoneError("gone")),
+        ):
+            resp = await client.post(
+                f"/api/food-records/{record_id}/save-as-common-food",
+                json={"name": "Bagel"},
+            )
+        assert resp.status_code == 404, resp.text
 
     async def test_update_rejects_partial_carb_range(self, auth_client):
         client, _ = auth_client
