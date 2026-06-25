@@ -1,13 +1,16 @@
 package com.glycemicgpt.mobile.presentation.meal
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -23,13 +26,24 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.glycemicgpt.mobile.data.meal.FoodRecord
+import kotlin.math.roundToInt
 
 /**
  * Home "Recent meal" glance: the most recent logged meal with its carb range, confidence, and the
@@ -123,5 +137,81 @@ fun MealFab(onClick: () -> Unit, modifier: Modifier = Modifier) {
         icon = { Icon(Icons.Default.PhotoCamera, contentDescription = null) },
         text = { Text("Log a meal") },
         modifier = modifier.testTag("home_meal_fab"),
+    )
+}
+
+/** Inset the FAB keeps from the container edges in its default bottom-end resting position. */
+private val FAB_EDGE_MARGIN = 16.dp
+
+/**
+ * The Home "Log a meal" FAB, draggable so the user can move it off their data and back. Wraps the
+ * tap-only [MealFab]: the FAB keeps its own onClick, while this owns the drag offset, so a tap still
+ * navigates and a drag (past touch slop) repositions instead of clicking.
+ *
+ * Positions are clamped to [containerSizePx] -- which the host has already inset for system bars --
+ * so the FAB can never strand off-screen. A settled position is reported via [onOffsetSettled] for
+ * persistence; [savedOffset] restores it, re-clamped to the current bounds so a stale value (from a
+ * smaller past layout, or the FAB toggling hidden then shown) can't place it out of view.
+ */
+@Composable
+fun BoxScope.DraggableMealFab(
+    containerSizePx: IntSize,
+    savedOffset: FabOffset?,
+    onClick: () -> Unit,
+    onOffsetSettled: (FabOffset) -> Unit,
+) {
+    val marginPx = with(LocalDensity.current) { FAB_EDGE_MARGIN.toPx() }
+    var fabSizePx by remember { mutableStateOf(IntSize.Zero) }
+    // The pointerInput(Unit) gesture closures below are created once and capture their scope, so a
+    // raw [containerSizePx] read there would freeze at the first-frame size (the parent only learns
+    // its size later, via onSizeChanged). Route it through a stable State so the drag always clamps
+    // against the *current* bounds -- including after a rotation/resize.
+    val container by rememberUpdatedState(containerSizePx)
+    // The user's chosen position, or null until they first drag (then use the default placement).
+    // Seeded once from [savedOffset]; the key is intentionally absent so this single MutableState
+    // stays stable for the gesture handler's lifetime (a re-key would strand the drag closures on a
+    // dead state). A new saved value is picked up when the FAB re-enters composition -- e.g. when it
+    // is hidden then shown -- which also re-clamps it to the current bounds.
+    var dragOffset by remember { mutableStateOf(savedOffset) }
+
+    // Resolve to a concrete, clamped, on-screen position from the latest sizes. Computed in the
+    // placement lambda below (not a LaunchedEffect) so it is correct on the first frame -- no flash
+    // from a transient top-left position before the offset settles.
+    fun resolve(): FabOffset {
+        val fabW = fabSizePx.width.toFloat()
+        val fabH = fabSizePx.height.toFloat()
+        val containerW = container.width.toFloat()
+        val containerH = container.height.toFloat()
+        val base = dragOffset ?: defaultFabOffset(fabW, fabH, containerW, containerH, marginPx)
+        return clampFabOffset(base, fabW, fabH, containerW, containerH)
+    }
+
+    MealFab(
+        onClick = onClick,
+        modifier = Modifier
+            .align(Alignment.TopStart)
+            .offset {
+                val resolved = resolve()
+                IntOffset(resolved.x.roundToInt(), resolved.y.roundToInt())
+            }
+            .onSizeChanged { fabSizePx = it }
+            .pointerInput(Unit) {
+                detectDragGestures(
+                    onDragEnd = { onOffsetSettled(resolve()) },
+                    onDragCancel = { onOffsetSettled(resolve()) },
+                ) { change, dragAmount ->
+                    // Consuming only here (past touch slop) keeps a tap free to reach the FAB's
+                    // onClick, while a drag repositions without triggering a click.
+                    change.consume()
+                    val from = dragOffset ?: resolve()
+                    dragOffset = clampFabOffset(
+                        FabOffset(from.x + dragAmount.x, from.y + dragAmount.y),
+                        fabSizePx.width.toFloat(),
+                        fabSizePx.height.toFloat(),
+                        container.width.toFloat(),
+                        container.height.toFloat(),
+                    )
+                }
+            },
     )
 }

@@ -1,16 +1,21 @@
 package com.glycemicgpt.mobile.presentation.home
 
 import com.glycemicgpt.mobile.data.local.AppSettingsStore
+import com.glycemicgpt.mobile.data.local.AppSettingsStore.Companion.UNSET_FAB_OFFSET
 import com.glycemicgpt.mobile.data.meal.CarbConfidence
 import com.glycemicgpt.mobile.data.meal.CarbRange
 import com.glycemicgpt.mobile.data.meal.FoodRecord
 import com.glycemicgpt.mobile.data.meal.FoodRecordSource
 import com.glycemicgpt.mobile.data.meal.MealException
 import com.glycemicgpt.mobile.data.repository.MealRepository
+import com.glycemicgpt.mobile.presentation.meal.FabOffset
+import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
+import io.mockk.just
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -128,5 +133,53 @@ class HomeMealViewModelTest {
 
             assertNull(vm.uiState.value.recentMeal)
             assertTrue(vm.uiState.value.mealLoggingAvailable)
+        }
+
+    @Test
+    fun `savedFabOffset is null when the user has never moved the FAB`() = runTest(testDispatcher) {
+        coEvery { repository.listFoodRecords(any(), any()) } returns Result.success(emptyList())
+        every { appSettingsStore.mealFabOffsetXPx } returns UNSET_FAB_OFFSET
+        every { appSettingsStore.mealFabOffsetYPx } returns UNSET_FAB_OFFSET
+        val vm = HomeMealViewModel(repository, appSettingsStore)
+        advanceUntilIdle()
+
+        assertNull(vm.savedFabOffset())
+    }
+
+    @Test
+    fun `savedFabOffset returns the stored px position`() = runTest(testDispatcher) {
+        coEvery { repository.listFoodRecords(any(), any()) } returns Result.success(emptyList())
+        every { appSettingsStore.mealFabOffsetXPx } returns 120
+        every { appSettingsStore.mealFabOffsetYPx } returns 340
+        val vm = HomeMealViewModel(repository, appSettingsStore)
+        advanceUntilIdle()
+
+        val offset = vm.savedFabOffset()
+        assertEquals(FabOffset(120f, 340f), offset)
+    }
+
+    @Test
+    fun `savedFabOffset is null when only one axis is set`() = runTest(testDispatcher) {
+        coEvery { repository.listFoodRecords(any(), any()) } returns Result.success(emptyList())
+        every { appSettingsStore.mealFabOffsetXPx } returns 120
+        every { appSettingsStore.mealFabOffsetYPx } returns UNSET_FAB_OFFSET
+        val vm = HomeMealViewModel(repository, appSettingsStore)
+        advanceUntilIdle()
+
+        // Either axis unset means "never placed" -> default, never a half-resolved coordinate.
+        assertNull(vm.savedFabOffset())
+    }
+
+    @Test
+    fun `persistFabOffset writes the rounded px position in one atomic call`() =
+        runTest(testDispatcher) {
+            coEvery { repository.listFoodRecords(any(), any()) } returns Result.success(emptyList())
+            every { appSettingsStore.setMealFabOffset(any(), any()) } just Runs
+            val vm = HomeMealViewModel(repository, appSettingsStore)
+            advanceUntilIdle()
+
+            vm.persistFabOffset(FabOffset(120.4f, 340.6f))
+
+            verify(exactly = 1) { appSettingsStore.setMealFabOffset(120, 341) }
         }
 }
