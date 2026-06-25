@@ -206,6 +206,38 @@ async def test_reachable_4xx_is_base_error_not_transport():
     assert exc_info.type is CareLinkError
 
 
+async def test_4xx_error_surfaces_response_body_snippet():
+    """A reachable 4xx must carry the upstream body in the error message so the
+    actual rejection reason (e.g. which generateReport field CareLink rejected)
+    reaches the router WARNING log instead of being hidden behind a bare status.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400, json={"message": "Validation failed", "field": "clientTime"}
+        )
+
+    async with _make_client(handler) as client:
+        with pytest.raises(CareLinkError) as exc_info:
+            await client.get_patient_id()
+    msg = str(exc_info.value)
+    assert "400" in msg
+    assert "clientTime" in msg
+
+
+async def test_4xx_error_body_snippet_is_truncated():
+    """An oversized error body is length-capped so the surfaced message and log
+    line stay bounded."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, text="x" * 5000)
+
+    async with _make_client(handler) as client:
+        with pytest.raises(CareLinkError) as exc_info:
+            await client.get_patient_id()
+    assert "[truncated]" in str(exc_info.value)
+
+
 async def test_status_204_is_treated_ready():
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/patient/reports/generateReport":

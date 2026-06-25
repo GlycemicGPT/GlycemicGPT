@@ -107,6 +107,24 @@ def _first(d: dict, *keys: str) -> object | None:
     return None
 
 
+def _error_body_snippet(resp: httpx.Response, limit: int = 500) -> str:
+    """A short, single-line snippet of an error response body for diagnostics.
+
+    CareLink's 4xx bodies name the offending field (e.g. a generateReport
+    validation error identifying a bad date/format/id), which the status code
+    alone hides. Whitespace-collapsed and length-capped so the surfaced error
+    message and log line stay bounded and never dump an oversized or multi-line
+    payload. These endpoints return job/validation metadata, not patient data.
+    """
+    try:
+        text = " ".join(resp.text.split())
+    except (ValueError, UnicodeDecodeError):
+        return ""
+    if len(text) > limit:
+        return text[:limit] + " [truncated]"
+    return text
+
+
 class CareLinkClient:
     def __init__(
         self,
@@ -161,9 +179,11 @@ class CareLinkClient:
                 f"CareLink auth failed ({resp.status_code}); session invalid/expired"
             )
         if resp.status_code >= 400:
+            snippet = _error_body_snippet(resp)
+            body = f" - {snippet}" if snippet else ""
             raise CareLinkError(
                 f"CareLink request to {resp.request.url.path} failed: "
-                f"{resp.status_code}"
+                f"{resp.status_code}{body}"
             )
 
     async def _request(
