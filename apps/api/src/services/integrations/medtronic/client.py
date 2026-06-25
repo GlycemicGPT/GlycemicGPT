@@ -174,13 +174,18 @@ class CareLinkClient:
         }
 
     def _check(self, resp: httpx.Response) -> None:
+        snippet = _error_body_snippet(resp)
+        body = f" - {snippet}" if snippet else ""
         if resp.status_code in (401, 403):
+            # 401 (expired token) and 403 (authenticated but not permitted, e.g.
+            # a forbidden action/format on an otherwise-valid session) both land
+            # here. Carry the upstream body so the reason is visible -- the two
+            # are indistinguishable by status alone (#811).
             raise CareLinkAuthError(
-                f"CareLink auth failed ({resp.status_code}); session invalid/expired"
+                f"CareLink auth/permission denied on {resp.request.url.path} "
+                f"({resp.status_code}){body}"
             )
         if resp.status_code >= 400:
-            snippet = _error_body_snippet(resp)
-            body = f" - {snippet}" if snippet else ""
             raise CareLinkError(
                 f"CareLink request to {resp.request.url.path} failed: "
                 f"{resp.status_code}{body}"

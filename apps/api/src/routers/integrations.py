@@ -1992,6 +1992,13 @@ async def import_medtronic_range(
             tz=zoneinfo.ZoneInfo(body.tz),
         )
     except CareLinkAuthError as e:
+        # 401 (expired) and 403 (forbidden action on a live session) both arrive
+        # here; log the upstream reason so the two can be told apart (#811).
+        logger.warning(
+            "CareLink import rejected - auth/permission",
+            user_id=str(current_user.id),
+            error=str(e),
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="CareLink session is invalid or expired. Reconnect and try again.",

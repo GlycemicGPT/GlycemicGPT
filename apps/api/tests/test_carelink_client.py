@@ -176,6 +176,23 @@ async def test_auth_error_on_401():
             await client.get_availability()
 
 
+async def test_403_surfaces_response_body_snippet():
+    """A 403 (authenticated but forbidden, e.g. generateReport refusing an
+    action/format on a live session) raises CareLinkAuthError carrying the
+    upstream body, so the reason is visible and a forbidden-action 403 can be
+    told apart from an expired-token 401 (#811)."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, json={"message": "operation not permitted"})
+
+    async with _make_client(handler) as client:
+        with pytest.raises(CareLinkAuthError) as exc_info:
+            await client.get_patient_id()
+    msg = str(exc_info.value)
+    assert "403" in msg
+    assert "operation not permitted" in msg
+
+
 async def test_transport_error_is_typed():
     """A true transport failure (DNS/TLS/connection) is wrapped as
     CareLinkTransportError -- the subtype the router maps to 'Unable to reach
