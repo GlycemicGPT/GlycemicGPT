@@ -3,9 +3,11 @@ package com.glycemicgpt.mobile.presentation.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.glycemicgpt.mobile.data.local.AppSettingsStore
+import com.glycemicgpt.mobile.data.local.AppSettingsStore.Companion.UNSET_FAB_OFFSET
 import com.glycemicgpt.mobile.data.meal.FoodRecord
 import com.glycemicgpt.mobile.data.meal.MealException
 import com.glycemicgpt.mobile.data.repository.MealRepository
+import com.glycemicgpt.mobile.presentation.meal.FabOffset
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -14,6 +16,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import kotlin.math.roundToInt
 
 /**
  * Drives the Home meal glance (the camera FAB + Recent-meal card) independently of the pump-data
@@ -59,6 +62,30 @@ class HomeMealViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    /**
+     * The user's saved FAB position (px), or null if they've never moved it (use the default
+     * placement). Read once when Home first composes -- a per-device UI preference, not reactive.
+     */
+    fun savedFabOffset(): FabOffset? {
+        val x = appSettingsStore.mealFabOffsetXPx
+        val y = appSettingsStore.mealFabOffsetYPx
+        return if (x == UNSET_FAB_OFFSET || y == UNSET_FAB_OFFSET) {
+            null
+        } else {
+            FabOffset(x.toFloat(), y.toFloat())
+        }
+    }
+
+    /** Persist the FAB position (px) once a drag settles, so it survives navigation and restarts. */
+    fun persistFabOffset(offset: FabOffset) {
+        appSettingsStore.setMealFabOffset(offset.x.roundToInt(), offset.y.roundToInt())
+    }
+
+    /** Forget the saved FAB position so it returns to the default placement (accessibility reset). */
+    fun resetFabOffset() {
+        appSettingsStore.clearMealFabOffset()
     }
 
     /** Re-fetch the most recent meal; safe to call on Home resume / pull-to-refresh. */
