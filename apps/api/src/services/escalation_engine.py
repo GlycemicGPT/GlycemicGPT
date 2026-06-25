@@ -13,6 +13,7 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.units import GlucoseUnit, format_glucose
 from src.logging_config import get_logger
 from src.models.alert import Alert, AlertSeverity
 from src.models.emergency_contact import ContactPriority, EmergencyContact
@@ -24,6 +25,7 @@ from src.models.escalation_event import (
 )
 from src.models.telegram_link import TelegramLink
 from src.services.escalation_config import get_or_create_config
+from src.services.glucose_unit import resolve_glucose_unit
 from src.services.telegram_bot import TelegramBotError, send_message
 
 logger = get_logger(__name__)
@@ -224,6 +226,7 @@ def build_escalation_message(
     alert: Alert,
     tier: EscalationTier,
     user_email: str,
+    unit: GlucoseUnit = GlucoseUnit.MGDL,
 ) -> str:
     """Build the notification message for an escalation tier.
 
@@ -231,19 +234,23 @@ def build_escalation_message(
         alert: The alert being escalated.
         tier: Escalation tier.
         user_email: User's email (for identification).
+        unit: The PATIENT's glucose display unit; the current glucose renders
+            in it. ``alert.message`` was already rendered in the patient's unit
+            at persist time, so it is embedded verbatim.
 
     Returns:
         Formatted message string.
     """
     safe_email = html.escape(user_email)
     safe_message = html.escape(alert.message)
+    current_glucose = format_glucose(alert.current_value, unit)
 
     if tier == EscalationTier.REMINDER:
         return (
             f"[REMINDER] You have an unacknowledged "
             f"{alert.severity.value.upper()} alert:\n"
             f"{safe_message}\n"
-            f"Current glucose: {alert.current_value:.0f} mg/dL\n"
+            f"Current glucose: {current_glucose}\n"
             f"Please acknowledge this alert if you are okay."
         )
 
@@ -251,7 +258,7 @@ def build_escalation_message(
         return (
             f"{safe_email} has a glucose emergency and has not responded.\n"
             f"Alert: {safe_message}\n"
-            f"Current glucose: {alert.current_value:.0f} mg/dL\n"
+            f"Current glucose: {current_glucose}\n"
             f"Severity: {alert.severity.value.upper()}\n"
             f"Please check on them immediately."
         )
@@ -260,7 +267,7 @@ def build_escalation_message(
     return (
         f"{safe_email} has a glucose emergency and has not responded.\n"
         f"Alert: {safe_message}\n"
-        f"Current glucose: {alert.current_value:.0f} mg/dL\n"
+        f"Current glucose: {current_glucose}\n"
         f"Severity: {alert.severity.value.upper()}\n"
         f"Primary contact has not responded. Please check on them immediately."
     )
@@ -426,6 +433,7 @@ async def escalate_alert(
     db: AsyncSession,
     alert: Alert,
     user_email: str,
+    unit: GlucoseUnit = GlucoseUnit.MGDL,
 ) -> EscalationEvent | None:
     """Escalate an alert to the next tier if appropriate.
 
@@ -433,6 +441,8 @@ async def escalate_alert(
         db: Database session.
         alert: The alert to potentially escalate.
         user_email: User's email (for message formatting).
+        unit: The PATIENT's glucose display unit; escalation messages (to the
+            patient and to emergency contacts) render glucose in it.
 
     Returns:
         EscalationEvent if escalation occurred, None otherwise.
@@ -468,9 +478,9 @@ async def escalate_alert(
             if tier == EscalationTier.PRIMARY_CONTACT
             else "All Contacts Alert"
         )
-        message = format_escalation_contact_message(alert, user_email, tier_label)
+        message = format_escalation_contact_message(alert, user_email, tier_label, unit)
     else:
-        message = build_escalation_message(alert, tier, user_email)
+        message = build_escalation_message(alert, tier, user_email, unit)
 
     # Persist event as PENDING first to ensure audit trail exists
     # before dispatching notification
@@ -519,9 +529,13 @@ async def process_escalations_for_user(
     if not alerts:
         return 0
 
+    # Resolve the patient's display unit once; escalation messages -- to the
+    # patient and to emergency contacts -- render glucose in the patient's unit.
+    unit = await resolve_glucose_unit(db, user_id)
+
     escalation_count = 0
     for alert in alerts:
-        event = await escalate_alert(db, alert, user_email)
+        event = await escalate_alert(db, alert, user_email, unit)
         if event:
             escalation_count += 1
 

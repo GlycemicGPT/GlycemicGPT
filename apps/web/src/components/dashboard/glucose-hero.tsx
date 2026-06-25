@@ -18,6 +18,12 @@
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import clsx from "clsx";
 import {
+  formatGlucose,
+  unitLabel,
+  spokenUnit,
+  type GlucoseUnit,
+} from "@/lib/glucose-units";
+import {
   type TrendDirection,
   TREND_ARROWS,
   TREND_DESCRIPTIONS,
@@ -112,8 +118,8 @@ export interface GlucoseHeroProps {
    * are deferred to a follow-up. Null = no active override.
    */
   override?: OverrideInfo | null;
-  /** Unit label (default: mg/dL) */
-  unit?: string;
+  /** Active glucose display unit (default: mgdl). Values stay mg/dL internally. */
+  unit?: GlucoseUnit;
   /** Minutes since last reading */
   minutesAgo?: number;
   /** Whether data is considered stale (>10 minutes) */
@@ -180,18 +186,20 @@ export function getRangeStatus(range: GlucoseRange): RangeStatus {
 /**
  * Build accessible announcement for screen readers.
  * Format: "Glucose 142 milligrams per deciliter, falling slowly, in target range"
+ * (mmol users hear e.g. "Glucose 7.9 millimoles per litre, ...").
  */
 export function buildGlucoseAnnouncement(
   value: number | null,
   trendDescription: string,
-  rangeStatus: RangeStatus
+  rangeStatus: RangeStatus,
+  unit: GlucoseUnit = "mgdl"
 ): string {
   if (value === null) {
     return "Glucose reading unavailable";
   }
 
   const rangeText = RANGE_STATUS_TEXT[rangeStatus];
-  return `Glucose ${Math.round(value)} milligrams per deciliter, ${trendDescription}, ${rangeText}`;
+  return `Glucose ${formatGlucose(value, unit)} ${spokenUnit(unit)}, ${trendDescription}, ${rangeText}`;
 }
 
 /**
@@ -392,7 +400,7 @@ export function GlucoseHero({
   cobGrams,
   loopStatus,
   override,
-  unit = "mg/dL",
+  unit = "mgdl",
   minutesAgo,
   isStale = false,
   isLoading = false,
@@ -410,11 +418,11 @@ export function GlucoseHero({
         aria-busy="true"
       >
         <div className="flex flex-col items-center">
-          <div className="h-16 w-32 bg-slate-200 dark:bg-slate-700 rounded mb-4" />
-          <div className="h-6 w-16 bg-slate-200 dark:bg-slate-700 rounded mb-4" />
+          <div className="h-16 w-32 bg-slate-200 dark:bg-slate-700 rounded-sm mb-4" />
+          <div className="h-6 w-16 bg-slate-200 dark:bg-slate-700 rounded-sm mb-4" />
           <div className="flex gap-6">
-            <div className="h-10 w-12 bg-slate-200 dark:bg-slate-700 rounded" />
-            <div className="h-10 w-12 bg-slate-200 dark:bg-slate-700 rounded" />
+            <div className="h-10 w-12 bg-slate-200 dark:bg-slate-700 rounded-sm" />
+            <div className="h-10 w-12 bg-slate-200 dark:bg-slate-700 rounded-sm" />
           </div>
         </div>
       </div>
@@ -438,12 +446,17 @@ export function GlucoseHero({
   const arrow = TREND_ARROWS[trend];
   const trendDescription = TREND_DESCRIPTIONS[trend];
 
-  // Format display value
-  const displayValue = safeValue !== null ? Math.round(safeValue).toString() : "--";
+  // Format display value (mg/dL integer, mmol 1-decimal); value stays mg/dL.
+  const displayValue = safeValue !== null ? formatGlucose(safeValue, unit) : "--";
 
   // Accessibility: Build announcement and determine aria-live priority
   const rangeStatus = getRangeStatus(range);
-  const announcement = buildGlucoseAnnouncement(safeValue, trendDescription, rangeStatus);
+  const announcement = buildGlucoseAnnouncement(
+    safeValue,
+    trendDescription,
+    rangeStatus,
+    unit
+  );
   const isUrgent = isUrgentState(range);
   const ariaLivePriority = isUrgent ? "assertive" : "polite";
 
@@ -451,7 +464,7 @@ export function GlucoseHero({
     <div
       className={clsx(
         "rounded-xl p-4 sm:p-6 md:p-8 border border-slate-200 dark:border-slate-800 overflow-hidden",
-        "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900",
+        "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900",
         colors.bg
       )}
       role="region"
@@ -504,7 +517,7 @@ export function GlucoseHero({
           className="text-slate-400 text-base sm:text-lg"
           data-testid="glucose-unit"
         >
-          {unit}
+          {unitLabel(unit)}
         </p>
 
         {/* Stale data warning */}

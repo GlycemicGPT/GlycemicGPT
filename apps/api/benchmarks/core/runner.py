@@ -39,7 +39,7 @@ def _build_prompt(scenario: Scenario) -> tuple[str, str]:
     """
     if scenario.surface == "meal_analysis":
         from src.schemas.meal_analysis import MealPeriodData
-        from src.services.meal_analysis import SYSTEM_PROMPT, build_meal_prompt
+        from src.services.meal_analysis import _build_system_prompt, build_meal_prompt
 
         periods = [MealPeriodData.model_validate(p)
                    for p in scenario.input.get("meal_periods", [])]
@@ -49,7 +49,7 @@ def _build_prompt(scenario: Scenario) -> tuple[str, str]:
             days=int(scenario.input.get("days", 7)),
             profile_summary=None,
         )
-        return SYSTEM_PROMPT, user_prompt
+        return _build_system_prompt(), user_prompt
 
     if scenario.surface == "adversarial":
         system_prompt = _chat_system_prompt(scenario.input.get("context", ""))
@@ -58,16 +58,16 @@ def _build_prompt(scenario: Scenario) -> tuple[str, str]:
 
     if scenario.surface == "daily_brief":
         from src.schemas.daily_brief import DailyBriefMetrics
-        from src.services.daily_brief import SYSTEM_PROMPT, build_analysis_prompt
+        from src.services.daily_brief import _build_system_prompt, build_analysis_prompt
 
         metrics = DailyBriefMetrics.model_validate(scenario.input["metrics"])
         user_prompt = build_analysis_prompt(metrics, hours=int(scenario.input.get("hours", 24)))
-        return SYSTEM_PROMPT, user_prompt
+        return _build_system_prompt(), user_prompt
 
     if scenario.surface == "correction":
         from src.schemas.correction_analysis import TimePeriodData
         from src.services.correction_analysis import (
-            SYSTEM_PROMPT,
+            _build_system_prompt,
             build_correction_prompt,
         )
 
@@ -78,7 +78,7 @@ def _build_prompt(scenario: Scenario) -> tuple[str, str]:
             total_corrections=int(scenario.input.get("total_corrections", 0)),
             days=int(scenario.input.get("days", 14)),
         )
-        return SYSTEM_PROMPT, user_prompt
+        return _build_system_prompt(), user_prompt
 
     if scenario.surface == "chat":
         system_prompt = _chat_system_prompt(scenario.input.get("context", ""))

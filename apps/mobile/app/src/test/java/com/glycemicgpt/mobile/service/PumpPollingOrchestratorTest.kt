@@ -1,5 +1,6 @@
 package com.glycemicgpt.mobile.service
 
+import com.glycemicgpt.mobile.data.local.AppSettingsStore
 import com.glycemicgpt.mobile.data.local.GlucoseRangeStore
 import com.glycemicgpt.mobile.data.local.SafetyLimitsStore
 import com.glycemicgpt.mobile.data.local.dao.RawHistoryLogDao
@@ -11,6 +12,7 @@ import com.glycemicgpt.mobile.domain.model.CgmReading
 import com.glycemicgpt.mobile.domain.model.CgmTrend
 import com.glycemicgpt.mobile.domain.model.ConnectionState
 import com.glycemicgpt.mobile.domain.model.PumpActivityMode
+import com.glycemicgpt.mobile.domain.model.GlucoseUnit
 import com.glycemicgpt.mobile.domain.model.HistoryLogRecord
 import com.glycemicgpt.mobile.domain.model.IoBReading
 import com.glycemicgpt.mobile.domain.model.ReservoirReading
@@ -78,6 +80,9 @@ class PumpPollingOrchestratorTest {
     }
     private val safetyLimitsStore = mockk<SafetyLimitsStore>(relaxed = true)
     private val historyLogParser = mockk<HistoryLogParser>(relaxed = true)
+    private val appSettingsStore = mockk<AppSettingsStore>(relaxed = true) {
+        every { glucoseUnit } returns GlucoseUnit.MGDL
+    }
 
     /**
      * Time to advance past the fast loop's initial delay + stagger + margin.
@@ -101,7 +106,7 @@ class PumpPollingOrchestratorTest {
     /** Alias for tests that only need fast loop data. */
     private val SETTLE_TIME_MS = FAST_SETTLE_MS
 
-    private fun createOrchestrator() = PumpPollingOrchestrator(pumpDriver, repository, syncEnqueuer, rawHistoryLogDao, wearDataSender, glucoseRangeStore, safetyLimitsStore, historyLogParser)
+    private fun createOrchestrator() = PumpPollingOrchestrator(pumpDriver, repository, syncEnqueuer, rawHistoryLogDao, wearDataSender, glucoseRangeStore, safetyLimitsStore, historyLogParser, appSettingsStore)
 
     @Test
     fun `does not poll when disconnected`() = runTest {
@@ -336,6 +341,30 @@ class PumpPollingOrchestratorTest {
         advanceTimeBy(PumpPollingOrchestrator.INTERVAL_FAST_MS)
 
         coVerify(exactly = 1) { wearDataSender.sendAlert("low", 65, any(), any()) }
+        orchestrator.stop()
+    }
+
+    @Test
+    fun `watch CGM and alert render in the user's mmol unit`() = runTest {
+        every { appSettingsStore.glucoseUnit } returns GlucoseUnit.MMOL
+        val orchestrator = createOrchestrator()
+        orchestrator.start(this)
+
+        connectionStateFlow.value = ConnectionState.CONNECTED
+        advanceTimeBy(SETTLE_TIME_MS) // initial poll: 120 mg/dL = normal
+
+        // Raw mg/dL stays on the wire; the unit flag tells the watch how to render it.
+        coVerify(atLeast = 1) {
+            wearDataSender.sendCgm(120, any(), any(), any(), any(), any(), any(), GlucoseUnit.MMOL)
+        }
+
+        // Drop to a low reading -> the pre-formatted watch alert message is in mmol/L (65 -> 3.6)
+        coEvery { pumpDriver.getCgmStatus() } returns Result.success(
+            CgmReading(glucoseMgDl = 65, trendArrow = CgmTrend.SINGLE_DOWN, timestamp = Instant.now()),
+        )
+        advanceTimeBy(PumpPollingOrchestrator.INTERVAL_FAST_MS)
+
+        coVerify(exactly = 1) { wearDataSender.sendAlert("low", 65, any(), "LOW 3.6 mmol/L") }
         orchestrator.stop()
     }
 

@@ -1,5 +1,6 @@
 package com.glycemicgpt.weardevice.data
 
+import com.glycemicgpt.weardevice.util.GlucoseUnit
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -22,6 +23,7 @@ class WatchDataRepositoryTest {
             showIoB = true, showGraph = true, showAlert = true,
             showSeconds = false, graphRangeHours = 3, theme = "dark",
         )
+        WatchDataRepository.updateGlucoseUnit(GlucoseUnit.MGDL)
         WatchDataRepository.clearChat()
     }
 
@@ -192,6 +194,22 @@ class WatchDataRepositoryTest {
     }
 
     // --- clearAlert tests ---
+
+    // --- Glucose unit tests ---
+
+    @Test
+    fun `glucoseUnit is MGDL after reset`() {
+        assertEquals(GlucoseUnit.MGDL, WatchDataRepository.glucoseUnit.value)
+    }
+
+    @Test
+    fun `updateGlucoseUnit updates the glucose unit flow`() {
+        WatchDataRepository.updateGlucoseUnit(GlucoseUnit.MMOL)
+        assertEquals(GlucoseUnit.MMOL, WatchDataRepository.glucoseUnit.value)
+
+        WatchDataRepository.updateGlucoseUnit(GlucoseUnit.MGDL)
+        assertEquals(GlucoseUnit.MGDL, WatchDataRepository.glucoseUnit.value)
+    }
 
     @Test
     fun `clearAlert clears active alert`() {

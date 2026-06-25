@@ -22,6 +22,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.units import format_glucose
 from src.logging_config import get_logger
 from src.models.glucose import GlucoseReading
 from src.models.telegram_link import TelegramLink
@@ -29,6 +30,7 @@ from src.models.user import User, UserRole
 from src.services.alert_notifier import trend_description
 from src.services.brief_notifier import format_brief_message
 from src.services.daily_brief import list_briefs
+from src.services.glucose_unit import resolve_glucose_unit
 from src.services.iob_projection import get_iob_projection, get_user_dia
 from src.services.predictive_alerts import acknowledge_alert, get_active_alerts
 
@@ -111,10 +113,11 @@ async def _handle_status(db: AsyncSession, user_id: uuid.UUID) -> str:
     if reading is None:
         return "\u2139\ufe0f No glucose data available yet."
 
+    unit = await resolve_glucose_unit(db, user_id)
     lines = [
         "\U0001f4ca <b>Current Status</b>",
         "",
-        f"\U0001f3af <b>Glucose:</b> {reading.value:.0f} mg/dL",
+        f"\U0001f3af <b>Glucose:</b> {format_glucose(reading.value, unit)}",
         f"\U0001f4c8 <b>Trend:</b> {trend_description(reading.trend_rate)}",
         f"\U0001f551 <b>Reading:</b> {_reading_age(reading.reading_timestamp)}",
     ]
@@ -170,7 +173,8 @@ async def _handle_brief(db: AsyncSession, user_id: uuid.UUID) -> str:
     if not briefs:
         return "\u2139\ufe0f No daily briefs available yet."
 
-    return format_brief_message(briefs[0])
+    unit = await resolve_glucose_unit(db, user_id)
+    return format_brief_message(briefs[0], unit)
 
 
 def _handle_help() -> str:

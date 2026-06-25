@@ -9,15 +9,36 @@ correction analysis, and chat all share the same context pipeline.
 """
 
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from functools import partial
+from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.units import (
+    GlucoseUnit,
+    format_correction_factor_value,
+    format_glucose,
+    format_glucose_range,
+    format_glucose_value,
+)
 from src.logging_config import get_logger
 from src.services.alert_notifier import trend_description
+from src.services.glucose_citation import verify_glucose_citations
 from src.services.iob_projection import get_iob_projection, get_user_dia
+from src.services.meal_citation import AllowedCarb, verify_carb_citations
+from src.services.meal_intelligence import is_meal_intelligence_enabled
+from src.vision.carb_contract import (
+    MEAL_ESTIMATE_QUALIFIER,
+    NEVER_DOSE_PROHIBITION,
+    find_dosing_violations,
+)
+
+if TYPE_CHECKING:
+    from src.models.food_record import FoodRecord
 
 logger = get_logger(__name__)
 
@@ -25,6 +46,25 @@ logger = get_logger(__name__)
 GLUCOSE_CONTEXT_HOURS = 6
 PUMP_CONTEXT_HOURS = 6
 CONTROL_IQ_SUMMARY_HOURS = 24
+# Long-acting (basal) injections are typically once or twice daily, so the
+# short pump-activity window misses them most of the day. Look back far enough
+# to surface the active basal dose + timing for overnight-pattern analysis.
+BASAL_INJECTION_CONTEXT_HOURS = 30
+
+# Logged-meal context (meal-intelligence feature). A bounded window
+# and record cap keep the prompt lean -- enough to reflect on recent eating
+# without bloating context. People log a handful of meals a day, so ~48h / 10
+# records covers "what have I been eating lately" for chat.
+MEAL_CONTEXT_HOURS = 48
+MEAL_MAX_RECORDS = 10
+# Above this age, a meal line shows a wall-clock day/time instead of "Nh ago" --
+# "73h ago" is harder to place than "Mon 19:30". Independent of the fetch window
+# so a longer-period brief still renders old meals readably.
+MEAL_RELATIVE_TIME_MAX_HOURS = 48
+# Per-meal description cap for prompt rendering. Persisted descriptions are
+# already bounded (food_vision._MAX_DESCRIPTION_CHARS), but the context block is
+# leaner and a smaller cap keeps the prompt-injection surface small.
+MEAL_DESCRIPTION_MAX_LEN = 120
 
 # Maximum readings to fetch for glucose context
 GLUCOSE_MAX_READINGS = 72  # ~6 hours of 5-min CGM readings
@@ -67,8 +107,13 @@ class PumpProfileSummary:
 async def build_glucose_section(
     db: AsyncSession,
     user_id: uuid.UUID,
+    unit: GlucoseUnit = GlucoseUnit.MGDL,
 ) -> str | None:
-    """Build glucose summary section from recent CGM readings."""
+    """Build glucose summary section from recent CGM readings.
+
+    Glucose numbers render in ``unit``; the time-in-range membership test stays
+    in canonical mg/dL and only the displayed range bounds convert.
+    """
     from src.models.glucose import GlucoseReading
     from src.models.target_glucose_range import TargetGlucoseRange
     from src.services.cgm_source import (
@@ -120,9 +165,12 @@ async def build_glucose_section(
 
     lines = [
         f"[Glucose - last {GLUCOSE_CONTEXT_HOURS}h]",
-        f"- Current: {latest.value} mg/dL ({trend})",
-        f"- Range: {min_val}-{max_val} mg/dL, Avg: {avg_val:.0f} mg/dL",
-        f"- Time in range ({low:.0f}-{high:.0f}): {tir_pct:.0f}%",
+        f"- Current: {format_glucose(latest.value, unit)} ({trend})",
+        f"- Range: {format_glucose_range(min_val, max_val, unit)}, "
+        f"Avg: {format_glucose(avg_val, unit)}",
+        f"- Time in range "
+        f"({format_glucose_value(low, unit)}-{format_glucose_value(high, unit)}): "
+        f"{tir_pct:.0f}%",
         f"- Readings: {len(readings)}",
     ]
     return "\n".join(lines)
@@ -153,11 +201,32 @@ async def build_pump_section(
     user_id: uuid.UUID,
 ) -> str | None:
     """Build pump activity section from recent pump events."""
-    from src.models.pump_data import PumpEventType
+    from src.models.pump_data import PumpEvent, PumpEventType
     from src.services.tandem_sync import get_pump_events
 
     events = await get_pump_events(db, user_id, hours=PUMP_CONTEXT_HOURS, limit=500)
-    if not events:
+
+    # Long-acting (basal) injection lookback -- a once/twice-daily MDI dose
+    # falls outside the short pump-activity window most of the time, but the AI
+    # needs the active basal dose + timing for overnight-pattern analysis.
+    # Fetched over a wider window, independent of the 6h activity events above.
+    basal_inj_cutoff = datetime.now(UTC) - timedelta(
+        hours=BASAL_INJECTION_CONTEXT_HOURS
+    )
+    basal_inj_result = await db.execute(
+        select(PumpEvent)
+        .where(
+            PumpEvent.user_id == user_id,
+            PumpEvent.event_type == PumpEventType.BASAL_INJECTION,
+            PumpEvent.event_timestamp >= basal_inj_cutoff,
+            PumpEvent.units.is_not(None),
+        )
+        .order_by(PumpEvent.event_timestamp.desc())
+        .limit(5)
+    )
+    basal_injections = list(basal_inj_result.scalars().all())
+
+    if not events and not basal_injections:
         return None
 
     manual_bolus_count = 0
@@ -189,23 +258,535 @@ async def build_pump_section(
         elif event.event_type == PumpEventType.SUSPEND:
             suspend_count += 1
 
-    lines = [
-        f"[Pump Activity - last {PUMP_CONTEXT_HOURS}h]",
-        f"- Manual boluses: {manual_bolus_count} ({manual_bolus_units:.1f}u total)",
-        f"- Auto-corrections (Control-IQ): {auto_correction_count} ({auto_correction_units:.1f}u total)",
-        f"- Basal adjustments: {basal_increase_count} increases, {basal_decrease_count} decreases",
-    ]
-    if suspend_count:
-        lines.append(f"- Suspends: {suspend_count}")
-    if last_auto_correction:
-        minutes_ago = int(
-            (datetime.now(UTC) - last_auto_correction.event_timestamp).total_seconds()
-            / 60
+    lines: list[str] = []
+    if events:
+        lines.extend(
+            [
+                f"[Pump Activity - last {PUMP_CONTEXT_HOURS}h]",
+                f"- Manual boluses: {manual_bolus_count} ({manual_bolus_units:.1f}u total)",
+                f"- Auto-corrections (Control-IQ): {auto_correction_count} ({auto_correction_units:.1f}u total)",
+                f"- Basal adjustments: {basal_increase_count} increases, {basal_decrease_count} decreases",
+            ]
         )
+        if suspend_count:
+            lines.append(f"- Suspends: {suspend_count}")
+        if last_auto_correction:
+            minutes_ago = int(
+                (
+                    datetime.now(UTC) - last_auto_correction.event_timestamp
+                ).total_seconds()
+                / 60
+            )
+            lines.append(
+                f"- Last auto-correction: {last_auto_correction.units or 0:.1f}u ({minutes_ago}min ago)"
+            )
+
+    if basal_injections:
+        now = datetime.now(UTC)
         lines.append(
-            f"- Last auto-correction: {last_auto_correction.units or 0:.1f}u ({minutes_ago}min ago)"
+            f"[Long-acting (basal) injections - last {BASAL_INJECTION_CONTEXT_HOURS}h]"
         )
+        for inj in basal_injections:
+            hours_ago = (now - inj.event_timestamp).total_seconds() / 3600
+            # Glooko writes `medication`; Nightscout writes `insulin_type`.
+            meta = inj.metadata_json or {}
+            med = meta.get("medication") or meta.get("insulin_type")
+            med_label = f"{med} " if med else ""
+            lines.append(f"- {med_label}{inj.units or 0:.1f}u ({hours_ago:.0f}h ago)")
+
     return "\n".join(lines)
+
+
+# ── Logged-meal context ──
+
+# Framing that introduces logged meals to the model. The AI is a mirror and an
+# interviewer here, never an advisor (the mirror-and-interviewer charter): it
+# reflects the meals back and asks open questions, and it NEVER turns a meal's
+# carb estimate into dosing guidance. The carb figures are rough AI guesses --
+# the user must never be told it is OK to dose or bolus from them (we never use
+# "verify before dosing", which implies dosing off the estimate is fine).
+_MEAL_GUIDANCE = (
+    "These are meals the user logged. The carb figures are rough AI photo "
+    "estimates -- often wrong, are NOT dosing inputs, and the user must never "
+    "use them to dose or bolus. Reflect these meals back to the user and ask "
+    'open questions about them (for example, "you logged a high-carb dinner -- '
+    'how did that sit with you?"). Never tell the user how much to take or what '
+    "to eat, never give treatment advice about a meal, and never imply the "
+    "estimate is safe to dose from."
+)
+
+
+def _meal_carb_range(record: "FoodRecord") -> tuple[float, float, bool]:
+    """Return ``(low, high, is_corrected)`` for a food record.
+
+    Prefers the user's corrected carb values when present -- a correction is the
+    user's own truth and supersedes the original AI estimate. Returns whether the
+    corrected values were used so the rendered line can label them honestly.
+
+    Corrected values are written as a pair (the ``ck_food_records_corrected_carb_range``
+    constraint enforces both-or-neither), so a correction is only honored when
+    both bounds are set; a half-populated value falls back to the AI estimate.
+    """
+    low = record.corrected_carbs_low
+    high = record.corrected_carbs_high
+    if low is not None and high is not None:
+        return low, high, True
+    return record.carbs_low, record.carbs_high, False
+
+
+# Substrings that signal a prompt-injection attempt rather than a food name --
+# instruction-override phrasing, chat role markers, special-token / code-fence
+# delimiters. A real food description never contains these, so their presence is
+# treated as adversarial and the description is dropped to a neutral fallback.
+_PROMPT_INJECTION_MARKERS = (
+    "ignore previous",
+    "ignore all previous",
+    "ignore the above",
+    "disregard previous",
+    "system:",
+    "assistant:",
+    "developer:",
+    "<|",
+    "|>",
+    "```",
+)
+
+
+def _safe_meal_description(raw: str | None) -> str:
+    """Sanitize a food description for embedding in an AI prompt.
+
+    Defense-in-depth: a description is user/AI-controlled and lands in the system
+    prompt. Persisted descriptions are already scrubbed of dosing language at
+    write time (``food_vision``), but we re-check here -- if any dosing phrasing
+    or prompt-injection marker slips through we drop the description to a neutral
+    fallback rather than let it reach the model (mirror-and-interviewer charter). Length is
+    capped to keep the prompt lean and the injection surface small.
+    """
+    description = _sanitize_for_prompt(raw or "")
+    if not description or find_dosing_violations(description):
+        return "logged meal"
+    lowered = description.lower()
+    if any(marker in lowered for marker in _PROMPT_INJECTION_MARKERS):
+        return "logged meal"
+    if len(description) > MEAL_DESCRIPTION_MAX_LEN:
+        description = description[:MEAL_DESCRIPTION_MAX_LEN].rstrip() + "..."
+    return description
+
+
+def _meal_when_token(record: "FoodRecord", now: datetime) -> str:
+    """Render the relative/absolute time token for a logged meal.
+
+    Shared by the rendered meal context and the citation allow-set so the output
+    verifier's timestamp guard compares the exact
+    token the model saw. ``meal_timestamp`` is tz-aware in normal operation
+    (``DateTime(timezone=True)``); a naive value is normalized defensively so the
+    subtraction can't raise and silently drop the meal.
+    """
+    meal_ts = record.meal_timestamp
+    if meal_ts.tzinfo is None:
+        meal_ts = meal_ts.replace(tzinfo=UTC)
+    hours_ago = (now - meal_ts).total_seconds() / 3600
+    if 0 <= hours_ago < MEAL_RELATIVE_TIME_MAX_HOURS:
+        return f"{hours_ago:.0f}h ago"
+    return meal_ts.strftime("%a %H:%M")
+
+
+def _format_meal_line(record: "FoodRecord", now: datetime) -> str:
+    """Render one logged meal as a descriptive, non-prescriptive context line.
+
+    Every line carries the "never use it to dose or bolus" qualifier so the carb
+    figure is read as an AI guess, never as something to dose from.
+    """
+    low, high, corrected = _meal_carb_range(record)
+    description = _safe_meal_description(record.food_description)
+    when = _meal_when_token(record, now)
+    qualifier = (
+        f"user-corrected estimate — {NEVER_DOSE_PROHIBITION}"
+        if corrected
+        else MEAL_ESTIMATE_QUALIFIER
+    )
+    return f"- {description}: ~{low:g}-{high:g}g carbs ({qualifier}) [{when}]"
+
+
+def _format_meals_block(header: str, records: list["FoodRecord"], now: datetime) -> str:
+    """Assemble a meal context block: header, charter framing, then meal lines."""
+    lines = [header, _MEAL_GUIDANCE]
+    lines.extend(_format_meal_line(r, now) for r in records)
+    return "\n".join(lines)
+
+
+async def _fetch_meal_records(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    *,
+    start: datetime,
+    end: datetime | None,
+) -> list["FoodRecord"]:
+    """Fetch a user's logged meals in ``[start, end)`` (open end if ``end`` is None).
+
+    Single source of the meal query so the rendered context and the citation
+    allow-set always read the same rows -- the verifier can
+    only trust a number if the context that produced it used identical records.
+    Ordered newest-first and capped at ``MEAL_MAX_RECORDS``.
+    """
+    from src.models.food_record import FoodRecord
+
+    conditions = [
+        FoodRecord.user_id == user_id,
+        FoodRecord.meal_timestamp >= start,
+    ]
+    if end is not None:
+        conditions.append(FoodRecord.meal_timestamp < end)
+    result = await db.execute(
+        select(FoodRecord)
+        .where(*conditions)
+        .order_by(FoodRecord.meal_timestamp.desc())
+        .limit(MEAL_MAX_RECORDS)
+    )
+    return list(result.scalars().all())
+
+
+async def build_meals_section(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+) -> str | None:
+    """Build the recent-logged-meals section for chat context.
+
+    Pulls the user's most recent food records within a bounded window so chat can
+    reference what they ate. Descriptive only: the carb range is presented as an
+    estimate to verify, never as a dosing input (meal-intelligence safety posture). The
+    caller only invokes this when ``meal_intelligence_enabled`` is on.
+    """
+    now = datetime.now(UTC)
+    cutoff = now - timedelta(hours=MEAL_CONTEXT_HOURS)
+    records = await _fetch_meal_records(db, user_id, start=cutoff, end=None)
+    if not records:
+        return None
+
+    return _format_meals_block(
+        f"[Logged meals - last {MEAL_CONTEXT_HOURS}h]",
+        records,
+        now,
+    )
+
+
+async def format_meals_for_brief(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    period_start: datetime,
+    period_end: datetime,
+) -> str | None:
+    """Build the logged-meals block for a daily brief's analysis period.
+
+    Mirrors ``build_meals_section`` but scopes to the brief's window so the brief
+    references the meals logged in the period it summarizes. Same descriptive,
+    never-dose-or-bolus framing; never a dosing input. The caller only invokes
+    this when ``meal_intelligence_enabled`` is on.
+    """
+    records = await _fetch_meal_records(db, user_id, start=period_start, end=period_end)
+    if not records:
+        return None
+
+    # Anchor relative timestamps to the period's end (the brief's "as of"), not
+    # the moment of generation -- a brief produced hours after the window closes
+    # would otherwise render in-period meals as misleadingly old.
+    return _format_meals_block("[Logged meals this period]", records, period_end)
+
+
+async def build_allowed_carbs(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    *,
+    window_start: datetime,
+    window_end: datetime | None,
+    now: datetime,
+) -> list[AllowedCarb]:
+    """Build the set of carb figures the model was allowed to cite.
+
+    Reads the same rows the context rendered (``_fetch_meal_records``) and the
+    same per-record carb range (``_meal_carb_range`` -- corrected values
+    preferred), so the output verifier's truth and the context the model saw
+    can't diverge (AC3). The allowed numbers come only from the carb columns,
+    never from ``food_description``, so a prompt-injected figure in a description
+    can never mint an allowed value.
+    """
+    records = await _fetch_meal_records(db, user_id, start=window_start, end=window_end)
+    allowed: list[AllowedCarb] = []
+    for record in records:
+        low, high, _ = _meal_carb_range(record)
+        allowed.append(
+            AllowedCarb(low=low, high=high, when=_meal_when_token(record, now))
+        )
+    return allowed
+
+
+async def verify_meal_citations(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    content: str,
+    *,
+    surface: str,
+    window_start: datetime | None = None,
+    window_end: datetime | None = None,
+    now: datetime | None = None,
+) -> str:
+    """Verify carb figures in a model response against the user's logged meals.
+
+    The single output-side choke-point for chat and the daily
+    brief. Inert when ``meal_intelligence_enabled`` is off. ``window_start``
+    defaults to the chat meal window (``now - MEAL_CONTEXT_HOURS``); the brief
+    passes its period bounds and anchors ``now`` to ``period_end`` so the time
+    tokens match what it rendered.
+
+    Fail-closed on the allow-set: if the records can't be read, the allow-set is
+    empty and every carb figure is scrubbed -- we never emit a number we couldn't
+    verify. A verifier exception (should be impossible on ``str`` input) returns
+    the content unchanged rather than break the reply; the model's *input* was
+    already scrubbed by the context layer. Logs PHI-free counts only (AC6).
+    """
+    if not content or not await is_meal_intelligence_enabled(db, user_id):
+        return content
+
+    now = now or datetime.now(UTC)
+    if window_start is None:
+        window_start = now - timedelta(hours=MEAL_CONTEXT_HOURS)
+
+    try:
+        allowed = await build_allowed_carbs(
+            db,
+            user_id,
+            window_start=window_start,
+            window_end=window_end,
+            now=now,
+        )
+    except Exception:
+        logger.warning(
+            "Meal citation allow-set build failed; scrubbing unverifiable figures",
+            surface=surface,
+            user_id=str(user_id),
+            exc_info=True,
+        )
+        allowed = []  # fail closed -> every carb figure is scrubbed
+
+    try:
+        outcome = verify_carb_citations(content, allowed)
+    except Exception:
+        logger.warning(
+            "Meal citation verification raised; returning content unchanged",
+            surface=surface,
+            user_id=str(user_id),
+            exc_info=True,
+        )
+        return content
+
+    if outcome.changed:
+        logger.info(
+            "Meal citation rewrite",
+            surface=surface,
+            seen=outcome.citations_seen,
+            matched=outcome.citations_matched,
+            corrected=outcome.citations_corrected,
+            scrubbed=outcome.citations_scrubbed,
+            timestamp_mismatches=outcome.timestamp_mismatches,
+        )
+    return outcome.text
+
+
+@dataclass(frozen=True)
+class GlucoseAllowSet:
+    """The glucose figures a model response may cite for a window.
+
+    ``match`` is every value a cited figure may verify against: the user's
+    distinct readings plus the rendered aggregates (window average, target
+    bounds) and any surface-specific ``extra`` figures the prompt also showed.
+    ``readings`` is the distinct real readings alone -- the referent basis for
+    single-reading correction, kept separate so the padded aggregates can't mask
+    a flat-line user as multi-referent.
+    """
+
+    match: list[int]
+    readings: list[int]
+
+
+async def build_allowed_glucose(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    *,
+    window_start: datetime,
+    window_end: datetime | None = None,
+    limit: int | None = None,
+    extra: Sequence[float] = (),
+) -> GlucoseAllowSet:
+    """Build the set of glucose figures the model was allowed to cite for a window.
+
+    The allow-set is the user's real ``GlucoseReading`` values (canonical mg/dL,
+    primary-CGM-only and ``20-500``-filtered, exactly as ``build_glucose_section``
+    selects them) plus the rendered aggregates the model also saw: the window
+    average and the configured target-range bounds. A figure the model utters that
+    matches one of these within the display band traces to real data; anything
+    else is an invention.
+
+    ``limit`` selects the newest N readings (matching ``build_glucose_section``'s
+    cap for chat) so the allow-set average equals the one the model was shown;
+    surfaces whose prompt computes the average differently (the daily brief) or
+    renders derived figures/constants (the correction and meal analyses) pass
+    those exact values via ``extra`` instead. Returns distinct values so a busy
+    window can't bloat the comparison set.
+    """
+    from src.models.glucose import GlucoseReading
+    from src.models.target_glucose_range import TargetGlucoseRange
+    from src.services.cgm_source import (
+        get_excluded_cgm_sources,
+        glucose_source_exclusion_clause,
+    )
+
+    excluded = await get_excluded_cgm_sources(db, user_id)
+    conditions = [
+        GlucoseReading.user_id == user_id,
+        GlucoseReading.reading_timestamp >= window_start,
+        *glucose_source_exclusion_clause(excluded),
+    ]
+    if window_end is not None:
+        conditions.append(GlucoseReading.reading_timestamp < window_end)
+
+    stmt = select(GlucoseReading.value).where(*conditions)
+    if limit is not None:
+        stmt = stmt.order_by(GlucoseReading.reading_timestamp.desc()).limit(limit)
+    result = await db.execute(stmt)
+    values = [value for (value,) in result if 20 <= value <= 500]
+
+    readings = sorted(set(values))
+    match: set[int] = set(readings)
+    if values:
+        # Mirrors ``build_glucose_section``'s ``sum(values) / len(values)`` so the
+        # rendered average lands in the allow-set; the +/-1 band absorbs the
+        # display rounding.
+        match.add(round(sum(values) / len(values)))
+
+    target = (
+        await db.execute(
+            select(TargetGlucoseRange).where(TargetGlucoseRange.user_id == user_id)
+        )
+    ).scalar_one_or_none()
+    match.add(int(target.low_target if target else DEFAULT_LOW_TARGET))
+    match.add(int(target.high_target if target else DEFAULT_HIGH_TARGET))
+
+    # The model is also shown the user's configured thresholds -- pump-profile
+    # segment targets and the CGM high/low alert levels (rendered into every chat
+    # prompt by build_diabetes_context and into the analysis prompts) -- so a
+    # reply faithfully restating one is not an invention and must not be scrubbed.
+    # Fetched fail-soft: a profile read error must not empty the allow-set (which
+    # would fail-closed scrub every figure in chat). Non-configured clinical
+    # anchors (54, 250...) are deliberately NOT seeded -- the directive/threshold
+    # exemption already passes those through, and seeding them as always-citable
+    # would mask a genuine misquote that happens to equal an anchor.
+    try:
+        profile = await get_pump_profile_summary(db, user_id)
+    except Exception:
+        logger.warning(
+            "Pump-profile fetch for glucose allow-set failed",
+            user_id=str(user_id),
+            exc_info=True,
+        )
+        profile = None
+    if profile is not None:
+        thresholds = [segment.target_bg for segment in profile.segments]
+        thresholds += [profile.cgm_high_alert_mgdl, profile.cgm_low_alert_mgdl]
+        for value in thresholds:
+            if value is not None and 20 <= value <= 500:
+                match.add(int(round(value)))
+
+    # Surface-specific rendered figures (a brief's exact average, an analysis'
+    # post-correction target / average glucose drop). Zero/empty placeholders are
+    # skipped -- they are "no data", not a citable figure.
+    for value in extra:
+        if value and value > 0:
+            match.add(int(round(value)))
+
+    return GlucoseAllowSet(match=sorted(match), readings=readings)
+
+
+async def verify_glucose_reading_citations(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    content: str,
+    *,
+    surface: str,
+    unit: GlucoseUnit | None = None,
+    window_start: datetime | None = None,
+    window_end: datetime | None = None,
+    extra: Sequence[float] = (),
+) -> str:
+    """Verify glucose figures in a model response against the user's readings.
+
+    The output-side choke-point for chat and the daily brief: it corrects or
+    scrubs any spoken glucose number that doesn't trace to the user's data,
+    mirroring the carb verifier at the same call sites so a single reply never
+    handles its glucose and carb figures with two different models. ``window_start``
+    defaults to the chat glucose window (``now - GLUCOSE_CONTEXT_HOURS``), and in
+    that default case the allow-set is capped to ``GLUCOSE_MAX_READINGS`` to match
+    what ``build_glucose_section`` rendered; callers with their own period pass it
+    (and their exact aggregates via ``extra``). ``unit`` is resolved from the data
+    owner when not supplied.
+
+    Fail-closed on the allow-set (a read failure scrubs every figure -- we never
+    emit a glucose number we couldn't verify), matching ``verify_meal_citations``.
+    A verifier exception (should be impossible on ``str`` input) returns the
+    content unchanged. Logs PHI-free counts only.
+    """
+    if not content:
+        return content
+
+    now = datetime.now(UTC)
+    limit: int | None = None
+    if window_start is None:
+        window_start = now - timedelta(hours=GLUCOSE_CONTEXT_HOURS)
+        limit = GLUCOSE_MAX_READINGS  # match build_glucose_section's chat cap
+    if unit is None:
+        from src.services.glucose_unit import resolve_glucose_unit
+
+        unit = await resolve_glucose_unit(db, user_id)
+
+    try:
+        allow = await build_allowed_glucose(
+            db,
+            user_id,
+            window_start=window_start,
+            window_end=window_end,
+            limit=limit,
+            extra=extra,
+        )
+        records, referents = allow.match, allow.readings
+    except Exception:
+        logger.warning(
+            "Glucose citation allow-set build failed; scrubbing unverifiable figures",
+            surface=surface,
+            user_id=str(user_id),
+            exc_info=True,
+        )
+        records, referents = [], []  # fail closed -> every glucose figure is scrubbed
+
+    try:
+        outcome = verify_glucose_citations(content, records, unit, referents=referents)
+    except Exception:
+        logger.warning(
+            "Glucose citation verification raised; returning content unchanged",
+            surface=surface,
+            user_id=str(user_id),
+            exc_info=True,
+        )
+        return content
+
+    if outcome.changed:
+        logger.info(
+            "Glucose citation rewrite",
+            surface=surface,
+            seen=outcome.citations_seen,
+            matched=outcome.citations_matched,
+            corrected=outcome.citations_corrected,
+            scrubbed=outcome.citations_scrubbed,
+        )
+    return outcome.text
 
 
 async def build_control_iq_section(
@@ -248,8 +829,13 @@ async def build_control_iq_section(
 async def build_settings_section(
     db: AsyncSession,
     user_id: uuid.UUID,
+    unit: GlucoseUnit = GlucoseUnit.MGDL,
 ) -> str | None:
-    """Build user settings section (target range, insulin config)."""
+    """Build user settings section (target range, insulin config).
+
+    The glucose target range renders in ``unit``; insulin config (DIA, onset)
+    is unit-agnostic and unchanged.
+    """
     from src.models.insulin_config import InsulinConfig
     from src.models.target_glucose_range import TargetGlucoseRange
 
@@ -261,7 +847,10 @@ async def build_settings_section(
     target_range = range_result.scalar_one_or_none()
     if target_range:
         parts.append(
-            f"- Target range: {target_range.low_target:.0f}-{target_range.high_target:.0f} mg/dL"
+            "- Target range: "
+            + format_glucose_range(
+                target_range.low_target, target_range.high_target, unit
+            )
         )
 
     config_result = await db.execute(
@@ -283,6 +872,7 @@ async def build_settings_section(
 async def build_pump_profile_section(
     db: AsyncSession,
     user_id: uuid.UUID,
+    unit: GlucoseUnit = GlucoseUnit.MGDL,
 ) -> str | None:
     """Build pump profile section from the active Tandem pump profile.
 
@@ -292,7 +882,7 @@ async def build_pump_profile_section(
     summary = await get_pump_profile_summary(db, user_id)
     if not summary:
         return None
-    return format_pump_profile_for_prompt(summary)
+    return format_pump_profile_for_prompt(summary, unit)
 
 
 # ── Composite context builder ──
@@ -329,6 +919,7 @@ async def build_diabetes_context(
     db: AsyncSession,
     user_id: uuid.UUID,
     query: str | None = None,
+    unit: GlucoseUnit = GlucoseUnit.MGDL,
 ) -> str:
     """Build comprehensive diabetes context from all available data.
 
@@ -341,24 +932,35 @@ async def build_diabetes_context(
         db: Database session.
         user_id: User's UUID.
         query: Optional user question for knowledge retrieval.
+        unit: The data owner's glucose display unit. Glucose-rendering sections
+            convert to it; all stored values and metric math stay mg/dL.
 
     Returns:
         A formatted string describing all available diabetes data,
         or a fallback message if no data is available.
     """
+    # Each builder is bound to its arguments here so the dispatch loop stays
+    # uniform while only the glucose-rendering sections receive the user's unit
+    # (IoB, pump activity, Control-IQ and meals carry no glucose values).
     builders: list[tuple[str, object]] = [
-        ("glucose", build_glucose_section),
-        ("iob", build_iob_section),
-        ("pump", build_pump_section),
-        ("control_iq", build_control_iq_section),
-        ("settings", build_settings_section),
-        ("pump_profile", build_pump_profile_section),
+        ("glucose", partial(build_glucose_section, db, user_id, unit)),
+        ("iob", partial(build_iob_section, db, user_id)),
+        ("pump", partial(build_pump_section, db, user_id)),
+        ("control_iq", partial(build_control_iq_section, db, user_id)),
+        ("settings", partial(build_settings_section, db, user_id, unit)),
+        ("pump_profile", partial(build_pump_profile_section, db, user_id, unit)),
     ]
+
+    # Logged meals are only surfaced when the meal-intelligence feature is on
+    # Gated here -- not inside the builder -- so the feature stays
+    # fully invisible (no query, no section) while the flag is off.
+    if await is_meal_intelligence_enabled(db, user_id):
+        builders.append(("meals", partial(build_meals_section, db, user_id)))
 
     sections: list[str] = []
     for name, builder in builders:
         try:
-            section = await builder(db, user_id)
+            section = await builder()
             if section:
                 sections.append(section)
         except Exception:
@@ -452,21 +1054,31 @@ def _sanitize_for_prompt(value: str) -> str:
     return value.replace("\n", " ").replace("\r", " ").strip()
 
 
-def format_pump_profile_for_prompt(summary: PumpProfileSummary) -> str:
+def format_pump_profile_for_prompt(
+    summary: PumpProfileSummary,
+    unit: GlucoseUnit = GlucoseUnit.MGDL,
+) -> str:
     """Format a pump profile summary as a text block for AI prompts.
 
     Includes all segments with basal rates, correction factors, carb ratios,
     and target BG values. Also includes insulin duration, max bolus, and
     CGM alert thresholds.
+
+    Glucose-valued fields render in ``unit``: the segment target BG, the CGM
+    high/low alert thresholds, and the correction factor (``CF 1:X`` -- a glucose
+    drop per insulin unit, the same quantity as the observed ISF, so it stays on
+    the same scale the analysis prompt compares it against). The carb ratio
+    (``CR 1:X``) is grams per unit, not a glucose quantity, and never converts.
     """
     safe_name = _sanitize_for_prompt(summary.profile_name)
     lines = [f'[Pump Profile - "{safe_name}" (active)]']
     for seg in summary.segments:
         safe_time = _sanitize_for_prompt(seg.time)
+        cf = format_correction_factor_value(seg.correction_factor, unit)
         lines.append(
             f"- {safe_time}: Basal {seg.basal_rate:.3f} u/hr, "
-            f"CF 1:{seg.correction_factor}, CR 1:{seg.carb_ratio:g}, "
-            f"Target {seg.target_bg}"
+            f"CF 1:{cf}, CR 1:{seg.carb_ratio:g}, "
+            f"Target {format_glucose(seg.target_bg, unit)}"
         )
 
     extras = []
@@ -482,9 +1094,9 @@ def format_pump_profile_for_prompt(summary: PumpProfileSummary) -> str:
 
     alert_parts = []
     if summary.cgm_high_alert_mgdl is not None:
-        alert_parts.append(f"High {summary.cgm_high_alert_mgdl} mg/dL")
+        alert_parts.append(f"High {format_glucose(summary.cgm_high_alert_mgdl, unit)}")
     if summary.cgm_low_alert_mgdl is not None:
-        alert_parts.append(f"Low {summary.cgm_low_alert_mgdl} mg/dL")
+        alert_parts.append(f"Low {format_glucose(summary.cgm_low_alert_mgdl, unit)}")
     if alert_parts:
         lines.append(f"- CGM alerts: {', '.join(alert_parts)}")
 

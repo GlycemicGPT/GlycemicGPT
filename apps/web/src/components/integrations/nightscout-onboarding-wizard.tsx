@@ -1426,7 +1426,7 @@ function NumericRow({
               ? "border-red-500/60"
               : "border-slate-300 dark:border-slate-700",
             "text-slate-700 dark:text-slate-200",
-            "focus:outline-none focus:ring-2 focus:ring-blue-500",
+            "focus:outline-hidden focus:ring-2 focus:ring-blue-500",
             "disabled:opacity-50 disabled:cursor-not-allowed"
           )}
         />
@@ -1773,7 +1773,7 @@ const inputCls = clsx(
   "border-slate-300 dark:border-slate-700",
   "text-slate-700 dark:text-slate-200",
   "placeholder:text-slate-400 dark:placeholder:text-slate-500",
-  "focus:outline-none focus:ring-2 focus:ring-blue-500",
+  "focus:outline-hidden focus:ring-2 focus:ring-blue-500",
   "disabled:opacity-50 disabled:cursor-not-allowed"
 );
 

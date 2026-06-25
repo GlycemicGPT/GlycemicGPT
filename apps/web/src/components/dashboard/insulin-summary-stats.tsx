@@ -57,9 +57,9 @@ function safeCount(value: number): string {
 function StatSkeleton() {
   return (
     <div className="animate-pulse space-y-2">
-      <div className="h-4 w-20 bg-slate-700 rounded" />
-      <div className="h-8 w-16 bg-slate-700 rounded" />
-      <div className="h-3 w-24 bg-slate-100 dark:bg-slate-800 rounded" />
+      <div className="h-4 w-20 bg-slate-700 rounded-sm" />
+      <div className="h-8 w-16 bg-slate-700 rounded-sm" />
+      <div className="h-3 w-24 bg-slate-100 dark:bg-slate-800 rounded-sm" />
     </div>
   );
 }
@@ -70,10 +70,20 @@ interface StatCardProps {
   value: string;
   subtitle: string;
   subtitleColor?: string;
+  // Optional second subtitle line (e.g. a distinct basal-injection breakdown).
+  subtitle2?: string;
   ariaLabel: string;
 }
 
-function StatCard({ icon, label, value, subtitle, subtitleColor = "text-slate-500", ariaLabel }: StatCardProps) {
+function StatCard({
+  icon,
+  label,
+  value,
+  subtitle,
+  subtitleColor = "text-slate-500",
+  subtitle2,
+  ariaLabel,
+}: StatCardProps) {
   return (
     <div className="space-y-1" role="group" aria-label={ariaLabel}>
       <div className="flex items-center gap-2">
@@ -82,6 +92,9 @@ function StatCard({ icon, label, value, subtitle, subtitleColor = "text-slate-50
       </div>
       <p className="text-2xl font-bold text-slate-900 dark:text-white">{value}</p>
       <p className={`text-xs ${subtitleColor}`}>{subtitle}</p>
+      {subtitle2 ? (
+        <p className="text-xs text-slate-500 dark:text-slate-500">{subtitle2}</p>
+      ) : null}
     </div>
   );
 }
@@ -129,7 +142,7 @@ export function InsulinSummaryStats({ className }: InsulinSummaryStatsProps) {
           tabIndex={period === opt.value ? 0 : -1}
           onClick={() => setPeriod(opt.value)}
           onKeyDown={(e) => handlePeriodKeyDown(e, i)}
-          className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900 ${
+          className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors outline-hidden focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900 ${
             period === opt.value
               ? "bg-violet-600 text-white"
               : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
@@ -181,7 +194,7 @@ export function InsulinSummaryStats({ className }: InsulinSummaryStatsProps) {
           <button
             type="button"
             onClick={refetch}
-            className="text-violet-400 hover:text-violet-300 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900 rounded"
+            className="text-violet-400 hover:text-violet-300 text-sm font-medium outline-hidden focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900 rounded-sm"
           >
             Retry
           </button>
@@ -203,10 +216,20 @@ export function InsulinSummaryStats({ className }: InsulinSummaryStatsProps) {
           <StatCard
             icon={<Droplets className="h-4 w-4 text-sky-400" aria-hidden="true" />}
             label="Basal"
-            value={`${safeFixed1(data.basal_units)} U`}
+            // Basal therapy = pump basal rate + any long-acting (MDI) injection.
+            value={`${safeFixed1((data.basal_units ?? 0) + (data.basal_injection_units ?? 0))} U`}
             subtitle={`${safeRound(data.basal_pct)}% of TDD`}
             subtitleColor={splitAssessment?.color ?? "text-slate-500"}
-            ariaLabel={`Basal: ${safeFixed1(data.basal_units)} units per day, ${safeRound(data.basal_pct)} percent of TDD`}
+            subtitle2={
+              (data.basal_injection_units ?? 0) > 0
+                ? `incl. ${safeFixed1(data.basal_injection_units ?? 0)} U injection`
+                : undefined
+            }
+            ariaLabel={`Basal: ${safeFixed1((data.basal_units ?? 0) + (data.basal_injection_units ?? 0))} units per day, ${safeRound(data.basal_pct)} percent of TDD${
+              (data.basal_injection_units ?? 0) > 0
+                ? `, including ${safeFixed1(data.basal_injection_units ?? 0)} units long-acting injection`
+                : ""
+            }`}
           />
 
           <StatCard

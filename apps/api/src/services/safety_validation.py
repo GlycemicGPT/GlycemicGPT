@@ -6,10 +6,12 @@ ratio/factor changes stay within ±20% limits.
 """
 
 import re
+from collections.abc import Sequence
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.units import GlucoseUnit
 from src.logging_config import get_logger
 from src.models.safety_log import SafetyLog
 from src.schemas.safety_validation import (
@@ -44,35 +46,55 @@ DANGEROUS_PATTERNS = [
     r"(?i)\b(?:take|bolus|inject|give)\s+\d+\s*(?:units?|u)\b",
 ]
 
+# Glucose-unit suffix shared by the ISF patterns and the carb-ratio lookahead.
+# Both units must be accepted: when a mmol/L user's assistant is told to report
+# in mmol/L, an ISF suggestion arrives suffixed "mmol/L" instead of "mg/dL", and
+# the ±20% over-change flag must still fire (and ISF must still be distinguished
+# from a unitless carb ratio). Longer alternatives lead so "mg/dL" wins over a
+# bare "mg" and "mmol/L" over a bare "mmol".
+_GLUCOSE_UNIT_SUFFIX = r"mg/dL|mg|mmol/L|mmol"
+
+
+def _canonical_glucose_suffix(matched: str) -> str:
+    """Normalize a matched glucose-unit suffix to its canonical display label."""
+    return "mmol/L" if matched.lower().startswith("mmol") else "mg/dL"
+
+
 # Pattern to extract carb ratio suggestions like "1:8 to 1:7" or "from 1:10 to 1:8"
-# Negative lookahead excludes matches followed by mg/dL (those are ISF values)
-# (?!\d) prevents backtracking from consuming fewer digits to bypass the lookahead
+# Negative lookahead excludes matches followed by a glucose unit (mg/dL or
+# mmol/L) -- those are ISF values, not carb ratios.
+# (?!\d) prevents backtracking from consuming fewer digits to bypass the lookahead;
+# (?!\.\d) additionally stops it from truncating a *decimal* ISF (e.g. "1:2.8 to
+# 1:2.5 mmol/L") down to its integer part ("1:2") and mis-flagging it as a carb
+# ratio -- mmol/L correction factors are routinely decimals.
 CARB_RATIO_PATTERN = re.compile(
     r"(?:from\s+)?1\s*:\s*(\d+(?:\.\d+)?)\s+"
     r"(?:to|→|->)\s+"
     r"1\s*:\s*(\d+(?:\.\d+)?)"
-    r"(?!\d|\s*(?:mg/dL|mg\b))",
+    rf"(?!\d|\.\d|\s*(?:{_GLUCOSE_UNIT_SUFFIX})\b)",
     re.IGNORECASE,
 )
 
-# Pattern to extract ISF suggestions with 1:X notation requiring mg/dL suffix
-# e.g., "from 1:50 to 1:45 mg/dL" — the mg/dL suffix distinguishes ISF from carb ratios
+# Pattern to extract ISF suggestions with 1:X notation requiring a glucose-unit
+# suffix, e.g. "from 1:50 to 1:45 mg/dL" or "from 1:2.8 to 1:2.5 mmol/L" -- the
+# suffix distinguishes ISF from carb ratios. Group 3 captures the matched unit.
 ISF_PATTERN = re.compile(
     r"(?:from\s+)?1\s*:\s*(\d+(?:\.\d+)?)\s+"
     r"(?:to|→|->)\s+"
     r"(?:1\s*:\s*)?(\d+(?:\.\d+)?)"
-    r"\s*(?:mg/dL|mg)",
+    rf"\s*({_GLUCOSE_UNIT_SUFFIX})\b",
     re.IGNORECASE,
 )
 
 # ISF pattern with context keywords (does not require 1: prefix)
-# e.g., "correction factor from 50 to 45 mg/dL" or "ISF should be 50 to 45 mg/dL"
+# e.g., "correction factor from 50 to 45 mg/dL" or "ISF should be 2.8 to 2.5 mmol/L"
+# Group 3 captures the matched unit.
 ISF_CONTEXT_PATTERN = re.compile(
     r"(?:ISF|correction\s+factor|sensitivity\s+factor|CF)"
     r".*?(?:from\s+)?(\d+(?:\.\d+)?)\s+"
     r"(?:to|→|->)\s+"
     r"(\d+(?:\.\d+)?)"
-    r"\s*(?:mg/dL|mg)",
+    rf"\s*({_GLUCOSE_UNIT_SUFFIX})\b",
     re.IGNORECASE,
 )
 
@@ -153,6 +175,10 @@ def _extract_isf_changes(text: str) -> list[FlaggedSuggestion]:
         for match in pattern.finditer(text):
             original = float(match.group(1))
             suggested = float(match.group(2))
+            # The reason echoes the unit the model actually used, derived from
+            # the matched suffix -- not the configured display unit -- so the
+            # text the user reads stays consistent with what was flagged.
+            unit_label = _canonical_glucose_suffix(match.group(3))
 
             if original == 0:
                 continue
@@ -175,7 +201,7 @@ def _extract_isf_changes(text: str) -> list[FlaggedSuggestion]:
                         max_allowed_pct=MAX_CHANGE_PCT,
                         reason=(
                             f"Correction factor change of {change_pct:.0f}% "
-                            f"({original} to {suggested} mg/dL) exceeds "
+                            f"({original} to {suggested} {unit_label}) exceeds "
                             f"maximum allowed change of {MAX_CHANGE_PCT:.0f}%"
                         ),
                     )
@@ -186,6 +212,8 @@ def _extract_isf_changes(text: str) -> list[FlaggedSuggestion]:
 def validate_ai_suggestion(
     ai_text: str,
     suggestion_type: str,
+    records: Sequence[int] | None = None,
+    unit: GlucoseUnit = GlucoseUnit.MGDL,
 ) -> ValidationResult:
     """Validate an AI-generated suggestion against safety bounds.
 
@@ -193,14 +221,25 @@ def validate_ai_suggestion(
     1. Dangerous content (e.g., "double your dose")
     2. Carb ratio changes exceeding ±20%
     3. Correction factor changes exceeding ±20%
+    4. Glucose figures that don't trace to a logged reading (when ``records`` is
+       supplied)
 
     Args:
         ai_text: The AI-generated analysis text.
         suggestion_type: Type of analysis ("meal_analysis" or "correction_analysis").
+        records: Canonical mg/dL glucose readings the model was shown. When
+            provided, any spoken glucose figure that doesn't trace to one (within
+            the display-rounding band) is flagged. Omitted by callers that quote
+            no glucose data.
+        unit: The user's configured display unit (for the flag reason rendering).
 
     Returns:
         ValidationResult with status and any flagged items.
     """
+    # Imported lazily so this module can be imported without pulling in
+    # glucose_citation, which imports this module's regex patterns at top level.
+    from src.services.glucose_citation import find_glucose_citation_flags
+
     has_dangerous = _check_dangerous_content(ai_text)
     flagged_items: list[FlaggedSuggestion] = []
 
@@ -208,6 +247,16 @@ def validate_ai_suggestion(
     # (AI might mention both in any analysis)
     flagged_items.extend(_extract_carb_ratio_changes(ai_text))
     flagged_items.extend(_extract_isf_changes(ai_text))
+    if records:
+        # The glucose-citation flag is advisory (it appends a warning; it never
+        # gates output), and the dangerous-content check above is the real
+        # blocker. If the verifier somehow raises, fail open -- drop the advisory
+        # flag and log it -- rather than break the whole validation, matching how
+        # the analysis callers fail open when the allow-set can't be built.
+        try:
+            flagged_items.extend(find_glucose_citation_flags(ai_text, records, unit))
+        except Exception:
+            logger.warning("Glucose citation flagging failed", exc_info=True)
 
     # Determine status
     if has_dangerous:
@@ -230,8 +279,8 @@ def validate_ai_suggestion(
         for item in flagged_items:
             warnings.append(f"- {item.reason}")
         warning_block = (
-            "\n\n**Safety Warning:** The following suggestions exceed "
-            "recommended change limits:\n" + "\n".join(warnings) + "\n"
+            "\n\n**Safety Warning:** The following AI statements were flagged "
+            "by the safety system:\n" + "\n".join(warnings) + "\n"
             "Discuss these with your endocrinologist before making changes."
         )
         sanitized = ai_text + warning_block

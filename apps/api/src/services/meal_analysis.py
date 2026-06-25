@@ -10,6 +10,12 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.units import (
+    GlucoseUnit,
+    format_glucose,
+    glucose_unit_label,
+    glucose_unit_prompt_instruction,
+)
 from src.logging_config import get_logger
 from src.models.glucose import GlucoseReading
 from src.models.meal_analysis import MealAnalysis
@@ -20,6 +26,7 @@ from src.schemas.meal_analysis import MealPeriodData
 from src.services.ai_client import get_ai_client
 from src.services.diabetes_context import (
     PumpProfileSummary,
+    build_allowed_glucose,
     format_pump_profile_for_prompt,
     get_pump_profile_summary,
 )
@@ -44,14 +51,25 @@ MEAL_PERIODS = {
     "snack": None,  # Everything else
 }
 
-SYSTEM_PROMPT = """\
+
+def _build_system_prompt(unit: GlucoseUnit = GlucoseUnit.MGDL) -> str:
+    """Build the meal-analysis system prompt in the user's glucose unit.
+
+    The spike threshold and the example peak render in ``unit``; a closing
+    instruction pins the model's output unit. The carb-ratio ``1:X`` example
+    stays in its native notation -- a carb ratio is grams per unit, not a
+    glucose reading.
+    """
+    spike = format_glucose(SPIKE_THRESHOLD, unit)
+    unit_label = glucose_unit_label(unit)
+    return f"""\
 You are a diabetes management assistant analyzing post-meal glucose patterns \
 for a person with Type 1 diabetes using a Tandem insulin pump with Control-IQ \
 and a Dexcom G7 CGM.
 
 You are reviewing meal pattern data organized by meal period. For each meal \
 period, you have the number of boluses analyzed, the number of post-meal spikes \
-(>180 mg/dL within 2 hours), the average peak glucose, and the average glucose \
+(>{spike} within 2 hours), the average peak glucose, and the average glucose \
 at 2 hours post-bolus.
 
 When the user's pump profile is provided, compare observed spike patterns \
@@ -64,12 +82,13 @@ Guidelines:
 - Identify which meal periods have consistent post-meal spikes
 - For problematic periods, suggest whether the ratio may need to be stronger \
 or weaker, using the current ratio only as context
-- Explain reasoning: "Your breakfast peaks average X mg/dL despite Control-IQ corrections"
+- Explain reasoning: "Your breakfast peaks average X {unit_label} despite Control-IQ corrections"
 - Use encouraging, non-judgmental language
 - Clearly state that these are observations to discuss with their endocrinologist
 - Do NOT provide specific dosing instructions; suggest directional changes only
 - If data shows good control for a period, acknowledge it
-- If insufficient data for a period, note that more data is needed\
+- If insufficient data for a period, note that more data is needed
+- {glucose_unit_prompt_instruction(unit)}\
 """
 
 
@@ -95,6 +114,7 @@ def build_meal_prompt(
     total_boluses: int,
     days: int,
     profile_summary: PumpProfileSummary | None = None,
+    unit: GlucoseUnit = GlucoseUnit.MGDL,
 ) -> str:
     """Build the analysis prompt with meal period data.
 
@@ -103,10 +123,14 @@ def build_meal_prompt(
         total_boluses: Total boluses analyzed.
         days: Number of days in the analysis window.
         profile_summary: Optional pump profile for carb ratio context.
+        unit: The user's glucose display unit. The spike threshold, average
+            peak, and 2hr post-meal glucose render in it; spike-membership math
+            stays canonical mg/dL.
 
     Returns:
         Formatted prompt string.
     """
+    spike = format_glucose(SPIKE_THRESHOLD, unit)
     lines = [
         f"Analyze the following {days}-day post-meal glucose pattern data:",
         f"Total meal boluses analyzed: {total_boluses}",
@@ -115,10 +139,13 @@ def build_meal_prompt(
 
     for mp in meal_periods:
         lines.append(f"**{mp.period.capitalize()}** ({mp.bolus_count} meals):")
-        lines.append(f"  - Post-meal spikes (>180 mg/dL): {mp.spike_count}")
-        lines.append(f"  - Average peak glucose: {mp.avg_peak_glucose:.0f} mg/dL")
+        lines.append(f"  - Post-meal spikes (>{spike}): {mp.spike_count}")
         lines.append(
-            f"  - Average 2hr post-meal glucose: {mp.avg_2hr_glucose:.0f} mg/dL"
+            f"  - Average peak glucose: {format_glucose(mp.avg_peak_glucose, unit)}"
+        )
+        lines.append(
+            f"  - Average 2hr post-meal glucose: "
+            f"{format_glucose(mp.avg_2hr_glucose, unit)}"
         )
         if mp.bolus_count > 0:
             spike_pct = (mp.spike_count / mp.bolus_count) * 100
@@ -126,7 +153,7 @@ def build_meal_prompt(
         lines.append("")
 
     if profile_summary:
-        lines.append(format_pump_profile_for_prompt(profile_summary))
+        lines.append(format_pump_profile_for_prompt(profile_summary, unit))
         lines.append("")
 
     lines.append(
@@ -276,6 +303,10 @@ async def generate_meal_analysis(
     period_end = datetime.now(UTC)
     period_start = period_end - timedelta(days=days)
 
+    # The prompt and persisted analysis text render glucose in the user's unit;
+    # spike-detection math stays canonical mg/dL.
+    unit = user.glucose_unit
+
     # Analyze post-meal patterns
     meal_periods = await analyze_post_meal_patterns(
         user.id, db, period_start, period_end
@@ -318,7 +349,9 @@ async def generate_meal_analysis(
         )
 
     # Build prompt and generate
-    user_prompt = build_meal_prompt(meal_periods, total_boluses, days, profile_summary)
+    user_prompt = build_meal_prompt(
+        meal_periods, total_boluses, days, profile_summary, unit
+    )
 
     logger.info(
         "Generating meal pattern analysis",
@@ -330,11 +363,43 @@ async def generate_meal_analysis(
 
     ai_response = await ai_client.generate(
         messages=[AIMessage(role="user", content=user_prompt)],
-        system_prompt=SYSTEM_PROMPT,
+        system_prompt=_build_system_prompt(unit),
     )
 
-    # Safety validation (Story 5.6)
-    safety_result = validate_ai_suggestion(ai_response.content, "meal_analysis")
+    # Safety validation (Story 5.6). Unit-agnostic: the regexes accept either
+    # suffix and the ±20% check is unit-relative once a suffix matches. Any
+    # glucose figure the model spoke is also flagged if it doesn't trace to the
+    # period's readings; a failed allow-set fails open (no glucose flag) rather
+    # than break the analysis, matching the pump-profile fetch above. ``extra``
+    # admits the derived figures this prompt renders -- the spike threshold and
+    # each period's average peak / 2hr post-meal glucose -- so restating them is
+    # not mis-flagged as an unverifiable reading.
+    allowed_glucose: list[int] = []
+    try:
+        allow = await build_allowed_glucose(
+            db,
+            user.id,
+            window_start=period_start,
+            window_end=period_end,
+            extra=[
+                SPIKE_THRESHOLD,
+                *(mp.avg_peak_glucose for mp in meal_periods),
+                *(mp.avg_2hr_glucose for mp in meal_periods),
+            ],
+        )
+        allowed_glucose = allow.match
+    except Exception:
+        logger.warning(
+            "Failed to build glucose allow-set for meal analysis",
+            user_id=str(user.id),
+            exc_info=True,
+        )
+    safety_result = validate_ai_suggestion(
+        ai_response.content,
+        "meal_analysis",
+        records=allowed_glucose,
+        unit=unit,
+    )
 
     # Store the analysis with sanitized text
     analysis = MealAnalysis(

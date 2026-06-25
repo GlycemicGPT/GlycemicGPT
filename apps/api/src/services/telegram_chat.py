@@ -23,6 +23,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.units import GlucoseUnit, glucose_unit_prompt_instruction
 from src.logging_config import get_logger
 from src.models.chat_message import ChatRole
 from src.models.user import User
@@ -37,7 +38,11 @@ from src.services.chat_history import (
     get_recent_messages,
     store_message,
 )
-from src.services.diabetes_context import build_diabetes_context
+from src.services.diabetes_context import (
+    build_diabetes_context,
+    verify_glucose_reading_citations,
+    verify_meal_citations,
+)
 
 logger = get_logger(__name__)
 
@@ -116,21 +121,31 @@ class ChatResult:
     output_tokens: int
 
 
-def _build_system_prompt(diabetes_context: str) -> str:
-    """Build the system prompt with diabetes context embedded.
+def _compose_system_prompt(
+    prefix: str,
+    diabetes_context: str,
+    unit: GlucoseUnit,
+) -> str:
+    """Append the report-in-unit instruction to a prefix, then the context.
 
-    Uses string concatenation instead of str.format() to avoid
-    injection if the context contains brace characters.
-
-    Args:
-        diabetes_context: Formatted diabetes data string.
-
-    Returns:
-        Complete system prompt for the AI provider.
+    The instruction is added as a final guideline bullet so the model reports
+    glucose in the data owner's unit -- the in-context numbers are already
+    converted, and model prose cannot be post-converted. Uses string
+    concatenation (not ``str.format``) so brace characters in the context can't
+    trigger format injection.
     """
+    guidelines = prefix.rstrip() + f"\n- {glucose_unit_prompt_instruction(unit)}\n\n"
     if diabetes_context:
-        return _SYSTEM_PROMPT_PREFIX + diabetes_context
-    return _SYSTEM_PROMPT_PREFIX.rstrip()
+        return guidelines + diabetes_context
+    return guidelines.rstrip()
+
+
+def _build_system_prompt(
+    diabetes_context: str,
+    unit: GlucoseUnit = GlucoseUnit.MGDL,
+) -> str:
+    """Build the Telegram chat system prompt with diabetes context embedded."""
+    return _compose_system_prompt(_SYSTEM_PROMPT_PREFIX, diabetes_context, unit)
 
 
 def _truncate_response(text: str) -> str:
@@ -210,10 +225,11 @@ async def handle_chat(
     # Load conversation history
     history = await get_recent_messages(db, user_id, conversation_id)
 
-    # Build context and prompt
+    # Build context and prompt in the user's glucose unit
+    unit = user.glucose_unit
     try:
         diabetes_context = await build_diabetes_context(
-            db, user_id, query=truncated_text
+            db, user_id, query=truncated_text, unit=unit
         )
     except Exception:
         logger.error(
@@ -222,7 +238,7 @@ async def handle_chat(
             exc_info=True,
         )
         diabetes_context = "Recent diabetes data: unavailable due to a temporary error."
-    system_prompt = _build_system_prompt(diabetes_context)
+    system_prompt = _build_system_prompt(diabetes_context, unit)
 
     # Build messages array: history + current user message
     messages = history + [AIMessage(role="user", content=truncated_text)]
@@ -251,6 +267,14 @@ async def handle_chat(
             "\u2139\ufe0f The AI returned an empty response. "
             "Please try rephrasing your question." + SAFETY_DISCLAIMER
         )
+
+    # Verify any meal carb figure the model cited against the user's logged
+    # meals, and any glucose figure against the user's readings, before it
+    # reaches the user or is persisted.
+    content = await verify_meal_citations(db, user_id, content, surface="chat")
+    content = await verify_glucose_reading_citations(
+        db, user_id, content, surface="chat"
+    )
 
     # Persist both messages (non-fatal -- still return the AI response on failure)
     try:
@@ -358,9 +382,10 @@ async def handle_chat_web(
     # Load conversation history
     history = await get_recent_messages(db, user_id, conversation_id)
 
+    unit = user.glucose_unit
     try:
         diabetes_context = await build_diabetes_context(
-            db, user_id, query=truncated_text
+            db, user_id, query=truncated_text, unit=unit
         )
     except Exception:
         logger.error(
@@ -370,10 +395,9 @@ async def handle_chat_web(
         )
         diabetes_context = "Recent diabetes data: unavailable due to a temporary error."
 
-    if diabetes_context:
-        system_prompt = _WEB_SYSTEM_PROMPT_PREFIX + diabetes_context
-    else:
-        system_prompt = _WEB_SYSTEM_PROMPT_PREFIX.rstrip()
+    system_prompt = _compose_system_prompt(
+        _WEB_SYSTEM_PROMPT_PREFIX, diabetes_context, unit
+    )
 
     # Build messages array: history + current user message
     messages = history + [AIMessage(role="user", content=truncated_text)]
@@ -401,6 +425,14 @@ async def handle_chat_web(
             status_code=502,
             detail="The AI returned an empty response",
         )
+
+    # Verify any meal carb figure the model cited against the user's logged
+    # meals, and any glucose figure against the user's readings, before it
+    # reaches the user or is persisted.
+    content = await verify_meal_citations(db, user_id, content, surface="chat_web")
+    content = await verify_glucose_reading_citations(
+        db, user_id, content, surface="chat_web"
+    )
 
     # Persist both messages (non-fatal -- still return the AI response on failure)
     user_msg_id: uuid.UUID | None = None
@@ -474,6 +506,7 @@ Guidelines:
 def _build_caregiver_system_prompt(
     patient_email: str,
     diabetes_context: str,
+    unit: GlucoseUnit = GlucoseUnit.MGDL,
 ) -> str:
     """Build a system prompt for caregiver AI chat.
 
@@ -482,14 +515,21 @@ def _build_caregiver_system_prompt(
     Args:
         patient_email: Patient's email for identification.
         diabetes_context: Formatted diabetes data string.
+        unit: The PATIENT's glucose display unit. The context is built from the
+            patient's data, so the caregiver reads it -- and the model reports
+            it -- in the patient's unit, never the caregiver's.
 
     Returns:
         Complete system prompt for the AI provider.
     """
+    prefix = (
+        _CAREGIVER_SYSTEM_PROMPT_PREFIX.rstrip()
+        + f"\n- {glucose_unit_prompt_instruction(unit)}\n\n"
+    )
     patient_line = f"Patient: {patient_email}\n"
     if diabetes_context:
-        return _CAREGIVER_SYSTEM_PROMPT_PREFIX + patient_line + diabetes_context
-    return (_CAREGIVER_SYSTEM_PROMPT_PREFIX + patient_line).rstrip()
+        return prefix + patient_line + diabetes_context
+    return (prefix + patient_line).rstrip()
 
 
 async def handle_caregiver_chat(
@@ -554,10 +594,11 @@ async def handle_caregiver_chat(
     # Truncate overly long user messages
     truncated_text = text[:MAX_USER_MESSAGE_LENGTH]
 
-    # Build context from patient's data
+    # Build context from patient's data, in the PATIENT's glucose unit
+    unit = patient.glucose_unit
     try:
         diabetes_context = await build_diabetes_context(
-            db, patient_id, query=truncated_text
+            db, patient_id, query=truncated_text, unit=unit
         )
     except Exception:
         logger.error(
@@ -567,7 +608,9 @@ async def handle_caregiver_chat(
             exc_info=True,
         )
         diabetes_context = "Recent diabetes data: unavailable due to a temporary error."
-    system_prompt = _build_caregiver_system_prompt(patient.email, diabetes_context)
+    system_prompt = _build_caregiver_system_prompt(
+        patient.email, diabetes_context, unit
+    )
 
     # Generate AI response
     try:
@@ -594,6 +637,15 @@ async def handle_caregiver_chat(
             "\u2139\ufe0f The AI returned an empty response. "
             "Please try rephrasing your question." + SAFETY_DISCLAIMER
         )
+
+    # Verify cited meal carb figures against the *patient's* logged meals and
+    # glucose figures against the patient's readings -- the context was built
+    # from the patient's data, so the verification (and the patient's unit) is
+    # keyed on ``patient_id``.
+    content = await verify_meal_citations(db, patient_id, content, surface="caregiver")
+    content = await verify_glucose_reading_citations(
+        db, patient_id, content, surface="caregiver"
+    )
 
     safe_content = html.escape(content)
 
@@ -657,9 +709,10 @@ async def handle_caregiver_chat_web(
 
     truncated_text = text[:MAX_USER_MESSAGE_LENGTH]
 
+    unit = patient.glucose_unit
     try:
         diabetes_context = await build_diabetes_context(
-            db, patient_id, query=truncated_text
+            db, patient_id, query=truncated_text, unit=unit
         )
     except Exception:
         logger.error(
@@ -670,7 +723,9 @@ async def handle_caregiver_chat_web(
         )
         diabetes_context = "Recent diabetes data: unavailable due to a temporary error."
 
-    system_prompt = _build_caregiver_system_prompt(patient.email, diabetes_context)
+    system_prompt = _build_caregiver_system_prompt(
+        patient.email, diabetes_context, unit
+    )
 
     try:
         ai_response = await ai_client.generate(
@@ -696,6 +751,17 @@ async def handle_caregiver_chat_web(
             status_code=502,
             detail="The AI returned an empty response",
         )
+
+    # Verify cited meal carb figures against the *patient's* logged meals and
+    # glucose figures against the patient's readings -- the context was built
+    # from the patient's data, so the verification (and the patient's unit) is
+    # keyed on ``patient_id``.
+    content = await verify_meal_citations(
+        db, patient_id, content, surface="caregiver_web"
+    )
+    content = await verify_glucose_reading_citations(
+        db, patient_id, content, surface="caregiver_web"
+    )
 
     logger.info(
         "Web caregiver AI chat response generated",

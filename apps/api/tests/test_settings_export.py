@@ -8,7 +8,7 @@ Tests cover:
 """
 
 import uuid
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from pydantic import ValidationError
@@ -187,6 +187,7 @@ class TestExportUserData:
         result = await export_user_data(user_id, db, include_data=False)
 
         settings_data = result["settings"]
+        assert "glucose_unit" in settings_data
         assert "target_glucose_range" in settings_data
         assert "alert_thresholds" in settings_data
         assert "escalation_config" in settings_data
@@ -211,6 +212,8 @@ class TestExportUserData:
 
         result = await export_user_data(user_id, db, include_data=False)
 
+        assert result["settings"]["glucose_unit"] == "mgdl"
+
         tgr = result["settings"]["target_glucose_range"]
         assert tgr["low_target"] == 70.0
         assert tgr["high_target"] == 180.0
@@ -221,6 +224,28 @@ class TestExportUserData:
 
         assert result["settings"]["ai_provider"] is None
         assert result["settings"]["integrations"] == []
+
+    @pytest.mark.asyncio
+    async def test_logs_warning_when_user_missing(self):
+        """Verify missing user row is explicit while keeping default export behavior."""
+        from src.services.settings_export import export_user_data
+
+        user_id = uuid.uuid4()
+        db = AsyncMock()
+
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_result.scalars.return_value.all.return_value = []
+        db.execute.return_value = mock_result
+
+        with patch("src.services.settings_export.logger") as mock_logger:
+            result = await export_user_data(user_id, db, include_data=False)
+
+        assert result["settings"]["glucose_unit"] == "mgdl"
+        mock_logger.warning.assert_called_once_with(
+            "User not found during settings export",
+            user_id=str(user_id),
+        )
 
 
 # ── Endpoint tests ──

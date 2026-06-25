@@ -1,6 +1,7 @@
 package com.glycemicgpt.mobile.presentation.home
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -30,13 +31,20 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
+import com.glycemicgpt.mobile.presentation.meal.DraggableMealFab
+import com.glycemicgpt.mobile.presentation.meal.RecentMealCard
 import com.glycemicgpt.mobile.domain.model.ConnectionState
 import com.glycemicgpt.mobile.presentation.plugin.PluginDashboardCardRenderer
 import com.glycemicgpt.mobile.presentation.theme.GlucoseColors
@@ -48,13 +56,28 @@ import java.time.Instant
 @Composable
 fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel(),
+    mealViewModel: HomeMealViewModel = hiltViewModel(),
     onPluginCardTap: (pluginId: String, cardId: String) -> Unit = { _, _ -> },
     onNavigateToChartDetail: (() -> Unit)? = null,
     onNavigateToTirDetail: () -> Unit = {},
     onNavigateToInsulinDetail: () -> Unit = {},
     onNavigateToAlertHistory: () -> Unit = {},
     onNavigateToBolusHistory: (() -> Unit)? = null,
+    onNavigateToMealLog: () -> Unit = {},
+    onNavigateToMealHistory: () -> Unit = {},
 ) {
+    val mealState by mealViewModel.uiState.collectAsState()
+    // Refresh the Recent-meal glance when returning to Home (e.g. after logging a meal). Skip the
+    // first resume since the ViewModel already fetched in init, avoiding a redundant call.
+    var firstResume by remember { mutableStateOf(true) }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        if (firstResume) firstResume = false else mealViewModel.refresh()
+    }
+    // Draggable meal FAB: the container size feeds the on-screen clamp; the saved placement is read
+    // once here (a per-device UI preference, not a reactive flow) and tracked in state so a drag is
+    // reflected if the FAB is hidden then shown again within this Home session.
+    var containerSizePx by remember { mutableStateOf(IntSize.Zero) }
+    var savedFabOffset by remember { mutableStateOf(mealViewModel.savedFabOffset()) }
     val connectionState by viewModel.connectionState.collectAsState()
     val cgm by viewModel.cgm.collectAsState()
     val iob by viewModel.iob.collectAsState()
@@ -82,17 +105,24 @@ fun HomeScreen(
     val pumpLabelMap by viewModel.pumpLabelMap.collectAsState()
     val showPumpLabels by viewModel.showPumpLabels.collectAsState()
     val retentionDays by viewModel.dataRetentionDays.collectAsState()
+    val glucoseUnit by viewModel.glucoseUnit.collectAsState()
 
     PullToRefreshBox(
         isRefreshing = isRefreshing,
-        onRefresh = { viewModel.refreshData() },
-        modifier = Modifier.fillMaxSize(),
+        onRefresh = {
+            viewModel.refreshData()
+            mealViewModel.refresh()
+        },
+        modifier = Modifier
+            .fillMaxSize()
+            .onSizeChanged { containerSizePx = it },
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp),
+                // Extra bottom space so the camera FAB never overlaps the last item.
+                .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 88.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             // Compact connection + sync status row
@@ -108,9 +138,16 @@ fun HomeScreen(
                 battery = battery,
                 reservoir = reservoir,
                 thresholds = thresholds,
+                glucoseUnit = glucoseUnit,
             )
 
             Spacer(modifier = Modifier.height(12.dp))
+
+            // Recent-meal glance (Epic 50): only once the user has logged at least one meal.
+            mealState.recentMeal?.let { recent ->
+                RecentMealCard(record = recent, onViewAll = onNavigateToMealHistory)
+                Spacer(modifier = Modifier.height(12.dp))
+            }
 
             // Glucose trend chart with IoB, basal, and bolus overlays
             GlucoseTrendChart(
@@ -122,6 +159,7 @@ fun HomeScreen(
                 onPeriodSelected = { viewModel.onPeriodSelected(it) },
                 thresholds = thresholds,
                 categoryLabels = categoryLabels,
+                glucoseUnit = glucoseUnit,
                 onClick = onNavigateToChartDetail,
             )
 
@@ -133,6 +171,7 @@ fun HomeScreen(
                 selectedPeriod = selectedTirPeriod,
                 onPeriodSelected = { viewModel.onTirPeriodSelected(it) },
                 thresholds = thresholds,
+                glucoseUnit = glucoseUnit,
                 maxRetentionDays = retentionDays,
             )
 
@@ -143,6 +182,7 @@ fun HomeScreen(
                 stats = cgmStats,
                 selectedPeriod = selectedCgmStatsPeriod,
                 onPeriodSelected = { viewModel.onCgmStatsPeriodSelected(it) },
+                glucoseUnit = glucoseUnit,
                 maxRetentionDays = retentionDays,
             )
 
@@ -201,6 +241,25 @@ fun HomeScreen(
                     color = MaterialTheme.colorScheme.tertiary,
                 )
             }
+        }
+
+        // Camera FAB overlaid in the pull-to-refresh BoxScope, hidden when the user's per-account
+        // meal-intelligence setting is off (instant on toggle) or the server reports it disabled.
+        // Draggable so the user can move it off the data underneath; its position persists per device.
+        if (mealState.mealLoggingAvailable) {
+            DraggableMealFab(
+                containerSizePx = containerSizePx,
+                savedOffset = savedFabOffset,
+                onClick = onNavigateToMealLog,
+                onOffsetSettled = {
+                    mealViewModel.persistFabOffset(it)
+                    savedFabOffset = it
+                },
+                onReset = {
+                    mealViewModel.resetFabOffset()
+                    savedFabOffset = null
+                },
+            )
         }
     }
 }

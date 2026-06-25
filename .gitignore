@@ -48,6 +48,8 @@ coverage/
 out/
 .nuxt/
 .output/
+*.tsbuildinfo
+.kotlin/
 
 # OS files
 .DS_Store
@@ -95,3 +97,6 @@ scripts/security/*.resolved.yaml
 
 # Local benchmark fixtures (anonymized patient data — never committed)
 apps/api/benchmarks/fixtures_local/
+
+# Playwright MCP session artifacts (local tooling, never committed)
+.playwright-mcp/

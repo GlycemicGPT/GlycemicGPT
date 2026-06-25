@@ -23,12 +23,16 @@ import io
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from loguru import logger
+
 # --- Canonical CareLink column names (observed in the v15.x export header) ---
 COL_INDEX = "Index"
 COL_DATE = "Date"
 COL_TIME = "Time"
 COL_BG_SOURCE = "BG Source"
-COL_BG_READING = "BG Reading (mg/dL)"
+COL_BG_READING_MGDL = "BG Reading (mg/dL)"
+COL_BG_READING_MMOL = "BG Reading (mmol/L)"
+COL_BG_READING = COL_BG_READING_MGDL
 COL_BASAL_RATE = "Basal Rate (U/h)"
 COL_TEMP_BASAL_AMOUNT = "Temp Basal Amount"
 COL_TEMP_BASAL_TYPE = "Temp Basal Type"
@@ -39,7 +43,9 @@ COL_BOLUS_DELIVERED = "Bolus Volume Delivered (U)"
 COL_BOLUS_SOURCE = "Bolus Source"
 COL_BWZ_CARB_INPUT = "BWZ Carb Input (grams)"
 COL_BWZ_ACTIVE_INSULIN = "BWZ Active Insulin (U)"
-COL_SENSOR_GLUCOSE = "Sensor Glucose (mg/dL)"
+COL_SENSOR_GLUCOSE_MGDL = "Sensor Glucose (mg/dL)"
+COL_SENSOR_GLUCOSE_MMOL = "Sensor Glucose (mmol/L)"
+COL_SENSOR_GLUCOSE = COL_SENSOR_GLUCOSE_MGDL
 COL_ISIG = "ISIG Value"
 COL_ALERT = "Alert"
 COL_SUSPEND = "Suspend"
@@ -195,6 +201,7 @@ def parse_carelink_csv(text: str, *, keep_raw: bool = False) -> CareLinkExport:
 
     header: list[str] | None = None
     col: dict[str, int] = {}
+    is_mmol_section: bool = False
 
     def get(row: list[str], name: str) -> str | None:
         i = col.get(name)
@@ -212,6 +219,22 @@ def parse_carelink_csv(text: str, *, keep_raw: bool = False) -> CareLinkExport:
             header = [c.strip() for c in fields_]
             col = {name: i for i, name in enumerate(header)}
             export.section_count += 1
+            # Detect European mmol/L export headers. Exact format is unconfirmed
+            # without a real sample, so log and skip glucose rows rather than
+            # risk storing a mis-converted value.
+            # TODO: once a real European CareLink export is available, parse the
+            # mmol/L glucose columns and convert via src.core.units.MGDL_PER_MMOL
+            # instead of dropping them. Deferred -- no confirmed sample to map against.
+            is_mmol_section = (
+                COL_BG_READING_MMOL in col or COL_SENSOR_GLUCOSE_MMOL in col
+            )
+            if is_mmol_section:
+                logger.warning(
+                    "CareLink CSV section {} has mmol/L headers, exact European format "
+                    "unconfirmed. Glucose values in this section will be dropped to avoid "
+                    "mis-storing unconverted readings (insulin/carb/event fields are kept)",
+                    export.section_count,
+                )
             continue
 
         # Metadata preamble lines (before the first header). Lift a few useful
@@ -236,8 +259,19 @@ def parse_carelink_csv(text: str, *, keep_raw: bool = False) -> CareLinkExport:
                 timestamp=ts,
                 index=idx,
                 bg_source=_clean(get(fields_, COL_BG_SOURCE)),
-                bg_mgdl=_parse_int(get(fields_, COL_BG_READING)),
-                sensor_glucose_mgdl=_parse_int(get(fields_, COL_SENSOR_GLUCOSE)),
+                # In a mmol/L section the mg/dL-named columns can't be trusted (a real
+                # European export may carry both), so drop glucose entirely rather than
+                # store a possibly-mmol value as mg/dL. Non-glucose fields stay.
+                bg_mgdl=(
+                    None
+                    if is_mmol_section
+                    else _parse_int(get(fields_, COL_BG_READING))
+                ),
+                sensor_glucose_mgdl=(
+                    None
+                    if is_mmol_section
+                    else _parse_int(get(fields_, COL_SENSOR_GLUCOSE))
+                ),
                 isig=_parse_float(get(fields_, COL_ISIG)),
                 basal_rate_uh=_parse_float(get(fields_, COL_BASAL_RATE)),
                 temp_basal_amount=_parse_float(get(fields_, COL_TEMP_BASAL_AMOUNT)),

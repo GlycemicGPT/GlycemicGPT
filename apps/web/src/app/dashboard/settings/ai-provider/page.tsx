@@ -925,7 +925,7 @@ export default function AIProviderPage() {
                     onChange={(e) => setModelName(e.target.value)}
                     placeholder={selectedProvider.modelPlaceholder}
                     disabled={isOffline || isConfiguringSubscription || isSubmittingToken}
-                    className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-4 py-3 text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent disabled:opacity-50 text-sm"
+                    className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-4 py-3 text-slate-900 dark:text-white placeholder-slate-500 focus:outline-hidden focus:ring-2 focus:ring-purple-500 focus:border-transparent disabled:opacity-50 text-sm"
                   />
                   <p className="text-xs text-slate-500">
                     Leave blank to use the default model.
@@ -1048,7 +1048,7 @@ export default function AIProviderPage() {
                             spellCheck={false}
                             maxLength={5000}
                             rows={3}
-                            className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-4 py-3 text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent disabled:opacity-50 font-mono text-xs resize-vertical"
+                            className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-4 py-3 text-slate-900 dark:text-white placeholder-slate-500 focus:outline-hidden focus:ring-2 focus:ring-purple-500 focus:border-transparent disabled:opacity-50 font-mono text-xs resize-vertical"
                           />
                         </div>
                         <button
@@ -1093,7 +1093,7 @@ export default function AIProviderPage() {
                         onChange={(e) => setBaseUrl(e.target.value)}
                         placeholder={selectedProvider.baseUrlPlaceholder}
                         disabled={isOffline || isSaving}
-                        className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg pl-10 pr-4 py-3 text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent disabled:opacity-50 font-mono text-sm"
+                        className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg pl-10 pr-4 py-3 text-slate-900 dark:text-white placeholder-slate-500 focus:outline-hidden focus:ring-2 focus:ring-purple-500 focus:border-transparent disabled:opacity-50 font-mono text-sm"
                       />
                     </div>
                     <p className="text-xs text-slate-500">
@@ -1127,7 +1127,7 @@ export default function AIProviderPage() {
                       placeholder={selectedProvider.apiKeyPlaceholder}
                       disabled={isOffline || isSaving}
                       autoComplete="off"
-                      className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg pl-10 pr-12 py-3 text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent disabled:opacity-50 font-mono text-sm"
+                      className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg pl-10 pr-12 py-3 text-slate-900 dark:text-white placeholder-slate-500 focus:outline-hidden focus:ring-2 focus:ring-purple-500 focus:border-transparent disabled:opacity-50 font-mono text-sm"
                     />
                     <button
                       type="button"
@@ -1167,7 +1167,7 @@ export default function AIProviderPage() {
                     onChange={(e) => setModelName(e.target.value)}
                     placeholder={selectedProvider.modelPlaceholder}
                     disabled={isOffline || isSaving}
-                    className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-4 py-3 text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent disabled:opacity-50 text-sm"
+                    className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-4 py-3 text-slate-900 dark:text-white placeholder-slate-500 focus:outline-hidden focus:ring-2 focus:ring-purple-500 focus:border-transparent disabled:opacity-50 text-sm"
                   />
                   <p className="text-xs text-slate-500">
                     {selectedProvider.requiresModelName
@@ -1200,7 +1200,7 @@ export default function AIProviderPage() {
                     placeholder="1200 (default)"
                     disabled={isOffline || isSaving}
                     aria-describedby="max-response-tokens-hint"
-                    className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-4 py-3 text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent disabled:opacity-50 text-sm"
+                    className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-4 py-3 text-slate-900 dark:text-white placeholder-slate-500 focus:outline-hidden focus:ring-2 focus:ring-purple-500 focus:border-transparent disabled:opacity-50 text-sm"
                   />
                   <p
                     id="max-response-tokens-hint"

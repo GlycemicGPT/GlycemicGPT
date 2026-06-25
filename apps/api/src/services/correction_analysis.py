@@ -10,6 +10,14 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.units import (
+    GlucoseUnit,
+    format_correction_factor_value,
+    format_glucose,
+    format_glucose_rate,
+    glucose_unit_label,
+    glucose_unit_prompt_instruction,
+)
 from src.logging_config import get_logger
 from src.models.correction_analysis import CorrectionAnalysis
 from src.models.glucose import GlucoseReading
@@ -20,6 +28,7 @@ from src.schemas.correction_analysis import TimePeriodData
 from src.services.ai_client import get_ai_client
 from src.services.diabetes_context import (
     PumpProfileSummary,
+    build_allowed_glucose,
     format_pump_profile_for_prompt,
     get_pump_profile_summary,
 )
@@ -48,7 +57,20 @@ TIME_PERIODS = {
     "evening": (17, 22),
 }
 
-SYSTEM_PROMPT = """\
+
+def _build_system_prompt(unit: GlucoseUnit = GlucoseUnit.MGDL) -> str:
+    """Build the correction-analysis system prompt in the user's glucose unit.
+
+    Glucose anchors (the over-correction floor) and the ISF rate units render
+    in ``unit``; a closing instruction pins the model's output unit.
+    The ``1:X`` ISF example renders on the user's scale (a US 1:50 -> 1:2.8 for
+    mmol/L), matching how the observed ISF and the pump's configured correction
+    factor are converted, so the comparison the prompt asks for stays same-unit.
+    """
+    over_floor = format_glucose(LOW_THRESHOLD, unit)
+    unit_label = glucose_unit_label(unit)
+    cf_example = format_correction_factor_value(50, unit)
+    return f"""\
 You are a diabetes management assistant analyzing correction bolus outcomes \
 for a person with Type 1 diabetes using a Tandem insulin pump with Control-IQ \
 and a Dexcom G7 CGM.
@@ -56,20 +78,20 @@ and a Dexcom G7 CGM.
 You are reviewing correction factor (insulin sensitivity factor / ISF) data \
 organized by time of day. For each time period, you have the number of \
 corrections analyzed, how many under-corrected (glucose stayed above target) \
-vs over-corrected (glucose dropped below 70 mg/dL), the average observed ISF \
-(mg/dL drop per unit of insulin), and the average glucose drop.
+vs over-corrected (glucose dropped below {over_floor}), the average observed ISF \
+({unit_label} drop per unit of insulin), and the average glucose drop.
 
 When the user's pump profile is provided, compare the observed ISF against \
 the user's currently configured correction factors for each time period. \
 Reference the current configured values when explaining the pattern, but keep \
-recommendations directional only (e.g., "your morning ISF is currently 1:50 \
+recommendations directional only (e.g., "your morning ISF is currently 1:{cf_example} \
 but observed corrections suggest it may be weaker than needed for this period").
 
 Guidelines:
 - Identify which time periods show consistent under- or over-correction
 - For problematic periods, suggest whether the factor may need to be stronger \
 or weaker, using the current ISF only as context
-- Explain reasoning: "Your morning corrections average only X mg/dL drop per \
+- Explain reasoning: "Your morning corrections average only X {unit_label} drop per \
 unit, suggesting your ISF may be too weak for this period"
 - Use encouraging, non-judgmental language
 - Clearly state that these are observations to discuss with their endocrinologist
@@ -77,7 +99,8 @@ unit, suggesting your ISF may be too weak for this period"
 - If data shows effective corrections for a period, acknowledge it
 - If insufficient data for a period, note that more data is needed
 - Account for the fact that Control-IQ may have also delivered automated \
-corrections that affect the observed glucose response\
+corrections that affect the observed glucose response
+- {glucose_unit_prompt_instruction(unit)}\
 """
 
 
@@ -108,6 +131,7 @@ def build_correction_prompt(
     total_corrections: int,
     days: int,
     profile_summary: PumpProfileSummary | None = None,
+    unit: GlucoseUnit = GlucoseUnit.MGDL,
 ) -> str:
     """Build the analysis prompt with time period data.
 
@@ -116,10 +140,15 @@ def build_correction_prompt(
         total_corrections: Total corrections analyzed.
         days: Number of days in the analysis window.
         profile_summary: Optional pump profile for ISF context.
+        unit: The user's glucose display unit. The over/under anchors, the
+            observed ISF rate, and the average glucose drop render in it; the
+            ±20% safety math downstream is unit-relative and unchanged.
 
     Returns:
         Formatted prompt string.
     """
+    target = format_glucose(TARGET_GLUCOSE, unit)
+    low = format_glucose(LOW_THRESHOLD, unit)
     lines = [
         f"Analyze the following {days}-day correction bolus outcome data:",
         f"Total correction boluses analyzed: {total_corrections}",
@@ -131,15 +160,15 @@ def build_correction_prompt(
             f"**{tp.period.capitalize()}** ({tp.correction_count} corrections):"
         )
         lines.append(
-            f"  - Under-corrections (glucose stayed >120 mg/dL): {tp.under_count}"
+            f"  - Under-corrections (glucose stayed >{target}): {tp.under_count}"
+        )
+        lines.append(f"  - Over-corrections (glucose dropped <{low}): {tp.over_count}")
+        lines.append(
+            f"  - Average observed ISF: {format_glucose_rate(tp.avg_observed_isf, unit)}"
         )
         lines.append(
-            f"  - Over-corrections (glucose dropped <70 mg/dL): {tp.over_count}"
+            f"  - Average glucose drop: {format_glucose(tp.avg_glucose_drop, unit)}"
         )
-        lines.append(
-            f"  - Average observed ISF: {tp.avg_observed_isf:.1f} mg/dL per unit"
-        )
-        lines.append(f"  - Average glucose drop: {tp.avg_glucose_drop:.0f} mg/dL")
         if tp.correction_count > 0:
             effective = tp.correction_count - tp.under_count - tp.over_count
             eff_pct = (effective / tp.correction_count) * 100
@@ -147,7 +176,7 @@ def build_correction_prompt(
         lines.append("")
 
     if profile_summary:
-        lines.append(format_pump_profile_for_prompt(profile_summary))
+        lines.append(format_pump_profile_for_prompt(profile_summary, unit))
         lines.append("")
 
     lines.append(
@@ -313,6 +342,10 @@ async def generate_correction_analysis(
     period_end = datetime.now(UTC)
     period_start = period_end - timedelta(days=days)
 
+    # The prompt, persisted analysis text, and ISF rate units render in the
+    # user's unit; the observed-ISF math stays canonical mg/dL.
+    unit = user.glucose_unit
+
     # Analyze correction outcomes
     time_periods = await analyze_correction_outcomes(
         user.id, db, period_start, period_end
@@ -358,7 +391,7 @@ async def generate_correction_analysis(
 
     # Build prompt and generate
     user_prompt = build_correction_prompt(
-        time_periods, total_corrections, days, profile_summary
+        time_periods, total_corrections, days, profile_summary, unit
     )
 
     logger.info(
@@ -372,11 +405,43 @@ async def generate_correction_analysis(
 
     ai_response = await ai_client.generate(
         messages=[AIMessage(role="user", content=user_prompt)],
-        system_prompt=SYSTEM_PROMPT,
+        system_prompt=_build_system_prompt(unit),
     )
 
-    # Safety validation (Story 5.6)
-    safety_result = validate_ai_suggestion(ai_response.content, "correction_analysis")
+    # Safety validation (Story 5.6). Unit-agnostic: the regexes accept either
+    # suffix and the ±20% check is unit-relative once a suffix matches. Any
+    # glucose figure the model spoke is also flagged if it doesn't trace to the
+    # period's readings; a failed allow-set fails open (no glucose flag) rather
+    # than break the analysis, matching the pump-profile fetch above. ``extra``
+    # admits the derived figures this prompt renders -- the post-correction
+    # target, the over-correction threshold, and each period's average glucose
+    # drop -- so restating them is not mis-flagged as an unverifiable reading.
+    allowed_glucose: list[int] = []
+    try:
+        allow = await build_allowed_glucose(
+            db,
+            user.id,
+            window_start=period_start,
+            window_end=period_end,
+            extra=[
+                TARGET_GLUCOSE,
+                LOW_THRESHOLD,
+                *(tp.avg_glucose_drop for tp in time_periods),
+            ],
+        )
+        allowed_glucose = allow.match
+    except Exception:
+        logger.warning(
+            "Failed to build glucose allow-set for correction analysis",
+            user_id=str(user.id),
+            exc_info=True,
+        )
+    safety_result = validate_ai_suggestion(
+        ai_response.content,
+        "correction_analysis",
+        records=allowed_glucose,
+        unit=unit,
+    )
 
     # Store the analysis with sanitized text
     analysis = CorrectionAnalysis(

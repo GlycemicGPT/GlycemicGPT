@@ -36,12 +36,17 @@ class PumpEventType(str, enum.Enum):
     cloud-mediated integrations (carbs, overrides, profile switches,
     combo boluses, temp targets, notes, device events, APS-offline
     markers); type-specific extras that don't fit the column schema
-    land in `metadata_json`.
+    land in `metadata_json`. `basal_injection` is written by the Glooko
+    mapper for MDI long-acting pen injections (see below).
     """
 
-    BASAL = "basal"  # Basal insulin delivery
+    BASAL = "basal"  # Basal insulin delivery (pump rate, U/h)
     BOLUS = "bolus"  # Manual bolus
     CORRECTION = "correction"  # Control-IQ automated correction
+    # Long-acting (basal) insulin INJECTION from an MDI pen -- e.g. Lantus,
+    # Tresiba. ``units`` is the injected amount (U), NOT a U/h rate like BASAL,
+    # and it is deliberately excluded from rapid-acting IoB (issue #728).
+    BASAL_INJECTION = "basal_injection"
     SUSPEND = "suspend"  # Insulin delivery suspended
     RESUME = "resume"  # Insulin delivery resumed
     BG_READING = "bg_reading"  # CGM reading from pump (has IoB)
@@ -88,6 +93,18 @@ ControlIQMode = PumpActivityMode
 # in `core.treatment_safety` (`MAX_BOLUS_DOSE_MILLIUNITS` = 25 U) -- we never
 # command a pump to deliver 60 U.
 MAX_INSULIN_DOSE_UNITS: Final[float] = 60.0
+
+# Canonical sanity bound on a single long-acting (basal) pen INJECTION (U).
+# Larger than `MAX_INSULIN_DOSE_UNITS` because once-daily basal doses are
+# bigger: 160 U is the max single injection of the Tresiba U-200 FlexTouch (the
+# highest-capacity supported pen); anything above is a corrupt or unit-confused
+# record. This bounds the discrete injected amount carried on a BASAL_INJECTION
+# event -- NOT a U/h rate. Like `MAX_INSULIN_DOSE_UNITS`, consumers import it
+# instead of hard-coding 160: the Glooko + Nightscout ingestion mappers and the
+# display/stats read filters in `routers.integrations` -- so a legitimate large
+# basal injection accepted at ingest is not silently dropped or hidden behind
+# the lower bolus bound downstream.
+MAX_BASAL_INJECTION_UNITS: Final[float] = 160.0
 
 
 class PumpEvent(Base):

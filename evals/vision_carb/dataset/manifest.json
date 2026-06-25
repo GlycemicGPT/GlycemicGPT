@@ -1,0 +1,108 @@
+{
+  "name": "vision-carb cloud eval set (v1)",
+  "set": "easy",
+  "notes": "Known-label, LABEL-LESS foods (no printed nutrition panel) spanning low (~2 g) to high (~50 g) carbohydrate -- the real use case is foods whose carbs are not obvious. Ground truth is per documented portion (USDA FoodData Central standard portions); vision must judge the depicted portion, so portion_note records the assumption. Single/simple foods are easier than mixed restaurant plates, so the measured accuracy here is an optimistic bound on real-world meals. Images are licensed Wikimedia Commons files; each was visually checked to match its label. image, source_url, license pinned per item. expected_identity is a synonym list (a correct short name like \"donut\" must not score as a misID against \"glazed doughnut\"); it is used only to measure gross food-identity error, not modifier-level nuance.",
+  "ground_truth_units": "grams of carbohydrate per depicted portion",
+  "items": [
+    {
+      "id": "banana",
+      "known_carbs_grams": 27,
+      "expected_identity": ["banana"],
+      "label_basis": "USDA FDC banana, raw; one medium (118 g) = 27 g carbs",
+      "portion_note": "one medium banana",
+      "image": "banana.jpg",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Banana-Sitia-Crete.jpg",
+      "license": "CC BY-SA 4.0",
+      "image_credit": "Petro Stelte"
+    },
+    {
+      "id": "apple",
+      "known_carbs_grams": 25,
+      "expected_identity": ["apple", "apples"],
+      "label_basis": "USDA FDC apple, raw with skin; one medium (182 g) = 25 g carbs",
+      "portion_note": "one whole apple (a second, mostly-eaten apple core is also in frame)",
+      "image": "apple.jpg",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Whole_apple_and_bitten_apple.jpg",
+      "license": "CC BY 2.0",
+      "image_credit": ""
+    },
+    {
+      "id": "orange",
+      "known_carbs_grams": 15,
+      "expected_identity": ["orange"],
+      "label_basis": "USDA FDC orange, raw; one medium (131 g) = 15 g carbs",
+      "portion_note": "one medium orange (shown whole, halved, and a single segment)",
+      "image": "orange.jpg",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Oranges_-_whole-halved-segment.jpg",
+      "license": "CC BY-SA 4.0",
+      "image_credit": "Ivar Leidus"
+    },
+    {
+      "id": "plain-bagel",
+      "known_carbs_grams": 50,
+      "expected_identity": ["bagel", "plain bagel"],
+      "label_basis": "USDA FDC plain bagel; one medium (~98 g) = ~48-53 g carbs",
+      "portion_note": "one plain bagel",
+      "image": "plain-bagel.jpg",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Plain-Bagel.jpg",
+      "license": "Public domain",
+      "image_credit": "Evan-Amos"
+    },
+    {
+      "id": "glazed-donut",
+      "known_carbs_grams": 22,
+      "expected_identity": ["donut", "doughnut", "glazed donut", "glazed doughnut"],
+      "label_basis": "Glazed yeast ring doughnut (~60 g); USDA / Krispy Kreme original glazed = ~22 g carbs",
+      "portion_note": "one glazed ring doughnut",
+      "image": "glazed-donut.jpg",
+      "image_note": "cropped to a single doughnut from a boxed-dozen photo",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Krispy_kreme_glazed_doughnut.jpg",
+      "license": "CC BY 4.0",
+      "image_credit": "MichaellaaRubio"
+    },
+    {
+      "id": "white-rice-bowl",
+      "known_carbs_grams": 45,
+      "expected_identity": ["rice", "white rice", "rice bowl", "steamed rice"],
+      "label_basis": "USDA FDC white rice, cooked; 1 cup (158 g) = ~45 g carbs",
+      "portion_note": "approximately one cup cooked white rice",
+      "image": "white-rice-bowl.jpg",
+      "source_url": "https://commons.wikimedia.org/wiki/File:HK_%E4%B8%AD%E7%92%B0_Central_%E7%A7%9F%E5%BA%87%E5%88%A9%E8%A1%97_Jubilee_Street_%E5%96%9C%E8%A8%8A%E5%A4%A7%E5%BB%88_Haleson_Building_%E5%AF%B6%E6%B9%96%E9%85%92%E5%AE%B6_Treasure_Lake_Restaurant_%E6%99%9A%E9%A4%90_food_%E7%99%BD%E9%A3%AF_white_cooked_rice_bowl_May_2023_Px3_01.jpg",
+      "license": "CC BY-SA 4.0",
+      "image_credit": "PoHuHaiXin ZhongHuangjiaxi"
+    },
+    {
+      "id": "scrambled-eggs",
+      "known_carbs_grams": 2,
+      "expected_identity": ["eggs", "scrambled eggs"],
+      "label_basis": "USDA FDC scrambled eggs; two large eggs = ~2 g carbs (low-carb anchor)",
+      "portion_note": "two scrambled eggs, plain",
+      "image": "scrambled-eggs.jpg",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Scrambled_eggs_with_basil.jpg",
+      "license": "CC BY 4.0",
+      "image_credit": "OmegaFallon"
+    },
+    {
+      "id": "chocolate-chip-cookie",
+      "known_carbs_grams": 30,
+      "expected_identity": ["cookie", "chocolate chip cookie"],
+      "label_basis": "USDA FDC chocolate chip cookie; one large (~40 g) = ~28-32 g carbs",
+      "portion_note": "one large cookie",
+      "image": "chocolate-chip-cookie.jpg",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Single_chocolate_chip_cookie.jpg",
+      "license": "CC BY 3.0",
+      "image_credit": "Douglas P Perkins"
+    },
+    {
+      "id": "baked-potato",
+      "known_carbs_grams": 37,
+      "expected_identity": ["baked potato", "potato"],
+      "label_basis": "USDA FDC baked russet potato with skin; one medium (173 g) = ~37 g carbs",
+      "portion_note": "one medium baked potato, split",
+      "image": "baked-potato.jpg",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Baked_yellow_potato_with_butter_and_salt_-_Massachusetts.jpg",
+      "license": "CC0",
+      "image_credit": "Daderot"
+    }
+  ]
+}

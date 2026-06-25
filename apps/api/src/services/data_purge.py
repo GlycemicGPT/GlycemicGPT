@@ -13,9 +13,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.logging_config import get_logger
 from src.models.alert import Alert
 from src.models.chat_message import ChatMessage
+from src.models.common_food import CommonFood
 from src.models.correction_analysis import CorrectionAnalysis
 from src.models.daily_brief import DailyBrief
 from src.models.escalation_event import EscalationEvent
+from src.models.food_record import FoodRecord
 from src.models.glucose import GlucoseReading
 from src.models.knowledge_chunk import KnowledgeChunk
 from src.models.meal_analysis import MealAnalysis
@@ -24,6 +26,7 @@ from src.models.research_source import ResearchSource
 from src.models.safety_log import SafetyLog
 from src.models.suggestion_response import SuggestionResponse
 from src.models.user_document import UserDocument
+from src.services.food_image import delete_stored_image
 
 logger = get_logger(__name__)
 
@@ -64,6 +67,7 @@ async def purge_all_user_data(
     )
 
     deleted = {}
+    food_photo_paths: list[str] = []
 
     try:
         # ── Glucose data ──
@@ -135,6 +139,32 @@ async def purge_all_user_data(
         )
         deleted["research_sources"] = result.rowcount
 
+        # ── Food records + meal photos ──
+        # Delete the rows and capture their photo paths atomically (DELETE ...
+        # RETURNING) so a row inserted concurrently can't be deleted without its
+        # path being captured. Unlink the files only AFTER the transaction
+        # commits: if the commit rolls back, the rows survive and must still
+        # point at real files (no orphaned records).
+        result = await db.execute(
+            delete(FoodRecord)
+            .where(FoodRecord.user_id == user_id)
+            .returning(FoodRecord.storage_path)
+        )
+        deleted_food_rows = result.all()
+        food_photo_paths = [sp for (sp,) in deleted_food_rows if sp]
+        deleted["food_records"] = len(deleted_food_rows)
+        # food_record_audits rows cascade from this delete (FK ON DELETE CASCADE,
+        # migration 071), so the audit trail is purged here with the records --
+        # no separate delete needed (Story 50.H3, AC5).
+
+        # Common foods are deleted after food_records: the records are already
+        # gone, so the food_records.common_food_id FK (ON DELETE SET NULL) has
+        # nothing left to unlink and the baselines drop cleanly.
+        result = await db.execute(
+            delete(CommonFood).where(CommonFood.user_id == user_id)
+        )
+        deleted["common_foods"] = result.rowcount
+
         await db.commit()
     except Exception:
         await db.rollback()
@@ -143,6 +173,20 @@ async def purge_all_user_data(
             user_id=str(user_id),
         )
         raise
+
+    # The rows are gone and committed; now best-effort unlink the photo files.
+    # A failure here leaves a stray file (reclaimable later), never an orphaned
+    # row -- the safe failure direction. Guard each unlink so one failure can't
+    # abort the loop and skip the completion log / return below.
+    for storage_path in food_photo_paths:
+        try:
+            delete_stored_image(storage_path)
+        except Exception:
+            logger.warning(
+                "Failed to delete food photo file during purge (continuing)",
+                user_id=str(user_id),
+                exc_info=True,
+            )
 
     total = sum(deleted.values())
     logger.warning(

@@ -22,3 +22,5 @@ export {
 } from "./use-glucose-range";
 
 export { useReducedMotion } from "./use-reduced-motion";
+
+export { useGlucoseUnit } from "./use-glucose-unit";

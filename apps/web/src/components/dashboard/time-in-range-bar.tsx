@@ -191,13 +191,13 @@ export function TimeInRangeBar({
         aria-busy="true"
       >
         <div className="flex items-center justify-between mb-4">
-          <div className="h-6 w-32 bg-slate-700 rounded" />
-          <div className="h-6 w-20 bg-slate-700 rounded" />
+          <div className="h-6 w-32 bg-slate-700 rounded-sm" />
+          <div className="h-6 w-20 bg-slate-700 rounded-sm" />
         </div>
         <div className="h-8 bg-slate-700 rounded-full" />
         <div className="flex justify-center gap-4 mt-3">
           {[1, 2, 3, 4, 5].map((i) => (
-            <div key={i} className="h-4 w-16 bg-slate-700 rounded" />
+            <div key={i} className="h-4 w-16 bg-slate-700 rounded-sm" />
           ))}
         </div>
       </div>
@@ -320,7 +320,7 @@ export function TimeInRangeBar({
             title={`${BUCKET_LABELS[b.label]}: ${formatPercentage(b.pct)}`}
           >
             {b.pct >= 10 && (
-              <span className="text-xs font-medium text-white/90 drop-shadow-sm">
+              <span className="text-xs font-medium text-white/90 drop-shadow-xs">
                 {formatPercentage(b.pct)}
               </span>
             )}
@@ -398,7 +398,7 @@ export function TimeInRangeBar({
           <PeriodSelector period={period} onPeriodChange={onPeriodChange} />
         ) : (
           <span
-            className="text-sm text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded"
+            className="text-sm text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-sm"
             data-testid="period-label"
           >
             {periodLabel}
@@ -420,7 +420,7 @@ export function TimeInRangeBar({
         {ordered.map((b) => (
           <div key={b.label} className="flex items-center gap-1.5">
             <div
-              className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+              className="w-2.5 h-2.5 rounded-full shrink-0"
               style={{ backgroundColor: BUCKET_COLORS[b.label] }}
               aria-hidden="true"
             />
@@ -469,7 +469,7 @@ function PeriodSelector({
           aria-label={PERIOD_LABELS[p]}
           onClick={() => onPeriodChange(p)}
           className={clsx(
-            "px-2 py-1 text-xs font-medium rounded transition-colors",
+            "px-2 py-1 text-xs font-medium rounded-sm transition-colors",
             p === period
               ? "bg-blue-600 text-white"
               : "text-slate-500 dark:text-slate-400 hover:text-slate-200"

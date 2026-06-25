@@ -4,12 +4,16 @@ import android.content.Context
 import com.glycemicgpt.mobile.BuildConfig
 import com.glycemicgpt.mobile.data.auth.AuthManager
 import com.glycemicgpt.mobile.data.local.AnalyticsSettingsStore
+import com.glycemicgpt.mobile.data.local.AppSettingsStore
 import com.glycemicgpt.mobile.data.local.AuthTokenStore
 import com.glycemicgpt.mobile.data.local.GlucoseRangeStore
 import com.glycemicgpt.mobile.data.local.PumpProfileStore
 import com.glycemicgpt.mobile.data.local.SafetyLimitsStore
 import com.glycemicgpt.mobile.data.remote.GlycemicGptApi
+import com.glycemicgpt.mobile.data.remote.dto.GlucoseUnitUpdateRequest
 import com.glycemicgpt.mobile.data.remote.dto.LoginRequest
+import com.glycemicgpt.mobile.data.remote.dto.MealIntelligenceUpdateRequest
+import com.glycemicgpt.mobile.domain.model.GlucoseUnit
 import com.glycemicgpt.mobile.service.AlertStreamService
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlin.coroutines.cancellation.CancellationException
@@ -20,6 +24,9 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
+
+/** Backend glucose-unit provenance wire value flagging a still-unconfirmed smart default. */
+private const val GLUCOSE_UNIT_SOURCE_SEED = "seed"
 
 data class LoginResult(
     val success: Boolean,
@@ -35,6 +42,7 @@ class AuthRepository @Inject constructor(
     private val safetyLimitsStore: SafetyLimitsStore,
     private val analyticsSettingsStore: AnalyticsSettingsStore,
     private val pumpProfileStore: PumpProfileStore,
+    private val appSettingsStore: AppSettingsStore,
     private val api: GlycemicGptApi,
     private val deviceRepository: DeviceRepository,
     private val authManager: AuthManager,
@@ -94,6 +102,8 @@ class AuthRepository @Inject constructor(
                 }
                 scope.launch { fetchGlucoseRange() }
                 scope.launch { fetchSafetyLimits() }
+                scope.launch { fetchGlucoseUnit() }
+                scope.launch { fetchMealIntelligence() }
                 AlertStreamService.start(appContext)
 
                 LoginResult(success = true, email = body.user.email)
@@ -122,6 +132,13 @@ class AuthRepository @Inject constructor(
         safetyLimitsStore.clear()
         analyticsSettingsStore.clear()
         pumpProfileStore.clear()
+        // The glucose unit is a per-account preference; reset to the neutral default so a stale
+        // unit can't carry over to the next account before its reconcile lands.
+        appSettingsStore.glucoseUnit = GlucoseUnit.MGDL
+        appSettingsStore.glucoseUnitSeedPending = false
+        // Meal intelligence is per-account; reset to the default (ON) so a stale
+        // value can't carry over to the next account before its reconcile lands.
+        appSettingsStore.mealIntelligenceEnabled = true
         authManager.onLogout()
         scope.launch {
             deviceRepository.unregisterDevice()
@@ -171,6 +188,98 @@ class AuthRepository @Inject constructor(
         fetchSafetyLimits()
     }
 
+    /** Reconcile the cached glucose display unit from the backend (the account is the source of truth). */
+    suspend fun refreshGlucoseUnit() {
+        fetchGlucoseUnit()
+    }
+
+    /** Reconcile the cached meal-intelligence preference from the backend (the account is the source of truth). */
+    suspend fun refreshMealIntelligence() {
+        fetchMealIntelligence()
+    }
+
+    /**
+     * Write the user's meal-intelligence preference to the account
+     * (`PATCH /api/settings/meal-intelligence`) and reconcile the local cache to
+     * whatever the server returns. The preference is per-account, so this -- not the
+     * local cache -- is what gates the meal surfaces consistently across web, phone,
+     * and watch. On failure the optimistic local cache is left intact (the next
+     * reconcile corrects it); the [Result] lets the caller surface a transient error.
+     */
+    suspend fun updateMealIntelligence(enabled: Boolean): Result<Boolean> {
+        return try {
+            val response = api.patchMealIntelligence(MealIntelligenceUpdateRequest(enabled = enabled))
+            if (response.isSuccessful) {
+                val resolved = response.body()?.enabled ?: enabled
+                appSettingsStore.mealIntelligenceEnabled = resolved
+                Result.success(resolved)
+            } else {
+                if (response.code() == 401 || response.code() == 403) {
+                    // The account is forbidden this setting (e.g. caregiver 403) or
+                    // unauthenticated: fail closed so meal surfaces don't stay on.
+                    appSettingsStore.mealIntelligenceEnabled = false
+                }
+                Result.failure(Exception("Server responded with HTTP ${response.code()}"))
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "Failed to update meal intelligence preference")
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Write the user's glucose display unit to the account (`PATCH /api/settings/glucose-unit`)
+     * and reconcile the local cache to whatever the server returns. The unit is a per-account
+     * preference, so this -- not the local cache -- is what makes it consistent across web,
+     * phone, watch, and AI text. On failure the optimistic local cache is left intact (the next
+     * reconcile will correct it); the [Result] lets the caller surface a transient error.
+     */
+    suspend fun updateGlucoseUnit(unit: GlucoseUnit): Result<GlucoseUnit> {
+        return try {
+            val response = api.patchGlucoseUnit(GlucoseUnitUpdateRequest(glucoseUnit = unit.wireValue))
+            if (response.isSuccessful) {
+                val resolved = response.body()?.let { GlucoseUnit.fromWire(it.glucoseUnit) } ?: unit
+                appSettingsStore.glucoseUnit = resolved
+                // An explicit choice confirms the preference, so the one-time smart-default
+                // notice must not show (the backend also flips provenance to "user").
+                appSettingsStore.glucoseUnitSeedPending = false
+                Result.success(resolved)
+            } else {
+                Result.failure(Exception("Server responded with HTTP ${response.code()}"))
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "Failed to update glucose unit")
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Acknowledge the smart-default glucose-unit notice without changing the unit.
+     * Stamps provenance `source=user` server-side -- so the notice never recurs and a later seed
+     * never re-fires -- and clears the local pending flag. Used when the user dismisses the notice
+     * without picking a unit; picking one goes through [updateGlucoseUnit], which already confirms.
+     */
+    suspend fun acknowledgeGlucoseUnitSeed(): Result<Unit> {
+        return try {
+            val response = api.acknowledgeGlucoseUnitSeed()
+            if (response.isSuccessful) {
+                appSettingsStore.glucoseUnitSeedPending = false
+                Result.success(Unit)
+            } else {
+                Result.failure(Exception("Server responded with HTTP ${response.code()}"))
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "Failed to acknowledge glucose unit seed")
+            Result.failure(e)
+        }
+    }
+
     private suspend fun fetchGlucoseRange() {
         try {
             val response = api.getGlucoseRange()
@@ -193,6 +302,56 @@ class AuthRepository @Inject constructor(
             throw e
         } catch (e: Exception) {
             Timber.w(e, "Failed to fetch glucose range settings")
+        }
+    }
+
+    private suspend fun fetchGlucoseUnit() {
+        try {
+            val response = api.getGlucoseUnit()
+            if (response.isSuccessful) {
+                response.body()?.let { body ->
+                    val unit = GlucoseUnit.fromWire(body.glucoseUnit)
+                    appSettingsStore.glucoseUnit = unit
+                    // A still-seed-owned non-mgdl preference drives the one-time smart-default
+                    // confirmation notice in Settings. Reconcile clears it once the
+                    // account provenance is "user" (the user confirmed elsewhere).
+                    appSettingsStore.glucoseUnitSeedPending =
+                        body.glucoseUnitSource == GLUCOSE_UNIT_SOURCE_SEED &&
+                        unit != GlucoseUnit.MGDL
+                    Timber.d(
+                        "Glucose unit reconciled: %s (source=%s)",
+                        body.glucoseUnit,
+                        body.glucoseUnitSource,
+                    )
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Keep the cached unit (ultimately MGDL) on any failure.
+            Timber.w(e, "Failed to fetch glucose unit preference")
+        }
+    }
+
+    private suspend fun fetchMealIntelligence() {
+        try {
+            val response = api.getMealIntelligence()
+            if (response.isSuccessful) {
+                response.body()?.let { body ->
+                    appSettingsStore.mealIntelligenceEnabled = body.enabled
+                    Timber.d("Meal intelligence reconciled: %b", body.enabled)
+                }
+            } else if (response.code() == 401 || response.code() == 403) {
+                // The account is forbidden this setting (e.g. caregiver 403) or the
+                // session expired: fail closed so a cached/default-ON value can't
+                // leave meal surfaces visible for an account the backend rejects.
+                appSettingsStore.mealIntelligenceEnabled = false
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Keep the cached value (ultimately the default ON) on a transient/network failure.
+            Timber.w(e, "Failed to fetch meal intelligence preference")
         }
     }
 

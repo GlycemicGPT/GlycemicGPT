@@ -528,7 +528,7 @@ export default function DataRetentionPage() {
                 className={clsx(
                   "w-full rounded-lg border px-3 py-2 text-sm",
                   "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
-                  "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
+                  "focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                   "disabled:opacity-50 disabled:cursor-not-allowed"
                 )}
                 aria-describedby="glucose-retention-hint"
@@ -563,7 +563,7 @@ export default function DataRetentionPage() {
                 className={clsx(
                   "w-full rounded-lg border px-3 py-2 text-sm",
                   "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
-                  "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
+                  "focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                   "disabled:opacity-50 disabled:cursor-not-allowed"
                 )}
                 aria-describedby="analysis-retention-hint"
@@ -598,7 +598,7 @@ export default function DataRetentionPage() {
                 className={clsx(
                   "w-full rounded-lg border px-3 py-2 text-sm",
                   "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
-                  "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
+                  "focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                   "disabled:opacity-50 disabled:cursor-not-allowed"
                 )}
                 aria-describedby="audit-retention-hint"
@@ -645,7 +645,7 @@ export default function DataRetentionPage() {
                   "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium",
                   "bg-blue-600 text-white hover:bg-blue-500",
                   "transition-colors",
-                  "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+                  "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500",
                   "disabled:opacity-50 disabled:cursor-not-allowed"
                 )}
               >
@@ -678,7 +678,7 @@ export default function DataRetentionPage() {
                   "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium",
                   "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700",
                   "transition-colors",
-                  "focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500",
+                  "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-slate-500",
                   "disabled:opacity-50 disabled:cursor-not-allowed"
                 )}
               >
@@ -738,7 +738,7 @@ export default function DataRetentionPage() {
                 className={clsx(
                   "w-full rounded-lg border px-3 py-2 text-sm",
                   "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
-                  "focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent",
+                  "focus:outline-hidden focus:ring-2 focus:ring-cyan-500 focus:border-transparent",
                   "disabled:opacity-50 disabled:cursor-not-allowed"
                 )}
                 aria-describedby="day-boundary-hint"
@@ -791,7 +791,7 @@ export default function DataRetentionPage() {
                 "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium",
                 "bg-cyan-600 text-white hover:bg-cyan-500",
                 "transition-colors",
-                "focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500",
+                "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-cyan-500",
                 "disabled:opacity-50 disabled:cursor-not-allowed"
               )}
             >
@@ -928,7 +928,7 @@ export default function DataRetentionPage() {
                               "w-full rounded-lg border px-2 py-1.5 text-sm",
                               "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
                               "placeholder:text-slate-600",
-                              "focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent",
+                              "focus:outline-hidden focus:ring-2 focus:ring-violet-500 focus:border-transparent",
                               "disabled:opacity-50 disabled:cursor-not-allowed"
                             )}
                           />
@@ -951,7 +951,7 @@ export default function DataRetentionPage() {
                           className={clsx(
                             "w-full rounded-lg border px-2 py-1.5 text-sm",
                             "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
-                            "focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent",
+                            "focus:outline-hidden focus:ring-2 focus:ring-violet-500 focus:border-transparent",
                             "disabled:opacity-50 disabled:cursor-not-allowed"
                           )}
                         >
@@ -1009,7 +1009,7 @@ export default function DataRetentionPage() {
                 "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm",
                 "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700",
                 "transition-colors border border-slate-300 dark:border-slate-700",
-                "focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500",
+                "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-violet-500",
                 "disabled:opacity-50 disabled:cursor-not-allowed"
               )}
             >
@@ -1057,7 +1057,7 @@ export default function DataRetentionPage() {
                   "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium",
                   "bg-violet-600 text-white hover:bg-violet-500",
                   "transition-colors",
-                  "focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500",
+                  "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-violet-500",
                   "disabled:opacity-50 disabled:cursor-not-allowed"
                 )}
               >
@@ -1085,7 +1085,7 @@ export default function DataRetentionPage() {
                   "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium",
                   "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700",
                   "transition-colors",
-                  "focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500",
+                  "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-slate-500",
                   "disabled:opacity-50 disabled:cursor-not-allowed"
                 )}
               >
@@ -1168,7 +1168,7 @@ export default function DataRetentionPage() {
                 "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium",
                 "bg-green-600 text-white hover:bg-green-500",
                 "transition-colors",
-                "focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500",
+                "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-green-500",
                 "disabled:opacity-50 disabled:cursor-not-allowed"
               )}
             >
@@ -1246,7 +1246,7 @@ export default function DataRetentionPage() {
                   "bg-red-600/10 text-red-400 border border-red-500/30",
                   "hover:bg-red-600/20",
                   "transition-colors",
-                  "focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500",
+                  "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-red-500",
                   "disabled:opacity-50 disabled:cursor-not-allowed"
                 )}
               >
@@ -1299,7 +1299,7 @@ export default function DataRetentionPage() {
                     "w-full rounded-lg border px-3 py-2 text-sm",
                     "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200",
                     "placeholder:text-slate-600",
-                    "focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent",
+                    "focus:outline-hidden focus:ring-2 focus:ring-red-500 focus:border-transparent",
                     "disabled:opacity-50 disabled:cursor-not-allowed"
                   )}
                 />
@@ -1314,7 +1314,7 @@ export default function DataRetentionPage() {
                     "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium",
                     "bg-red-600 text-white hover:bg-red-500",
                     "transition-colors",
-                    "focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500",
+                    "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-red-500",
                     "disabled:opacity-50 disabled:cursor-not-allowed"
                   )}
                 >
@@ -1340,7 +1340,7 @@ export default function DataRetentionPage() {
                     "px-4 py-2 rounded-lg text-sm font-medium",
                     "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700",
                     "transition-colors",
-                    "focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500",
+                    "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-slate-500",
                     "disabled:opacity-50 disabled:cursor-not-allowed"
                   )}
                 >

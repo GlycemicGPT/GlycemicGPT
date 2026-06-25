@@ -130,6 +130,12 @@ class Settings(BaseSettings):
     escalation_check_interval_minutes: int = 1  # Check every 1 minute
     escalation_check_enabled: bool = True  # Enable/disable automatic escalation
 
+    # Daily brief auto-generation (issue #741)
+    # Bounded like the sync-tick intervals: the value feeds IntervalTrigger, which
+    # starves/crashes on zero/negative/absurd values.
+    brief_check_interval_minutes: int = Field(default=5, ge=1, le=60)
+    brief_scheduler_enabled: bool = True  # Enable/disable automatic daily briefs
+
     # Data Retention (Story 9.3)
     data_retention_enabled: bool = True
     data_retention_check_interval_hours: int = 24  # Run daily
@@ -142,6 +148,71 @@ class Settings(BaseSettings):
     # AI Sidecar (Story 15.2)
     ai_sidecar_url: str = "http://ai-sidecar:3456"
     ai_sidecar_api_key: str = ""  # SIDECAR_API_KEY for inter-service auth
+
+    # Food-photo uploads (meal-photo carb estimation)
+    # Private, owner-scoped storage volume for meal photos. Never web-served;
+    # files are re-encoded on upload (EXIF stripped). 5 MB cap mirrors the
+    # sidecar's image limit. Vision carb estimation is opt-in per user via the
+    # ``users.meal_intelligence_enabled`` preference (no global env flag).
+    upload_dir: str = "/uploads"
+    food_image_max_bytes: int = Field(default=5 * 1024 * 1024, ge=1)
+    # Timeout (seconds) for the sidecar vision call; longer than the text
+    # timeout because a CLI vision provider can take tens of seconds.
+    vision_request_timeout_seconds: float = Field(default=120.0, gt=0)
+    # Multi-sample estimation (Story 50.H1). One photo is sampled this many times
+    # in a single request; the confidence/range come from the observed spread,
+    # not the model's (discredited) self-reported confidence. Cost guardrail:
+    # ~N x vision tokens/estimate, so capped low (1 disables multi-sampling and
+    # yields a single, necessarily low-confidence draw). 50.H4's variance harness
+    # tunes the value against the accuracy-vs-cost curve.
+    meal_estimate_sample_count: int = Field(default=3, ge=1, le=7)
+
+    # Nutrition grounding (Story 50.E1). Estimates are grounded against the
+    # user's own logged history (RAG) and published nutrition facts. The external
+    # sources below are cacheable/redistributable (USDA = CC0/public domain; Open
+    # Food Facts = ODbL) and fail open: a lookup error falls back to vision-only.
+    # USDA FoodData Central needs a free data.gov API key, per-deployment (BYO or
+    # bundled). Empty key -> USDA grounding is skipped (no error). 1k req/hr per
+    # IP is plenty for a self-hoster.
+    usda_fdc_api_key: str = ""
+    usda_fdc_base_url: str = "https://api.nal.usda.gov/fdc/v1"
+    # Open Food Facts needs no key (ODbL). Disable to opt out entirely.
+    open_food_facts_enabled: bool = True
+    open_food_facts_base_url: str = "https://world.openfoodfacts.org"
+    # Hard per-call timeout for an external nutrition lookup; kept short so a slow
+    # source never stalls the estimate path (it falls back to vision-only).
+    nutrition_grounding_timeout_seconds: float = Field(default=6.0, gt=0)
+
+    # Restaurant / fast-food grounding (Story 50.E2). A confirmed branded-chain
+    # item (e.g. a McDonald's Quarter Pounder) is grounded against that chain's
+    # OWN published nutrition, fetched on demand for that one item -- no
+    # pre-crawl, no bulk mirror -- via the per-chain fetcher registry in
+    # ``services/restaurant_nutrition.py``. Compliance mitigations (robots.txt,
+    # rate-limit + back-off, descriptive User-Agent, user-action-triggered, and
+    # OWNER-SCOPED caching -- never the shared mirror USDA/OFF use) are
+    # non-negotiable. Disable to opt out of every restaurant fetch (falls back to
+    # vision-only).
+    restaurant_grounding_enabled: bool = True
+    # Minimum seconds between successive fetches to the same chain host (a simple
+    # per-host rate limit; a 429/503 adds exponential back-off on top).
+    restaurant_min_seconds_between_fetches: float = Field(default=2.0, ge=0)
+    # How long an owner-scoped restaurant cache entry stays fresh. Chain facts
+    # change rarely, so a re-log inside this window reuses the cached value rather
+    # than re-fetching. Owner-scoped only -- never pooled into a shared mirror.
+    restaurant_cache_ttl_hours: float = Field(default=24 * 30, gt=0)
+
+    # Optional FatSecret BYO-key add-on (Story 50.E2, AC5). Broader *commercial*
+    # restaurant coverage via the operator's OWN FatSecret Platform credentials
+    # (self-serve free tier). Empty -> disabled; no shared key is ever shipped.
+    # FatSecret's terms cap value caching at 24 h, so FatSecret-sourced results are
+    # cached owner-scoped for at most ``fatsecret_cache_ttl_hours`` and otherwise
+    # queried fresh.
+    fatsecret_consumer_key: str = ""
+    fatsecret_consumer_secret: str = ""
+    fatsecret_token_url: str = "https://oauth.fatsecret.com/connect/token"
+    fatsecret_api_url: str = "https://platform.fatsecret.com/rest/server.api"
+    # FatSecret's value-cache ToS limit (hours). Hard-capped at 24 h by intent.
+    fatsecret_cache_ttl_hours: float = Field(default=24.0, gt=0, le=24.0)
 
     # Device & API key limits (Story 28.7)
     max_devices_per_user: int = Field(default=10, ge=1)

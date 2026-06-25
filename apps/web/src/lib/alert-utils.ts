@@ -12,6 +12,7 @@ import {
   AlertTriangle,
   type LucideIcon,
 } from "lucide-react";
+import { formatGlucose, unitLabel, type GlucoseUnit } from "./glucose-units";
 
 /** Visual config per alert severity level */
 export const SEVERITY_CONFIG: Record<
@@ -91,4 +92,50 @@ export function formatAlertTitle(alertType: string): string {
     ALERT_TYPE_LABELS[alertType] ??
     alertType.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
   );
+}
+
+/**
+ * Minimal alert shape needed to render a glucose summary line. Kept as a local
+ * structural type (not a `Pick<>` of one payload) so the formatter stays
+ * decoupled from its two callers — the SSE `AlertEventData` (toast) and the REST
+ * `PredictiveAlert` (card) both satisfy it without privileging either.
+ */
+interface AlertGlucoseFields {
+  alert_type: string;
+  current_value: number;
+  predicted_value: number | null;
+  prediction_minutes: number | null;
+  message: string;
+}
+
+/**
+ * Build a one-line alert summary in the active unit from the alert's STRUCTURED
+ * numeric fields (mg/dL), so the displayed glucose number is never the frozen
+ * mg/dL `message` string — which is rendered once at persist and would read in a
+ * stale unit after the user changes their display preference.
+ *
+ * The persisted message also carried a "(threshold: X)" parenthetical; it is
+ * intentionally dropped here because the threshold is not a structured field on
+ * the alert payload and so cannot be re-rendered in the active unit. This helper
+ * feeds the toast and browser notification — transient surfaces with no separate
+ * glucose block — where a non-stale value + unit beats a stale-prone threshold
+ * annotation (the alert title already conveys which threshold was crossed).
+ *
+ * IoB warnings describe insulin units (never converted), so their persisted
+ * message is already unit-stable and is shown verbatim.
+ */
+export function formatAlertSummary(
+  alert: AlertGlucoseFields,
+  unit: GlucoseUnit
+): string {
+  if (alert.alert_type === "iob_warning") {
+    return alert.message;
+  }
+  const title = formatAlertTitle(alert.alert_type);
+  const current = `${formatGlucose(alert.current_value, unit)} ${unitLabel(unit)}`;
+  if (alert.predicted_value != null && alert.prediction_minutes != null) {
+    const predicted = `${formatGlucose(alert.predicted_value, unit)} ${unitLabel(unit)}`;
+    return `${title}: ${current} → ${predicted} in ${alert.prediction_minutes}min`;
+  }
+  return `${title}: ${current}`;
 }

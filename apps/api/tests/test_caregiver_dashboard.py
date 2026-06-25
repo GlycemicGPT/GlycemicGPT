@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from src.core.units import GlucoseUnit
 from src.models.caregiver_link import CaregiverLink
 from src.models.user import User, UserRole
 from src.schemas.caregiver_permissions import CaregiverPermissions
@@ -302,8 +303,15 @@ class TestStatusEndpointIntegration:
         # Mock for patient email lookup
         mock_email_result = MagicMock()
         mock_email_result.scalar_one_or_none.return_value = "patient@example.com"
+        # Mock for the patient's glucose-unit lookup (resolve_glucose_unit)
+        mock_unit_result = MagicMock()
+        mock_unit_result.scalar_one_or_none.return_value = GlucoseUnit.MGDL
 
-        db.execute.side_effect = [mock_link_result, mock_email_result]
+        db.execute.side_effect = [
+            mock_link_result,
+            mock_email_result,
+            mock_unit_result,
+        ]
 
         mock_user = MagicMock()
         mock_user.id = caregiver_id
@@ -333,12 +341,66 @@ class TestStatusEndpointIntegration:
 
         assert result.patient_id == patient_id
         assert result.patient_email == "patient@example.com"
+        assert result.glucose_unit == GlucoseUnit.MGDL
+        # The value stays canonical mg/dL; only the unit token selects display.
         assert result.glucose is not None
         assert result.glucose.value == 145
         assert result.iob is not None
         assert result.iob.current_iob == projection.projected_iob
         assert result.permissions.can_view_glucose is True
         assert result.permissions.can_view_iob is True
+
+    @pytest.mark.asyncio
+    async def test_status_renders_each_patient_in_their_own_unit(self):
+        """A caregiver watching a mmol patient and a mg/dL patient gets each
+        patient's OWN unit on the status payload (never the caregiver's). The
+        glucose value stays canonical mg/dL regardless of the display unit.
+        """
+        from src.routers.caregivers import get_caregiver_patient_status
+
+        caregiver_id = uuid.uuid4()
+
+        async def status_for(patient_unit: GlucoseUnit):
+            patient_id = uuid.uuid4()
+            link = make_link(
+                caregiver_id=caregiver_id,
+                patient_id=patient_id,
+                can_view_glucose=True,
+                can_view_iob=False,
+            )
+            db = AsyncMock()
+            mock_link_result = MagicMock()
+            mock_link_result.scalar_one_or_none.return_value = link
+            mock_email_result = MagicMock()
+            mock_email_result.scalar_one_or_none.return_value = "p@example.com"
+            mock_unit_result = MagicMock()
+            mock_unit_result.scalar_one_or_none.return_value = patient_unit
+            db.execute.side_effect = [
+                mock_link_result,
+                mock_email_result,
+                mock_unit_result,
+            ]
+            mock_user = MagicMock()
+            mock_user.id = caregiver_id
+            with patch(
+                "src.services.dexcom_sync.get_latest_glucose_reading",
+                new_callable=AsyncMock,
+                return_value=make_glucose_reading(value=90),
+            ):
+                return await get_caregiver_patient_status(
+                    patient_id=patient_id,
+                    current_user=mock_user,
+                    db=db,
+                )
+
+        mmol_status = await status_for(GlucoseUnit.MMOL)
+        mgdl_status = await status_for(GlucoseUnit.MGDL)
+
+        assert mmol_status.glucose_unit == GlucoseUnit.MMOL
+        assert mgdl_status.glucose_unit == GlucoseUnit.MGDL
+        # Same canonical mg/dL value regardless of the display unit.
+        assert mmol_status.glucose.value == 90
+        assert mgdl_status.glucose.value == 90
 
     @pytest.mark.asyncio
     async def test_full_status_glucose_denied_omits_data(self):
@@ -374,6 +436,8 @@ class TestStatusEndpointIntegration:
         assert result.iob is None
         assert result.permissions.can_view_glucose is False
         assert result.permissions.can_view_iob is False
+        # No glucose shown -> the unit token defaults to mg/dL (and is unused).
+        assert result.glucose_unit == GlucoseUnit.MGDL
 
     @pytest.mark.asyncio
     async def test_unlinked_patient_raises_404(self):
@@ -451,6 +515,9 @@ class TestCaregiverDashboardSchemas:
         )
         assert status.glucose is None
         assert status.iob is None
+        # glucose_unit is optional and defaults to mg/dL (back-compat: callers
+        # that don't set it keep the canonical default).
+        assert status.glucose_unit == GlucoseUnit.MGDL
 
     def test_glucose_data_schema(self):
         """CaregiverGlucoseData validates all required fields."""

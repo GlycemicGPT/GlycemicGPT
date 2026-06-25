@@ -30,6 +30,7 @@ import {
 } from "@/lib/api";
 import { lttbDownsample } from "@/lib/downsample";
 import { type ChartTimePeriod, PERIOD_TO_MS, isMultiDay } from "@/lib/chart-periods";
+import { formatGlucose, unitLabel, type GlucoseUnit } from "@/lib/glucose-units";
 import { GLUCOSE_THRESHOLDS, prettySourceName } from "./glucose-hero";
 import { useGlucoseHistory } from "@/hooks/use-glucose-history";
 import { usePumpEvents } from "@/hooks/use-pump-events";
@@ -224,10 +225,12 @@ function ChartTooltip({
   active,
   payload,
   multiDay,
+  unit = "mgdl",
 }: {
   active?: boolean;
   payload?: Array<{ payload: Record<string, unknown> }>;
   multiDay?: boolean;
+  unit?: GlucoseUnit;
 }) {
   if (!active || !payload?.length) return null;
   const point = payload[0].payload;
@@ -264,7 +267,7 @@ function ChartTooltip({
           <p className="text-slate-500 dark:text-slate-400 text-xs">IoB: {iob.toFixed(1)}u</p>
         )}
         {bg != null && (
-          <p className="text-slate-500 dark:text-slate-400 text-xs">BG: {bg} mg/dL</p>
+          <p className="text-slate-500 dark:text-slate-400 text-xs">BG: {formatGlucose(bg, unit)} {unitLabel(unit)}</p>
         )}
         {ts != null && <p className="text-slate-500 dark:text-slate-400 text-xs">{formatTime(ts)}</p>}
       </div>
@@ -303,7 +306,7 @@ function ChartTooltip({
   return (
     <div className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-sm shadow-lg">
       <p className="font-semibold" style={{ color: point.color as string }}>
-        {point.value} mg/dL
+        {formatGlucose(point.value, unit)} {unitLabel(unit)}
         {trendArrow && trendArrow !== "?" && (
           <span className="ml-1">{trendArrow}</span>
         )}
@@ -486,12 +489,12 @@ function BrushSlider({ fullDomain, zoomDomain, onZoomChange }: BrushSliderProps)
   return (
     <div
       ref={containerRef}
-      className="relative h-6 mt-2 bg-slate-100 dark:bg-slate-800 rounded select-none"
+      className="relative h-6 mt-2 bg-slate-100 dark:bg-slate-800 rounded-sm select-none"
       aria-label="Zoom brush slider"
     >
       {/* Selected region */}
       <div
-        className="absolute top-0 h-full bg-slate-600 rounded-sm"
+        className="absolute top-0 h-full bg-slate-600 rounded-xs"
         style={{
           left: `${leftPct}%`,
           width: `${widthPct}%`,
@@ -508,7 +511,7 @@ function BrushSlider({ fullDomain, zoomDomain, onZoomChange }: BrushSliderProps)
           aria-valuemin={fullDomain[0]}
           aria-valuemax={fullDomain[1]}
           aria-valuenow={zoom[0]}
-          className="absolute left-0 top-0 h-full w-4 flex justify-start focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-l-sm"
+          className="absolute left-0 top-0 h-full w-4 flex justify-start focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500 rounded-l-sm"
           style={{ cursor: "col-resize", marginLeft: "-4px" }}
           onMouseDown={(e) => handlePointerDown("left", e)}
           onTouchStart={(e) => handlePointerDown("left", e)}
@@ -524,7 +527,7 @@ function BrushSlider({ fullDomain, zoomDomain, onZoomChange }: BrushSliderProps)
           aria-valuemin={fullDomain[0]}
           aria-valuemax={fullDomain[1]}
           aria-valuenow={zoom[1]}
-          className="absolute right-0 top-0 h-full w-4 flex justify-end focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-r-sm"
+          className="absolute right-0 top-0 h-full w-4 flex justify-end focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500 rounded-r-sm"
           style={{ cursor: "col-resize", marginRight: "-4px" }}
           onMouseDown={(e) => handlePointerDown("right", e)}
           onTouchStart={(e) => handlePointerDown("right", e)}
@@ -601,6 +604,9 @@ export interface GlucoseTrendChartProps {
    * when no forecast-publishing integration is connected. Only rendered
    * on 3H / 6H periods so longer historical views stay clean. */
   forecast?: ForecastReadResponse | null;
+  /** Active glucose display unit (default mgdl). Chart data + domains stay
+   * mg/dL; only axis tick labels and tooltip text convert. */
+  unit?: GlucoseUnit;
 }
 
 const FORECAST_OVERLAY_PERIODS: ReadonlySet<ChartTimePeriod> = new Set<ChartTimePeriod>([
@@ -626,6 +632,7 @@ export function GlucoseTrendChart({
   className,
   thresholds,
   forecast,
+  unit = "mgdl",
 }: GlucoseTrendChartProps) {
   const { readings, isLoading, error, period, setPeriod, refetch } =
     useGlucoseHistory("3h");
@@ -946,10 +953,10 @@ export function GlucoseTrendChart({
         data-testid="glucose-trend-chart"
       >
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
-          <div className="h-6 w-40 bg-slate-700 rounded animate-pulse" />
-          <div className="h-8 w-48 bg-slate-700 rounded animate-pulse" />
+          <div className="h-6 w-40 bg-slate-700 rounded-sm animate-pulse" />
+          <div className="h-8 w-48 bg-slate-700 rounded-sm animate-pulse" />
         </div>
-        <div className="h-64 bg-slate-100 dark:bg-slate-800 rounded animate-pulse" />
+        <div className="h-64 bg-slate-100 dark:bg-slate-800 rounded-sm animate-pulse" />
       </div>
     );
   }
@@ -1013,7 +1020,9 @@ export function GlucoseTrendChart({
 
   const lowThreshold = thresholds?.low ?? GLUCOSE_THRESHOLDS.LOW;
   const highThreshold = thresholds?.high ?? GLUCOSE_THRESHOLDS.HIGH;
-  const targetLabel = `${lowThreshold}-${highThreshold} Target`;
+  // Thresholds stay mg/dL for the band geometry; the legend label converts and
+  // carries the unit so the range isn't ambiguous (e.g. "3.9-10.0 mmol/L Target").
+  const targetLabel = `${formatGlucose(lowThreshold, unit)}-${formatGlucose(highThreshold, unit)} ${unitLabel(unit)} Target`;
 
   return (
     <div
@@ -1092,6 +1101,8 @@ export function GlucoseTrendChart({
               dataKey="value"
               type="number"
               domain={yDomain}
+              // Domain + data stay mg/dL; only the tick LABEL converts.
+              tickFormatter={(v: number) => formatGlucose(v, unit)}
               tick={{ fill: "#94a3b8", fontSize: 12 }}
               axisLine={{ stroke: "#475569" }}
               tickLine={{ stroke: "#475569" }}
@@ -1195,7 +1206,7 @@ export function GlucoseTrendChart({
             )}
 
             <Tooltip
-              content={isDragging ? () => null : <ChartTooltip multiDay={multiDay} />}
+              content={isDragging ? () => null : <ChartTooltip multiDay={multiDay} unit={unit} />}
               cursor={false}
             />
           </ComposedChart>

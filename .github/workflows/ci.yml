@@ -49,6 +49,7 @@ jobs:
       api: ${{ steps.filter.outputs.api }}
       web: ${{ steps.filter.outputs.web }}
       sidecar: ${{ steps.filter.outputs.sidecar }}
+      evals: ${{ steps.filter.outputs.evals }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -68,6 +69,8 @@ jobs:
               - 'apps/web/**'
             sidecar:
               - 'sidecar/**'
+            evals:
+              - 'evals/**'
 
   test-backend:
     name: Backend Tests
@@ -129,6 +132,12 @@ jobs:
           JWT_SECRET_KEY: test-secret-key-for-ci
           ENCRYPTION_KEY: dGVzdC1lbmNyeXB0aW9uLWtleS0zMi1ieXRlcw==
         run: uv run pytest --tb=short -q
+
+      # Story 50.S: gate the vision carb-estimate contract — including the
+      # dosing-language safety scanner — in CI. These tests import the backend
+      # contract via a shim, so they run with the apps/api venv.
+      - name: Run vision eval-harness contract tests
+        run: uv run pytest --tb=short -q ../../evals/vision_carb/tests/
 
   test-frontend:
     name: Frontend Tests
@@ -207,6 +216,55 @@ jobs:
       - name: Run ruff format check
         run: uv run ruff format --check .
 
+  eval-harness:
+    name: Eval Harness
+    needs: detect-changes
+    # The vision-carb eval harness (evals/) re-exports the backend carb contract,
+    # so an API change can break it too -- run on either. Deterministic, mocked,
+    # no network / no DB: the live model run is operational and out of CI.
+    if: |
+      !cancelled()
+      && (
+        needs.detect-changes.result != 'success'
+        || needs.detect-changes.outputs.evals == 'true'
+        || needs.detect-changes.outputs.api == 'true'
+        || github.event_name == 'push'
+      )
+    runs-on: ubuntu-latest
+
+    # Run from apps/api so the backend venv (pinned ruff/pytest) AND the backend
+    # ruff config both apply to evals/ -- ruff resolves config from the working
+    # directory, so linting here matches local `uv run` exactly.
+    defaults:
+      run:
+        working-directory: apps/api
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.14"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4.2.0
+
+      - name: Install backend dev tooling
+        run: uv sync --extra dev
+
+      - name: Run eval harness tests
+        run: uv run python -m pytest ../../evals/vision_carb/tests/ -q
+
+      - name: Run ruff check
+        run: uv run ruff check ../../evals/
+
+      - name: Run ruff format check
+        run: uv run ruff format --check ../../evals/
+
   lint-frontend:
     name: Frontend Lint
     needs: detect-changes
@@ -238,6 +296,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
 
       - name: Run lint
         run: npm run lint

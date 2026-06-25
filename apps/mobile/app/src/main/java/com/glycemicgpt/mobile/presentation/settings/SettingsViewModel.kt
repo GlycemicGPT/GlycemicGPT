@@ -24,6 +24,7 @@ import com.glycemicgpt.mobile.data.local.PumpCredentialStore
 import com.glycemicgpt.mobile.data.local.SafetyLimitsStore
 import com.glycemicgpt.mobile.data.repository.AuthRepository
 import com.glycemicgpt.mobile.data.update.AppUpdateChecker
+import com.glycemicgpt.mobile.domain.model.GlucoseUnit
 import com.glycemicgpt.mobile.service.AlertNotificationManager
 import com.glycemicgpt.mobile.service.AlertStreamService
 import com.glycemicgpt.mobile.service.PumpConnectionService
@@ -201,6 +202,15 @@ data class SettingsUiState(
     // Appearance
     val themeMode: com.glycemicgpt.mobile.presentation.theme.ThemeMode =
         com.glycemicgpt.mobile.presentation.theme.ThemeMode.System,
+    // Glucose display unit (per-account preference)
+    val glucoseUnit: GlucoseUnit = GlucoseUnit.MGDL,
+    val glucoseUnitSyncError: String? = null,
+    // One-time smart-default notice: the unit was seeded (region / Nightscout) and not yet
+    // confirmed. Cleared when the user picks a unit or dismisses the notice.
+    val seedNeedsConfirm: Boolean = false,
+    // Meal-intelligence feature toggle (per-account preference). Defaults ON.
+    val mealIntelligenceEnabled: Boolean = true,
+    val mealIntelligenceSyncError: String? = null,
 )
 
 private const val AUTO_DISMISS_MS = 5_000L
@@ -320,6 +330,9 @@ class SettingsViewModel @Inject constructor(
             runtimePlugins = pluginRegistry.runtimePlugins.value,
             showPumpLabels = appSettingsStore.showPumpLabels,
             themeMode = appSettingsStore.themeMode,
+            glucoseUnit = appSettingsStore.glucoseUnit,
+            seedNeedsConfirm = appSettingsStore.glucoseUnitSeedPending,
+            mealIntelligenceEnabled = appSettingsStore.mealIntelligenceEnabled,
             watchFaceConfig = loadPersistedWatchFaceConfig(),
         ).withActivePumpFields()
 
@@ -334,6 +347,25 @@ class SettingsViewModel @Inject constructor(
             }
             if (safetyLimitsStore.isStale()) {
                 viewModelScope.launch { authRepository.refreshSafetyLimits() }
+            }
+            // Reconcile the per-account glucose unit so the seed-confirmation notice
+            // reflects the latest account provenance when Settings opens.
+            viewModelScope.launch {
+                authRepository.refreshGlucoseUnit()
+                _uiState.value = _uiState.value.copy(
+                    glucoseUnit = appSettingsStore.glucoseUnit,
+                    seedNeedsConfirm = appSettingsStore.glucoseUnitSeedPending,
+                )
+            }
+            // Reconcile the per-account meal-intelligence preference so the toggle
+            // reflects the latest account value when Settings opens.
+            viewModelScope.launch {
+                authRepository.refreshMealIntelligence()
+                _uiState.value = _uiState.value.copy(
+                    mealIntelligenceEnabled = appSettingsStore.mealIntelligenceEnabled,
+                    // A successful reconcile supersedes any prior PATCH sync error.
+                    mealIntelligenceSyncError = null,
+                )
             }
         }
         if (pumpCredentialStore.isPaired()) {
@@ -1174,6 +1206,95 @@ class SettingsViewModel @Inject constructor(
     fun setThemeMode(mode: com.glycemicgpt.mobile.presentation.theme.ThemeMode) {
         appSettingsStore.themeMode = mode
         _uiState.value = _uiState.value.copy(themeMode = mode)
+    }
+
+    /**
+     * Set the glucose display unit. The unit is a per-account preference, so this does an
+     * optimistic local-cache set for instant feedback AND a backend PATCH so the choice
+     * propagates to web, watch, and AI text. (Unlike [setThemeMode], which is per-device.)
+     * On success the selector reflects whatever unit the server resolved to (in case it ever
+     * coerces the value); on PATCH failure the optimistic value stays and a transient error is
+     * surfaced; the next `/api/settings/glucose-unit` reconcile corrects it rather than reverting
+     * mid-session.
+     */
+    fun setGlucoseUnit(unit: GlucoseUnit) {
+        appSettingsStore.glucoseUnit = unit
+        // Picking a unit confirms the preference, so dismiss the smart-default notice. The backend
+        // PATCH (and the optimistic local clear in updateGlucoseUnit) flip provenance to "user".
+        _uiState.value = _uiState.value.copy(
+            glucoseUnit = unit,
+            glucoseUnitSyncError = null,
+            seedNeedsConfirm = false,
+        )
+        viewModelScope.launch {
+            authRepository.updateGlucoseUnit(unit)
+                .onSuccess { resolved ->
+                    // Fold the server-resolved unit back into the selector so it self-corrects if
+                    // the backend ever returns a different value than we optimistically applied.
+                    if (resolved != _uiState.value.glucoseUnit) {
+                        _uiState.value = _uiState.value.copy(glucoseUnit = resolved)
+                    }
+                }
+                .onFailure { e ->
+                    Timber.w(e, "Failed to sync glucose unit to backend")
+                    _uiState.value = _uiState.value.copy(
+                        glucoseUnitSyncError = "Couldn't save to your account. It will retry on next sign-in.",
+                    )
+                }
+        }
+    }
+
+    /**
+     * Enable or disable meal intelligence. Per-account, so this does an optimistic local-cache set
+     * for instant feedback -- the Home FAB hides/shows immediately via the settings-store flow --
+     * AND a backend PATCH so the choice propagates to web and watch. On PATCH failure the optimistic
+     * value stays and a transient error is surfaced; the next `/api/settings/meal-intelligence`
+     * reconcile corrects it rather than reverting mid-session.
+     */
+    // Guards against a stale PATCH response winning: a rapid second toggle bumps
+    // the version and cancels the prior request, so an older response is ignored.
+    private var mealIntelligenceUpdateJob: Job? = null
+    private var mealIntelligenceRequestVersion = 0L
+
+    fun setMealIntelligenceEnabled(enabled: Boolean) {
+        appSettingsStore.mealIntelligenceEnabled = enabled
+        _uiState.value = _uiState.value.copy(
+            mealIntelligenceEnabled = enabled,
+            mealIntelligenceSyncError = null,
+        )
+        val requestVersion = ++mealIntelligenceRequestVersion
+        mealIntelligenceUpdateJob?.cancel()
+        mealIntelligenceUpdateJob = viewModelScope.launch {
+            authRepository.updateMealIntelligence(enabled)
+                .onSuccess { resolved ->
+                    if (requestVersion != mealIntelligenceRequestVersion) return@onSuccess
+                    if (resolved != _uiState.value.mealIntelligenceEnabled) {
+                        _uiState.value = _uiState.value.copy(mealIntelligenceEnabled = resolved)
+                    }
+                }
+                .onFailure { e ->
+                    if (requestVersion != mealIntelligenceRequestVersion) return@onFailure
+                    Timber.w(e, "Failed to sync meal intelligence to backend")
+                    _uiState.value = _uiState.value.copy(
+                        mealIntelligenceSyncError = "Couldn't save to your account. It will retry on next sign-in.",
+                    )
+                }
+        }
+    }
+
+    /**
+     * Dismiss the one-time smart-default glucose-unit notice without changing the unit.
+     * Hides it immediately, then acknowledges server-side so it never recurs
+     * (the backend stamps provenance "user"). Best-effort: a failed ack leaves the local flag
+     * cleared for this session and the next reconcile re-checks provenance.
+     */
+    fun dismissGlucoseUnitSeedNotice() {
+        appSettingsStore.glucoseUnitSeedPending = false
+        _uiState.value = _uiState.value.copy(seedNeedsConfirm = false)
+        viewModelScope.launch {
+            authRepository.acknowledgeGlucoseUnitSeed()
+                .onFailure { e -> Timber.w(e, "Failed to acknowledge glucose unit seed notice") }
+        }
     }
 
     fun setOverrideSilentForLow(enabled: Boolean) {

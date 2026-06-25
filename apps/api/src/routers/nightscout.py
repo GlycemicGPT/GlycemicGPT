@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.auth import DiabeticOrAdminUser
 from src.core.encryption import decrypt_credential, encrypt_credential
+from src.core.units import GlucoseUnit, GlucoseUnitSource
 from src.database import get_db
 from src.logging_config import get_logger
 from src.models.glucose import GlucoseReading
@@ -984,6 +985,21 @@ async def apply_onboarding(  # noqa: PLR0912, PLR0915  -- linear, readable orche
     if request.initial_sync_window_days is not None:
         conn.initial_sync_window_days = request.initial_sync_window_days
         applied["initial_sync_window_days"] = True
+
+    # ---- smart-default glucose unit -------------------------------------
+    # A confidently-mmol Nightscout (units_converted is True only for a
+    # classified-mmol source -- never for an unknown or mg/dL one) is a strong
+    # signal the user thinks in mmol/L. Seed the *display* preference only,
+    # leaving canonical mg/dL storage and the derivation untouched. Stay
+    # override-safe: never overwrite an explicit user choice, never re-seed an
+    # account already in mmol, and no-op on units_unknown / mg/dL profiles.
+    if (
+        derivation.units_converted
+        and current_user.glucose_unit_source != GlucoseUnitSource.USER
+        and current_user.glucose_unit != GlucoseUnit.MMOL
+    ):
+        current_user.glucose_unit = GlucoseUnit.MMOL
+        current_user.glucose_unit_source = GlucoseUnitSource.SEED
 
     # Commit all settings changes BEFORE the first sync runs so
     # that a sync timeout doesn't unwind the user's confirmed

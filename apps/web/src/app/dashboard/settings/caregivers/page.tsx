@@ -230,13 +230,13 @@ export default function CaregiversPage() {
             Share this link with your caregiver:
           </p>
           <div className="flex items-center gap-2">
-            <code className="flex-1 bg-slate-100 dark:bg-slate-800 rounded px-3 py-2 text-sm text-slate-900 dark:text-slate-200 overflow-x-auto">
+            <code className="flex-1 bg-slate-100 dark:bg-slate-800 rounded-sm px-3 py-2 text-sm text-slate-900 dark:text-slate-200 overflow-x-auto">
               {newInviteUrl}
             </code>
             <button
               type="button"
               onClick={() => handleCopy(newInviteUrl)}
-              className="shrink-0 p-2 rounded-lg bg-blue-600 text-white hover:bg-blue-500 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+              className="shrink-0 p-2 rounded-lg bg-blue-600 text-white hover:bg-blue-500 transition-colors focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500"
               aria-label="Copy invite link"
             >
               {copiedUrl === newInviteUrl ? (
@@ -330,7 +330,7 @@ export default function CaregiversPage() {
                         type="button"
                         onClick={() => handleRevoke(inv.id)}
                         disabled={revokingId === inv.id || isOffline}
-                        className="shrink-0 ml-3 p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="shrink-0 ml-3 p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors focus:outline-hidden focus-visible:ring-2 focus-visible:ring-red-500 disabled:opacity-50 disabled:cursor-not-allowed"
                         aria-label="Revoke invitation"
                       >
                         {revokingId === inv.id ? (
@@ -357,7 +357,7 @@ export default function CaregiversPage() {
                 "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium",
                 "bg-blue-600 text-white hover:bg-blue-500",
                 "transition-colors",
-                "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+                "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500",
                 "disabled:opacity-50 disabled:cursor-not-allowed"
               )}
             >
@@ -424,7 +424,7 @@ export default function CaregiversPage() {
                   </div>
                   <Link
                     href={`/dashboard/settings/caregivers/${cg.link_id}/permissions`}
-                    className="shrink-0 ml-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-300 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                    className="shrink-0 ml-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-300 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 transition-colors focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500"
                   >
                     <Settings2 className="h-3.5 w-3.5" />
                     Permissions

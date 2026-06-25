@@ -256,8 +256,8 @@ export function GlookoSyncCard({ isOffline }: { isOffline: boolean }) {
 
   const inputClass = clsx(
     "w-full rounded-lg border px-3 py-2 text-sm",
-    "bg-slate-800 border-slate-700 text-slate-200 placeholder:text-slate-500",
-    "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
+    "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200 placeholder:text-slate-500",
+    "focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent",
     "disabled:opacity-50 disabled:cursor-not-allowed"
   );
   const btnClass = clsx(
@@ -267,13 +267,13 @@ export function GlookoSyncCard({ isOffline }: { isOffline: boolean }) {
   );
 
   return (
-    <div className="space-y-5 rounded-lg border border-slate-700 bg-slate-900/40 p-4">
+    <div className="space-y-5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 p-4">
       <div className="flex items-center gap-2">
-        <p className="text-sm font-medium text-slate-200">
+        <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
           Automatic sync (Omnipod via Glooko)
         </p>
       </div>
-      <div className="space-y-2 text-sm text-slate-400">
+      <div className="space-y-2 text-sm text-slate-500 dark:text-slate-400">
         <p>
           Keep GlycemicGPT updated automatically from your Glooko account — the
           only place an Omnipod 5 uploads its data. Pulls basal, bolus, and pod
@@ -285,14 +285,14 @@ export function GlookoSyncCard({ isOffline }: { isOffline: boolean }) {
       {/* ---- Initial status load failed (transient): offer a retry ---- */}
       {showLoadError && (
         <div className="space-y-2">
-          <p className="text-sm text-slate-400">
+          <p className="text-sm text-slate-500 dark:text-slate-400">
             Couldn&apos;t load your Glooko connection status.
           </p>
           <button
             type="button"
             onClick={() => void loadStatus()}
             disabled={isOffline}
-            className="rounded-lg border border-slate-600 px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="rounded-lg border border-slate-300 dark:border-slate-600 px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Retry
           </button>
@@ -311,7 +311,7 @@ export function GlookoSyncCard({ isOffline }: { isOffline: boolean }) {
           {needsReconnect && (
             <div
               role="alert"
-              className="rounded-md border border-amber-600/40 bg-amber-600/10 p-3 text-sm text-amber-300"
+              className="rounded-md border border-amber-600/40 bg-amber-600/10 p-3 text-sm text-amber-700 dark:text-amber-300"
             >
               Your Glooko login is no longer valid. Re-enter your current Glooko
               password below to resume syncing.
@@ -322,7 +322,7 @@ export function GlookoSyncCard({ isOffline }: { isOffline: boolean }) {
             <div>
               <label
                 htmlFor="glooko-email"
-                className="block text-sm font-medium text-slate-300 mb-1"
+                className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
               >
                 Glooko email
               </label>
@@ -340,7 +340,7 @@ export function GlookoSyncCard({ isOffline }: { isOffline: boolean }) {
             <div>
               <label
                 htmlFor="glooko-region"
-                className="block text-sm font-medium text-slate-300 mb-1"
+                className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
               >
                 Region
               </label>
@@ -373,8 +373,8 @@ export function GlookoSyncCard({ isOffline }: { isOffline: boolean }) {
               we sign in with the user's credentials. We ask them to confirm they
               understand this isn't officially supported before we store
               credentials and sync on their behalf. */}
-          <div className="rounded-md border border-slate-700 bg-slate-800/40 p-3">
-            <label className="flex items-start gap-2 text-sm text-slate-300">
+          <div className="rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100/50 dark:bg-slate-800/40 p-3">
+            <label className="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
               <input
                 type="checkbox"
                 checked={acceptRisk}
@@ -420,7 +420,7 @@ export function GlookoSyncCard({ isOffline }: { isOffline: boolean }) {
       {showControls && status && (
         <div className="space-y-4">
           {isConnected ? (
-            <div className="rounded-md border border-green-600/40 bg-green-600/10 p-3 text-sm text-green-300">
+            <div className="rounded-md border border-green-600/40 bg-green-600/10 p-3 text-sm text-green-700 dark:text-green-300">
               ✓ Connected{status.region ? ` (${regionLabel(status.region)})` : ""}.
               Last sync:{" "}
               {status.last_sync_at
@@ -431,7 +431,7 @@ export function GlookoSyncCard({ isOffline }: { isOffline: boolean }) {
           ) : (
             <div
               role="alert"
-              className="rounded-md border border-amber-600/40 bg-amber-600/10 p-3 text-sm text-amber-300"
+              className="rounded-md border border-amber-600/40 bg-amber-600/10 p-3 text-sm text-amber-700 dark:text-amber-300"
             >
               The last sync didn&apos;t complete; GlycemicGPT will retry on the
               schedule. Last successful sync:{" "}
@@ -450,12 +450,12 @@ export function GlookoSyncCard({ isOffline }: { isOffline: boolean }) {
               type="button"
               onClick={checkAvailability}
               disabled={isOffline || isCheckingAvailability}
-              className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isCheckingAvailability ? "Checking…" : "Check CGM availability"}
             </button>
             {availability && (
-              <div className="rounded-md border border-slate-700 bg-slate-800/40 p-3 text-xs text-slate-400">
+              <div className="rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100/50 dark:bg-slate-800/40 p-3 text-xs text-slate-500 dark:text-slate-400">
                 {availability.cgm_available ? (
                   <p>
                     Sensor glucose is available
@@ -481,7 +481,7 @@ export function GlookoSyncCard({ isOffline }: { isOffline: boolean }) {
           </div>
 
           <div className="flex flex-wrap items-end gap-4">
-            <label className="flex items-center gap-2 text-sm text-slate-300">
+            <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
               <input
                 type="checkbox"
                 checked={enabled}
@@ -492,7 +492,7 @@ export function GlookoSyncCard({ isOffline }: { isOffline: boolean }) {
               Automatic sync enabled
             </label>
             <label
-              className="flex items-center gap-2 text-sm text-slate-300"
+              className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300"
               title="Turn off to keep insulin doses but skip Glooko's CGM trace -- use when a direct CGM (e.g. Dexcom) already provides your glucose."
             >
               <input
@@ -507,7 +507,7 @@ export function GlookoSyncCard({ isOffline }: { isOffline: boolean }) {
             <div>
               <label
                 htmlFor="glooko-interval"
-                className="block text-xs text-slate-400 mb-1"
+                className="block text-xs text-slate-500 dark:text-slate-400 mb-1"
               >
                 Sync every (minutes)
               </label>
@@ -551,7 +551,7 @@ export function GlookoSyncCard({ isOffline }: { isOffline: boolean }) {
               type="button"
               onClick={importHistory}
               disabled={isOffline || isImporting || isSyncing}
-              className="rounded-lg border border-slate-600 px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="rounded-lg border border-slate-300 dark:border-slate-600 px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isImporting ? "Importing…" : "Import history (one-time)"}
             </button>
@@ -559,7 +559,7 @@ export function GlookoSyncCard({ isOffline }: { isOffline: boolean }) {
               type="button"
               onClick={disconnect}
               disabled={isOffline || isDisconnecting}
-              className="rounded-lg border border-red-600/50 px-4 py-2 text-sm font-medium text-red-300 hover:bg-red-600/10 disabled:opacity-50"
+              className="rounded-lg border border-red-600/50 px-4 py-2 text-sm font-medium text-red-700 dark:text-red-300 hover:bg-red-600/10 disabled:opacity-50"
             >
               {isDisconnecting ? "Disconnecting…" : "Disconnect"}
             </button>
@@ -572,7 +572,7 @@ export function GlookoSyncCard({ isOffline }: { isOffline: boolean }) {
       )}
 
       {syncResult && (
-        <div className="rounded-md border border-green-600/40 bg-green-600/10 p-3 text-sm text-green-300">
+        <div className="rounded-md border border-green-600/40 bg-green-600/10 p-3 text-sm text-green-700 dark:text-green-300">
           ✓ Synced {syncResult.glucose_stored} new glucose readings and{" "}
           {syncResult.events_stored} pump events.
         </div>
@@ -580,7 +580,7 @@ export function GlookoSyncCard({ isOffline }: { isOffline: boolean }) {
       {error && (
         <div
           role="alert"
-          className="rounded-md border border-red-600/40 bg-red-600/10 p-3 text-sm text-red-300"
+          className="rounded-md border border-red-600/40 bg-red-600/10 p-3 text-sm text-red-700 dark:text-red-300"
         >
           {error}
         </div>

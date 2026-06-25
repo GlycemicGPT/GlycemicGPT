@@ -24,13 +24,6 @@ id = "GHSA-wj6h-64fc-37mp"
 ignoreUntil = 2026-08-25T00:00:00Z
 reason = "Not exploitable: HS256/HMAC only, no ECDSA signing; ecdsa is a dormant transitive dep (python-jose[cryptography] uses the cryptography backend). Upstream WONTFIX (no patched release). Real fix = migrate to PyJWT, tracked in #673."
 
-# @tootallnate/once 2.0.0 -- dev-only transitive dependency
-# (jest-environment-jsdom -> jsdom -> http-proxy-agent). Not in
-# production builds. npm audit fix requires breaking jsdom upgrade.
-[[IgnoredVulns]]
-id = "GHSA-vpq2-c234-7xj6"
-reason = "Dev-only dependency (jest toolchain), not in production; fix requires breaking jsdom upgrade"
-
 # brace-expansion 1.1.12 / 2.0.2 -- dev-only transitive dependency
 # (minimatch -> brace-expansion in jest/eslint toolchain). Fix requires
 # major version jump to 5.0.5 which breaks parent packages. Not in production.
@@ -50,16 +43,14 @@ reason = "Dev-only transitive dependency (jest/eslint toolchain); fix requires b
 id = "GHSA-qx2v-qp2m-jg93"
 reason = "Nested only inside next; build-time CSS pipeline does not process untrusted CSS; top-level postcss is patched to 8.5.13"
 
-# vitest 3.2.4 -- dev-only test runner in the sidecar (sidecar/package.json devDependencies).
-# GHSA-5xrq-8626-4rwp (alias CVE-2026-47429): "When Vitest UI server is listening, arbitrary file can
-# be read and executed." Affected vitest < 4.1.0 (fixed 4.1.0). The vulnerable surface is the Vitest
-# UI / Browser Mode server (packages/browser RPC fs endpoint); it requires the UI server to be
-# listening and reachable. We never start it -- the sidecar runs vitest headless in CI (no `vitest
-# --ui`, no `--api.host`), and vitest is not in any production build. Sources:
-#   * https://osv.dev/vulnerability/GHSA-5xrq-8626-4rwp
-#   * https://github.com/vitest-dev/vitest/security/advisories/GHSA-5xrq-8626-4rwp
-# Real fix = bump vitest to >= 4.1.0 (major), tracked separately; ignoreUntil forces re-evaluation.
+# js-yaml 3.14.2 -- dev-only, nested under @istanbuljs/load-nyc-config (the istanbul/nyc
+# coverage toolchain), which pins js-yaml ^3.13.1. GHSA-h67p-54hq-rp68 is fixed only in
+# js-yaml 4.2.0 -- a major jump that drops the safeLoad/safeDump API load-nyc-config calls,
+# so forcing it breaks coverage. The top-level js-yaml (via @eslint/eslintrc) IS bumped to
+# 4.2.0 (apps/web override); only this nested coverage-tool copy remains on 3.x. Not in any
+# production build, and it parses only trusted local .nycrc config, never untrusted input, so
+# the advisory is not reachable. ignoreUntil forces re-evaluation.
 [[IgnoredVulns]]
-id = "GHSA-5xrq-8626-4rwp"
+id = "GHSA-h67p-54hq-rp68"
 ignoreUntil = 2026-09-01T00:00:00Z
-reason = "Dev-only test dependency (sidecar vitest, CVE-2026-47429); not exploitable -- the affected Vitest UI/Browser-Mode server is never started/exposed (headless Linux CI, no --ui/--api.host); not in production. Fixed in vitest 4.1.0; bump tracked separately. Refs: https://osv.dev/vulnerability/GHSA-5xrq-8626-4rwp , https://github.com/vitest-dev/vitest/security/advisories/GHSA-5xrq-8626-4rwp"
+reason = "Dev-only (coverage toolchain @istanbuljs/load-nyc-config pins js-yaml ^3.13.1); fix is js-yaml 4.2.0 (major) which drops APIs load-nyc-config uses; top-level js-yaml bumped to 4.2.0 via the apps/web override, only the nested coverage copy remains; parses only trusted local config, not reachable in production."

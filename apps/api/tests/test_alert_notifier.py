@@ -1,11 +1,13 @@
 """Story 7.2: Tests for alert delivery via Telegram."""
 
+import inspect
 import uuid
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from src.core.units import GlucoseUnit
 from src.models.alert import Alert, AlertSeverity, AlertType
 from src.services.alert_notifier import (
     SEVERITY_EMOJI,
@@ -116,6 +118,52 @@ class TestTrendDescription:
         assert "fast" not in result
 
 
+def _trend_line(message: str) -> str:
+    """Pull the single ``Trend:`` line out of a rendered alert message."""
+    lines = [line for line in message.splitlines() if "Trend:" in line]
+    assert lines, f"no Trend line in message: {message!r}"
+    return lines[0]
+
+
+def _glucose_line(message: str) -> str:
+    """Pull the single ``Glucose:`` line out of a rendered alert message."""
+    lines = [line for line in message.splitlines() if "Glucose:" in line]
+    assert lines, f"no Glucose line in message: {message!r}"
+    return lines[0]
+
+
+class TestTrendIsUnitIndependent:
+    """The trend arrow/description is bucketed from a mg/dL/min rate and carries
+    no unit -- so switching a patient between mg/dL and mmol/L must never flip
+    the arrow, even though the glucose number beside it changes."""
+
+    def test_trend_description_signature_has_no_unit(self):
+        # The contract that locks "the arrow never flips with the unit": the
+        # function simply has no unit parameter to vary on, so it cannot branch
+        # on the patient's display preference.
+        params = list(inspect.signature(trend_description).parameters)
+        assert params == ["trend_rate"]
+
+    def test_alert_trend_line_is_byte_identical_across_units(self):
+        # Same alert, two units: the Glucose line converts (120 -> 6.7 mmol/L),
+        # but the Trend line is the same arrow + words in both renderings.
+        alert = make_alert(
+            AlertType.HIGH_WARNING,
+            AlertSeverity.WARNING,
+            current_value=120.0,
+            trend_rate=-2.0,
+        )
+        mgdl_msg = format_alert_message(alert, GlucoseUnit.MGDL)
+        mmol_msg = format_alert_message(alert, GlucoseUnit.MMOL)
+
+        assert _trend_line(mgdl_msg) == _trend_line(mmol_msg)
+        # ...while the glucose number genuinely differs (so the test isn't
+        # trivially comparing two identical messages).
+        assert "120 mg/dL" in _glucose_line(mgdl_msg)
+        assert "6.7 mmol/L" in _glucose_line(mmol_msg)
+        assert _glucose_line(mgdl_msg) != _glucose_line(mmol_msg)
+
+
 # ---------------------------------------------------------------------------
 # Format alert message tests (pure function)
 # ---------------------------------------------------------------------------
@@ -183,6 +231,15 @@ class TestFormatAlertMessage:
             emoji = SEVERITY_EMOJI[severity]
             assert emoji in msg
 
+    def test_renders_mmol_unit(self):
+        """Current (55->3.1) and predicted (45->2.5) render in the patient's
+        unit; mg/dL never appears."""
+        alert = make_alert(current_value=55.0, predicted_value=45.0)
+        msg = format_alert_message(alert, GlucoseUnit.MMOL)
+        assert "3.1 mmol/L" in msg
+        assert "2.5 mmol/L" in msg
+        assert "mg/dL" not in msg
+
 
 # ---------------------------------------------------------------------------
 # Format escalation contact message tests (pure function)
@@ -205,6 +262,16 @@ class TestFormatEscalationContactMessage:
         msg = format_escalation_contact_message(alert, "u@t.com", "Tier")
         assert "180 mg/dL" in msg
         assert "rising" in msg
+
+    def test_contact_sees_patient_unit(self):
+        """The contact reads the patient's glucose in the PATIENT's unit
+        (180 -> 10.0 mmol/L), never the contact's own."""
+        alert = make_alert(current_value=180.0, trend_rate=2.0)
+        msg = format_escalation_contact_message(
+            alert, "u@t.com", "Tier", GlucoseUnit.MMOL
+        )
+        assert "10.0 mmol/L" in msg
+        assert "mg/dL" not in msg
 
 
 # ---------------------------------------------------------------------------
