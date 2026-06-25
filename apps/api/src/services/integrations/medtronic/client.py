@@ -327,16 +327,22 @@ class CareLinkClient:
         sections off, aggregated CSV enabled.
 
         Includes the ``*PeriodB`` comparison window -- the equal-length range
-        immediately preceding [start_date, end_date]. A live EU capture (#811)
-        showed CareLink's UI sends this pair and that the EU host returned 400
-        without it; that capture was a comparison report, so whether EU strictly
-        requires it for this CSV-only body is pending a live EU re-test. Assumes
-        start_date <= end_date (enforced upstream by MedtronicImportRequest).
+        immediately preceding [start_date, end_date] -- to mirror the captured
+        EU UI request (#811). A live EU re-test showed PeriodB alone did not
+        unblock the import; the actual 400 was a fractional-second ``clientTime``
+        (see below). PeriodB is kept to stay faithful to the observed body.
+        Assumes start_date <= end_date (enforced upstream by MedtronicImportRequest).
         """
         period_b_end = start_date - timedelta(days=1)
         period_b_start = period_b_end - (end_date - start_date)
         return {
-            "clientTime": (client_time or datetime.now(UTC)).isoformat(),
+            # Seconds precision (no microseconds): the EU report host rejects a
+            # fractional-second clientTime with a 400 "Malformed JSON in request
+            # body" (confirmed live, #811). The browser sends seconds + a
+            # colon-bearing offset, which isoformat(timespec="seconds") matches.
+            "clientTime": (client_time or datetime.now(UTC)).isoformat(
+                timespec="seconds"
+            ),
             "dailyDetailReportDays": [],
             "patientId": patient_id,
             "reportFileFormat": "CSV",

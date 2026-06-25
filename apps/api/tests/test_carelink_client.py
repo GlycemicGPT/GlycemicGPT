@@ -1,7 +1,7 @@
 """Tests for the CareLink HTTP client data methods (mocked, no network)."""
 
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 
 import httpx
 import pytest
@@ -115,8 +115,11 @@ async def test_export_csv_full_job_flow():
     assert body["startDate"] == "2025-01-18"
     assert body["endDate"] == "2025-01-31"
     assert body["reportShowLogbook"] is False
+    # clientTime must be seconds-precision: the EU host 400s ("Malformed JSON in
+    # request body") on a fractional-second clientTime (#811).
+    assert "." not in body["clientTime"]
     # The *PeriodB comparison window (the equal-length range immediately before
-    # [start, end]) is sent by CareLink's UI and required by the EU endpoint (#811).
+    # [start, end]) mirrors CareLink's UI request (#811).
     assert body["startDatePeriodB"] == "2025-01-04"
     assert body["endDatePeriodB"] == "2025-01-17"
 
@@ -131,6 +134,21 @@ def test_generate_report_body_period_b_one_day():
     assert body["endDate"] == "2025-03-01"
     assert body["startDatePeriodB"] == "2025-02-28"
     assert body["endDatePeriodB"] == "2025-02-28"
+
+
+def test_generate_report_body_client_time_drops_microseconds():
+    """clientTime is serialized at seconds precision, preserving the local
+    offset. The EU report host 400s on fractional seconds (#811); the working
+    browser request sends ``...:ss+02:00`` with no microseconds."""
+    local = timezone(timedelta(hours=2))
+    client_time = datetime(2025, 3, 1, 8, 12, 54, 21383, tzinfo=local)
+    body = CareLinkClient._build_generate_report_body(
+        patient_id="1",
+        start_date=date(2025, 3, 1),
+        end_date=date(2025, 3, 1),
+        client_time=client_time,
+    )
+    assert body["clientTime"] == "2025-03-01T08:12:54+02:00"
 
 
 async def test_export_csv_times_out_if_never_ready():
