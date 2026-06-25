@@ -26,6 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -180,11 +181,12 @@ fun BoxScope.DraggableMealFab(
     // against the *current* bounds -- including after a rotation/resize.
     val container by rememberUpdatedState(containerSizePx)
     // The user's chosen position, or null until they first drag (then use the default placement).
-    // Seeded once from [savedOffset]; the key is intentionally absent so this single MutableState
-    // stays stable for the gesture handler's lifetime (a re-key would strand the drag closures on a
-    // dead state). A new saved value is picked up when the FAB re-enters composition -- e.g. when it
-    // is hidden then shown -- which also re-clamps it to the current bounds.
+    // The key is intentionally absent so this single MutableState stays stable for the gesture
+    // handler's lifetime (a re-key would allocate a new state and strand the drag closures on a dead
+    // one). A changed [savedOffset] -- a late settings load, or a reset -- is synced into that same
+    // stable state below, so the closures keep reading the live value.
     var dragOffset by remember { mutableStateOf(savedOffset) }
+    LaunchedEffect(savedOffset) { dragOffset = savedOffset }
 
     // Resolve to a concrete, clamped, on-screen position from the latest measured sizes. Computed in
     // the placement lambda below (not a LaunchedEffect) so it tracks the current sizes without a
