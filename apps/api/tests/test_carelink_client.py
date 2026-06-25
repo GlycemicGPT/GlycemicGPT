@@ -306,6 +306,23 @@ async def test_eu_host_is_allowed():
     await c.aclose()
 
 
+async def test_sends_same_origin_headers_for_report_host():
+    """Origin/Referer match the configured host and are sent on requests. The EU
+    generateReport POST is 403'd without them (#811); they are host-derived so US
+    and EU each carry their own."""
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["origin"] = request.headers.get("origin")
+        captured["referer"] = request.headers.get("referer")
+        return httpx.Response(200, json={"patientId": "1"})
+
+    async with _make_client(handler, base_url="https://carelink.minimed.eu") as client:
+        await client.get_patient_id()
+    assert captured["origin"] == "https://carelink.minimed.eu"
+    assert captured["referer"] == "https://carelink.minimed.eu/app/reports"
+
+
 async def test_retries_on_429_then_succeeds():
     calls = {"n": 0}
 

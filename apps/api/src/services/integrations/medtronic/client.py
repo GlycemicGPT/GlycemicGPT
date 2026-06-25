@@ -144,6 +144,13 @@ class CareLinkClient:
             )
         self._bearer_provider = bearer_provider
         self._base_url = base_url.rstrip("/")
+        # Same-origin Origin/Referer for the report host. The EU generateReport
+        # POST is rejected with 403 without them (reads are exempt, the POST is
+        # not -- the classic Origin/Referer CSRF check); the browser sends both
+        # (#811). Derived from base_url so US and EU each get their own host.
+        parsed = urlparse(self._base_url)
+        self._origin = f"{parsed.scheme}://{parsed.netloc}"
+        self._referer = f"{self._origin}/app/reports"
         self._poll_interval = poll_interval_seconds
         self._poll_max_attempts = poll_max_attempts
         self._owns_client = client is None
@@ -171,6 +178,11 @@ class CareLinkClient:
         return {
             "Authorization": f"Bearer {bearer}",
             "Accept": "application/json, text/plain, */*",
+            # Same-origin markers the EU report host requires on the
+            # generateReport POST (#811); sent on every request to mirror the
+            # browser and stay consistent across reads and the POST.
+            "Origin": self._origin,
+            "Referer": self._referer,
         }
 
     def _check(self, resp: httpx.Response) -> None:
