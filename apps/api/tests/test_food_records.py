@@ -27,6 +27,7 @@ from src.models.ai_provider import (
     AIProviderType,
 )
 from src.models.food_record import FoodRecord, FoodRecordSource
+from src.services import common_food as common_food_service
 from src.services import food_image, food_vision
 from src.vision import carb_contract
 
@@ -112,8 +113,9 @@ async def _new_user(db, prefix: str):
 
 @pytest.fixture
 def _uploads_tmp(tmp_path, monkeypatch):
+    # Meal intelligence is per-user and defaults ON, so registered users have it
+    # enabled without any global override -- only the upload dir needs patching.
     monkeypatch.setattr(settings, "upload_dir", str(tmp_path / "uploads"))
-    monkeypatch.setattr(settings, "meal_intelligence_enabled", True)
     return tmp_path
 
 
@@ -507,12 +509,16 @@ class TestFoodRecordsApi:
             resp = await client.get("/api/food-records")
         assert resp.status_code == 401
 
-    async def test_disabled_when_flag_off(self, db_session, monkeypatch):
-        monkeypatch.setattr(settings, "meal_intelligence_enabled", False)
+    async def test_disabled_when_flag_off(self):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             cookie = await _register_login(client)
             client.cookies.set(settings.jwt_cookie_name, cookie)
+            # Disable the per-user setting; the feature surface goes invisible.
+            patch_resp = await client.patch(
+                "/api/settings/meal-intelligence", json={"enabled": False}
+            )
+            assert patch_resp.status_code == 200
             resp = await client.get("/api/food-records")
         assert resp.status_code == 404
 
@@ -683,6 +689,28 @@ class TestFoodRecordsApi:
             resp = await other.get(f"/api/food-records/{record_id}")
         assert resp.status_code == 404
 
+    async def test_cannot_delete_other_users_record(self, auth_client, _uploads_tmp):
+        # DELETE is ungated (data-deletion rights) but stays owner-scoped: another
+        # user can't delete a record they don't own (404, no existence leak).
+        client, _ = auth_client
+        with patch.object(
+            food_vision, "_call_vision", AsyncMock(return_value=_estimate_json())
+        ):
+            created = await client.post(
+                "/api/food-records",
+                files={"file": ("meal.png", _png_bytes(), "image/png")},
+            )
+        record_id = created.json()["id"]
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as other:
+            cookie = await _register_login(other)
+            other.cookies.set(settings.jwt_cookie_name, cookie)
+            resp = await other.delete(f"/api/food-records/{record_id}")
+        assert resp.status_code == 404
+        # The owner's record is untouched.
+        assert (await client.get(f"/api/food-records/{record_id}")).status_code == 200
+
     async def test_get_photo_returns_image_to_owner(self, auth_client):
         client, _ = auth_client
         record_id = (await _create_record(client))["id"]
@@ -692,12 +720,30 @@ class TestFoodRecordsApi:
         assert resp.headers["cache-control"] == "private, max-age=300"
         assert len(resp.content) > 0
 
-    async def test_get_photo_disabled_when_flag_off(self, auth_client, monkeypatch):
+    async def test_get_photo_disabled_when_flag_off(self, auth_client):
         client, _ = auth_client
         record_id = (await _create_record(client))["id"]
-        monkeypatch.setattr(settings, "meal_intelligence_enabled", False)
+        patch_resp = await client.patch(
+            "/api/settings/meal-intelligence", json={"enabled": False}
+        )
+        assert patch_resp.status_code == 200
         resp = await client.get(f"/api/food-records/{record_id}/photo")
         assert resp.status_code == 404
+
+    async def test_delete_still_works_when_feature_disabled(self, auth_client):
+        # A user who turns the feature off must still be able to delete data they
+        # already created -- deletion is NOT gated, only owner-scoped.
+        client, _ = auth_client
+        record_id = (await _create_record(client))["id"]
+        patch_resp = await client.patch(
+            "/api/settings/meal-intelligence", json={"enabled": False}
+        )
+        assert patch_resp.status_code == 200
+        # Reads are gated (feature invisible)...
+        assert (await client.get(f"/api/food-records/{record_id}")).status_code == 404
+        # ...but the owner can still delete the record.
+        deleted = await client.delete(f"/api/food-records/{record_id}")
+        assert deleted.status_code == 204
 
     async def test_cannot_access_other_users_photo(self, auth_client):
         client, _ = auth_client
@@ -1092,6 +1138,28 @@ class TestCommonFoods:
         assert resp.json()["carbs_low"] == 30
         assert resp.json()["carbs_high"] == 45
 
+    async def test_cannot_delete_other_users_common_food(self, auth_client):
+        # The common-food DELETE is ungated (data-deletion rights) but owner-scoped:
+        # another user can't delete a baseline they don't own (404, no existence leak).
+        client, _ = auth_client
+        record_id = (await _create_record(client))["id"]
+        created = await client.post(
+            f"/api/food-records/{record_id}/save-as-common-food",
+            json={"name": "OnlyMine"},
+        )
+        common_food_id = created.json()["id"]
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as other:
+            cookie = await _register_login(other)
+            other.cookies.set(settings.jwt_cookie_name, cookie)
+            resp = await other.delete(f"/api/common-foods/{common_food_id}")
+        assert resp.status_code == 404
+        # The owner's baseline is untouched.
+        listing = await client.get("/api/common-foods")
+        names = [f["name"] for f in listing.json()["common_foods"]]
+        assert "OnlyMine" in names
+
     async def test_dedupe_same_name_updates_single_baseline(self, auth_client):
         client, _ = auth_client
         first = await _create_record(client, 30, 40)
@@ -1182,6 +1250,88 @@ class TestCommonFoods:
         # _estimate_json seeds AI nutrition {"protein_grams": 12, "calories": 520}.
         assert body["nutrition_json"] == {"protein_grams": 12, "calories": 520}
 
+    async def test_promote_concurrent_delete_raises_record_gone(self):
+        # Real-DB exercise of the unique-constraint race fallback. That path rolls the
+        # session back, which EXPIRES the committed in-session record; the re-fetch must
+        # use the ids captured before the rollback, otherwise reloading the expired
+        # (and concurrently-deleted) row blows up (greenlet/IO error) before the
+        # null-check. A mocked or uncommitted in-memory record can't reproduce that
+        # post-rollback expiry, so this is the test that actually guards the fix.
+        #
+        # Dedicated sessions (not the db_session fixture) keep the in-test rollback and
+        # the out-of-band delete on this loop. The record is loaded persistent into the
+        # promotion session, then deleted in a separate committed transaction (a true
+        # concurrent delete); the committed winner baseline survives the rollback as the
+        # "lost the race" winner.
+        from sqlalchemy import delete
+        from sqlalchemy.exc import IntegrityError
+
+        from src.database import get_session_maker
+        from src.models.common_food import CommonFood
+
+        session_maker = get_session_maker()
+        async with session_maker() as db:
+            user = await _new_user(db, "race")
+            db.add(
+                CommonFood(
+                    user_id=user.id,
+                    name="Bagel",
+                    normalized_name="bagel",
+                    carbs_low=40,
+                    carbs_high=55,
+                )
+            )
+            record = FoodRecord(
+                user_id=user.id,
+                filename="m.png",
+                file_type="image/png",
+                file_size_bytes=10,
+                storage_path="x",
+                carbs_low=40,
+                carbs_high=55,
+                nutrition_json={"protein_grams": 12, "calories": 520},
+            )
+            db.add(record)
+            await db.commit()
+            await db.refresh(record)  # record is now persistent + live in this session
+            record_id = record.id
+
+            # A concurrent request deletes the record after it was loaded here but
+            # before the promotion's fallback re-fetch.
+            async with session_maker() as concurrent:
+                await concurrent.execute(
+                    delete(FoodRecord).where(FoodRecord.id == record_id)
+                )
+                await concurrent.commit()
+
+            # Force the unique-constraint race fallback. Only the explicit flush is
+            # patched; autoflush goes through the sync session, so lookups still run.
+            with (
+                patch.object(
+                    db,
+                    "flush",
+                    AsyncMock(side_effect=IntegrityError("dup", {}, Exception())),
+                ),
+                pytest.raises(common_food_service.RecordGoneError),
+            ):
+                await common_food_service.promote_to_common_food(db, record, "Bagel")
+
+    async def test_save_as_common_food_record_gone_returns_404(self, auth_client):
+        # The router maps a concurrent-delete RecordGoneError to a clean 404, the way
+        # a missing record reads elsewhere in this router (never a 500).
+        client, _ = auth_client
+        record_id = (await _create_record(client))["id"]
+        with patch.object(
+            common_food_service,
+            "promote_to_common_food",
+            AsyncMock(side_effect=common_food_service.RecordGoneError("gone")),
+        ):
+            resp = await client.post(
+                f"/api/food-records/{record_id}/save-as-common-food",
+                json={"name": "Bagel"},
+            )
+        assert resp.status_code == 404, resp.text
+
     async def test_update_rejects_partial_carb_range(self, auth_client):
         client, _ = auth_client
         seed = await _create_record(client, 30, 40)
@@ -1270,12 +1420,15 @@ class TestCommonFoods:
         names = [f["name"] for f in listing.json()["common_foods"]]
         assert "OnlyMine" not in names
 
-    async def test_common_foods_disabled_when_flag_off(self, db_session, monkeypatch):
-        monkeypatch.setattr(settings, "meal_intelligence_enabled", False)
+    async def test_common_foods_disabled_when_flag_off(self):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             cookie = await _register_login(client)
             client.cookies.set(settings.jwt_cookie_name, cookie)
+            patch_resp = await client.patch(
+                "/api/settings/meal-intelligence", json={"enabled": False}
+            )
+            assert patch_resp.status_code == 200
             resp = await client.get("/api/common-foods")
         assert resp.status_code == 404
 

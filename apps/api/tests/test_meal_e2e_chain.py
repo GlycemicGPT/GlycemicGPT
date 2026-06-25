@@ -75,8 +75,8 @@ def _uniq() -> str:
 
 @pytest.fixture(autouse=True)
 def _enable(tmp_path, monkeypatch):
+    # Meal intelligence is per-user and defaults ON for provisioned users.
     monkeypatch.setattr(settings, "upload_dir", str(tmp_path / "uploads"))
-    monkeypatch.setattr(settings, "meal_intelligence_enabled", True)
     monkeypatch.setattr(settings, "meal_estimate_sample_count", 3)
     # Keep grounding deterministic: no external sources, only own-history.
     monkeypatch.setattr(settings, "usda_fdc_api_key", "")
@@ -390,9 +390,12 @@ async def test_fm2_provider_without_vision_returns_vision_unavailable(client):
     assert "vision" in resp.json()["detail"].lower()
 
 
-async def test_fm3_feature_flag_off_returns_404(client, monkeypatch):
-    """FM3: with the feature flag off, the meal endpoints are invisible (404)."""
-    monkeypatch.setattr(settings, "meal_intelligence_enabled", False)
+async def test_fm3_feature_flag_off_returns_404(client):
+    """FM3: with the feature disabled, the meal endpoints are invisible (404)."""
+    disable = await client.patch(
+        "/api/settings/meal-intelligence", json={"enabled": False}
+    )
+    assert disable.status_code == 200
     upload = await client.post(
         "/api/food-records", files={"file": ("m.png", _png(), "image/png")}
     )

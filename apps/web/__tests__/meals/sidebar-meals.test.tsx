@@ -1,7 +1,7 @@
 /**
- * Tests the flag-gated Meals nav item: present only when meal intelligence is
- * enabled, hidden while the probe is loading or when disabled, and never for
- * caregivers.
+ * Tests the gated Meals nav item: present only when the user's meal-intelligence
+ * preference is enabled, hidden while the user is loading or when disabled, and
+ * never for caregivers.
  */
 
 import { render, screen } from "@testing-library/react";
@@ -41,7 +41,9 @@ const mockUser = jest.fn();
 const mockMeal = jest.fn();
 jest.mock("@/providers", () => ({
   useUserContext: () => mockUser(),
-  useMealIntelligenceContext: () => mockMeal(),
+}));
+jest.mock("@/hooks/use-meal-intelligence", () => ({
+  useMealIntelligence: () => mockMeal(),
 }));
 
 jest.mock("@/lib/api", () => ({
@@ -65,7 +67,7 @@ describe("Sidebar Meals nav gating", () => {
     expect(meals.closest("a")).toHaveAttribute("href", "/dashboard/meals");
   });
 
-  it("hides the Meals item while the flag probe is still loading", () => {
+  it("hides the Meals item while the user is still loading", () => {
     mockMeal.mockReturnValue({ enabled: null, isLoading: true });
     render(<Sidebar />);
     expect(screen.queryByText("Meals")).not.toBeInTheDocument();

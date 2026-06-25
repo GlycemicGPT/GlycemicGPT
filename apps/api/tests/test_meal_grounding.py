@@ -731,10 +731,12 @@ class TestComorbidityCapture:
                 "lookup_published_nutrition",
                 AsyncMock(return_value=(fact, None)),
             ),
-            patch.object(settings, "meal_intelligence_enabled", True),
         ):
             detail = await meal_grounding.ground_estimate(
-                uuid.uuid4(), "cheeseburger", identity_confirmed=True
+                uuid.uuid4(),
+                "cheeseburger",
+                identity_confirmed=True,
+                meal_intelligence_enabled=True,
             )
         assert detail is not None
         assert detail.comorbidity_dict() == {
@@ -803,10 +805,6 @@ class TestExternalFetchSecurity:
 # Precedence reconciliation (AC4)
 # --------------------------------------------------------------------------- #
 class TestPrecedence:
-    @pytest.fixture(autouse=True)
-    def _enable(self, monkeypatch):
-        monkeypatch.setattr(settings, "meal_intelligence_enabled", True)
-
     def _recall(self, *, corrected: bool):
         return meal_rag.MealRecall(
             name="leftover stew",
@@ -841,7 +839,10 @@ class TestPrecedence:
             ) as lookup,
         ):
             detail = await meal_grounding.ground_estimate(
-                uuid.uuid4(), "stew", identity_confirmed=True
+                uuid.uuid4(),
+                "stew",
+                identity_confirmed=True,
+                meal_intelligence_enabled=True,
             )
         assert detail is not None
         assert detail.source == "Your meal history"
@@ -864,7 +865,10 @@ class TestPrecedence:
             ),
         ):
             detail = await meal_grounding.ground_estimate(
-                uuid.uuid4(), "oatmeal", identity_confirmed=True
+                uuid.uuid4(),
+                "oatmeal",
+                identity_confirmed=True,
+                meal_intelligence_enabled=True,
             )
         assert detail.source == "USDA FoodData Central"
         assert detail.carbs_low == 12
@@ -885,7 +889,10 @@ class TestPrecedence:
             ),
         ):
             detail = await meal_grounding.ground_estimate(
-                uuid.uuid4(), "cereal", identity_confirmed=True
+                uuid.uuid4(),
+                "cereal",
+                identity_confirmed=True,
+                meal_intelligence_enabled=True,
             )
         assert detail.source == "Open Food Facts"
         assert detail.disclaimer  # OFF disclaimer carried through
@@ -905,7 +912,10 @@ class TestPrecedence:
             ),
         ):
             detail = await meal_grounding.ground_estimate(
-                uuid.uuid4(), "stew", identity_confirmed=True
+                uuid.uuid4(),
+                "stew",
+                identity_confirmed=True,
+                meal_intelligence_enabled=True,
             )
         assert detail.source == "Your meal history"
 
@@ -920,7 +930,10 @@ class TestPrecedence:
         ):
             assert (
                 await meal_grounding.ground_estimate(
-                    uuid.uuid4(), "x", identity_confirmed=True
+                    uuid.uuid4(),
+                    "x",
+                    identity_confirmed=True,
+                    meal_intelligence_enabled=True,
                 )
                 is None
             )
@@ -928,16 +941,55 @@ class TestPrecedence:
     async def test_empty_description_is_ungrounded(self):
         assert (
             await meal_grounding.ground_estimate(
-                uuid.uuid4(), "", identity_confirmed=True
+                uuid.uuid4(),
+                "",
+                identity_confirmed=True,
+                meal_intelligence_enabled=True,
             )
             is None
         )
         assert (
             await meal_grounding.ground_estimate(
-                uuid.uuid4(), None, identity_confirmed=True
+                uuid.uuid4(),
+                None,
+                identity_confirmed=True,
+                meal_intelligence_enabled=True,
             )
             is None
         )
+
+    async def test_disabled_user_grounds_to_nothing(self):
+        # Defence in depth: even a confirmed identity with a corrected own-history
+        # match grounds to nothing when the caller's per-user gate is off. This
+        # guards a future caller that forgets to gate before calling.
+        with (
+            patch.object(
+                meal_rag,
+                "recall_similar_meal",
+                AsyncMock(return_value=self._recall(corrected=True)),
+            ) as recall,
+            patch.object(
+                nutrition_sources, "lookup_published_nutrition", AsyncMock()
+            ) as lookup,
+            patch.object(
+                restaurant_nutrition, "lookup_restaurant", AsyncMock()
+            ) as restaurant,
+        ):
+            detail = await meal_grounding.ground_estimate(
+                uuid.uuid4(),
+                "stew",
+                identity_confirmed=True,
+                meal_intelligence_enabled=False,
+            )
+            suggestion = await meal_grounding.suggest_identity(
+                uuid.uuid4(), "stew", meal_intelligence_enabled=False
+            )
+        assert detail is None
+        assert suggestion is None
+        # The gate short-circuits before any recall or external lookup runs.
+        recall.assert_not_awaited()
+        lookup.assert_not_awaited()
+        restaurant.assert_not_awaited()
 
     async def test_unconfirmed_identity_is_never_grounded(self):
         # The H2 gate: even with a strong corrected own-history match and a
@@ -953,7 +1005,10 @@ class TestPrecedence:
             ) as lookup,
         ):
             detail = await meal_grounding.ground_estimate(
-                uuid.uuid4(), "stew", identity_confirmed=False
+                uuid.uuid4(),
+                "stew",
+                identity_confirmed=False,
+                meal_intelligence_enabled=True,
             )
         assert detail is None
         # The gate short-circuits before any recall or external lookup runs.
@@ -991,7 +1046,10 @@ class TestPrecedence:
             ) as published,
         ):
             detail = await meal_grounding.ground_estimate(
-                uuid.uuid4(), "McDonald's Quarter Pounder", identity_confirmed=True
+                uuid.uuid4(),
+                "McDonald's Quarter Pounder",
+                identity_confirmed=True,
+                meal_intelligence_enabled=True,
             )
         assert detail.source == "McDonald's"
         assert detail.carbs_low == 30  # the chain figure, not the USDA 12
@@ -1013,7 +1071,10 @@ class TestPrecedence:
             ) as restaurant,
         ):
             detail = await meal_grounding.ground_estimate(
-                uuid.uuid4(), "McDonald's Quarter Pounder", identity_confirmed=True
+                uuid.uuid4(),
+                "McDonald's Quarter Pounder",
+                identity_confirmed=True,
+                meal_intelligence_enabled=True,
             )
         assert detail.source == "Your meal history"
         restaurant.assert_not_awaited()
@@ -1037,7 +1098,10 @@ class TestPrecedence:
             ),
         ):
             detail = await meal_grounding.ground_estimate(
-                uuid.uuid4(), "oatmeal", identity_confirmed=True
+                uuid.uuid4(),
+                "oatmeal",
+                identity_confirmed=True,
+                meal_intelligence_enabled=True,
             )
         assert detail.source == "USDA FoodData Central"
         assert detail.carbs_low == 12
@@ -1051,6 +1115,7 @@ class TestPrecedence:
                 uuid.uuid4(),
                 "McDonald's Quarter Pounder",
                 identity_confirmed=False,
+                meal_intelligence_enabled=True,
             )
         assert detail is None
         restaurant.assert_not_awaited()
@@ -1122,8 +1187,7 @@ class TestNoTherapyCoupling:
             ):
                 assert needle not in text, f"{path} references {needle}"
 
-    async def test_grounding_output_carries_no_dosing_language(self, monkeypatch):
-        monkeypatch.setattr(settings, "meal_intelligence_enabled", True)
+    async def test_grounding_output_carries_no_dosing_language(self):
         # Every rendered grounding string must be free of dosing/advice phrasing.
         recall = meal_rag.MealRecall(
             name="oatmeal",
@@ -1140,7 +1204,10 @@ class TestNoTherapyCoupling:
             ),
         ):
             detail = await meal_grounding.ground_estimate(
-                uuid.uuid4(), "oatmeal", identity_confirmed=True
+                uuid.uuid4(),
+                "oatmeal",
+                identity_confirmed=True,
+                meal_intelligence_enabled=True,
             )
         for field in (detail.source, detail.note, detail.serving):
             assert not find_dosing_violations(field or "")
@@ -1160,8 +1227,8 @@ class TestNoTherapyCoupling:
 class TestEstimatePipelineGrounding:
     @pytest.fixture(autouse=True)
     def _enable(self, tmp_path, monkeypatch):
+        # Meal intelligence is per-user and defaults ON for the pipeline's user.
         monkeypatch.setattr(settings, "upload_dir", str(tmp_path / "uploads"))
-        monkeypatch.setattr(settings, "meal_intelligence_enabled", True)
 
     async def test_create_is_vision_only_then_confirm_grounds(self):
         # Story 50.H2: a fresh estimate is NOT grounded (identity unconfirmed);
@@ -1339,6 +1406,16 @@ class TestEstimatePipelineGrounding:
             )
 
         # The corrected identity is now what own-history suggests...
-        assert await meal_grounding.suggest_identity(user.id, corrected) == corrected
+        assert (
+            await meal_grounding.suggest_identity(
+                user.id, corrected, meal_intelligence_enabled=True
+            )
+            == corrected
+        )
         # ...and the stale AI label no longer recalls this record.
-        assert await meal_grounding.suggest_identity(user.id, ai_label) is None
+        assert (
+            await meal_grounding.suggest_identity(
+                user.id, ai_label, meal_intelligence_enabled=True
+            )
+            is None
+        )

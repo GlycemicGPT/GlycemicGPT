@@ -481,6 +481,15 @@ class HomeViewModelTest {
         coVerify(atLeast = 1) { authRepository.refreshGlucoseUnit() }
     }
 
+    @Test
+    fun `init reconciles the meal-intelligence setting on cold open`() = runTest {
+        // Per-account, like the glucose unit: reconcile on cold open so a toggle made on another
+        // device propagates to the Home FAB.
+        createViewModel()
+        advanceTimeBy(10_000); runCurrent()
+        coVerify(atLeast = 1) { authRepository.refreshMealIntelligence() }
+    }
+
     // -- Plugin cards ----------------------------------------------------------
 
     // -- CGM Stats state ------------------------------------------------------

@@ -374,7 +374,7 @@ async def create_food_record_from_image(
     # recalls it. Best-effort and after commit -- it must never fail the upload,
     # so guard the call site too (index_food_record is already internally
     # best-effort; this also covers anything raised before its own try).
-    if settings.meal_intelligence_enabled:
+    if user.meal_intelligence_enabled:
         try:
             await meal_rag.index_food_record(record)
         except Exception:
@@ -461,10 +461,17 @@ def _build_dispersion_detail(
 
 async def _suggest_identity(user: User, food_description: str | None) -> str | None:
     """Suggest an identity from own history for one-tap confirm; never raise."""
-    if not settings.meal_intelligence_enabled:
+    if not user.meal_intelligence_enabled:
         return None
     try:
-        return await meal_grounding.suggest_identity(user.id, food_description)
+        # Thread the user's gate state to the session-less grounding layer as its
+        # defence-in-depth boundary contract (it re-checks rather than trusting the
+        # caller); always True here given the early return above.
+        return await meal_grounding.suggest_identity(
+            user.id,
+            food_description,
+            meal_intelligence_enabled=user.meal_intelligence_enabled,
+        )
     except Exception:
         logger.warning("Identity suggestion failed", exc_info=True)
         return None

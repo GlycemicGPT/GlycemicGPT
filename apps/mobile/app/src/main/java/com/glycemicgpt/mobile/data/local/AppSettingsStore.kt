@@ -174,6 +174,67 @@ class AppSettingsStore @Inject constructor(
         awaitClose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
     }
 
+    /**
+     * Whether the meal-intelligence feature is enabled for this account. Gates the
+     * meal surfaces (the "Log a meal" FAB + meal endpoints). A *per-account*
+     * preference (PATCHed to the backend and reconciled from it); this stored
+     * value is an offline cache / pre-sync fallback that defaults ON before the
+     * first backend sync, mirroring the server default.
+     */
+    var mealIntelligenceEnabled: Boolean
+        get() = prefs.getBoolean(KEY_MEAL_INTELLIGENCE_ENABLED, true)
+        set(value) {
+            prefs.edit().putBoolean(KEY_MEAL_INTELLIGENCE_ENABLED, value).apply()
+        }
+
+    /**
+     * Emits the current [mealIntelligenceEnabled] and re-emits whenever it
+     * changes, so the home FAB and meal surfaces appear/disappear live when the
+     * user toggles the setting or a backend reconcile writes the cache. Uses the
+     * same change-listener mechanism as [glucoseUnitFlow].
+     */
+    fun mealIntelligenceEnabledFlow(): Flow<Boolean> = callbackFlow {
+        trySend(mealIntelligenceEnabled)
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == KEY_MEAL_INTELLIGENCE_ENABLED || key == null) {
+                trySend(mealIntelligenceEnabled)
+            }
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        awaitClose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+
+    /**
+     * Persisted top-left position (px) of the draggable Home "Log a meal" FAB, or [UNSET_FAB_OFFSET]
+     * on an axis the user has never set (fall back to the default bottom-end placement). Per-device
+     * UI state only -- a local placement preference, never synced to the account. Read-only here;
+     * write the pair atomically via [setMealFabOffset]. Bounds are intentionally enforced in the
+     * placement layer (clampFabOffset), not on write, so a stale value self-corrects against the
+     * live container size.
+     */
+    val mealFabOffsetXPx: Int
+        get() = prefs.getInt(KEY_MEAL_FAB_OFFSET_X, UNSET_FAB_OFFSET)
+
+    /** Persisted top-left Y (px) of the draggable Home meal FAB; see [mealFabOffsetXPx]. */
+    val mealFabOffsetYPx: Int
+        get() = prefs.getInt(KEY_MEAL_FAB_OFFSET_Y, UNSET_FAB_OFFSET)
+
+    /** Persist the FAB position (px) as one atomic edit, so an interrupted write can't tear X from Y. */
+    fun setMealFabOffset(x: Int, y: Int) {
+        prefs.edit()
+            .putInt(KEY_MEAL_FAB_OFFSET_X, x)
+            .putInt(KEY_MEAL_FAB_OFFSET_Y, y)
+            .apply()
+    }
+
+    /** Forget the saved FAB position so it falls back to the default bottom-end placement. */
+    fun clearMealFabOffset() {
+        prefs.edit()
+            .remove(KEY_MEAL_FAB_OFFSET_X)
+            .remove(KEY_MEAL_FAB_OFFSET_Y)
+            .apply()
+    }
+
     // Watch face config persistence
     var watchFaceShowIoB: Boolean
         get() = prefs.getBoolean(KEY_WATCHFACE_SHOW_IOB, true)
@@ -243,7 +304,7 @@ class AppSettingsStore @Inject constructor(
     companion object {
         private val VALID_WATCHFACE_GRAPH_RANGES = listOf(1, 3, 6)
         private const val OLD_PREFS_NAME = "app_settings"
-        private const val ENCRYPTED_PREFS_NAME = "app_settings_encrypted"
+        internal const val ENCRYPTED_PREFS_NAME = "app_settings_encrypted"
         private const val KEY_ONBOARDING_COMPLETE = "onboarding_complete"
         private const val KEY_BACKEND_SYNC_ENABLED = "backend_sync_enabled"
         private const val KEY_DATA_RETENTION_DAYS = "data_retention_days"
@@ -252,6 +313,12 @@ class AppSettingsStore @Inject constructor(
         internal const val KEY_THEME_MODE = "theme_mode"
         internal const val KEY_GLUCOSE_UNIT = "glucose_unit"
         internal const val KEY_GLUCOSE_UNIT_SEED_PENDING = "glucose_unit_seed_pending"
+        internal const val KEY_MEAL_INTELLIGENCE_ENABLED = "meal_intelligence_enabled"
+        private const val KEY_MEAL_FAB_OFFSET_X = "meal_fab_offset_x"
+        private const val KEY_MEAL_FAB_OFFSET_Y = "meal_fab_offset_y"
+
+        /** Sentinel for a meal-FAB offset the user has never set (use the default position). */
+        const val UNSET_FAB_OFFSET = Int.MIN_VALUE
         const val DEFAULT_RETENTION_DAYS = 7
         const val MIN_RETENTION_DAYS = 1
         const val MAX_RETENTION_DAYS = 30

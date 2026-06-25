@@ -131,6 +131,20 @@ data class GlucoseUnitUpdateRequest(
     @Json(name = "glucose_unit") val glucoseUnit: String,
 )
 
+/**
+ * Per-account meal-intelligence feature preference. [enabled] gates the meal
+ * surfaces (the "Log a meal" FAB + meal endpoints). Defaults ON server-side.
+ */
+@JsonClass(generateAdapter = true)
+data class MealIntelligenceResponse(
+    @Json(name = "enabled") val enabled: Boolean,
+)
+
+@JsonClass(generateAdapter = true)
+data class MealIntelligenceUpdateRequest(
+    @Json(name = "enabled") val enabled: Boolean,
+)
+
 @JsonClass(generateAdapter = true)
 data class SafetyLimitsResponse(
     @Json(name = "min_glucose_mgdl") val minGlucoseMgDl: Int,

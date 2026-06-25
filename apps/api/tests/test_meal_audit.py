@@ -31,8 +31,8 @@ from src.services import food_vision, meal_audit, meal_rag, nutrition_sources
 
 @pytest.fixture(autouse=True)
 def _enable(tmp_path, monkeypatch):
+    # Meal intelligence is per-user and defaults ON for the test's user.
     monkeypatch.setattr(settings, "upload_dir", str(tmp_path / "uploads"))
-    monkeypatch.setattr(settings, "meal_intelligence_enabled", True)
     monkeypatch.setattr(settings, "meal_estimate_sample_count", 3)
 
 

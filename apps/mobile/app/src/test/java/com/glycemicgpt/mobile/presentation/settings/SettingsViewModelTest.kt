@@ -38,9 +38,11 @@ import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -189,6 +191,64 @@ class SettingsViewModelTest {
         assertEquals(GlucoseUnit.MMOL, vm.uiState.value.glucoseUnit)
         assertNotNull(vm.uiState.value.glucoseUnitSyncError)
     }
+
+    @Test
+    fun `setMealIntelligenceEnabled optimistically caches locally and PATCHes the account`() =
+        runTest {
+            coEvery { authRepository.updateMealIntelligence(false) } returns Result.success(false)
+            val vm = createViewModel()
+
+            vm.setMealIntelligenceEnabled(false)
+
+            verify { appSettingsStore.mealIntelligenceEnabled = false }
+            coVerify { authRepository.updateMealIntelligence(false) }
+            assertFalse(vm.uiState.value.mealIntelligenceEnabled)
+            assertNull(vm.uiState.value.mealIntelligenceSyncError)
+        }
+
+    @Test
+    fun `setMealIntelligenceEnabled folds the server-resolved value back into state`() = runTest {
+        // Optimistically disabled, but the server resolves to enabled; state must reflect the server.
+        coEvery { authRepository.updateMealIntelligence(false) } returns Result.success(true)
+        val vm = createViewModel()
+
+        vm.setMealIntelligenceEnabled(false)
+
+        assertTrue(vm.uiState.value.mealIntelligenceEnabled)
+        assertNull(vm.uiState.value.mealIntelligenceSyncError)
+    }
+
+    @Test
+    fun `setMealIntelligenceEnabled keeps the optimistic value and surfaces an error on failure`() =
+        runTest {
+            coEvery { authRepository.updateMealIntelligence(false) } returns
+                Result.failure(RuntimeException("offline"))
+            val vm = createViewModel()
+
+            vm.setMealIntelligenceEnabled(false)
+
+            assertFalse(vm.uiState.value.mealIntelligenceEnabled)
+            assertNotNull(vm.uiState.value.mealIntelligenceSyncError)
+        }
+
+    @Test
+    fun `setMealIntelligenceEnabled drops a stale PATCH response superseded by a newer toggle`() =
+        runTest {
+            // The first (off) PATCH is slow; a second (on) toggle supersedes it. The stale
+            // off-response must not win -- the version guard + job cancel keep the newer value.
+            coEvery { authRepository.updateMealIntelligence(false) } coAnswers {
+                delay(1_000)
+                Result.success(false)
+            }
+            coEvery { authRepository.updateMealIntelligence(true) } returns Result.success(true)
+            val vm = createViewModel()
+
+            vm.setMealIntelligenceEnabled(false)
+            vm.setMealIntelligenceEnabled(true)
+            advanceUntilIdle()
+
+            assertTrue(vm.uiState.value.mealIntelligenceEnabled)
+        }
 
     @Test
     fun `loadState exposes the seed-confirm flag from the store`() {

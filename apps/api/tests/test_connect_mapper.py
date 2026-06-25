@@ -5,10 +5,13 @@ The payload shapes mirror xDrip's ``cgm/carelinkfollow`` message classes
 CarePartner ``display/message`` endpoint returns.
 """
 
+import math
 from datetime import UTC, datetime, timedelta, timezone
 
+from src.core.units import MGDL_PER_MMOL, GlucoseUnit
 from src.models.pump_data import PumpEventType
 from src.services.integrations.medtronic.connect_mapper import (
+    _MMOL_AMBIGUOUS_MAX_MGDL,
     SOURCE,
     map_recent_data,
 )
@@ -367,3 +370,145 @@ def test_non_numeric_amounts_fail_soft():
         )
     )
     assert rec.pump_events == []
+
+
+# ── mmol/L follower-feed fail-safe guard (GLY-59 / #808) ──
+#
+# See the mapper's "Unit safety (mmol/L)" note for the rationale. In short: for a
+# mmol/L-preference user a bare value in [20, _MMOL_AMBIGUOUS_MAX_MGDL] is dropped
+# (a gap, not a false mg/dL low); mg/dL and default users are unchanged.
+
+# Each bare follower value paired with whether a mmol/L-preference user keeps it.
+# 19 is below the 20 floor (dropped for everyone); 20 and 28 are the inclusive
+# window edges (dropped only for mmol/L); 29..500 sit above the window (kept);
+# 501 is above the mg/dL ceiling (dropped for everyone).
+_AMBIGUOUS_DROP = (20, 24, 27, 28)  # mmol/L user: dropped as ambiguous
+_KEPT_FOR_MMOL = (29, 80, 120, 180, 500)  # mmol/L user: kept (cannot be mmol/L)
+
+
+def test_ambiguous_window_ceiling_is_mmol_equivalent_of_500():
+    # The window's upper edge is the platform glucose ceiling expressed in mmol/L
+    # units: ceil(500 / 18.0156) = 28. Pin it so the derivation can't silently
+    # drift (a wrong factor or direction would move the safety boundary).
+    assert _MMOL_AMBIGUOUS_MAX_MGDL == 28
+    assert math.ceil(500 / MGDL_PER_MMOL) == _MMOL_AMBIGUOUS_MAX_MGDL
+
+
+def test_mmol_user_drops_ambiguous_sensor_glucose():
+    rec = map_recent_data(
+        _recent(
+            sgs=[
+                {"sg": v, "datetime": f"2025-01-31T12:{i:02d}:00-05:00"}
+                for i, v in enumerate(_AMBIGUOUS_DROP)
+            ]
+        ),
+        glucose_unit=GlucoseUnit.MMOL,
+    )
+    # Every value in the ambiguity window is dropped -> a gap, not a false low.
+    assert rec.glucose == []
+
+
+def test_mmol_user_keeps_sensor_glucose_above_window():
+    rec = map_recent_data(
+        _recent(
+            sgs=[
+                {"sg": v, "datetime": f"2025-01-31T12:{i:02d}:00-05:00"}
+                for i, v in enumerate(_KEPT_FOR_MMOL)
+            ]
+        ),
+        glucose_unit=GlucoseUnit.MMOL,
+    )
+    # Above the window a value cannot be a physiologic mmol/L reading, so it is
+    # kept as mg/dL unchanged.
+    assert [g.value_mgdl for g in rec.glucose] == list(_KEPT_FOR_MMOL)
+
+
+def test_mmol_user_drops_float_value_just_below_ceiling():
+    # A fractional SG of 27.7 mmol/L (the high end of the hazard) is dropped.
+    rec = map_recent_data(
+        _recent(sgs=[{"sg": 27.7, "datetime": "2025-01-31T12:00:00-05:00"}]),
+        glucose_unit=GlucoseUnit.MMOL,
+    )
+    assert rec.glucose == []
+
+
+def test_mgdl_user_keeps_full_window_byte_identical():
+    # mg/dL preference: the ambiguity guard never fires -- the same 20-500 range
+    # (including 20-28) is kept exactly as before this story.
+    sgs = [
+        {"sg": v, "datetime": f"2025-01-31T12:{i:02d}:00-05:00"}
+        for i, v in enumerate(_AMBIGUOUS_DROP + _KEPT_FOR_MMOL)
+    ]
+    rec = map_recent_data(_recent(sgs=sgs), glucose_unit=GlucoseUnit.MGDL)
+    assert [g.value_mgdl for g in rec.glucose] == list(_AMBIGUOUS_DROP + _KEPT_FOR_MMOL)
+
+
+def test_default_glucose_unit_is_mgdl_and_unchanged():
+    # No glucose_unit argument (callers without user context) -> mg/dL behavior,
+    # so a 20-28 value is still kept exactly as the legacy mapper did.
+    rec = map_recent_data(
+        _recent(sgs=[{"sg": 22, "datetime": "2025-01-31T12:00:00-05:00"}])
+    )
+    assert [g.value_mgdl for g in rec.glucose] == [22]
+
+
+def test_mmol_user_drops_ambiguous_bg_marker():
+    rec = map_recent_data(
+        _recent(
+            markers=[
+                {
+                    "type": "BG_READING",
+                    "displayTime": "2025-01-31T12:00:00-05:00",
+                    "value": 22,
+                }
+            ]
+        ),
+        glucose_unit=GlucoseUnit.MMOL,
+    )
+    # A finger-BG marker is a glucose value too -> same drop for mmol/L users.
+    assert _events_of(rec, PumpEventType.BG_READING) == []
+
+
+def test_mmol_user_keeps_bg_marker_above_window():
+    rec = map_recent_data(
+        _recent(
+            markers=[
+                {
+                    "type": "BG_READING",
+                    "displayTime": "2025-01-31T12:00:00-05:00",
+                    "value": 110,
+                }
+            ]
+        ),
+        glucose_unit=GlucoseUnit.MMOL,
+    )
+    bgs = _events_of(rec, PumpEventType.BG_READING)
+    assert [b.bg_at_event for b in bgs] == [110]
+
+
+def test_mmol_guard_does_not_touch_insulin_or_carbs():
+    # The guard is glucose-only: insulin (units) and carbs (grams) are not glucose
+    # and must be mapped for a mmol/L user exactly as for a mg/dL user. A bolus of
+    # 22 U and 24 g of carbs sit numerically inside the glucose window but must NOT
+    # be dropped.
+    rec = map_recent_data(
+        _recent(
+            markers=[
+                {
+                    "type": "INSULIN",
+                    "displayTime": "2025-01-31T12:00:00-05:00",
+                    "deliveredFastAmount": 22.0,
+                },
+                {
+                    "type": "MEAL",
+                    "displayTime": "2025-01-31T12:05:00-05:00",
+                    "amount": 24.0,
+                },
+            ]
+        ),
+        glucose_unit=GlucoseUnit.MMOL,
+    )
+    bolus = _events_of(rec, PumpEventType.BOLUS)
+    carbs = _events_of(rec, PumpEventType.CARBS)
+    assert [b.units for b in bolus] == [22.0]
+    assert [c.cob_at_event for c in carbs] == [24.0]

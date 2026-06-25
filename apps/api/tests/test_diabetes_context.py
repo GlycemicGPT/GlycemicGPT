@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.config import settings
 from src.core.units import GlucoseUnit
 from src.services.diabetes_context import (
     MEAL_CONTEXT_HOURS,
@@ -625,7 +624,10 @@ class TestMealContextFlagGating:
 
     @patch("src.services.diabetes_context.build_meals_section", new_callable=AsyncMock)
     async def test_meals_excluded_when_flag_off(self, mock_meals, monkeypatch):
-        monkeypatch.setattr(settings, "meal_intelligence_enabled", False)
+        monkeypatch.setattr(
+            "src.services.diabetes_context.is_meal_intelligence_enabled",
+            AsyncMock(return_value=False),
+        )
         mock_meals.return_value = "[Logged meals - last 48h]\n- sentinel"
 
         context = await build_diabetes_context(AsyncMock(), uuid.uuid4())
@@ -635,7 +637,10 @@ class TestMealContextFlagGating:
 
     @patch("src.services.diabetes_context.build_meals_section", new_callable=AsyncMock)
     async def test_meals_included_when_flag_on(self, mock_meals, monkeypatch):
-        monkeypatch.setattr(settings, "meal_intelligence_enabled", True)
+        monkeypatch.setattr(
+            "src.services.diabetes_context.is_meal_intelligence_enabled",
+            AsyncMock(return_value=True),
+        )
         mock_meals.return_value = "[Logged meals - last 48h]\n- sentinel meal"
 
         context = await build_diabetes_context(AsyncMock(), uuid.uuid4())
@@ -708,7 +713,10 @@ class TestVerifyMealCitationsGate:
     against the *same* logged-meal truth the context used."""
 
     async def test_inert_when_flag_off(self, monkeypatch):
-        monkeypatch.setattr(settings, "meal_intelligence_enabled", False)
+        monkeypatch.setattr(
+            "src.services.diabetes_context.is_meal_intelligence_enabled",
+            AsyncMock(return_value=False),
+        )
         db = AsyncMock()
         text = "You had about 999g of carbs."
 
@@ -718,7 +726,10 @@ class TestVerifyMealCitationsGate:
         db.execute.assert_not_called()  # fully inert, no query
 
     async def test_empty_content_passthrough(self, monkeypatch):
-        monkeypatch.setattr(settings, "meal_intelligence_enabled", True)
+        monkeypatch.setattr(
+            "src.services.diabetes_context.is_meal_intelligence_enabled",
+            AsyncMock(return_value=True),
+        )
         db = AsyncMock()
 
         result = await verify_meal_citations(db, uuid.uuid4(), "", surface="chat")
@@ -727,7 +738,10 @@ class TestVerifyMealCitationsGate:
         db.execute.assert_not_called()
 
     async def test_corrects_mismatch_against_logged_meal(self, monkeypatch):
-        monkeypatch.setattr(settings, "meal_intelligence_enabled", True)
+        monkeypatch.setattr(
+            "src.services.diabetes_context.is_meal_intelligence_enabled",
+            AsyncMock(return_value=True),
+        )
         db = _mock_db_returning([_make_food_record(carbs_low=60.0, carbs_high=80.0)])
 
         result = await verify_meal_citations(
@@ -739,7 +753,10 @@ class TestVerifyMealCitationsGate:
         assert _leaked_dosing(result) == []
 
     async def test_matched_citation_passes_through(self, monkeypatch):
-        monkeypatch.setattr(settings, "meal_intelligence_enabled", True)
+        monkeypatch.setattr(
+            "src.services.diabetes_context.is_meal_intelligence_enabled",
+            AsyncMock(return_value=True),
+        )
         db = _mock_db_returning([_make_food_record(carbs_low=60.0, carbs_high=80.0)])
         text = "Dinner looked like ~60-80g carbs."
 
@@ -750,7 +767,10 @@ class TestVerifyMealCitationsGate:
     async def test_fail_closed_scrubs_when_fetch_raises(self, monkeypatch):
         # If the records can't be read we cannot verify anything, so every carb
         # figure is scrubbed rather than passed through unverified.
-        monkeypatch.setattr(settings, "meal_intelligence_enabled", True)
+        monkeypatch.setattr(
+            "src.services.diabetes_context.is_meal_intelligence_enabled",
+            AsyncMock(return_value=True),
+        )
         db = AsyncMock()
         db.execute = AsyncMock(side_effect=RuntimeError("db down"))
 
@@ -762,7 +782,10 @@ class TestVerifyMealCitationsGate:
         assert SCRUB_TEMPLATE in result
 
     async def test_brief_window_corrects_against_period_meals(self, monkeypatch):
-        monkeypatch.setattr(settings, "meal_intelligence_enabled", True)
+        monkeypatch.setattr(
+            "src.services.diabetes_context.is_meal_intelligence_enabled",
+            AsyncMock(return_value=True),
+        )
         db = _mock_db_returning([_make_food_record(carbs_low=100.0, carbs_high=110.0)])
         period_end = datetime.now(UTC)
         period_start = period_end - timedelta(hours=24)
@@ -781,7 +804,10 @@ class TestVerifyMealCitationsGate:
         assert "~100-110g carbs" in result
 
     async def test_logs_counts_only_no_phi(self, monkeypatch):
-        monkeypatch.setattr(settings, "meal_intelligence_enabled", True)
+        monkeypatch.setattr(
+            "src.services.diabetes_context.is_meal_intelligence_enabled",
+            AsyncMock(return_value=True),
+        )
         db = _mock_db_returning(
             [
                 _make_food_record(
@@ -816,7 +842,10 @@ class TestVerifyMealCitationsGate:
     async def test_injected_description_cannot_mint_allowed_value(self, monkeypatch):
         # Adversarial: a prompt-injected carb figure inside food_description must
         # not become a verifiable value -- the allow-set reads only carb columns.
-        monkeypatch.setattr(settings, "meal_intelligence_enabled", True)
+        monkeypatch.setattr(
+            "src.services.diabetes_context.is_meal_intelligence_enabled",
+            AsyncMock(return_value=True),
+        )
         db = _mock_db_returning(
             [
                 _make_food_record(

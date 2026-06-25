@@ -208,6 +208,9 @@ data class SettingsUiState(
     // One-time smart-default notice: the unit was seeded (region / Nightscout) and not yet
     // confirmed. Cleared when the user picks a unit or dismisses the notice.
     val seedNeedsConfirm: Boolean = false,
+    // Meal-intelligence feature toggle (per-account preference). Defaults ON.
+    val mealIntelligenceEnabled: Boolean = true,
+    val mealIntelligenceSyncError: String? = null,
 )
 
 private const val AUTO_DISMISS_MS = 5_000L
@@ -329,6 +332,7 @@ class SettingsViewModel @Inject constructor(
             themeMode = appSettingsStore.themeMode,
             glucoseUnit = appSettingsStore.glucoseUnit,
             seedNeedsConfirm = appSettingsStore.glucoseUnitSeedPending,
+            mealIntelligenceEnabled = appSettingsStore.mealIntelligenceEnabled,
             watchFaceConfig = loadPersistedWatchFaceConfig(),
         ).withActivePumpFields()
 
@@ -351,6 +355,16 @@ class SettingsViewModel @Inject constructor(
                 _uiState.value = _uiState.value.copy(
                     glucoseUnit = appSettingsStore.glucoseUnit,
                     seedNeedsConfirm = appSettingsStore.glucoseUnitSeedPending,
+                )
+            }
+            // Reconcile the per-account meal-intelligence preference so the toggle
+            // reflects the latest account value when Settings opens.
+            viewModelScope.launch {
+                authRepository.refreshMealIntelligence()
+                _uiState.value = _uiState.value.copy(
+                    mealIntelligenceEnabled = appSettingsStore.mealIntelligenceEnabled,
+                    // A successful reconcile supersedes any prior PATCH sync error.
+                    mealIntelligenceSyncError = null,
                 )
             }
         }
@@ -1225,6 +1239,44 @@ class SettingsViewModel @Inject constructor(
                     Timber.w(e, "Failed to sync glucose unit to backend")
                     _uiState.value = _uiState.value.copy(
                         glucoseUnitSyncError = "Couldn't save to your account. It will retry on next sign-in.",
+                    )
+                }
+        }
+    }
+
+    /**
+     * Enable or disable meal intelligence. Per-account, so this does an optimistic local-cache set
+     * for instant feedback -- the Home FAB hides/shows immediately via the settings-store flow --
+     * AND a backend PATCH so the choice propagates to web and watch. On PATCH failure the optimistic
+     * value stays and a transient error is surfaced; the next `/api/settings/meal-intelligence`
+     * reconcile corrects it rather than reverting mid-session.
+     */
+    // Guards against a stale PATCH response winning: a rapid second toggle bumps
+    // the version and cancels the prior request, so an older response is ignored.
+    private var mealIntelligenceUpdateJob: Job? = null
+    private var mealIntelligenceRequestVersion = 0L
+
+    fun setMealIntelligenceEnabled(enabled: Boolean) {
+        appSettingsStore.mealIntelligenceEnabled = enabled
+        _uiState.value = _uiState.value.copy(
+            mealIntelligenceEnabled = enabled,
+            mealIntelligenceSyncError = null,
+        )
+        val requestVersion = ++mealIntelligenceRequestVersion
+        mealIntelligenceUpdateJob?.cancel()
+        mealIntelligenceUpdateJob = viewModelScope.launch {
+            authRepository.updateMealIntelligence(enabled)
+                .onSuccess { resolved ->
+                    if (requestVersion != mealIntelligenceRequestVersion) return@onSuccess
+                    if (resolved != _uiState.value.mealIntelligenceEnabled) {
+                        _uiState.value = _uiState.value.copy(mealIntelligenceEnabled = resolved)
+                    }
+                }
+                .onFailure { e ->
+                    if (requestVersion != mealIntelligenceRequestVersion) return@onFailure
+                    Timber.w(e, "Failed to sync meal intelligence to backend")
+                    _uiState.value = _uiState.value.copy(
+                        mealIntelligenceSyncError = "Couldn't save to your account. It will retry on next sign-in.",
                     )
                 }
         }

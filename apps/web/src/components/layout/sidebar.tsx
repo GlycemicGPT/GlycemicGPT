@@ -28,7 +28,8 @@ import {
   Menu,
   X,
 } from "lucide-react";
-import { useUserContext, useMealIntelligenceContext } from "@/providers";
+import { useUserContext } from "@/providers";
+import { useMealIntelligence } from "@/hooks/use-meal-intelligence";
 import { getUnreadInsightsCount } from "@/lib/api";
 
 interface NavItem {
@@ -51,10 +52,10 @@ const caregiverNavigation: NavItem[] = [
   { name: "Dashboard", href: "/dashboard/caregiver", icon: LayoutDashboard },
 ];
 
-// Meals is gated on the deployment-wide meal-intelligence flag (resolved via a
-// probe in MealIntelligenceProvider). When off, the nav item is hidden; the
-// route itself renders a clear feature-off state (never a raw 404), mirroring
-// the mobile client. Inserted just before the trailing Settings item.
+// Meals is gated on the user's own meal-intelligence preference (read from the
+// shared user context). When off, the nav item is hidden; the route itself
+// renders a clear feature-off state (never a raw 404), mirroring the mobile
+// client. Inserted just before the trailing Settings item.
 const mealsNavItem: NavItem = {
   name: "Meals",
   href: "/dashboard/meals",
@@ -117,7 +118,7 @@ function UnreadBadge({ count }: { count: number }) {
 export function Sidebar({ className }: SidebarProps) {
   const pathname = usePathname();
   const { user } = useUserContext();
-  const { enabled: mealsEnabled } = useMealIntelligenceContext();
+  const { enabled: mealsEnabled } = useMealIntelligence();
   const isCaregiver = user?.role === "caregiver";
   const navigation = navItemsFor(isCaregiver, mealsEnabled === true);
   const unreadCount = useUnreadCount(!isCaregiver);
@@ -186,7 +187,7 @@ export function MobileNav() {
   const [isOpen, setIsOpen] = useState(false);
   const pathname = usePathname();
   const { user } = useUserContext();
-  const { enabled: mealsEnabled } = useMealIntelligenceContext();
+  const { enabled: mealsEnabled } = useMealIntelligence();
   const isCaregiver = user?.role === "caregiver";
   const navigation = navItemsFor(isCaregiver, mealsEnabled === true);
   const unreadCount = useUnreadCount(!isCaregiver);

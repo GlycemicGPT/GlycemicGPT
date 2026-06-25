@@ -32,7 +32,7 @@ This keeps GlycemicGPT updated automatically. After a one-time setup, a backgrou
 >
 > - A Medtronic pump + CGM whose data shows up in Medtronic's **CareLink / CarePartner** (the MiniMed Mobile or CareLink app already uploading your pump to Medtronic's cloud)
 > - Your CareLink username and password
-> - A desktop browser installed (Chrome, Edge, Brave, or Chromium)
+> - A desktop **Chromium-family browser** installed — Chrome, Edge, Brave, or Chromium (Firefox and Safari can't be driven this way; see the fallback note below)
 > - GlycemicGPT running and you signed in
 
 ### What it pulls
@@ -54,6 +54,8 @@ In your GlycemicGPT dashboard:
 4. GlycemicGPT shows a **one-time setup command**. Copy it and run it in a terminal on your own computer (macOS/Linux) or PowerShell (Windows). It downloads a small helper **from your own GlycemicGPT instance** — there's no third-party download.
 5. The helper opens your browser to Medtronic's sign-in. **Sign in and solve the captcha.**
 6. That's it. The helper hands the resulting login back to GlycemicGPT and exits. Your screen will show the connection as active.
+
+> **Browser not found, or installed somewhere unusual?** The helper auto-detects Chrome, Edge, Brave, and Chromium in their normal locations. If yours is in a custom spot, type its path into the **Browser path (optional)** field before you copy the command — the command then points the helper straight at that binary (it stays on your machine; the path is never sent to GlycemicGPT). If you have **no Chromium-family browser at all** (e.g. only Firefox or Safari, which can't be driven this way), use the **Advanced → Python CLI** fallback shown under the command — it runs the login through its own bundled browser engine, so it doesn't need a browser installed.
 
 Under the hood, GlycemicGPT stores an encrypted **refresh token** (never your password) and uses it to keep itself authorized. If Medtronic's sign-in ever expires, the connection shows as **Disconnected** and you re-run the one-time setup.
 

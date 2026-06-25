@@ -13,6 +13,7 @@ import com.glycemicgpt.mobile.data.remote.dto.GlucoseRangeResponse
 import com.glycemicgpt.mobile.data.remote.dto.GlucoseUnitResponse
 import com.glycemicgpt.mobile.data.remote.dto.HealthResponse
 import com.glycemicgpt.mobile.data.remote.dto.LoginResponse
+import com.glycemicgpt.mobile.data.remote.dto.MealIntelligenceResponse
 import com.glycemicgpt.mobile.data.remote.dto.UserDto
 import com.glycemicgpt.mobile.domain.model.GlucoseUnit
 import io.mockk.coEvery
@@ -204,6 +205,9 @@ class AuthRepositoryTest {
         verify { analyticsSettingsStore.clear() }
         verify { pumpProfileStore.clear() }
         verify { appSettingsStore.glucoseUnit = GlucoseUnit.MGDL }
+        // Meal intelligence is per-account; logout resets it to the default (ON)
+        // so a stale value can't carry into the next account before its reconcile.
+        verify { appSettingsStore.mealIntelligenceEnabled = true }
         verify { authManager.onLogout() }
     }
 
@@ -266,6 +270,73 @@ class AuthRepositoryTest {
         repository.refreshGlucoseUnit()
 
         verify(exactly = 0) { appSettingsStore.glucoseUnit = any() }
+    }
+
+    @Test
+    fun `updateMealIntelligence PATCHes the account and caches the server value`() = runTest {
+        coEvery { api.patchMealIntelligence(any()) } returns Response.success(
+            MealIntelligenceResponse(enabled = false),
+        )
+
+        val result = repository.updateMealIntelligence(false)
+
+        assertTrue(result.isSuccess)
+        assertEquals(false, result.getOrNull())
+        coVerify { api.patchMealIntelligence(match { !it.enabled }) }
+        verify { appSettingsStore.mealIntelligenceEnabled = false }
+    }
+
+    @Test
+    fun `updateMealIntelligence returns failure and leaves cache untouched on HTTP error`() =
+        runTest {
+            coEvery { api.patchMealIntelligence(any()) } returns
+                Response.error(500, "boom".toResponseBody())
+
+            val result = repository.updateMealIntelligence(false)
+
+            assertTrue(result.isFailure)
+            verify(exactly = 0) { appSettingsStore.mealIntelligenceEnabled = any() }
+        }
+
+    @Test
+    fun `refreshMealIntelligence writes the backend value into the cache`() = runTest {
+        coEvery { api.getMealIntelligence() } returns Response.success(
+            MealIntelligenceResponse(enabled = false),
+        )
+
+        repository.refreshMealIntelligence()
+
+        verify { appSettingsStore.mealIntelligenceEnabled = false }
+    }
+
+    @Test
+    fun `refreshMealIntelligence leaves cache untouched when the backend call fails`() = runTest {
+        coEvery { api.getMealIntelligence() } throws java.io.IOException("offline")
+
+        repository.refreshMealIntelligence()
+
+        verify(exactly = 0) { appSettingsStore.mealIntelligenceEnabled = any() }
+    }
+
+    @Test
+    fun `refreshMealIntelligence fails closed on a 403 (forbidden account)`() = runTest {
+        coEvery { api.getMealIntelligence() } returns
+            Response.error(403, "forbidden".toResponseBody())
+
+        repository.refreshMealIntelligence()
+
+        verify { appSettingsStore.mealIntelligenceEnabled = false }
+    }
+
+    @Test
+    fun `updateMealIntelligence fails closed on a 401`() = runTest {
+        coEvery { api.patchMealIntelligence(any()) } returns
+            Response.error(401, "unauthorized".toResponseBody())
+
+        val result = repository.updateMealIntelligence(true)
+
+        assertTrue(result.isFailure)
+        verify { appSettingsStore.mealIntelligenceEnabled = false }
     }
 
     @Test

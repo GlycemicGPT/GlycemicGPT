@@ -2220,7 +2220,10 @@ curl -fsSL -H "X-Connect-Pair-Token: $PAIR" "$API/api/integrations/medtronic/con
 chmod +x "$BIN"
 
 echo "Launching browser; sign in to CareLink to complete setup."
-"$BIN" --api "$API" --pair "$PAIR" --username "$USERNAME" --region "$REGION"
+# "$@" forwards any extra flags the user appended (e.g. `bash -s -- --browser
+# /path/to/browser` for a custom-install Chromium-family browser). The browser
+# path stays entirely on the user's machine -- it never reaches the server.
+"$BIN" --api "$API" --pair "$PAIR" --username "$USERNAME" --region "$REGION" "$@"
 """
 
 
@@ -2245,7 +2248,10 @@ Write-Host "Downloading helper for $OS/$ARCH from $API..."
 Invoke-WebRequest -Headers @{{ 'X-Connect-Pair-Token' = $PAIR }} -Uri "$API/api/integrations/medtronic/connect/helper-binary?os=$OS&arch=$ARCH" -OutFile $BIN -UseBasicParsing
 
 Write-Host 'Launching browser; sign in to CareLink to complete setup.'
-& $BIN --api $API --pair $PAIR --username $USERNAME --region $REGION
+# @args forwards any extra flags the caller passed (e.g. invoking the script
+# block with --browser to point at a custom browser install). The browser
+# path stays on the user's machine -- it never reaches the server.
+& $BIN --api $API --pair $PAIR --username $USERNAME --region $REGION @args
 """
 
 
