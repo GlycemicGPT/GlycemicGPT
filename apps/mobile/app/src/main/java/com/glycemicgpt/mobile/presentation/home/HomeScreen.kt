@@ -255,6 +255,10 @@ fun HomeScreen(
                     mealViewModel.persistFabOffset(it)
                     savedFabOffset = it
                 },
+                onReset = {
+                    mealViewModel.resetFabOffset()
+                    savedFabOffset = null
+                },
             )
         }
     }

@@ -227,6 +227,14 @@ class AppSettingsStore @Inject constructor(
             .apply()
     }
 
+    /** Forget the saved FAB position so it falls back to the default bottom-end placement. */
+    fun clearMealFabOffset() {
+        prefs.edit()
+            .remove(KEY_MEAL_FAB_OFFSET_X)
+            .remove(KEY_MEAL_FAB_OFFSET_Y)
+            .apply()
+    }
+
     // Watch face config persistence
     var watchFaceShowIoB: Boolean
         get() = prefs.getBoolean(KEY_WATCHFACE_SHOW_IOB, true)
@@ -296,7 +304,7 @@ class AppSettingsStore @Inject constructor(
     companion object {
         private val VALID_WATCHFACE_GRAPH_RANGES = listOf(1, 3, 6)
         private const val OLD_PREFS_NAME = "app_settings"
-        private const val ENCRYPTED_PREFS_NAME = "app_settings_encrypted"
+        internal const val ENCRYPTED_PREFS_NAME = "app_settings_encrypted"
         private const val KEY_ONBOARDING_COMPLETE = "onboarding_complete"
         private const val KEY_BACKEND_SYNC_ENABLED = "backend_sync_enabled"
         private const val KEY_DATA_RETENTION_DAYS = "data_retention_days"

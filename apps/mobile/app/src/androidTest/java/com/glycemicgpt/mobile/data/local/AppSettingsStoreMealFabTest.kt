@@ -59,8 +59,21 @@ class AppSettingsStoreMealFabTest {
         assertEquals(22, store.mealFabOffsetYPx)
     }
 
+    @Test
+    fun mealFabOffset_clearReturnsToUnset() {
+        store.setMealFabOffset(120, 340)
+        store.clearMealFabOffset()
+
+        assertEquals(AppSettingsStore.UNSET_FAB_OFFSET, store.mealFabOffsetXPx)
+        assertEquals(AppSettingsStore.UNSET_FAB_OFFSET, store.mealFabOffsetYPx)
+        // The clear is visible to another store instance (the per-device persistence contract).
+        val reread = AppSettingsStore(context)
+        assertEquals(AppSettingsStore.UNSET_FAB_OFFSET, reread.mealFabOffsetXPx)
+        assertEquals(AppSettingsStore.UNSET_FAB_OFFSET, reread.mealFabOffsetYPx)
+    }
+
     /** Resets the encrypted settings file so default/round-trip assertions are deterministic. */
     private fun clearEncryptedPrefs() {
-        context.deleteSharedPreferences("app_settings_encrypted")
+        context.deleteSharedPreferences(AppSettingsStore.ENCRYPTED_PREFS_NAME)
     }
 }

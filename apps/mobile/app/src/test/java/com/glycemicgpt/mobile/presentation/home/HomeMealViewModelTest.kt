@@ -182,4 +182,16 @@ class HomeMealViewModelTest {
 
             verify(exactly = 1) { appSettingsStore.setMealFabOffset(120, 341) }
         }
+
+    @Test
+    fun `resetFabOffset clears the stored position`() = runTest(testDispatcher) {
+        coEvery { repository.listFoodRecords(any(), any()) } returns Result.success(emptyList())
+        every { appSettingsStore.clearMealFabOffset() } just Runs
+        val vm = HomeMealViewModel(repository, appSettingsStore)
+        advanceUntilIdle()
+
+        vm.resetFabOffset()
+
+        verify(exactly = 1) { appSettingsStore.clearMealFabOffset() }
+    }
 }

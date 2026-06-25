@@ -38,6 +38,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -140,8 +143,15 @@ fun MealFab(onClick: () -> Unit, modifier: Modifier = Modifier) {
     )
 }
 
-/** Inset the FAB keeps from the container edges in its default bottom-end resting position. */
+/**
+ * Inset the FAB keeps from the container edges in its *default* resting position. A deliberate drag
+ * may still place the FAB flush to an edge (the clamp uses the full container bounds); this margin
+ * only gives the untouched default placement some breathing room.
+ */
 private val FAB_EDGE_MARGIN = 16.dp
+
+/** TalkBack action label to return the FAB to its default placement (drag is pointer-only). */
+internal const val RESET_FAB_ACTION_LABEL = "Reset position to default"
 
 /**
  * The Home "Log a meal" FAB, draggable so the user can move it off their data and back. Wraps the
@@ -151,7 +161,8 @@ private val FAB_EDGE_MARGIN = 16.dp
  * Positions are clamped to [containerSizePx] -- which the host has already inset for system bars --
  * so the FAB can never strand off-screen. A settled position is reported via [onOffsetSettled] for
  * persistence; [savedOffset] restores it, re-clamped to the current bounds so a stale value (from a
- * smaller past layout, or the FAB toggling hidden then shown) can't place it out of view.
+ * smaller past layout, or the FAB toggling hidden then shown) can't place it out of view. [onReset]
+ * clears the saved position so the accessibility action can return the FAB to its default spot.
  */
 @Composable
 fun BoxScope.DraggableMealFab(
@@ -159,6 +170,7 @@ fun BoxScope.DraggableMealFab(
     savedOffset: FabOffset?,
     onClick: () -> Unit,
     onOffsetSettled: (FabOffset) -> Unit,
+    onReset: () -> Unit,
 ) {
     val marginPx = with(LocalDensity.current) { FAB_EDGE_MARGIN.toPx() }
     var fabSizePx by remember { mutableStateOf(IntSize.Zero) }
@@ -174,9 +186,10 @@ fun BoxScope.DraggableMealFab(
     // is hidden then shown -- which also re-clamps it to the current bounds.
     var dragOffset by remember { mutableStateOf(savedOffset) }
 
-    // Resolve to a concrete, clamped, on-screen position from the latest sizes. Computed in the
-    // placement lambda below (not a LaunchedEffect) so it is correct on the first frame -- no flash
-    // from a transient top-left position before the offset settles.
+    // Resolve to a concrete, clamped, on-screen position from the latest measured sizes. Computed in
+    // the placement lambda below (not a LaunchedEffect) so it tracks the current sizes without a
+    // recomposition lag. Until the FAB and container are measured it resolves to the top-left; that
+    // is corrected within the same layout pass once onSizeChanged reports their real sizes.
     fun resolve(): FabOffset {
         val fabW = fabSizePx.width.toFloat()
         val fabH = fabSizePx.height.toFloat()
@@ -195,6 +208,17 @@ fun BoxScope.DraggableMealFab(
                 IntOffset(resolved.x.roundToInt(), resolved.y.roundToInt())
             }
             .onSizeChanged { fabSizePx = it }
+            .semantics {
+                // Drag is pointer-only; give screen-reader users a way to recover the FAB to its
+                // default spot if it ends up over content they need.
+                customActions = listOf(
+                    CustomAccessibilityAction(RESET_FAB_ACTION_LABEL) {
+                        dragOffset = null
+                        onReset()
+                        true
+                    },
+                )
+            }
             .pointerInput(Unit) {
                 detectDragGestures(
                     onDragEnd = { onOffsetSettled(resolve()) },
@@ -203,7 +227,9 @@ fun BoxScope.DraggableMealFab(
                     // Consuming only here (past touch slop) keeps a tap free to reach the FAB's
                     // onClick, while a drag repositions without triggering a click.
                     change.consume()
-                    val from = dragOffset ?: resolve()
+                    // Start from the current clamped on-screen position (not the raw stored value),
+                    // so a drag right after a container shrink can't jump from a now-stale base.
+                    val from = resolve()
                     dragOffset = clampFabOffset(
                         FabOffset(from.x + dragAmount.x, from.y + dragAmount.y),
                         fabSizePx.width.toFloat(),

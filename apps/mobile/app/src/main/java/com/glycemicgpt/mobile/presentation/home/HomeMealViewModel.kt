@@ -83,6 +83,11 @@ class HomeMealViewModel @Inject constructor(
         appSettingsStore.setMealFabOffset(offset.x.roundToInt(), offset.y.roundToInt())
     }
 
+    /** Forget the saved FAB position so it returns to the default placement (accessibility reset). */
+    fun resetFabOffset() {
+        appSettingsStore.clearMealFabOffset()
+    }
+
     /** Re-fetch the most recent meal; safe to call on Home resume / pull-to-refresh. */
     fun refresh() {
         // The local setting gates the FAB without a round-trip; skip the probe when off.
