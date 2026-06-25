@@ -118,22 +118,23 @@ async def test_export_csv_full_job_flow():
     # clientTime must be seconds-precision: the EU host 400s ("Malformed JSON in
     # request body") on a fractional-second clientTime (#811).
     assert "." not in body["clientTime"]
-    # The *PeriodB comparison window (the equal-length range immediately before
-    # [start, end]) mirrors CareLink's UI request (#811).
-    assert body["startDatePeriodB"] == "2025-01-04"
-    assert body["endDatePeriodB"] == "2025-01-17"
+    # No PeriodB comparison window: the EU CSV-export endpoint rejects it with
+    # 400 {"field":"startDatePeriodB","message":"not.required"} (#811).
+    assert "startDatePeriodB" not in body
+    assert "endDatePeriodB" not in body
 
 
-def test_generate_report_body_period_b_one_day():
-    """A 1-day import (start == end) yields a single-day PeriodB window
-    (start - 1d), the smallest valid comparison window (#811)."""
+def test_generate_report_body_omits_period_b():
+    """The body must not carry the ``*PeriodB`` comparison window: the EU
+    CSV-export endpoint rejects it with ``message: not.required`` (#811). It was
+    added from a PDF-comparison-report capture that doesn't apply to CSV export."""
     body = CareLinkClient._build_generate_report_body(
         patient_id="1", start_date=date(2025, 3, 1), end_date=date(2025, 3, 1)
     )
     assert body["startDate"] == "2025-03-01"
     assert body["endDate"] == "2025-03-01"
-    assert body["startDatePeriodB"] == "2025-02-28"
-    assert body["endDatePeriodB"] == "2025-02-28"
+    assert "startDatePeriodB" not in body
+    assert "endDatePeriodB" not in body
 
 
 def test_generate_report_body_client_time_drops_microseconds():

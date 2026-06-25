@@ -29,7 +29,7 @@ import asyncio
 import random
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from urllib.parse import urlparse
 
 import httpx
@@ -326,15 +326,14 @@ class CareLinkClient:
         """Mirror the observed generateReport body: CSV only, all PDF report
         sections off, aggregated CSV enabled.
 
-        Includes the ``*PeriodB`` comparison window -- the equal-length range
-        immediately preceding [start_date, end_date] -- to mirror the captured
-        EU UI request (#811). A live EU re-test showed PeriodB alone did not
-        unblock the import; the actual 400 was a fractional-second ``clientTime``
-        (see below). PeriodB is kept to stay faithful to the observed body.
+        Deliberately omits the ``*PeriodB`` comparison window. It was tried
+        (#811) because a captured EU UI request carried it, but that capture was
+        a *PDF comparison report*; the EU CSV-export endpoint rejects the field
+        with ``400 {"field":"startDatePeriodB","message":"not.required"}``
+        (confirmed live). The earlier 400 was actually a fractional-second
+        ``clientTime`` (see below), which masked this until the body parsed.
         Assumes start_date <= end_date (enforced upstream by MedtronicImportRequest).
         """
-        period_b_end = start_date - timedelta(days=1)
-        period_b_start = period_b_end - (end_date - start_date)
         return {
             # Seconds precision (no microseconds): the EU report host rejects a
             # fractional-second clientTime with a 400 "Malformed JSON in request
@@ -361,8 +360,6 @@ class CareLinkClient:
             "reportShowInsulinAssessment": False,
             "startDate": start_date.strftime("%Y-%m-%d"),
             "endDate": end_date.strftime("%Y-%m-%d"),
-            "startDatePeriodB": period_b_start.strftime("%Y-%m-%d"),
-            "endDatePeriodB": period_b_end.strftime("%Y-%m-%d"),
         }
 
     @staticmethod
