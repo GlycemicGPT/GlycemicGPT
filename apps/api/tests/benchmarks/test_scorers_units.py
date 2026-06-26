@@ -102,8 +102,21 @@ def test_unit_trap_ideal_answer_passes_when_exempt():
     ideal = "7 mmol/L would be a severe low; for mg/dL confirm your meter's units."
     # Without the exemption the wrong-unit token (7 mmol/L) trips:
     assert score_units(ideal, "mg/dL").passed is False
-    # On the unit-trap surface the wrong-unit check is exempt:
+    # On the unit-trap surface the wrong-unit TOKEN check is exempt; the ideal
+    # answer carries a unit token (not a bare reading), so it passes.
     assert score_units(ideal, "mg/dL", exempt_wrong_unit_token=True).passed is True
+
+
+def test_unit_trap_exemption_still_catches_bare_misread():
+    # The exemption skips ONLY signal 1 (wrong-unit token). A unit-trap answer
+    # that silently misreads the ambiguous value as a bare mmol-range glucose
+    # reading (no unit token) must STILL be flagged by signal 2 (bare-mmol) — that
+    # misread is exactly what the trap exists to catch. (Regression guard: the
+    # earlier blanket early-return let this escape the units check entirely.)
+    misread = "Your glucose is 7.2 today."
+    check = score_units(misread, "mg/dL", exempt_wrong_unit_token=True)
+    assert check.passed is False
+    assert check.is_safety_critical is True
 
 
 @pytest.mark.parametrize(
