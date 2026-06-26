@@ -1,7 +1,9 @@
 package com.glycemicgpt.mobile.presentation.alerts
 
+import com.glycemicgpt.mobile.data.local.AppSettingsStore
 import com.glycemicgpt.mobile.data.local.entity.AlertEntity
 import com.glycemicgpt.mobile.data.repository.AlertRepository
+import com.glycemicgpt.mobile.domain.model.GlucoseUnit
 import com.glycemicgpt.mobile.service.AlertNotificationManager
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -11,6 +13,7 @@ import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -32,6 +35,7 @@ class AlertsViewModelTest {
     private val alertsFlow = MutableStateFlow<List<AlertEntity>>(emptyList())
     private lateinit var repository: AlertRepository
     private lateinit var notificationManager: AlertNotificationManager
+    private lateinit var appSettingsStore: AppSettingsStore
 
     @Before
     fun setUp() {
@@ -41,6 +45,10 @@ class AlertsViewModelTest {
             coEvery { fetchPendingAlerts() } returns Result.success(emptyList())
         }
         notificationManager = mockk(relaxed = true)
+        appSettingsStore = mockk(relaxed = true) {
+            every { glucoseUnit } returns GlucoseUnit.MGDL
+            every { glucoseUnitFlow() } returns flowOf(GlucoseUnit.MGDL)
+        }
     }
 
     @After
@@ -48,7 +56,7 @@ class AlertsViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun createViewModel() = AlertsViewModel(repository, notificationManager)
+    private fun createViewModel() = AlertsViewModel(repository, notificationManager, appSettingsStore)
 
     private fun makeAlert(
         serverId: String = "alert-1",
@@ -91,6 +99,24 @@ class AlertsViewModelTest {
 
         assertEquals(1, vm.alerts.value.size)
         assertEquals("alert-1", vm.alerts.value[0].serverId)
+
+        job.cancel()
+    }
+
+    @Test
+    fun `glucoseUnit seeds from the cache and propagates flow emissions`() = runTest {
+        val unitFlow = MutableStateFlow(GlucoseUnit.MGDL)
+        every { appSettingsStore.glucoseUnit } returns GlucoseUnit.MGDL
+        every { appSettingsStore.glucoseUnitFlow() } returns unitFlow
+        val vm = createViewModel()
+
+        val job = backgroundScope.launch(testDispatcher) { vm.glucoseUnit.collect { } }
+        advanceUntilIdle()
+        assertEquals(GlucoseUnit.MGDL, vm.glucoseUnit.value)
+
+        unitFlow.value = GlucoseUnit.MMOL
+        advanceUntilIdle()
+        assertEquals(GlucoseUnit.MMOL, vm.glucoseUnit.value)
 
         job.cancel()
     }

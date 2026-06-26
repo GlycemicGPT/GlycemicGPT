@@ -480,7 +480,7 @@ export default function TelegramSettingsPage() {
                   onChange={(e) => setBotToken(e.target.value)}
                   placeholder="123456789:ABCdefGhIJKlmNoPQRsTUVwxyz"
                   disabled={isOffline}
-                  className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg pl-10 pr-12 py-3 text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 font-mono text-sm"
+                  className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg pl-10 pr-12 py-3 text-slate-900 dark:text-white placeholder-slate-500 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 font-mono text-sm"
                 />
                 <button
                   type="button"

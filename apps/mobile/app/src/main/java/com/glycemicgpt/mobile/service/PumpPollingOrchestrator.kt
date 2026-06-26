@@ -1,8 +1,10 @@
 package com.glycemicgpt.mobile.service
 
+import com.glycemicgpt.mobile.data.local.AppSettingsStore
 import com.glycemicgpt.mobile.data.local.GlucoseRangeStore
 import com.glycemicgpt.mobile.data.local.SafetyLimitsStore
 import com.glycemicgpt.mobile.data.local.dao.RawHistoryLogDao
+import com.glycemicgpt.mobile.domain.format.GlucoseFormat
 import com.glycemicgpt.mobile.domain.model.PumpActivityMode
 import com.glycemicgpt.mobile.data.local.entity.RawHistoryLogEntity
 import com.glycemicgpt.mobile.data.repository.PumpDataRepository
@@ -45,6 +47,7 @@ class PumpPollingOrchestrator @Inject constructor(
     private val glucoseRangeStore: GlucoseRangeStore,
     private val safetyLimitsStore: SafetyLimitsStore,
     private val historyLogParser: HistoryLogParser,
+    private val appSettingsStore: AppSettingsStore,
 ) {
 
     /** Set by PumpConnectionService to trigger immediate sync after enqueue. */
@@ -251,6 +254,10 @@ class PumpPollingOrchestrator @Inject constructor(
             pumpDriver.getCgmStatus()
                 .onSuccess {
                     repository.saveCgm(it)
+                    // We send the raw mg/dL value plus a per-account unit flag so the watch
+                    // renders glucose in the user's unit. The wire value stays canonical mg/dL;
+                    // only the watch's displayed/spoken number converts.
+                    val glucoseUnit = appSettingsStore.glucoseUnit
                     try {
                         wearDataSender.sendCgm(
                             mgDl = it.glucoseMgDl,
@@ -260,12 +267,13 @@ class PumpPollingOrchestrator @Inject constructor(
                             high = glucoseRangeStore.high,
                             urgentLow = glucoseRangeStore.urgentLow,
                             urgentHigh = glucoseRangeStore.urgentHigh,
+                            unit = glucoseUnit,
                         )
                     } catch (e: Exception) {
                         Timber.w(e, "Failed to send CGM to watch")
                     }
 
-                    // Alert threshold detection for watch (uses dynamic thresholds)
+                    // Alert threshold detection for watch (uses dynamic thresholds, stays mg/dL)
                     val alertType = detectAlertForCgm(it.glucoseMgDl)
                     try {
                         if (alertType != null && alertType != previousAlertType) {
@@ -273,7 +281,8 @@ class PumpPollingOrchestrator @Inject constructor(
                                 type = alertType,
                                 bgValue = it.glucoseMgDl,
                                 timestampMs = it.timestamp.toEpochMilli(),
-                                message = "${alertLabel(alertType)} ${it.glucoseMgDl} mg/dL",
+                                message = "${alertLabel(alertType)} " +
+                                    GlucoseFormat.formatWithLabel(it.glucoseMgDl, glucoseUnit),
                             )
                             previousAlertType = alertType
                         } else if (alertType == null && previousAlertType != null) {

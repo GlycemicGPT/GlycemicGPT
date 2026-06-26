@@ -10,6 +10,7 @@ import com.glycemicgpt.weardevice.complications.GraphComplicationDataSource
 import com.glycemicgpt.weardevice.complications.IoBComplicationDataSource
 import com.glycemicgpt.weardevice.util.GlucoseDisplayUtils
 import com.glycemicgpt.weardevice.util.GlucoseDisplayUtils.sanitizeThresholds
+import com.glycemicgpt.weardevice.util.GlucoseUnit
 import com.google.android.gms.wearable.DataEvent
 import com.google.android.gms.wearable.DataEventBuffer
 import com.google.android.gms.wearable.DataMapItem
@@ -157,6 +158,12 @@ class GlycemicDataListenerService : WearableListenerService() {
                 }
 
                 WearDataContract.CGM_PATH -> {
+                    // Account-global display unit rides every CGM push; apply it even if this
+                    // particular reading is rejected below (the value itself stays raw mg/dL).
+                    // Skip when the key is absent so an older phone build can't reset the unit.
+                    dataMap.getString(WearDataContract.KEY_GLUCOSE_UNIT)?.let {
+                        WatchDataRepository.updateGlucoseUnit(GlucoseUnit.fromWire(it))
+                    }
                     val mgDl = dataMap.getInt(WearDataContract.KEY_CGM_MG_DL)
                     if (!GlucoseDisplayUtils.isValidGlucose(mgDl)) {
                         Timber.w("Rejected invalid CGM value from phone")

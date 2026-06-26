@@ -41,6 +41,7 @@ import androidx.wear.compose.material.Text
 import androidx.wear.compose.material.TimeText
 import com.glycemicgpt.weardevice.data.WatchDataRepository
 import com.glycemicgpt.weardevice.util.GlucoseDisplayUtils
+import com.glycemicgpt.weardevice.util.GlucoseUnit
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -157,6 +158,7 @@ private const val Y_MAX_DEFAULT = 400
 @Composable
 private fun GraphDetailScreen() {
     val config by WatchDataRepository.watchFaceConfig.collectAsState()
+    val glucoseUnit by WatchDataRepository.glucoseUnit.collectAsState()
     val cgmHistory by WatchDataRepository.cgmHistory.collectAsState()
     val basalHistory by WatchDataRepository.basalHistory.collectAsState()
     val bolusHistory by WatchDataRepository.bolusHistory.collectAsState()
@@ -242,7 +244,7 @@ private fun GraphDetailScreen() {
                                         panOffsetPx = panOffsetPx.coerceIn(0f, maxPanPx)
                                     }
                                 }
-                                .pointerInput(readings) {
+                                .pointerInput(readings, glucoseUnit) {
                                     detectTapGestures { offset ->
                                         tooltip = findNearestReading(
                                             tapOffset = offset,
@@ -253,6 +255,7 @@ private fun GraphDetailScreen() {
                                             viewportRangeMs = rangeMs,
                                             dataStartMs = dataStartMs,
                                             nowMs = now,
+                                            unit = glucoseUnit,
                                         )
                                     }
                                 },
@@ -322,6 +325,7 @@ private fun GraphDetailScreen() {
                                 high = high,
                                 graphRect = graphRect,
                                 yPos = ::yPos,
+                                unit = glucoseUnit,
                             )
 
                             // 4. Basal stepped area
@@ -453,6 +457,7 @@ private fun DrawScope.drawThresholdLines(
     high: Int,
     graphRect: Rect,
     yPos: (Int) -> Float,
+    unit: GlucoseUnit,
 ) {
     val dashEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f), 0f)
     val lineColor = Color(0x80FFFFFF)
@@ -478,10 +483,20 @@ private fun DrawScope.drawThresholdLines(
         pathEffect = dashEffect,
     )
 
-    // Y-axis threshold labels
+    // Y-axis threshold labels (positions stay mg/dL via yPos; only the printed number converts).
     val canvas = drawContext.canvas.nativeCanvas
-    canvas.drawText(low.toString(), graphRect.left - 4f, lowY + 6f, GraphPaints.thresholdLabel)
-    canvas.drawText(high.toString(), graphRect.left - 4f, highY + 6f, GraphPaints.thresholdLabel)
+    canvas.drawText(
+        GlucoseDisplayUtils.formatGlucose(low, unit),
+        graphRect.left - 4f,
+        lowY + 6f,
+        GraphPaints.thresholdLabel,
+    )
+    canvas.drawText(
+        GlucoseDisplayUtils.formatGlucose(high, unit),
+        graphRect.left - 4f,
+        highY + 6f,
+        GraphPaints.thresholdLabel,
+    )
 }
 
 private fun DrawScope.drawModeBands(
@@ -824,6 +839,7 @@ private fun findNearestReading(
     viewportRangeMs: Long,
     dataStartMs: Long,
     nowMs: Long,
+    unit: GlucoseUnit,
 ): TooltipData? {
     if (readings.isEmpty()) return null
 
@@ -873,7 +889,7 @@ private fun findNearestReading(
     val dotY = yPos(r.mgDl)
     val timeText = tooltipTimeFormat.format(Date(r.timestampMs))
     return TooltipData(
-        text = "${r.mgDl} mg/dL  $timeText",
+        text = "${GlucoseDisplayUtils.formatWithLabel(r.mgDl, unit)}  $timeText",
         x = dotX,
         y = dotY,
     )

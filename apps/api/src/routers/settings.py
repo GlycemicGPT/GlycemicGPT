@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.auth import get_current_user, require_diabetic_or_admin
+from src.core.units import GlucoseUnitSource
 from src.database import get_db
 from src.logging_config import get_logger
 from src.models.user import User
@@ -42,10 +43,18 @@ from src.schemas.escalation_config import (
     EscalationConfigResponse,
     EscalationConfigUpdate,
 )
+from src.schemas.glucose_unit import (
+    GlucoseUnitPreferenceResponse,
+    GlucoseUnitPreferenceUpdate,
+)
 from src.schemas.insulin_config import (
     InsulinConfigDefaults,
     InsulinConfigResponse,
     InsulinConfigUpdate,
+)
+from src.schemas.meal_intelligence import (
+    MealIntelligenceResponse,
+    MealIntelligenceUpdate,
 )
 from src.schemas.plugin_declaration import (
     PluginDeclarationCreate,
@@ -110,6 +119,116 @@ from src.services.target_glucose_range import get_or_create_range, update_range
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
+
+
+@router.get(
+    "/glucose-unit",
+    response_model=GlucoseUnitPreferenceResponse,
+    dependencies=[Depends(require_diabetic_or_admin)],
+)
+async def get_glucose_unit(
+    user: User = Depends(get_current_user),
+) -> GlucoseUnitPreferenceResponse:
+    """Get the current user's glucose display unit preference.
+
+    Includes the provenance (``glucose_unit_source``) so clients can show the
+    one-time smart-default notice. The phone reconciles its unit
+    from this endpoint -- not ``/api/auth/me`` -- so the source is exposed here
+    as well as on ``UserResponse``.
+    """
+    return GlucoseUnitPreferenceResponse(
+        glucose_unit=user.glucose_unit,
+        glucose_unit_source=user.glucose_unit_source,
+    )
+
+
+@router.patch(
+    "/glucose-unit",
+    response_model=GlucoseUnitPreferenceResponse,
+    dependencies=[Depends(require_diabetic_or_admin)],
+)
+async def patch_glucose_unit(
+    body: GlucoseUnitPreferenceUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> GlucoseUnitPreferenceResponse:
+    """Update the current user's glucose display unit preference.
+
+    An explicit choice marks the preference ``source=user`` so a region or
+    Nightscout seed can never override it and the smart-default notice never
+    recurs.
+    """
+    user.glucose_unit = body.glucose_unit
+    user.glucose_unit_source = GlucoseUnitSource.USER
+    await db.commit()
+    await db.refresh(user)
+    return GlucoseUnitPreferenceResponse(
+        glucose_unit=user.glucose_unit,
+        glucose_unit_source=user.glucose_unit_source,
+    )
+
+
+@router.post(
+    "/glucose-unit/acknowledge",
+    response_model=GlucoseUnitPreferenceResponse,
+    dependencies=[Depends(require_diabetic_or_admin)],
+)
+async def acknowledge_glucose_unit_seed(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> GlucoseUnitPreferenceResponse:
+    """Acknowledge the smart-default glucose-unit notice without changing it.
+
+    Dismissing the one-time notice means "treat the seeded unit as my choice":
+    it stamps ``source=user`` (leaving the unit value untouched) so the notice
+    never recurs and a later seed never re-fires. Idempotent --
+    a re-ack on an already-user-owned preference is a no-op write.
+    """
+    user.glucose_unit_source = GlucoseUnitSource.USER
+    await db.commit()
+    await db.refresh(user)
+    return GlucoseUnitPreferenceResponse(
+        glucose_unit=user.glucose_unit,
+        glucose_unit_source=user.glucose_unit_source,
+    )
+
+
+@router.get(
+    "/meal-intelligence",
+    response_model=MealIntelligenceResponse,
+    dependencies=[Depends(require_diabetic_or_admin)],
+)
+async def get_meal_intelligence(
+    user: User = Depends(get_current_user),
+) -> MealIntelligenceResponse:
+    """Get the current user's meal-intelligence feature preference.
+
+    Clients gate their meal surfaces (the web "Meals" nav item and the mobile
+    "Log a meal" button) on this value -- it is the single source of truth for
+    whether the feature is on, replacing the former env-var probe.
+    """
+    return MealIntelligenceResponse(enabled=user.meal_intelligence_enabled)
+
+
+@router.patch(
+    "/meal-intelligence",
+    response_model=MealIntelligenceResponse,
+    dependencies=[Depends(require_diabetic_or_admin)],
+)
+async def patch_meal_intelligence(
+    body: MealIntelligenceUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> MealIntelligenceResponse:
+    """Enable or disable the meal-intelligence feature for the current user.
+
+    Owner-scoped: the user is resolved from the session, never from a request
+    parameter, so a caller can only change their own preference.
+    """
+    user.meal_intelligence_enabled = body.enabled
+    await db.commit()
+    await db.refresh(user)
+    return MealIntelligenceResponse(enabled=user.meal_intelligence_enabled)
 
 
 @router.get(

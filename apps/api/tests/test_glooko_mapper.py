@@ -112,14 +112,15 @@ def test_map_events_pod_suspend_resume_and_unknown_skipped():
 
 def test_map_insulins_pen_doses_and_safety_skips():
     events = mapper.map_insulins(_load("insulins.json"))
-    # 7 fixture records -> 2 ingested: the device-read pen dose and the manual
-    # log. Skipped: prime (never entered the body), soft-deleted, incomplete
-    # (unconfirmed value), basal-type Tresiba (no BASAL rate semantics for a
-    # long-acting injection -- deferred), negative value (impossible).
-    assert len(events) == 2
-    pen, manual = events
+    # 7 fixture records -> 3 ingested: a device-read bolus, the basal-type
+    # Tresiba (now a BASAL_INJECTION, issue #728), and the manual log. Skipped:
+    # prime (never entered the body), soft-deleted, incomplete (unconfirmed
+    # value), negative value (impossible).
+    assert len(events) == 3
+    bolus_events = [e for e in events if e.event_type is PumpEventType.BOLUS]
+    assert len(bolus_events) == 2
+    pen, manual = bolus_events  # fixture order preserved
 
-    assert pen.event_type is PumpEventType.BOLUS
     assert pen.units == 3.0
     assert pen.ns_id == "44444444-0000-0000-0000-000000000001"
     # Pen `timestamp` is genuine UTC (live-verified) -- no local-offset footgun.
@@ -136,6 +137,43 @@ def test_map_insulins_pen_doses_and_safety_skips():
     assert manual.units == 6.0
     assert manual.metadata_json["device_delivered"] is False
     assert "pen_device" not in manual.metadata_json
+
+
+def test_map_insulins_basal_injection_and_separate_bound():
+    # A long-acting (basal) pen dose maps to BASAL_INJECTION -- the injected
+    # amount, NOT a U/h rate -- and uses the larger 160 U bound (issue #728).
+    base = next(r for r in _load("insulins.json") if r.get("insulinType") == "basal")
+    [evt] = mapper.map_insulins([base])
+    assert evt.event_type is PumpEventType.BASAL_INJECTION
+    assert evt.units == 18.0
+    assert evt.ns_id == "44444444-0000-0000-0000-000000000005"
+    assert evt.metadata_json["medication"] == "Tresiba®"
+    assert evt.metadata_json["device_delivered"] is True
+
+    # 160 U (Tresiba U-200 max single injection) is the edge; above is corrupt.
+    assert (
+        mapper.map_insulins([{**base, "value": 160.0, "currentValue": 160.0}])[0].units
+        == 160.0
+    )
+    assert mapper.map_insulins([{**base, "value": 161.0, "currentValue": 161.0}]) == []
+    # The bound is type-specific: 90 U is a valid basal injection but would be
+    # rejected as a bolus (60 U bound) -- proving the two bounds are separate.
+    assert (
+        mapper.map_insulins([{**base, "value": 90.0, "currentValue": 90.0}])[0].units
+        == 90.0
+    )
+    assert (
+        mapper.map_insulins(
+            [{**base, "insulinType": "bolus", "value": 90.0, "currentValue": 90.0}]
+        )
+        == []
+    )
+
+
+def test_map_insulins_skips_unknown_insulin_type():
+    # Neither bolus nor basal -> skipped, not guessed.
+    base = next(r for r in _load("insulins.json") if r.get("insulinType") == "basal")
+    assert mapper.map_insulins([{**base, "insulinType": "intermediate"}]) == []
 
 
 def test_map_insulins_skips_accepted_prime():
@@ -237,8 +275,8 @@ def test_map_glooko_combines_all_series():
         insulins=_load("insulins.json"),
     )
     assert len(rec.glucose) == 5
-    # basals + boluses + events + pen insulins
-    assert len(rec.pump_events) == 2 + 2 + 4 + 2
+    # basals + boluses + events + pen insulins (2 bolus + 1 basal_injection)
+    assert len(rec.pump_events) == 2 + 2 + 4 + 3
 
 
 def test_map_pump_ts_refuses_missing_offset():

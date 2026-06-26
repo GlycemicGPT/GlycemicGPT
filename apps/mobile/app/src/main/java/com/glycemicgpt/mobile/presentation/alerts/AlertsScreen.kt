@@ -40,6 +40,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.glycemicgpt.mobile.data.local.entity.AlertEntity
+import com.glycemicgpt.mobile.domain.format.GlucoseFormat
+import com.glycemicgpt.mobile.domain.model.GlucoseUnit
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -51,6 +53,7 @@ fun AlertsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val alerts by viewModel.alerts.collectAsState()
+    val glucoseUnit by viewModel.glucoseUnit.collectAsState()
 
     PullToRefreshBox(
         isRefreshing = uiState.isLoading,
@@ -70,6 +73,7 @@ fun AlertsScreen(
                 items(alerts, key = { it.serverId }) { alert ->
                     AlertCard(
                         alert = alert,
+                        glucoseUnit = glucoseUnit,
                         onAcknowledge = { viewModel.acknowledgeAlert(alert.serverId) },
                     )
                 }
@@ -111,6 +115,7 @@ private fun EmptyAlertsState() {
 @Composable
 private fun AlertCard(
     alert: AlertEntity,
+    glucoseUnit: GlucoseUnit,
     onAcknowledge: () -> Unit,
 ) {
     val severityColor = when (alert.severity) {
@@ -162,7 +167,7 @@ private fun AlertCard(
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        text = "${alert.currentValue.toInt()} mg/dL",
+                        text = GlucoseFormat.formatWithLabel(alert.currentValue.toInt(), glucoseUnit),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                     )

@@ -128,6 +128,8 @@ async def generate_glucose_stream(
                                 )
 
                             glucose_event = {
+                                # Canonical mg/dL. Clients render using
+                                # the user's glucose_unit preference.
                                 "value": latest.value,
                                 "trend": latest.trend.value
                                 if latest.trend

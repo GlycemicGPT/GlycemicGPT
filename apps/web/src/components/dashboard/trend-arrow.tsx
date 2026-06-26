@@ -13,6 +13,9 @@ import { useReducedMotion } from "@/hooks/use-reduced-motion";
 
 /**
  * Trend direction enum matching CGM API values.
+ *
+ * These bucket thresholds are ALWAYS evaluated in mg/dL/min internally and are independent of the user's display unit — only
+ * the displayed trend RATE relabels to mmol/L/min (see `formatTrendRate`).
  * - RisingFast: Glucose increasing > 3 mg/dL/min
  * - Rising: Glucose increasing 1-3 mg/dL/min
  * - Stable: Glucose change -1 to +1 mg/dL/min

@@ -16,6 +16,7 @@ import {
   ShieldOff,
   Stethoscope,
   AlertTriangle,
+  Camera,
   Check,
   Cloud,
   Loader2,
@@ -33,6 +34,7 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   "shield-x": ShieldOff,
   stethoscope: Stethoscope,
   cloud: Cloud,
+  camera: Camera,
 };
 
 export function AuthDisclaimerGate({
@@ -139,9 +141,11 @@ export function AuthDisclaimerGate({
     }
   };
 
-  // Fallback content if API failed
+  // Fallback content if API failed. Mirror the server /content payload
+  // (src/routers/disclaimer.py) so a fetch failure still shows the current
+  // version and the photo-carb warning -- keep this in sync on every bump.
   const displayContent: DisclaimerContent = content ?? {
-    version: "1.1",
+    version: "1.2",
     title: "Important Safety Information",
     warnings: [
       {
@@ -153,6 +157,11 @@ export function AuthDisclaimerGate({
         icon: "brain",
         title: "AI Limitations",
         text: "AI can and will make mistakes. All suggestions should be verified with your healthcare provider before acting on them.",
+      },
+      {
+        icon: "camera",
+        title: "Photo Carb Estimates Are Guesses",
+        text: "If you use the meal-photo feature, the carbohydrate numbers are AI estimates from an image and are frequently wrong -- including misidentifying the food entirely. They are a rough starting point only. Never use a photo carb estimate to calculate an insulin dose or bolus, and always verify carbs yourself before dosing.",
       },
       {
         icon: "shield-x",
@@ -198,7 +207,7 @@ export function AuthDisclaimerGate({
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
+        className="fixed inset-0 bg-black/80 backdrop-blur-xs z-50"
       />
 
       {/* Modal */}
@@ -242,7 +251,7 @@ export function AuthDisclaimerGate({
                   transition={{ delay: index * 0.1 }}
                   className="flex gap-4 p-4 bg-slate-800/50 rounded-lg border border-slate-700"
                 >
-                  <div className="flex-shrink-0">
+                  <div className="shrink-0">
                     <Icon className="w-5 h-5 text-amber-500" />
                   </div>
                   <div>
@@ -265,7 +274,7 @@ export function AuthDisclaimerGate({
               >
                 <div
                   className={`
-                    flex-shrink-0 w-5 h-5 mt-0.5 rounded border-2 transition-all
+                    shrink-0 w-5 h-5 mt-0.5 rounded-sm border-2 transition-all
                     flex items-center justify-center
                     ${
                       checkboxes[checkbox.id]

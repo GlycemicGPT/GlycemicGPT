@@ -44,6 +44,9 @@ jest.mock("next/image", () => {
 jest.mock("@/providers", () => ({
   useUserContext: () => ({ user: { role: "diabetic" } }),
 }));
+jest.mock("@/hooks/use-meal-intelligence", () => ({
+  useMealIntelligence: () => ({ enabled: false, isLoading: false }),
+}));
 
 // Mock API functions
 const mockGetUnreadInsightsCount = jest.fn();

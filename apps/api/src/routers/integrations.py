@@ -13,6 +13,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+import sentry_sdk
 from fastapi import (
     APIRouter,
     Cookie,
@@ -27,7 +28,7 @@ from fastapi import (
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydexcom import Dexcom
 from pydexcom import errors as dexcom_errors
-from sqlalchemy import and_, case, delete, func, select, text
+from sqlalchemy import and_, case, delete, func, or_, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from tconnectsync.api.common import ApiException
@@ -79,6 +80,7 @@ from src.models.medtronic_connect_state import (
     MedtronicConnectState,
 )
 from src.models.pump_data import (
+    MAX_BASAL_INJECTION_UNITS,
     MAX_INSULIN_DOSE_UNITS,
     PumpEvent,
     PumpEventType,
@@ -208,6 +210,7 @@ from src.services.integrations.medtronic.client import (
     CareLinkClient,
     CareLinkError,
     CareLinkReportTimeoutError,
+    CareLinkTransportError,
 )
 from src.services.integrations.medtronic.connect_auth import (
     ConnectTokenError,
@@ -1916,10 +1919,32 @@ async def get_medtronic_availability(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="CareLink session is invalid or expired. Reconnect and try again.",
         ) from e
-    except CareLinkError as e:
+    except CareLinkTransportError as e:
+        # Transient connectivity failure (DNS/TLS/timeout). Logged but NOT sent to
+        # Sentry: 503s are excluded from Sentry capture (see observability.py) so
+        # outages don't flood it. The reachable-host branch below DOES capture.
+        logger.warning(
+            "CareLink availability failed - transport error",
+            user_id=str(current_user.id),
+            error=str(e),
+        )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Unable to reach CareLink. Please try again later.",
+        ) from e
+    except CareLinkError as e:
+        logger.warning(
+            "CareLink availability failed - unexpected response",
+            user_id=str(current_user.id),
+            error=str(e),
+        )
+        # A reachable host returning a bad response is a real API-contract defect,
+        # so capture it explicitly (the 503 it maps to is otherwise excluded from
+        # Sentry auto-capture; see observability.py).
+        sentry_sdk.capture_exception(e)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="CareLink returned an unexpected response. Please try again later.",
         ) from e
     finally:
         await client.aclose()
@@ -1976,10 +2001,32 @@ async def import_medtronic_range(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
             detail="CareLink took too long to generate the report. Try a smaller range.",
         ) from e
-    except CareLinkError as e:
+    except CareLinkTransportError as e:
+        # Transient connectivity failure (DNS/TLS/timeout). Logged but NOT sent to
+        # Sentry: 503s are excluded from Sentry capture (see observability.py) so
+        # outages don't flood it. The reachable-host branch below DOES capture.
+        logger.warning(
+            "CareLink import failed - transport error",
+            user_id=str(current_user.id),
+            error=str(e),
+        )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Unable to reach CareLink. Please try again later.",
+        ) from e
+    except CareLinkError as e:
+        logger.warning(
+            "CareLink import failed - unexpected response",
+            user_id=str(current_user.id),
+            error=str(e),
+        )
+        # A reachable host returning a bad response is a real API-contract defect,
+        # so capture it explicitly (the 503 it maps to is otherwise excluded from
+        # Sentry auto-capture; see observability.py).
+        sentry_sdk.capture_exception(e)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="CareLink returned an unexpected response. Please try again later.",
         ) from e
     finally:
         await client.aclose()
@@ -2173,7 +2220,10 @@ curl -fsSL -H "X-Connect-Pair-Token: $PAIR" "$API/api/integrations/medtronic/con
 chmod +x "$BIN"
 
 echo "Launching browser; sign in to CareLink to complete setup."
-"$BIN" --api "$API" --pair "$PAIR" --username "$USERNAME" --region "$REGION"
+# "$@" forwards any extra flags the user appended (e.g. `bash -s -- --browser
+# /path/to/browser` for a custom-install Chromium-family browser). The browser
+# path stays entirely on the user's machine -- it never reaches the server.
+"$BIN" --api "$API" --pair "$PAIR" --username "$USERNAME" --region "$REGION" "$@"
 """
 
 
@@ -2198,7 +2248,10 @@ Write-Host "Downloading helper for $OS/$ARCH from $API..."
 Invoke-WebRequest -Headers @{{ 'X-Connect-Pair-Token' = $PAIR }} -Uri "$API/api/integrations/medtronic/connect/helper-binary?os=$OS&arch=$ARCH" -OutFile $BIN -UseBasicParsing
 
 Write-Host 'Launching browser; sign in to CareLink to complete setup.'
-& $BIN --api $API --pair $PAIR --username $USERNAME --region $REGION
+# @args forwards any extra flags the caller passed (e.g. invoking the script
+# block with --browser to point at a custom browser install). The browser
+# path stays on the user's machine -- it never reaches the server.
+& $BIN --api $API --pair $PAIR --username $USERNAME --region $REGION @args
 """
 
 
@@ -3879,6 +3932,11 @@ _AGP_MAX_ROWS = 50_000
 # doses since #726; bounding the display at 25U silently hid them while IoB and
 # safety totals still counted them. The bound excludes only corrupt rows.
 _MAX_BOLUS_UNITS = MAX_INSULIN_DOSE_UNITS
+# Sanity bound for a single long-acting (basal) pen injection (units). Larger
+# than the bolus bound -- once-daily basal doses run higher (see
+# MAX_BASAL_INJECTION_UNITS). Used as the read-filter ceiling so a legitimate
+# basal injection is not clipped by the lower bolus bound.
+_MAX_BASAL_INJECTION = MAX_BASAL_INJECTION_UNITS
 # Maximum basal rate (Tandem X2/Mobi max = 15 U/hr)
 _MAX_BASAL_RATE = 15.0
 # Maximum gap between basal records before capping (handles disconnections).
@@ -4333,6 +4391,41 @@ async def get_insulin_summary(
     )
     basal_units = float(basal_result.scalar() or 0.0)
 
+    # Long-acting (basal) pen injections (MDI -- e.g. Lantus, Tresiba). Discrete
+    # injected amounts (units), NOT a rate, so they sum directly (no LEAD time
+    # integration). Same (event_timestamp, units) dedupe as boluses collapses
+    # cross-source duplicates (e.g. the same dose reported by both Glooko and
+    # Nightscout). Bounded to the basal-injection limit, not the lower bolus
+    # bound, so a legitimate large basal dose is not clipped.
+    basal_injection_query = text(  # nosemgrep: avoid-sqlalchemy-text
+        f"""
+        WITH injections AS (
+            SELECT event_timestamp, units
+            FROM {_bolus_table}
+            WHERE user_id = :user_id
+              AND event_timestamp >= :cutoff AND event_timestamp <= :now
+              AND event_type = :basal_injection_type
+              AND units IS NOT NULL AND units > 0 AND units <= :max_injection
+            GROUP BY event_timestamp, units
+        )
+        SELECT COALESCE(SUM(units), 0) AS total_units, COUNT(*) AS injection_count
+        FROM injections
+    """
+    )
+    basal_injection_result = await db.execute(
+        basal_injection_query,
+        {
+            "user_id": str(current_user.id),
+            "cutoff": cutoff,
+            "now": now,
+            "basal_injection_type": PumpEventType.BASAL_INJECTION.value,
+            "max_injection": float(_MAX_BASAL_INJECTION),
+        },
+    )
+    basal_injection_row = basal_injection_result.one()
+    basal_injection_units = float(basal_injection_row.total_units or 0.0)
+    basal_injection_count = int(basal_injection_row.injection_count or 0)
+
     bolus_units = 0.0
     correction_units = 0.0
     bolus_count = 0
@@ -4347,11 +4440,13 @@ async def get_insulin_summary(
             bolus_units += units
             bolus_count += int(row.delivery_count)
 
-    tdd_total = basal_units + bolus_units + correction_units
+    tdd_total = basal_units + basal_injection_units + bolus_units + correction_units
     # Compute percentages from raw totals before rounding to avoid
-    # compounding rounding error.
+    # compounding rounding error. A long-acting injection is basal therapy for
+    # an MDI user, so it counts toward the basal share (it is surfaced
+    # separately via `basal_injection_units` for the distinct line item).
     if tdd_total > 0:
-        basal_pct = round((basal_units / tdd_total) * 100, 1)
+        basal_pct = round(((basal_units + basal_injection_units) / tdd_total) * 100, 1)
         bolus_pct = round(100 - basal_pct, 1)
     else:
         basal_pct = 0.0
@@ -4386,6 +4481,9 @@ async def get_insulin_summary(
             OR
             (event_type = :basal_type
              AND units <= :max_rate)
+            OR
+            (event_type = :basal_injection_type
+             AND units <= :max_injection)
           )
         """
     )
@@ -4398,8 +4496,10 @@ async def get_insulin_summary(
             "bolus_type": _bolus_val,
             "correction_type": _correction_val,
             "basal_type": _basal_val,
+            "basal_injection_type": PumpEventType.BASAL_INJECTION.value,
             "max_bolus": float(_MAX_BOLUS_UNITS),
             "max_rate": float(_MAX_BASAL_RATE),
+            "max_injection": float(_MAX_BASAL_INJECTION),
         },
     )
     earliest_row = earliest_result.first()
@@ -4413,12 +4513,15 @@ async def get_insulin_summary(
     d = max(effective_period_days, 1.0 / 24)
     tdd = round(tdd_total / d, 1)
     basal_avg = round(basal_units / d, 1)
+    basal_injection_avg = round(basal_injection_units / d, 1)
     bolus_avg = round((bolus_units + correction_units) / d, 1)
     correction_avg = round(correction_units / d, 1)
 
     return InsulinSummaryResponse(
         tdd=tdd,
         basal_units=basal_avg,
+        basal_injection_units=basal_injection_avg,
+        basal_injection_count=basal_injection_count,
         bolus_units=bolus_avg,
         correction_units=correction_avg,
         basal_pct=basal_pct,
@@ -4486,18 +4589,27 @@ async def get_bolus_review(
     # level is its own piece of work (write-time content-hash dedupe);
     # for the table view, displaying both rows with their distinct
     # source labels is an acceptable interim. See issue #574.
+    # Boluses/corrections share the 60U bound; long-acting (basal) pen
+    # injections run higher, so they carry the 160U bound. Per-type bounds keep
+    # a legitimate 90U basal injection visible while still rejecting a corrupt
+    # 90U "bolus".
     bolus_filter = [
         PumpEvent.user_id == current_user.id,
         PumpEvent.event_timestamp >= cutoff,
         PumpEvent.event_timestamp <= now,
         PumpEvent.units.is_not(None),
         PumpEvent.units >= 0,
-        PumpEvent.units <= _MAX_BOLUS_UNITS,
-        PumpEvent.event_type.in_(
-            [
-                PumpEventType.BOLUS,
-                PumpEventType.CORRECTION,
-            ]
+        or_(
+            and_(
+                PumpEvent.event_type.in_(
+                    [PumpEventType.BOLUS, PumpEventType.CORRECTION]
+                ),
+                PumpEvent.units <= _MAX_BOLUS_UNITS,
+            ),
+            and_(
+                PumpEvent.event_type == PumpEventType.BASAL_INJECTION,
+                PumpEvent.units <= _MAX_BASAL_INJECTION,
+            ),
         ),
     ]
 
@@ -4519,6 +4631,7 @@ async def get_bolus_review(
         boluses=[
             BolusReviewItem(
                 event_timestamp=e.event_timestamp,
+                event_type=e.event_type.value,
                 units=e.units or 0.0,
                 is_automated=e.is_automated,
                 control_iq_reason=e.control_iq_reason,

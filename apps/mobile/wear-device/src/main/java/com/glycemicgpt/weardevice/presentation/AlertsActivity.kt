@@ -32,6 +32,7 @@ import androidx.wear.compose.material.Text
 import androidx.wear.compose.material.TimeText
 import com.glycemicgpt.weardevice.data.WatchDataRepository
 import com.glycemicgpt.weardevice.messaging.WearMessageSender
+import com.glycemicgpt.weardevice.util.GlucoseDisplayUtils
 import kotlinx.coroutines.launch
 
 class AlertsActivity : ComponentActivity() {
@@ -46,6 +47,7 @@ class AlertsActivity : ComponentActivity() {
 @Composable
 private fun WearAlertScreen(onFinish: () -> Unit) {
     val alert by WatchDataRepository.alert.collectAsState()
+    val glucoseUnit by WatchDataRepository.glucoseUnit.collectAsState()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var dismissing by remember { mutableStateOf(false) }
@@ -88,10 +90,11 @@ private fun WearAlertScreen(onFinish: () -> Unit) {
                         textAlign = TextAlign.Center,
                     )
 
+                    // Gate compares the raw mg/dL Int; only the rendered text converts to the unit.
                     if (currentAlert.bgValue in 20..500) {
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "${currentAlert.bgValue} mg/dL",
+                            text = GlucoseDisplayUtils.formatWithLabel(currentAlert.bgValue, glucoseUnit),
                             fontSize = 20.sp,
                             color = alertColor,
                             textAlign = TextAlign.Center,

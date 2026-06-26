@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 import pytest
 
 from src.core.encryption import decrypt_credential, encrypt_credential
+from src.core.units import GlucoseUnit
 from src.models.medtronic_connect_state import (
     STATUS_CONNECTED,
     STATUS_DISCONNECTED,
@@ -87,9 +88,22 @@ def patched(monkeypatch):
             return {"sgs": [{"sg": 120, "datetime": "2025-01-31T12:00:00-05:00"}]}
 
     monkeypatch.setattr(cs, "CareLinkConnectClient", _FakeClient)
-    monkeypatch.setattr(
-        cs, "map_recent_data", lambda recent: captured.setdefault("recent", recent)
-    )
+
+    def _fake_map(recent, *, glucose_unit):
+        captured["recent"] = recent
+        captured["glucose_unit"] = glucose_unit
+        return recent
+
+    monkeypatch.setattr(cs, "map_recent_data", _fake_map)
+
+    # resolve_glucose_unit hits the DB; the fake DB has no execute(). Patch it to
+    # return a configurable unit (default mg/dL) and capture which user it asked
+    # for, so we can assert the data owner's preference is threaded into the mapper.
+    async def _fake_resolve(db, user_id):
+        captured["resolve_user_id"] = user_id
+        return captured.get("unit", GlucoseUnit.MGDL)
+
+    monkeypatch.setattr(cs, "resolve_glucose_unit", _fake_resolve)
 
     async def _fake_store(db, user_id, records, *, now=None, commit=True):
         return CareLinkStoreResult(
@@ -116,6 +130,30 @@ async def test_success_updates_state(patched):
     # username + cloud host threaded into the client.
     assert patched["client_kwargs"]["username"] == "user@example.com"
     assert "clcloud.minimed.com" in patched["client_kwargs"]["base_url"]
+
+
+async def test_data_owner_unit_preference_is_threaded_into_mapper(patched):
+    # GLY-59: the orchestrator resolves the data owner's glucose-unit preference
+    # and passes it to the mapper so the mmol/L follower-feed guard can fire.
+    state = _state()
+    db = _FakeDB()
+
+    await sync_connect_for_user(db, state, now=datetime(2025, 2, 1, tzinfo=UTC))
+
+    assert patched["resolve_user_id"] == state.user_id
+    assert patched["glucose_unit"] == GlucoseUnit.MGDL
+
+
+async def test_mmol_preference_is_threaded_into_mapper(patched):
+    # When the owner prefers mmol/L, that unit reaches the mapper unchanged so the
+    # fail-safe drop applies on this sync path.
+    patched["unit"] = GlucoseUnit.MMOL
+    state = _state()
+    db = _FakeDB()
+
+    await sync_connect_for_user(db, state, now=datetime(2025, 2, 1, tzinfo=UTC))
+
+    assert patched["glucose_unit"] == GlucoseUnit.MMOL
 
 
 async def test_rotated_refresh_token_is_persisted(patched, monkeypatch):

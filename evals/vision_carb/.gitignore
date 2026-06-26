@@ -1,0 +1,7 @@
+# Eval food images are downloaded locally, never committed: they may be
+# third-party/licensed content, and (for real user photos) PHI. The committed
+# manifest carries ground-truth carbs + provenance; fetch images locally.
+dataset/images/
+
+# Harness run outputs are local artifacts.
+results/

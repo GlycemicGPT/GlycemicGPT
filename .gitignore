@@ -48,6 +48,8 @@ coverage/
 out/
 .nuxt/
 .output/
+*.tsbuildinfo
+.kotlin/
 
 # OS files
 .DS_Store
@@ -88,3 +90,6 @@ scripts/security/*.resolved.yaml
 # Ad-hoc debug snapshots at repo root (may contain PII captured from a live session)
 /*-snapshot.md
 /*-state.md
+
+# Playwright MCP session artifacts (local tooling, never committed)
+.playwright-mcp/

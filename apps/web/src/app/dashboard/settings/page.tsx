@@ -128,7 +128,7 @@ export default function SettingsPage() {
           <AnimatedCard key={section.title} delay={0.03 * (i + 1)}>
             <Link
               href={section.href}
-              className="block bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800 hover:border-blue-300 dark:hover:border-slate-700 transition-colors group shadow-sm dark:shadow-none"
+              className="block bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800 hover:border-blue-300 dark:hover:border-slate-700 transition-colors group shadow-xs dark:shadow-none"
             >
               <div className="flex items-start gap-4">
                 <div className="p-3 bg-slate-100 dark:bg-slate-800 rounded-lg group-hover:bg-blue-50 dark:group-hover:bg-slate-700 transition-colors">

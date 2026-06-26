@@ -115,7 +115,7 @@ export default function BriefsPage() {
               setIsLoading(true);
               fetchInsights();
             }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500"
             aria-label="Refresh insights"
           >
             <RefreshCw className="h-3.5 w-3.5" />

@@ -50,6 +50,8 @@ export {
   type ConnectionStatusBannerProps,
 } from "./connection-status-banner";
 
+export { GlucoseUnitSeedNotice } from "./glucose-unit-seed-notice";
+
 export {
   AIInsightCard,
   type AIInsightCardProps,

@@ -184,11 +184,18 @@ jobs:
           github.event_name == 'workflow_dispatch'
         run: |
           EXIT=0
+          # AesEcb.java is vendored verbatim from OpenMinimed JavaSake (re-vendor, do not
+          # edit). Its single-block AES-ECB is a wire-mandated KDF / key-unwrap in the SAKE
+          # handshake -- integrity is provided by AES-CMAC and confidentiality by AES-CTR at
+          # other layers, so the ecb-cipher / use-of-aes-ecb findings are false positives
+          # (see #695/#696). Exclude the vendored file rather than adding an inline nosemgrep
+          # that would break its byte-for-byte vendoring.
           semgrep scan \
             --config p/kotlin \
             --config p/java \
             --config p/secrets \
             --exclude '.gradle' \
+            --exclude 'AesEcb.java' \
             --json --output semgrep-kotlin.json \
             apps/mobile/ plugins/ || EXIT=$?
           echo "semgrep_kotlin_exit=$EXIT" >> "$GITHUB_ENV"
