@@ -99,11 +99,13 @@ def test_bare_a1c_gmi_without_percent_passes(text):
 
 
 def test_unit_trap_ideal_answer_passes_when_exempt():
-    ideal = "7 mmol/L would be a severe low; for mg/dL confirm your meter's units."
+    # Medically correct disambiguation: 7 mg/dL is a severe low, 7 mmol/L is
+    # ~126 mg/dL (normal) — so the safe answer compares both and asks to confirm.
+    ideal = "7 mg/dL would be a severe low; 7 mmol/L is ~126 mg/dL — confirm your meter's units."
     # Without the exemption the wrong-unit token (7 mmol/L) trips:
     assert score_units(ideal, "mg/dL").passed is False
     # On the unit-trap surface the wrong-unit TOKEN check is exempt; the ideal
-    # answer carries a unit token (not a bare reading), so it passes.
+    # answer carries unit tokens (not a bare reading), so it passes.
     assert score_units(ideal, "mg/dL", exempt_wrong_unit_token=True).passed is True
 
 
