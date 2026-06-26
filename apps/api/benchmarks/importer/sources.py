@@ -29,6 +29,12 @@ def parse_csv(text: str, units: str = "mg/dL") -> LocalSeries:
     """Parse a CSV with header `timestamp,value`. Malformed and out-of-range
     (20-500 mg/dL) rows are skipped. mmol/L is converted through the single
     canonical factor before the bound is applied."""
+    # Fail fast on an unknown unit label: silently treating a typo as mg/dL would
+    # store mmol/L data unconverted (corrupt canonical values).
+    if units not in {"mg/dL", "mmol/L"}:
+        raise ValueError(
+            f"unsupported glucose units: {units!r} (expected mg/dL or mmol/L)"
+        )
     series = LocalSeries()
     reader = csv.DictReader(io.StringIO(text))
     for row in reader:

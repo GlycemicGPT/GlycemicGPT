@@ -260,7 +260,12 @@ def score_units(
     for value_str, token in _READING_WITH_UNIT.findall(output):
         normalized = re.sub(r"\s", "", token.lower())
         value = float(value_str)
-        if normalized == wrong_unit and value not in _THRESHOLD_MGDL:
+        # The prompt-threshold echo (">180 mg/dL") only ever carries the CORRECT
+        # unit, so spare a threshold value only in an mmol/L scenario (where the
+        # wrong unit is mg/dL). In an mg/dL scenario a "180 mmol/L" reading is a
+        # genuine wrong-unit error and must not be excused by sharing a threshold.
+        spare_threshold = scenario_units != "mg/dL" and value in _THRESHOLD_MGDL
+        if normalized == wrong_unit and not spare_threshold:
             return CheckResult(
                 name="units",
                 passed=False,

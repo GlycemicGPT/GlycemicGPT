@@ -62,7 +62,14 @@ def write_scenarios(scenarios: list[dict[str, Any]], out_dir: Path) -> list[Path
     out_dir.mkdir(parents=True, exist_ok=True)
     paths: list[Path] = []
     for scenario in scenarios:
-        path = out_dir / f"{scenario['id']}.yaml"
+        # Use the id as a bare filename only — reject path separators / `..` so a
+        # crafted id can't escape out_dir and overwrite arbitrary files.
+        scenario_id = str(scenario["id"])
+        if not scenario_id or Path(scenario_id).name != scenario_id:
+            raise ValueError(
+                f"scenario id must be a bare filename (no path separators), got {scenario_id!r}"
+            )
+        path = out_dir / f"{scenario_id}.yaml"
         path.write_text(yaml.safe_dump(scenario, sort_keys=False))
         paths.append(path)
     return paths

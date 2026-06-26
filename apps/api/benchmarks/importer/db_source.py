@@ -10,14 +10,20 @@ from datetime import datetime
 from typing import Any
 
 from benchmarks.importer.models import GlucosePoint, InsulinEvent, LocalSeries
+from src.core.treatment_safety.models import MAX_GLUCOSE_MGDL, MIN_GLUCOSE_MGDL
 
 
 def rows_to_series(glucose_rows: list[Any], pump_rows: list[Any]) -> LocalSeries:
-    """Map ORM rows to a LocalSeries. Pump rows with units=None are skipped."""
-    glucose = [
-        GlucosePoint(timestamp=r.reading_timestamp, value_mgdl=float(r.value))
-        for r in glucose_rows
-    ]
+    """Map ORM rows to a LocalSeries. Glucose rows with a NULL or out-of-range
+    (20-500 mg/dL) value are skipped; pump rows with units=None are skipped."""
+    glucose = []
+    for r in glucose_rows:
+        if r.value is None:
+            continue
+        value = float(r.value)
+        if not MIN_GLUCOSE_MGDL <= value <= MAX_GLUCOSE_MGDL:
+            continue
+        glucose.append(GlucosePoint(timestamp=r.reading_timestamp, value_mgdl=value))
     insulin = [
         InsulinEvent(
             timestamp=r.event_timestamp,

@@ -19,7 +19,11 @@ def estimate_cost_usd(
 ) -> float | None:
     """Estimate USD cost, or None if `model` matches no PRICE_TABLE entry."""
     model_lower = (model or "").lower()
-    key = next((k for k in PRICE_TABLE if k in model_lower), None)
+    # Case-insensitive match (a mixed-case key like "GPT-4o" must still match);
+    # most-specific match wins (longest key), so "gpt-4o-mini" is not charged the
+    # broader "gpt-4o" rate just because it was inserted first.
+    matches = [k for k in PRICE_TABLE if k.lower() in model_lower]
+    key = max(matches, key=len, default=None)
     if key is None:
         return None
     cost_in, cost_out = PRICE_TABLE[key]

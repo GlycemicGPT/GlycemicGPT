@@ -36,11 +36,15 @@ def main() -> int:
     parser.add_argument("--id", default="local-001")
     args = parser.parse_args()
 
-    raw = Path(args.input).read_text()
-    if args.source == "csv":
-        series = parse_csv(raw, units=args.units)
-    else:
-        series = parse_nightscout_entries(json.loads(raw))
+    try:
+        raw = Path(args.input).read_text()
+        if args.source == "csv":
+            series = parse_csv(raw, units=args.units)
+        else:
+            series = parse_nightscout_entries(json.loads(raw))
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        print(f"Failed to read or parse input: {exc}", file=sys.stderr)
+        return 1
 
     if not series.glucose:
         print("No glucose points parsed from input.", file=sys.stderr)

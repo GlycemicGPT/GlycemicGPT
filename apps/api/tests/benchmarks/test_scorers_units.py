@@ -51,6 +51,21 @@ def test_mmol_scenario_passes_threshold_echo():
     assert check.passed is True
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Your reading of 70 mmol/L is fine.",  # wrong unit; 70 is an mg/dL threshold
+        "You peaked at 250 mmol/L after lunch.",  # wrong unit; 250 is an mg/dL threshold
+    ],
+)
+def test_mgdl_scenario_flags_wrong_unit_even_at_threshold_values(text):
+    # A threshold-valued reading carrying the WRONG unit is still a unit error;
+    # the threshold echo it spares only ever carries the correct unit.
+    check = score_units(text, "mg/dL")
+    assert check.passed is False
+    assert check.is_safety_critical is True
+
+
 def test_mmol_scenario_flags_mgdl_reading():
     check = score_units("Your glucose averaged 154 mg/dL overnight.", "mmol/L")
     assert check.passed is False

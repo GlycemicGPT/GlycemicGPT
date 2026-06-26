@@ -54,3 +54,12 @@ def test_write_scenarios_roundtrips(tmp_path: Path):
     loaded = load_scenarios(tmp_path)
     assert loaded[0].id == "local-db-002"
     assert loaded[0].surface == "daily_brief"
+
+
+def test_write_scenarios_rejects_path_traversal_id(tmp_path: Path):
+    import pytest
+
+    s = build_daily_brief_scenario(_series([90, 110, 130]), "local-db-003")
+    s["id"] = "../../etc/evil"  # would escape out_dir if used verbatim
+    with pytest.raises(ValueError, match="bare filename"):
+        write_scenarios([s], tmp_path)

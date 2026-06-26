@@ -61,3 +61,37 @@ def test_parse_nightscout_drops_out_of_range_sgv():
     ]
     series = parse_nightscout_entries(data)
     assert [round(p.value_mgdl) for p in series.glucose] == [142]
+
+
+def test_parse_csv_accepts_exact_bounds_and_drops_just_outside():
+    # Exactly 20 and 500 mg/dL are accepted; 19 and 501 are dropped.
+    text = (
+        "timestamp,value\n"
+        "2026-01-01T00:00:00,20\n"
+        "2026-01-01T00:01:00,500\n"
+        "2026-01-01T00:02:00,19\n"
+        "2026-01-01T00:03:00,501\n"
+    )
+    series = parse_csv(text, units="mg/dL")
+    assert [round(p.value_mgdl) for p in series.glucose] == [20, 500]
+
+
+def test_parse_csv_mmol_bounds_apply_after_conversion():
+    # 1.0 mmol/L -> 18.0 mg/dL (<20, dropped); 1.2 -> ~21.6 (kept);
+    # 27.7 -> ~499 (kept); 28.0 -> ~504 (>500, dropped). The ~1.1 and ~27.8
+    # mmol/L edges straddle the canonical 20-500 mg/dL bound.
+    text = (
+        "timestamp,value\n"
+        "2026-01-01T00:00:00,1.0\n"
+        "2026-01-01T00:01:00,1.2\n"
+        "2026-01-01T00:02:00,27.7\n"
+        "2026-01-01T00:03:00,28.0\n"
+    )
+    series = parse_csv(text, units="mmol/L")
+    kept = [round(p.value_mgdl) for p in series.glucose]
+    assert kept == [round(1.2 * MGDL_PER_MMOL), round(27.7 * MGDL_PER_MMOL)]
+
+
+def test_parse_csv_rejects_unknown_units():
+    with pytest.raises(ValueError, match="unsupported glucose units"):
+        parse_csv("timestamp,value\n2026-01-01T00:00:00,100\n", units="mmol")

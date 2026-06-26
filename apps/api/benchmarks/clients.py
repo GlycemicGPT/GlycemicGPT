@@ -67,7 +67,7 @@ def build_client_from_env(prefix: str = "BENCHMARK") -> BaseAIClient:
 
     provider_type = _PROVIDER_MAP[provider]
     model = os.environ.get(f"{prefix}_MODEL", "")
-    api_key = os.environ.get(f"{prefix}_API_KEY", "benchmark")
+    api_key = os.environ.get(f"{prefix}_API_KEY")
     base_url = os.environ.get(f"{prefix}_BASE_URL") or None
 
     # Local imports keep heavy SDKs out of import-time for tests that only use MockClient.
@@ -75,6 +75,8 @@ def build_client_from_env(prefix: str = "BENCHMARK") -> BaseAIClient:
     from src.integrations.openai_client import OpenAIClient
 
     if provider_type == AIProviderType.CLAUDE_API:
+        if not api_key:
+            raise ValueError(f"{prefix}_API_KEY is required for claude_api")
         return ClaudeClient(
             api_key=api_key,
             model=model or "claude-sonnet-4-5-20250929",
@@ -82,9 +84,21 @@ def build_client_from_env(prefix: str = "BENCHMARK") -> BaseAIClient:
         )
     if not model:
         raise ValueError(f"{prefix}_MODEL is required for openai_* providers")
+    # A custom base_url is only meaningful for openai_compatible (local/self-hosted);
+    # forwarding it to the hosted openai_api could silently redirect a benchmark to
+    # the wrong backend, and a hosted provider must have a real key.
+    if provider_type == AIProviderType.OPENAI_API:
+        if not api_key:
+            raise ValueError(f"{prefix}_API_KEY is required for openai_api")
+        if base_url is not None:
+            raise ValueError(
+                f"{prefix}_BASE_URL is only supported for openai_compatible"
+            )
     return OpenAIClient(
-        api_key=api_key,
+        api_key=api_key or "benchmark",
         model=model,
-        base_url=base_url,
+        base_url=base_url
+        if provider_type == AIProviderType.OPENAI_COMPATIBLE
+        else None,
         provider_type=provider_type,
     )
