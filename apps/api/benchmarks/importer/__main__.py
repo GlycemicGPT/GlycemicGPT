@@ -27,7 +27,9 @@ _DEFAULT_OUT = Path(__file__).resolve().parents[1] / "fixtures_local"
 def main() -> int:
     parser = argparse.ArgumentParser(prog="benchmarks.importer")
     parser.add_argument("--source", choices=["csv", "nightscout"], required=True)
-    parser.add_argument("--input", required=True, help="path to CSV or Nightscout entries.json")
+    parser.add_argument(
+        "--input", required=True, help="path to CSV or Nightscout entries.json"
+    )
     parser.add_argument("--units", default="mg/dL", choices=["mg/dL", "mmol/L"])
     parser.add_argument("--out", default=str(_DEFAULT_OUT))
     parser.add_argument("--seed", type=int, default=None)

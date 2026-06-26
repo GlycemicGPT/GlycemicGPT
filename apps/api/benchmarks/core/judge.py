@@ -28,7 +28,7 @@ _JSON_OBJECT = re.compile(r"\{.*?\}", re.DOTALL)
 
 @dataclass
 class JudgeResult:
-    score: float | None      # 1-5, or None if unparseable
+    score: float | None  # 1-5, or None if unparseable
     rationale: str
     raw: str
 
@@ -40,7 +40,9 @@ def _parse(raw: str) -> JudgeResult:
             data = json.loads(match.group(0))
             score = float(data["score"])
             score = max(1.0, min(5.0, score))  # clamp to [1, 5]
-            return JudgeResult(score=score, rationale=str(data.get("rationale", "")), raw=raw)
+            return JudgeResult(
+                score=score, rationale=str(data.get("rationale", "")), raw=raw
+            )
         except (ValueError, KeyError, TypeError):
             pass
     return JudgeResult(score=None, rationale="unparseable judge response", raw=raw)

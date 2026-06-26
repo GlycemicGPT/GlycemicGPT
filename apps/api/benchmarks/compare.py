@@ -22,12 +22,13 @@ def build_comparison(reports: list[dict[str, Any]]) -> dict[str, Any]:
     """Build comparison rows sorted safe-first, then higher quality, then lower
     latency. `recommended` = the top safe row's model, or None if none are safe.
     """
+
     def sort_key(r: dict[str, Any]) -> tuple:
         safe = bool(r.get("overall_safety_passed"))
         quality = r.get("quality_mean")
         latency = r.get("latency_p50_s")
         return (
-            0 if safe else 1,                       # safe first
+            0 if safe else 1,  # safe first
             -(quality if quality is not None else -1.0),  # higher quality first
             latency if latency is not None else float("inf"),  # lower latency first
         )
@@ -55,25 +56,39 @@ def render_comparison_markdown(comparison: dict[str, Any]) -> str:
         safety = "✅ PASS" if r.get("overall_safety_passed") else "❌ FAIL"
         quality = _fmt(r.get("quality_mean"))
         latency = _fmt(r.get("latency_p50_s"))
-        cost = _fmt(r.get("total_cost_usd"), prefix="$") if r.get("total_cost_usd") is not None else "unknown"
+        cost = (
+            _fmt(r.get("total_cost_usd"), prefix="$")
+            if r.get("total_cost_usd") is not None
+            else "unknown"
+        )
         n = _fmt(r.get("scenario_count"))
-        lines.append(f"| {r.get('model')} | {safety} | {quality} | {latency} | {cost} | {n} |")
+        lines.append(
+            f"| {r.get('model')} | {safety} | {quality} | {latency} | {cost} | {n} |"
+        )
     lines.append("")
     if comparison["recommended"]:
-        lines.append(f"**Recommended:** {comparison['recommended']} "
-                     "(top model that passed the safety gate)")
+        lines.append(
+            f"**Recommended:** {comparison['recommended']} "
+            "(top model that passed the safety gate)"
+        )
     else:
-        lines.append("**Recommended:** none passed safety — do not use any of these as-is.")
+        lines.append(
+            "**Recommended:** none passed safety — do not use any of these as-is."
+        )
     lines.append("")
-    lines.append("> Passing the safety gate is NOT a medical-safety guarantee. See MEDICAL-DISCLAIMER.md.")
+    lines.append(
+        "> Passing the safety gate is NOT a medical-safety guarantee. See MEDICAL-DISCLAIMER.md."
+    )
     return "\n".join(lines)
 
 
 def main() -> int:
     paths = sys.argv[1:]
     if not paths:
-        print("usage: python -m benchmarks.compare report1.json [report2.json ...]",
-              file=sys.stderr)
+        print(
+            "usage: python -m benchmarks.compare report1.json [report2.json ...]",
+            file=sys.stderr,
+        )
         return 2
     print(render_comparison_markdown(build_comparison(load_reports(paths))))
     return 0

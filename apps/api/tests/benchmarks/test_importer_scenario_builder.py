@@ -11,22 +11,26 @@ from benchmarks.scenario import load_scenarios
 
 
 def _series(values):
-    return LocalSeries(glucose=[
-        GlucosePoint(datetime(2026, 1, 1, 8, i), float(v)) for i, v in enumerate(values)
-    ])
+    return LocalSeries(
+        glucose=[
+            GlucosePoint(datetime(2026, 1, 1, 8, i), float(v))
+            for i, v in enumerate(values)
+        ]
+    )
 
 
 def test_metrics_math():
     m = build_daily_brief_metrics(_series([60, 120, 200]).glucose)
     assert m["readings_count"] == 3
     assert round(m["average_glucose"], 1) == 126.7
-    assert round(m["time_in_range_pct"], 1) == 33.3   # only 120 is in 70-180
-    assert m["low_count"] == 1                          # 60 < 70
-    assert m["high_count"] == 1                         # 200 > 180
+    assert round(m["time_in_range_pct"], 1) == 33.3  # only 120 is in 70-180
+    assert m["low_count"] == 1  # 60 < 70
+    assert m["high_count"] == 1  # 200 > 180
 
 
 def test_metrics_empty_raises():
     import pytest
+
     with pytest.raises(ValueError):
         build_daily_brief_metrics([])
 

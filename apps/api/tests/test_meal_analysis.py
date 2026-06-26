@@ -849,8 +849,11 @@ def test_build_meal_prompt_is_public_and_pure():
 
     periods = [
         MealPeriodData(
-            period="breakfast", bolus_count=10, spike_count=7,
-            avg_peak_glucose=187.0, avg_2hr_glucose=164.0,
+            period="breakfast",
+            bolus_count=10,
+            spike_count=7,
+            avg_peak_glucose=187.0,
+            avg_2hr_glucose=164.0,
         )
     ]
     prompt = build_meal_prompt(periods, total_boluses=10, days=7, profile_summary=None)

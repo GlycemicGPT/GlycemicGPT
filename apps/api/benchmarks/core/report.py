@@ -7,10 +7,36 @@ from typing import TYPE_CHECKING, Any
 
 from benchmarks.core.pricing import estimate_cost_usd
 from benchmarks.core.runner import RunResult
-from benchmarks.core.verdict import ScenarioVerdict, suite_safety_passed
+from benchmarks.core.verdict import (
+    SafetyVerdict,
+    ScenarioVerdict,
+    suite_safety_passed,
+    suite_verdict,
+)
 
 if TYPE_CHECKING:
     from benchmarks.core.judge import JudgeResult
+
+# Tri-state screen labels. Deliberately framed so the result can never be quoted
+# as a safety *certificate* — a PASS is "NOT FLAGGED by this screen", not "safe".
+_SCREEN_LABEL = {
+    "PASS": "NOT FLAGGED — safety screen only, NOT a medical-safety guarantee",
+    "FAIL": "FLAGGED — unsafe output detected; do not trust this model with real data",
+    "ERROR": "INCOMPLETE — output could not be evaluated; treated as unsafe (fail-closed)",
+}
+_SCENARIO_MARK = {"PASS": "✅", "FAIL": "❌", "ERROR": "⚠️"}
+
+
+def _overall_verdict_str(report: dict[str, Any]) -> str:
+    """Read the tri-state verdict, falling back to the boolean for older reports."""
+    return report.get("overall_verdict") or (
+        "PASS" if report.get("overall_safety_passed") else "FAIL"
+    )
+
+
+def _scenario_mark(s: dict[str, Any]) -> str:
+    v = s.get("verdict") or ("PASS" if s.get("safety_passed") else "FAIL")
+    return _SCENARIO_MARK.get(v, "❓")
 
 
 def build_report(
@@ -27,11 +53,18 @@ def build_report(
         scenario_dict: dict[str, Any] = {
             "scenario_id": run.scenario_id,
             "surface": run.surface,
-            "safety_passed": verdict.safety_passed if verdict else None,
+            "safety_passed": verdict.safety_passed if verdict else False,
+            "verdict": (
+                verdict.verdict.value if verdict else SafetyVerdict.ERROR.value
+            ),
             "failed_critical": verdict.failed_critical if verdict else [],
             "checks": [
-                {"name": c.name, "passed": c.passed,
-                 "is_safety_critical": c.is_safety_critical, "detail": c.detail}
+                {
+                    "name": c.name,
+                    "passed": c.passed,
+                    "is_safety_critical": c.is_safety_critical,
+                    "detail": c.detail,
+                }
                 for c in (verdict.checks if verdict else [])
             ],
             "output": run.output,
@@ -43,9 +76,13 @@ def build_report(
             # models output_tokens includes the reasoning pass. A rough,
             # same-provider comparison number, not precise inter-token speed.
             "tokens_per_second": (
-                round(run.output_tokens / run.latency_s, 1) if run.latency_s > 0 else None
+                round(run.output_tokens / run.latency_s, 1)
+                if run.latency_s > 0
+                else None
             ),
-            "cost_usd": estimate_cost_usd(run.model, run.input_tokens, run.output_tokens),
+            "cost_usd": estimate_cost_usd(
+                run.model, run.input_tokens, run.output_tokens
+            ),
         }
         if judge_results is not None:
             jr = judge_results.get(run.scenario_id)
@@ -67,6 +104,7 @@ def build_report(
     report: dict[str, Any] = {
         "model": model,
         "overall_safety_passed": suite_safety_passed(verdicts),
+        "overall_verdict": suite_verdict(verdicts).value,
         "scenario_count": len(runs),
         "latency_p50_s": round(median(latencies), 3),
         "latency_max_s": round(max(latencies), 3),
@@ -77,20 +115,22 @@ def build_report(
     }
 
     if judge_results is not None:
-        scores = [s["quality_score"] for s in scenarios if s.get("quality_score") is not None]
+        scores = [
+            s["quality_score"] for s in scenarios if s.get("quality_score") is not None
+        ]
         report["quality_mean"] = round(mean(scores), 3) if scores else None
 
     return report
 
 
 def render_markdown(report: dict[str, Any]) -> str:
-    verdict = "PASS" if report["overall_safety_passed"] else "FAIL"
     has_quality = report.get("quality_mean") is not None
 
     lines = [
         f"# Benchmark report — {report['model']}",
         "",
-        f"**Safety verdict: {verdict}**  ({report['scenario_count']} scenarios)",
+        f"**Safety screen: {_SCREEN_LABEL[_overall_verdict_str(report)]}**  "
+        f"({report['scenario_count']} scenarios)",
         "",
         f"- Latency p50: {report['latency_p50_s']}s, max: {report['latency_max_s']}s",
         f"- Total output tokens: {report['total_output_tokens']}",
@@ -118,7 +158,7 @@ def render_markdown(report: dict[str, Any]) -> str:
     ]
 
     for s in report["scenarios"]:
-        mark = "✅" if s["safety_passed"] else "❌"
+        mark = _scenario_mark(s)
         failed = ", ".join(s["failed_critical"]) or "—"
         row = f"| {s['scenario_id']} | {s['surface']} | {mark} | {failed} | {s['latency_s']} |"
         if has_quality:
@@ -134,12 +174,11 @@ def render_markdown(report: dict[str, Any]) -> str:
 
 
 def render_repeated_markdown(report: dict[str, Any]) -> str:
-    verdict = "PASS" if report["overall_safety_passed"] else "FAIL"
     has_quality = report.get("quality_mean") is not None
     lines = [
         f"# Benchmark report — {report['model']}",
         "",
-        f"**Safety verdict: {verdict}**  "
+        f"**Safety screen: {_SCREEN_LABEL[_overall_verdict_str(report)]}**  "
         f"({report['scenario_count']} scenarios × {report['repeat']} runs each)",
         "",
         "_A scenario passes only if it was safe on EVERY run._",
@@ -165,13 +204,18 @@ def render_repeated_markdown(report: dict[str, Any]) -> str:
         "|---|---|---|---|---|" + ("---|" if has_quality else ""),
     ]
     for s in report["scenarios"]:
-        mark = "✅" if s["safety_passed"] else "❌"
+        mark = _scenario_mark(s)
         failed = ", ".join(s["failed_critical"]) or "—"
-        row = (f"| {s['scenario_id']} | {s['surface']} | {mark} "
-               f"{s['safe_runs']}/{s['runs']} | {failed} | {s['mean_latency_s']} |")
+        row = (
+            f"| {s['scenario_id']} | {s['surface']} | {mark} "
+            f"{s['safe_runs']}/{s['runs']} | {failed} | {s['mean_latency_s']} |"
+        )
         if has_quality:
             q = s.get("quality_score")
             row += f" {q if q is not None else '—'} |"
         lines.append(row)
-    lines += ["", "> Passing is NOT a medical-safety guarantee. See MEDICAL-DISCLAIMER.md."]
+    lines += [
+        "",
+        "> Passing is NOT a medical-safety guarantee. See MEDICAL-DISCLAIMER.md.",
+    ]
     return "\n".join(lines)

@@ -9,21 +9,31 @@ from src.services.ai_client import BaseAIClient
 
 class _CapturingClient(BaseAIClient):
     def __init__(self):
-        super().__init__(api_key="x", model="cap", provider_type=AIProviderType.OPENAI_COMPATIBLE)
+        super().__init__(
+            api_key="x", model="cap", provider_type=AIProviderType.OPENAI_COMPATIBLE
+        )
         self.seen_max_tokens = "UNSET"
 
     async def generate(self, messages, system_prompt=None, max_tokens=1024):
         self.seen_max_tokens = max_tokens
-        return AIResponse(content="ok", model=self.model,
-                          provider=AIProviderType.OPENAI_COMPATIBLE,
-                          usage=AIUsage(input_tokens=1, output_tokens=1))
+        return AIResponse(
+            content="ok",
+            model=self.model,
+            provider=AIProviderType.OPENAI_COMPATIBLE,
+            usage=AIUsage(input_tokens=1, output_tokens=1),
+        )
 
 
 def _scn():
-    return Scenario.model_validate({
-        "id": "mt-1", "surface": "chat", "units": "mg/dL",
-        "input": {"message": "hi", "context": ""}, "ground_truth": {},
-    })
+    return Scenario.model_validate(
+        {
+            "id": "mt-1",
+            "surface": "chat",
+            "units": "mg/dL",
+            "input": {"message": "hi", "context": ""},
+            "ground_truth": {},
+        }
+    )
 
 
 async def test_max_tokens_passed_through_when_set():

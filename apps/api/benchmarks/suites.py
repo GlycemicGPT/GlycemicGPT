@@ -10,14 +10,8 @@ from typing import Any
 
 from benchmarks.core.report import build_report
 from benchmarks.core.runner import run_scenario
-from benchmarks.core.scorers import (
-    score_boundary,
-    score_dose_numbers,
-    score_grounding,
-    score_safety,
-    score_units,
-)
-from benchmarks.core.verdict import aggregate_verdict
+from benchmarks.core.scorers import build_checks, is_eval_error_name
+from benchmarks.core.verdict import SafetyVerdict, aggregate_verdict, rollup_verdict
 from benchmarks.scenario import load_scenarios
 from src.services.ai_client import BaseAIClient
 
@@ -36,21 +30,19 @@ async def run_suite(
     for scenario in scenarios:
         run = await run_scenario(scenario, client, max_tokens=max_tokens)
         model_name = run.model
-        checks = [
-            score_safety(run.output, scenario.ground_truth),
-            score_dose_numbers(run.output),
-            score_units(run.output, scenario.units),
-            score_grounding(run.output, scenario.ground_truth.cited_numbers_must_match),
-        ]
-        if scenario.surface == "adversarial":
-            checks.append(score_boundary(run.output, scenario.expected_behavior))
+        # build_checks is fail-closed: empty/unparseable output or a crashing
+        # scorer becomes a safety-critical failure here, never a silent pass.
+        checks = build_checks(run.output, scenario)
         runs.append(run)
         # Safety verdict is purely deterministic — judge plays NO role here.
         verdicts.append(aggregate_verdict(scenario.id, checks))
 
         if judge_client is not None and judge_results is not None:
             from benchmarks.core.judge import judge_output
-            judge_results[scenario.id] = await judge_output(scenario, run.output, judge_client)
+
+            judge_results[scenario.id] = await judge_output(
+                scenario, run.output, judge_client
+            )
 
     return build_report(model_name, runs, verdicts, judge_results=judge_results)
 
@@ -65,10 +57,13 @@ async def run_suite_repeated(
     """Run the suite `repeat` times and aggregate. A scenario is safe only if it
     was safe on EVERY run (a model that produces unsafe output even once is unsafe).
     The judge (if any) runs on the FIRST pass only, to bound cost."""
+    if repeat < 1:
+        raise ValueError("repeat must be >= 1")
     passes: list[dict[str, Any]] = []
     for i in range(repeat):
         report = await run_suite(
-            scenario_dir, client,
+            scenario_dir,
+            client,
             judge_client=judge_client if i == 0 else None,
             max_tokens=max_tokens,
         )
@@ -76,8 +71,29 @@ async def run_suite_repeated(
     return aggregate_repeated(passes, repeat)
 
 
+def _repeated_scenario_verdict(
+    n: int, safety_passed: bool, failed_critical: list[str]
+) -> str:
+    """Tri-state verdict for a scenario across N repeated runs (fail-closed).
+
+    A scenario missing from every pass (``n == 0``) is ERROR, not a vacuous
+    pass. Precedence matches the scenario aggregator: a genuine unsafe failure on
+    ANY run dominates (FAIL), even if another run also failed to evaluate; only
+    when every failure was an evaluation problem (empty output / a crashing
+    scorer) is it ERROR.
+    """
+    if n == 0:
+        return SafetyVerdict.ERROR.value
+    if safety_passed:
+        return SafetyVerdict.PASS.value
+    genuine_fail = any(not is_eval_error_name(fc) for fc in failed_critical)
+    return SafetyVerdict.FAIL.value if genuine_fail else SafetyVerdict.ERROR.value
+
+
 def aggregate_repeated(passes: list[dict[str, Any]], repeat: int) -> dict[str, Any]:
     """Combine N single-pass report dicts into one aggregated report."""
+    if not passes:
+        raise ValueError("aggregate_repeated requires at least one pass report")
     first = passes[0]
     model = first["model"]
     # Preserve scenario order from the first pass.
@@ -92,7 +108,9 @@ def aggregate_repeated(passes: list[dict[str, Any]], repeat: int) -> dict[str, A
         per_pass = [bp[sid] for bp in by_id_per_pass if sid in bp]
         n = len(per_pass)
         safe_runs = sum(1 for sp in per_pass if sp["safety_passed"])
-        failed_critical = sorted({fc for sp in per_pass for fc in sp["failed_critical"]})
+        failed_critical = sorted(
+            {fc for sp in per_pass for fc in sp["failed_critical"]}
+        )
         out_toks = sum(sp["output_tokens"] for sp in per_pass)
         lat_sum = sum(sp["latency_s"] for sp in per_pass)
         all_latencies.extend(sp["latency_s"] for sp in per_pass)
@@ -109,13 +127,15 @@ def aggregate_repeated(passes: list[dict[str, Any]], repeat: int) -> dict[str, A
             }
             for i, sp in enumerate(per_pass)
         ]
+        safety_passed = n > 0 and safe_runs == n
         sd: dict[str, Any] = {
             "scenario_id": sid,
             "surface": per_pass[0]["surface"],
             "runs": n,
             "safe_runs": safe_runs,
             "pass_rate": round(safe_runs / n, 3) if n else None,
-            "safety_passed": safe_runs == n,
+            "safety_passed": safety_passed,
+            "verdict": _repeated_scenario_verdict(n, safety_passed, failed_critical),
             "failed_critical": failed_critical,
             "mean_latency_s": round(lat_sum / n, 3) if n else None,
             "tokens_per_second": round(out_toks / lat_sum, 1) if lat_sum > 0 else None,
@@ -129,18 +149,28 @@ def aggregate_repeated(passes: list[dict[str, Any]], repeat: int) -> dict[str, A
             sd["quality_score"] = q
         scenarios.append(sd)
 
-    overall = all(s["safety_passed"] for s in scenarios)
+    # Fail-closed: an empty scenario set is not a pass. The same FAIL > ERROR >
+    # PASS rollup the single-pass suite uses (verdict.rollup_verdict).
+    overall = bool(scenarios) and all(s["safety_passed"] for s in scenarios)
+    overall_verdict = rollup_verdict(
+        SafetyVerdict(s["verdict"]) for s in scenarios
+    ).value
     known_costs = [s["cost_usd"] for s in scenarios if s["cost_usd"] is not None]
-    quality_scores = [s["quality_score"] for s in scenarios if s.get("quality_score") is not None]
+    quality_scores = [
+        s["quality_score"] for s in scenarios if s.get("quality_score") is not None
+    ]
     report: dict[str, Any] = {
         "model": model,
         "overall_safety_passed": overall,
+        "overall_verdict": overall_verdict,
         "scenario_count": len(scenarios),
         "repeat": repeat,
         "latency_p50_s": round(median(all_latencies), 3) if all_latencies else 0.0,
         "latency_max_s": round(max(all_latencies), 3) if all_latencies else 0.0,
         "total_output_tokens": total_output_tokens,
-        "tokens_per_second": round(total_output_tokens / total_latency, 1) if total_latency > 0 else None,
+        "tokens_per_second": round(total_output_tokens / total_latency, 1)
+        if total_latency > 0
+        else None,
         "total_cost_usd": round(sum(known_costs), 6) if known_costs else None,
         "scenarios": scenarios,
     }
