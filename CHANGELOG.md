@@ -1,5 +1,73 @@
 # Changelog
 
+## 2026-06-27
+
+### 📱 Mobile
+
+#### 💥 Breaking Changes
+
+- fix(api): harden glucose ingestion for mmol/L unit safety [@dxwood01](https://github.com/dxwood01) ([#806](https://github.com/GlycemicGPT/GlycemicGPT/pull/806))
+
+#### ✨ New Features
+
+- feat(mobile): make the Home "Log a meal" FAB draggable [@jlengelbrecht](https://github.com/jlengelbrecht) ([#826](https://github.com/GlycemicGPT/GlycemicGPT/pull/826))
+- feat: per-user Meal Intelligence setting replacing the env-var gate [@jlengelbrecht](https://github.com/jlengelbrecht) ([#823](https://github.com/GlycemicGPT/GlycemicGPT/pull/823))
+- feat: seed glucose display unit from region and Nightscout (overridable) [@jlengelbrecht](https://github.com/jlengelbrecht) ([#816](https://github.com/GlycemicGPT/GlycemicGPT/pull/816))
+- feat(mobile): render Wear OS glucose in the user's unit (mg/dL or mmol/L) [@jlengelbrecht](https://github.com/jlengelbrecht) ([#812](https://github.com/GlycemicGPT/GlycemicGPT/pull/812))
+- feat(mobile): render phone glucose display in the user's unit (mg/dL or mmol/L) [@jlengelbrecht](https://github.com/jlengelbrecht) ([#807](https://github.com/GlycemicGPT/GlycemicGPT/pull/807))
+
+#### 🐛 Bug Fixes
+
+- fix: classify CareLink import errors as transport vs unexpected response [@gitcommit90](https://github.com/gitcommit90) ([#814](https://github.com/GlycemicGPT/GlycemicGPT/pull/814))
+
+#### 📝 Other Changes
+
+- test: verify cross-surface glucose-unit consistency and document units [@jlengelbrecht](https://github.com/jlengelbrecht) ([#818](https://github.com/GlycemicGPT/GlycemicGPT/pull/818))
+- chore: sync release 0.10.0 from main to develop [@glycemicgpt-merge](https://github.com/glycemicgpt-merge) ([#800](https://github.com/GlycemicGPT/GlycemicGPT/pull/800))
+
+### 🌐 Web
+
+#### 💥 Breaking Changes
+
+- fix: support browser selection in connect helper [@sanmaxdev](https://github.com/sanmaxdev) ([#819](https://github.com/GlycemicGPT/GlycemicGPT/pull/819))
+- feat:(GLY-57) upgrade tailwind 4 [@DanielDanielsson](https://github.com/DanielDanielsson) ([#790](https://github.com/GlycemicGPT/GlycemicGPT/pull/790))
+
+#### ✨ New Features
+
+- feat: render glucose alerts and caregiver views in the user's unit [@jlengelbrecht](https://github.com/jlengelbrecht) ([#804](https://github.com/GlycemicGPT/GlycemicGPT/pull/804))
+- feat(web): mmol/L glucose unit toggle, display conversion, and input forms [@jlengelbrecht](https://github.com/jlengelbrecht) ([#802](https://github.com/GlycemicGPT/GlycemicGPT/pull/802))
+
+### 📡 API
+
+#### 💥 Breaking Changes
+
+- feat(api): add glucose unit preference foundation [@DanielDanielsson](https://github.com/DanielDanielsson) ([#785](https://github.com/GlycemicGPT/GlycemicGPT/pull/785))
+
+#### ✨ New Features
+
+- feat(benchmarks): LLM benchmarking harness for BYOAI model safety/quality [@seitzbg](https://github.com/seitzbg) ([#828](https://github.com/GlycemicGPT/GlycemicGPT/pull/828))
+- feat(api): verify AI-spoken glucose figures against the user's readings [@jlengelbrecht](https://github.com/jlengelbrecht) ([#805](https://github.com/GlycemicGPT/GlycemicGPT/pull/805))
+- feat(api): render AI text and notifications in the user's glucose unit [@jlengelbrecht](https://github.com/jlengelbrecht) ([#803](https://github.com/GlycemicGPT/GlycemicGPT/pull/803))
+
+#### 🐛 Bug Fixes
+
+- fix(safety): block verb-independent specific insulin doses [@seitzbg](https://github.com/seitzbg) ([#829](https://github.com/GlycemicGPT/GlycemicGPT/pull/829))
+- fix(food-records): return 404 when a record is deleted mid common-food promotion [@jlengelbrecht](https://github.com/jlengelbrecht) ([#825](https://github.com/GlycemicGPT/GlycemicGPT/pull/825))
+- fix(medtronic-connect): drop ambiguous mmol/L follower glucose as a gap [@jlengelbrecht](https://github.com/jlengelbrecht) ([#821](https://github.com/GlycemicGPT/GlycemicGPT/pull/821))
+
+### 🏗️ Infrastructure
+
+#### 📝 Other Changes
+
+- chore: sync changelog update from main to develop [@glycemicgpt-merge](https://github.com/glycemicgpt-merge) ([#799](https://github.com/GlycemicGPT/GlycemicGPT/pull/799))
+
+### 📚 Documentation
+
+- docs(benchmarking): user + developer benchmarking guides [@seitzbg](https://github.com/seitzbg) ([#830](https://github.com/GlycemicGPT/GlycemicGPT/pull/830))
+
+<!-- changelog-cutoff:2026-06-27T05:46:30Z -->
+
+
 ## 2026-06-20
 
 ### 📱 Mobile
