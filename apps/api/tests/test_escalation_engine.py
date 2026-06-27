@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 
 from src.config import settings
+from src.core.units import GlucoseUnit
 from src.database import get_session_maker
 from src.models.alert import Alert, AlertSeverity, AlertType
 from src.models.emergency_contact import ContactPriority, EmergencyContact
@@ -289,6 +290,21 @@ class TestBuildEscalationMessage:
         )
 
         assert "42 mg/dL" in msg
+
+    def test_message_renders_current_glucose_in_mmol(self):
+        """The 'Current glucose' line converts to the patient's unit
+        (42 -> 2.3); Alert.message is already rendered in mmol at persist time."""
+        user_id = uuid.uuid4()
+        alert = make_alert(user_id)
+        alert.current_value = 42.0
+        alert.message = "Predicted low glucose: 2.3 mmol/L"
+
+        msg = build_escalation_message(
+            alert, EscalationTier.REMINDER, "user@test.com", GlucoseUnit.MMOL
+        )
+
+        assert "Current glucose: 2.3 mmol/L" in msg
+        assert "mg/dL" not in msg
 
 
 # ── Dispatch notification tests ──

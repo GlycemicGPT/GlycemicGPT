@@ -77,6 +77,9 @@ async def sync_dexcom_for_user(
         DexcomAuthError: If credentials are invalid
         DexcomConnectionError: If connection fails
         DexcomSyncError: For other sync errors
+
+    Note:
+        Glucose values here are in mg/dL.
     """
     if max_readings is None:
         max_readings = settings.dexcom_max_readings_per_sync

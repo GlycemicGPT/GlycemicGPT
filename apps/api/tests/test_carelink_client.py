@@ -12,6 +12,7 @@ from src.services.integrations.medtronic.client import (
     CareLinkClient,
     CareLinkError,
     CareLinkReportTimeoutError,
+    CareLinkTransportError,
 )
 
 
@@ -122,6 +123,55 @@ async def test_auth_error_on_401():
     async with _make_client(handler) as client:
         with pytest.raises(CareLinkAuthError):
             await client.get_availability()
+
+
+async def test_transport_error_is_typed():
+    """A true transport failure (DNS/TLS/connection) is wrapped as
+    CareLinkTransportError -- the subtype the router maps to 'Unable to reach
+    CareLink'. Assert the exact type so a revert to the base CareLinkError (which
+    would silently fall through to the 'unexpected response' branch) is caught."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused")
+
+    async with _make_client(handler) as client:
+        with pytest.raises(CareLinkTransportError) as exc_info:
+            await client.get_availability()
+    assert exc_info.type is CareLinkTransportError
+
+
+async def test_malformed_compressed_body_is_handled_not_500():
+    """A reachable host returning an undecodable body (bad Content-Encoding) is
+    always wrapped as a CareLinkError, never an unhandled exception/500. Depending
+    on the exact bytes the decode fails either during the response read (-> the
+    CareLinkTransportError subclass) or at JSON parse (-> the base CareLinkError);
+    both subclass CareLinkError and both map to a 503 at the router, so assert the
+    superclass rather than a brittle byte-dependent subtype."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"Content-Encoding": "gzip"},
+            content=b"\x1f\x8b\x08\x00not-valid-gzip",
+        )
+
+    async with _make_client(handler) as client:
+        with pytest.raises(CareLinkError):
+            await client.get_patient_id()
+
+
+async def test_reachable_4xx_is_base_error_not_transport():
+    """A reachable host returning a non-auth 4xx raises the BASE CareLinkError
+    (router -> 'unexpected response'), NOT the transport subtype -- pinning the
+    other direction of the split so neither branch can absorb the other."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"error": "not found"})
+
+    async with _make_client(handler) as client:
+        with pytest.raises(CareLinkError) as exc_info:
+            await client.get_patient_id()
+    assert exc_info.type is CareLinkError
 
 
 async def test_status_204_is_treated_ready():

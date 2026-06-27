@@ -46,6 +46,42 @@ function detectOS(): HelperOS {
   return ua.includes("win") ? "windows" : "linux-mac";
 }
 
+/** POSIX single-quote (close, escaped quote, reopen) for safe bash embedding. */
+function shSingleQuote(s: string): string {
+  return `'${s.replace(/'/g, "'\\''")}'`;
+}
+
+/** PowerShell single-quote (double any embedded quote) for safe embedding. */
+function psSingleQuote(s: string): string {
+  return `'${s.replace(/'/g, "''")}'`;
+}
+
+/**
+ * Assemble the copy-paste command that downloads and runs the helper installer
+ * from `url`. Exported and pure so the shell-quoting is unit-testable. Both the
+ * URL and the optional --browser path are single-quoted for the target shell, so
+ * a value with a space or quote can't break out. A custom browser is forwarded
+ * via `bash -s --` / a PowerShell script block (a plain `| iex` can't pass
+ * arguments); it stays in the pasted command and never reaches the server.
+ */
+export function buildHelperCommand(
+  url: string,
+  os: HelperOS,
+  browserPath: string
+): string {
+  const customBrowser = browserPath.trim();
+  if (os === "windows") {
+    if (customBrowser) {
+      return `& ([scriptblock]::Create((iwr ${psSingleQuote(url)} -UseBasicParsing).Content)) --browser ${psSingleQuote(customBrowser)}`;
+    }
+    return `iwr ${psSingleQuote(url)} -UseBasicParsing | iex`;
+  }
+  if (customBrowser) {
+    return `curl -fsSL ${shSingleQuote(url)} | bash -s -- --browser ${shSingleQuote(customBrowser)}`;
+  }
+  return `curl -fsSL ${shSingleQuote(url)} | bash`;
+}
+
 export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
   const [status, setStatus] = useState<MedtronicConnectStatus | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -85,6 +121,11 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
     typeof window !== "undefined" ? window.location.origin : ""
   );
   const [selectedOS, setSelectedOS] = useState<HelperOS>(() => detectOS());
+
+  // Optional explicit browser path for the helper's --browser flag, for users
+  // whose Chrome/Edge/Brave/Chromium is installed somewhere auto-detection
+  // can't find. Stays in the copy-paste command; never sent to the server.
+  const [browserPath, setBrowserPath] = useState<string>("");
 
   useEffect(() => {
     let cancelled = false;
@@ -178,12 +219,8 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
     } catch {
       return "";
     }
-    if (selectedOS === "windows") {
-      // PowerShell single-quoted; the URL has no ' so no doubling needed.
-      return `iwr '${url}' -UseBasicParsing | iex`;
-    }
-    return `curl -fsSL '${url}' | bash`;
-  }, [pairing, instanceUrl, selectedOS]);
+    return buildHelperCommand(url, selectedOS, browserPath);
+  }, [pairing, instanceUrl, selectedOS, browserPath]);
 
   // Non-empty but unparseable instance URL -> show an inline error instead of
   // silently rendering no command (and never throw during render).
@@ -202,11 +239,10 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
   // download a binary -- same backend endpoints, same flow, just heavier deps.
   const pythonCommand = useMemo(() => {
     if (!pairing) return "";
-    const q = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
-    const api = q(instanceUrl || "https://your-glycemicgpt-instance");
-    const user = q(username.trim());
-    const pair = q(pairing.pairing_token);
-    const region = q(regionCode);
+    const api = shSingleQuote(instanceUrl || "https://your-glycemicgpt-instance");
+    const user = shSingleQuote(username.trim());
+    const pair = shSingleQuote(pairing.pairing_token);
+    const region = shSingleQuote(regionCode);
     return [
       "uv run tools/medtronic-connect-login/medtronic_connect_login.py \\",
       `  --api ${api} \\`,
@@ -273,8 +309,8 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
 
   const inputClass = clsx(
     "w-full rounded-lg border px-3 py-2 text-sm",
-    "bg-slate-800 border-slate-700 text-slate-200 placeholder:text-slate-500",
-    "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
+    "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-200 placeholder:text-slate-500",
+    "focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent",
     "disabled:opacity-50 disabled:cursor-not-allowed"
   );
   const btnClass = clsx(
@@ -284,13 +320,13 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
   );
 
   return (
-    <div className="space-y-5 rounded-lg border border-slate-700 bg-slate-900/40 p-4">
+    <div className="space-y-5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 p-4">
       <div className="flex items-center gap-2">
-        <p className="text-sm font-medium text-slate-200">
+        <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
           Automatic sync (CareLink CarePartner)
         </p>
       </div>
-      <div className="space-y-2 text-sm text-slate-400">
+      <div className="space-y-2 text-sm text-slate-500 dark:text-slate-400">
         <p>
           Keep GlycemicGPT updated automatically from Medtronic&apos;s CareLink
           CarePartner service — no cables, and no need to import by hand.
@@ -306,7 +342,7 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
             <div>
               <label
                 htmlFor="connect-region"
-                className="block text-sm font-medium text-slate-300 mb-1"
+                className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
               >
                 Region
               </label>
@@ -327,7 +363,7 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
             <div>
               <label
                 htmlFor="connect-username"
-                className="block text-sm font-medium text-slate-300 mb-1"
+                className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
               >
                 CareLink username
               </label>
@@ -370,7 +406,7 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
             </div>
           ) : (
             <div className="space-y-3">
-              <p className="text-sm font-medium text-slate-300">
+              <p className="text-sm font-medium text-slate-600 dark:text-slate-300">
                 Run the setup command
               </p>
 
@@ -378,7 +414,7 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
               <div>
                 <label
                   htmlFor="connect-instance-url"
-                  className="block text-xs font-medium text-slate-400 mb-1"
+                  className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1"
                 >
                   Your GlycemicGPT URL
                 </label>
@@ -405,7 +441,7 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
               </div>
 
               {/* OS picker. */}
-              <div className="inline-flex rounded-md border border-slate-700 overflow-hidden">
+              <div className="inline-flex rounded-md border border-slate-300 dark:border-slate-700 overflow-hidden">
                 {(
                   [
                     { v: "linux-mac" as const, label: "macOS / Linux" },
@@ -420,7 +456,7 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
                       "px-3 py-1.5 text-sm",
                       selectedOS === o.v
                         ? "bg-blue-600 text-white"
-                        : "bg-slate-900 text-slate-300 hover:bg-slate-800"
+                        : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
                     )}
                   >
                     {o.label}
@@ -428,11 +464,41 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
                 ))}
               </div>
 
+              {/* Optional --browser path for installs auto-detect can't find. */}
+              <div>
+                <label
+                  htmlFor="connect-browser-path"
+                  className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1"
+                >
+                  Browser path (optional)
+                </label>
+                <input
+                  id="connect-browser-path"
+                  type="text"
+                  value={browserPath}
+                  onChange={(e) => setBrowserPath(e.target.value)}
+                  className={clsx(inputClass, "max-w-md")}
+                  spellCheck={false}
+                  placeholder={
+                    selectedOS === "windows"
+                      ? "e.g. C:\\Program Files\\BraveSoftware\\...\\brave.exe"
+                      : "e.g. /Applications/Brave Browser.app/Contents/MacOS/Brave Browser"
+                  }
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  Only if the helper can&apos;t find your browser on its own —
+                  point it at a Chrome, Edge, Brave, or Chromium executable.
+                </p>
+              </div>
+
               <p className="text-xs text-slate-500">
                 Paste this one line into a terminal on your computer. It runs
                 a small one-time connector from your own GlycemicGPT, opens
                 your browser to CareLink, and connects automatically. No
-                installs; requires Chrome, Edge, Brave, or Chromium.
+                installs; requires Chrome, Edge, Brave, or Chromium (auto-detected,
+                or set a path above for a custom install). No Chromium-family
+                browser at all? The Advanced → Python CLI below works on its own
+                — it uses a bundled browser engine.
               </p>
 
               <pre className="overflow-x-auto rounded-md border border-slate-700 bg-slate-950 p-3 text-xs text-slate-200">
@@ -443,7 +509,7 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
                 <button
                   type="button"
                   onClick={copyCommand}
-                  className="rounded-md border border-slate-600 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
+                  className="rounded-md border border-slate-300 dark:border-slate-600 px-3 py-1.5 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
                 >
                   {copied ? "Copied!" : "Copy command"}
                 </button>
@@ -451,7 +517,7 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
                   type="button"
                   onClick={startPairing}
                   disabled={isPairing}
-                  className="rounded-md border border-slate-600 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
+                  className="rounded-md border border-slate-300 dark:border-slate-600 px-3 py-1.5 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
                 >
                   New token
                 </button>
@@ -462,15 +528,17 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
               </div>
 
               <details className="text-xs text-slate-500">
-                <summary className="cursor-pointer hover:text-slate-300">
+                <summary className="cursor-pointer hover:text-slate-700 dark:hover:text-slate-300">
                   Advanced — Python CLI (requires uv + Playwright on your machine)
                 </summary>
                 <pre className="mt-2 overflow-x-auto rounded-md border border-slate-700 bg-slate-950 p-3 text-slate-200">
                   {pythonCommand}
                 </pre>
                 <p className="mt-1">
-                  Equivalent flow using the in-tree Python helper. Useful for
-                  devs / Firefox-only users; otherwise prefer the one-liner above.
+                  Equivalent flow using the in-tree Python helper. It runs the
+                  login through a bundled browser engine, so it works even with
+                  no Chromium-family browser installed (handy for Firefox/Safari
+                  users and devs); otherwise prefer the one-liner above.
                 </p>
               </details>
 
@@ -488,7 +556,7 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
       {/* ---- Connected: status + controls ---- */}
       {loaded && connected && status && (
         <div className="space-y-4">
-          <div className="rounded-md border border-green-600/40 bg-green-600/10 p-3 text-sm text-green-300">
+          <div className="rounded-md border border-green-600/40 bg-green-600/10 p-3 text-sm text-green-700 dark:text-green-300">
             ✓ Connected ({status.region}). Last sync:{" "}
             {status.last_sync_at
               ? new Date(status.last_sync_at).toLocaleString()
@@ -497,7 +565,7 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
           </div>
 
           <div className="flex flex-wrap items-end gap-4">
-            <label className="flex items-center gap-2 text-sm text-slate-300">
+            <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
               <input
                 type="checkbox"
                 checked={enabled}
@@ -510,7 +578,7 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
             <div>
               <label
                 htmlFor="connect-interval"
-                className="block text-xs text-slate-400 mb-1"
+                className="block text-xs text-slate-500 dark:text-slate-400 mb-1"
               >
                 Sync every (minutes)
               </label>
@@ -554,7 +622,7 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
               type="button"
               onClick={disconnect}
               disabled={isOffline || isDisconnecting}
-              className="rounded-lg border border-red-600/50 px-4 py-2 text-sm font-medium text-red-300 hover:bg-red-600/10 disabled:opacity-50"
+              className="rounded-lg border border-red-600/50 px-4 py-2 text-sm font-medium text-red-700 dark:text-red-300 hover:bg-red-600/10 disabled:opacity-50"
             >
               {isDisconnecting ? "Disconnecting…" : "Disconnect"}
             </button>
@@ -569,13 +637,13 @@ export function MedtronicConnectCard({ isOffline }: { isOffline: boolean }) {
       )}
 
       {syncResult && (
-        <div className="rounded-md border border-green-600/40 bg-green-600/10 p-3 text-sm text-green-300">
+        <div className="rounded-md border border-green-600/40 bg-green-600/10 p-3 text-sm text-green-700 dark:text-green-300">
           ✓ Synced {syncResult.glucose_stored} new glucose readings and{" "}
           {syncResult.events_stored} pump events.
         </div>
       )}
       {error && (
-        <div className="rounded-md border border-red-600/40 bg-red-600/10 p-3 text-sm text-red-300">
+        <div className="rounded-md border border-red-600/40 bg-red-600/10 p-3 text-sm text-red-700 dark:text-red-300">
           {error}
         </div>
       )}

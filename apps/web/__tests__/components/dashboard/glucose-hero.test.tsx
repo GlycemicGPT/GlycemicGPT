@@ -15,6 +15,7 @@ import {
   type TrendDirection,
 } from "../../../src/components/dashboard/glucose-hero";
 import GlucoseHeroDefault from "../../../src/components/dashboard/glucose-hero";
+import { formatGlucose } from "@/lib/glucose-units";
 
 // Mock framer-motion to avoid animation issues in tests
 const mockUseReducedMotion = jest.fn(() => false);
@@ -88,6 +89,35 @@ describe("classifyGlucose", () => {
   });
 });
 
+describe("band stays mg/dL regardless of display unit", () => {
+  // The range classifier takes NO unit argument: it bands a stored mg/dL value
+  // and the user's display preference cannot reach it. These values are chosen
+  // to fall in the SAME band on the web, phone (glucoseColor), and watch
+  // (bgColor) so a reading can never read "low" on one surface and "in range"
+  // on another. (55 and the threshold edges are deliberately avoided because the
+  // surfaces differ by one mg/dL on the boundary `<` vs `<=`.)
+  const BANDS: Array<[number, ReturnType<typeof classifyGlucose>]> = [
+    [40, "urgentLow"],
+    [65, "low"],
+    [120, "inRange"],
+    [200, "high"],
+    [300, "urgentHigh"],
+  ];
+
+  it.each(BANDS)("classifies %d mg/dL as %s", (mgdl, band) => {
+    expect(classifyGlucose(mgdl)).toBe(band);
+  });
+
+  it("classifies the raw mg/dL value even though the displayed number changes", () => {
+    // 65 mg/dL displays as "65" or "3.6" depending on the unit, but it is a
+    // "low" reading in BOTH -- the safety band reads the stored value, never the
+    // displayed one.
+    expect(formatGlucose(65, "mgdl")).toBe("65");
+    expect(formatGlucose(65, "mmol")).toBe("3.6");
+    expect(classifyGlucose(65)).toBe("low");
+  });
+});
+
 describe("shouldPulse", () => {
   it('returns "strong" for urgentLow', () => {
     expect(shouldPulse("urgentLow")).toBe("strong");
@@ -151,10 +181,18 @@ describe("GlucoseHero", () => {
       expect(screen.getByTestId("glucose-unit")).toHaveTextContent("mg/dL");
     });
 
-    it("displays custom unit when provided", () => {
-      render(<GlucoseHero {...defaultProps} unit="mmol/L" />);
+    it("displays the mmol/L label and converts the value when unit=mmol", () => {
+      // value stays mg/dL; display converts (180 -> 10.0).
+      render(<GlucoseHero {...defaultProps} value={180} unit="mmol" />);
 
       expect(screen.getByTestId("glucose-unit")).toHaveTextContent("mmol/L");
+      expect(screen.getByTestId("glucose-value")).toHaveTextContent("10.0");
+    });
+
+    it("shows 1-decimal mmol for the clinical anchor 70 -> 3.9", () => {
+      render(<GlucoseHero {...defaultProps} value={70} unit="mmol" />);
+
+      expect(screen.getByTestId("glucose-value")).toHaveTextContent("3.9");
     });
   });
 
@@ -173,6 +211,31 @@ describe("GlucoseHero", () => {
 
         const trendArrow = screen.getByTestId("trend-arrow");
         expect(trendArrow).toHaveTextContent(expectedArrow);
+      }
+    );
+
+    it.each([
+      ["RisingFast", "↑↑"],
+      ["Falling", "↘"],
+      ["Stable", "→"],
+    ] as const)(
+      "renders the same %s arrow whether the unit is mg/dL or mmol/L",
+      (trend: TrendDirection, expectedArrow: string) => {
+        // The arrow comes from the backend trend direction, not the glucose
+        // unit -- so switching units changes the value (180 -> 10.0) but never
+        // flips the arrow.
+        const { unmount } = render(
+          <GlucoseHero {...defaultProps} value={180} trend={trend} unit="mgdl" />
+        );
+        expect(screen.getByTestId("trend-arrow")).toHaveTextContent(expectedArrow);
+        expect(screen.getByTestId("glucose-value")).toHaveTextContent("180");
+        unmount();
+
+        render(
+          <GlucoseHero {...defaultProps} value={180} trend={trend} unit="mmol" />
+        );
+        expect(screen.getByTestId("trend-arrow")).toHaveTextContent(expectedArrow);
+        expect(screen.getByTestId("glucose-value")).toHaveTextContent("10.0");
       }
     );
   });

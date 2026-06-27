@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from src.core.units import GlucoseUnit
 from src.models.ai_provider import AIProviderType
 from src.models.glucose import GlucoseReading, TrendDirection
 from src.models.user import User
@@ -25,9 +26,12 @@ from src.services.telegram_chat import (
     SAFETY_DISCLAIMER,
     TELEGRAM_MAX_LENGTH,
     WEB_MAX_RESPONSE_TOKENS,
+    _build_caregiver_system_prompt,
     _build_system_prompt,
     _resolve_max_tokens_for_user,
     _truncate_response,
+    handle_caregiver_chat,
+    handle_caregiver_chat_web,
     handle_chat,
 )
 
@@ -178,6 +182,25 @@ class TestBuildGlucoseSection:
         assert "[Glucose - last 6h]" in result
         assert "150 mg/dL" in result
         assert "Readings: 10" in result
+
+    @pytest.mark.asyncio
+    async def test_renders_mmol_unit(self):
+        """Glucose figures convert (150->8.3) and the TIR membership math
+        stays mg/dL while the displayed default anchors convert (70-180 ->
+        3.9-10.0)."""
+        readings = [make_reading(value=150, trend_rate=1.5, minutes_ago=3)]
+        readings += [make_reading(value=120, minutes_ago=i * 5) for i in range(1, 10)]
+
+        db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = readings
+        db.execute = AsyncMock(side_effect=[mock_result, _mock_none_scalar()])
+
+        result = await build_glucose_section(db, uuid.uuid4(), GlucoseUnit.MMOL)
+
+        assert "Current: 8.3 mmol/L" in result
+        assert "Time in range (3.9-10.0)" in result
+        assert "mg/dL" not in result
 
     @pytest.mark.asyncio
     async def test_uses_custom_target_range_for_tir(self):
@@ -750,6 +773,23 @@ class TestBuildSystemPrompt:
         assert "pump activity" in prompt.lower() or "Control-IQ" in prompt
         assert "basal rates" in prompt or "correction frequency" in prompt
 
+    def test_states_report_unit(self):
+        """The report-in-unit instruction is appended per request."""
+        assert "Report all glucose values in mg/dL" in _build_system_prompt(
+            "", GlucoseUnit.MGDL
+        )
+        assert "Report all glucose values in mmol/L" in _build_system_prompt(
+            "", GlucoseUnit.MMOL
+        )
+
+    def test_caregiver_prompt_uses_passed_unit(self):
+        """The caregiver prompt reports in the supplied unit (the patient's)."""
+        prompt = _build_caregiver_system_prompt(
+            "patient@example.com", "", GlucoseUnit.MMOL
+        )
+        assert "Report all glucose values in mmol/L" in prompt
+        assert "Patient: patient@example.com" in prompt
+
 
 # ---------------------------------------------------------------------------
 # _truncate_response tests
@@ -1191,3 +1231,62 @@ class TestResolveMaxTokensForUser:
                 db, user, WEB_MAX_RESPONSE_TOKENS
             )
         assert result == WEB_MAX_RESPONSE_TOKENS
+
+
+class TestCaregiverChatPatientUnit:
+    """Caregiver chat renders the PATIENT's unit."""
+
+    @pytest.mark.asyncio
+    @patch("src.services.telegram_chat.build_diabetes_context", new_callable=AsyncMock)
+    @patch("src.services.telegram_chat.get_ai_client", new_callable=AsyncMock)
+    async def test_context_built_in_patient_unit(self, mock_get_client, mock_context):
+        """The context is built for the PATIENT in the PATIENT's unit, never
+        the caregiver's."""
+        mock_context.return_value = "[Glucose]\n- Current: 6.7 mmol/L (stable)"
+        mock_client = AsyncMock()
+        mock_client.generate.return_value = make_ai_response("Looks stable.")
+        mock_get_client.return_value = mock_client
+
+        patient = make_user()
+        patient.glucose_unit = GlucoseUnit.MMOL
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = patient
+        db = AsyncMock()
+        db.execute.return_value = mock_result
+
+        await handle_caregiver_chat(db, uuid.uuid4(), patient.id, "How is my patient?")
+
+        mock_context.assert_awaited_once()
+        args, kwargs = mock_context.call_args
+        assert args[1] == patient.id  # context built for the patient
+        assert kwargs["unit"] == GlucoseUnit.MMOL  # in the patient's unit
+
+    @pytest.mark.asyncio
+    @patch("src.services.telegram_chat.build_diabetes_context", new_callable=AsyncMock)
+    @patch("src.services.telegram_chat.get_ai_client", new_callable=AsyncMock)
+    async def test_web_context_built_in_patient_unit(
+        self, mock_get_client, mock_context
+    ):
+        """The web caregiver chat builds context in the PATIENT's unit too --
+        the seam where the dashboard caregiver view resolves the patient's
+        preference, distinct from the Telegram path above."""
+        mock_context.return_value = "[Glucose]\n- Current: 6.7 mmol/L (stable)"
+        mock_client = AsyncMock()
+        mock_client.generate.return_value = make_ai_response("Looks stable.")
+        mock_get_client.return_value = mock_client
+
+        patient = make_user()
+        patient.glucose_unit = GlucoseUnit.MMOL
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = patient
+        db = AsyncMock()
+        db.execute.return_value = mock_result
+
+        await handle_caregiver_chat_web(
+            db, uuid.uuid4(), patient.id, "How is my patient?"
+        )
+
+        mock_context.assert_awaited_once()
+        args, kwargs = mock_context.call_args
+        assert args[1] == patient.id  # context built for the patient
+        assert kwargs["unit"] == GlucoseUnit.MMOL  # in the patient's unit

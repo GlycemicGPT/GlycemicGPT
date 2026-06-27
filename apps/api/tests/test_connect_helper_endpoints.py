@@ -128,6 +128,8 @@ async def test_helper_sh_renders_with_substituted_values():
     assert "helper-binary?os=$OS&arch=$ARCH" in body
     assert "helper-binary?os=$OS&arch=$ARCH&pair=" not in body
     assert '-H "X-Connect-Pair-Token: $PAIR"' in body
+    # Extra flags (e.g. `bash -s -- --browser /path`) forward to the helper.
+    assert '--region "$REGION" "$@"' in body
     # Caches must not serve a stale tokenised script.
     assert r.headers.get("cache-control") == "no-store"
 
@@ -216,6 +218,8 @@ async def test_helper_ps1_renders_with_powershell_quoting():
     # Binary download carries the pair token in a header, never the URL.
     assert "helper-binary?os=$OS&arch=$ARCH" in body
     assert "-Headers @{ 'X-Connect-Pair-Token' = $PAIR }" in body
+    # Extra flags (e.g. invoking the script block with --browser) forward on.
+    assert "--region $REGION @args" in body
 
 
 # --- helper-binary: gating + os/arch allowlist + missing-file 404 ---
@@ -352,6 +356,9 @@ async def test_install_sh_renders_bundle_values():
     assert f"PAIR='{data['pairing_token']}'" in body
     assert "USERNAME='u@x.test'" in body
     assert "REGION='US'" in body
+    # The endpoint the web card actually uses must also forward extra flags
+    # (e.g. `bash -s -- --browser /path`) through to the helper.
+    assert '--region "$REGION" "$@"' in body
     assert r.headers.get("cache-control") == "no-store"
 
 
@@ -370,6 +377,8 @@ async def test_install_ps1_renders_bundle_values_with_ps_quoting():
     assert "$REGION = 'EU'" in body
     # PowerShell single-quote escape: ' -> ''
     assert "$USERNAME = 'evil''; Remove-Item C:\\'" in body
+    # The install endpoint must forward extra flags (--browser) to the helper.
+    assert "--region $REGION @args" in body
 
 
 async def test_install_sh_404_on_unknown_handle():

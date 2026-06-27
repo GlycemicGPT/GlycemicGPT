@@ -1,7 +1,8 @@
 /**
  * Tests for the food-records API client (api.ts), exercised through a mocked
  * global.fetch (mirrors __tests__/api-fetch.test.ts). Covers list/detail/delete,
- * the multipart upload, the meal-intelligence probe, and owner-scoped errors.
+ * the multipart upload, the meal-intelligence setting update, and owner-scoped
+ * errors.
  */
 
 // Force module scope: this file uses in-test `require()` rather than top-level
@@ -331,37 +332,31 @@ describe("deleteFoodRecord", () => {
   });
 });
 
-describe("getMealIntelligenceStatus", () => {
-  it("reports enabled on a successful probe", async () => {
-    global.fetch = jest
+describe("updateMealIntelligence", () => {
+  it("PATCHes the per-user setting and returns the parsed body", async () => {
+    const mockFetch = jest
       .fn()
-      .mockResolvedValue(jsonResponse(200, { records: [], total: 0 }));
-    const { getMealIntelligenceStatus } = require("@/lib/api");
-    expect(await getMealIntelligenceStatus()).toEqual({ enabled: true });
+      .mockResolvedValue(jsonResponse(200, { enabled: false }));
+    global.fetch = mockFetch;
+
+    const { updateMealIntelligence } = require("@/lib/api");
+    const result = await updateMealIntelligence(false);
+
+    expect(result).toEqual({ enabled: false });
+    expect(mockFetch).toHaveBeenCalledWith(
+      "/api/settings/meal-intelligence",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ enabled: false }),
+      })
+    );
   });
 
-  it("reports disabled only on a 404 whose detail says 'not enabled'", async () => {
+  it("throws the server detail on a non-ok response", async () => {
     global.fetch = jest
       .fn()
-      .mockResolvedValue(
-        jsonResponse(404, { detail: "Meal intelligence is not enabled." })
-      );
-    const { getMealIntelligenceStatus } = require("@/lib/api");
-    expect(await getMealIntelligenceStatus()).toEqual({ enabled: false });
-  });
-
-  it("treats a transient/other failure as available (degraded, never hides the feature)", async () => {
-    const { getMealIntelligenceStatus: viaServerError } = (() => {
-      global.fetch = jest
-        .fn()
-        .mockResolvedValue(jsonResponse(500, { detail: "boom" }));
-      return require("@/lib/api");
-    })();
-    expect(await viaServerError()).toEqual({ enabled: true });
-
-    jest.resetModules();
-    global.fetch = jest.fn().mockRejectedValue(new Error("network down"));
-    const { getMealIntelligenceStatus: viaNetwork } = require("@/lib/api");
-    expect(await viaNetwork()).toEqual({ enabled: true });
+      .mockResolvedValue(jsonResponse(403, { detail: "Forbidden" }));
+    const { updateMealIntelligence } = require("@/lib/api");
+    await expect(updateMealIntelligence(true)).rejects.toThrow("Forbidden");
   });
 });

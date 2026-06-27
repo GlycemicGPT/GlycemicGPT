@@ -23,15 +23,35 @@ class SuggestionType(str, enum.Enum):
 
     CARB_RATIO = "carb_ratio"
     CORRECTION_FACTOR = "correction_factor"
+    # A glucose figure the model spoke that does not trace to a logged reading
+    # (rounding-tolerant). Not a ratio/factor change: its FlaggedSuggestion's
+    # ``original_value``/``suggested_value`` carry the spoken value and nearest
+    # reading, both in canonical mg/dL, and ``change_pct`` is unused (0).
+    GLUCOSE_CITATION = "glucose_citation"
 
 
 class FlaggedSuggestion(BaseModel):
     """A single flagged suggestion extracted from AI output."""
 
     suggestion_type: SuggestionType
-    original_value: float = Field(..., description="Original ratio/factor value")
-    suggested_value: float = Field(..., description="Suggested ratio/factor value")
-    change_pct: float = Field(..., description="Percentage change from original")
+    original_value: float = Field(
+        ...,
+        description=(
+            "For ratio/factor types, the original value; for GLUCOSE_CITATION, "
+            "the spoken glucose value in canonical mg/dL"
+        ),
+    )
+    suggested_value: float = Field(
+        ...,
+        description=(
+            "For ratio/factor types, the suggested value; for GLUCOSE_CITATION, "
+            "the nearest logged reading in canonical mg/dL"
+        ),
+    )
+    change_pct: float = Field(
+        ...,
+        description="Percentage change from original (0 for GLUCOSE_CITATION)",
+    )
     max_allowed_pct: float = Field(
         default=20.0, description="Maximum allowed percentage change"
     )

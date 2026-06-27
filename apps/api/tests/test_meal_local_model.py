@@ -64,8 +64,8 @@ def _vision(desc: str, low: float, high: float, confidence: str = "high") -> str
 
 @pytest.fixture(autouse=True)
 def _enable(tmp_path, monkeypatch):
+    # Meal intelligence is per-user and defaults ON for the provisioned user.
     monkeypatch.setattr(settings, "upload_dir", str(tmp_path / "uploads"))
-    monkeypatch.setattr(settings, "meal_intelligence_enabled", True)
     monkeypatch.setattr(settings, "meal_estimate_sample_count", 3)
     monkeypatch.setattr(settings, "usda_fdc_api_key", "")
     monkeypatch.setattr(settings, "open_food_facts_enabled", False)

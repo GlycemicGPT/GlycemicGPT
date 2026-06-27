@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from src.core.units import GlucoseUnit
 from src.models.alert import Alert, AlertSeverity, AlertType
 from src.models.daily_brief import DailyBrief
 from src.models.glucose import GlucoseReading, TrendDirection
@@ -176,6 +177,17 @@ class TestGetUserIdByChatId:
 class TestHandleStatus:
     """Tests for _handle_status."""
 
+    @pytest.fixture(autouse=True)
+    def _mgdl_unit(self):
+        # _handle_status resolves the patient's unit before rendering; default it
+        # to mg/dL so the existing assertions check a real resolved unit rather
+        # than passing on MagicMock truthiness. The mmol test overrides this.
+        with patch(
+            "src.services.telegram_commands.resolve_glucose_unit",
+            new=AsyncMock(return_value=GlucoseUnit.MGDL),
+        ):
+            yield
+
     @pytest.mark.asyncio
     @patch(
         "src.services.telegram_commands.get_user_dia",
@@ -278,6 +290,33 @@ class TestHandleStatus:
 
         assert "falling" in msg.lower()
 
+    @pytest.mark.asyncio
+    @patch(
+        "src.services.telegram_commands.resolve_glucose_unit",
+        new=AsyncMock(return_value=GlucoseUnit.MMOL),
+    )
+    @patch(
+        "src.services.telegram_commands.get_user_dia",
+        new_callable=AsyncMock,
+        return_value=4.0,
+    )
+    @patch("src.services.telegram_commands.get_iob_projection", new_callable=AsyncMock)
+    async def test_renders_mmol_unit(self, mock_iob, mock_dia):
+        """An mmol/L patient's /status renders glucose in mmol (120 -> 6.7);
+        mg/dL must not appear."""
+        mock_iob.return_value = None
+
+        reading = make_reading(value=120, trend_rate=0.5)
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = reading
+        db = AsyncMock()
+        db.execute.return_value = mock_result
+
+        msg = await _handle_status(db, uuid.uuid4())
+
+        assert "6.7 mmol/L" in msg
+        assert "mg/dL" not in msg
+
 
 # ---------------------------------------------------------------------------
 # /acknowledge command tests
@@ -367,6 +406,10 @@ class TestHandleBrief:
     """Tests for _handle_brief."""
 
     @pytest.mark.asyncio
+    @patch(
+        "src.services.telegram_commands.resolve_glucose_unit",
+        new=AsyncMock(return_value=GlucoseUnit.MGDL),
+    )
     @patch("src.services.telegram_commands.list_briefs", new_callable=AsyncMock)
     @patch("src.services.telegram_commands.format_brief_message")
     async def test_latest_brief_returned(self, mock_format, mock_list):
@@ -377,7 +420,7 @@ class TestHandleBrief:
         msg = await _handle_brief(AsyncMock(), uuid.uuid4())
 
         assert "Daily Brief" in msg
-        mock_format.assert_called_once_with(brief)
+        mock_format.assert_called_once_with(brief, GlucoseUnit.MGDL)
 
     @pytest.mark.asyncio
     @patch("src.services.telegram_commands.list_briefs", new_callable=AsyncMock)
@@ -389,6 +432,10 @@ class TestHandleBrief:
         assert "No daily briefs" in msg
 
     @pytest.mark.asyncio
+    @patch(
+        "src.services.telegram_commands.resolve_glucose_unit",
+        new=AsyncMock(return_value=GlucoseUnit.MGDL),
+    )
     @patch("src.services.telegram_commands.list_briefs", new_callable=AsyncMock)
     @patch("src.services.telegram_commands.format_brief_message")
     async def test_reuses_format_brief_message(self, mock_format, mock_list):
@@ -398,7 +445,7 @@ class TestHandleBrief:
 
         await _handle_brief(AsyncMock(), uuid.uuid4())
 
-        mock_format.assert_called_once_with(brief)
+        mock_format.assert_called_once_with(brief, GlucoseUnit.MGDL)
 
 
 # ---------------------------------------------------------------------------

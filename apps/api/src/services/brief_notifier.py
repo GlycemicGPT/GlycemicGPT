@@ -10,6 +10,7 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.units import GlucoseUnit, format_glucose
 from src.logging_config import get_logger
 from src.models.brief_delivery_config import DeliveryChannel
 from src.models.daily_brief import DailyBrief
@@ -46,13 +47,17 @@ def _truncate(text: str, max_len: int = 150) -> str:
     return text[: max_len - 1] + "\u2026"
 
 
-def format_brief_message(brief: DailyBrief) -> str:
+def format_brief_message(
+    brief: DailyBrief,
+    unit: GlucoseUnit = GlucoseUnit.MGDL,
+) -> str:
     """Format a DailyBrief into a concise HTML Telegram message.
 
     The message is kept under 500 characters for readability.
 
     Args:
         brief: The DailyBrief model instance.
+        unit: The patient's glucose display unit; the average renders in it.
 
     Returns:
         HTML-formatted message string for Telegram.
@@ -63,7 +68,7 @@ def format_brief_message(brief: DailyBrief) -> str:
         f"{emoji} <b>Daily Brief</b>",
         "",
         f"\U0001f3af <b>TIR:</b> {brief.time_in_range_pct:.0f}%"
-        f"  |  <b>Avg:</b> {brief.average_glucose:.0f} mg/dL",
+        f"  |  <b>Avg:</b> {format_glucose(brief.average_glucose, unit)}",
     ]
 
     # Low/high counts on one compact line
@@ -90,6 +95,7 @@ async def notify_user_of_brief(
     db: AsyncSession,
     user_id: uuid.UUID,
     brief: DailyBrief,
+    unit: GlucoseUnit = GlucoseUnit.MGDL,
 ) -> bool:
     """Send a Telegram notification with the daily brief summary.
 
@@ -100,6 +106,7 @@ async def notify_user_of_brief(
         db: Database session (for looking up TelegramLink).
         user_id: The user's UUID.
         brief: The generated DailyBrief instance.
+        unit: The patient's glucose display unit for the rendered message.
 
     Returns:
         True if the message was sent successfully, False otherwise.
@@ -123,7 +130,7 @@ async def notify_user_of_brief(
         return False
 
     try:
-        message = format_brief_message(brief)
+        message = format_brief_message(brief, unit)
         await send_message(link.chat_id, message)
         logger.info(
             "Telegram daily brief sent",

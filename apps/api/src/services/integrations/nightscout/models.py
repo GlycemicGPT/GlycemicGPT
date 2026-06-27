@@ -21,7 +21,7 @@ on-the-wire reality from the internal-ORM mapping (PR2).
    (Loop-specific asymmetry, verified 2026-05-06 against
    `LoopKit/NightscoutKit OverrideTreatment.swift:62-70` vs
    `OverrideStatus.swift:44-46`). `utcOffset` is minutes (not ms).
-   Glucose conversion factor is 18.02.
+   Glucose conversion factor is shared from `src.core.units`.
 
 4. **Detect uploader from `device` + `enteredBy` (case-insensitive,
    superset of `nightscout-reporter`'s heuristic).** Reporter does NOT
@@ -43,10 +43,12 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-# Glucose conversion factor (mg/dL ↔ mmol/L). Derived from glucose
-# molecular weight 180.16 / 10. Matches AAPS and nightscout-reporter
-# conventions per `mapping/nightscout-reporter/unit-conversion.md`.
-MGDL_PER_MMOL = 18.02
+from src.core.units import MGDL_PER_MMOL as _MGDL_PER_MMOL
+
+# Re-exported so existing call sites/tests can keep referencing
+# `nightscout.models.MGDL_PER_MMOL`; the single source of truth is
+# `src.core.units`.
+MGDL_PER_MMOL = _MGDL_PER_MMOL
 
 # Glucose gap rule. Per `mapping/nightscout-reporter/README.md §Glucose
 # Gaps`: SGV outside [20, 1000] mg/dL is treated as a sensor gap, not a

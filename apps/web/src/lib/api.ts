@@ -4,7 +4,10 @@
  * Story 1.3: First-Run Safety Disclaimer
  * Story 15.1: Authentication API functions
  * Story 15.4: Global 401 handling via apiFetch wrapper
+ * Glucose unit preference on the current user + update endpoint
  */
+
+import type { GlucoseUnit, GlucoseUnitSource } from "./glucose-units";
 
 /**
  * Resolve the API base URL.
@@ -1210,6 +1213,27 @@ export interface CurrentUserResponse {
   // an older disclaimer version, so the gate re-prompts on a version bump.
   disclaimer_acknowledged: boolean;
   disclaimer_version: string | null;
+  /**
+   * Preferred glucose display unit. Read from /api/auth/me.
+   * Optional so a transient deploy skew (web bundle hitting an older API that
+   * predates the glucose-unit backend) is type-safe; callers default to "mgdl" (see
+   * `useGlucoseUnit`) so existing mg/dL behavior is preserved.
+   */
+  glucose_unit?: GlucoseUnit;
+  /**
+   * Provenance of `glucose_unit`. `"seed"` means a smart default (registration
+   * locale / confident Nightscout) that the user hasn't confirmed yet; the
+   * dashboard shows a one-time notice when it is `"seed"` and the unit is
+   * non-mgdl. Optional for deploy skew against an older API.
+   */
+  glucose_unit_source?: GlucoseUnitSource;
+  /**
+   * Whether the meal-intelligence feature is enabled for this user. Read from
+   * /api/auth/me. Optional for deploy skew against an older API that predates
+   * the per-user setting; callers default to `true` (see `useMealIntelligence`)
+   * so the feature stays visible rather than vanishing on a version mismatch.
+   */
+  meal_intelligence_enabled?: boolean;
   created_at: string;
 }
 
@@ -1265,6 +1289,86 @@ export async function updateProfile(data: {
 }
 
 /**
+ * Update the current user's glucose display unit preference.
+ *
+ * Persists via the dedicated PATCH /api/settings/glucose-unit endpoint
+ * (the backend field owner). Web-only: no profile-payload change. Callers
+ * refresh the user context afterward so dashboard display switches units.
+ */
+export async function updateGlucoseUnit(
+  glucose_unit: GlucoseUnit
+): Promise<{ glucose_unit: GlucoseUnit }> {
+  const response = await apiFetch(`${API_BASE_URL}/api/settings/glucose-unit`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ glucose_unit }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to update glucose unit: ${response.status}`
+    );
+  }
+
+  return response.json();
+}
+
+/**
+ * Enable or disable the meal-intelligence feature for the current user.
+ *
+ * Persists via the dedicated PATCH /api/settings/meal-intelligence endpoint
+ * (owner-scoped; the user is resolved from the session). Callers refresh the
+ * user context afterward so the "Meals" nav and meal surfaces appear/disappear.
+ */
+export async function updateMealIntelligence(
+  enabled: boolean
+): Promise<{ enabled: boolean }> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/settings/meal-intelligence`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled }),
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to update meal intelligence: ${response.status}`
+    );
+  }
+
+  return response.json();
+}
+
+/**
+ * Acknowledge the smart-default glucose-unit notice without changing the unit.
+ * Stamps the preference `source=user` server-side so the notice
+ * never recurs and a later seed never re-fires. Used when the user dismisses
+ * the dashboard notice without going to Settings; changing the unit there
+ * already flips the source via `updateGlucoseUnit`.
+ *
+ * Fire-and-forget: the caller refreshes the user context to pick up the new
+ * provenance, so this resolves to void rather than returning the (unused)
+ * acknowledged preference body.
+ */
+export async function acknowledgeGlucoseUnitSeed(): Promise<void> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/settings/glucose-unit/acknowledge`,
+    { method: "POST" }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to acknowledge glucose unit: ${response.status}`
+    );
+  }
+}
+
+/**
  * Change password (Story 10.2)
  */
 export async function changePassword(data: {
@@ -1310,6 +1414,11 @@ export interface CaregiverPatientStatus {
   glucose: CaregiverGlucoseData | null;
   iob: CaregiverIoBData | null;
   permissions: CaregiverPermissions;
+  /**
+   * The PATIENT's preferred display unit (never the viewing caregiver's). The
+   * glucose `value` stays canonical mg/dL; this only selects the render unit.
+   */
+  glucose_unit: GlucoseUnit;
 }
 
 export interface CaregiverGlucoseHistoryReading {
@@ -4423,8 +4532,9 @@ async function _throwMealError(response: Response): Promise<never> {
 
 /**
  * List the current user's food records, most recent meal first.
- * Owner-scoped + flag-gated server-side; a 404 whose detail says the feature is
- * "not enabled" means the global flag is off (see `getMealIntelligenceStatus`).
+ * Owner-scoped + gated server-side on the user's `meal_intelligence_enabled`
+ * preference; a 404 whose detail says the feature is "not enabled" means the
+ * user has it turned off.
  */
 export async function listFoodRecords(
   limit = 50,
@@ -4583,30 +4693,6 @@ export async function deleteFoodRecord(recordId: string): Promise<void> {
   }
 }
 
-/**
- * Resolve whether meal intelligence is enabled for the current user.
- *
- * There is no server flag endpoint: `meal_intelligence_enabled` is a global
- * deployment flag, and every meal route is hidden behind a 404 when it is off.
- * So we mirror the mobile cross-client contract and probe the list endpoint: a
- * 404 whose detail contains "not enabled" means the flag is off; success (or
- * any transient/other error) is treated as available, so a network blip never
- * hides a real feature.
- */
-export async function getMealIntelligenceStatus(): Promise<{ enabled: boolean }> {
-  try {
-    const response = await apiFetch(`${API_BASE_URL}/api/food-records?limit=1`);
-    if (response.status === 404) {
-      const detail = (await _readMealDetail(response)).toLowerCase();
-      if (detail.includes("not enabled")) return { enabled: false };
-    }
-    return { enabled: true };
-  } catch {
-    // Network/other failure: degrade to available, matching the mobile client.
-    return { enabled: true };
-  }
-}
-
 // ============================================================================
 // Common-foods management + save/link
 //
@@ -4614,8 +4700,9 @@ export async function getMealIntelligenceStatus(): Promise<{ enabled: boolean }>
 // Mirrors `CommonFoodResponse` (apps/api/src/schemas/common_food.py). It is a
 // descriptive baseline only: there is deliberately no dose/insulin field, and
 // these values never flow into IoB / treatment_safety / carb-ratio math. Every
-// endpoint is owner-scoped + flag-gated server-side (a 404 whose detail says the
-// feature is "not enabled" means the global flag is off). Failures throw
+// endpoint is owner-scoped + gated server-side on the user's meal-intelligence
+// preference (a 404 whose detail says the feature is "not enabled" means the user
+// has it turned off). Failures throw
 // `MealApiError` so callers can map status to UX (409 name-in-use, 422 range).
 // ============================================================================
 

@@ -79,6 +79,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.glycemicgpt.mobile.data.local.AlertSoundCategory
+import com.glycemicgpt.mobile.domain.format.GlucoseFormat
+import com.glycemicgpt.mobile.domain.model.GlucoseUnit
 import com.glycemicgpt.mobile.domain.plugin.PluginMetadata
 import com.glycemicgpt.mobile.plugin.RuntimePluginInfo
 import com.glycemicgpt.mobile.presentation.plugin.PluginSettingsRenderer
@@ -163,30 +165,16 @@ fun SettingsScreen(
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        // -- Meal Intelligence Section (Epic 50) --
-        SectionHeader(title = "Meal Intelligence")
-        OutlinedButton(
-            onClick = onNavigateToMealLog,
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("meal_log_button"),
-        ) {
-            Icon(
-                imageVector = Icons.Default.Restaurant,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
+        // -- Meal Intelligence Section (Epic 50) -- per-account state, so render it
+        // only when signed in (the toggle writes the local cache optimistically).
+        if (state.isLoggedIn) {
+            MealIntelligenceSection(
+                state = state,
+                onToggle = settingsViewModel::setMealIntelligenceEnabled,
+                onNavigateToMealLog = onNavigateToMealLog,
             )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("Log a meal")
+            Spacer(modifier = Modifier.height(20.dp))
         }
-        Text(
-            text = "Estimate a meal's carbs from a photo. Estimates are a guess to verify before dosing.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 4.dp),
-        )
-
-        Spacer(modifier = Modifier.height(20.dp))
 
         // -- Notifications Section --
         SectionHeader(title = "Notifications")
@@ -273,6 +261,16 @@ fun SettingsScreen(
         ThemeSection(
             currentTheme = state.themeMode,
             onThemeChange = settingsViewModel::setThemeMode,
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        GlucoseUnitsSection(
+            currentUnit = state.glucoseUnit,
+            syncError = state.glucoseUnitSyncError,
+            seedNeedsConfirm = state.seedNeedsConfirm,
+            onUnitChange = settingsViewModel::setGlucoseUnit,
+            onDismissSeedNotice = settingsViewModel::dismissGlucoseUnitSeedNotice,
         )
 
         Spacer(modifier = Modifier.height(20.dp))
@@ -1061,6 +1059,91 @@ private fun PumpSection(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun MealIntelligenceSection(
+    state: SettingsUiState,
+    onToggle: (Boolean) -> Unit,
+    onNavigateToMealLog: () -> Unit,
+) {
+    SectionHeader(title = "Meal Intelligence")
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Restaurant,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp),
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = "Meal Intelligence",
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                        Text(
+                            text = "Estimate a meal's carbs from a photo. Needs a vision-capable AI provider.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                Switch(
+                    checked = state.mealIntelligenceEnabled,
+                    onCheckedChange = onToggle,
+                    modifier = Modifier.testTag("meal_intelligence_toggle"),
+                )
+            }
+            state.mealIntelligenceSyncError?.let { syncError ->
+                Text(
+                    text = syncError,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
+        }
+    }
+    // The "Log a meal" entry point and the Home FAB are shown only when the
+    // feature is on; toggling it off hides them (the meal screen also guards
+    // itself server-side via probeAvailability).
+    if (state.mealIntelligenceEnabled) {
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = onNavigateToMealLog,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("meal_log_button"),
+        ) {
+            Icon(
+                imageVector = Icons.Default.Restaurant,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Log a meal")
+        }
+        Text(
+            text = "Estimates are a guess to verify before dosing.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp),
+        )
     }
 }
 
@@ -2065,8 +2148,10 @@ private fun WatchDataTelemetryCard(
                 )
             } else {
                 TelemetryRow(
-                    label = "Last BG sent",
-                    value = telemetry.lastBgMgDl?.let { "$it mg/dL" },
+                    // The watch is always sent the canonical mg/dL wire value, regardless of the
+                    // user's display unit; label it so this reads as a diagnostic, not a UI value.
+                    label = "Last BG sent (wire, mg/dL)",
+                    value = telemetry.lastBgMgDl?.toString(),
                     timestampMs = telemetry.lastBgTimestampMs,
                 )
                 TelemetryRow(
@@ -2184,6 +2269,101 @@ private fun BatteryOptimizationCard(
                     .testTag("disable_battery_optimization_button"),
             ) {
                 Text("Disable Battery Optimization")
+            }
+        }
+    }
+}
+
+@Composable
+private fun GlucoseUnitsSection(
+    currentUnit: GlucoseUnit,
+    syncError: String?,
+    seedNeedsConfirm: Boolean,
+    onUnitChange: (GlucoseUnit) -> Unit,
+    onDismissSeedNotice: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+        ) {
+            Text(
+                text = "Glucose Units",
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Text(
+                text = "Choose how glucose values are displayed across the app",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (seedNeedsConfirm) {
+                // One-time smart-default notice: the unit was guessed from the
+                // user's region or Nightscout and hasn't been confirmed. Never blocks the UI.
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("glucose_unit_seed_notice"),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Info,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "We set this to ${GlucoseFormat.label(currentUnit)} based on your " +
+                            "region or your Nightscout. Change it anytime below.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(
+                        onClick = onDismissSeedNotice,
+                        modifier = Modifier.testTag("glucose_unit_seed_dismiss"),
+                    ) {
+                        Text("Got it")
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                GlucoseUnit.entries.forEach { unit ->
+                    val testTag = when (unit) {
+                        GlucoseUnit.MGDL -> "glucose_unit_mgdl"
+                        GlucoseUnit.MMOL -> "glucose_unit_mmol"
+                    }
+                    OutlinedButton(
+                        onClick = { onUnitChange(unit) },
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag(testTag),
+                        colors = if (currentUnit == unit) {
+                            ButtonDefaults.outlinedButtonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary,
+                            )
+                        } else {
+                            ButtonDefaults.outlinedButtonColors()
+                        },
+                    ) {
+                        Text(GlucoseFormat.label(unit), style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+            }
+            if (syncError != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = syncError,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
             }
         }
     }

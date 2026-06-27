@@ -44,9 +44,9 @@ def _load(category: str, name: str) -> dict:
 
 class TestConstants:
     def test_mgdl_per_mmol_factor(self):
-        # Synthesis §2.6: 18.02 (not 18.0); derived from glucose
-        # molecular weight 180.16/10. Match Reporter + AAPS conventions.
-        assert MGDL_PER_MMOL == 18.02
+        # Rebaselined from the translator-local 18.02 to the project-wide
+        # mmol/L support constant (exact molar-mass factor 18.0156).
+        assert MGDL_PER_MMOL == 18.0156
 
     def test_sgv_gap_bounds(self):
         assert SGV_MIN_VALID == 20

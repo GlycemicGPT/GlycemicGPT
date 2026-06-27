@@ -1,6 +1,7 @@
 package com.glycemicgpt.mobile.wear
 
 import android.content.Context
+import com.glycemicgpt.mobile.domain.model.GlucoseUnit
 import com.google.android.gms.wearable.PutDataMapRequest
 import com.google.android.gms.wearable.Wearable
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -41,12 +42,14 @@ class WearDataSender @Inject constructor(
         high: Int,
         urgentLow: Int,
         urgentHigh: Int,
+        unit: GlucoseUnit,
     ) {
         try {
             val request = PutDataMapRequest.create(WearDataContract.CGM_PATH).apply {
                 dataMap.putInt(WearDataContract.KEY_CGM_MG_DL, mgDl)
                 dataMap.putString(WearDataContract.KEY_CGM_TREND, trend)
                 dataMap.putLong(WearDataContract.KEY_CGM_TIMESTAMP, timestampMs)
+                dataMap.putString(WearDataContract.KEY_GLUCOSE_UNIT, unit.wireValue)
                 dataMap.putInt(WearDataContract.KEY_GLUCOSE_LOW, low)
                 dataMap.putInt(WearDataContract.KEY_GLUCOSE_HIGH, high)
                 dataMap.putInt(WearDataContract.KEY_GLUCOSE_URGENT_LOW, urgentLow)

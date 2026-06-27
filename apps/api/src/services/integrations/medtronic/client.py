@@ -75,6 +75,13 @@ class CareLinkAuthError(CareLinkError):
     """401/403 from CareLink -- the session/bearer is invalid or expired."""
 
 
+class CareLinkTransportError(CareLinkError):
+    """A network/transport-level failure reaching CareLink (DNS, TLS, connection
+    timeout, etc.). Distinguished from ``CareLinkError`` so callers can tell a
+    true connectivity failure from a reachable-host that returned a bad
+    response (4xx/5xx, unexpected body shape, etc.)."""
+
+
 class CareLinkReportTimeoutError(CareLinkError):
     """The CSV-export job did not become ready within the poll budget."""
 
@@ -175,7 +182,7 @@ class CareLinkClient:
                     **kwargs,
                 )
             except httpx.HTTPError as e:
-                raise CareLinkError(
+                raise CareLinkTransportError(
                     f"CareLink network error on {method} {path}: {e}"
                 ) from e
 

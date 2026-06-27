@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from src.core.units import GlucoseUnit
 from src.models.caregiver_link import CaregiverLink
 from src.models.glucose import GlucoseReading, TrendDirection
 from src.models.user import User, UserRole
@@ -26,12 +27,14 @@ from src.services.telegram_caregiver import (
 def make_user(
     role: UserRole = UserRole.DIABETIC,
     email: str = "patient@example.com",
+    glucose_unit: GlucoseUnit = GlucoseUnit.MGDL,
 ) -> MagicMock:
     """Create a mock User."""
     user = MagicMock(spec=User)
     user.id = uuid.uuid4()
     user.email = email
     user.role = role
+    user.glucose_unit = glucose_unit
     return user
 
 
@@ -155,6 +158,34 @@ class TestHandleCaregiverStatus:
         assert "110 mg/dL" in result
         assert "200 mg/dL" in result
         assert "Linked Patients" in result
+
+    @pytest.mark.asyncio
+    @patch(
+        "src.services.dexcom_sync.get_latest_glucose_reading", new_callable=AsyncMock
+    )
+    @patch("src.services.caregiver.check_caregiver_permission", new_callable=AsyncMock)
+    async def test_multiple_patients_each_in_own_unit(self, mock_perm, mock_glucose):
+        """Each patient's glucose renders in THAT patient's own unit within the
+        same status message -- a regression to one shared unit must fail here."""
+        mock_perm.return_value = True
+        patient_mgdl = make_user(
+            email="alice@example.com", glucose_unit=GlucoseUnit.MGDL
+        )
+        patient_mmol = make_user(email="bob@example.com", glucose_unit=GlucoseUnit.MMOL)
+        caregiver_id = uuid.uuid4()
+        link1 = make_link(caregiver_id=caregiver_id, patient=patient_mgdl)
+        link2 = make_link(caregiver_id=caregiver_id, patient=patient_mmol)
+
+        # Same stored mg/dL value (200) so only the per-patient unit differs.
+        mock_glucose.side_effect = [make_reading(value=200), make_reading(value=200)]
+
+        db = AsyncMock()
+        result = await _handle_caregiver_status(db, caregiver_id, [link1, link2])
+
+        assert "alice@example.com" in result
+        assert "200 mg/dL" in result  # mg/dL patient
+        assert "bob@example.com" in result
+        assert "11.1 mmol/L" in result  # mmol patient: 200 -> 11.1
 
     @pytest.mark.asyncio
     @patch(

@@ -45,7 +45,7 @@ export function CollapsibleSection({
         aria-controls={contentId}
         className={clsx(
           "flex items-center justify-between w-full text-left",
-          "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-inset",
+          "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-inset",
           isSection
             ? "px-6 py-4 rounded-xl"
             : "px-4 py-3 rounded-lg"

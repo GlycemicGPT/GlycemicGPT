@@ -9,6 +9,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from src.config import settings
+from src.core.units import GlucoseUnit
 from src.main import app
 from src.models.ai_provider import AIProviderType
 from src.schemas.ai_response import AIResponse, AIUsage
@@ -18,6 +19,7 @@ from src.services.daily_brief import (
     LOW_THRESHOLD,
     MIN_READINGS,
     _build_analysis_prompt,
+    _build_system_prompt,
     calculate_metrics,
 )
 
@@ -263,6 +265,46 @@ class TestBuildAnalysisPrompt:
         assert "4" in prompt  # corrections
         assert "35.2 units" in prompt
 
+    def test_prompt_mgdl_unchanged_from_legacy(self):
+        """mg/dL output is byte-identical to the pre-unit format (default unit)."""
+        metrics = DailyBriefMetrics(
+            time_in_range_pct=75.5,
+            average_glucose=142.3,
+            low_count=2,
+            high_count=5,
+            readings_count=288,
+            correction_count=4,
+            total_insulin=35.2,
+        )
+
+        prompt = _build_analysis_prompt(metrics, 24, unit=GlucoseUnit.MGDL)
+
+        assert "- Average glucose: 142 mg/dL" in prompt
+        assert "- Time in range (70-180): 75.5%" in prompt
+        assert "- Low readings (<70): 2" in prompt
+        assert "- High readings (>180): 5" in prompt
+
+    def test_prompt_renders_mmol_unit(self):
+        """mmol/L users see the average and anchors converted; mg/dL never
+        leaks. 145 -> 8.0, 70 -> 3.9, 180 -> 10.0."""
+        metrics = DailyBriefMetrics(
+            time_in_range_pct=75.5,
+            average_glucose=145.0,
+            low_count=2,
+            high_count=5,
+            readings_count=288,
+            correction_count=4,
+            total_insulin=35.2,
+        )
+
+        prompt = _build_analysis_prompt(metrics, 24, unit=GlucoseUnit.MMOL)
+
+        assert "- Average glucose: 8.0 mmol/L" in prompt
+        assert "- Time in range (3.9-10.0): 75.5%" in prompt
+        assert "- Low readings (<3.9): 2" in prompt
+        assert "- High readings (>10.0): 5" in prompt
+        assert "mg/dL" not in prompt
+
     def test_prompt_without_insulin_data(self):
         """Test that insulin line is omitted when data is None."""
         metrics = DailyBriefMetrics(
@@ -326,6 +368,15 @@ class TestBuildAnalysisPrompt:
         assert "never as dosing inputs" in lowered
         assert "never suggest a dose" in lowered
 
+    def test_system_prompt_states_user_unit(self):
+        """The brief's system prompt names the user's report unit."""
+        assert "Report all glucose values in mg/dL" in _build_system_prompt(
+            GlucoseUnit.MGDL
+        )
+        assert "Report all glucose values in mmol/L" in _build_system_prompt(
+            GlucoseUnit.MMOL
+        )
+
 
 class TestGenerateDailyBrief:
     """Tests for the generate_daily_brief service function."""
@@ -357,7 +408,11 @@ class TestGenerateDailyBrief:
         mock_client.generate.return_value = _mock_ai_response()
         mock_get_client.return_value = mock_client
 
-        mock_user = SimpleNamespace(id=uuid.uuid4())
+        mock_user = SimpleNamespace(
+            id=uuid.uuid4(),
+            glucose_unit=GlucoseUnit.MGDL,
+            meal_intelligence_enabled=False,
+        )
         mock_db = AsyncMock()
 
         brief = await generate_daily_brief(mock_user, mock_db, hours=24)
@@ -376,6 +431,79 @@ class TestGenerateDailyBrief:
         assert mock_db.add.call_count == 2  # brief + safety log
         mock_db.flush.assert_called_once()
         mock_db.commit.assert_called_once()
+
+    @patch("src.services.daily_brief.format_meals_for_brief", new_callable=AsyncMock)
+    @patch("src.services.daily_brief.notify_user_of_brief", new_callable=AsyncMock)
+    @patch("src.services.daily_brief.get_ai_client")
+    @patch("src.services.daily_brief.calculate_metrics")
+    @patch(
+        "src.services.daily_brief.get_excluded_cgm_sources",
+        new=AsyncMock(return_value=[]),
+    )
+    async def test_meal_section_included_when_user_enabled(
+        self, mock_calc, mock_get_client, mock_notify, mock_meals
+    ):
+        """The per-user gate ON -> the logged-meals section is fetched for the brief."""
+        from src.services.daily_brief import generate_daily_brief
+
+        mock_calc.return_value = DailyBriefMetrics(
+            time_in_range_pct=72.5,
+            average_glucose=145.0,
+            low_count=1,
+            high_count=8,
+            readings_count=288,
+            correction_count=5,
+            total_insulin=40.0,
+        )
+        mock_client = AsyncMock()
+        mock_client.generate.return_value = _mock_ai_response()
+        mock_get_client.return_value = mock_client
+        mock_meals.return_value = "[Logged meals]\n- sentinel meal"
+        mock_user = SimpleNamespace(
+            id=uuid.uuid4(),
+            glucose_unit=GlucoseUnit.MGDL,
+            meal_intelligence_enabled=True,
+        )
+
+        await generate_daily_brief(mock_user, AsyncMock(), hours=24)
+
+        mock_meals.assert_called_once()
+
+    @patch("src.services.daily_brief.format_meals_for_brief", new_callable=AsyncMock)
+    @patch("src.services.daily_brief.notify_user_of_brief", new_callable=AsyncMock)
+    @patch("src.services.daily_brief.get_ai_client")
+    @patch("src.services.daily_brief.calculate_metrics")
+    @patch(
+        "src.services.daily_brief.get_excluded_cgm_sources",
+        new=AsyncMock(return_value=[]),
+    )
+    async def test_meal_section_suppressed_when_user_disabled(
+        self, mock_calc, mock_get_client, mock_notify, mock_meals
+    ):
+        """The per-user gate OFF -> the logged-meals section is never fetched."""
+        from src.services.daily_brief import generate_daily_brief
+
+        mock_calc.return_value = DailyBriefMetrics(
+            time_in_range_pct=72.5,
+            average_glucose=145.0,
+            low_count=1,
+            high_count=8,
+            readings_count=288,
+            correction_count=5,
+            total_insulin=40.0,
+        )
+        mock_client = AsyncMock()
+        mock_client.generate.return_value = _mock_ai_response()
+        mock_get_client.return_value = mock_client
+        mock_user = SimpleNamespace(
+            id=uuid.uuid4(),
+            glucose_unit=GlucoseUnit.MGDL,
+            meal_intelligence_enabled=False,
+        )
+
+        await generate_daily_brief(mock_user, AsyncMock(), hours=24)
+
+        mock_meals.assert_not_called()
 
     @patch("src.services.daily_brief.calculate_metrics")
     @patch(
@@ -397,7 +525,11 @@ class TestGenerateDailyBrief:
             correction_count=0,
         )
 
-        mock_user = SimpleNamespace(id=uuid.uuid4())
+        mock_user = SimpleNamespace(
+            id=uuid.uuid4(),
+            glucose_unit=GlucoseUnit.MGDL,
+            meal_intelligence_enabled=False,
+        )
         mock_db = AsyncMock()
 
         with pytest.raises(HTTPException) as exc_info:
@@ -429,7 +561,11 @@ class TestGenerateDailyBrief:
         mock_client.generate.side_effect = RuntimeError("AI provider failed")
         mock_get_client.return_value = mock_client
 
-        mock_user = SimpleNamespace(id=uuid.uuid4())
+        mock_user = SimpleNamespace(
+            id=uuid.uuid4(),
+            glucose_unit=GlucoseUnit.MGDL,
+            meal_intelligence_enabled=False,
+        )
         mock_db = AsyncMock()
 
         with pytest.raises(RuntimeError, match="AI provider failed"):
@@ -461,7 +597,11 @@ class TestGenerateDailyBrief:
         mock_client.generate.return_value = _mock_ai_response()
         mock_get_client.return_value = mock_client
 
-        mock_user = SimpleNamespace(id=uuid.uuid4())
+        mock_user = SimpleNamespace(
+            id=uuid.uuid4(),
+            glucose_unit=GlucoseUnit.MGDL,
+            meal_intelligence_enabled=False,
+        )
         mock_db = AsyncMock()
 
         brief = await generate_daily_brief(mock_user, mock_db, hours=48)

@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from src.core.units import GlucoseUnit
 from src.models.brief_delivery_config import DeliveryChannel
 from src.models.daily_brief import DailyBrief
 from src.services.brief_notifier import (
@@ -122,6 +123,13 @@ class TestFormatBriefMessage:
         brief = make_brief(avg=145.6)
         msg = format_brief_message(brief)
         assert "146 mg/dL" in msg
+
+    def test_avg_glucose_renders_mmol(self):
+        """The average converts to the patient's unit (145.6 -> 8.1)."""
+        brief = make_brief(avg=145.6)
+        msg = format_brief_message(brief, GlucoseUnit.MMOL)
+        assert "8.1 mmol/L" in msg
+        assert "mg/dL" not in msg
 
     def test_contains_low_count(self):
         brief = make_brief(lows=3, highs=0)

@@ -21,18 +21,27 @@ import {
   formatTimeAgo,
   formatCountdown,
 } from "@/lib/alert-utils";
+import {
+  formatGlucose,
+  formatTrendRate,
+  unitLabel,
+  type GlucoseUnit,
+} from "@/lib/glucose-units";
 import { EscalationTimeline } from "./escalation-timeline";
 
 export interface AlertCardProps {
   alert: PredictiveAlert;
   onAcknowledge: (alertId: string) => Promise<void>;
   isAcknowledging?: boolean;
+  /** Active glucose display unit (default mgdl). Values stay mg/dL internally. */
+  unit?: GlucoseUnit;
 }
 
 export function AlertCard({
   alert,
   onAcknowledge,
   isAcknowledging = false,
+  unit = "mgdl",
 }: AlertCardProps) {
   const config = SEVERITY_CONFIG[alert.severity] ?? SEVERITY_CONFIG.info;
   const Icon = getAlertIcon(alert.alert_type);
@@ -96,25 +105,32 @@ export function AlertCard({
       <div className="flex items-baseline gap-4 mb-3">
         <div>
           <span className={clsx("text-2xl font-bold", config.text)}>
-            {alert.current_value}
+            {formatGlucose(alert.current_value, unit)}
           </span>
-          <span className="text-sm text-slate-400 ml-1">mg/dL</span>
+          <span className="text-sm text-slate-400 ml-1">{unitLabel(unit)}</span>
         </div>
         {alert.predicted_value != null && alert.prediction_minutes != null && (
           <div className="text-sm text-slate-400">
             <span className="mr-1">&rarr;</span>
             <span className={clsx("font-medium", config.text)}>
-              {alert.predicted_value}
+              {formatGlucose(alert.predicted_value, unit)}
             </span>
             <span className="ml-1">
-              mg/dL in {alert.prediction_minutes}min
+              {unitLabel(unit)} in {alert.prediction_minutes}min
             </span>
           </div>
         )}
       </div>
 
-      {/* Message / Recommended action */}
-      <p className={clsx("text-sm mb-3", config.text)}>{alert.message}</p>
+      {/* The glucose value/prediction is already rendered live, in the active
+          unit, in the block above — so no message echo is shown for glucose
+          alerts (and the persisted mg/dL string is never the display source on a
+          mmol surface). IoB warnings are the exception: their threshold context
+          lives only in the message, and it is in insulin units, so it is never
+          unit-stale and is shown verbatim. */}
+      {alert.alert_type === "iob_warning" && (
+        <p className={clsx("text-sm mb-3", config.text)}>{alert.message}</p>
+      )}
 
       {/* Metadata */}
       <div className="flex items-center gap-4 mb-4 text-xs text-slate-500">
@@ -128,7 +144,7 @@ export function AlertCard({
         {alert.trend_rate != null && (
           <span>
             {alert.trend_rate > 0 ? "+" : ""}
-            {alert.trend_rate.toFixed(1)} mg/dL/min
+            {formatTrendRate(alert.trend_rate, unit)} {unitLabel(unit)}/min
           </span>
         )}
       </div>
@@ -159,7 +175,7 @@ export function AlertCard({
           "flex items-center justify-center gap-2 w-full rounded-lg",
           "min-h-[56px] px-4 py-3 text-base font-semibold",
           "transition-colors",
-          "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+          "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500",
           "disabled:opacity-50 disabled:cursor-not-allowed",
           isExpired
             ? "bg-slate-100/30 dark:bg-slate-800/30 text-slate-500"

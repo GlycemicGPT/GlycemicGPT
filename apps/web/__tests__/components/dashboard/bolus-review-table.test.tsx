@@ -342,4 +342,21 @@ describe("BolusReviewTable", () => {
       expect(screen.getByTestId("bolus-review")).toHaveClass("custom-class");
     });
   });
+
+  // BG converts to the active unit; the value stays mg/dL on the
+  // wire. 185 mg/dL -> 10.3 mmol/L.
+  describe("glucose unit", () => {
+    it("defaults to mg/dL BG", () => {
+      mockHookReturn.data = makeData();
+      renderComponent();
+      expect(screen.getByText("185 mg/dL")).toBeInTheDocument();
+    });
+
+    it("renders BG in mmol/L when unit=mmol", () => {
+      mockHookReturn.data = makeData();
+      renderComponent({ unit: "mmol" });
+      expect(screen.getByText("10.3 mmol/L")).toBeInTheDocument();
+      expect(screen.queryByText("185 mg/dL")).not.toBeInTheDocument();
+    });
+  });
 });

@@ -69,7 +69,7 @@ function StatusBadge({ status }: { status: string }) {
   return (
     <span
       className={clsx(
-        "text-[10px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded border",
+        "text-[10px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded-sm border",
         styles[status] || styles.pending
       )}
     >

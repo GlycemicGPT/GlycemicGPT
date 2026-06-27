@@ -36,12 +36,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
-import com.glycemicgpt.mobile.presentation.meal.MealFab
+import com.glycemicgpt.mobile.presentation.meal.DraggableMealFab
 import com.glycemicgpt.mobile.presentation.meal.RecentMealCard
 import com.glycemicgpt.mobile.domain.model.ConnectionState
 import com.glycemicgpt.mobile.presentation.plugin.PluginDashboardCardRenderer
@@ -71,6 +73,11 @@ fun HomeScreen(
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         if (firstResume) firstResume = false else mealViewModel.refresh()
     }
+    // Draggable meal FAB: the container size feeds the on-screen clamp; the saved placement is read
+    // once here (a per-device UI preference, not a reactive flow) and tracked in state so a drag is
+    // reflected if the FAB is hidden then shown again within this Home session.
+    var containerSizePx by remember { mutableStateOf(IntSize.Zero) }
+    var savedFabOffset by remember { mutableStateOf(mealViewModel.savedFabOffset()) }
     val connectionState by viewModel.connectionState.collectAsState()
     val cgm by viewModel.cgm.collectAsState()
     val iob by viewModel.iob.collectAsState()
@@ -98,6 +105,7 @@ fun HomeScreen(
     val pumpLabelMap by viewModel.pumpLabelMap.collectAsState()
     val showPumpLabels by viewModel.showPumpLabels.collectAsState()
     val retentionDays by viewModel.dataRetentionDays.collectAsState()
+    val glucoseUnit by viewModel.glucoseUnit.collectAsState()
 
     PullToRefreshBox(
         isRefreshing = isRefreshing,
@@ -105,7 +113,9 @@ fun HomeScreen(
             viewModel.refreshData()
             mealViewModel.refresh()
         },
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .onSizeChanged { containerSizePx = it },
     ) {
         Column(
             modifier = Modifier
@@ -128,6 +138,7 @@ fun HomeScreen(
                 battery = battery,
                 reservoir = reservoir,
                 thresholds = thresholds,
+                glucoseUnit = glucoseUnit,
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -148,6 +159,7 @@ fun HomeScreen(
                 onPeriodSelected = { viewModel.onPeriodSelected(it) },
                 thresholds = thresholds,
                 categoryLabels = categoryLabels,
+                glucoseUnit = glucoseUnit,
                 onClick = onNavigateToChartDetail,
             )
 
@@ -159,6 +171,7 @@ fun HomeScreen(
                 selectedPeriod = selectedTirPeriod,
                 onPeriodSelected = { viewModel.onTirPeriodSelected(it) },
                 thresholds = thresholds,
+                glucoseUnit = glucoseUnit,
                 maxRetentionDays = retentionDays,
             )
 
@@ -169,6 +182,7 @@ fun HomeScreen(
                 stats = cgmStats,
                 selectedPeriod = selectedCgmStatsPeriod,
                 onPeriodSelected = { viewModel.onCgmStatsPeriodSelected(it) },
+                glucoseUnit = glucoseUnit,
                 maxRetentionDays = retentionDays,
             )
 
@@ -229,14 +243,22 @@ fun HomeScreen(
             }
         }
 
-        // Extended camera FAB (Epic 50) — overlaid in the pull-to-refresh BoxScope, hidden only
-        // when the server has the feature off.
+        // Camera FAB overlaid in the pull-to-refresh BoxScope, hidden when the user's per-account
+        // meal-intelligence setting is off (instant on toggle) or the server reports it disabled.
+        // Draggable so the user can move it off the data underneath; its position persists per device.
         if (mealState.mealLoggingAvailable) {
-            MealFab(
+            DraggableMealFab(
+                containerSizePx = containerSizePx,
+                savedOffset = savedFabOffset,
                 onClick = onNavigateToMealLog,
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(16.dp),
+                onOffsetSettled = {
+                    mealViewModel.persistFabOffset(it)
+                    savedFabOffset = it
+                },
+                onReset = {
+                    mealViewModel.resetFabOffset()
+                    savedFabOffset = null
+                },
             )
         }
     }

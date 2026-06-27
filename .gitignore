@@ -75,8 +75,12 @@ backups/
 _bmad-output/
 _bmad/
 
-# Claude Code artifacts
-.claude/
+# Claude Code artifacts (settings, transcripts, credentials, todos, etc.) — never
+# committed. Ignore everything under .claude/ EXCEPT skills/, which are shared
+# project tools meant to be tracked.
+.claude/*
+!.claude/skills/
+!.claude/skills/**
 CLAUDE.md
 
 # Security testing
@@ -90,6 +94,9 @@ scripts/security/*.resolved.yaml
 # Ad-hoc debug snapshots at repo root (may contain PII captured from a live session)
 /*-snapshot.md
 /*-state.md
+
+# Local benchmark fixtures (anonymized patient data — never committed)
+apps/api/benchmarks/fixtures_local/
 
 # Playwright MCP session artifacts (local tooling, never committed)
 .playwright-mcp/

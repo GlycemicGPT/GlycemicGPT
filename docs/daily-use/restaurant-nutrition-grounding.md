@@ -7,7 +7,7 @@ When you log a meal from a **branded restaurant or fast-food chain** — say a M
 
 > **A published carb figure is still descriptive reference data — never calculate an insulin dose or bolus from it.** Restaurant numbers vary by location, size, and preparation, the figure can be out of date, and the app might have matched the wrong menu item. Treat it as a better-sourced starting point to sanity-check against your own carb counting, and always verify before dosing.
 
-This builds on [Meal Intelligence](meal-intelligence.md) and follows the same alpha, off-by-default, never-a-dose posture.
+This builds on [Meal Intelligence](meal-intelligence.md) and follows the same experimental, never-a-dose posture (it's on whenever Meal Intelligence is on).
 
 ## Reference data, not an AI guess
 

@@ -16,6 +16,7 @@ import com.glycemicgpt.mobile.data.repository.LoginResult
 import com.glycemicgpt.mobile.data.update.AppUpdateChecker
 import com.glycemicgpt.mobile.data.update.DownloadResult
 import com.glycemicgpt.mobile.data.update.UpdateCheckResult
+import com.glycemicgpt.mobile.domain.model.GlucoseUnit
 import com.glycemicgpt.mobile.data.update.UpdateInfo
 import com.glycemicgpt.mobile.data.update.WearAppUpdateChecker
 import com.glycemicgpt.mobile.wear.WatchFacePusher
@@ -37,9 +38,11 @@ import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -47,6 +50,7 @@ import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -64,6 +68,7 @@ class SettingsViewModelTest {
     private val appSettingsStore = mockk<AppSettingsStore>(relaxed = true) {
         every { backendSyncEnabled } returns true
         every { dataRetentionDays } returns 7
+        every { glucoseUnit } returns GlucoseUnit.MGDL
         every { watchFaceShowIoB } returns true
         every { watchFaceShowGraph } returns true
         every { watchFaceShowAlert } returns true
@@ -137,6 +142,171 @@ class SettingsViewModelTest {
         assertFalse(state.isPumpPaired)
         assertTrue(state.backendSyncEnabled)
         assertEquals(7, state.dataRetentionDays)
+    }
+
+    @Test
+    fun `loadState reads the cached glucose unit`() {
+        every { appSettingsStore.glucoseUnit } returns GlucoseUnit.MMOL
+        val vm = createViewModel()
+
+        assertEquals(GlucoseUnit.MMOL, vm.uiState.value.glucoseUnit)
+    }
+
+    @Test
+    fun `setGlucoseUnit optimistically caches locally and PATCHes the account`() = runTest {
+        coEvery { authRepository.updateGlucoseUnit(GlucoseUnit.MMOL) } returns
+            Result.success(GlucoseUnit.MMOL)
+        val vm = createViewModel()
+
+        vm.setGlucoseUnit(GlucoseUnit.MMOL)
+
+        verify { appSettingsStore.glucoseUnit = GlucoseUnit.MMOL }
+        coVerify { authRepository.updateGlucoseUnit(GlucoseUnit.MMOL) }
+        assertEquals(GlucoseUnit.MMOL, vm.uiState.value.glucoseUnit)
+        assertNull(vm.uiState.value.glucoseUnitSyncError)
+    }
+
+    @Test
+    fun `setGlucoseUnit folds the server-resolved unit back into state`() = runTest {
+        // Optimistically applied MMOL, but the server resolves to MGDL; the selector must reflect
+        // whatever the backend returned rather than the optimistic value.
+        coEvery { authRepository.updateGlucoseUnit(GlucoseUnit.MMOL) } returns
+            Result.success(GlucoseUnit.MGDL)
+        val vm = createViewModel()
+
+        vm.setGlucoseUnit(GlucoseUnit.MMOL)
+
+        assertEquals(GlucoseUnit.MGDL, vm.uiState.value.glucoseUnit)
+        assertNull(vm.uiState.value.glucoseUnitSyncError)
+    }
+
+    @Test
+    fun `setGlucoseUnit keeps the optimistic value and surfaces an error on PATCH failure`() = runTest {
+        coEvery { authRepository.updateGlucoseUnit(GlucoseUnit.MMOL) } returns
+            Result.failure(RuntimeException("offline"))
+        val vm = createViewModel()
+
+        vm.setGlucoseUnit(GlucoseUnit.MMOL)
+
+        assertEquals(GlucoseUnit.MMOL, vm.uiState.value.glucoseUnit)
+        assertNotNull(vm.uiState.value.glucoseUnitSyncError)
+    }
+
+    @Test
+    fun `setMealIntelligenceEnabled optimistically caches locally and PATCHes the account`() =
+        runTest {
+            coEvery { authRepository.updateMealIntelligence(false) } returns Result.success(false)
+            val vm = createViewModel()
+
+            vm.setMealIntelligenceEnabled(false)
+
+            verify { appSettingsStore.mealIntelligenceEnabled = false }
+            coVerify { authRepository.updateMealIntelligence(false) }
+            assertFalse(vm.uiState.value.mealIntelligenceEnabled)
+            assertNull(vm.uiState.value.mealIntelligenceSyncError)
+        }
+
+    @Test
+    fun `setMealIntelligenceEnabled folds the server-resolved value back into state`() = runTest {
+        // Optimistically disabled, but the server resolves to enabled; state must reflect the server.
+        coEvery { authRepository.updateMealIntelligence(false) } returns Result.success(true)
+        val vm = createViewModel()
+
+        vm.setMealIntelligenceEnabled(false)
+
+        assertTrue(vm.uiState.value.mealIntelligenceEnabled)
+        assertNull(vm.uiState.value.mealIntelligenceSyncError)
+    }
+
+    @Test
+    fun `setMealIntelligenceEnabled keeps the optimistic value and surfaces an error on failure`() =
+        runTest {
+            coEvery { authRepository.updateMealIntelligence(false) } returns
+                Result.failure(RuntimeException("offline"))
+            val vm = createViewModel()
+
+            vm.setMealIntelligenceEnabled(false)
+
+            assertFalse(vm.uiState.value.mealIntelligenceEnabled)
+            assertNotNull(vm.uiState.value.mealIntelligenceSyncError)
+        }
+
+    @Test
+    fun `setMealIntelligenceEnabled drops a stale PATCH response superseded by a newer toggle`() =
+        runTest {
+            // The first (off) PATCH is slow; a second (on) toggle supersedes it. The stale
+            // off-response must not win -- the version guard + job cancel keep the newer value.
+            coEvery { authRepository.updateMealIntelligence(false) } coAnswers {
+                delay(1_000)
+                Result.success(false)
+            }
+            coEvery { authRepository.updateMealIntelligence(true) } returns Result.success(true)
+            val vm = createViewModel()
+
+            vm.setMealIntelligenceEnabled(false)
+            vm.setMealIntelligenceEnabled(true)
+            advanceUntilIdle()
+
+            assertTrue(vm.uiState.value.mealIntelligenceEnabled)
+        }
+
+    @Test
+    fun `loadState exposes the seed-confirm flag from the store`() {
+        every { appSettingsStore.glucoseUnitSeedPending } returns true
+
+        val vm = createViewModel()
+
+        assertTrue(vm.uiState.value.seedNeedsConfirm)
+    }
+
+    @Test
+    fun `loadState leaves seed-confirm false when the store flag is unset`() {
+        every { appSettingsStore.glucoseUnitSeedPending } returns false
+
+        val vm = createViewModel()
+
+        assertFalse(vm.uiState.value.seedNeedsConfirm)
+    }
+
+    @Test
+    fun `setGlucoseUnit dismisses the seed-confirm notice`() = runTest {
+        // Picking a unit confirms the preference, so the one-time notice must clear immediately.
+        every { appSettingsStore.glucoseUnitSeedPending } returns true
+        coEvery { authRepository.updateGlucoseUnit(GlucoseUnit.MMOL) } returns
+            Result.success(GlucoseUnit.MMOL)
+        val vm = createViewModel()
+        assertTrue(vm.uiState.value.seedNeedsConfirm)
+
+        vm.setGlucoseUnit(GlucoseUnit.MMOL)
+
+        assertFalse(vm.uiState.value.seedNeedsConfirm)
+    }
+
+    @Test
+    fun `dismissGlucoseUnitSeedNotice hides the notice, clears the flag, and acks the server`() =
+        runTest {
+            every { appSettingsStore.glucoseUnitSeedPending } returns true
+            coEvery { authRepository.acknowledgeGlucoseUnitSeed() } returns Result.success(Unit)
+            val vm = createViewModel()
+            assertTrue(vm.uiState.value.seedNeedsConfirm)
+
+            vm.dismissGlucoseUnitSeedNotice()
+
+            assertFalse(vm.uiState.value.seedNeedsConfirm)
+            verify { appSettingsStore.glucoseUnitSeedPending = false }
+            coVerify { authRepository.acknowledgeGlucoseUnitSeed() }
+        }
+
+    @Test
+    fun `dismissGlucoseUnitSeedNotice keeps the notice hidden even if the ack fails`() = runTest {
+        every { appSettingsStore.glucoseUnitSeedPending } returns true
+        coEvery { authRepository.acknowledgeGlucoseUnitSeed() } returns
+            Result.failure(RuntimeException("offline"))
+        val vm = createViewModel()
+
+        vm.dismissGlucoseUnitSeedNotice()
+
+        assertFalse(vm.uiState.value.seedNeedsConfirm)
     }
 
     @Test

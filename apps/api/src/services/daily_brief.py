@@ -12,7 +12,12 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.config import settings
+from src.core.units import (
+    GlucoseUnit,
+    format_glucose,
+    format_glucose_value,
+    glucose_unit_prompt_instruction,
+)
 from src.database import get_session_maker
 from src.logging_config import get_logger
 from src.models.brief_delivery_config import BriefDeliveryConfig
@@ -37,6 +42,7 @@ from src.services.diabetes_context import (
     format_meals_for_brief,
     format_pump_profile_for_prompt,
     get_pump_profile_summary,
+    verify_glucose_reading_citations,
     verify_meal_citations,
 )
 from src.services.safety_validation import log_safety_validation, validate_ai_suggestion
@@ -72,12 +78,24 @@ dosing inputs, and never suggest a dose for a meal
 """
 
 
-def _build_analysis_prompt(
+def _build_system_prompt(unit: GlucoseUnit = GlucoseUnit.MGDL) -> str:
+    """Append the report-in-unit instruction to the static brief prompt.
+
+    The brief's ``SYSTEM_PROMPT`` carries no embedded glucose anchors, so -- unlike
+    the correction/meal analyzers, whose prompt bodies interpolate converted
+    thresholds -- the only unit-dependent piece is this trailing instruction.
+    Kept as a helper for parity with those siblings and to make it testable.
+    """
+    return f"{SYSTEM_PROMPT}\n- {glucose_unit_prompt_instruction(unit)}"
+
+
+def build_analysis_prompt(
     metrics: DailyBriefMetrics,
     hours: int,
     profile_context: str | None = None,
     iob_context: str | None = None,
     meals_context: str | None = None,
+    unit: GlucoseUnit = GlucoseUnit.MGDL,
 ) -> str:
     """Build the user prompt with glucose and pump metrics.
 
@@ -89,6 +107,9 @@ def _build_analysis_prompt(
         meals_context: Optional logged-meals text block. Carries
             the reflect-and-ask, never-dose-or-bolus framing; never a dosing
             input.
+        unit: The user's glucose display unit. The average and the
+            range/low/high anchors render in it; the precomputed mg/dL
+            ``average_glucose`` converts once and rounds last.
 
     Returns:
         Formatted prompt string for the AI provider.
@@ -97,10 +118,14 @@ def _build_analysis_prompt(
         f"Analyze the following {hours}-hour glucose and insulin summary:",
         "",
         f"- Readings: {metrics.readings_count}",
-        f"- Average glucose: {metrics.average_glucose:.0f} mg/dL",
-        f"- Time in range (70-180): {metrics.time_in_range_pct:.1f}%",
-        f"- Low readings (<{LOW_THRESHOLD}): {metrics.low_count}",
-        f"- High readings (>{HIGH_THRESHOLD}): {metrics.high_count}",
+        f"- Average glucose: {format_glucose(metrics.average_glucose, unit)}",
+        f"- Time in range ({format_glucose_value(LOW_THRESHOLD, unit)}-"
+        f"{format_glucose_value(HIGH_THRESHOLD, unit)}): "
+        f"{metrics.time_in_range_pct:.1f}%",
+        f"- Low readings (<{format_glucose_value(LOW_THRESHOLD, unit)}): "
+        f"{metrics.low_count}",
+        f"- High readings (>{format_glucose_value(HIGH_THRESHOLD, unit)}): "
+        f"{metrics.high_count}",
         f"- Control-IQ auto-corrections: {metrics.correction_count}",
     ]
 
@@ -142,6 +167,9 @@ def _build_analysis_prompt(
     )
 
     return "\n".join(lines)
+
+
+_build_analysis_prompt = build_analysis_prompt
 
 
 async def calculate_metrics(
@@ -383,6 +411,10 @@ async def generate_daily_brief(
     period_end = datetime.now(UTC)
     period_start = period_end - timedelta(hours=hours)
 
+    # The brief's prompt, persisted AI summary, and Telegram delivery all render
+    # glucose in the user's unit; metrics math stays canonical mg/dL.
+    unit = user.glucose_unit
+
     # Resolve the primary-CGM exclusion once (Story 43.10) and thread it into
     # the metrics so the brief reflects the primary source only.
     excluded = await get_excluded_cgm_sources(db, user.id)
@@ -408,7 +440,7 @@ async def generate_daily_brief(
     try:
         profile_summary = await get_pump_profile_summary(db, user.id)
         if profile_summary:
-            profile_context = format_pump_profile_for_prompt(profile_summary)
+            profile_context = format_pump_profile_for_prompt(profile_summary, unit)
     except Exception:
         logger.warning(
             "Failed to fetch pump profile for daily brief",
@@ -425,10 +457,10 @@ async def generate_daily_brief(
             exc_info=True,
         )
 
-    # Logged meals for the period -- gated on the meal-intelligence
-    # feature so the brief stays unchanged while the flag is off.
+    # Logged meals for the period -- gated on the user's meal-intelligence
+    # preference so the brief stays unchanged while the feature is off.
     meals_context = None
-    if settings.meal_intelligence_enabled:
+    if user.meal_intelligence_enabled:
         try:
             meals_context = await format_meals_for_brief(
                 db, user.id, period_start, period_end
@@ -441,8 +473,8 @@ async def generate_daily_brief(
             )
 
     # Build prompt and generate
-    user_prompt = _build_analysis_prompt(
-        metrics, hours, profile_context, iob_context, meals_context
+    user_prompt = build_analysis_prompt(
+        metrics, hours, profile_context, iob_context, meals_context, unit
     )
 
     logger.info(
@@ -454,7 +486,7 @@ async def generate_daily_brief(
 
     ai_response = await ai_client.generate(
         messages=[AIMessage(role="user", content=user_prompt)],
-        system_prompt=SYSTEM_PROMPT,
+        system_prompt=_build_system_prompt(unit),
     )
 
     # Verify any cited meal carb figure against the period's logged meals before
@@ -468,6 +500,21 @@ async def generate_daily_brief(
         window_start=period_start,
         window_end=period_end,
         now=period_end,
+    )
+    # Correct-or-scrub any glucose figure the same way, over the brief's period,
+    # so the brief handles its glucose and carb numbers consistently. The brief
+    # renders the period average (computed over the unfiltered period readings),
+    # so pass it as an extra allowed figure rather than let the allow-set
+    # recompute a slightly different one.
+    verified_text = await verify_glucose_reading_citations(
+        db,
+        user.id,
+        verified_text,
+        surface="daily_brief",
+        unit=unit,
+        window_start=period_start,
+        window_end=period_end,
+        extra=[metrics.average_glucose],
     )
 
     # Safety validation (Story 5.6)
@@ -510,7 +557,7 @@ async def generate_daily_brief(
 
     # Story 7.3: Telegram delivery
     try:
-        await notify_user_of_brief(db, user.id, brief)
+        await notify_user_of_brief(db, user.id, brief, unit)
     except Exception as e:
         logger.warning(
             "Telegram brief delivery failed",

@@ -210,7 +210,7 @@ export function DisclaimerModal({ onAcknowledge }: DisclaimerModalProps) {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
+            className="fixed inset-0 bg-black/80 backdrop-blur-xs z-50"
           />
 
           {/* Modal */}
@@ -246,7 +246,7 @@ export function DisclaimerModal({ onAcknowledge }: DisclaimerModalProps) {
                       transition={{ delay: index * 0.1 }}
                       className="flex gap-4 p-4 bg-slate-800/50 rounded-lg border border-slate-700"
                     >
-                      <div className="flex-shrink-0">
+                      <div className="shrink-0">
                         <Icon className="w-5 h-5 text-amber-500" />
                       </div>
                       <div>
@@ -269,7 +269,7 @@ export function DisclaimerModal({ onAcknowledge }: DisclaimerModalProps) {
                   >
                     <div
                       className={`
-                        flex-shrink-0 w-5 h-5 mt-0.5 rounded border-2 transition-all
+                        shrink-0 w-5 h-5 mt-0.5 rounded-sm border-2 transition-all
                         flex items-center justify-center
                         ${
                           checkboxes[checkbox.id]

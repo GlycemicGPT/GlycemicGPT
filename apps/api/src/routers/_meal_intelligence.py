@@ -12,17 +12,19 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.config import settings
 from src.models.common_food import CommonFood
+from src.models.user import User
 
 
-def require_meal_intelligence() -> None:
-    """Reject (as 404) when the meal-intelligence feature flag is off.
+def require_meal_intelligence(user: User) -> None:
+    """Reject (as 404) when the user has the meal-intelligence feature disabled.
 
     A 404 (rather than 403) keeps the whole feature surface invisible while the
-    flag is off, consistent across every meal-intelligence endpoint.
+    feature is off, consistent across every meal-intelligence endpoint. The gate
+    is the user's own preference (``users.meal_intelligence_enabled``) -- there
+    is no global env flag.
     """
-    if not settings.meal_intelligence_enabled:
+    if not user.meal_intelligence_enabled:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Meal intelligence is not enabled.",

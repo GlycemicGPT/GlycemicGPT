@@ -39,8 +39,24 @@ import {
 } from "@/lib/api";
 import { MarkdownContent } from "@/components/ui/markdown-content";
 import { useUserContext } from "@/providers";
+import {
+  formatGlucose,
+  formatTrendRate,
+  unitLabel,
+  type GlucoseUnit,
+} from "@/lib/glucose-units";
 
 const REFRESH_INTERVAL_MS = 60_000;
+
+/**
+ * Patient glucose renders in the PATIENT's unit, never the caregiver's own
+ * preference. The unit comes from the patient's own `glucose_unit` on the
+ * caregiver status payload — NOT `useGlucoseUnit()` (the viewer's unit).
+ * Falls back to canonical mg/dL while a status is still loading.
+ */
+function patientUnit(status: CaregiverPatientStatus | null): GlucoseUnit {
+  return status?.glucose_unit ?? "mgdl";
+}
 
 function getTrendArrow(trend: string): string {
   const arrows: Record<string, string> = {
@@ -108,6 +124,10 @@ export default function CaregiverDashboardPage() {
   // Whether we're in multi-patient mode (show grid overview)
   const isMultiPatient = patients.length > 1;
   const showOverview = isMultiPatient && !selectedPatientId;
+
+  // Detail-view glucose renders in the selected patient's unit (overview cards
+  // resolve each patient's own unit individually).
+  const detailUnit = patientUnit(status);
 
   // Redirect non-caregivers away from this page
   useEffect(() => {
@@ -406,6 +426,7 @@ export default function CaregiverDashboardPage() {
               {patients.map((patient) => {
                 const ps = patientStatuses.get(patient.patient_id) || null;
                 const dotColor = getStatusDotColor(ps);
+                const unit = patientUnit(ps);
                 const g =
                   ps?.permissions.can_view_glucose && ps?.glucose
                     ? ps.glucose
@@ -443,9 +464,9 @@ export default function CaregiverDashboardPage() {
                               getGlucoseColor(g.value)
                             )}
                           >
-                            {g.value}
+                            {formatGlucose(g.value, unit)}
                           </span>
-                          <span className="text-sm text-slate-500 dark:text-slate-400">mg/dL</span>
+                          <span className="text-sm text-slate-500 dark:text-slate-400">{unitLabel(unit)}</span>
                           <span className="text-lg">
                             {getTrendArrow(g.trend)}
                           </span>
@@ -547,9 +568,9 @@ export default function CaregiverDashboardPage() {
                         getGlucoseColor(status.glucose.value)
                       )}
                     >
-                      {status.glucose.value}
+                      {formatGlucose(status.glucose.value, detailUnit)}
                     </span>
-                    <span className="text-2xl text-slate-500 dark:text-slate-400">mg/dL</span>
+                    <span className="text-2xl text-slate-500 dark:text-slate-400">{unitLabel(detailUnit)}</span>
                     <span className="text-2xl">
                       {getTrendArrow(status.glucose.trend)}
                     </span>
@@ -569,7 +590,7 @@ export default function CaregiverDashboardPage() {
                     {status.glucose.trend_rate !== null && (
                       <span>
                         {status.glucose.trend_rate > 0 ? "+" : ""}
-                        {status.glucose.trend_rate.toFixed(1)} mg/dL/min
+                        {formatTrendRate(status.glucose.trend_rate, detailUnit)} {unitLabel(detailUnit)}/min
                       </span>
                     )}
                   </div>
@@ -661,7 +682,7 @@ export default function CaregiverDashboardPage() {
                     placeholder='Ask about your patient, e.g. "How are they doing?"'
                     maxLength={2000}
                     disabled={isChatLoading}
-                    className="flex-1 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-lg px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 disabled:opacity-50"
+                    className="flex-1 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-lg px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 placeholder:text-slate-500 focus:outline-hidden focus:ring-2 focus:ring-cyan-500 disabled:opacity-50"
                     aria-label="Ask AI about your patient"
                   />
                   <button

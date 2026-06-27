@@ -11,6 +11,10 @@ import com.glycemicgpt.mobile.data.remote.dto.DeviceRegistrationRequest
 import com.glycemicgpt.mobile.data.remote.dto.DeviceRegistrationResponse
 import com.glycemicgpt.mobile.data.remote.dto.PluginDeclarationRequest
 import com.glycemicgpt.mobile.data.remote.dto.GlucoseRangeResponse
+import com.glycemicgpt.mobile.data.remote.dto.GlucoseUnitResponse
+import com.glycemicgpt.mobile.data.remote.dto.GlucoseUnitUpdateRequest
+import com.glycemicgpt.mobile.data.remote.dto.MealIntelligenceResponse
+import com.glycemicgpt.mobile.data.remote.dto.MealIntelligenceUpdateRequest
 import com.glycemicgpt.mobile.data.remote.dto.SafetyLimitsResponse
 import com.glycemicgpt.mobile.data.remote.dto.HealthResponse
 import com.glycemicgpt.mobile.data.remote.dto.LoginRequest
@@ -78,6 +82,25 @@ interface GlycemicGptApi {
 
     @POST("/api/v1/alerts/{alertId}/acknowledge")
     suspend fun acknowledgeAlert(@Path("alertId") alertId: String): Response<AcknowledgeResponse>
+
+    // Glucose display unit preference (per-account; backend exposes both GET and PATCH)
+    @GET("/api/settings/glucose-unit")
+    suspend fun getGlucoseUnit(): Response<GlucoseUnitResponse>
+
+    @PATCH("/api/settings/glucose-unit")
+    suspend fun patchGlucoseUnit(@Body request: GlucoseUnitUpdateRequest): Response<GlucoseUnitResponse>
+
+    // Acknowledge the smart-default unit notice without changing the unit:
+    // stamps source=user server-side so the notice never recurs.
+    @POST("/api/settings/glucose-unit/acknowledge")
+    suspend fun acknowledgeGlucoseUnitSeed(): Response<GlucoseUnitResponse>
+
+    // Meal-intelligence feature preference (per-account; backend exposes GET and PATCH)
+    @GET("/api/settings/meal-intelligence")
+    suspend fun getMealIntelligence(): Response<MealIntelligenceResponse>
+
+    @PATCH("/api/settings/meal-intelligence")
+    suspend fun patchMealIntelligence(@Body request: MealIntelligenceUpdateRequest): Response<MealIntelligenceResponse>
 
     // Glucose range settings
     @GET("/api/settings/target-glucose-range")

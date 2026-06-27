@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.glycemicgpt.mobile.data.local.AppSettingsStore
 import com.glycemicgpt.mobile.data.meal.CarbBounds
 import com.glycemicgpt.mobile.data.meal.CarbInputResult
 import com.glycemicgpt.mobile.data.meal.FoodRecord
@@ -76,6 +77,7 @@ data class MealLogUiState(
 @HiltViewModel
 class MealLogViewModel @Inject constructor(
     private val repository: MealRepository,
+    private val appSettingsStore: AppSettingsStore,
     @ApplicationContext private val context: Context,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
@@ -92,6 +94,12 @@ class MealLogViewModel @Inject constructor(
 
     /** Probe the feature flag via a cheap call so feature-off degrades to [Disabled]. */
     fun checkAvailability() {
+        // The per-account setting gates the capture UI without a round-trip; when it
+        // is off, go straight to Disabled. The probe remains the server-side guard.
+        if (!appSettingsStore.mealIntelligenceEnabled) {
+            _uiState.update { it.copy(pageState = MealLogPageState.Disabled) }
+            return
+        }
         _uiState.update { it.copy(pageState = MealLogPageState.Loading) }
         viewModelScope.launch {
             repository.probeAvailability()

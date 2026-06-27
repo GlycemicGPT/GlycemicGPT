@@ -22,6 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from src.core.units import GlucoseUnit, format_glucose
 from src.logging_config import get_logger
 from src.models.caregiver_link import CaregiverLink
 
@@ -114,9 +115,12 @@ async def _handle_caregiver_status(
             lines.append(f"\u2022 <b>{patient_label}:</b> No data available")
         else:
             trend = trend_description(reading.trend_rate)
-            lines.append(
-                f"\u2022 <b>{patient_label}:</b> {reading.value:.0f} mg/dL ({trend})"
-            )
+            # Each patient's glucose renders in that patient's own unit. The
+            # column is non-nullable, but default to mg/dL defensively here
+            # since this loop renders several patients in one message.
+            unit = patient.glucose_unit or GlucoseUnit.MGDL
+            glucose = format_glucose(reading.value, unit)
+            lines.append(f"\u2022 <b>{patient_label}:</b> {glucose} ({trend})")
 
     return "\n".join(lines)
 

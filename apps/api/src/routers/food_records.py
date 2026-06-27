@@ -1,8 +1,8 @@
 """Food-record API: meal-photo carb estimation.
 
 Upload a meal photo, get a structured carbohydrate estimate (range + confidence
-+ nutrition), and persist it as a food record. The feature is flag-gated
-(``meal_intelligence_enabled``) and BETA.
++ nutrition), and persist it as a food record. The feature is gated by the
+user's own ``meal_intelligence_enabled`` preference.
 
 Safety: every response describes food, never a dose. No endpoint here returns or
 computes insulin/dosing, and food records are never fed into IoB /
@@ -83,7 +83,7 @@ async def upload_food_photo(
     configured AI provider's vision route. If that provider has no vision route,
     a clear 422 is returned -- never a silent failure or a fabricated estimate.
     """
-    require_meal_intelligence()
+    require_meal_intelligence(current_user)
 
     if file.content_type and file.content_type not in _ACCEPTED_CONTENT_TYPES:
         raise HTTPException(
@@ -147,7 +147,7 @@ async def list_food_records(
     offset: int = 0,
 ) -> FoodRecordListResponse:
     """List the current user's food records, most recent meal first."""
-    require_meal_intelligence()
+    require_meal_intelligence(current_user)
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
 
@@ -200,7 +200,7 @@ async def get_food_record(
     db: AsyncSession = Depends(get_db),
 ) -> FoodRecordResponse:
     """Get one of the current user's food records."""
-    require_meal_intelligence()
+    require_meal_intelligence(current_user)
     record = await _get_owned_record(record_id, current_user.id, db)
     return FoodRecordResponse.model_validate(record)
 
@@ -229,7 +229,7 @@ async def get_food_record_photo(
     served. The photo is the user's own PHI, so it is marked private (never a
     shared-proxy cache).
     """
-    require_meal_intelligence()
+    require_meal_intelligence(current_user)
     record = await _get_owned_record(record_id, current_user.id, db)
     try:
         path, media_type = food_image.resolve_stored_image(record.storage_path)
@@ -266,7 +266,7 @@ async def get_food_record_audit(
     fetch is itself scoped by user id. Descriptive only -- raw per-sample reads,
     the empirical dispersion, and the precedence decision; never a dose.
     """
-    require_meal_intelligence()
+    require_meal_intelligence(current_user)
     # 404 if the record isn't the caller's (ownership check) ...
     await _get_owned_record(record_id, current_user.id, db)
     # ... and the audit fetch is independently owner-scoped.
@@ -291,8 +291,12 @@ async def delete_food_record(
     current_user: DiabeticOrAdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    """Delete a food record and its stored photo (user-initiated)."""
-    require_meal_intelligence()
+    """Delete a food record and its stored photo (user-initiated).
+
+    Deliberately NOT gated on the meal-intelligence preference: a user who turns
+    the feature off must still be able to delete data they already created.
+    Owner-scoping below is the access control.
+    """
     record = await _get_owned_record(record_id, current_user.id, db)
     storage_path = record.storage_path
     await db.delete(record)
@@ -323,7 +327,7 @@ async def correct_food_record(
     ``user_corrected``; the original AI estimate is preserved. Corrected values
     are never read by IoB / treatment_safety / carb-ratio math.
     """
-    require_meal_intelligence()
+    require_meal_intelligence(current_user)
     record = await _get_owned_record(record_id, current_user.id, db)
     try:
         record = await common_food_service.correct_food_record(db, record, correction)
@@ -357,7 +361,7 @@ async def confirm_food_identity(
     name -- so a misidentified label is never certified with an authoritative
     citation.
     """
-    require_meal_intelligence()
+    require_meal_intelligence(current_user)
     record = await _get_owned_record(record_id, current_user.id, db)
     try:
         record = await common_food_service.confirm_food_identity(
@@ -394,7 +398,7 @@ async def save_record_as_common_food(
     Saving under an existing name updates that baseline (dedupe by name) rather
     than creating a near-duplicate.
     """
-    require_meal_intelligence()
+    require_meal_intelligence(current_user)
     record = await _get_owned_record(record_id, current_user.id, db)
     try:
         common_food = await common_food_service.promote_to_common_food(
@@ -403,6 +407,13 @@ async def save_record_as_common_food(
     except common_food_service.CarbValidationError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+    except common_food_service.RecordGoneError as exc:
+        # The record was deleted out from under the promotion (concurrent delete
+        # during the unique-constraint race fallback): 404, matching how a
+        # missing record signals not-found elsewhere in this router.
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
         ) from exc
     return CommonFoodResponse.model_validate(common_food)
 
@@ -422,7 +433,7 @@ async def link_record_to_common_food(
     db: AsyncSession = Depends(get_db),
 ) -> FoodRecordResponse:
     """Link an existing food record to one of the user's existing common foods."""
-    require_meal_intelligence()
+    require_meal_intelligence(current_user)
     record = await _get_owned_record(record_id, current_user.id, db)
     # Both sides are owner-scoped: a missing or cross-user baseline 404s with no
     # existence leak.

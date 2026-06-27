@@ -25,9 +25,11 @@ These are follow-ups gated on a live active-Medtronic-pump validator.
 
 from __future__ import annotations
 
+import math
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from src.core.units import MGDL_PER_MMOL, GlucoseUnit
 from src.models.pump_data import PumpEventType
 
 from .carelink_mapper import SOURCE, MappedGlucose, MappedPumpEvent, MappedRecords
@@ -51,8 +53,38 @@ _MAX_SKEW_HOURS = 26
 # AI-context / TIR / stats read filters in ``routers.integrations`` (all clamp to
 # 20..500), plus the ``GlucoseReading`` storage ``ge=20`` floor. A wider per-source
 # bound would just admit values those consumers silently drop.
+#
+# Unit safety (mmol/L): CarePartner RecentData carries NO unit field -- ``sg`` and
+# marker BG values reflect whatever unit the pump's locale is configured for, which
+# CAN be mmol/L on European pumps. The feed gives no per-record or profile unit hint
+# to detect or convert against, so the wire value is ASSUMED mg/dL and the only
+# signal available is the data owner's own glucose-unit preference (resolved by the
+# follower-sync orchestrator and threaded in as ``glucose_unit``).
+#
+# Most of the mmol/L range (~2-19) falls below the 20 mg/dL floor and is already
+# dropped, so a unit-confused value mostly becomes a gap rather than a wrong
+# reading. The residual hazard is a real high of ~20.0-27.8 mmol/L arriving as a
+# bare 20-28 that passes the 20-500 mg/dL bound and is stored as a 20-28 "mg/dL"
+# false SEVERE LOW -- the most dangerous possible misread. To fail safe, when the
+# user's preference is mmol/L we DROP any glucose value in that ambiguous overlap
+# window (a gap, never a false low); mg/dL and unknown-preference users stay
+# byte-identical to before. We never CONVERT here: the preference is only a display
+# setting, not proof the pump reports mmol/L, so converting could corrupt a
+# genuinely mg/dL value. This mirrors the CareLink CSV import, which DROPS glucose
+# in a detected mmol/L section rather than store it -- there the unit is named in
+# the column header; here the feed exposes no such signal, so the user preference
+# is the closest available proxy. Follow-up (GLY-59): an explicit, user-confirmed
+# "my pump displays mmol/L" opt-in could convert(x18.0156)+clamp instead of
+# dropping -- deferred, as it needs a new confirmed user signal + UI.
 _SG_MIN_MGDL = 20
 _SG_MAX_MGDL = 500
+
+# Upper edge of the mmol/L-ambiguity window (see "Unit safety" above): the mmol/L
+# physiologic ceiling expressed back in mg/dL units, ceil(500 / 18.0156) = 28. A
+# bare follower value at or below this could be a real high-end mmol/L reading
+# (<= ~27.8 mmol/L); above it no physiologic mmol/L reading exists, so the value
+# can only be mg/dL and is kept even for a mmol/L-preference user.
+_MMOL_AMBIGUOUS_MAX_MGDL = math.ceil(_SG_MAX_MGDL / MGDL_PER_MMOL)
 
 # Sanity bound on the scheduled basal RATE (U/h). A real basal rate is a few
 # U/h; reject an implausible value rather than store a U/h rate the rate-based
@@ -157,7 +189,8 @@ def _carb_amount(m: dict) -> float | None:
 
 
 def _bg_value(m: dict) -> int | None:
-    """xDrip getBloodGlucose()."""
+    """xDrip getBloodGlucose().
+    Returns glucose values in mg/dL."""
     v = m.get("value")
     if v is None:
         v = _data_values(m).get("unitValue")
@@ -169,8 +202,31 @@ def _bg_value(m: dict) -> int | None:
         return None
 
 
-def map_recent_data(recent: dict) -> MappedRecords:
-    """Map a ``RecentData`` (display/message ``patientData``) dict to records."""
+def _is_mmol_ambiguous_glucose(value: float, glucose_unit: GlucoseUnit) -> bool:
+    """Whether a bare glucose value must be dropped as a mmol/L false low.
+
+    The follower feed exposes no unit, so for a user whose preference is mmol/L a
+    bare value in the overlap window ``[20, _MMOL_AMBIGUOUS_MAX_MGDL]`` could be a
+    real ~20.0-27.8 mmol/L high that would otherwise be stored as a 20-28 "mg/dL"
+    severe low. Dropping it fails safe (a gap, never a false low). mg/dL and
+    unknown-preference users always return False, so they are unchanged. See the
+    "Unit safety (mmol/L)" note above."""
+    return (
+        glucose_unit == GlucoseUnit.MMOL
+        and _SG_MIN_MGDL <= value <= _MMOL_AMBIGUOUS_MAX_MGDL
+    )
+
+
+def map_recent_data(
+    recent: dict, *, glucose_unit: GlucoseUnit = GlucoseUnit.MGDL
+) -> MappedRecords:
+    """Map a ``RecentData`` (display/message ``patientData``) dict to records.
+
+    Glucose values on the wire are ASSUMED mg/dL (the feed carries no unit).
+    ``glucose_unit`` is the data owner's resolved display preference; when it is
+    mmol/L, glucose values in the mmol/L-ambiguity window are dropped to fail safe
+    (see ``_is_mmol_ambiguous_glucose`` and the "Unit safety (mmol/L)" note).
+    Defaults to mg/dL so callers without user context are unchanged."""
     records = MappedRecords()
     if not isinstance(recent, dict):
         return records
@@ -184,11 +240,13 @@ def map_recent_data(recent: dict) -> MappedRecords:
         dt = _shift(_parse_dt(sg.get("datetime")), skew)
         # Drop physiologically implausible readings rather than feed them to
         # TIR/alerts/AI -- a corrupt/unit-confused follower value is worse than
-        # a gap, and this feed can't be validated live.
+        # a gap, and this feed can't be validated live. Plus the mmol/L-ambiguity
+        # drop for mmol/L-preference users (see _is_mmol_ambiguous_glucose).
         if (
             dt is not None
             and isinstance(value, (int, float))
             and _SG_MIN_MGDL <= value <= _SG_MAX_MGDL
+            and not _is_mmol_ambiguous_glucose(value, glucose_unit)
         ):
             records.glucose.append(
                 MappedGlucose(timestamp=dt, value_mgdl=int(value), source=SOURCE)
@@ -206,8 +264,13 @@ def map_recent_data(recent: dict) -> MappedRecords:
             bg = _bg_value(m)
             # Apply the same physiologic clamp as sensor glucose -- a finger BG
             # is a glucose value too, and a corrupt/unit-confused one would
-            # poison TIR/alerts/AI context just the same.
-            if bg and _SG_MIN_MGDL <= bg <= _SG_MAX_MGDL:
+            # poison TIR/alerts/AI context just the same. Includes the same
+            # mmol/L-ambiguity drop for a mmol/L-preference user.
+            if (
+                bg
+                and _SG_MIN_MGDL <= bg <= _SG_MAX_MGDL
+                and not _is_mmol_ambiguous_glucose(bg, glucose_unit)
+            ):
                 records.pump_events.append(
                     MappedPumpEvent(PumpEventType.BG_READING, dt, bg_at_event=bg)
                 )

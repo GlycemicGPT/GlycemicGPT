@@ -10,6 +10,7 @@ from datetime import datetime
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 from src.core.disclaimer import has_acknowledged_current
+from src.core.units import GlucoseUnit, GlucoseUnitSource
 from src.models.user import UserRole
 
 
@@ -69,6 +70,26 @@ class UserResponse(BaseModel):
     email_verified: bool
     disclaimer_acknowledged: bool
     disclaimer_version: str | None = None
+    glucose_unit: GlucoseUnit = Field(
+        default=GlucoseUnit.MGDL,
+        description="Preferred glucose display unit: mgdl or mmol",
+    )
+    glucose_unit_source: GlucoseUnitSource | None = Field(
+        default=None,
+        description=(
+            "Provenance of glucose_unit: 'seed' (smart default, overridable),"
+            " 'user' (explicit choice), or null (legacy). Drives the one-time"
+            " smart-default notice."
+        ),
+    )
+    meal_intelligence_enabled: bool = Field(
+        ...,
+        description=(
+            "Whether the meal-intelligence feature is enabled for this user."
+            " Clients gate their meal surfaces on this value. Required (no"
+            " default) so a missing value fails loudly rather than fail-open."
+        ),
+    )
     created_at: datetime
 
     @model_validator(mode="after")

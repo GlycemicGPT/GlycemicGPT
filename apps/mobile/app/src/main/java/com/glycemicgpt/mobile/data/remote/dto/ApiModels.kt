@@ -114,6 +114,37 @@ data class GlucoseRangeResponse(
     @Json(name = "urgent_high") val urgentHigh: Float,
 )
 
+/**
+ * Per-account glucose display unit preference. [glucoseUnit] is the backend enum wire value
+ * ("mgdl"/"mmol"). [glucoseUnitSource] is the provenance ("seed"/"user"/null) -- "seed" with a
+ * non-mgdl unit drives the one-time smart-default confirmation notice. Nullable so an
+ * older API that predates provenance is parsed safely.
+ */
+@JsonClass(generateAdapter = true)
+data class GlucoseUnitResponse(
+    @Json(name = "glucose_unit") val glucoseUnit: String,
+    @Json(name = "glucose_unit_source") val glucoseUnitSource: String? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class GlucoseUnitUpdateRequest(
+    @Json(name = "glucose_unit") val glucoseUnit: String,
+)
+
+/**
+ * Per-account meal-intelligence feature preference. [enabled] gates the meal
+ * surfaces (the "Log a meal" FAB + meal endpoints). Defaults ON server-side.
+ */
+@JsonClass(generateAdapter = true)
+data class MealIntelligenceResponse(
+    @Json(name = "enabled") val enabled: Boolean,
+)
+
+@JsonClass(generateAdapter = true)
+data class MealIntelligenceUpdateRequest(
+    @Json(name = "enabled") val enabled: Boolean,
+)
+
 @JsonClass(generateAdapter = true)
 data class SafetyLimitsResponse(
     @Json(name = "min_glucose_mgdl") val minGlucoseMgDl: Int,

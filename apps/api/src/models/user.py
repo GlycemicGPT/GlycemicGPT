@@ -11,6 +11,7 @@ from sqlalchemy import DateTime, Enum, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from src.core.units import GlucoseUnit, GlucoseUnitSource
 from src.models.base import Base, TimestampMixin
 
 
@@ -41,6 +42,15 @@ class User(Base, TimestampMixin):
         disclaimer_version: Version of the disclaimer the user acknowledged
             (NULL until first acknowledged). A mismatch with the current
             DISCLAIMER_VERSION re-prompts the user; see src.core.disclaimer.
+        glucose_unit: User's preferred glucose display unit
+        glucose_unit_source: Provenance of glucose_unit (seed | user | NULL).
+            A smart default writes ``seed``; an explicit user choice (toggle or
+            dismissed notice) writes ``user``; NULL is a legacy account. Gates
+            re-seeding and the one-time confirmation notice.
+        meal_intelligence_enabled: Whether the meal-intelligence (vision carb
+            estimation) feature is on for this user. Defaults ON so the shipped
+            feature is discoverable; the user can disable it from Settings. This
+            is the sole gate -- it replaced the former global env flag.
         last_login_at: Timestamp of last successful login
     """
 
@@ -86,6 +96,41 @@ class User(Base, TimestampMixin):
         String(10),
         nullable=True,
         default=None,
+    )
+    glucose_unit: Mapped[GlucoseUnit] = mapped_column(
+        Enum(
+            GlucoseUnit,
+            name="glucoseunit",
+            create_type=False,
+            values_callable=lambda e: [member.value for member in e],
+        ),
+        nullable=False,
+        default=GlucoseUnit.MGDL,
+        server_default=GlucoseUnit.MGDL.value,
+    )
+    # Provenance of glucose_unit. Nullable so legacy accounts (and the column's
+    # pre-seed state) read as seed-neutral. A smart default sets ``seed``; the
+    # PATCH and the dismiss-ack set ``user`` so the seed never re-fires and the
+    # one-time notice never recurs. Display-preference only --
+    # this never affects stored values or the 20-500 mg/dL invariant.
+    glucose_unit_source: Mapped[GlucoseUnitSource | None] = mapped_column(
+        Enum(
+            GlucoseUnitSource,
+            name="glucoseunitsource",
+            create_type=False,
+            values_callable=lambda e: [member.value for member in e],
+        ),
+        nullable=True,
+        default=None,
+    )
+    # Per-user gate for the meal-intelligence feature (vision carb estimation).
+    # Defaults ON (discoverable); a user can disable it from Settings. This is
+    # the only gate -- it replaced the global ``MEAL_INTELLIGENCE_ENABLED`` env
+    # flag, so every meal endpoint and service-layer side-effect keys off it.
+    meal_intelligence_enabled: Mapped[bool] = mapped_column(
+        nullable=False,
+        default=True,
+        server_default="true",
     )
     display_name: Mapped[str | None] = mapped_column(
         String(100),

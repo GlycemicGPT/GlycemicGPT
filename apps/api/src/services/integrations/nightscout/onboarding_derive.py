@@ -41,6 +41,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from src.core.units import MGDL_PER_MMOL
 from src.models.insulin_config import InsulinConfig
 from src.models.nightscout_profile_snapshot import NightscoutProfileSnapshot
 from src.models.pump_profile import PumpProfile
@@ -52,12 +53,8 @@ from src.schemas.nightscout import (
     OnboardingScheduleSegment,
 )
 
-# 1 mmol/L = 18.0182 mg/dL (per the standard glucose mass-to-molarity
-# conversion). Reference: ADA / IFCC consensus, 18.0156 to 4 decimals,
-# 18.0182 used here for one-trip precision after rounding to 1 decimal
-# at the wire boundary. Rounding washes out any sub-decimal divergence
-# (e.g. 4.4 mmol -> 79.28 vs 79.27 both round to 79.3).
-MMOL_TO_MGDL: float = 18.0182
+# Backwards-compatible alias for Nightscout onboarding tests and call sites.
+MMOL_TO_MGDL: float = MGDL_PER_MMOL
 
 # Allowed glucose unit strings on a Nightscout profile. Anything OUTSIDE
 # this set is flagged on the derivation as `units_unknown=True` -- the

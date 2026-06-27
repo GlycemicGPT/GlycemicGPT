@@ -41,7 +41,7 @@ const inputCls = clsx(
   "bg-white dark:bg-slate-800",
   "border-slate-300 dark:border-slate-700",
   "text-slate-700 dark:text-slate-200",
-  "focus:outline-none focus:ring-2 focus:ring-blue-500",
+  "focus:outline-hidden focus:ring-2 focus:ring-blue-500",
   "disabled:opacity-50 disabled:cursor-not-allowed"
 );
 
@@ -83,7 +83,7 @@ export function ForecastSourcePicker() {
         className="p-4 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900"
         aria-busy="true"
       >
-        <div className="h-4 w-32 bg-slate-200 dark:bg-slate-700 rounded animate-pulse" />
+        <div className="h-4 w-32 bg-slate-200 dark:bg-slate-700 rounded-sm animate-pulse" />
       </div>
     );
   }
