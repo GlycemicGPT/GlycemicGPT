@@ -13,7 +13,33 @@ from src.services.integrations.medtronic.client import (
     CareLinkError,
     CareLinkReportTimeoutError,
     CareLinkTransportError,
+    _redacted_request_headers,
 )
+
+
+def test_redacted_request_headers_masks_credentials():
+    """Origin/Referer/Accept are shown verbatim (so we can confirm what we sent
+    on a 403), Authorization/Cookie are masked, everything else dropped (#811)."""
+    req = httpx.Request(
+        "POST",
+        "https://carelink.minimed.eu/patient/reports/generateReport",
+        headers={
+            "Authorization": "Bearer super-secret",
+            "Accept": "application/json",
+            "Origin": "https://carelink.minimed.eu",
+            "Referer": "https://carelink.minimed.eu/app/reports",
+            "Cookie": "auth_tmp_token=secret",
+            "X-Internal": "drop-me",
+        },
+    )
+    # httpx lowercases header names on iteration; the logged dict follows suit.
+    out = _redacted_request_headers(req)
+    assert out["origin"] == "https://carelink.minimed.eu"
+    assert out["referer"] == "https://carelink.minimed.eu/app/reports"
+    assert out["authorization"] == "<redacted>"
+    assert out["cookie"] == "<redacted>"
+    assert "super-secret" not in str(out)
+    assert "x-internal" not in out
 
 
 async def _bearer() -> str:

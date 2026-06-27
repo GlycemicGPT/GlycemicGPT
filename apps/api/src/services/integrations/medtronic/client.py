@@ -34,6 +34,10 @@ from urllib.parse import urlparse
 
 import httpx
 
+from src.logging_config import get_logger
+
+logger = get_logger(__name__)
+
 #: Max retries on HTTP 429 (rate limit) before giving up.
 _MAX_RETRIES_429 = 3
 
@@ -105,6 +109,30 @@ def _first(d: dict, *keys: str) -> object | None:
         if v:
             return v
     return None
+
+
+#: Request headers safe to log verbatim when a CareLink call fails. Used to
+#: confirm what we actually put on the wire (e.g. Origin/Referer presence on the
+#: generateReport POST, #811). Credential-bearing headers are never logged.
+_LOGGABLE_REQUEST_HEADERS = ("origin", "referer", "accept", "content-type")
+_REDACTED_REQUEST_HEADERS = ("authorization", "cookie")
+
+
+def _redacted_request_headers(request: httpx.Request) -> dict[str, str]:
+    """The outbound request headers, with credential-bearing ones masked.
+
+    Only a fixed allow-list is shown verbatim; ``Authorization``/``Cookie`` are
+    masked to ``<redacted>`` (presence only). Never returns a bearer or cookie
+    value, so it is safe to log.
+    """
+    out: dict[str, str] = {}
+    for name, value in request.headers.items():
+        lowered = name.lower()
+        if lowered in _LOGGABLE_REQUEST_HEADERS:
+            out[name] = value
+        elif lowered in _REDACTED_REQUEST_HEADERS:
+            out[name] = "<redacted>"
+    return out
 
 
 def _error_body_snippet(resp: httpx.Response, limit: int = 500) -> str:
@@ -188,6 +216,18 @@ class CareLinkClient:
     def _check(self, resp: httpx.Response) -> None:
         snippet = _error_body_snippet(resp)
         body = f" - {snippet}" if snippet else ""
+        if resp.status_code >= 400:
+            # Log what we actually sent (credentials masked) so an EU 403 on the
+            # generateReport POST can be checked for the same-origin headers the
+            # host requires -- the outbound request never shows in the app log
+            # otherwise (#811).
+            logger.warning(
+                "CareLink request failed",
+                method=resp.request.method,
+                path=resp.request.url.path,
+                status=resp.status_code,
+                sent_headers=_redacted_request_headers(resp.request),
+            )
         if resp.status_code in (401, 403):
             # 401 (expired token) and 403 (authenticated but not permitted, e.g.
             # a forbidden action/format on an otherwise-valid session) both land
