@@ -83,6 +83,18 @@ These capabilities share a single foundation: a persistent, relational memory la
 - AI evaluation framework -- internal testing pipeline to measure output quality, safety, and accuracy before changes reach users
 - **Knowledge-adaptive response profiles** -- the AI adjusts its communication based on the user's comfort level with diabetes management. An experienced patient who understands carb ratios, correction factors, and insulin timing receives data-dense analysis. A newly diagnosed patient or non-clinical caregiver receives a simplified, plain-language explanation. Configurable per user through profile settings.
 
+### Meal Intelligence -- Vision Carb Estimation
+
+Built on the same persistent memory layer, this turns the AI from a question-and-answer surface into an everyday meal-logging partner. Snap a photo of a meal in the mobile app and the AI estimates its carbohydrates -- the number people with diabetes actually count -- and broader nutrition where available. You correct the estimate when it's off, and that correction becomes the truth the platform remembers; foods you eat often are saved so they're recognized next time rather than re-guessed. Over time your own history, and real published nutrition data for branded foods, ground the estimates, and your logged meals make the AI aware of what you eat during chats and daily briefs.
+
+One principle governs the whole capability, consistent with the mirror-and-interviewer stance above: **an estimate describes the food, never the dose.** Estimates are shown as a range with a confidence signal, always carry a "this is an estimate -- verify before dosing" reminder, and never flow into any insulin or dosing calculation. The correction loop exists precisely so a wildly-off guess can be fixed fast.
+
+- Photo-to-carb estimation with a visible range and confidence (cloud vision first)
+- A personal food log: correct an estimate, save common foods, build a growing meal history that is your own data
+- Grounding against your own history and against public nutrition data (USDA FoodData Central; branded/restaurant facts with attribution)
+- Meal-aware chat and daily briefs that reflect what you've eaten and ask better questions
+- A local-model vision benchmark and guidance -- the project's first model-capability benchmark -- so local-first users know which models can run this feature well, with clear messaging when a model can't
+
 ### Platform Stability
 
 - Mobile app authentication stability fixes

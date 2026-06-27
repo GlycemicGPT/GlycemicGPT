@@ -202,7 +202,7 @@ export function DataFreshnessIndicator({
           onClick={handleRefresh}
           disabled={isRefreshing}
           className={`
-            ml-1 p-1 rounded transition-colors
+            ml-1 p-1 rounded-sm transition-colors
             ${
               isRefreshing
                 ? "text-gray-500 cursor-not-allowed"
@@ -271,7 +271,7 @@ export function DataFreshnessIndicatorCompact({
           onClick={handleRefresh}
           disabled={isRefreshing}
           className={`
-            p-0.5 rounded transition-colors
+            p-0.5 rounded-sm transition-colors
             ${
               isRefreshing
                 ? "text-gray-500 cursor-not-allowed"

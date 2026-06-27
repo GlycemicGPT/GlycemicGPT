@@ -8,10 +8,59 @@ export interface ChatMessage {
   content: string;
 }
 
-/** OpenAI-compatible chat completion request */
+/** A text segment of an OpenAI-style multimodal message. */
+export interface TextContentPart {
+  type: "text";
+  text: string;
+}
+
+/**
+ * An image segment of an OpenAI-style multimodal message.
+ *
+ * Only base64 `data:` URLs are accepted downstream — remote URLs are never
+ * fetched server-side (see anthropic-vision.ts), which keeps the image surface
+ * free of SSRF.
+ */
+export interface ImageContentPart {
+  type: "image_url";
+  image_url: { url: string; detail?: "auto" | "low" | "high" };
+}
+
+export type ContentPart = TextContentPart | ImageContentPart;
+
+/** A chat message whose content may be plain text or a mix of text and images. */
+export interface MultimodalMessage {
+  role: "system" | "user" | "assistant";
+  content: string | ContentPart[];
+}
+
+/** Options for a vision completion. */
+export interface VisionCompleteOptions {
+  model?: string;
+  maxTokens?: number;
+}
+
+/**
+ * Something that can answer a prompt containing one or more images via a
+ * sanctioned vision mechanism. Each provider mode advertises whether it can do
+ * vision and runs it through its own transport: the Anthropic API-key path uses
+ * the Messages API; the Claude/ChatGPT subscription paths drive their official
+ * CLIs (the CLI renders the image — no credential impersonation).
+ */
+export interface VisionRunner {
+  /** True when this runner can currently serve a vision request. */
+  supportsVision(): boolean;
+  /** Run a non-streaming multimodal completion. */
+  completeVision(
+    messages: MultimodalMessage[],
+    options?: VisionCompleteOptions,
+  ): Promise<ProviderResult>;
+}
+
+/** OpenAI-compatible chat completion request (text or multimodal). */
 export interface ChatCompletionRequest {
   model?: string;
-  messages: ChatMessage[];
+  messages: MultimodalMessage[];
   stream?: boolean;
   temperature?: number;
   max_tokens?: number;

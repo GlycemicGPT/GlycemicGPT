@@ -15,9 +15,12 @@ import {
   BOLUS_PERIOD_LABELS,
 } from "@/hooks/use-bolus-review";
 import type { BolusReviewItem } from "@/lib/api";
+import { formatGlucose, unitLabel, type GlucoseUnit } from "@/lib/glucose-units";
 
 export interface BolusReviewTableProps {
   className?: string;
+  /** Active glucose display unit (default mgdl). BG stays mg/dL internally. */
+  unit?: GlucoseUnit;
 }
 
 const PERIOD_OPTIONS: { value: BolusReviewPeriod; label: string }[] = [
@@ -49,7 +52,7 @@ function SkeletonRow() {
     <tr className="border-b border-slate-200/50 dark:border-slate-800/50">
       {Array.from({ length: 6 }).map((_, i) => (
         <td key={i} className="px-4 py-3">
-          <div className="animate-pulse h-4 bg-slate-200 dark:bg-slate-700 rounded w-16" />
+          <div className="animate-pulse h-4 bg-slate-200 dark:bg-slate-700 rounded-sm w-16" />
         </td>
       ))}
     </tr>
@@ -57,60 +60,86 @@ function SkeletonRow() {
 }
 
 const MAX_BOLUS_DISPLAY = 50;
+// Long-acting (basal) injections run higher than boluses (Tresiba U-200 max
+// single injection = 160U), so they get a wider display ceiling.
+const MAX_BASAL_INJECTION_DISPLAY = 160;
 const BG_MIN = 20;
 const BG_MAX = 500;
 
-function formatUnits(value: number | null | undefined, decimals: number): string {
+function formatUnits(
+  value: number | null | undefined,
+  decimals: number,
+  maxDisplay: number = MAX_BOLUS_DISPLAY
+): string {
   if (value == null || !Number.isFinite(value) || value < 0) return "---";
-  if (value > MAX_BOLUS_DISPLAY) return `>${MAX_BOLUS_DISPLAY}`;
+  if (value > maxDisplay) return `>${maxDisplay}`;
   return `${value.toFixed(decimals)} U`;
 }
 
-function formatBg(value: number | null | undefined): string {
-  if (value == null || !Number.isFinite(value)) return "---";
-  const clamped = Math.min(BG_MAX, Math.max(BG_MIN, Math.round(value)));
-  return `${clamped} mg/dL`;
+function isBasalInjection(item: BolusReviewItem): boolean {
+  return item.event_type === "basal_injection";
 }
 
-function BolusRow({ bolus }: { bolus: BolusReviewItem }) {
+function formatBg(value: number | null | undefined, unit: GlucoseUnit): string {
+  if (value == null || !Number.isFinite(value)) return "---";
+  // Clamp the 20-500 mg/dL invariant FIRST (canonical units), then convert
+  // for display so mmol precision is correct.
+  const clamped = Math.min(BG_MAX, Math.max(BG_MIN, value));
+  return `${formatGlucose(clamped, unit)} ${unitLabel(unit)}`;
+}
+
+function BolusRow({ bolus, unit }: { bolus: BolusReviewItem; unit: GlucoseUnit }) {
+  const basalInjection = isBasalInjection(bolus);
+  const unitsMax = basalInjection ? MAX_BASAL_INJECTION_DISPLAY : MAX_BOLUS_DISPLAY;
+  const typeLabel = basalInjection
+    ? "basal injection"
+    : bolus.is_automated
+      ? "automated"
+      : "manual";
   return (
     <tr
       className="border-b border-slate-200/50 dark:border-slate-800/50 hover:bg-slate-100/30 dark:hover:bg-slate-800/30 transition-colors"
-      aria-label={`Bolus at ${formatDateTime(bolus.event_timestamp)}, ${formatUnits(bolus.units, 2)}, ${bolus.is_automated ? "automated" : "manual"}`}
+      aria-label={`Insulin at ${formatDateTime(bolus.event_timestamp)}, ${formatUnits(bolus.units, 2, unitsMax)}, ${typeLabel}`}
     >
       <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300 whitespace-nowrap">
         {formatDateTime(bolus.event_timestamp)}
       </td>
       <td className="px-4 py-3 text-sm text-slate-900 dark:text-white font-medium whitespace-nowrap">
-        {formatUnits(bolus.units, 2)}
+        {formatUnits(bolus.units, 2, unitsMax)}
       </td>
       <td className="px-4 py-3 whitespace-nowrap">
-        {bolus.is_automated ? (
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-violet-500/20 text-violet-700 dark:text-violet-300">
+        {basalInjection ? (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-sky-500/20 text-sky-700 dark:text-sky-300">
+            Basal injection
+          </span>
+        ) : bolus.is_automated ? (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-violet-500/20 text-violet-700 dark:text-violet-300">
             Auto
           </span>
         ) : (
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-200/50 dark:bg-slate-700/50 text-slate-600 dark:text-slate-400">
+          <span className="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-slate-200/50 dark:bg-slate-700/50 text-slate-600 dark:text-slate-400">
             Manual
           </span>
         )}
       </td>
       <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300 whitespace-nowrap">
-        {formatBg(bolus.bg_at_event)}
+        {basalInjection ? "---" : formatBg(bolus.bg_at_event, unit)}
       </td>
       <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300 whitespace-nowrap">
-        {formatUnits(bolus.iob_at_event, 1)}
+        {basalInjection ? "---" : formatUnits(bolus.iob_at_event, 1)}
       </td>
       <td className="px-4 py-3 text-sm text-slate-500 dark:text-slate-400 whitespace-nowrap max-w-[200px] truncate">
-        {bolus.is_automated
-          ? (bolus.control_iq_reason || "Automated correction")
-          : ""}
+        {basalInjection
+          ? "Long-acting (basal)"
+          : bolus.is_automated
+            ? bolus.control_iq_reason || "Automated correction"
+            : ""}
       </td>
     </tr>
   );
 }
 
-export function BolusReviewTable({ className }: BolusReviewTableProps) {
+export function BolusReviewTable({ className, unit = "mgdl" }: BolusReviewTableProps) {
   const { data, isLoading, error, period, setPeriod, refetch } = useBolusReview();
   const periodLabel = BOLUS_PERIOD_LABELS[period] ?? period;
   const buttonsRef = useRef<(HTMLButtonElement | null)[]>([]);
@@ -139,7 +168,7 @@ export function BolusReviewTable({ className }: BolusReviewTableProps) {
   const noData = !data || !data.boluses || data.boluses.length === 0;
 
   const periodSelector = (
-    <div className="flex gap-1" role="radiogroup" aria-label="Bolus review time period">
+    <div className="flex gap-1" role="radiogroup" aria-label="Insulin review time period">
       {PERIOD_OPTIONS.map((opt, i) => (
         <button
           key={opt.value}
@@ -150,7 +179,7 @@ export function BolusReviewTable({ className }: BolusReviewTableProps) {
           tabIndex={period === opt.value ? 0 : -1}
           onClick={() => setPeriod(opt.value)}
           onKeyDown={(e) => handlePeriodKeyDown(e, i)}
-          className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900 ${
+          className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors outline-hidden focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900 ${
             period === opt.value
               ? "bg-violet-600 text-white"
               : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
@@ -176,7 +205,7 @@ export function BolusReviewTable({ className }: BolusReviewTableProps) {
             <ListOrdered className="h-5 w-5 text-violet-400" aria-hidden="true" />
           </div>
           <h2 id="bolus-review-heading" className="text-slate-900 dark:text-white font-semibold">
-            Recent Boluses
+            Recent Insulin
             <span className="text-slate-500 dark:text-slate-400 text-sm font-normal ml-2">
               {periodLabel}
             </span>
@@ -216,14 +245,14 @@ export function BolusReviewTable({ className }: BolusReviewTableProps) {
           <button
             type="button"
             onClick={refetch}
-            className="text-violet-400 hover:text-violet-300 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900 rounded"
+            className="text-violet-400 hover:text-violet-300 text-sm font-medium outline-hidden focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900 rounded-sm"
           >
             Retry
           </button>
         </div>
       ) : noData ? (
         <p className="text-slate-500 dark:text-slate-400 text-sm text-center py-4">
-          No bolus events recorded for this period.
+          No insulin events recorded for this period.
         </p>
       ) : (
         <div className="overflow-x-auto max-h-96 overflow-y-auto">
@@ -240,7 +269,7 @@ export function BolusReviewTable({ className }: BolusReviewTableProps) {
             </thead>
             <tbody>
               {data.boluses.map((bolus, i) => (
-                <BolusRow key={`${bolus.event_timestamp}-${i}`} bolus={bolus} />
+                <BolusRow key={`${bolus.event_timestamp}-${i}`} bolus={bolus} unit={unit} />
               ))}
             </tbody>
           </table>

@@ -1,5 +1,110 @@
 # Changelog
 
+## 2026-06-20
+
+### 📱 Mobile
+
+#### ✨ New Features
+
+- feat: web + mobile meal comorbidity nutrition (saturated fat, sugars, sodium) [@jlengelbrecht](https://github.com/jlengelbrecht) ([#795](https://github.com/GlycemicGPT/GlycemicGPT/pull/795))
+- feat: surface glucose-relevant meal nutrition with never-dose guardrails [@jlengelbrecht](https://github.com/jlengelbrecht) ([#791](https://github.com/GlycemicGPT/GlycemicGPT/pull/791))
+- feat: meal-vision safety-language hardening [@jlengelbrecht](https://github.com/jlengelbrecht) ([#753](https://github.com/GlycemicGPT/GlycemicGPT/pull/753))
+- feat: Milestone H — empirical confidence, identity gating & auditability (H1–H3) [@jlengelbrecht](https://github.com/jlengelbrecht) ([#747](https://github.com/GlycemicGPT/GlycemicGPT/pull/747))
+- feat(mobile): meal capture → estimate → correct → save (Meal Intelligence) [@jlengelbrecht](https://github.com/jlengelbrecht) ([#738](https://github.com/GlycemicGPT/GlycemicGPT/pull/738))
+
+#### 📝 Other Changes
+
+- ci(android): run instrumented tests on an emulator in CI [@jlengelbrecht](https://github.com/jlengelbrecht) ([#786](https://github.com/GlycemicGPT/GlycemicGPT/pull/786))
+- test(meal): end-to-end coverage for the meal-logging core loop and failure modes [@jlengelbrecht](https://github.com/jlengelbrecht) ([#783](https://github.com/GlycemicGPT/GlycemicGPT/pull/783))
+- chore: sync release 0.9.0 from main to develop [@glycemicgpt-merge](https://github.com/glycemicgpt-merge) ([#718](https://github.com/GlycemicGPT/GlycemicGPT/pull/718))
+
+### 🌐 Web
+
+#### ✨ New Features
+
+- feat: web meal estimate provenance panel (how this was estimated) [@jlengelbrecht](https://github.com/jlengelbrecht) ([#794](https://github.com/GlycemicGPT/GlycemicGPT/pull/794))
+- feat: web common-foods management and save/link from a meal [@jlengelbrecht](https://github.com/jlengelbrecht) ([#793](https://github.com/GlycemicGPT/GlycemicGPT/pull/793))
+- feat: web meal carb correction and food-identity confirmation [@jlengelbrecht](https://github.com/jlengelbrecht) ([#792](https://github.com/GlycemicGPT/GlycemicGPT/pull/792))
+- feat: web meal management view (list, detail, delete, photo upload + serving) [@jlengelbrecht](https://github.com/jlengelbrecht) ([#789](https://github.com/GlycemicGPT/GlycemicGPT/pull/789))
+- feat(api): surface long-acting basal injections in TDD, AI context, and insulin views [@jlengelbrecht](https://github.com/jlengelbrecht) ([#744](https://github.com/GlycemicGPT/GlycemicGPT/pull/744))
+- feat(api): add per-connection Glooko cgm_sync_enabled toggle (doses-only mode) [@chris-clem](https://github.com/chris-clem) ([#733](https://github.com/GlycemicGPT/GlycemicGPT/pull/733))
+
+#### 🐛 Bug Fixes
+
+- fix(deps): patch 18 OSV-flagged transitive CVEs across api/web/sidecar [@jlengelbrecht](https://github.com/jlengelbrecht) ([#750](https://github.com/GlycemicGPT/GlycemicGPT/pull/750))
+
+### 📡 API
+
+#### ✨ New Features
+
+- feat(api): gate local AI vision models on a measured carb-estimation bar [@jlengelbrecht](https://github.com/jlengelbrecht) ([#788](https://github.com/GlycemicGPT/GlycemicGPT/pull/788))
+- feat(api): ground branded restaurant items against published chain nutrition [@jlengelbrecht](https://github.com/jlengelbrecht) ([#787](https://github.com/GlycemicGPT/GlycemicGPT/pull/787))
+- feat(api): verify AI-cited meal carb figures against logged meals [@jlengelbrecht](https://github.com/jlengelbrecht) ([#765](https://github.com/GlycemicGPT/GlycemicGPT/pull/765))
+- feat(api): ground meal-photo carb estimates against history + USDA/OFF [@jlengelbrecht](https://github.com/jlengelbrecht) ([#746](https://github.com/GlycemicGPT/GlycemicGPT/pull/746))
+- feat(api): surface logged meals in chat and daily brief [@jlengelbrecht](https://github.com/jlengelbrecht) ([#745](https://github.com/GlycemicGPT/GlycemicGPT/pull/745))
+- feat(api): auto-generate daily briefs on a schedule [@chris-clem](https://github.com/chris-clem) ([#743](https://github.com/GlycemicGPT/GlycemicGPT/pull/743))
+- feat(api): record long-acting (basal) pen injections from Glooko [@chris-clem](https://github.com/chris-clem) ([#740](https://github.com/GlycemicGPT/GlycemicGPT/pull/740))
+- feat(api): meal correction loop + common foods [@jlengelbrecht](https://github.com/jlengelbrecht) ([#737](https://github.com/GlycemicGPT/GlycemicGPT/pull/737))
+- feat(api): food_records model + photo carb-estimation pipeline [@jlengelbrecht](https://github.com/jlengelbrecht) ([#736](https://github.com/GlycemicGPT/GlycemicGPT/pull/736))
+- feat(api): ingest smart-pen insulin doses (NovoPen 6 / Echo Plus) via Glooko [@chris-clem](https://github.com/chris-clem) ([#726](https://github.com/GlycemicGPT/GlycemicGPT/pull/726))
+
+#### 🐛 Bug Fixes
+
+- fix(api): deterministic, self-excluding own-history meal recall [@jlengelbrecht](https://github.com/jlengelbrecht) ([#784](https://github.com/GlycemicGPT/GlycemicGPT/pull/784))
+- fix(api): harden meal-identity clustering against verbose descriptions [@jlengelbrecht](https://github.com/jlengelbrecht) ([#766](https://github.com/GlycemicGPT/GlycemicGPT/pull/766))
+- fix(api): make tzlocal an explicit dependency [@jlengelbrecht](https://github.com/jlengelbrecht) ([#752](https://github.com/GlycemicGPT/GlycemicGPT/pull/752))
+- fix(api): show large pen doses (60U bound) and dedupe Glooko doses across sources [@jlengelbrecht](https://github.com/jlengelbrecht) ([#731](https://github.com/GlycemicGPT/GlycemicGPT/pull/731))
+- fix(api): count non-pump insulin doses past the pump IoB anchor [@jlengelbrecht](https://github.com/jlengelbrecht) ([#730](https://github.com/GlycemicGPT/GlycemicGPT/pull/730))
+- fix(api): harden Glooko host validation, 421 posture, and dose ingestion bounds [@jlengelbrecht](https://github.com/jlengelbrecht) ([#729](https://github.com/GlycemicGPT/GlycemicGPT/pull/729))
+- fix(api): follow Glooko EU sub-cluster redirect when resolving the API host [@chris-clem](https://github.com/chris-clem) ([#725](https://github.com/GlycemicGPT/GlycemicGPT/pull/725))
+- fix(api): fail closed on Redis outage for single-use token consumption [@jlengelbrecht](https://github.com/jlengelbrecht) ([#720](https://github.com/GlycemicGPT/GlycemicGPT/pull/720))
+
+#### 📝 Other Changes
+
+- test(api): assert a single Alembic head (CI guard) [@jlengelbrecht](https://github.com/jlengelbrecht) ([#739](https://github.com/GlycemicGPT/GlycemicGPT/pull/739))
+
+### 🤖 Sidecar
+
+#### 💥 Breaking Changes
+
+- fix(sidecar): require SIDECAR_API_KEY at startup, fail closed on missing auth [@jlengelbrecht](https://github.com/jlengelbrecht) ([#719](https://github.com/GlycemicGPT/GlycemicGPT/pull/719))
+
+#### ✨ New Features
+
+- feat(sidecar): per-provider vision support + carb-estimation eval harness (Meal Intelligence) [@jlengelbrecht](https://github.com/jlengelbrecht) ([#735](https://github.com/GlycemicGPT/GlycemicGPT/pull/735))
+
+#### 🐛 Bug Fixes
+
+- fix(sidecar): route codex (ChatGPT subscription) chat through codex exec --json [@jlengelbrecht](https://github.com/jlengelbrecht) ([#749](https://github.com/GlycemicGPT/GlycemicGPT/pull/749))
+- fix(sidecar): install ca-certificates so codex (ChatGPT subscription) works [@jlengelbrecht](https://github.com/jlengelbrecht) ([#748](https://github.com/GlycemicGPT/GlycemicGPT/pull/748))
+
+### 🔒 Security
+
+#### 📝 Other Changes
+
+- ci(security): suppress false-positive AES-ECB SAST finding in vendored SAKE crypto (#695/#696) [@jlengelbrecht](https://github.com/jlengelbrecht) ([#751](https://github.com/GlycemicGPT/GlycemicGPT/pull/751))
+
+### 🏗️ Infrastructure
+
+#### 💥 Breaking Changes
+
+- chore(ci): stop auto-labeler flagging templated PRs as breaking changes [@jlengelbrecht](https://github.com/jlengelbrecht) ([#732](https://github.com/GlycemicGPT/GlycemicGPT/pull/732))
+
+#### ✨ New Features
+
+- feat(evals): variance-aware vision-carb eval harness + adversarial food set [@jlengelbrecht](https://github.com/jlengelbrecht) ([#754](https://github.com/GlycemicGPT/GlycemicGPT/pull/754))
+
+#### 🐛 Bug Fixes
+
+- fix(infra): loopback-bind dev Postgres/Redis, add Redis auth, fix k8s pgvector [@jlengelbrecht](https://github.com/jlengelbrecht) ([#721](https://github.com/GlycemicGPT/GlycemicGPT/pull/721))
+
+#### 📝 Other Changes
+
+- chore: sync changelog update from main to develop [@glycemicgpt-merge](https://github.com/glycemicgpt-merge) ([#717](https://github.com/GlycemicGPT/GlycemicGPT/pull/717))
+
+<!-- changelog-cutoff:2026-06-20T05:41:54Z -->
+
+
 ## 2026-06-10
 
 ### 📱 Mobile

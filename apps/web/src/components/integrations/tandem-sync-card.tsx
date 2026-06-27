@@ -265,7 +265,7 @@ export function TandemSyncCard({ isOffline }: { isOffline: boolean }) {
           }
           className={clsx(
             "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
-            "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+            "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500",
             "disabled:opacity-50 disabled:cursor-not-allowed",
             syncStatus?.enabled ? "bg-blue-600" : "bg-slate-600"
           )}
@@ -289,7 +289,7 @@ export function TandemSyncCard({ isOffline }: { isOffline: boolean }) {
         >
           <div className="flex items-start gap-2">
             <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
-            <div className="text-xs text-amber-300 space-y-1">
+            <div className="text-xs text-amber-700 dark:text-amber-300 space-y-1">
               <p className="font-medium">Re-select your country</p>
               <p>
                 Your Tandem integration was saved under an older region
@@ -347,7 +347,7 @@ export function TandemSyncCard({ isOffline }: { isOffline: boolean }) {
                     "w-28 px-3 py-1.5 rounded-lg text-sm",
                     "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200",
                     "border border-slate-300 dark:border-slate-700",
-                    "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+                    "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500",
                     "disabled:opacity-50 disabled:cursor-not-allowed"
                   )}
                   aria-describedby="tandem-sync-interval-help"
@@ -359,7 +359,7 @@ export function TandemSyncCard({ isOffline }: { isOffline: boolean }) {
                   className={clsx(
                     "px-4 py-1.5 rounded-lg text-sm font-medium transition-colors",
                     "bg-blue-600 text-white hover:bg-blue-500",
-                    "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+                    "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500",
                     "disabled:opacity-50 disabled:cursor-not-allowed"
                   )}
                 >
@@ -419,7 +419,7 @@ export function TandemSyncCard({ isOffline }: { isOffline: boolean }) {
               "flex items-center justify-center gap-1.5 w-full px-4 py-2 rounded-lg text-sm font-medium",
               "bg-blue-600 text-white hover:bg-blue-500",
               "transition-colors",
-              "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+              "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500",
               "disabled:opacity-50 disabled:cursor-not-allowed"
             )}
           >
@@ -484,7 +484,7 @@ export function TandemSyncCard({ isOffline }: { isOffline: boolean }) {
                     "px-3 py-1.5 rounded-lg text-sm",
                     "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200",
                     "border border-slate-300 dark:border-slate-700",
-                    "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+                    "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500",
                     "disabled:opacity-50 disabled:cursor-not-allowed"
                   )}
                 />
@@ -508,7 +508,7 @@ export function TandemSyncCard({ isOffline }: { isOffline: boolean }) {
                     "px-3 py-1.5 rounded-lg text-sm",
                     "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200",
                     "border border-slate-300 dark:border-slate-700",
-                    "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+                    "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500",
                     "disabled:opacity-50 disabled:cursor-not-allowed"
                   )}
                 />
@@ -528,7 +528,7 @@ export function TandemSyncCard({ isOffline }: { isOffline: boolean }) {
                   "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200",
                   "border border-slate-300 dark:border-slate-700",
                   "hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors",
-                  "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+                  "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500",
                   "disabled:opacity-50 disabled:cursor-not-allowed"
                 )}
               >

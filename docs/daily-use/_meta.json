@@ -2,6 +2,7 @@
   "title": "Daily Use",
   "pages": [
     "dashboard",
+    "glucose-units",
     "integrations",
     "connecting-dexcom",
     "connecting-tandem-cloud",
@@ -9,6 +10,8 @@
     "connecting-medtronic-pump",
     "ai-chat",
     "briefs",
+    "meal-intelligence",
+    "restaurant-nutrition-grounding",
     "alerts",
     "data-export"
   ]

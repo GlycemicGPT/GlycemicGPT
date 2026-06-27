@@ -22,6 +22,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
+from src.core.units import MGDL_PER_MMOL
 from src.models.glucose import TrendDirection
 from src.services.integrations.nightscout.models import (
     NightscoutEntry,
@@ -78,6 +79,14 @@ def map_entry_to_glucose_reading(
 
     Otherwise returns a dict with keys matching `GlucoseReading`
     columns, suitable for `Insert(GlucoseReading.__table__).values(...)`.
+
+    Unit invariant: the Nightscout entries schema has no per-record unit field,
+    and Nightscout always serves entries -- both `sgv` (CGM) and `mbg` (manual
+    BG) -- as mg/dL on the wire. Both branches therefore store the value as-is
+    with no unit conversion; this is the canonical-mg/dL guarantee for the
+    entries route. (The BG-Check *treatments* route is the only NS path that
+    carries an optional `units` field and converts mmol/L --
+    see `map_bg_check_treatment_to_glucose_reading`.)
     """
     timestamp = entry.canonical_timestamp
     if timestamp is None:
@@ -96,12 +105,18 @@ def map_entry_to_glucose_reading(
             return None
         if entry.sgv is None:
             return None
+        # sgv is mg/dL on the wire (entries carry no unit field) -- store as-is.
         value = int(round(entry.sgv))
         trend = map_ns_direction(entry.direction)
+        # entry.delta is the glucose change (mg/dL) between consecutive CGM readings,
+        # carried through as trend_rate. It stays mg/dL like every stored value; a mmol/L
+        # display surface must convert it as a SPREAD (offset-free /MGDL_PER_MMOL), not as a
+        # value -- cross-surface open question, no consumer renders trend_rate to the user yet.
         trend_rate = entry.delta if entry.delta is not None else None
     elif entry.type == "mbg":
         if entry.mbg is None:
             return None
+        # mbg is mg/dL on the wire (entries carry no unit field) -- store as-is.
         value = int(round(entry.mbg))
         # Fingersticks have no trend signal -- meter readings are
         # point-in-time.
@@ -147,13 +162,11 @@ def map_bg_check_treatment_to_glucose_reading(
         return None
 
     # Per-record `units` field can override the default (rare).
-    # Convert mmol/L to mg/dL using the project-wide conversion factor.
+    # Convert mmol/L to mg/dL using the project-wide conversion factor
+    # (single source of truth in `src.core.units`).
     glucose_value = treatment.glucose
     units = (treatment.units or "").lower().strip()
     if units in ("mmol", "mmol/l"):
-        # Defer to the central constant to keep one source of truth.
-        from src.services.integrations.nightscout.models import MGDL_PER_MMOL
-
         glucose_value = glucose_value * MGDL_PER_MMOL
 
     return {

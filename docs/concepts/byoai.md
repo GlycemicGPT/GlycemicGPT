@@ -127,6 +127,15 @@ This option points GlycemicGPT at any URL that speaks the OpenAI Chat Completion
 - **Privacy:** strongest for local models -- nothing leaves your network. Router services have their own privacy / training policies; check them.
 - **Quality:** depends on the model. **The project has not yet conducted formal evals on what local model size produces reliable results for GlycemicGPT's use cases.** Community feedback so far suggests smaller (7B-8B) models miss nuance on insulin-action timing and pattern interpretation, but we don't yet have a recommended minimum or a measured "this model does well, this one doesn't" list. If you have hardware to run something in the 13B-30B range, that's a reasonable starting point to experiment from -- and please report what works back to the project. Treat any local-model output the way you'd treat any AI suggestion -- as a thread to pull on, not advice to act on.
 
+> **Meal photos (vision) are gated separately.** Using a local model for the
+> [Meal Intelligence](../daily-use/meal-intelligence.md) photo carb-estimate has a
+> higher bar than text chat, because a weak vision model can swing wildly on the
+> same photo or misidentify the food -- both acute-hypo risks. An unverified local
+> model is refused for meal photos (with a clear message) rather than allowed to
+> produce a silent low-quality estimate. See [Local AI Vision](local-ai-vision.md)
+> for which models clear the bar, how to verify one yourself, and why cloud is the
+> verified path for photos today.
+
 ## Realistic cost ranges
 
 The project has not yet conducted formal cost telemetry, so the numbers below are **rough estimates** based on token-pricing math and observed usage patterns. Treat them as ballpark, not a guarantee. Pricing on the vendor side also changes -- always confirm against the linked pricing pages.

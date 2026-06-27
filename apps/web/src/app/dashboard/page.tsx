@@ -41,9 +41,12 @@ import {
   InsulinSummaryStats,
   BolusReviewTable,
   DataSourcesFreshnessCard,
+  GlucoseUnitSeedNotice,
   PERIOD_LABELS,
 } from "@/components/dashboard";
 import { useGlucoseStreamContext, useUserContext } from "@/providers";
+import { useGlucoseUnit } from "@/hooks/use-glucose-unit";
+import { formatGlucose, unitLabel } from "@/lib/glucose-units";
 import { useTimeInRangeDetailStats } from "@/hooks/use-time-in-range-stats";
 import { useGlucoseStats } from "@/hooks/use-glucose-stats";
 import { useGlucoseRange } from "@/hooks/use-glucose-range";
@@ -74,6 +77,7 @@ function mapLoopStatus(
 export default function DashboardPage() {
   const router = useRouter();
   const { user, isLoading: isUserLoading } = useUserContext();
+  const unit = useGlucoseUnit();
 
   // All hooks must be called before any early return
   const {
@@ -98,9 +102,13 @@ export default function DashboardPage() {
     }
   }, [glucose?.reading_timestamp]);
 
-  // Fetch user's configured glucose range thresholds
+  // Fetch user's configured glucose range thresholds (always mg/dL; display
+  // converts to the active unit).
   const glucoseThresholds = useGlucoseRange();
-  const targetRange = `${glucoseThresholds.low}-${glucoseThresholds.high} mg/dL`;
+  const targetRange = `${formatGlucose(glucoseThresholds.low, unit)}-${formatGlucose(
+    glucoseThresholds.high,
+    unit
+  )} ${unitLabel(unit)}`;
 
   // Fetch latest pump status (basal, battery, reservoir) for hero card
   const pumpStatus = usePumpStatus(chartRefreshKey);
@@ -214,6 +222,9 @@ export default function DashboardPage() {
         onReconnect={reconnect}
       />
 
+      {/* One-time smart-default glucose-unit notice */}
+      <GlucoseUnitSeedNotice />
+
       {/* Page header - using div instead of header to avoid banner role confusion inside main */}
       <AnimatedCard>
         <div>
@@ -249,6 +260,7 @@ export default function DashboardPage() {
           }
           isLoading={!isLive && !glucose}
           thresholds={glucoseThresholds}
+          unit={unit}
         />
       </AnimatedCard>
 
@@ -258,6 +270,7 @@ export default function DashboardPage() {
           refreshKey={chartRefreshKey}
           thresholds={glucoseThresholds}
           forecast={forecast}
+          unit={unit}
         />
       </AnimatedCard>
 
@@ -269,12 +282,13 @@ export default function DashboardPage() {
           error={cgmError}
           period={cgmPeriod}
           onPeriodChange={setCgmPeriod}
+          unit={unit}
         />
       </AnimatedCard>
 
       {/* AGP Percentile Band Chart - Story 30.5 */}
       <AnimatedCard delay={0.2}>
-        <AgpChart thresholds={glucoseThresholds} />
+        <AgpChart thresholds={glucoseThresholds} unit={unit} />
       </AnimatedCard>
 
       {/* Insulin Summary & Bolus Review - Story 30.7 */}
@@ -282,7 +296,7 @@ export default function DashboardPage() {
         <InsulinSummaryStats />
       </AnimatedCard>
       <AnimatedCard delay={0.3}>
-        <BolusReviewTable />
+        <BolusReviewTable unit={unit} />
       </AnimatedCard>
 
       {/* Metrics grid with proper heading hierarchy */}

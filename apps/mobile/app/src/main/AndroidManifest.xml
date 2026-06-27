@@ -45,6 +45,13 @@
         android:name="android.hardware.bluetooth_le"
         android:required="true" />
 
+    <!-- Camera for meal-photo capture (Epic 50). Requested at runtime; optional hardware so
+         the app still installs on camera-less devices (gallery picker remains available). -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature
+        android:name="android.hardware.camera.any"
+        android:required="false" />
+
     <application
         android:name=".GlycemicGptApp"
         android:allowBackup="false"

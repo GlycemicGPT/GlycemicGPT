@@ -109,7 +109,10 @@ reviews:
         - Proper pytest patterns: fixtures, parametrize, clear arrange/act/assert.
         - Mock isolation: external services (Dexcom, Tandem, AI providers) must
           be mocked, never called in tests.
-        - Edge cases: empty data, null values, boundary glucose values (40-400 mg/dL).
+        - Edge cases: empty data, null values, and the canonical glucose safety
+          bounds (20 and 500 mg/dL). For unit-conversion/display code, also their
+          mmol/L equivalents (about 1.1 and 27.8 mmol/L); a mmol/L literal in
+          display or test code is not a bounds violation.
 
     - path: "apps/web/**/*.{ts,tsx}"
       instructions: |
@@ -147,9 +150,12 @@ reviews:
           operation serialization, timeout handling.
         - Security: encrypted SharedPreferences for tokens, no sensitive data
           in logs.
-        - Medical safety: glucose values must be validated (range 20-500 mg/dL),
-          insulin doses must have hard caps, no auto-bolus without explicit user
-          confirmation.
+        - Medical safety: glucose is stored and compared in canonical mg/dL and
+          must be validated to the 20-500 mg/dL range; insulin doses must have
+          hard caps, no auto-bolus without explicit user confirmation. A
+          user-facing mmol/L display literal is not a bounds violation, but any
+          value persisted or compared as glucose must be canonical mg/dL in
+          20-500.
 
     - path: "plugins/pump-driver-api/**/*.kt"
       instructions: |
@@ -284,7 +290,24 @@ reviews:
         instructions: |
           If the PR modifies code that handles glucose values, insulin doses,
           bolus calculations, or pump commands:
-          - Verify glucose values are bounds-checked (20-500 mg/dL range).
+          - Glucose is STORED and COMPARED in canonical mg/dL. Verify every
+            persisted column, Pydantic bound, threshold/alert comparison, dedup
+            key, and safety check stays in mg/dL and is bounds-checked to the
+            20-500 mg/dL range.
+          - mmol/L is a DISPLAY and INPUT unit only. The single allowed
+            conversion factor is 18.0156 (mg/dL per mmol/L). Hard-FAIL if a
+            mapper, threshold, or input handler:
+              * stores or compares a mmol/L value as if it were mg/dL (e.g.
+                persisting 3.9 instead of ~70 -- this silently suppresses low
+                alerts), or
+              * converts the wrong direction (multiplies when it should divide,
+                or vice versa), or
+              * permits a stored mg/dL value outside 20-500 after conversion, or
+              * uses a conversion factor other than 18.0156 (e.g. 18.02, 18.0182).
+          - Do NOT flag a user-facing mmol/L display literal (e.g. 3.9, 10.0,
+            22.2) or a mmol/L input that is converted to mg/dL before storage as
+            a bounds violation -- only the stored/compared mg/dL value must
+            satisfy 20-500.
           - Verify insulin dose calculations have hard maximum caps.
           - Verify no auto-bolus logic exists without explicit user confirmation.
           - Verify AI-generated suggestions include safety disclaimers.

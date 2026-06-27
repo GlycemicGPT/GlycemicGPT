@@ -1,5 +1,7 @@
 package com.glycemicgpt.mobile.logging
 
+import com.glycemicgpt.mobile.domain.format.GlucoseFormat
+import com.glycemicgpt.mobile.domain.model.GlucoseUnit
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -41,6 +43,21 @@ class ReleaseTreeTest {
         val msg = "Reading: 5.4 mmol/L"
         val result = ReleaseTree.scrubSensitiveData(msg)
         assertEquals("Reading: [BG]", result)
+    }
+
+    @Test
+    fun `scrubs mmol values produced by the glucose formatter`() {
+        // The mmol format chosen for display must still match BG_MMOL_PATTERN so it cannot
+        // bypass the release log scrubber (AC: log scrubber still works).
+        for (mgDl in listOf(70, 100, 120, 180, 250)) {
+            val rendered = GlucoseFormat.formatWithLabel(mgDl, GlucoseUnit.MMOL)
+            val msg = "Current reading: $rendered"
+            assertEquals(
+                "mmol output '$rendered' should be scrubbed",
+                "Current reading: [BG]",
+                ReleaseTree.scrubSensitiveData(msg),
+            )
+        }
     }
 
     @Test

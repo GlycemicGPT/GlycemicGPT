@@ -48,6 +48,21 @@ const nextConfig: NextConfig = {
   output: "standalone",
   reactStrictMode: true,
   poweredByHeader: false,
+
+  /**
+   * Raise the rewrite-proxy timeout above Next's 30s default.
+   *
+   * Almost every /api/* call is sub-second, but the meal-photo upload
+   * (POST /api/food-records) runs multi-sample AI vision inference that can take
+   * tens of seconds. At the 30s default the proxy aborts the upstream
+   * (ECONNRESET / "socket hang up") and a meal that the API actually saved
+   * surfaces in the UI as a generic error. 120s comfortably covers it -- the
+   * mobile client uses a 90s read timeout on the same upload for this reason.
+   */
+  experimental: {
+    proxyTimeout: 120_000,
+  },
+
   async headers() {
     return [
       {

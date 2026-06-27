@@ -65,6 +65,15 @@ class WearDataContractTest {
     }
 
     @Test
+    fun `cgm keys match phone-side contract values`() {
+        assertEquals("cgm_mgdl", WearDataContract.KEY_CGM_MG_DL)
+        assertEquals("cgm_trend", WearDataContract.KEY_CGM_TREND)
+        assertEquals("cgm_ts", WearDataContract.KEY_CGM_TIMESTAMP)
+        // Per-account display unit; must match the phone mirror or the watch can't read it.
+        assertEquals("glucose_unit", WearDataContract.KEY_GLUCOSE_UNIT)
+    }
+
+    @Test
     fun `config keys are defined`() {
         assertEquals("cfg_show_iob", WearDataContract.KEY_CONFIG_SHOW_IOB)
         assertEquals("cfg_show_graph", WearDataContract.KEY_CONFIG_SHOW_GRAPH)

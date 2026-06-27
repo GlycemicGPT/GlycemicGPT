@@ -32,8 +32,8 @@ describe("GlucoseHero Accessibility", () => {
       );
     });
 
-    it("has exact announcement format matching AC1 pattern", () => {
-      // AC1 pattern: "Glucose {value} milligrams per deciliter, {trend}, {range status}"
+    it("has exact announcement format", () => {
+      // Pattern: "Glucose {value} milligrams per deciliter, {trend}, {range status}"
       // Example: "Glucose 142 milligrams per deciliter, falling, in target range"
       render(<GlucoseHero value={142} trend="Falling" iob={null} basalRate={null} batteryPct={null} reservoirUnits={null} />);
 
@@ -233,6 +233,19 @@ describe("Accessibility Helper Functions", () => {
     it("rounds glucose value", () => {
       const result = buildGlucoseAnnouncement(142.7, "stable", "in-range");
       expect(result).toContain("Glucose 143");
+    });
+
+    it("speaks the converted value and British 'litre' for mmol users", () => {
+      // value stays mg/dL (180); spoken as the converted 10.0 mmol.
+      const result = buildGlucoseAnnouncement(
+        180,
+        "falling slowly",
+        "in-range",
+        "mmol"
+      );
+      expect(result).toBe(
+        "Glucose 10.0 millimoles per litre, falling slowly, in target range"
+      );
     });
   });
 

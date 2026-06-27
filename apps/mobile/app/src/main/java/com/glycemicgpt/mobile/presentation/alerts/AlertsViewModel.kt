@@ -2,8 +2,10 @@ package com.glycemicgpt.mobile.presentation.alerts
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.glycemicgpt.mobile.data.local.AppSettingsStore
 import com.glycemicgpt.mobile.data.local.entity.AlertEntity
 import com.glycemicgpt.mobile.data.repository.AlertRepository
+import com.glycemicgpt.mobile.domain.model.GlucoseUnit
 import com.glycemicgpt.mobile.service.AlertNotificationManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,6 +26,7 @@ data class AlertsUiState(
 class AlertsViewModel @Inject constructor(
     private val alertRepository: AlertRepository,
     private val alertNotificationManager: AlertNotificationManager,
+    private val appSettingsStore: AppSettingsStore,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AlertsUiState())
@@ -31,6 +34,10 @@ class AlertsViewModel @Inject constructor(
 
     val alerts: StateFlow<List<AlertEntity>> = alertRepository.observeRecentAlerts()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** The user's glucose display unit, for rendering alert values. Alert detection stays mg/dL. */
+    val glucoseUnit: StateFlow<GlucoseUnit> = appSettingsStore.glucoseUnitFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), appSettingsStore.glucoseUnit)
 
     init {
         viewModelScope.launch { alertRepository.cleanupOldAlerts() }

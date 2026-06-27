@@ -22,6 +22,7 @@ class WearDataContractTest {
         assertEquals("cgm_mgdl", WearDataContract.KEY_CGM_MG_DL)
         assertEquals("cgm_trend", WearDataContract.KEY_CGM_TREND)
         assertEquals("cgm_ts", WearDataContract.KEY_CGM_TIMESTAMP)
+        assertEquals("glucose_unit", WearDataContract.KEY_GLUCOSE_UNIT)
         assertEquals("glucose_low", WearDataContract.KEY_GLUCOSE_LOW)
         assertEquals("glucose_high", WearDataContract.KEY_GLUCOSE_HIGH)
         assertEquals("glucose_urg_low", WearDataContract.KEY_GLUCOSE_URGENT_LOW)

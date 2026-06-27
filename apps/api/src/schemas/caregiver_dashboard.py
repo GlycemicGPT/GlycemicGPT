@@ -9,6 +9,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field, field_validator
 
+from src.core.units import GlucoseUnit
 from src.schemas.caregiver_permissions import CaregiverPermissions
 
 
@@ -48,6 +49,11 @@ class CaregiverPatientStatus(BaseModel):
     glucose: CaregiverGlucoseData | None = None
     iob: CaregiverIoBData | None = None
     permissions: CaregiverPermissions
+    # The PATIENT's preferred display unit (never the viewing caregiver's). The
+    # glucose ``value`` stays canonical mg/dL; this only tells the client which
+    # unit to render it in, so a caregiver sees their patient's reading in the
+    # patient's own unit.
+    glucose_unit: GlucoseUnit = GlucoseUnit.MGDL
 
 
 class CaregiverGlucoseHistoryReading(BaseModel):

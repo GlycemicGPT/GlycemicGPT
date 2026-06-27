@@ -97,6 +97,8 @@ services:
       GLYCEMICGPT_SENTRY_ENVIRONMENT: ${GLYCEMICGPT_SENTRY_ENVIRONMENT:-development}
     volumes:
       - embedding_cache:/app/.cache/fastembed
+      # Private, owner-scoped meal-photo storage. Never web-served.
+      - food_uploads:/uploads
     depends_on:
       db:
         condition: service_healthy
@@ -140,3 +142,4 @@ volumes:
   sidecar_auth:
   sidecar_codex:
   embedding_cache:
+  food_uploads:

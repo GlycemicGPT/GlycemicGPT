@@ -30,6 +30,7 @@ from src.models.medtronic_connect_state import (
     MedtronicConnectState,
 )
 from src.models.tandem_sync_state import TandemSyncState
+from src.services.daily_brief import generate_briefs_all_users
 from src.services.dexcom_sync import DexcomSyncError, sync_dexcom_for_user
 from src.services.integrations.glooko.sync import (
     GlookoSyncRunError,
@@ -744,7 +745,14 @@ def start_scheduler() -> AsyncIOScheduler:
         logger.warning("Scheduler already running")
         return scheduler
 
-    scheduler = AsyncIOScheduler()
+    # Pin to UTC instead of the host's local timezone (APScheduler's default,
+    # resolved via tzlocal). APScheduler 3.x miscalculates its wakeup loop across
+    # a DST spring-forward when the configured zone is a ZoneInfo object, which
+    # can stall sub-minute jobs (e.g. the Telegram poll) for up to an hour. UTC
+    # has no DST so the whole class is moot; every job here uses IntervalTrigger
+    # (fixed deltas) and per-user brief send-times are resolved in app logic, not
+    # the trigger, so UTC is safe.
+    scheduler = AsyncIOScheduler(timezone="UTC")
 
     # Add Dexcom sync job if enabled
     if settings.dexcom_sync_enabled:
@@ -892,6 +900,22 @@ def start_scheduler() -> AsyncIOScheduler:
         logger.info(
             "Scheduled escalation check job",
             interval_minutes=settings.escalation_check_interval_minutes,
+        )
+
+    # Add daily brief auto-generation job if enabled (issue #741)
+    if settings.brief_scheduler_enabled:
+        scheduler.add_job(
+            generate_briefs_all_users,
+            trigger=IntervalTrigger(minutes=settings.brief_check_interval_minutes),
+            id="daily_brief",
+            name="Daily Brief Generation",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
+        logger.info(
+            "Scheduled daily brief job",
+            interval_minutes=settings.brief_check_interval_minutes,
         )
 
     # Add data retention enforcement job if enabled (Story 9.3)

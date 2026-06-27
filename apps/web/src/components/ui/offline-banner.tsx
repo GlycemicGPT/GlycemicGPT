@@ -39,7 +39,7 @@ export function OfflineBanner({
             "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap",
             "bg-amber-500/20 text-amber-400 hover:bg-amber-500/30",
             "transition-colors",
-            "focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500",
+            "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500",
             "disabled:opacity-50 disabled:cursor-not-allowed"
           )}
         >

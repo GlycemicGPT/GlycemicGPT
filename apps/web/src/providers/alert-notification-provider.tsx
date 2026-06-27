@@ -20,6 +20,8 @@ import {
 
 import { AlertToast } from "@/components/dashboard/alert-toast";
 import type { AlertEventData } from "@/hooks/use-glucose-stream";
+import { useGlucoseUnit } from "@/hooks/use-glucose-unit";
+import { formatAlertSummary } from "@/lib/alert-utils";
 import { playAlertSound } from "@/lib/audio";
 import { showBrowserNotification } from "@/lib/browser-notifications";
 import { GlucoseStreamProvider } from "./glucose-stream-provider";
@@ -126,6 +128,16 @@ export function AlertNotificationProvider({
   // Eagerly initialize dismissed set to avoid race with SSE alerts (Fix #4)
   const dismissedRef = useRef<Set<string>>(getDismissedAlerts());
 
+  // Viewer's glucose unit. The dashboard SSE only streams the viewer's OWN
+  // alerts, so viewer == owner and rendering toast/notification glucose in this
+  // unit is correct. Kept in a ref so the alert callback reads the latest value
+  // without re-subscribing to the stream.
+  const unit = useGlucoseUnit();
+  const unitRef = useRef(unit);
+  useEffect(() => {
+    unitRef.current = unit;
+  }, [unit]);
+
   // Load preferences from localStorage on mount
   useEffect(() => {
     setPreferencesState(loadPreferences());
@@ -180,7 +192,10 @@ export function AlertNotificationProvider({
       prefsRef.current.browserNotificationsEnabled &&
       (alert.severity === "urgent" || alert.severity === "emergency")
     ) {
-      showBrowserNotification(alert.severity, alert.message);
+      showBrowserNotification(
+        alert.severity,
+        formatAlertSummary(alert, unitRef.current)
+      );
     }
   }, []);
 
@@ -204,6 +219,7 @@ export function AlertNotificationProvider({
               key={alert.id}
               alert={alert}
               onDismiss={handleDismiss}
+              unit={unit}
             />
           ))}
         </div>

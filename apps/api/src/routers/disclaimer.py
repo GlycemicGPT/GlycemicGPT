@@ -6,6 +6,7 @@ FR51: User must acknowledge disclaimer before using system
 """
 
 import logging
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -14,6 +15,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.auth import CurrentUser
+
+# DISCLAIMER_VERSION is canonical in src.core.disclaimer; re-exported here because
+# tests and historical callers import it from this router module.
+from src.core.disclaimer import DISCLAIMER_VERSION, has_acknowledged_current
 from src.database import get_db, get_session_maker
 from src.models.disclaimer import DisclaimerAcknowledgment
 from src.schemas.disclaimer import (
@@ -25,10 +30,6 @@ from src.schemas.disclaimer import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/disclaimer", tags=["Disclaimer"])
-
-# Current disclaimer version - increment when disclaimer text changes.
-# 1.1: added AI data-handling acknowledgment (cloud vs local provider data flow).
-DISCLAIMER_VERSION = "1.1"
 
 
 @router.get("/status", response_model=DisclaimerStatusResponse)
@@ -112,6 +113,32 @@ async def acknowledge_disclaimer(
         existing = result.scalar_one_or_none()
 
         if existing:
+            if existing.disclaimer_version != DISCLAIMER_VERSION:
+                # Re-acknowledgment of a newer disclaimer version. session_id is
+                # unique and never rotates client-side, so we must advance the
+                # stored version here -- otherwise /status keeps reporting
+                # not-acknowledged and the user is trapped in a re-acknowledge
+                # loop after a version bump.
+                existing.disclaimer_version = DISCLAIMER_VERSION
+                existing.acknowledged_at = datetime.now(UTC)
+                existing.ip_address = client_ip
+                existing.user_agent = user_agent
+                await session.commit()
+                await session.refresh(existing)
+                logger.info(
+                    "Disclaimer re-acknowledged for new version",
+                    extra={
+                        "session_id": data.session_id,
+                        "ip_address": client_ip,
+                        "version": DISCLAIMER_VERSION,
+                    },
+                )
+                return DisclaimerAcknowledgeResponse(
+                    success=True,
+                    acknowledged_at=existing.acknowledged_at,
+                    message="Disclaimer acknowledged successfully",
+                )
+
             logger.info(
                 "Disclaimer already acknowledged",
                 extra={
@@ -180,6 +207,10 @@ async def acknowledge_disclaimer_auth(
     This is separate from the session-based acknowledgment used on the
     landing page (pre-auth).
 
+    Records the acknowledged version too, so a future DISCLAIMER_VERSION bump
+    re-prompts authenticated users (mirrors the session flow) without a one-shot
+    reset migration.
+
     Args:
         current_user: The authenticated user from the session cookie
         db: Database session
@@ -187,10 +218,11 @@ async def acknowledge_disclaimer_auth(
     Returns:
         Success response
     """
-    if current_user.disclaimer_acknowledged:
+    if has_acknowledged_current(current_user):
         return {"success": True, "message": "Disclaimer was previously acknowledged"}
 
     current_user.disclaimer_acknowledged = True
+    current_user.disclaimer_version = DISCLAIMER_VERSION
     await db.commit()
     await db.refresh(current_user)
 
@@ -227,6 +259,18 @@ async def get_disclaimer_content() -> dict[str, Any]:
                 "icon": "brain",
                 "title": "AI Limitations",
                 "text": "AI can and will make mistakes. All suggestions should be verified with your healthcare provider before acting on them.",
+            },
+            {
+                "icon": "camera",
+                "title": "Photo Carb Estimates Are Guesses",
+                "text": (
+                    "If you use the meal-photo feature, the carbohydrate numbers "
+                    "are AI estimates from an image and are frequently wrong -- "
+                    "including misidentifying the food entirely. They are a rough "
+                    "starting point only. Never use a photo carb estimate to "
+                    "calculate an insulin dose or bolus, and always verify carbs "
+                    "yourself before dosing."
+                ),
             },
             {
                 "icon": "shield-x",

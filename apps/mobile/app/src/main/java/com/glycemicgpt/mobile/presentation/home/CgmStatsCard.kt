@@ -25,7 +25,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.glycemicgpt.mobile.data.local.AppSettingsStore
+import com.glycemicgpt.mobile.domain.format.GlucoseFormat
 import com.glycemicgpt.mobile.domain.model.CgmStats
+import com.glycemicgpt.mobile.domain.model.GlucoseUnit
 import com.glycemicgpt.mobile.presentation.theme.GlucoseColors
 
 private val CgmStatsPeriods = listOf(
@@ -39,6 +41,7 @@ fun CgmStatsCard(
     stats: CgmStats?,
     selectedPeriod: TirPeriod,
     onPeriodSelected: (TirPeriod) -> Unit,
+    glucoseUnit: GlucoseUnit = GlucoseUnit.MGDL,
     maxRetentionDays: Int = AppSettingsStore.DEFAULT_RETENTION_DAYS,
     modifier: Modifier = Modifier,
 ) {
@@ -53,10 +56,14 @@ fun CgmStatsCard(
     val a11yDescription = if (stats != null) {
         val (cvLabel, _) = cvAssessment(stats.cvPercent)
         val (activeLabel, _) = cgmActiveAssessment(stats.cgmActivePercent)
-        ("CGM statistics: mean glucose %.0f mg/dL, std dev %.1f mg/dL, " +
+        val spokenUnit = GlucoseFormat.spokenUnit(glucoseUnit)
+        val meanSpoken = "${GlucoseFormat.formatMean(stats.meanGlucose, glucoseUnit)} $spokenUnit"
+        val stdDevSpoken = "${GlucoseFormat.formatSpread(stats.stdDev, glucoseUnit)} $spokenUnit"
+        // GMI stays a % computed from the RAW mg/dL mean -- never converted.
+        ("CGM statistics: mean glucose %s, std dev %s, " +
             "CV %.1f%% %s, GMI %.1f%%, CGM active %.0f%% %s, %d readings").format(
-            stats.meanGlucose,
-            stats.stdDev,
+            meanSpoken,
+            stdDevSpoken,
             stats.cvPercent,
             cvLabel,
             stats.gmi,
@@ -131,14 +138,15 @@ fun CgmStatsCard(
                 ) {
                     StatColumn(
                         label = "Mean Glucose",
-                        value = "%.0f mg/dL".format(stats.meanGlucose),
+                        value = "${GlucoseFormat.formatMean(stats.meanGlucose, glucoseUnit)} " +
+                            GlucoseFormat.label(glucoseUnit),
                         valueColor = MaterialTheme.colorScheme.onSurface,
                     )
                     StatColumn(
                         label = "Std Dev",
-                        value = "%.1f".format(stats.stdDev),
+                        value = GlucoseFormat.formatSpread(stats.stdDev, glucoseUnit),
                         valueColor = MaterialTheme.colorScheme.onSurface,
-                        subtitle = "mg/dL",
+                        subtitle = GlucoseFormat.label(glucoseUnit),
                     )
                     val (cvLabel, cvColor) = cvAssessment(stats.cvPercent)
                     StatColumn(

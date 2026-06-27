@@ -6,6 +6,7 @@ import com.glycemicgpt.weardevice.data.WatchVersionPublisher
 import com.glycemicgpt.weardevice.data.WearDataContract
 import com.glycemicgpt.weardevice.util.GlucoseDisplayUtils
 import com.glycemicgpt.weardevice.util.GlucoseDisplayUtils.sanitizeThresholds
+import com.glycemicgpt.weardevice.util.GlucoseUnit
 import com.google.android.gms.wearable.DataMapItem
 import com.google.android.gms.wearable.Wearable
 import dagger.hilt.android.HiltAndroidApp
@@ -54,6 +55,13 @@ class GlycemicWearDeviceApp : Application() {
                                 Timber.d("Bootstrapped IoB from DataLayer cache")
                             }
                             WearDataContract.CGM_PATH -> {
+                                // The cached CGM item carries the account-global unit; hydrate it
+                                // alongside the reading so cold start renders in the right unit.
+                                // Skip when the key is absent (e.g. an item cached by an older
+                                // phone build) so it can't clobber the unit restored from prefs.
+                                dataMap.getString(WearDataContract.KEY_GLUCOSE_UNIT)?.let {
+                                    WatchDataRepository.updateGlucoseUnit(GlucoseUnit.fromWire(it))
+                                }
                                 val mgDl = dataMap.getInt(WearDataContract.KEY_CGM_MG_DL)
                                 if (!GlucoseDisplayUtils.isValidGlucose(mgDl)) {
                                     Timber.w("Rejected invalid cached CGM value during bootstrap")

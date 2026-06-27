@@ -330,7 +330,7 @@ export default function AIChatPage() {
           <div className="flex justify-center">
             <div className="bg-red-900/30 border border-red-700 rounded-lg px-4 py-3 max-w-md">
               <p className="text-sm text-red-300 flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                <AlertTriangle className="h-4 w-4 shrink-0" />
                 {error}
               </p>
             </div>
@@ -360,13 +360,13 @@ export default function AIChatPage() {
             disabled={isSending}
             rows={1}
             maxLength={2000}
-            className="flex-1 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 resize-none text-sm"
+            className="flex-1 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-500 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 resize-none text-sm"
             style={{ maxHeight: "120px" }}
           />
           <button
             onClick={handleSend}
             disabled={!input.trim() || isSending}
-            className="flex items-center justify-center w-12 h-12 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-700 disabled:cursor-not-allowed text-white rounded-xl transition-colors flex-shrink-0"
+            className="flex items-center justify-center w-12 h-12 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-700 disabled:cursor-not-allowed text-white rounded-xl transition-colors shrink-0"
             aria-label="Send message"
           >
             {isSending ? (

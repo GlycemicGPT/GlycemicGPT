@@ -43,14 +43,29 @@ import {
 import { useAlertNotifications } from "@/providers";
 import { requestNotificationPermission } from "@/lib/browser-notifications";
 import { AlertCard } from "@/components/dashboard/alert-card";
+import {
+  toDisplayNumber,
+  clampMgdl,
+  toStoredMgdl,
+  formatGlucose,
+  unitLabel,
+  stepFor,
+} from "@/lib/glucose-units";
+import { useGlucoseUnit } from "@/hooks/use-glucose-unit";
+import {
+  ALERT_THRESHOLD_DEFAULTS,
+  GLUCOSE_THRESHOLD_BOUNDS,
+  IOB_THRESHOLD_BOUNDS,
+} from "@/lib/alert-thresholds";
 
-const DEFAULTS = {
-  low_warning: 70,
-  urgent_low: 55,
-  high_warning: 180,
-  urgent_high: 250,
-  iob_warning: 3.0,
-};
+// Glucose threshold fields carry config unit "mg/dL"; only those convert for
+// display. The IoB field ("units") is never converted. Field min/max bounds
+// stay canonical mg/dL and are stored/validated/sent in mg/dL. Defaults +
+// bounds come from one shared source so this page and the settings alerts page
+// cannot drift.
+const GLUCOSE_FIELD_UNIT = "mg/dL";
+
+const DEFAULTS = ALERT_THRESHOLD_DEFAULTS;
 
 interface ThresholdFieldConfig {
   key: keyof AlertThresholdUpdate;
@@ -68,8 +83,7 @@ const THRESHOLD_FIELDS: ThresholdFieldConfig[] = [
     key: "urgent_low",
     label: "Urgent Low",
     unit: "mg/dL",
-    min: 30,
-    max: 80,
+    ...GLUCOSE_THRESHOLD_BOUNDS.urgentLow,
     step: 1,
     description: "Critical low glucose alert",
     color: "text-red-400",
@@ -78,8 +92,7 @@ const THRESHOLD_FIELDS: ThresholdFieldConfig[] = [
     key: "low_warning",
     label: "Low Warning",
     unit: "mg/dL",
-    min: 40,
-    max: 100,
+    ...GLUCOSE_THRESHOLD_BOUNDS.lowWarning,
     step: 1,
     description: "Low glucose warning",
     color: "text-amber-400",
@@ -88,8 +101,7 @@ const THRESHOLD_FIELDS: ThresholdFieldConfig[] = [
     key: "high_warning",
     label: "High Warning",
     unit: "mg/dL",
-    min: 120,
-    max: 300,
+    ...GLUCOSE_THRESHOLD_BOUNDS.highWarning,
     step: 1,
     description: "High glucose warning",
     color: "text-amber-400",
@@ -98,8 +110,7 @@ const THRESHOLD_FIELDS: ThresholdFieldConfig[] = [
     key: "urgent_high",
     label: "Urgent High",
     unit: "mg/dL",
-    min: 150,
-    max: 400,
+    ...GLUCOSE_THRESHOLD_BOUNDS.urgentHigh,
     step: 1,
     description: "Critical high glucose alert",
     color: "text-red-400",
@@ -108,8 +119,7 @@ const THRESHOLD_FIELDS: ThresholdFieldConfig[] = [
     key: "iob_warning",
     label: "IoB Warning",
     unit: "units",
-    min: 0.5,
-    max: 20,
+    ...IOB_THRESHOLD_BOUNDS,
     step: 0.1,
     description: "Insulin on Board warning threshold",
     color: "text-purple-400",
@@ -123,7 +133,27 @@ const ESCALATION_DEFAULTS = {
 };
 
 export default function AlertsPage() {
-  const [formValues, setFormValues] = useState<AlertThresholdUpdate>({});
+  const unit = useGlucoseUnit();
+  // Build input strings from canonical values: glucose fields convert to the
+  // active unit, the IoB field is shown verbatim.
+  const buildInputs = useCallback(
+    (values: AlertThresholdUpdate): Record<string, string> => {
+      const next: Record<string, string> = {};
+      for (const f of THRESHOLD_FIELDS) {
+        const v = values[f.key];
+        next[f.key] =
+          v == null
+            ? ""
+            : f.unit === GLUCOSE_FIELD_UNIT
+              ? formatGlucose(v, unit)
+              : String(v);
+      }
+      return next;
+    },
+    [unit]
+  );
+  // Input strings keyed by field (display unit for glucose, units for IoB).
+  const [inputValues, setInputValues] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -174,13 +204,7 @@ export default function AlertsPage() {
     try {
       setError(null);
       const data = await getAlertThresholds();
-      setFormValues({
-        low_warning: data.low_warning,
-        urgent_low: data.urgent_low,
-        high_warning: data.high_warning,
-        urgent_high: data.urgent_high,
-        iob_warning: data.iob_warning,
-      });
+      setInputValues(buildInputs(data));
       setHasChanges(false);
     } catch (err) {
       if (!(err instanceof Error && err.message.includes("401"))) {
@@ -189,11 +213,11 @@ export default function AlertsPage() {
         );
       }
       // Show defaults on any error so inputs aren't empty
-      setFormValues({ ...DEFAULTS });
+      setInputValues(buildInputs(DEFAULTS));
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [buildInputs]);
 
   const fetchEscalationConfig = useCallback(async () => {
     try {
@@ -323,31 +347,49 @@ export default function AlertsPage() {
   }, [fetchThresholds, fetchEscalationConfig, fetchAlerts]);
 
   const handleChange = (key: keyof AlertThresholdUpdate, value: string) => {
-    const numValue = parseFloat(value);
-    if (isNaN(numValue)) return;
-
-    setFormValues((prev) => ({ ...prev, [key]: numValue }));
+    setInputValues((prev) => ({ ...prev, [key]: value }));
     setHasChanges(true);
     setSaveSuccess(false);
   };
 
   const handleSave = async () => {
-    // Client-side ordering validation
-    const ul = formValues.urgent_low ?? DEFAULTS.urgent_low;
-    const lw = formValues.low_warning ?? DEFAULTS.low_warning;
-    const hw = formValues.high_warning ?? DEFAULTS.high_warning;
-    const uh = formValues.urgent_high ?? DEFAULTS.urgent_high;
+    // Build the canonical payload: glucose fields convert the entered display
+    // value back to integer mg/dL; IoB stays units.
+    const payload: AlertThresholdUpdate = {};
+    for (const f of THRESHOLD_FIELDS) {
+      const raw = parseFloat(inputValues[f.key] ?? "");
+      payload[f.key] = isNaN(raw)
+        ? NaN
+        : f.unit === GLUCOSE_FIELD_UNIT
+          ? clampMgdl(toStoredMgdl(raw, unit), f.min, f.max)
+          : // Non-glucose (IoB, units): clamp to the field's own range so a
+            // free-typed value past the HTML min/max never reaches the API.
+            Math.max(f.min, Math.min(f.max, raw));
+    }
+
+    if (Object.values(payload).some((v) => v == null || isNaN(v as number))) {
+      setError("Please enter valid numbers for all fields");
+      return;
+    }
+
+    // Client-side ordering validation in canonical mg/dL; messages render in
+    // the active unit.
+    const ul = payload.urgent_low as number;
+    const lw = payload.low_warning as number;
+    const hw = payload.high_warning as number;
+    const uh = payload.urgent_high as number;
+    const u = unitLabel(unit);
 
     if (ul >= lw) {
-      setError(`Urgent Low (${ul}) must be less than Low Warning (${lw})`);
+      setError(`Urgent Low (${formatGlucose(ul, unit)} ${u}) must be less than Low Warning (${formatGlucose(lw, unit)} ${u})`);
       return;
     }
     if (lw >= hw) {
-      setError(`Low Warning (${lw}) must be less than High Warning (${hw})`);
+      setError(`Low Warning (${formatGlucose(lw, unit)} ${u}) must be less than High Warning (${formatGlucose(hw, unit)} ${u})`);
       return;
     }
     if (hw >= uh) {
-      setError(`High Warning (${hw}) must be less than Urgent High (${uh})`);
+      setError(`High Warning (${formatGlucose(hw, unit)} ${u}) must be less than Urgent High (${formatGlucose(uh, unit)} ${u})`);
       return;
     }
 
@@ -356,14 +398,8 @@ export default function AlertsPage() {
     setSaveSuccess(false);
 
     try {
-      const data = await updateAlertThresholds(formValues);
-      setFormValues({
-        low_warning: data.low_warning,
-        urgent_low: data.urgent_low,
-        high_warning: data.high_warning,
-        urgent_high: data.urgent_high,
-        iob_warning: data.iob_warning,
-      });
+      const data = await updateAlertThresholds(payload);
+      setInputValues(buildInputs(data));
       setHasChanges(false);
       setSaveSuccess(true);
     } catch (err) {
@@ -376,7 +412,7 @@ export default function AlertsPage() {
   };
 
   const handleReset = () => {
-    setFormValues({ ...DEFAULTS });
+    setInputValues(buildInputs(DEFAULTS));
     setHasChanges(true);
     setSaveSuccess(false);
   };
@@ -469,30 +505,30 @@ export default function AlertsPage() {
                         <input
                           id={field.key}
                           type="number"
-                          min={field.min}
-                          max={field.max}
-                          step={field.step}
-                          value={formValues[field.key] ?? ""}
+                          min={field.unit === GLUCOSE_FIELD_UNIT ? toDisplayNumber(field.min, unit) : field.min}
+                          max={field.unit === GLUCOSE_FIELD_UNIT ? toDisplayNumber(field.max, unit) : field.max}
+                          step={field.unit === GLUCOSE_FIELD_UNIT ? stepFor(unit) : field.step}
+                          value={inputValues[field.key] ?? ""}
                           onChange={(e) =>
                             handleChange(field.key, e.target.value)
                           }
                           className={clsx(
                             "w-full rounded-lg border px-3 py-2 text-sm",
                             "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200",
-                            "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
+                            "focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                             "placeholder:text-slate-500"
                           )}
                           aria-describedby={`${field.key}-range`}
                         />
                         <span className="text-xs text-slate-500 shrink-0">
-                          {field.unit}
+                          {field.unit === GLUCOSE_FIELD_UNIT ? unitLabel(unit) : field.unit}
                         </span>
                       </div>
                       <p
                         id={`${field.key}-range`}
                         className="text-xs text-slate-600 mt-1"
                       >
-                        Range: {field.min}–{field.max} {field.unit}
+                        Range: {field.unit === GLUCOSE_FIELD_UNIT ? toDisplayNumber(field.min, unit) : field.min}–{field.unit === GLUCOSE_FIELD_UNIT ? toDisplayNumber(field.max, unit) : field.max} {field.unit === GLUCOSE_FIELD_UNIT ? unitLabel(unit) : field.unit}
                       </p>
                     </div>
                   )
@@ -524,14 +560,14 @@ export default function AlertsPage() {
                         min={field.min}
                         max={field.max}
                         step={field.step}
-                        value={formValues[field.key] ?? ""}
+                        value={inputValues[field.key] ?? ""}
                         onChange={(e) =>
                           handleChange(field.key, e.target.value)
                         }
                         className={clsx(
                           "w-full rounded-lg border px-3 py-2 text-sm",
                           "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200",
-                          "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
+                          "focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                           "placeholder:text-slate-500"
                         )}
                         aria-describedby={`${field.key}-range`}
@@ -565,7 +601,7 @@ export default function AlertsPage() {
                 "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium",
                 "bg-blue-600 text-white hover:bg-blue-500",
                 "transition-colors",
-                "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+                "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500",
                 "disabled:opacity-50 disabled:cursor-not-allowed"
               )}
               aria-label="Save threshold changes"
@@ -584,7 +620,7 @@ export default function AlertsPage() {
                 "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium",
                 "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700",
                 "transition-colors",
-                "focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500",
+                "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-slate-500",
                 "disabled:opacity-50 disabled:cursor-not-allowed"
               )}
               aria-label="Reset thresholds to defaults"
@@ -640,6 +676,7 @@ export default function AlertsPage() {
                 alert={alert}
                 onAcknowledge={handleAcknowledge}
                 isAcknowledging={acknowledgingId === alert.id}
+                unit={unit}
               />
             ))}
           </div>
@@ -673,7 +710,7 @@ export default function AlertsPage() {
                   soundEnabled: e.target.checked,
                 })
               }
-              className="h-4 w-4 rounded border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
+              className="h-4 w-4 rounded-sm border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
               aria-describedby="pref-sound-desc"
             />
             <Volume2
@@ -710,7 +747,7 @@ export default function AlertsPage() {
                   });
                 }
               }}
-              className="h-4 w-4 rounded border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
+              className="h-4 w-4 rounded-sm border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
               aria-describedby="pref-browser-notif-desc"
             />
             <Bell
@@ -808,7 +845,7 @@ export default function AlertsPage() {
                   className={clsx(
                     "w-full rounded-lg border px-3 py-2 text-sm",
                     "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200",
-                    "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
+                    "focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                     "placeholder:text-slate-500"
                   )}
                   aria-describedby="reminder-range"
@@ -849,7 +886,7 @@ export default function AlertsPage() {
                   className={clsx(
                     "w-full rounded-lg border px-3 py-2 text-sm",
                     "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200",
-                    "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
+                    "focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                     "placeholder:text-slate-500"
                   )}
                   aria-describedby="primary-range"
@@ -888,7 +925,7 @@ export default function AlertsPage() {
                   className={clsx(
                     "w-full rounded-lg border px-3 py-2 text-sm",
                     "bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200",
-                    "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
+                    "focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent",
                     "placeholder:text-slate-500"
                   )}
                   aria-describedby="all-contacts-range"
@@ -916,7 +953,7 @@ export default function AlertsPage() {
                 "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium",
                 "bg-blue-600 text-white hover:bg-blue-500",
                 "transition-colors",
-                "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+                "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500",
                 "disabled:opacity-50 disabled:cursor-not-allowed"
               )}
               aria-label="Save escalation timing"
@@ -938,7 +975,7 @@ export default function AlertsPage() {
                 "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium",
                 "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700",
                 "transition-colors",
-                "focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500",
+                "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-slate-500",
                 "disabled:opacity-50 disabled:cursor-not-allowed"
               )}
               aria-label="Reset escalation timing to defaults"
