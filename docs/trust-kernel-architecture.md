@@ -56,11 +56,14 @@ The expected versions are committed in `apps/api/benchmarks/harness_versions.jso
 (the lock). CI recomputes and compares; a change that lands without re-recording
 fails the gate. After an *intentional* change, re-record (the "bump"):
 
+Both commands below are run from the repo root (the text one uses a subshell so
+its `cd` does not leak into the next command):
+
 ```bash
 # text surfaces
-cd apps/api && uv run python -m benchmarks.core.version --update-lock
+(cd apps/api && uv run python -m benchmarks.core.version --update-lock)
 # vision surface
-python evals/vision_carb/harness_version.py --update-lock
+uv run --project apps/api python evals/vision_carb/harness_version.py --update-lock
 ```
 
 Scoping is per-surface for prompt/dataset edits (a meal-prompt edit invalidates
