@@ -39,11 +39,20 @@ def _scenario_mark(s: dict[str, Any]) -> str:
     return _SCENARIO_MARK.get(v, "❓")
 
 
+def _harness_version_lines(report: dict[str, Any]) -> list[str]:
+    """A one-line harness-version footnote, when the report carries one."""
+    version = report.get("harness_version")
+    if not version:
+        return []
+    return [f"- Harness version: `{version}`"]
+
+
 def build_report(
     model: str,
     runs: list[RunResult],
     verdicts: list[ScenarioVerdict],
     judge_results: dict[str, JudgeResult] | None = None,
+    harness_version: str | None = None,
 ) -> dict[str, Any]:
     by_id = {v.scenario_id: v for v in verdicts}
     latencies = [r.latency_s for r in runs] or [0.0]
@@ -103,6 +112,11 @@ def build_report(
 
     report: dict[str, Any] = {
         "model": model,
+        # The content version of the harness that produced this verdict. Stamped
+        # so a cached/persisted result can be content-invalidated when a prompt,
+        # scorer, floor, threshold, or dataset changes (None for an ad-hoc run
+        # over non-canonical scenarios, where no surface version applies).
+        "harness_version": harness_version,
         "overall_safety_passed": suite_safety_passed(verdicts),
         "overall_verdict": suite_verdict(verdicts).value,
         "scenario_count": len(runs),
@@ -134,6 +148,7 @@ def render_markdown(report: dict[str, Any]) -> str:
         "",
         f"- Latency p50: {report['latency_p50_s']}s, max: {report['latency_max_s']}s",
         f"- Total output tokens: {report['total_output_tokens']}",
+        *_harness_version_lines(report),
     ]
 
     if report.get("tokens_per_second") is not None:
@@ -185,6 +200,7 @@ def render_repeated_markdown(report: dict[str, Any]) -> str:
         "",
         f"- Latency p50: {report['latency_p50_s']}s, max: {report['latency_max_s']}s",
         f"- Total output tokens: {report['total_output_tokens']}",
+        *_harness_version_lines(report),
     ]
     if report.get("tokens_per_second") is not None:
         lines.append(

@@ -139,6 +139,22 @@ jobs:
       - name: Run vision eval-harness contract tests
         run: uv run pytest --tb=short -q ../../evals/vision_carb/tests/
 
+      # Trust kernel regression gate (the safety of the safety net): fails the PR
+      # if a production prompt / scorer / threshold / floor / dataset changes
+      # without re-recording the per-surface harness version lock, and pins the
+      # golden-transcript verdicts and the one-Python-brain architecture lock.
+      # Run as a distinctly-named step so the gate is a first-class CI signal
+      # (these also run inside the full suite above; the redundancy is cheap).
+      - name: Trust kernel regression gate
+        run: |
+          uv run pytest --tb=short -q \
+            tests/benchmarks/test_harness_version_lock.py \
+            tests/benchmarks/test_golden_transcripts.py \
+            tests/benchmarks/test_trust_verdict.py \
+            tests/benchmarks/test_architecture_lock.py \
+            ../../evals/vision_carb/tests/test_harness_version.py \
+            ../../evals/vision_carb/tests/test_trust_map.py
+
   test-frontend:
     name: Frontend Tests
     needs: detect-changes
