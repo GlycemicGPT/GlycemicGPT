@@ -1,0 +1,62 @@
+"""Import a LocalSeries from the GlycemicGPT Postgres DB.
+
+`rows_to_series` is a pure mapping (testable without a DB); `load_series_from_db`
+is the thin query wrapper.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Any
+
+from benchmarks.importer.models import GlucosePoint, InsulinEvent, LocalSeries
+from src.core.treatment_safety.models import MAX_GLUCOSE_MGDL, MIN_GLUCOSE_MGDL
+
+
+def rows_to_series(glucose_rows: list[Any], pump_rows: list[Any]) -> LocalSeries:
+    """Map ORM rows to a LocalSeries. Glucose rows with a NULL or out-of-range
+    (20-500 mg/dL) value are skipped; pump rows with units=None are skipped."""
+    glucose = []
+    for r in glucose_rows:
+        if r.value is None:
+            continue
+        value = float(r.value)
+        if not MIN_GLUCOSE_MGDL <= value <= MAX_GLUCOSE_MGDL:
+            continue
+        glucose.append(GlucosePoint(timestamp=r.reading_timestamp, value_mgdl=value))
+    insulin = [
+        InsulinEvent(
+            timestamp=r.event_timestamp,
+            units=float(r.units),
+            is_automated=bool(getattr(r, "is_automated", False)),
+        )
+        for r in pump_rows
+        if getattr(r, "units", None) is not None
+    ]
+    return LocalSeries(glucose=glucose, insulin=insulin)
+
+
+async def load_series_from_db(
+    db: Any, user_id: Any, start: datetime, end: datetime
+) -> LocalSeries:
+    """Query glucose + pump events in [start, end] for a user and map them."""
+    from sqlalchemy import select
+
+    from src.models.glucose import GlucoseReading
+    from src.models.pump_data import PumpEvent
+
+    g = await db.execute(
+        select(GlucoseReading).where(
+            GlucoseReading.user_id == user_id,
+            GlucoseReading.reading_timestamp >= start,
+            GlucoseReading.reading_timestamp < end,
+        )
+    )
+    p = await db.execute(
+        select(PumpEvent).where(
+            PumpEvent.user_id == user_id,
+            PumpEvent.event_timestamp >= start,
+            PumpEvent.event_timestamp < end,
+        )
+    )
+    return rows_to_series(list(g.scalars().all()), list(p.scalars().all()))
