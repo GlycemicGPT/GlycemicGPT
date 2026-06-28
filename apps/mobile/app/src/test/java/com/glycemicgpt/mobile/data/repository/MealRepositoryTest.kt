@@ -12,10 +12,12 @@ import kotlinx.coroutines.test.runTest
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.ResponseBody.Companion.toResponseBody
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import retrofit2.Response
+import timber.log.Timber
 
 class MealRepositoryTest {
 
@@ -23,6 +25,20 @@ class MealRepositoryTest {
     private val chatApi = mockk<GlycemicGptApi>()
     private val moshi = Moshi.Builder().build()
     private val repository = MealRepository(api, chatApi, moshi)
+
+    @After
+    fun tearDown() {
+        // The diagnostic-logging test plants a Timber tree; never leak it into sibling tests.
+        Timber.uprootAll()
+    }
+
+    /** Captures the formatted messages Timber emits, so a test can assert on the diagnostic. */
+    private class RecordingTree : Timber.Tree() {
+        val messages = mutableListOf<String>()
+        override fun log(priority: Int, tag: String?, message: String, t: Throwable?) {
+            messages.add(message)
+        }
+    }
 
     private fun errorBody(detail: String) =
         """{"detail":"$detail"}""".toResponseBody("application/json".toMediaType())
@@ -99,6 +115,58 @@ class MealRepositoryTest {
         val e = repository.uploadPhoto(ByteArray(16)).exceptionOrNull()
         assertTrue(e is MealException.EstimateFailed)
         assertTrue(e!!.message!!.contains("temporarily unavailable"))
+    }
+
+    @Test
+    fun `uploadPhoto maps 500 to an honest server-error message, not an HTTP-code dump`() = runTest {
+        // A truly unhandled backend 500 returns plain "Internal Server Error", not a FastAPI
+        // {"detail":...} envelope -- the copy must still be honest and never echo "HTTP 500".
+        coEvery { chatApi.uploadFoodPhoto(any<MultipartBody.Part>()) } returns
+            Response.error(500, "Internal Server Error".toResponseBody("text/plain".toMediaType()))
+
+        val e = repository.uploadPhoto(ByteArray(16)).exceptionOrNull()
+        assertTrue(e is MealException.EstimateFailed)
+        assertTrue(e!!.message!!.contains("on our end", ignoreCase = true))
+        assertTrue(!e.message!!.contains("HTTP 500"))
+    }
+
+    @Test
+    fun `uploadPhoto maps 503 to a temporarily-unavailable message`() = runTest {
+        coEvery { chatApi.uploadFoodPhoto(any<MultipartBody.Part>()) } returns
+            Response.error(503, errorBody("Could not save your meal estimate. Please try again."))
+
+        val e = repository.uploadPhoto(ByteArray(16)).exceptionOrNull()
+        assertTrue(e is MealException.EstimateFailed)
+        assertTrue(e!!.message!!.contains("temporarily unavailable", ignoreCase = true))
+    }
+
+    @Test
+    fun `uploadPhoto maps 504 to a took-too-long message`() = runTest {
+        coEvery { chatApi.uploadFoodPhoto(any<MultipartBody.Part>()) } returns
+            Response.error(504, errorBody("upstream request timed out"))
+
+        val e = repository.uploadPhoto(ByteArray(16)).exceptionOrNull()
+        assertTrue(e is MealException.EstimateFailed)
+        assertTrue(e!!.message!!.contains("too long", ignoreCase = true))
+    }
+
+    @Test
+    fun `a 5xx failure logs a diagnostic but a 4xx does not`() = runTest {
+        val tree = RecordingTree()
+        Timber.plant(tree)
+
+        coEvery { chatApi.uploadFoodPhoto(any<MultipartBody.Part>()) } returns
+            Response.error(500, "Internal Server Error".toResponseBody("text/plain".toMediaType()))
+        repository.uploadPhoto(ByteArray(16))
+
+        coEvery { chatApi.uploadFoodPhoto(any<MultipartBody.Part>()) } returns
+            Response.error(404, errorBody("Meal intelligence is not enabled."))
+        repository.uploadPhoto(ByteArray(16))
+
+        // Exactly one diagnostic, for the 5xx; the expected 404 degradation stays quiet.
+        assertEquals(1, tree.messages.size)
+        assertTrue(tree.messages.first().contains("500"))
+        assertTrue(tree.messages.first().contains("content-type=text/plain"))
     }
 
     @Test
