@@ -25,6 +25,48 @@ const inter = localFont({
   variable: "--font-inter",
 });
 
+// Poppins is loaded from local SIL OFL 1.1 files for the new design system
+// role utilities. It is scoped by CSS variables today, so the existing app
+// keeps Inter as the default font outside surfaces that opt into Poppins.
+const poppins = localFont({
+  src: [
+    {
+      path: "./fonts/Poppins-Regular.ttf",
+      weight: "400",
+      style: "normal",
+    },
+    {
+      path: "./fonts/Poppins-Bold.ttf",
+      weight: "700",
+      style: "normal",
+    },
+  ],
+  display: "swap",
+  fallback: ["ui-sans-serif", "system-ui", "sans-serif"],
+  variable: "--font-poppins",
+});
+
+// JetBrains Mono is loaded from local SIL OFL 1.1 variable font files for
+// metric labels and compact values. The explicit weight range lets Next.js
+// generate real variable font CSS for all supported mono weights.
+const labelFont = localFont({
+  src: [
+    {
+      path: "./fonts/JetBrainsMono-VariableFont_wght.ttf",
+      weight: "100 800",
+      style: "normal",
+    },
+    {
+      path: "./fonts/JetBrainsMono-Italic-VariableFont_wght.ttf",
+      weight: "100 800",
+      style: "italic",
+    },
+  ],
+  display: "swap",
+  fallback: ["ui-monospace", "SFMono-Regular", "Consolas", "monospace"],
+  variable: "--font-jetbrains-mono",
+});
+
 export const metadata: Metadata = {
   title: "GlycemicGPT",
   description: "AI-powered diabetes management - your on-call endo at home",
@@ -46,7 +88,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="" suppressHydrationWarning>
+    <html
+      lang="en"
+      className={`${inter.variable} ${poppins.variable} ${labelFont.variable}`}
+      suppressHydrationWarning
+    >
       <head>
         <script
           dangerouslySetInnerHTML={{
@@ -54,7 +100,7 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className={inter.className}>
+      <body>
         <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>
