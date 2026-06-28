@@ -52,7 +52,12 @@ export const TextInput = forwardRef<HTMLInputElement, TextInputProps>(
           ref={ref}
         />
         {errorMessage ? (
-          <p className="font_body_3 text-signal-error-text" id={errorId}>
+          <p
+            className="font_body_3 text-signal-error-text"
+            id={errorId}
+            role="alert"
+            aria-live="polite"
+          >
             {errorMessage}
           </p>
         ) : null}

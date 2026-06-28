@@ -33,11 +33,11 @@ export function Checkbox({
         aria-hidden="true"
         className={twMerge(
           "mt-1 flex h-4 w-4 shrink-0 items-center justify-center rounded border border-border-default bg-surface-primary text-transparent transition-colors",
-          !disabled && "group-hover:border-border-hover group-hover:bg-surface-secondary",
+          "peer-enabled:group-hover:border-border-hover peer-enabled:group-hover:bg-surface-secondary",
           "peer-focus-visible:ring-2 peer-focus-visible:ring-border-active",
-          checked && "border-accent bg-accent text-accent-foreground",
-          checked && !disabled && "group-hover:border-accent-hover group-hover:bg-accent-hover",
-          disabled && "border-border-disabled",
+          "peer-checked:border-accent peer-checked:bg-accent peer-checked:text-accent-foreground",
+          "peer-checked:peer-enabled:group-hover:border-accent-hover peer-checked:peer-enabled:group-hover:bg-accent-hover",
+          "peer-disabled:border-border-disabled",
           className,
         )}
       >

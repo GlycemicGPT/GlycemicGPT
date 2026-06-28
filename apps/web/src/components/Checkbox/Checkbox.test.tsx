@@ -18,25 +18,36 @@ describe("Checkbox", () => {
     expect(onCheckedChange).toHaveBeenCalledWith(true);
   });
 
-  it("renders checked visual state from the checked prop", () => {
+  it("drives the checked visual state from the native input via peer-checked", () => {
     render(<Checkbox checked label="Show source" />);
 
+    expect(screen.getByRole("checkbox", { name: "Show source" })).toBeChecked();
     expect(screen.getByText("Show source").previousElementSibling).toHaveClass(
-      "bg-accent",
-      "text-accent-foreground",
-      "group-hover:bg-accent-hover",
+      "peer-checked:border-accent",
+      "peer-checked:bg-accent",
+      "peer-checked:text-accent-foreground",
+      "peer-checked:peer-enabled:group-hover:bg-accent-hover",
     );
   });
 
-  it("renders inactive and hover visual states when unchecked", () => {
+  it("keeps the visual indicator in sync for uncontrolled defaultChecked usage", () => {
+    render(<Checkbox defaultChecked label="Show source" />);
+
+    expect(screen.getByRole("checkbox", { name: "Show source" })).toBeChecked();
+    expect(screen.getByText("Show source").previousElementSibling).toHaveClass(
+      "peer-checked:bg-accent",
+    );
+  });
+
+  it("renders inactive and hover visual states driven by the native input", () => {
     render(<Checkbox checked={false} label="Show source" />);
 
     expect(screen.getByText("Show source").previousElementSibling).toHaveClass(
       "border-border-default",
       "bg-surface-primary",
       "text-transparent",
-      "group-hover:border-border-hover",
-      "group-hover:bg-surface-secondary",
+      "peer-enabled:group-hover:border-border-hover",
+      "peer-enabled:group-hover:bg-surface-secondary",
     );
   });
 
@@ -58,7 +69,7 @@ describe("Checkbox", () => {
       "custom-label",
     );
     expect(screen.getByText("Disabled option").previousElementSibling).toHaveClass(
-      "border-border-disabled",
+      "peer-disabled:border-border-disabled",
     );
     expect(screen.getByText("Disabled option").previousElementSibling).not.toHaveClass(
       "group-hover:bg-accent-hover",

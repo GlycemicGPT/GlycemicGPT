@@ -17,11 +17,15 @@ describe("Icon", () => {
 
   it("allows the configured title and size to be overridden via className", () => {
     const { container } = render(
-      <Icon className="h-6 w-6" icon="person" title="Selected" />,
+      <Icon className="h-10 w-10" icon="person" title="Selected" />,
     );
 
     expect(screen.getByRole("img", { name: "Selected" })).toBeInTheDocument();
-    expect(container.querySelector("svg")).toHaveClass("h-6", "w-6");
+
+    const icon = container.querySelector("svg");
+
+    expect(icon).toHaveClass("h-10", "w-10");
+    expect(icon).not.toHaveClass("h-6", "w-6");
   });
 
   it("hides decorative icons from assistive technology", () => {

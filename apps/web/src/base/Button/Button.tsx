@@ -6,6 +6,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
   (
     {
       ariaLabel,
+      "aria-label": nativeAriaLabel,
       children,
       className,
       disabled,
@@ -16,7 +17,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
   ) => (
     <button
       {...props}
-      aria-label={ariaLabel}
+      aria-label={nativeAriaLabel ?? ariaLabel}
       className={twMerge(className)}
       disabled={disabled}
       ref={ref}

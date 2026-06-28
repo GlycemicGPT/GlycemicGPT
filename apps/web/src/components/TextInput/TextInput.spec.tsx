@@ -34,6 +34,8 @@ describe("TextInput", () => {
     expect(input).toHaveAttribute("aria-describedby", "glucose-target-error");
     expect(error).toHaveAttribute("id", "glucose-target-error");
     expect(error).toHaveClass("text-signal-error-text");
+    expect(error).toHaveAttribute("role", "alert");
+    expect(error).toHaveAttribute("aria-live", "polite");
   });
 
   it("preserves described by references and forwards change handlers", () => {

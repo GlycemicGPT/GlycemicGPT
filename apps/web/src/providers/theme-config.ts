@@ -50,7 +50,7 @@ export const rootThemeClasses = [
 ];
 
 export function isThemeMode(value: string | null): value is ThemeMode {
-  return value !== null && value in themeModes;
+  return value !== null && Object.hasOwn(themeModes, value);
 }
 
 export function isThemeChoice(value: string | null): value is ThemeChoice {
