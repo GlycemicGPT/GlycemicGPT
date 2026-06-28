@@ -2,20 +2,17 @@ import type { Metadata } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
 import { ThemeProvider } from "@/providers";
+import { getThemeInitScript } from "@/providers/theme-config";
 
-// Inter Variable, served from a self-hosted file. Using next/font/local
-// (not next/font/google) eliminates the build-time HTTP call to Google
-// Fonts that previously made every Docker build a hostage to Google's
-// CDN reachability -- a single timeout there killed the v0.8.0 web
-// release image. See apps/web/src/app/fonts/LICENSE.txt for the SIL
-// OFL 1.1 license under which Inter is redistributed (Inter project:
-// https://github.com/rsms/inter).
+// Keep app fonts registered through next/font/local. Local files avoid build
+// time HTTP calls to Google Fonts. A single CDN timeout previously broke the
+// v0.8.0 web release image, so this is a release reliability requirement.
 //
-// `weight: "100 900"` is required for Next.js to recognise this as a
-// variable font and generate CSS that unlocks the full weight range
-// (otherwise font-semibold / font-bold fall back to fake-bold). The
-// `fallback` chain matches Tailwind's default sans stack so first-paint
-// before the local font loads uses a metric-similar system font.
+// Inter remains the app default. See apps/web/src/app/fonts/LICENSE.txt for
+// the SIL OFL 1.1 license from the Inter project at https://github.com/rsms/inter.
+// The weight range tells Next.js this is a variable font and unlocks the full
+// weight range instead of relying on fake bold. The fallback chain matches
+// Tailwind's default sans stack for metric similar first paint.
 const inter = localFont({
   src: "./fonts/InterVariable.woff2",
   weight: "100 900",
@@ -96,7 +93,7 @@ export default function RootLayout({
       <head>
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem("glycemicgpt-theme");if(t==="light"){document.documentElement.className="light"}else if(t==="dark"){document.documentElement.className="dark"}else{document.documentElement.className=window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"}}catch(e){document.documentElement.className=window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"}})()`,
+            __html: getThemeInitScript(),
           }}
         />
       </head>

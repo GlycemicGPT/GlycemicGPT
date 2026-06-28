@@ -47,6 +47,7 @@ describe("ThemeProvider", () => {
 
     await waitFor(() => {
       expect(document.documentElement).toHaveClass("dark");
+      expect(document.documentElement).toHaveClass("theme-dark");
       expect(document.documentElement).not.toHaveClass("light");
     });
     expect(screen.getByTestId("theme")).toHaveTextContent("dark");
@@ -64,6 +65,7 @@ describe("ThemeProvider", () => {
 
     await waitFor(() => {
       expect(document.documentElement).toHaveClass("dark");
+      expect(document.documentElement).toHaveClass("theme-dark");
     });
     expect(localStorage.getItem("glycemicgpt-theme")).toBe("dark");
 
@@ -71,7 +73,9 @@ describe("ThemeProvider", () => {
 
     await waitFor(() => {
       expect(document.documentElement).toHaveClass("light");
+      expect(document.documentElement).toHaveClass("theme-light");
       expect(document.documentElement).not.toHaveClass("dark");
+      expect(document.documentElement).not.toHaveClass("theme-dark");
     });
     expect(localStorage.getItem("glycemicgpt-theme")).toBe("light");
   });

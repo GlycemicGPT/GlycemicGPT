@@ -1,0 +1,22 @@
+@theme {
+  --color-glucose-low: #ef4444;
+  --color-glucose-warning: #f59e0b;
+  --color-glucose-target: #22c55e;
+  --color-glucose-high: #f97316;
+  --color-glucose-urgent: #dc2626;
+
+  --color-alert-info: #3b82f6;
+  --color-alert-warning: #f59e0b;
+  --color-alert-urgent: #f97316;
+  --color-alert-emergency: #dc2626;
+}
+
+:root {
+  --foreground-rgb: 255, 255, 255;
+  --background-rgb: 15, 23, 42;
+}
+
+html.light {
+  --foreground-rgb: 15, 23, 42;
+  --background-rgb: 248, 250, 252;
+}
