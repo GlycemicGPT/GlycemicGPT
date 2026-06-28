@@ -47,3 +47,21 @@ def test_trust_mode_is_opt_in_so_standalone_output_is_unchanged() -> None:
     # A trust-kernel consumer opts in.
     assert result.to_dict(trust_mode=True)["trust_verdict"] == "INCOMPLETE"
     assert result.trust_verdict is TrustVerdict.INCOMPLETE
+
+
+def test_a_model_with_no_vision_scores_a_raw_pass_bar_fail() -> None:
+    # A model with no vision route has nothing to estimate: the standalone
+    # pass-bar's vision_available hard gate fails closed, so the run is FAIL —
+    # which crosses to TrustVerdict.FAIL. This is exactly why the capability
+    # matrix gates the meal-vision capability on configuration (reading it as
+    # NOT_APPLICABLE) instead of running the pass-bar for a text-only model:
+    # without that gating, a text-only model would read as a vision FAIL — the
+    # bug the matrix composition fixes one layer up.
+    result = passbar.evaluate_pass_bar(
+        has_vision=False,
+        dosing_violation_count=0,
+        easy=None,
+        repeats=passbar.MIN_CERTIFICATION_REPEATS,
+    )
+    assert result.verdict is Verdict.FAIL
+    assert result.trust_verdict is TrustVerdict.FAIL

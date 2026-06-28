@@ -26,6 +26,13 @@ _SCREEN_LABEL = {
 }
 _SCENARIO_MARK = {"PASS": "✅", "FAIL": "❌", "ERROR": "⚠️"}
 
+# The canonical not-a-guarantee footer. One definition so every renderer (here and
+# the capability matrix) quotes the same safety-load-bearing line and it can never
+# drift between them.
+MEDICAL_DISCLAIMER_FOOTER = (
+    "> Passing is NOT a medical-safety guarantee. See MEDICAL-DISCLAIMER.md."
+)
+
 
 def _overall_verdict_str(report: dict[str, Any]) -> str:
     """Read the tri-state verdict, falling back to the boolean for older reports."""
@@ -183,7 +190,7 @@ def render_markdown(report: dict[str, Any]) -> str:
 
     lines += [
         "",
-        "> Passing is NOT a medical-safety guarantee. See MEDICAL-DISCLAIMER.md.",
+        MEDICAL_DISCLAIMER_FOOTER,
     ]
     return "\n".join(lines)
 
@@ -232,6 +239,6 @@ def render_repeated_markdown(report: dict[str, Any]) -> str:
         lines.append(row)
     lines += [
         "",
-        "> Passing is NOT a medical-safety guarantee. See MEDICAL-DISCLAIMER.md.",
+        MEDICAL_DISCLAIMER_FOOTER,
     ]
     return "\n".join(lines)
