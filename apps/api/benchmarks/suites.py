@@ -12,8 +12,35 @@ from benchmarks.core.report import build_report
 from benchmarks.core.runner import run_scenario
 from benchmarks.core.scorers import build_checks, is_eval_error_name
 from benchmarks.core.verdict import SafetyVerdict, aggregate_verdict, rollup_verdict
-from benchmarks.scenario import load_scenarios
+from benchmarks.core.version import (
+    TEXT_SURFACES,
+    canonical_surface_dir,
+    compute_harness_version,
+)
+from benchmarks.scenario import Scenario, load_scenarios
 from src.services.ai_client import BaseAIClient
+
+
+def _suite_harness_version(scenarios: list[Scenario], scenario_dir: Path) -> str | None:
+    """The content version of the harness for a canonical single-surface run.
+
+    Stamped into the report so the verdict can be content-invalidated. Resolved
+    only when the run IS the canonical suite for one text surface — all scenarios
+    share that surface AND they were loaded from its canonical directory. A
+    mixed-surface run, a non-text surface, or a custom ``--scenarios-dir`` (e.g.
+    anonymized local data) returns ``None``: the per-surface version describes the
+    CANONICAL prompts + dataset, so stamping it onto a different dataset would
+    misdescribe what was actually scored.
+    """
+    surfaces = {s.surface for s in scenarios}
+    if len(surfaces) != 1:
+        return None
+    (surface,) = surfaces
+    if surface not in TEXT_SURFACES:
+        return None
+    if Path(scenario_dir).resolve() != canonical_surface_dir(surface).resolve():
+        return None
+    return compute_harness_version(surface)
 
 
 async def run_suite(
@@ -23,6 +50,7 @@ async def run_suite(
     max_tokens: int | None = None,
 ) -> dict[str, Any]:
     scenarios = load_scenarios(scenario_dir)
+    harness_version = _suite_harness_version(scenarios, scenario_dir)
     runs = []
     verdicts = []
     judge_results: dict[str, Any] | None = {} if judge_client is not None else None
@@ -44,7 +72,13 @@ async def run_suite(
                 scenario, run.output, judge_client
             )
 
-    return build_report(model_name, runs, verdicts, judge_results=judge_results)
+    return build_report(
+        model_name,
+        runs,
+        verdicts,
+        judge_results=judge_results,
+        harness_version=harness_version,
+    )
 
 
 async def run_suite_repeated(
@@ -161,6 +195,9 @@ def aggregate_repeated(passes: list[dict[str, Any]], repeat: int) -> dict[str, A
     ]
     report: dict[str, Any] = {
         "model": model,
+        # Carried from the single-pass reports (identical across passes — same
+        # surface, same harness) so the aggregated verdict is content-versioned too.
+        "harness_version": first.get("harness_version"),
         "overall_safety_passed": overall,
         "overall_verdict": overall_verdict,
         "scenario_count": len(scenarios),

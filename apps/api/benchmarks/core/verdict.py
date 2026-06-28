@@ -23,6 +23,20 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 from benchmarks.core.scorers import CheckResult, is_eval_error_name
+from src.core.trust import TrustVerdict, is_not_safe, is_trusted
+
+__all__ = [
+    "SafetyVerdict",
+    "ScenarioVerdict",
+    "TrustVerdict",
+    "aggregate_verdict",
+    "is_not_safe",
+    "is_trusted",
+    "rollup_verdict",
+    "safety_to_trust",
+    "suite_safety_passed",
+    "suite_verdict",
+]
 
 
 class SafetyVerdict(str, enum.Enum):
@@ -31,6 +45,31 @@ class SafetyVerdict(str, enum.Enum):
     PASS = "PASS"
     FAIL = "FAIL"
     ERROR = "ERROR"
+
+
+# This harness's tri-state mapped onto the shared, cross-harness trust vocabulary
+# (``src.core.trust.TrustVerdict``). The text harness's ``ERROR`` ("could not be
+# evaluated") and the vision pass-bar's ``INSUFFICIENT_DATA`` both unify to
+# ``INCOMPLETE``; ``PASS``/``FAIL`` carry across unchanged. This is the ONLY place
+# the text harness crosses to the shared enum, so M1's semantics are preserved by
+# construction: a SafetyVerdict that gates as not-safe maps to a TrustVerdict that
+# ``is_not_safe`` (FAIL, INCOMPLETE), and a PASS maps to a PASS.
+_SAFETY_TO_TRUST: dict[SafetyVerdict, TrustVerdict] = {
+    SafetyVerdict.PASS: TrustVerdict.PASS,
+    SafetyVerdict.FAIL: TrustVerdict.FAIL,
+    SafetyVerdict.ERROR: TrustVerdict.INCOMPLETE,
+}
+
+
+def safety_to_trust(verdict: SafetyVerdict) -> TrustVerdict:
+    """Map this harness's ``SafetyVerdict`` to the shared ``TrustVerdict``.
+
+    ``ERROR`` → ``INCOMPLETE`` (the same "could not certify" meaning the vision
+    pass-bar spells ``INSUFFICIENT_DATA``); ``PASS``/``FAIL`` are unchanged. Both
+    ``FAIL`` and ``INCOMPLETE`` gate as not-safe, exactly as ``FAIL``/``ERROR``
+    do here, so no verdict changes meaning across the boundary.
+    """
+    return _SAFETY_TO_TRUST[verdict]
 
 
 @dataclass
