@@ -349,6 +349,26 @@ async def test_sends_same_origin_headers_for_report_host():
     assert captured["referer"] == "https://carelink.minimed.eu/app/reports"
 
 
+async def test_configured_cookies_ride_along_on_requests():
+    """Session cookies (e.g. auth_tmp_token) are sent on requests to the report
+    host. The EU generateReport POST 403s with the bearer header alone -- it
+    needs the cookie too (#811)."""
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["cookie"] = request.headers.get("cookie")
+        return httpx.Response(200, json={"patientId": "1"})
+
+    async with _make_client(
+        handler,
+        base_url="https://carelink.minimed.eu",
+        cookies={"auth_tmp_token": "tok-123"},
+    ) as client:
+        await client.get_patient_id()
+    assert captured["cookie"] is not None
+    assert "auth_tmp_token=tok-123" in captured["cookie"]
+
+
 async def test_retries_on_429_then_succeeds():
     calls = {"n": 0}
 

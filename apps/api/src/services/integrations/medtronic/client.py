@@ -160,6 +160,7 @@ class CareLinkClient:
         bearer_provider: BearerProvider,
         base_url: str = US_BASE_URL,
         client: httpx.AsyncClient | None = None,
+        cookies: dict[str, str] | None = None,
         timeout_seconds: float = 30.0,
         poll_interval_seconds: float = 2.0,
         poll_max_attempts: int = 30,
@@ -190,6 +191,13 @@ class CareLinkClient:
                 pool=min(2.0, timeout_seconds),
             )
         )
+        # Host-scoped session cookies. The EU generateReport POST needs the
+        # auth_tmp_token cookie (the bearer header alone is accepted by the read
+        # endpoints but not the report POST, #811); the captured token IS that
+        # cookie's value (see session.py). Scoped to the report host so the
+        # credential never rides to another origin on a redirect.
+        for name, value in (cookies or {}).items():
+            self._client.cookies.set(name, value, domain=host, path="/")
 
     async def aclose(self) -> None:
         if self._owns_client:
