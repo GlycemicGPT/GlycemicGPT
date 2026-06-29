@@ -103,6 +103,17 @@ class EstimateRejectedError(FoodVisionError):
     """The model response could not be parsed into a usable, in-bounds estimate."""
 
 
+class EstimatePersistenceError(FoodVisionError):
+    """Persisting the estimate failed for an infrastructure reason.
+
+    The estimate itself was produced, but writing the photo to disk or the row to
+    the database failed (e.g. a full disk, a read-only volume, or a transient DB
+    outage). Distinct from the upstream-provider errors above: the router maps this
+    to a retryable 503 rather than letting an ``OSError`` / DB error fall through to
+    a bare, unhandled 500.
+    """
+
+
 async def _resolve_model(user: User, db: AsyncSession) -> tuple[str, str]:
     """Return ``(model_name, provider_label)`` for the user's active provider.
 
@@ -336,7 +347,15 @@ async def create_food_record_from_image(
     # The estimate itself stays vision-only (range + empirical confidence).
     suggested_identity = await _suggest_identity(user, food_description)
 
-    storage_path, size_bytes = food_image.store_image(user.id, processed)
+    try:
+        storage_path, size_bytes = food_image.store_image(user.id, processed)
+    except OSError as exc:
+        # Disk full, read-only volume, permissions: an infra failure, not a defect
+        # in the request. Surface a retryable error instead of a bare 500.
+        logger.error("Failed to write meal photo to storage", exc_info=True)
+        raise EstimatePersistenceError(
+            "Could not save your meal photo. Please try again."
+        ) from exc
     filename = Path(storage_path).name
 
     record = FoodRecord(
@@ -363,11 +382,22 @@ async def create_food_record_from_image(
     db.add(record)
     try:
         await db.commit()
-    except Exception:
+    except Exception as exc:
         await db.rollback()
-        # Don't leave the just-written photo orphaned if the row failed.
-        food_image.delete_stored_image(storage_path)
-        raise
+        # A commit failure is an infra problem (DB outage, constraint, connection
+        # drop), not a defect in the request: log it for triage and surface a
+        # retryable error instead of a bare 500.
+        #
+        # Fail closed on the photo: a commit() exception is *indeterminate* -- the
+        # row may have committed server-side before the connection dropped, so
+        # deleting the photo here could permanently destroy the user's image while a
+        # persisted record still points at it. A recoverable orphaned file is the
+        # lesser evil than permanent PHI loss, so we keep the photo (the photo
+        # endpoint already degrades a missing file to a clean 404).
+        logger.error("Failed to persist food record", exc_info=True)
+        raise EstimatePersistenceError(
+            "Could not save your meal estimate. Please try again."
+        ) from exc
     await db.refresh(record)
 
     # Index this record into own-history RAG so a future photo of the same food

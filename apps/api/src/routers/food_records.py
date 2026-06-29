@@ -66,6 +66,12 @@ _ACCEPTED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
             "description": "Vision unavailable, model not certified, or estimate unusable",
         },
         429: {"model": ErrorResponse, "description": "Rate limit exceeded"},
+        500: {"model": ErrorResponse, "description": "Could not serialize the result"},
+        502: {"model": ErrorResponse, "description": "AI vision service error"},
+        503: {
+            "model": ErrorResponse,
+            "description": "Estimate could not be saved or an unexpected error occurred (retryable)",
+        },
     },
 )
 # Each upload triggers a full image decode + an AI vision call, so cap it
@@ -91,11 +97,11 @@ async def upload_food_photo(
             detail="Unsupported image type. Use JPEG, PNG, or WebP.",
         )
 
-    # Bounded read: never pull more than the cap (plus one byte to detect
-    # overflow) into memory.
-    raw = await file.read(settings.food_image_max_bytes + 1)
-
     try:
+        # Bounded read inside the guard: never pull more than the cap (plus one
+        # byte to detect overflow) into memory, and a read failure (client
+        # disconnect, I/O error) maps to a clean 503 below rather than a bare 500.
+        raw = await file.read(settings.food_image_max_bytes + 1)
         record = await food_vision.create_food_record_from_image(
             db=db, user=current_user, raw_image=raw
         )
@@ -131,8 +137,40 @@ async def upload_food_photo(
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
         ) from exc
+    except food_vision.EstimatePersistenceError as exc:
+        # The estimate was produced but couldn't be saved (disk/DB infra failure).
+        # The pipeline already logged it with a stack; surface a retryable 503
+        # rather than a bare 500. (503 is excluded from Sentry's
+        # failed_request_status_codes, so the pipeline's logger.error is the
+        # single capture path -- see src/observability.py.)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
+    except HTTPException:
+        # An already-typed HTTP error from deeper in the stack: let it through
+        # unchanged rather than masking it with the catch-all below.
+        raise
+    except Exception as exc:
+        # Last-resort safety net: any unanticipated failure is logged (so Sentry
+        # captures it with a stack via the logging integration) and returned as a
+        # clean, retryable 503 -- never a bare, unhandled 500 with an empty body.
+        logger.exception("Unexpected error creating food record from image")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Something went wrong while analyzing your photo. Please try again.",
+        ) from exc
 
-    return FoodRecordResponse.model_validate(record)
+    # Serialize outside the 503 mapping above: a response-shaping/schema defect is a
+    # deterministic server bug, not a transient outage, so it maps to a clean,
+    # logged 500 (never a bare, unhandled one) rather than a "retry in a moment" 503.
+    try:
+        return FoodRecordResponse.model_validate(record)
+    except Exception as exc:
+        logger.exception("Unexpected error serializing food record response")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Something went wrong while preparing your result.",
+        ) from exc
 
 
 @router.get(
