@@ -75,9 +75,12 @@ export function MedtronicImportCard({ isOffline }: { isOffline: boolean }) {
 
   const bookmarklet = useMemo(() => {
     const origin = typeof window !== "undefined" ? window.location.origin : "";
-    // Reads the non-httpOnly auth_tmp_token, posts it to the opener (this app),
-    // and falls back to copying it to the clipboard if the opener is gone.
-    return `javascript:(function(){try{var m=document.cookie.match(/(?:^|;\\s*)auth_tmp_token=([^;]+)/);if(!m){alert('GlycemicGPT: no CareLink token found - are you signed in?');return;}var t=decodeURIComponent(m[1]);if(window.opener&&!window.opener.closed){window.opener.postMessage({source:'${MESSAGE_SOURCE}',token:t},'${origin}');alert('GlycemicGPT: token sent. You can close this tab.');}else if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(function(){alert('GlycemicGPT: token copied. Paste it into GlycemicGPT.');},function(){prompt('GlycemicGPT: copy this token:',t);});}else{prompt('GlycemicGPT: copy this token:',t);}}catch(e){alert('GlycemicGPT capture error: '+e);}})();`;
+    // Reads the full non-httpOnly cookie bundle (auth_tmp_token plus the
+    // m2m_enabled/locale cookies the EU report endpoint requires, #811), posts
+    // it to the opener (this app), and falls back to the clipboard if the opener
+    // is gone. Sent raw (not url-decoded) so the values match what the browser
+    // echoes; the backend derives the bearer and the cookie jar from it.
+    return `javascript:(function(){try{var c=document.cookie;if(!/(?:^|;\\s*)auth_tmp_token=/.test(c)){alert('GlycemicGPT: no CareLink session found - are you signed in?');return;}if(window.opener&&!window.opener.closed){window.opener.postMessage({source:'${MESSAGE_SOURCE}',token:c},'${origin}');alert('GlycemicGPT: session sent. You can close this tab.');}else if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(c).then(function(){alert('GlycemicGPT: session copied. Paste it into GlycemicGPT.');},function(){prompt('GlycemicGPT: copy this:',c);});}else{prompt('GlycemicGPT: copy this:',c);}}catch(e){alert('GlycemicGPT capture error: '+e);}})();`;
   }, []);
 
   const popupRef = useRef<Window | null>(null);

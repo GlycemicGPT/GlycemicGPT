@@ -37,6 +37,32 @@ _AVAIL = CareLinkAvailability(
 )
 
 
+def test_parse_carelink_credential_bundle():
+    """A full document.cookie bundle is split into every cookie (kept raw), with
+    the bearer being the url-decoded auth_tmp_token (#811)."""
+    from src.routers.integrations import _parse_carelink_credential
+
+    bundle = (
+        "m2m_enabled=true; application_language=it; application_country=it; "
+        "auth_tmp_token=ab%2Bcd; c_token_valid_to=x"
+    )
+    bearer, cookies = _parse_carelink_credential(bundle)
+    assert bearer == "ab+cd"  # url-decoded for the header
+    assert cookies["auth_tmp_token"] == "ab%2Bcd"  # raw, as the browser echoes
+    assert cookies["m2m_enabled"] == "true"
+    assert cookies["application_country"] == "it"
+
+
+def test_parse_carelink_credential_legacy_bare_token():
+    """A bare token (older bookmarklet) is treated as the auth_tmp_token, with
+    m2m_enabled defaulted in."""
+    from src.routers.integrations import _parse_carelink_credential
+
+    bearer, cookies = _parse_carelink_credential("tok-xyz")
+    assert bearer == "tok-xyz"
+    assert cookies == {"auth_tmp_token": "tok-xyz", "m2m_enabled": "true"}
+
+
 async def test_build_carelink_client_sends_auth_and_m2m_cookies():
     """The import client carries the captured token as the auth_tmp_token cookie
     plus the m2m_enabled=true flag -- both required by the EU generateReport POST
@@ -48,6 +74,21 @@ async def test_build_carelink_client_sends_auth_and_m2m_cookies():
         jar = {c.name: c.value for c in client._client.cookies.jar}
         assert jar["auth_tmp_token"] == "tok-xyz"
         assert jar["m2m_enabled"] == "true"
+    finally:
+        await client.aclose()
+
+
+async def test_build_carelink_client_forwards_full_cookie_bundle():
+    """A captured document.cookie bundle puts every cookie on the client jar."""
+    from src.routers.integrations import _build_carelink_client
+
+    bundle = "auth_tmp_token=tok-1; m2m_enabled=true; application_country=it"
+    client = _build_carelink_client("EU", bundle)
+    try:
+        jar = {c.name: c.value for c in client._client.cookies.jar}
+        assert jar["auth_tmp_token"] == "tok-1"
+        assert jar["m2m_enabled"] == "true"
+        assert jar["application_country"] == "it"
     finally:
         await client.aclose()
 
