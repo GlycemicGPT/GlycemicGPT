@@ -115,22 +115,31 @@ def _first(d: dict, *keys: str) -> object | None:
 #: confirm what we actually put on the wire (e.g. Origin/Referer presence on the
 #: generateReport POST, #811). Credential-bearing headers are never logged.
 _LOGGABLE_REQUEST_HEADERS = ("origin", "referer", "accept", "content-type")
-_REDACTED_REQUEST_HEADERS = ("authorization", "cookie")
+
+
+def _cookie_names(value: str) -> str:
+    """The cookie NAMES from a Cookie header, values dropped. Lets us confirm
+    which cookies were sent (e.g. the full EU bundle vs a bare token, #811)
+    without ever logging a credential value."""
+    names = [c.split("=", 1)[0].strip() for c in value.split(";") if c.strip()]
+    return ", ".join(sorted(names))
 
 
 def _redacted_request_headers(request: httpx.Request) -> dict[str, str]:
-    """The outbound request headers, with credential-bearing ones masked.
+    """The outbound request headers, safe to log.
 
-    Only a fixed allow-list is shown verbatim; ``Authorization``/``Cookie`` are
-    masked to ``<redacted>`` (presence only). Never returns a bearer or cookie
-    value, so it is safe to log.
+    A fixed allow-list is shown verbatim; ``Cookie`` is reduced to its cookie
+    NAMES (values dropped); ``Authorization`` is masked to ``<redacted>``. Never
+    returns a bearer or cookie value.
     """
     out: dict[str, str] = {}
     for name, value in request.headers.items():
         lowered = name.lower()
         if lowered in _LOGGABLE_REQUEST_HEADERS:
             out[name] = value
-        elif lowered in _REDACTED_REQUEST_HEADERS:
+        elif lowered == "cookie":
+            out[name] = f"names: {_cookie_names(value)}"
+        elif lowered == "authorization":
             out[name] = "<redacted>"
     return out
 

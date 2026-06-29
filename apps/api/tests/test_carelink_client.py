@@ -19,7 +19,8 @@ from src.services.integrations.medtronic.client import (
 
 def test_redacted_request_headers_masks_credentials():
     """Origin/Referer/Accept are shown verbatim (so we can confirm what we sent
-    on a 403), Authorization/Cookie are masked, everything else dropped (#811)."""
+    on a 403); Authorization is masked; Cookie is reduced to its names (so we can
+    confirm the full bundle was sent); cookie/bearer values never leak (#811)."""
     req = httpx.Request(
         "POST",
         "https://carelink.minimed.eu/patient/reports/generateReport",
@@ -28,7 +29,7 @@ def test_redacted_request_headers_masks_credentials():
             "Accept": "application/json",
             "Origin": "https://carelink.minimed.eu",
             "Referer": "https://carelink.minimed.eu/app/reports",
-            "Cookie": "auth_tmp_token=secret",
+            "Cookie": "auth_tmp_token=secret; m2m_enabled=true; application_country=it",
             "X-Internal": "drop-me",
         },
     )
@@ -37,7 +38,9 @@ def test_redacted_request_headers_masks_credentials():
     assert out["origin"] == "https://carelink.minimed.eu"
     assert out["referer"] == "https://carelink.minimed.eu/app/reports"
     assert out["authorization"] == "<redacted>"
-    assert out["cookie"] == "<redacted>"
+    # Cookie shows names only, sorted, with no values.
+    assert out["cookie"] == "names: application_country, auth_tmp_token, m2m_enabled"
+    assert "secret" not in str(out)
     assert "super-secret" not in str(out)
     assert "x-internal" not in out
 
