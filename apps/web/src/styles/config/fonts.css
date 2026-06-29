@@ -1,0 +1,257 @@
+@utility font_poppins {
+  font-family: var(--font-poppins), ui-sans-serif, system-ui, sans-serif;
+}
+
+@utility font_jetbrains_mono {
+  font-family: var(--font-jetbrains-mono), ui-monospace, "SFMono-Regular", Consolas, monospace;
+}
+
+@utility font_header_1 {
+  font-family: var(--font-sans);
+  font-size: 2.25rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 2.75rem;
+
+  @media (min-width: 768px) {
+    font-size: 2.5rem;
+    line-height: 3rem;
+  }
+}
+
+@utility font_header_2 {
+  font-family: var(--font-sans);
+  font-size: 1.75rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 2.25rem;
+
+  @media (min-width: 768px) {
+    font-size: 2rem;
+    line-height: 2.5rem;
+  }
+}
+
+@utility font_header_3 {
+  font-family: var(--font-sans);
+  font-size: 1.25rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.75rem;
+
+  @media (min-width: 768px) {
+    font-size: 1.5rem;
+    line-height: 2rem;
+  }
+}
+
+@utility font_header_4 {
+  font-family: var(--font-sans);
+  font-size: 1.125rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.625rem;
+
+  @media (min-width: 768px) {
+    font-size: 1.25rem;
+    line-height: 1.75rem;
+  }
+}
+
+@utility font_body_1 {
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.5rem;
+
+  @media (min-width: 768px) {
+    font-size: 1.125rem;
+    line-height: 1.625rem;
+  }
+}
+
+@utility font_body_2 {
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.375rem;
+
+  @media (min-width: 768px) {
+    font-size: 1rem;
+    line-height: 1.5rem;
+  }
+}
+
+@utility font_body_3 {
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.25rem;
+
+  @media (min-width: 768px) {
+    font-size: 0.875rem;
+    line-height: 1.375rem;
+  }
+}
+
+@utility font_body_4 {
+  font-family: var(--font-sans);
+  font-size: 0.625rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.125rem;
+
+  @media (min-width: 768px) {
+    font-size: 0.75rem;
+    line-height: 1.25rem;
+  }
+}
+
+@utility font_metric_label {
+  font-family: var(--font-label);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.03rem;
+  line-height: 1.125rem;
+
+  @media (min-width: 768px) {
+    font-size: 0.8125rem;
+    line-height: 1.25rem;
+  }
+}
+
+@utility font_metric_caption {
+  font-family: var(--font-label);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04rem;
+  line-height: 1.125rem;
+
+  @media (min-width: 768px) {
+    font-size: 0.75rem;
+    line-height: 1.25rem;
+  }
+}
+
+@utility font_regular {
+  font-weight: 400;
+}
+
+@utility font_bold {
+  font-weight: 700;
+}
+
+@utility font_normal {
+  letter-spacing: 0;
+}
+
+@utility font_medium {
+  letter-spacing: 0.125rem;
+}
+
+@utility font_page_title {
+  font-family: var(--font-sans);
+  font-size: 2.25rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 2.75rem;
+
+  @media (min-width: 768px) {
+    font-size: 2.5rem;
+    line-height: 3rem;
+  }
+}
+
+@utility font_section_title {
+  font-family: var(--font-sans);
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.75rem;
+
+  @media (min-width: 768px) {
+    font-size: 1.5rem;
+    line-height: 2rem;
+  }
+}
+
+@utility font_body_text {
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.5rem;
+
+  @media (min-width: 768px) {
+    font-size: 1.125rem;
+    line-height: 1.625rem;
+  }
+}
+
+@utility font_body_text_strong {
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.5rem;
+
+  @media (min-width: 768px) {
+    font-size: 1.125rem;
+    line-height: 1.625rem;
+  }
+}
+
+@utility font_ui_label {
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.25rem;
+
+  @media (min-width: 768px) {
+    font-size: 0.875rem;
+    line-height: 1.375rem;
+  }
+}
+
+@utility font_ui_caption {
+  font-family: var(--font-sans);
+  font-size: 0.625rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.125rem;
+
+  @media (min-width: 768px) {
+    font-size: 0.75rem;
+    line-height: 1.25rem;
+  }
+}
+
+@utility font_ui_input {
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.375rem;
+
+  @media (min-width: 768px) {
+    font-size: 1rem;
+    line-height: 1.5rem;
+  }
+}
+
+@utility font_ui_mono_value {
+  font-family: var(--font-mono);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.5rem;
+
+  @media (min-width: 768px) {
+    font-size: 1.125rem;
+    line-height: 1.625rem;
+  }
+}

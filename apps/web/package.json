@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
+    "validate:theme-colors": "node --experimental-strip-types scripts/validate-theme-colors.ts",
     "test": "jest",
     "test:watch": "jest --watch"
   },

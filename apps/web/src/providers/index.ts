@@ -22,3 +22,11 @@ export {
 export { UserProvider, useUserContext } from "./user-provider";
 
 export { ThemeProvider, useTheme } from "./theme-provider";
+export {
+  SYSTEM_THEME,
+  THEME_STORAGE_KEY,
+  themeModes,
+  themeOptions,
+  type ThemeChoice,
+  type ThemeMode,
+} from "./theme-config";

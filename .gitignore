@@ -83,6 +83,10 @@ _bmad/
 !.claude/skills/**
 CLAUDE.md
 
+# Codex agent guidance
+AGENTS.md
+.agents/
+
 # Security testing
 scripts/security/results/
 scripts/security/.venv/
