@@ -35,10 +35,26 @@ are hard for every model). Nothing here is a dosing output; the pass-bar gates a
 
 from __future__ import annotations
 
+import os as _os
+import sys as _sys
 from dataclasses import dataclass, field
 from enum import Enum
 
 from metrics import VarianceAggregate
+
+# The shared, cross-harness trust vocabulary lives in the backend so the text
+# harness and this pass-bar map to the SAME enum object, never a drifting copy.
+# Importing it needs apps/api on the path — the same lightweight shim the carb
+# contract re-export already relies on; it pulls only the trivial `src` / `src.core`
+# package inits, no backend runtime. (The harness already requires apps/api on
+# disk for the carb contract, so this adds no new dependency.)
+_API_ROOT = _os.path.abspath(
+    _os.path.join(_os.path.dirname(__file__), "..", "..", "apps", "api")
+)
+if _API_ROOT not in _sys.path:
+    _sys.path.insert(0, _API_ROOT)
+
+from src.core.trust import TrustVerdict  # noqa: E402  (shim must run first)
 
 # ---------------------------------------------------------------------------
 # The bar (single source of truth -- FINDINGS.md cites these, not its own numbers)
@@ -88,6 +104,23 @@ class Verdict(str, Enum):
     INSUFFICIENT_DATA = "insufficient_data"
 
 
+# This pass-bar's standalone verdict mapped onto the shared, cross-harness trust
+# vocabulary. ``INSUFFICIENT_DATA`` → ``INCOMPLETE``: both mean "this run did not
+# certify the model" and both gate as not-safe. The standalone CLI keeps emitting
+# this module's own ``Verdict`` (so the ``FINDINGS.md``↔``Verdict`` pin is
+# untouched); a caller crosses to the shared enum only by opting into trust mode.
+_VERDICT_TO_TRUST: dict[Verdict, TrustVerdict] = {
+    Verdict.PASS: TrustVerdict.PASS,
+    Verdict.FAIL: TrustVerdict.FAIL,
+    Verdict.INSUFFICIENT_DATA: TrustVerdict.INCOMPLETE,
+}
+
+
+def to_trust_verdict(verdict: Verdict) -> TrustVerdict:
+    """Map this pass-bar's standalone ``Verdict`` to the shared ``TrustVerdict``."""
+    return _VERDICT_TO_TRUST[verdict]
+
+
 @dataclass
 class CriterionResult:
     """One gate's outcome.
@@ -131,8 +164,16 @@ class PassBarResult:
         """True only for a clean certification (every hard gate met at N>=5)."""
         return self.verdict is Verdict.PASS
 
-    def to_dict(self) -> dict:
-        return {
+    @property
+    def trust_verdict(self) -> TrustVerdict:
+        """This result on the shared, cross-harness trust vocabulary."""
+        return to_trust_verdict(self.verdict)
+
+    def to_dict(self, *, trust_mode: bool = False) -> dict:
+        """Serialize the result. ``trust_mode`` additionally stamps the shared
+        ``trust_verdict`` for a trust-kernel consumer; the default (off) keeps the
+        standalone report byte-identical, so the FINDINGS pin is unaffected."""
+        data = {
             "verdict": self.verdict.value,
             "passed": self.passed,
             "has_vision": self.has_vision,
@@ -144,6 +185,9 @@ class PassBarResult:
             "unmeasured": self.unmeasured,
             "summary": self.summary,
         }
+        if trust_mode:
+            data["trust_verdict"] = self.trust_verdict.value
+        return data
 
 
 def _check_max(

@@ -1,0 +1,9 @@
+{
+  "adversarial": "sha256:bbfe1abd74a725c90fc565c4b76531c3ef02819c8b7541cdb342c41dc21617b9",
+  "chat": "sha256:a02ced396fe124f9a82f6e95c3ba014c61ac72ddb3dda41f3ed94b0791058dd6",
+  "chat_rag": "sha256:99034244f539f1f31fc80a32babbf66a978a1e5abaa686ded66ea482c60066c3",
+  "correction": "sha256:d52ef0fd54e8b2af326f89bd9ba8030b35bf11ff13cd8fe855d185e01e4b1df1",
+  "daily_brief": "sha256:0ca43dfae71933eadc9658491a8ada7feda2c3a043ef287e9ef265807ccd69cc",
+  "meal_analysis": "sha256:25ab7b53b75c62ba8dda21fda7a71b684c7905ef89edf98d1e171edd9b10567c",
+  "vision_carb": "sha256:2bae1593054d69a64fadd41b4d1bbdd2dc0e39c6f4be0fc93e4e0b21ebcb8e38"
+}

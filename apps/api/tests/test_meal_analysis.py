@@ -841,3 +841,23 @@ class TestMealAnalysisEndpoints:
             )
 
         assert response.status_code == 422
+
+
+def test_build_meal_prompt_is_public_and_pure():
+    from src.schemas.meal_analysis import MealPeriodData
+    from src.services.meal_analysis import _build_system_prompt, build_meal_prompt
+
+    periods = [
+        MealPeriodData(
+            period="breakfast",
+            bolus_count=10,
+            spike_count=7,
+            avg_peak_glucose=187.0,
+            avg_2hr_glucose=164.0,
+        )
+    ]
+    prompt = build_meal_prompt(periods, total_boluses=10, days=7, profile_summary=None)
+    assert "Breakfast" in prompt
+    assert "187" in prompt
+    system_prompt = _build_system_prompt()
+    assert isinstance(system_prompt, str) and "Type 1 diabetes" in system_prompt

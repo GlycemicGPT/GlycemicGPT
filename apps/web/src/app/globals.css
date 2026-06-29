@@ -1,128 +1,20 @@
-@import 'tailwindcss';
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css";
+@import "tailwindcss/preflight.css";
+@import "tailwindcss/utilities.css";
+@import "../styles/config/colors.css";
+@import "../styles/config/custom-variants.css";
+@import "../styles/config/fonts.css";
+@import "../styles/config/radius.css";
+@import "../styles/config/animations.css";
+@import "../styles/config/legacy-theme.css";
+@import "../styles/config/theme.css";
+@import "../styles/base.css";
 
-@custom-variant dark (&:is(.dark *));
-
-@theme {
-  --color-glucose-low: #ef4444;
-  --color-glucose-warning: #f59e0b;
-  --color-glucose-target: #22c55e;
-  --color-glucose-high: #f97316;
-  --color-glucose-urgent: #dc2626;
-
-  --color-alert-info: #3b82f6;
-  --color-alert-warning: #f59e0b;
-  --color-alert-urgent: #f97316;
-  --color-alert-emergency: #dc2626;
-
-  --animate-pulse-slow: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-  --animate-pulse-fast: pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
-
-/*
-  The default border color has changed to `currentcolor` in Tailwind CSS v4,
-  so we've added these compatibility styles to make sure everything still
-  looks the same as it did with Tailwind CSS v3.
-
-  If we ever want to remove these styles, we need to add an explicit border
-  color utility to any element that depends on these defaults.
-*/
-@layer base {
-  *,
-  ::after,
-  ::before,
-  ::backdrop,
-  ::file-selector-button {
-    border-color: var(--color-gray-200, currentcolor);
-  }
-}
-
-:root {
-  --foreground-rgb: 255, 255, 255;
-  --background-rgb: 15, 23, 42;
-}
-
-html.light {
-  --foreground-rgb: 15, 23, 42;
-  --background-rgb: 248, 250, 252;
-}
-
-body {
-  color: rgb(var(--foreground-rgb));
-  background: rgb(var(--background-rgb));
-  overscroll-behavior: none;
-}
-
-/* Glucose hero pulse animations (replaces framer-motion) */
-@keyframes glucose-pulse-subtle {
-  0%, 100% { transform: scale(1); opacity: 1; }
-  50% { transform: scale(1.02); opacity: 0.9; }
-}
-@keyframes glucose-pulse-strong {
-  0%, 100% { transform: scale(1); opacity: 1; }
-  50% { transform: scale(1.05); opacity: 0.8; }
-}
-.animate-glucose-pulse-subtle {
-  animation: glucose-pulse-subtle 2s ease-in-out infinite;
-}
-.animate-glucose-pulse-strong {
-  animation: glucose-pulse-strong 1s ease-in-out infinite;
-}
-
-/* TIR bar expand animation (replaces framer-motion scaleX) */
-@keyframes tir-bar-expand {
-  from { transform: scaleX(0); }
-  to { transform: scaleX(1); }
-}
-.animate-tir-bar-expand {
-  animation: tir-bar-expand 0.6s ease-out forwards;
-}
-
-/* Trend arrow bounce animations (replaces framer-motion y translate) */
-@keyframes trend-bounce-up {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-2px); }
-}
-@keyframes trend-bounce-up-fast {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-3px); }
-}
-@keyframes trend-bounce-down {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(2px); }
-}
-@keyframes trend-bounce-down-fast {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(3px); }
-}
-.animate-trend-bounce-up {
-  animation: trend-bounce-up 1.2s ease-in-out infinite;
-}
-.animate-trend-bounce-up-fast {
-  animation: trend-bounce-up-fast 0.8s ease-in-out infinite;
-}
-.animate-trend-bounce-down {
-  animation: trend-bounce-down 1.2s ease-in-out infinite;
-}
-.animate-trend-bounce-down-fast {
-  animation: trend-bounce-down-fast 0.8s ease-in-out infinite;
-}
-
-/* Focus visible for accessibility */
-*:focus-visible {
-  outline: 2px solid #3b82f6;
-  outline-offset: 2px;
-}
-
-/* Reduce motion for accessibility */
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
-  }
+@theme inline {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-label: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  --font-mono: ui-monospace, "SFMono-Regular", "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
 }
 
 /* Print styles -- scoped to dashboard layout via data attributes */
@@ -165,7 +57,7 @@ body {
     flex: none !important;
   }
   /* Remove dark mode styling */
-  .dark {
+  .theme-dark {
     color-scheme: light;
   }
   [data-dashboard-root] {

@@ -60,6 +60,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import contract  # noqa: E402
+import harness_version  # noqa: E402
 import metrics  # noqa: E402
 import passbar  # noqa: E402
 
@@ -294,7 +295,10 @@ def _sample_in_bounds(est: contract.ParsedEstimate) -> bool:
 
 
 def _run_single_shot(
-    args: argparse.Namespace, items: list[LoadedItem], api_key: str | None
+    args: argparse.Namespace,
+    items: list[LoadedItem],
+    api_key: str | None,
+    harness_version_value: str,
 ) -> int:
     scores: list[metrics.ItemScore] = []
     records: list[dict] = []
@@ -400,6 +404,7 @@ def _run_single_shot(
     agg = metrics.aggregate(scores)
     report = {
         "mode": "single_shot",
+        "harness_version": harness_version_value,
         "manifests": _manifest_paths(args),
         "base_url": args.base_url,
         "model": args.model,
@@ -580,7 +585,10 @@ def evaluate_run_pass_bar(
 
 
 def _run_variance(
-    args: argparse.Namespace, items: list[LoadedItem], api_key: str | None
+    args: argparse.Namespace,
+    items: list[LoadedItem],
+    api_key: str | None,
+    harness_version_value: str,
 ) -> int:
     n = args.repeats
     sampled = _collect_samples(args, items, n, api_key)
@@ -610,6 +618,7 @@ def _run_variance(
     )
     report = {
         "mode": "variance",
+        "harness_version": harness_version_value,
         "manifests": _manifest_paths(args),
         "base_url": args.base_url,
         "model": args.model,
@@ -636,7 +645,10 @@ def _run_variance(
 
 
 def _run_sweep(
-    args: argparse.Namespace, items: list[LoadedItem], api_key: str | None
+    args: argparse.Namespace,
+    items: list[LoadedItem],
+    api_key: str | None,
+    harness_version_value: str,
 ) -> int:
     sweep_ns = args.sweep
     max_n = max(sweep_ns)
@@ -673,6 +685,7 @@ def _run_sweep(
         curve.append(agg)
     report = {
         "mode": "sweep",
+        "harness_version": harness_version_value,
         "manifests": _manifest_paths(args),
         "base_url": args.base_url,
         "model": args.model,
@@ -1052,6 +1065,10 @@ def run(args: argparse.Namespace) -> int:
         print("No items in manifest(s); nothing to evaluate.", file=sys.stderr)
         return 2
     api_key = None if args.no_auth else os.environ.get("SIDECAR_API_KEY")
+    # Capture the harness version ONCE, before any sampling, so a long run is
+    # stamped with the code/prompt/dataset state that actually produced the
+    # samples — not whatever the filesystem holds when the report is assembled.
+    harness_version_value = harness_version.compute_harness_version()
 
     mode = "single-shot"
     if args.sweep:
@@ -1065,10 +1082,10 @@ def run(args: argparse.Namespace) -> int:
     )
 
     if args.sweep:
-        return _run_sweep(args, items, api_key)
+        return _run_sweep(args, items, api_key, harness_version_value)
     if args.repeats > 1:
-        return _run_variance(args, items, api_key)
-    return _run_single_shot(args, items, api_key)
+        return _run_variance(args, items, api_key, harness_version_value)
+    return _run_single_shot(args, items, api_key, harness_version_value)
 
 
 def main() -> int:

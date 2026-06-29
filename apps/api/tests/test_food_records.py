@@ -7,6 +7,7 @@ food-record API endpoints.
 """
 
 import json
+import logging
 import os
 import uuid
 from io import BytesIO
@@ -375,6 +376,68 @@ class TestPipelinePersistence:
                     db=db, user=user, raw_image=_png_bytes()
                 )
 
+    async def test_storage_failure_maps_to_persistence_error(self, _uploads_tmp):
+        # A disk write failure during persistence is an infra problem, not a defect
+        # in the request: it must surface as the typed EstimatePersistenceError
+        # (mapped to a retryable 503 at the router) rather than a bare OSError that
+        # would fall through to an unhandled 500. (Regression guard for #836.)
+        from src.database import get_session_maker
+
+        async with get_session_maker()() as db:
+            user = await _new_user(db, "store-fail")
+            with (
+                patch.object(
+                    food_vision,
+                    "_call_vision",
+                    AsyncMock(return_value=_estimate_json()),
+                ),
+                patch.object(
+                    food_image,
+                    "store_image",
+                    MagicMock(side_effect=OSError("no space left on device")),
+                ),
+                pytest.raises(food_vision.EstimatePersistenceError),
+            ):
+                await food_vision.create_food_record_from_image(
+                    db=db, user=user, raw_image=_png_bytes()
+                )
+
+    async def test_commit_failure_fails_closed_and_keeps_photo(self, _uploads_tmp):
+        # A db.commit() exception is *indeterminate* -- the row may have committed
+        # before the connection dropped. Deleting the photo could then permanently
+        # destroy the user's image while a persisted record still references it, so
+        # the pipeline fails closed: it keeps the photo and surfaces the typed
+        # EstimatePersistenceError (-> 503), never a bare 500. (#836)
+        from src.database import get_session_maker
+
+        async with get_session_maker()() as db:
+            user = await _new_user(db, "commit-fail")
+            # Capture the id before the failure: the rollback below expires `user`,
+            # and the session is closed by the time we assert.
+            user_id = user.id
+            with (
+                patch.object(
+                    food_vision,
+                    "_call_vision",
+                    AsyncMock(return_value=_estimate_json()),
+                ),
+                patch.object(
+                    db, "commit", AsyncMock(side_effect=RuntimeError("connection lost"))
+                ),
+                pytest.raises(food_vision.EstimatePersistenceError),
+            ):
+                await food_vision.create_food_record_from_image(
+                    db=db, user=user, raw_image=_png_bytes()
+                )
+
+        # Fail-closed: the just-written photo is retained, not deleted on an
+        # ambiguous commit outcome (a recoverable orphan beats permanent PHI loss).
+        user_food_dir = Path(settings.upload_dir) / "food" / str(user_id)
+        leftover = list(user_food_dir.glob("*")) if user_food_dir.exists() else []
+        assert len(leftover) == 1, (
+            f"expected the photo to be retained, found: {leftover}"
+        )
+
     async def test_scrubs_dosing_phrasing_from_description(self, _uploads_tmp):
         from src.database import get_session_maker
 
@@ -654,6 +717,100 @@ class TestFoodRecordsApi:
                 files={"file": ("meal.png", _png_bytes(), "image/png")},
             )
         assert resp.status_code == 404
+
+    async def test_storage_failure_returns_clean_503(self, auth_client):
+        # A persistence (disk) failure must not leak a bare 500: it maps to a clean,
+        # retryable 503 with a JSON detail, and leaves nothing behind. (#836)
+        client, _ = auth_client
+        with (
+            patch.object(
+                food_vision, "_call_vision", AsyncMock(return_value=_estimate_json())
+            ),
+            patch.object(
+                food_image,
+                "store_image",
+                MagicMock(side_effect=OSError("no space left on device")),
+            ),
+        ):
+            resp = await client.post(
+                "/api/food-records",
+                files={"file": ("meal.png", _png_bytes(), "image/png")},
+            )
+        assert resp.status_code == 503
+        # A clean JSON envelope, never an empty/bare 500 body.
+        assert resp.json()["detail"]
+        # The failed upload persisted nothing.
+        listing = await client.get("/api/food-records")
+        assert listing.status_code == 200
+        assert listing.json()["total"] == 0
+
+    async def test_unexpected_error_returns_503_and_is_logged(
+        self, auth_client, caplog
+    ):
+        # Any unanticipated exception is caught, logged with a stack (so Sentry's
+        # logging integration captures it), and returned as a clean 503 -- never a
+        # bare, unhandled 500 with an empty body. (#836)
+        client, _ = auth_client
+        with (
+            patch.object(
+                food_vision,
+                "create_food_record_from_image",
+                AsyncMock(side_effect=RuntimeError("unexpected boom")),
+            ),
+            caplog.at_level(logging.ERROR, logger="src.routers.food_records"),
+        ):
+            resp = await client.post(
+                "/api/food-records",
+                files={"file": ("meal.png", _png_bytes(), "image/png")},
+            )
+        assert resp.status_code == 503
+        assert resp.json()["detail"]
+        # Logged at ERROR with exception info attached (the Sentry capture path).
+        assert any(r.levelno >= logging.ERROR and r.exc_info for r in caplog.records), (
+            "expected the unexpected error to be logged with a stack trace"
+        )
+
+    async def test_serialization_failure_returns_clean_500(self, auth_client):
+        # A response-shaping/schema defect is a deterministic server bug, not a
+        # transient outage: it must surface as a clean, logged 500 (JSON body, not a
+        # bare one) -- distinct from the retryable 503 reserved for infra failures. (#836)
+        from src.schemas.food_record import FoodRecordResponse
+
+        client, _ = auth_client
+        with (
+            patch.object(
+                food_vision, "_call_vision", AsyncMock(return_value=_estimate_json())
+            ),
+            patch.object(
+                FoodRecordResponse,
+                "model_validate",
+                MagicMock(side_effect=ValueError("response schema drift")),
+            ),
+        ):
+            resp = await client.post(
+                "/api/food-records",
+                files={"file": ("meal.png", _png_bytes(), "image/png")},
+            )
+        assert resp.status_code == 500
+        # Clean JSON envelope, never a bare/empty 500.
+        assert resp.json()["detail"]
+
+    async def test_upload_read_failure_returns_503(self, auth_client):
+        # A failure reading the uploaded bytes (client disconnect, I/O error) runs
+        # before the pipeline; it must be inside the guard so it maps to a clean 503
+        # rather than escaping as a bare 500. (#836)
+        from starlette.datastructures import UploadFile
+
+        client, _ = auth_client
+        with patch.object(
+            UploadFile, "read", AsyncMock(side_effect=OSError("read failed"))
+        ):
+            resp = await client.post(
+                "/api/food-records",
+                files={"file": ("meal.png", _png_bytes(), "image/png")},
+            )
+        assert resp.status_code == 503
+        assert resp.json()["detail"]
 
     async def test_delete_removes_record_and_file(self, auth_client):
         client, _ = auth_client

@@ -1,0 +1,112 @@
+@theme {
+  --animate-pulse-slow: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-pulse-fast: pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes glucose-pulse-subtle {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.9;
+    transform: scale(1.02);
+  }
+}
+
+@keyframes glucose-pulse-strong {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.8;
+    transform: scale(1.05);
+  }
+}
+
+@keyframes tir-bar-expand {
+  from {
+    transform: scaleX(0);
+  }
+
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes trend-bounce-up {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-2px);
+  }
+}
+
+@keyframes trend-bounce-up-fast {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+@keyframes trend-bounce-down {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(2px);
+  }
+}
+
+@keyframes trend-bounce-down-fast {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(3px);
+  }
+}
+
+@utility animate-glucose-pulse-subtle {
+  animation: glucose-pulse-subtle 2s ease-in-out infinite;
+}
+
+@utility animate-glucose-pulse-strong {
+  animation: glucose-pulse-strong 1s ease-in-out infinite;
+}
+
+@utility animate-tir-bar-expand {
+  animation: tir-bar-expand 0.6s ease-out forwards;
+}
+
+@utility animate-trend-bounce-up {
+  animation: trend-bounce-up 1.2s ease-in-out infinite;
+}
+
+@utility animate-trend-bounce-up-fast {
+  animation: trend-bounce-up-fast 0.8s ease-in-out infinite;
+}
+
+@utility animate-trend-bounce-down {
+  animation: trend-bounce-down 1.2s ease-in-out infinite;
+}
+
+@utility animate-trend-bounce-down-fast {
+  animation: trend-bounce-down-fast 0.8s ease-in-out infinite;
+}

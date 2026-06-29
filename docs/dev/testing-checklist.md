@@ -195,7 +195,7 @@ For each settings page with a Save button:
 - [ ] All pages have proper heading hierarchy (h1, h2, h3)
 - [ ] Tab navigation works through all interactive elements
 - [ ] ARIA labels present on icons, buttons, and form fields
-- [ ] Color contrast meets WCAG AA standards
+- [ ] Color contrast meets WCAG AA standards. See [Color Accessibility Guide](./color-accessibility.md) and [WCAG 1.4.3 Contrast Minimum](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html)
 - [ ] Screen reader can navigate all major sections
 
 ### 15. Mobile Responsiveness

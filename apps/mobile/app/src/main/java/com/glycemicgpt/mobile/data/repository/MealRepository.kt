@@ -15,9 +15,9 @@ import com.squareup.moshi.Types
 import kotlinx.coroutines.CancellationException
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.toRequestBody
-import okhttp3.ResponseBody
 import okhttp3.MediaType.Companion.toMediaType
 import retrofit2.Response
+import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Named
 import javax.inject.Singleton
@@ -121,7 +121,7 @@ class MealRepository @Inject constructor(
             response.body()?.let { Result.success(it) }
                 ?: Result.failure(MealException.EstimateFailed("The server returned an empty response."))
         } else {
-            Result.failure(mapError(response.code(), detailOf(response.errorBody())))
+            Result.failure(mapErrorResponse(response))
         }
     }
 
@@ -131,7 +131,7 @@ class MealRepository @Inject constructor(
         if (response.isSuccessful) {
             Result.success(Unit)
         } else {
-            Result.failure(mapError(response.code(), detailOf(response.errorBody())))
+            Result.failure(mapErrorResponse(response))
         }
     }
 
@@ -143,10 +143,47 @@ class MealRepository @Inject constructor(
         Result.failure(e)
     }
 
+    /**
+     * Map any non-2xx meal-endpoint response to a typed [MealException], reading the error body
+     * exactly once.
+     *
+     * Server errors (5xx) on any meal call also emit an R8-safe diagnostic so an opaque failure can
+     * be diagnosed on its next occurrence (the photo upload is the motivating case): release builds
+     * ship no Sentry DSN, so this logcat trail is the only client-side signal we get. The
+     * content-type + body prefix distinguish an app-backend error (JSON `{"detail":...}`) from an
+     * edge/proxy one (HTML/empty), and the host confirms the request actually reached the real
+     * backend.
+     */
+    private fun mapErrorResponse(response: Response<*>): MealException {
+        val errorBody = response.errorBody()
+        val contentType = errorBody?.contentType()?.toString()
+        // ResponseBody.string() consumes the stream and may only be called once.
+        val raw = try {
+            errorBody?.string()?.takeIf { it.isNotBlank() }
+        } catch (_: Exception) {
+            null
+        }
+        if (response.code() >= 500) {
+            // Timber.e survives R8 (only d/v are stripped) and the release ReleaseTree scrubs
+            // tokens/emails/glucose before anything reaches logcat.
+            val request = response.raw().request
+            Timber.e(
+                "Meal API server error %d on %s %s%s (content-type=%s): %s",
+                response.code(),
+                request.method,
+                request.url.host,
+                request.url.encodedPath,
+                contentType ?: "none",
+                raw?.take(MAX_LOGGED_ERROR_BODY) ?: "<empty body>",
+            )
+        }
+        return mapError(response.code(), parseDetail(raw))
+    }
+
     /** Extract the human message from a FastAPI error body, tolerating both the string and the
      *  Pydantic list-of-objects shapes of `detail`. */
-    private fun detailOf(errorBody: ResponseBody?): String? = try {
-        val parsed = errorBody?.string()?.takeIf { it.isNotBlank() }?.let { errorBodyAdapter.fromJson(it) }
+    private fun parseDetail(raw: String?): String? = try {
+        val parsed = raw?.let { errorBodyAdapter.fromJson(it) }
         when (val detail = parsed?.get("detail")) {
             is String -> detail
             is List<*> -> (detail.firstOrNull() as? Map<*, *>)?.get("msg") as? String
@@ -181,6 +218,18 @@ class MealRepository @Inject constructor(
             502 -> MealException.EstimateFailed(
                 "The AI vision service is temporarily unavailable. Please try again in a moment.",
             )
+            // Distinct, honest copy for the server-error family (mirrors the 502 convention of
+            // owning user-facing copy rather than echoing the backend's technical detail). The raw
+            // detail still lands in the 5xx diagnostic above for triage.
+            500 -> MealException.EstimateFailed(
+                "Something went wrong on our end while analyzing your photo. Please try again.",
+            )
+            503 -> MealException.EstimateFailed(
+                "The service is temporarily unavailable. Please try again in a moment.",
+            )
+            504 -> MealException.EstimateFailed(
+                "The request took too long to process. Please try again.",
+            )
             else -> MealException.EstimateFailed(
                 message.ifEmpty { "Something went wrong (HTTP $code). Please try again." },
             )
@@ -189,6 +238,10 @@ class MealRepository @Inject constructor(
 
     private companion object {
         const val DEFAULT_PAGE = 50
+
+        // Cap how much of an error body we log: enough to tell a FastAPI `{"detail":...}` JSON
+        // payload from an edge-proxy HTML/empty body, without dumping a large response.
+        const val MAX_LOGGED_ERROR_BODY = 200
         val JPEG_MEDIA_TYPE = "image/jpeg".toMediaType()
 
         // Substrings of the backend's `detail` copy (apps/api/src/routers/_meal_intelligence.py

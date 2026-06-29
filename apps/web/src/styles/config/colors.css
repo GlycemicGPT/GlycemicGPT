@@ -1,0 +1,70 @@
+/* Core neutrals */
+@theme {
+  --color-base-black: #000000;
+  --color-base-grey: #767676;
+  --color-base-light-grey: #e6e6e6;
+  --color-base-transparent: transparent;
+  --color-base-white: #ffffff;
+}
+
+/* Light theme palette */
+@theme {
+  --color-base-accent-blue: #5eb1ff;
+  --color-base-accent-blue-hover-light: #4da8ff;
+  --color-base-accent-blue-hover-dark: #70bdff;
+  --color-base-mist: #e6e8e6;
+  --color-base-silver: #ced0ce;
+  --color-base-ink: #191919;
+}
+
+/* Dark theme palette */
+@theme {
+  --color-base-eerie-black: #3a414b;
+  --color-base-dim-gray: #5f6266;
+  --color-base-cadet-gray: #949ea8;
+  --color-base-cadet-gray-light: #a7b0ba;
+  --color-base-cool-silver: #fff;
+}
+
+/* Alpha variants */
+@theme {
+  --color-base-opacity-dark-10: --alpha(var(--color-base-black) / 10%);
+  --color-base-opacity-dark-20: --alpha(var(--color-base-black) / 20%);
+  --color-base-opacity-dark-30: --alpha(var(--color-base-black) / 30%);
+  --color-base-opacity-dark-40: --alpha(var(--color-base-black) / 40%);
+  --color-base-opacity-dark-50: --alpha(var(--color-base-black) / 50%);
+  --color-base-opacity-dark-60: --alpha(var(--color-base-black) / 60%);
+  --color-base-opacity-dark-70: --alpha(var(--color-base-black) / 70%);
+  --color-base-opacity-dark-80: --alpha(var(--color-base-black) / 80%);
+  --color-base-opacity-dark-90: --alpha(var(--color-base-black) / 90%);
+
+  --color-base-opacity-light-10: --alpha(var(--color-base-white) / 10%);
+  --color-base-opacity-light-20: --alpha(var(--color-base-white) / 20%);
+  --color-base-opacity-light-30: --alpha(var(--color-base-white) / 30%);
+  --color-base-opacity-light-40: --alpha(var(--color-base-white) / 40%);
+  --color-base-opacity-light-50: --alpha(var(--color-base-white) / 50%);
+  --color-base-opacity-light-60: --alpha(var(--color-base-white) / 60%);
+  --color-base-opacity-light-70: --alpha(var(--color-base-white) / 70%);
+  --color-base-opacity-light-80: --alpha(var(--color-base-white) / 80%);
+  --color-base-opacity-light-90: --alpha(var(--color-base-white) / 90%);
+}
+
+/* Signal palette: lower shade numbers are lighter, higher shade numbers are darker. */
+@theme {
+  --color-base-purple-100: #e5e0ff;
+  --color-base-purple-300: #bbaee6;
+  --color-base-purple-600: #6f53ca;
+  --color-base-teal-200: #a5f3f3;
+  --color-base-teal-400: #65c5c5;
+  --color-base-teal-700: #2b7272;
+  --color-base-mint-200: #a7f3c0;
+  --color-base-mint-400: #67c987;
+  --color-base-mint-700: #2a7643;
+  --color-base-yellow-200: #ffe08a;
+  --color-base-yellow-400: #f8c129;
+  --color-base-yellow-500: #f6a61d;
+  --color-base-yellow-700: #b24600;
+  --color-base-red-100: #ffd9d5;
+  --color-base-red-500: #e94b3a;
+  --color-base-red-600: #cd1d0c;
+}

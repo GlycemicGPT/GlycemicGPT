@@ -1,6 +1,6 @@
 {
   "name": "glycemicgpt-web",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
+    "validate:theme-colors": "node --experimental-strip-types scripts/validate-theme-colors.ts",
     "test": "jest",
     "test:watch": "jest --watch"
   },
