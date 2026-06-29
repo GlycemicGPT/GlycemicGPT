@@ -1,8 +1,9 @@
 """Tests for the Medtronic CareLink manual-import endpoints (feature B).
 
 Stateless endpoints: the request carries the captured auth_tmp_token; the
-backend builds a cookie-less client and never stores the token. We patch the
-client builder + the sync orchestrator so these stay pure unit/HTTP tests.
+backend builds a client authed by that token (bearer header + auth_tmp_token
+cookie) and never stores it. We patch the client builder + the sync
+orchestrator so these stay pure unit/HTTP tests.
 """
 
 import uuid
@@ -34,6 +35,21 @@ _HDR = {"X-CareLink-Token": "tok-abc"}
 _AVAIL = CareLinkAvailability(
     start=datetime(2012, 1, 1, tzinfo=UTC), end=datetime(2025, 1, 31, tzinfo=UTC)
 )
+
+
+async def test_build_carelink_client_sends_auth_and_m2m_cookies():
+    """The import client carries the captured token as the auth_tmp_token cookie
+    plus the m2m_enabled=true flag -- both required by the EU generateReport POST
+    (the bearer header alone yields 403, #811)."""
+    from src.routers.integrations import _build_carelink_client
+
+    client = _build_carelink_client("EU", "tok-xyz")
+    try:
+        jar = {c.name: c.value for c in client._client.cookies.jar}
+        assert jar["auth_tmp_token"] == "tok-xyz"
+        assert jar["m2m_enabled"] == "true"
+    finally:
+        await client.aclose()
 
 
 def unique_email(prefix: str = "medtronic") -> str:

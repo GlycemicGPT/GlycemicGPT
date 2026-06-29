@@ -1858,12 +1858,13 @@ async def import_tandem_range(
 
 def _build_carelink_client(region: str, token: str) -> CareLinkClient:
     """CareLink client authed by the captured token, sent as both the bearer
-    header and the ``auth_tmp_token`` cookie.
+    header and the ``auth_tmp_token`` cookie, plus the ``m2m_enabled`` flag.
 
     The captured token IS the ``auth_tmp_token`` cookie value (see session.py).
     Read endpoints accept the bearer header alone, but the EU ``generateReport``
-    POST requires the cookie too, returning 403 without it (#811). So we send it
-    in both forms.
+    POST requires the cookie too (#811). It also gates report generation behind
+    the ``m2m_enabled=true`` cookie the browser sends -- a static flag marking an
+    API/token caller as permitted -- so we include it.
 
     Region is normally validated by the request schema (-> 422); this guards the
     helper directly too so a bad region can never surface as an uncaught 500.
@@ -1881,7 +1882,7 @@ def _build_carelink_client(region: str, token: str) -> CareLinkClient:
     return CareLinkClient(
         bearer_provider=_bearer,
         base_url=base_url,
-        cookies={"auth_tmp_token": token},
+        cookies={"auth_tmp_token": token, "m2m_enabled": "true"},
     )
 
 
