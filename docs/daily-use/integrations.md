@@ -79,7 +79,7 @@ Schedule rows have a **Preview** button that expands a table showing every segme
 
 Below the table, **Import history for** picks how far back to pull entries on the first sync: 1 day, 7 days, 30 days, 90 days, or all available.
 
-> **Insulin type is not auto-imported.** GlycemicGPT needs to know what insulin you're on (Humalog, Novolog, Fiasp, Lyumjev, etc.) to compute IoB curves correctly. The wizard intentionally doesn't guess -- pick yours under **Settings → Insulin** once after the wizard finishes.
+> **Insulin type is not auto-imported.** GlycemicGPT needs to know what insulin you're on (Humalog, NovoLog/NovoRapid, Fiasp, Lyumjev, etc.) to compute IoB curves correctly. The wizard intentionally doesn't guess -- pick yours under **Settings → Insulin** once after the wizard finishes.
 
 > **mmol/L users.** If your Nightscout reports `units: mmol`, the wizard automatically converts target ranges and ISF to mg/dL before they land in GlycemicGPT and surfaces a banner so you can see the conversion happened. GlycemicGPT stores glucose values in mg/dL internally regardless of how you view them.
 

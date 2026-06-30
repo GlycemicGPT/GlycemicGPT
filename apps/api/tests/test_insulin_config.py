@@ -11,6 +11,7 @@ from src.config import settings
 from src.main import app
 from src.schemas.insulin_config import (
     INSULIN_PRESETS,
+    VALID_INSULIN_TYPES,
     InsulinConfigDefaults,
     InsulinConfigUpdate,
 )
@@ -38,6 +39,13 @@ async def register_and_login(client) -> str:
     )
 
     return login_response.cookies.get(settings.jwt_cookie_name)
+
+
+# Bolus insulins added to the picker. Rapid analogs reuse a shipped molecule's
+# PK (aspart/lispro), so they inherit the existing 4.0h/15min curve; regular
+# (short-acting) human insulins use a longer DIA and later onset.
+ADDED_RAPID_ANALOG_TYPES = ("novorapid", "liprolog", "admelog", "trurapi", "kirsty")
+ADDED_REGULAR_HUMAN_TYPES = ("humulin_r", "novolin_r", "insuman_rapid")
 
 
 # -- Schema validation tests --
@@ -83,6 +91,20 @@ class TestInsulinConfigUpdate:
         assert update.dia_hours == 3.5
         assert update.onset_minutes == 5.0
 
+    @pytest.mark.parametrize("insulin_type", ADDED_RAPID_ANALOG_TYPES)
+    def test_added_rapid_analog_type_accepted(self, insulin_type):
+        update = InsulinConfigUpdate(insulin_type=insulin_type)
+        assert update.insulin_type == insulin_type
+
+    @pytest.mark.parametrize("insulin_type", ADDED_REGULAR_HUMAN_TYPES)
+    def test_added_regular_human_type_accepted(self, insulin_type):
+        update = InsulinConfigUpdate(insulin_type=insulin_type)
+        assert update.insulin_type == insulin_type
+
+    def test_unknown_insulin_type_rejected(self):
+        with pytest.raises(ValidationError):
+            InsulinConfigUpdate(insulin_type="not_an_insulin")
+
 
 class TestInsulinConfigDefaults:
     """Tests for InsulinConfigDefaults schema."""
@@ -102,6 +124,43 @@ class TestInsulinConfigDefaults:
     def test_fiasp_preset_values(self):
         assert INSULIN_PRESETS["fiasp"]["dia_hours"] == 3.5
         assert INSULIN_PRESETS["fiasp"]["onset_minutes"] == 5.0
+
+    @pytest.mark.parametrize(
+        "insulin_type", ADDED_RAPID_ANALOG_TYPES + ADDED_REGULAR_HUMAN_TYPES
+    )
+    def test_added_types_have_presets(self, insulin_type):
+        defaults = InsulinConfigDefaults()
+        assert insulin_type in defaults.presets
+
+    @pytest.mark.parametrize("insulin_type", ADDED_RAPID_ANALOG_TYPES)
+    def test_rapid_analog_presets_reuse_molecule_pk(self, insulin_type):
+        # A brand sharing a molecule with a shipped analog inherits its curve.
+        assert INSULIN_PRESETS[insulin_type]["dia_hours"] == 4.0
+        assert INSULIN_PRESETS[insulin_type]["onset_minutes"] == 15.0
+
+    @pytest.mark.parametrize("insulin_type", ADDED_REGULAR_HUMAN_TYPES)
+    def test_regular_human_preset_values(self, insulin_type):
+        assert INSULIN_PRESETS[insulin_type]["dia_hours"] == 6.0
+        assert INSULIN_PRESETS[insulin_type]["onset_minutes"] == 30.0
+
+    def test_presets_and_valid_types_stay_consistent(self):
+        # Drift guard: every preset key is a valid type, and "custom" is the
+        # only valid type without a preset.
+        assert set(INSULIN_PRESETS).issubset(VALID_INSULIN_TYPES)
+        assert VALID_INSULIN_TYPES - set(INSULIN_PRESETS) == {"custom"}
+
+    def test_every_preset_is_savable(self):
+        # Selecting a preset auto-fills the form, so every preset must produce a
+        # payload the InsulinConfigUpdate validator accepts -- otherwise the
+        # auto-filled value would 422 on save. Construct the schema instead of
+        # re-encoding its bounds so this tracks the validator (and the
+        # allow-list) automatically.
+        for insulin_type, values in INSULIN_PRESETS.items():
+            InsulinConfigUpdate(
+                insulin_type=insulin_type,
+                dia_hours=values["dia_hours"],
+                onset_minutes=values["onset_minutes"],
+            )
 
 
 # -- Service tests --
@@ -320,3 +379,46 @@ class TestInsulinConfigEndpoints:
                 cookies={settings.jwt_cookie_name: cookie},
             )
         assert response.status_code == 422
+
+    async def test_patch_unknown_insulin_type_returns_422(self):
+        """PATCH with a type outside the allow-list is rejected at the body."""
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            cookie = await register_and_login(client)
+            response = await client.patch(
+                "/api/settings/insulin-config",
+                json={"insulin_type": "not_an_insulin"},
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert response.status_code == 422
+
+    @pytest.mark.parametrize("insulin_type", ("novorapid", "humulin_r"))
+    async def test_patch_new_insulin_type_persists(self, insulin_type):
+        """A newly added bolus insulin saves and reads back unchanged."""
+        preset = INSULIN_PRESETS[insulin_type]
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            cookie = await register_and_login(client)
+            patch_response = await client.patch(
+                "/api/settings/insulin-config",
+                json={
+                    "insulin_type": insulin_type,
+                    "dia_hours": preset["dia_hours"],
+                    "onset_minutes": preset["onset_minutes"],
+                },
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+            assert patch_response.status_code == 200
+            get_response = await client.get(
+                "/api/settings/insulin-config",
+                cookies={settings.jwt_cookie_name: cookie},
+            )
+        assert patch_response.json()["insulin_type"] == insulin_type
+        data = get_response.json()
+        assert data["insulin_type"] == insulin_type
+        assert data["dia_hours"] == preset["dia_hours"]
+        assert data["onset_minutes"] == preset["onset_minutes"]

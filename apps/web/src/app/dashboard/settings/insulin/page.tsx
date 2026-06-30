@@ -25,6 +25,7 @@ import {
   type InsulinConfigResponse,
   type InsulinPresets,
 } from "@/lib/api";
+import { FALLBACK_PRESETS, INSULIN_LABELS, INSULIN_LIMITS } from "@/lib/insulin";
 import { OfflineBanner } from "@/components/ui/offline-banner";
 
 type SavedConfig = Pick<InsulinConfigResponse, "insulin_type" | "dia_hours" | "onset_minutes">;
@@ -33,24 +34,6 @@ const DEFAULTS = {
   insulin_type: "humalog",
   dia_hours: 4.0,
   onset_minutes: 15.0,
-};
-
-// Hardcoded fallback so the page works when the API is unreachable
-const FALLBACK_PRESETS: InsulinPresets = {
-  humalog: { dia_hours: 4.0, onset_minutes: 15.0 },
-  novolog: { dia_hours: 4.0, onset_minutes: 15.0 },
-  fiasp: { dia_hours: 3.5, onset_minutes: 5.0 },
-  lyumjev: { dia_hours: 3.5, onset_minutes: 5.0 },
-  apidra: { dia_hours: 4.0, onset_minutes: 15.0 },
-};
-
-const INSULIN_LABELS: Record<string, string> = {
-  humalog: "Humalog (Lispro)",
-  novolog: "NovoLog (Aspart)",
-  fiasp: "Fiasp (Faster Aspart)",
-  lyumjev: "Lyumjev (Faster Lispro)",
-  apidra: "Apidra (Glulisine)",
-  custom: "Custom",
 };
 
 export default function InsulinConfigPage() {
@@ -183,10 +166,10 @@ export default function InsulinConfigPage() {
   const isValid =
     !isNaN(diaNum) &&
     !isNaN(onsetNum) &&
-    diaNum >= 2.0 &&
-    diaNum <= 8.0 &&
-    onsetNum >= 1.0 &&
-    onsetNum <= 60.0;
+    diaNum >= INSULIN_LIMITS.diaMinHours &&
+    diaNum <= INSULIN_LIMITS.diaMaxHours &&
+    onsetNum >= INSULIN_LIMITS.onsetMinMinutes &&
+    onsetNum <= INSULIN_LIMITS.onsetMaxMinutes;
   const isCustom = insulinType === "custom" || !(insulinType in (presets || {}));
 
   return (
@@ -293,7 +276,7 @@ export default function InsulinConfigPage() {
                 ))}
               </select>
               <p className="text-xs text-slate-500 mt-1">
-                Select the rapid-acting insulin in your pump
+                Select your bolus (mealtime) insulin
               </p>
             </div>
 
@@ -309,8 +292,8 @@ export default function InsulinConfigPage() {
                 <input
                   id="dia-hours"
                   type="number"
-                  min={2}
-                  max={8}
+                  min={INSULIN_LIMITS.diaMinHours}
+                  max={INSULIN_LIMITS.diaMaxHours}
                   step={0.5}
                   value={diaHours}
                   onChange={(e) => setDiaHours(e.target.value)}
@@ -342,8 +325,8 @@ export default function InsulinConfigPage() {
                 <input
                   id="onset-minutes"
                   type="number"
-                  min={1}
-                  max={60}
+                  min={INSULIN_LIMITS.onsetMinMinutes}
+                  max={INSULIN_LIMITS.onsetMaxMinutes}
                   step={1}
                   value={onsetMinutes}
                   onChange={(e) => setOnsetMinutes(e.target.value)}
