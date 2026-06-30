@@ -31,9 +31,11 @@ object MedtronicProtocol {
     // Bluetooth SIG base: a 16-bit code XXXX expands to 0000XXXX-0000-1000-8000-00805f9b34fb.
     private const val SIG_BASE_SUFFIX = "-0000-1000-8000-00805f9b34fb"
 
-    // Medtronic vendor-specific 128-bit base (node ...-009132591325, per OpenMinimed uuids.py):
-    // a 16-bit code XXXX expands to 0000XXXX-0000-1000-8000-009132591325.
-    private const val MEDTRONIC_BASE_SUFFIX = "-0000-1000-8000-009132591325"
+    // Medtronic vendor-specific 128-bit base (node ...-009132591325, per OpenMinimed uuids.py and
+    // JavaPumpConnector): a 16-bit code XXXX expands to 0000XXXX-0000-1000-0000-009132591325. The
+    // variant field is 0000, NOT the SIG 8000 -- the real pump never finds vendor services advertised
+    // on the 8000 form, which silently broke pairing and every IDD/HAT/CM read (issue #844).
+    private const val MEDTRONIC_BASE_SUFFIX = "-0000-1000-0000-009132591325"
 
     private fun uuidFor(short16: Int, baseSuffix: String): UUID {
         val hex = (short16 and 0xFFFF).toString(16).padStart(4, '0')
@@ -105,11 +107,26 @@ object MedtronicProtocol {
     // medtronic-ble-reverse-engineering.md Sec. 8. All read-only for our purposes (subscribe/read);
     // no write/control characteristics are exposed by design.
 
-    /** SAKE authentication service: 0xFE82 first-pair / 0xFE81 reconnect. Char NOTIFY + WRITE. */
-    val SAKE_CHARACTERISTIC_UUID: UUID = sigUuid(SAKE_SERVICE_FIRST_PAIR_16)
+    /**
+     * SAKE authentication characteristic (NOTIFY + WRITE). It shares the 0xFE82 short code with the
+     * SAKE service but lives on the Medtronic vendor base, not the SIG base: the service is advertised
+     * and registered as SIG 0xFE82 while the characteristic the pump subscribes to is
+     * 0000fe82-...-009132591325. With the SIG base here the pump found the service but not the
+     * characteristic, so it never wrote the CCCD and the handshake never began (issue #844, confirmed
+     * against JavaPumpConnector BlePeripheralDevice).
+     */
+    val SAKE_CHARACTERISTIC_UUID: UUID = vendorUuid(SAKE_SERVICE_FIRST_PAIR_16)
 
-    /** Device Information service (0x180A): manufacturer/model/serial/hw/fw/sw, system + PnP id. */
-    val DEVICE_INFO_SERVICE_UUID: UUID = sigUuid(0x180A)
+    /**
+     * Device Information service container the phone exposes to the pump. Medtronic uses a proprietary
+     * vendor service (0x0900 on the vendor base), NOT the standard SIG 0x180A, even though the
+     * characteristics inside it are the standard SIG DIS strings below. The pump looks for the 0x0900
+     * service during GATT discovery (0x0900 is not advertised) and will not pair when only 0x180A is
+     * present (issue #844, per JavaPumpConnector
+     * BlePeripheralDevice; OpenMinimed uuids.py's 0x180A describes the pump's own DIS on the read side,
+     * which our read layer addresses by characteristic UUID, not by this service UUID).
+     */
+    val DEVICE_INFO_SERVICE_UUID: UUID = vendorUuid(0x0900)
     val MANUFACTURER_NAME_UUID: UUID = sigUuid(0x2A29)
     val MODEL_NUMBER_UUID: UUID = sigUuid(0x2A24)
     val SERIAL_NUMBER_UUID: UUID = sigUuid(0x2A25)
@@ -118,6 +135,9 @@ object MedtronicProtocol {
     val SOFTWARE_REVISION_UUID: UUID = sigUuid(0x2A28)
     val SYSTEM_ID_UUID: UUID = sigUuid(0x2A23)
     val PNP_ID_UUID: UUID = sigUuid(0x2A50)
+
+    /** IEEE 11073-20601 Regulatory Certification Data List (0x2A2A); exposed empty, like the reference. */
+    val REGULATORY_CERT_UUID: UUID = sigUuid(0x2A2A)
 
     /** Battery service (0x180F): Battery Level 0x2A19. */
     val BATTERY_SERVICE_UUID: UUID = sigUuid(0x180F)
