@@ -352,6 +352,31 @@ async def test_sends_same_origin_headers_for_report_host():
     assert captured["referer"] == "https://carelink.minimed.eu/app/reports"
 
 
+async def test_post_sends_browser_ua_and_charset_content_type():
+    """The generateReport POST carries a browser User-Agent and the
+    charset-qualified Content-Type the browser sends -- the last observable
+    header gaps vs the working browser request (#811). Verifies httpx does not
+    override our explicit Content-Type for a json body."""
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/patient/reports/generateReport":
+            captured["ua"] = request.headers.get("user-agent")
+            captured["content_type"] = request.headers.get("content-type")
+            return httpx.Response(200, json={"uuid": "u1"})
+        if request.url.path == "/patient/reports/reportStatus":
+            return httpx.Response(204)
+        return httpx.Response(200, text="Index,Date\n")
+
+    async with _make_client(handler) as client:
+        await client.export_csv(
+            patient_id="1", start_date=date(2025, 1, 1), end_date=date(2025, 1, 1)
+        )
+    assert captured["ua"].startswith("Mozilla/5.0")
+    assert "python-httpx" not in (captured["ua"] or "")
+    assert captured["content_type"] == "application/json; charset=utf-8"
+
+
 async def test_configured_cookies_ride_along_on_requests():
     """Session cookies (e.g. auth_tmp_token) are sent on requests to the report
     host. The EU generateReport POST 403s with the bearer header alone -- it

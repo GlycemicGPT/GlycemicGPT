@@ -57,6 +57,14 @@ _ALLOWED_HOST_SUFFIXES = ("minimed.com", "minimed.eu")
 
 BearerProvider = Callable[[], Awaitable[str]]
 
+#: A browser User-Agent for CareLink requests. The web app is fronted by
+#: CloudFront, whose bot rules can 403 a non-browser UA (httpx's default) on the
+#: report POST while leaving GETs alone (#811). Mirrors session.py's UA.
+_BROWSER_UA = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/145.0.0.0 Safari/537.36"
+)
+
 # reportStatus "ready" signals. We observed the generateReport ->
 # reportStatus -> reportCsv sequence but not the status response body, so we
 # accept a tolerant set of completion markers; to be confirmed live.
@@ -228,6 +236,12 @@ class CareLinkClient:
             # browser and stay consistent across reads and the POST.
             "Origin": self._origin,
             "Referer": self._referer,
+            # Last observable gaps vs the browser's working request (#811): a
+            # browser User-Agent (CloudFront/WAF bot rules commonly 403 a
+            # non-browser UA on the report POST while letting GETs through) and
+            # the charset the browser sends on the JSON body.
+            "User-Agent": _BROWSER_UA,
+            "Content-Type": "application/json; charset=utf-8",
         }
 
     def _check(self, resp: httpx.Response) -> None:
