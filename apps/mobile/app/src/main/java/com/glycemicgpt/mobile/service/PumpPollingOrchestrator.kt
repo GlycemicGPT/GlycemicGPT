@@ -103,7 +103,10 @@ class PumpPollingOrchestrator @Inject constructor(
                             startPollingLoops(scope)
                         }
                     } else {
-                        Timber.d("Pump disconnected (state=%s), pausing polling", state)
+                        // Any non-CONNECTED state (e.g. SCANNING/CONNECTING/AUTHENTICATING/DISCONNECTED)
+                        // pauses polling; log the actual state instead of always saying "disconnected",
+                        // which misleads debugging during a pairing attempt (issue #844).
+                        Timber.d("Pump not connected (state=%s), pausing polling", state)
                         previousAlertType = null
                         cancelPollingLoops()
                     }

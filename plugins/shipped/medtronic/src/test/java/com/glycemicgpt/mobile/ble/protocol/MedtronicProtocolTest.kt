@@ -52,20 +52,46 @@ class MedtronicProtocolTest {
             "0000180a-0000-1000-8000-00805f9b34fb",
             MedtronicProtocol.sigUuid(0x180A).toString(),
         )
+        // Vendor base carries the Medtronic node id (...-009132591325) with variant field 0000, not
+        // the SIG 8000 (issue #844, per OpenMinimed uuids.py / JavaPumpConnector).
         assertEquals(
-            "0000fe82-0000-1000-8000-00805f9b34fb",
-            MedtronicProtocol.SAKE_CHARACTERISTIC_UUID.toString(),
-        )
-        // Vendor base carries the Medtronic node id (...-009132591325).
-        assertEquals(
-            "00000100-0000-1000-8000-009132591325",
+            "00000100-0000-1000-0000-009132591325",
             MedtronicProtocol.IDD_SERVICE_UUID.toString(),
         )
         assertEquals(
-            "00000300-0000-1000-8000-009132591325",
+            "00000300-0000-1000-0000-009132591325",
             MedtronicProtocol.HAT_SERVICE_UUID.toString(),
         )
         // The two bases must not collapse: the same short code maps to distinct UUIDs.
         assertNotEquals(MedtronicProtocol.sigUuid(0x100), MedtronicProtocol.vendorUuid(0x100))
+    }
+
+    @Test
+    fun `issue 844 - GATT identities the phone exposes match the validated JavaPumpConnector`() {
+        // The phone is the BLE peripheral; a real 780G only pairs when the GATT table it discovers
+        // matches what the official app exposes. These values are pinned against OpenMinimed's
+        // JavaPumpConnector BlePeripheralDevice, which paired on the reporter's hardware. Three
+        // identities are subtle and previously shipped wrong (issue #844), so assert them directly.
+
+        // 1. The Device Information service container is the proprietary vendor 0x0900, NOT SIG 0x180A.
+        assertEquals(
+            "00000900-0000-1000-0000-009132591325",
+            MedtronicProtocol.DEVICE_INFO_SERVICE_UUID.toString(),
+        )
+        // 2. The SAKE *service* is advertised and registered on the SIG base (0xFE82)...
+        assertEquals(
+            "0000fe82-0000-1000-8000-00805f9b34fb",
+            MedtronicProtocol.SAKE_SERVICE_FIRST_PAIR_UUID.toString(),
+        )
+        // 3. ...but the SAKE *characteristic* inside it lives on the vendor base (same 0xFE82 code).
+        assertEquals(
+            "0000fe82-0000-1000-0000-009132591325",
+            MedtronicProtocol.SAKE_CHARACTERISTIC_UUID.toString(),
+        )
+        // The service/characteristic split is the crux: same short code, different base.
+        assertNotEquals(
+            MedtronicProtocol.SAKE_SERVICE_FIRST_PAIR_UUID,
+            MedtronicProtocol.SAKE_CHARACTERISTIC_UUID,
+        )
     }
 }

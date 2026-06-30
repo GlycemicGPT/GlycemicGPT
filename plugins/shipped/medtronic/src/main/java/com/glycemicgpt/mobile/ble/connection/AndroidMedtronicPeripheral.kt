@@ -291,9 +291,11 @@ class AndroidMedtronicPeripheral(context: Context) : MedtronicPeripheral {
             BluetoothGattService.SERVICE_TYPE_PRIMARY,
         )
         // SAKE characteristic: NOTIFY (phone -> pump) + WRITE (pump -> phone). Read-only data path;
-        // no control/calibration characteristic is ever exposed. TODO(48.A2): confirm the pump
-        // accepts MedtronicProtocol.SAKE_CHARACTERISTIC_UUID (JavaPumpConnector used a vendor-base
-        // variant of the same 16-bit code) against real hardware.
+        // no control/calibration characteristic is ever exposed. The UUID is on the Medtronic vendor
+        // base (same 0xFE82 short code as the SIG-based service) to match JavaPumpConnector, which
+        // paired on real hardware; the SIG-based form shipped before left the pump unable to find the
+        // characteristic, so the handshake never began (issue #844). Live re-confirmation on a real
+        // 780G is still pending (DESK).
         val sake = BluetoothGattCharacteristic(
             MedtronicProtocol.SAKE_CHARACTERISTIC_UUID,
             BluetoothGattCharacteristic.PROPERTY_NOTIFY or BluetoothGattCharacteristic.PROPERTY_WRITE,
@@ -323,16 +325,20 @@ class AndroidMedtronicPeripheral(context: Context) : MedtronicPeripheral {
             ).apply { @Suppress("DEPRECATION") setValue(value) }
 
         // Placeholder DIS values: the read-only handshake authenticates at the app layer (SAKE), not
-        // off these fields. JavaPumpConnector spoofs a realistic app-version string; TODO(48.A2):
-        // confirm a real pump does not validate any DIS field before falling back to these.
+        // off these fields. The characteristic *set* mirrors JavaPumpConnector (including Hardware
+        // Revision and the empty Regulatory Certification list) so a pump that enumerates DIS
+        // membership during discovery sees the same table. JavaPumpConnector spoofs a realistic
+        // app-version string; TODO(48.A2): confirm a real pump does not validate any DIS field value.
         val ascii = Charsets.US_ASCII
         service.addCharacteristic(readChar(MedtronicProtocol.MANUFACTURER_NAME_UUID, "GlycemicGPT".toByteArray(ascii)))
         service.addCharacteristic(readChar(MedtronicProtocol.MODEL_NUMBER_UUID, "Mobile".toByteArray(ascii)))
         service.addCharacteristic(readChar(MedtronicProtocol.SERIAL_NUMBER_UUID, currentName.toByteArray(ascii)))
+        service.addCharacteristic(readChar(MedtronicProtocol.HARDWARE_REVISION_UUID, "0".toByteArray(ascii)))
         service.addCharacteristic(readChar(MedtronicProtocol.FIRMWARE_REVISION_UUID, "0".toByteArray(ascii)))
         service.addCharacteristic(readChar(MedtronicProtocol.SOFTWARE_REVISION_UUID, "0".toByteArray(ascii)))
         service.addCharacteristic(readChar(MedtronicProtocol.SYSTEM_ID_UUID, ByteArray(8)))
         service.addCharacteristic(readChar(MedtronicProtocol.PNP_ID_UUID, ByteArray(7)))
+        service.addCharacteristic(readChar(MedtronicProtocol.REGULATORY_CERT_UUID, ByteArray(0)))
         return service
     }
 
@@ -368,13 +374,7 @@ class AndroidMedtronicPeripheral(context: Context) : MedtronicPeripheral {
             characteristic: BluetoothGattCharacteristic,
         ) {
             @Suppress("DEPRECATION")
-            val stored = characteristic.value ?: ByteArray(0)
-            if (offset > stored.size) {
-                sendResponse(device, requestId, BluetoothGatt.GATT_INVALID_OFFSET, offset, ByteArray(0))
-                return
-            }
-            val value = stored.copyOfRange(offset, stored.size)
-            sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, value)
+            respondWithStoredBlob(device, requestId, offset, characteristic.value ?: ByteArray(0))
         }
 
         override fun onCharacteristicWriteRequest(
@@ -392,6 +392,21 @@ class AndroidMedtronicPeripheral(context: Context) : MedtronicPeripheral {
             if (responseNeeded) {
                 sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, value)
             }
+        }
+
+        override fun onDescriptorReadRequest(
+            device: BluetoothDevice,
+            requestId: Int,
+            offset: Int,
+            descriptor: BluetoothGattDescriptor,
+        ) {
+            // Android peripherals get no auto-response, so any descriptor read the pump issues (the
+            // SAKE CCCD around subscribe is the only descriptor this GATT table exposes) stalls unless
+            // we answer it. The descriptor's stored value (default 0x0000 = notifications off) is the
+            // correct reply for any descriptor, so this stays intentionally ungated -- unlike the CCCD
+            // write handler below (issue #844; JavaPumpConnector's BlePeripheralDevice answers the same).
+            @Suppress("DEPRECATION")
+            respondWithStoredBlob(device, requestId, offset, descriptor.value ?: byteArrayOf(0x00, 0x00))
         }
 
         override fun onDescriptorWriteRequest(
@@ -438,6 +453,17 @@ class AndroidMedtronicPeripheral(context: Context) : MedtronicPeripheral {
         } catch (e: SecurityException) {
             Timber.w(e, "sendResponse failed")
         }
+    }
+
+    /** Reply to a characteristic or descriptor read with [stored], honoring the central's [offset]. */
+    private fun respondWithStoredBlob(device: BluetoothDevice, requestId: Int, offset: Int, stored: ByteArray) {
+        // The ATT offset is an unsigned 16-bit field, so a negative value can't arrive from the wire;
+        // the `offset < 0` guard is defensive so copyOfRange() below can never throw.
+        if (offset < 0 || offset > stored.size) {
+            sendResponse(device, requestId, BluetoothGatt.GATT_INVALID_OFFSET, offset, ByteArray(0))
+            return
+        }
+        sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, stored.copyOfRange(offset, stored.size))
     }
 
     private companion object {
