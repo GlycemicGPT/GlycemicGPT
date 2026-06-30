@@ -45,7 +45,7 @@ jobs:
       run_all: ${{ steps.derived.outputs.run_all }}
       any_security_relevant: ${{ steps.derived.outputs.any_security_relevant }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - uses: dorny/paths-filter@d1c1ffe0248fe513906c8e24db8ea791d46f8590 # v3.0.3
         id: filter
         with:
@@ -123,7 +123,7 @@ jobs:
       semgrep_typescript: ${{ steps.outcomes.outputs.semgrep_typescript }}
       semgrep_kotlin: ${{ steps.outcomes.outputs.semgrep_kotlin }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Install Semgrep
         run: pip install semgrep
@@ -239,7 +239,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
@@ -745,7 +745,7 @@ jobs:
 
       - name: Checkout (for issue creation script)
         if: always()
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           sparse-checkout: scripts/security
 
@@ -960,7 +960,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout cleanup script
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           sparse-checkout: scripts/security
 

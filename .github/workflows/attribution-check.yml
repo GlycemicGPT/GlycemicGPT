@@ -34,7 +34,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Checkout base ref (NOT the PR head)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           # No `ref:` -- under pull_request_target the default is the base
           # ref of the PR's target branch. The PR's content stays out of
