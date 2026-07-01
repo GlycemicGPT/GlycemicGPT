@@ -35,6 +35,7 @@ import android.os.Build
 import com.glycemicgpt.mobile.ble.protocol.MedtronicProtocol
 import com.glycemicgpt.mobile.ble.read.MedtronicGattLink
 import com.glycemicgpt.mobile.ble.read.MedtronicReadException
+import com.glycemicgpt.mobile.ble.read.MedtronicCodec
 import com.glycemicgpt.mobile.ble.read.MedtronicReadGateway
 import timber.log.Timber
 import java.util.UUID
@@ -174,6 +175,7 @@ class AndroidMedtronicGattLink(
             opLock.withLock {
                 val link = ensureConnected()
                 val resolved = resolve(characteristic)
+                Timber.v("GATT write %s (%d bytes) %s", characteristic, value.size, MedtronicCodec.toHex(value))
                 val outcome = awaitGatt("write", characteristic) { writeCharacteristic(link, resolved.characteristic, value) }
                 if (outcome.status != BluetoothGatt.GATT_SUCCESS) {
                     logGattWarning("write", characteristic, outcome.status)
@@ -556,6 +558,7 @@ class AndroidMedtronicGattLink(
     }
 
     private fun deliverPdu(characteristic: UUID, value: ByteArray) {
+        Timber.v("GATT notification %s (%d bytes) %s", characteristic, value.size, MedtronicCodec.toHex(value))
         // Hop onto the connection manager's single worker thread so all onPdu callbacks are serialized
         // on one thread (AC3). Copy first: the API-33 callback may recycle its delivery buffer once this
         // returns, and the copy is read later on the worker.

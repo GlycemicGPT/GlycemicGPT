@@ -146,6 +146,7 @@ class MedtronicSessionReader(
 
         link.subscribe(controlPoint) { response ->
             if (finished) return@subscribe
+            Timber.d("CGM RACP response (%d bytes) %s", response.size, response.toHex())
             when {
                 response.contentEquals(RACP_REPORT_SUCCESS) -> {
                     val r = record
@@ -163,7 +164,7 @@ class MedtronicSessionReader(
             }
         }
 
-        Timber.d("CGM RACP report-last-record request")
+        Timber.d("CGM RACP report-last-record request (%d bytes) %s", RACP_REPORT_LAST_RECORD.size, RACP_REPORT_LAST_RECORD.toHex())
         link.write(controlPoint, RACP_REPORT_LAST_RECORD)
     }
 
