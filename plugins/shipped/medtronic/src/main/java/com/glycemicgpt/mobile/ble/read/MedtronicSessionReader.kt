@@ -146,25 +146,30 @@ class MedtronicSessionReader(
 
         link.subscribe(controlPoint) { response ->
             if (finished) return@subscribe
+            Timber.d("CGM RACP response (%d bytes) %s", response.size, response.toHex())
             when {
                 response.contentEquals(RACP_REPORT_SUCCESS) -> {
                     val r = record
                     if (r == null) {
-                        finish(Result.failure(MedtronicReadException("RACP reported success but no record arrived")))
+                        finish(Result.failure(MedtronicReadException("CGM RACP reported success but no record arrived")))
                     } else {
                         finish(Result.success(r))
                     }
                 }
                 else -> finish(
                     Result.failure(
-                        MedtronicReadException("Unexpected RACP response: ${response.toHex()}"),
+                        MedtronicReadException("Unexpected CGM RACP response: ${response.toHex()}"),
                     ),
                 )
             }
         }
 
-        Timber.d("RACP report-last-record request")
-        link.write(controlPoint, RACP_REPORT_LAST_RECORD)
+        Timber.d("CGM RACP report-last-record request (%d bytes) %s", RACP_REPORT_LAST_RECORD.size, RACP_REPORT_LAST_RECORD.toHex())
+        try {
+            link.write(controlPoint, RACP_REPORT_LAST_RECORD)
+        } catch (e: Exception) {
+            finish(Result.failure(asReadException(e, "CGM RACP write failed")))
+        }
     }
 
     /**
@@ -178,7 +183,7 @@ class MedtronicSessionReader(
      */
     fun socpGet(socp: UUID, requestOpcode: ByteArray, onResult: (Result<ByteArray>) -> Unit) {
         val request = appendE2eCrc(requestOpcode)
-        Timber.d("SOCP GET request (%d bytes)", request.size)
+        Timber.d("CGM SOCP GET request (%d bytes) %s", request.size, request.toHex())
         encryptedGet(socp, session.encryptForPump(request), "SOCP response could not be decrypted", onResult)
     }
 
@@ -195,7 +200,7 @@ class MedtronicSessionReader(
      * with the other exchanges the caller must impose the operation timeout.
      */
     fun srcpGet(srcp: UUID, requestOpcode: ByteArray, onResult: (Result<ByteArray>) -> Unit) {
-        Timber.d("IDD SRCP GET request (%d bytes)", requestOpcode.size)
+        Timber.d("IDD SRCP GET request (%d bytes) %s", requestOpcode.size, requestOpcode.toHex())
         encryptedGet(srcp, session.encryptForPump(requestOpcode), "IDD SRCP response could not be decrypted", onResult)
     }
 
@@ -278,13 +283,17 @@ class MedtronicSessionReader(
                 finish(Result.success(records.toList()))
             } else {
                 finish(
-                    Result.failure(MedtronicReadException("Unexpected/failed RACP response: ${response.toHex()}")),
+                    Result.failure(MedtronicReadException("Unexpected/failed IDD RACP response: ${response.toHex()}")),
                 )
             }
         }
 
-        Timber.d("RACP report-records request (%d bytes)", request.size)
-        link.write(controlPoint, request)
+        Timber.d("IDD RACP report-records request (%d bytes) %s", request.size, request.toHex())
+        try {
+            link.write(controlPoint, request)
+        } catch (e: Exception) {
+            finish(Result.failure(asReadException(e, "IDD RACP write failed")))
+        }
     }
 
     /**
@@ -308,8 +317,12 @@ class MedtronicSessionReader(
             finish(Result.success(response.copyOf()))
         }
 
-        Timber.d("RACP control-point query (%d bytes)", request.size)
-        link.write(controlPoint, request)
+        Timber.d("IDD RACP control-point query (%d bytes) %s", request.size, request.toHex())
+        try {
+            link.write(controlPoint, request)
+        } catch (e: Exception) {
+            finish(Result.failure(asReadException(e, "IDD RACP write failed")))
+        }
     }
 
     /**
@@ -344,7 +357,11 @@ class MedtronicSessionReader(
             }
         }
 
-        link.write(char, encryptedRequest)
+        try {
+            link.write(char, encryptedRequest)
+        } catch (e: Exception) {
+            finish(Result.failure(asReadException(e, failMessage)))
+        }
     }
 
     /** Map any decrypt/parse failure to a [MedtronicReadException], preserving an already-typed one. */
