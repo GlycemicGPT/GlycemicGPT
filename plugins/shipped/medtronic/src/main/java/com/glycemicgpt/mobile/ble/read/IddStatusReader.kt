@@ -143,9 +143,6 @@ class IddStatusReader(
 
     private fun toIoBReading(decrypted: ByteArray, useE2e: Boolean): IoBReading {
         val iob = IddInsulinOnBoard.parse(decrypted, useE2e).insulinOnBoardIu
-        // PROVISIONAL: upstream never validated IOB parsing. Emit a marker so this value is never
-        // silently trusted, and reject implausible amounts rather than surface a wrong IOB.
-        Timber.w("Medtronic IOB is PROVISIONAL (upstream untested); needs live validation TODO(48.A2)")
         if (!iob.isFinite() || iob < 0.0 || iob > MAX_IOB_UNITS) {
             throw MedtronicReadException("IOB $iob IU outside plausible range 0..$MAX_IOB_UNITS")
         }
