@@ -111,12 +111,12 @@ class HistoryReader(
 
     private fun parseCount(response: ByteArray): Int {
         if (response.size < 4) {
-            throw MedtronicReadException("RACP count response too short: ${response.size} bytes")
+            throw MedtronicReadException("IDD RACP count response too short: ${response.size} bytes")
         }
         if (response[0].toInt() and 0xFF != NUMBER_OF_RECORDS_RESPONSE ||
             response[1].toInt() and 0xFF != FILTER_SEQUENCE_NUMBER
         ) {
-            throw MedtronicReadException("Unexpected RACP count response: ${response.toHex()}")
+            throw MedtronicReadException("Unexpected IDD RACP count response: ${response.toHex()}")
         }
         return MedtronicCodec.readUIntLe(response, 2, 2)
     }
