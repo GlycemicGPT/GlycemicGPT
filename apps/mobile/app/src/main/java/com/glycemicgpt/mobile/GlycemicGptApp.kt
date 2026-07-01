@@ -8,6 +8,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.glycemicgpt.mobile.data.auth.AuthManager
 import com.glycemicgpt.mobile.data.local.PumpCredentialStore
+import com.glycemicgpt.mobile.data.network.NetworkMonitor
 import com.glycemicgpt.mobile.logging.ReleaseTree
 import com.glycemicgpt.mobile.logging.SentryInitializer
 import com.glycemicgpt.mobile.plugin.PluginRegistry
@@ -36,6 +37,9 @@ class GlycemicGptApp : Application(), Configuration.Provider {
     @Inject
     lateinit var pluginRegistry: PluginRegistry
 
+    @Inject
+    lateinit var networkMonitor: NetworkMonitor
+
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     override val workManagerConfiguration: Configuration
@@ -56,6 +60,10 @@ class GlycemicGptApp : Application(), Configuration.Provider {
         }
         SentryInitializer.init(this)
         scheduleDataRetention()
+
+        // Start observing device connectivity so the home screen can tell "offline" apart from
+        // "backend unreachable". Backend reachability itself is fed by the OkHttp path.
+        networkMonitor.start()
 
         // Initialize the plugin system (discovers and creates all registered plugins)
         pluginRegistry.initialize()

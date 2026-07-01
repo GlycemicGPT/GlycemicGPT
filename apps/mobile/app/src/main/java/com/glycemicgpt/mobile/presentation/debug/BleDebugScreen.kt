@@ -64,8 +64,19 @@ fun BleDebugScreen(
                 text = "BLE Debug",
                 style = MaterialTheme.typography.headlineMedium,
             )
-            OutlinedButton(onClick = viewModel::clearEntries) {
-                Text("Clear")
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // Debug harness: seed a fresh CGM reading so the emulator (no live
+                // pump feed) can render the glucose hero and exercise the staleness/de-emphasis path.
+                OutlinedButton(
+                    onClick = viewModel::injectTestCgm,
+                    modifier = Modifier.testTag("inject_test_cgm_button"),
+                ) {
+                    Text("Inject CGM")
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                OutlinedButton(onClick = viewModel::clearEntries) {
+                    Text("Clear")
+                }
             }
         }
 

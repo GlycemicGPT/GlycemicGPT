@@ -7,11 +7,15 @@ import com.glycemicgpt.mobile.data.local.AppSettingsStore
 import com.glycemicgpt.mobile.data.local.GlucoseRangeStore
 import com.glycemicgpt.mobile.data.local.PumpProfileStore
 import com.glycemicgpt.mobile.data.local.SafetyLimitsStore
+import com.glycemicgpt.mobile.data.network.NetworkMonitor
+import com.glycemicgpt.mobile.data.network.NetworkStatus
 import com.glycemicgpt.mobile.data.remote.GlycemicGptApi
 import com.glycemicgpt.mobile.data.remote.dto.PluginDeclarationRequest
 import com.glycemicgpt.mobile.data.repository.AuthRepository
 import com.glycemicgpt.mobile.data.repository.PumpDataRepository
 import com.glycemicgpt.mobile.domain.compute.DashboardComputations
+import com.glycemicgpt.mobile.domain.freshness.FreshnessPolicy
+import com.glycemicgpt.mobile.domain.freshness.FreshnessThresholds
 import com.glycemicgpt.mobile.domain.model.BasalReading
 import com.glycemicgpt.mobile.domain.model.BatteryStatus
 import com.glycemicgpt.mobile.domain.model.BolusCategory
@@ -69,10 +73,27 @@ class HomeViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val api: GlycemicGptApi,
     private val pluginRegistry: PluginRegistry,
+    private val networkMonitor: NetworkMonitor,
 ) : ViewModel() {
 
     val connectionState: StateFlow<ConnectionState> = pumpDriver.observeConnectionState()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ConnectionState.DISCONNECTED)
+
+    /**
+     * Backend/device reachability. Distinct from [connectionState] (the BLE pump link)
+     * and [syncStatus] (the outbound push queue): this answers "can we reach our server right now?"
+     */
+    val networkStatus: StateFlow<NetworkStatus> = networkMonitor.status
+
+    /**
+     * Staleness policy applied to the primary glucose value. Normally [FreshnessPolicy.CGM];
+     * swapped to the compressed debug policy when the "fast staleness" fault-injection toggle is on
+     * so the FRESH → STALE → TOO_STALE transitions are observable in seconds during E2E testing.
+     */
+    val cgmFreshnessThresholds: StateFlow<FreshnessThresholds> =
+        appSettingsStore.debugFastStalenessFlow()
+            .map { fast -> if (fast) FreshnessPolicy.CGM_DEBUG_FAST else FreshnessPolicy.CGM }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), FreshnessPolicy.CGM)
 
     val cgm: StateFlow<CgmReading?> = repository.observeLatestCgm()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
