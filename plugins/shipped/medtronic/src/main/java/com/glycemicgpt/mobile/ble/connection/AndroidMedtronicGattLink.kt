@@ -158,7 +158,9 @@ class AndroidMedtronicGattLink(
                 logGattWarning("read", characteristic, outcome.status)
                 throw MedtronicReadException("Medtronic GATT read failed (status=${outcome.status})")
             }
-            outcome.value ?: ByteArray(0)
+            val result = outcome.value ?: ByteArray(0)
+            Timber.v("GATT read %s (%d bytes) %s", characteristic, result.size, MedtronicCodec.toHex(result))
+            result
         }
 
     override fun write(characteristic: UUID, value: ByteArray) {
@@ -208,7 +210,9 @@ class AndroidMedtronicGattLink(
                 // CCCD takes effect is not lost. Re-subscribing replaces the handler (seam contract).
                 // Record the owning client so a deferred unsubscribe can't disable a later connection.
                 handlers[characteristic] = ActiveSubscription(resolved, onPdu, link)
-                val enable = if (isIndication(char)) CCCD_ENABLE_INDICATION else CCCD_ENABLE_NOTIFICATION
+                val isIndication = isIndication(char)
+                val enable = if (isIndication) CCCD_ENABLE_INDICATION else CCCD_ENABLE_NOTIFICATION
+                Timber.v("GATT subscribe %s (%s)", characteristic, if (isIndication) "indication" else "notification")
                 // The CCCD write completes before this returns, so notifications are effective before
                 // the caller's subsequent control-point write (AC3).
                 val outcome = awaitGatt("subscribe", characteristic) { writeDescriptor(link, cccd, enable) }
