@@ -63,6 +63,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.glycemicgpt.mobile.presentation.common.InsecureHttpConfirmDialog
 import kotlinx.coroutines.launch
 import timber.log.Timber
 
@@ -133,6 +134,8 @@ fun OnboardingScreen(
                     connectionTestResult = state.connectionTestResult,
                     connectionTestSuccess = state.connectionTestSuccess,
                     onTestConnection = viewModel::testConnection,
+                    showInsecureHttpOptIn = state.showInsecureHttpOptIn,
+                    onEnableInsecureHttp = viewModel::requestEnableInsecureHttp,
                 )
                 PAGE_LOGIN -> LoginPage(
                     email = state.email,
@@ -160,6 +163,13 @@ fun OnboardingScreen(
             onNext = {
                 coroutineScope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) }
             },
+        )
+    }
+
+    if (state.showInsecureHttpConfirm) {
+        InsecureHttpConfirmDialog(
+            onConfirm = viewModel::confirmEnableInsecureHttp,
+            onDismiss = viewModel::dismissInsecureHttpConfirm,
         )
     }
 }
@@ -521,6 +531,8 @@ private fun ServerSetupPage(
     connectionTestResult: String?,
     connectionTestSuccess: Boolean,
     onTestConnection: () -> Unit,
+    showInsecureHttpOptIn: Boolean,
+    onEnableInsecureHttp: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -602,6 +614,20 @@ private fun ServerSetupPage(
                 textAlign = TextAlign.Center,
                 modifier = Modifier.testTag("onboarding_connection_result"),
             )
+        }
+
+        // A fresh install can't reach Settings before signing in, so offer the insecure-LAN-HTTP
+        // opt-in inline when the entered URL is http:// to a private/LAN host.
+        if (showInsecureHttpOptIn) {
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = onEnableInsecureHttp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("onboarding_enable_insecure_http"),
+            ) {
+                Text("Allow insecure LAN HTTP")
+            }
         }
     }
 }

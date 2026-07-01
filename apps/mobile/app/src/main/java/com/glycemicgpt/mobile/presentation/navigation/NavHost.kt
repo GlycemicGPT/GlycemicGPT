@@ -53,6 +53,7 @@ import com.glycemicgpt.mobile.data.local.AuthTokenStore
 import com.glycemicgpt.mobile.data.local.AppSettingsStore
 import com.glycemicgpt.mobile.presentation.alerts.AlertsScreen
 import com.glycemicgpt.mobile.presentation.chat.AiChatScreen
+import com.glycemicgpt.mobile.presentation.common.InsecureHttpBanner
 import com.glycemicgpt.mobile.presentation.home.HomeScreen
 import com.glycemicgpt.mobile.presentation.meal.CommonFoodsScreen
 import com.glycemicgpt.mobile.presentation.meal.MealHistoryScreen
@@ -128,6 +129,19 @@ fun GlycemicGptNavHost(appSettingsStore: AppSettingsStore, authTokenStore: AuthT
     val isOnboarding = currentDestination?.route == Screen.Onboarding.route
     val showBottomNav = !isOnboarding && currentDestination?.route !in spokeRoutes
 
+    // Persistent insecure-HTTP indicator: shown whenever the opt-in is on and the server base URL
+    // is cleartext http://. Both halves are observed reactively (settings flow + base-URL flow) so
+    // the banner tracks a toggle flip OR a server-URL change immediately, not only on the next
+    // navigation.
+    val insecureHttpFlow = remember { appSettingsStore.allowInsecureLanHttpFlow() }
+    val insecureHttpEnabled by insecureHttpFlow.collectAsState(
+        initial = appSettingsStore.allowInsecureLanHttp,
+    )
+    val baseUrlFlow = remember { authTokenStore.baseUrlFlow() }
+    val baseUrl by baseUrlFlow.collectAsState(initial = authTokenStore.getBaseUrl())
+    val showInsecureHttpBanner = insecureHttpEnabled &&
+        baseUrl?.startsWith("http://", ignoreCase = true) == true
+
     // Observe logout -> onboarding navigation event
     LaunchedEffect(Unit) {
         settingsViewModel.navigateToOnboarding.collect {
@@ -173,6 +187,11 @@ fun GlycemicGptNavHost(appSettingsStore: AppSettingsStore, authTokenStore: AuthT
         },
     ) { innerPadding ->
         Column(modifier = Modifier.padding(innerPadding)) {
+            // Insecure-HTTP indicator: visible everywhere (including onboarding) while active.
+            if (showInsecureHttpBanner) {
+                InsecureHttpBanner()
+            }
+
             // Session expired banner (not shown during onboarding)
             if (!isOnboarding) {
                 (authState as? AuthState.Expired)?.let { expired ->

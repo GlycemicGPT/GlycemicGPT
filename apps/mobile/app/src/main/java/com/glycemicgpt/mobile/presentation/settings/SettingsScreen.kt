@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.BluetoothDisabled
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.NoEncryption
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Person
@@ -83,6 +84,7 @@ import com.glycemicgpt.mobile.domain.format.GlucoseFormat
 import com.glycemicgpt.mobile.domain.model.GlucoseUnit
 import com.glycemicgpt.mobile.domain.plugin.PluginMetadata
 import com.glycemicgpt.mobile.plugin.RuntimePluginInfo
+import com.glycemicgpt.mobile.presentation.common.InsecureHttpConfirmDialog
 import com.glycemicgpt.mobile.presentation.plugin.PluginSettingsRenderer
 import com.glycemicgpt.mobile.presentation.theme.ThemeMode
 import com.glycemicgpt.mobile.wear.WatchFaceVariant
@@ -128,6 +130,15 @@ fun SettingsScreen(
             onShowLogout = settingsViewModel::showLogoutConfirm,
             onClearConnectionResult = settingsViewModel::clearConnectionTestResult,
             onClearLoginError = settingsViewModel::clearLoginError,
+        )
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // -- Network Section (Story 57.1: opt-in cleartext HTTP to private/LAN hosts) --
+        SectionHeader(title = "Network")
+        NetworkSection(
+            state = state,
+            onInsecureLanHttpToggle = settingsViewModel::onInsecureLanHttpToggle,
         )
 
         Spacer(modifier = Modifier.height(20.dp))
@@ -394,6 +405,13 @@ fun SettingsScreen(
                     Text("Cancel")
                 }
             },
+        )
+    }
+
+    if (state.showInsecureHttpConfirm) {
+        InsecureHttpConfirmDialog(
+            onConfirm = settingsViewModel::confirmEnableInsecureLanHttp,
+            onDismiss = settingsViewModel::dismissInsecureHttpConfirm,
         )
     }
 }
@@ -1144,6 +1162,58 @@ private fun MealIntelligenceSection(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 4.dp),
         )
+    }
+}
+
+@Composable
+private fun NetworkSection(
+    state: SettingsUiState,
+    onInsecureLanHttpToggle: (Boolean) -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.NoEncryption,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp),
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = "Allow insecure LAN HTTP",
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                        Text(
+                            text = "Reach a self-hosted server on a private/LAN address over " +
+                                "unencrypted http://. Public addresses always require https://.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                Switch(
+                    checked = state.allowInsecureLanHttp,
+                    onCheckedChange = onInsecureLanHttpToggle,
+                    modifier = Modifier.testTag("insecure_lan_http_toggle"),
+                )
+            }
+            // When active, the app-wide InsecureHttpBanner (NavHost) is the persistent
+            // "traffic is unencrypted" indicator, so no inline warning is repeated here.
+        }
     }
 }
 
