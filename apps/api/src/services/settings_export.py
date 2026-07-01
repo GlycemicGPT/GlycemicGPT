@@ -212,7 +212,11 @@ async def _export_all_data(
     data: dict = {}
     limit = MAX_EXPORT_RECORDS_PER_CATEGORY
 
-    # Glucose readings
+    # Glucose readings -- this is the portability/backup "all data" export, so
+    # it intentionally includes EVERY source's readings (NOT primary-source
+    # filtered like the live views/alerts/AI in GLY-123): an export must be
+    # complete. Each row carries its own ``source``, so a consumer can still
+    # apply primary-source precedence itself.
     result = await db.execute(
         select(GlucoseReading)
         .where(GlucoseReading.user_id == user_id)

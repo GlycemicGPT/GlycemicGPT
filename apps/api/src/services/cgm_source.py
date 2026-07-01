@@ -30,7 +30,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.glucose import GlucoseReading
@@ -175,6 +175,49 @@ async def get_excluded_cgm_sources(
         ):
             excluded.append(src.source)
     return excluded
+
+
+async def glucose_readings_query(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    *,
+    entities: tuple | None = None,
+    include_secondary: bool = False,
+    excluded_sources: list[str] | None = None,
+) -> Select:
+    """Base ``SELECT`` over a user's glucose readings with the primary-source
+    precedence filter ALWAYS applied.
+
+    This is the single funnel every glucose-read consumer should build on, so
+    a non-primary source can never leak into alerting, AI, exports, or widgets
+    (GLY-123). The exclusion set is resolved here -- callers cannot forget it --
+    and the fail-safe still holds: with no primary source ``get_excluded_cgm_sources``
+    returns an empty list, so nothing is filtered (see that function's docstring).
+
+    Callers refine the returned statement with time bounds / ordering / limit,
+    e.g. ``(await glucose_readings_query(db, uid)).order_by(...).limit(...)``.
+
+    Args:
+        entities: Columns to project (``select(*entities)``); defaults to the
+            whole ``GlucoseReading`` ORM entity. Pass a tuple of columns when a
+            consumer only needs a subset (e.g. ``(GlucoseReading.value,)``).
+        include_secondary: When resolving the exclusion here, keep ``secondary``
+            sources (``off`` sources are always excluded). Ignored when
+            ``excluded_sources`` is provided.
+        excluded_sources: Pre-resolved exclusion set to use verbatim, for a
+            caller that already computed it (e.g. to honor an
+            ``include_secondary`` request from a query param). Leave ``None`` to
+            resolve it here.
+    """
+    if excluded_sources is None:
+        excluded_sources = await get_excluded_cgm_sources(
+            db, user_id, include_secondary=include_secondary
+        )
+    columns = entities if entities is not None else (GlucoseReading,)
+    return select(*columns).where(
+        GlucoseReading.user_id == user_id,
+        *glucose_source_exclusion_clause(excluded_sources),
+    )
 
 
 async def has_primary_cgm(db: AsyncSession, user_id: uuid.UUID) -> bool:

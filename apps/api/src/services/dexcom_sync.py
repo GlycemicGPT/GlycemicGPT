@@ -21,7 +21,7 @@ from src.models.integration import (
     IntegrationStatus,
     IntegrationType,
 )
-from src.services.cgm_source import glucose_source_exclusion_clause
+from src.services.cgm_source import glucose_readings_query
 
 logger = get_logger(__name__)
 
@@ -268,23 +268,22 @@ async def get_latest_glucose_reading(
     Args:
         db: Database session
         user_id: User ID
-        excluded_sources: CGM ``source`` strings to exclude (Story 43.10
-            secondary/off sources). When non-empty the latest reading is
-            drawn from the primary source only.
+        excluded_sources: CGM ``source`` strings to exclude. Leave ``None``
+            (default) to resolve the user's primary-source exclusion
+            automatically (Story 43.10 / GLY-123) so the latest reading is
+            drawn from the primary source only, with the fail-safe
+            "no primary => exclude nothing". Pass an explicit list (e.g. an
+            ``include_secondary``-aware set) to override the auto-resolution.
 
     Returns:
         Most recent GlucoseReading or None
     """
-    conditions = [
-        GlucoseReading.user_id == user_id,
-        *glucose_source_exclusion_clause(excluded_sources),
-    ]
-    result = await db.execute(
-        select(GlucoseReading)
-        .where(*conditions)
+    stmt = (
+        (await glucose_readings_query(db, user_id, excluded_sources=excluded_sources))
         .order_by(GlucoseReading.reading_timestamp.desc())
         .limit(1)
     )
+    result = await db.execute(stmt)
     return result.scalar_one_or_none()
 
 
@@ -307,9 +306,12 @@ async def get_glucose_readings(
         limit: Maximum readings to return (applied regardless of date range)
         start: Optional absolute start of date range (overrides minutes)
         end: Optional absolute end of date range (overrides minutes)
-        excluded_sources: CGM ``source`` strings to exclude (Story 43.10
-            secondary/off sources) so the history reflects the primary CGM
-            only.
+        excluded_sources: CGM ``source`` strings to exclude. Leave ``None``
+            (default) to resolve the user's primary-source exclusion
+            automatically (Story 43.10 / GLY-123) so the history reflects the
+            primary CGM only, with the fail-safe "no primary => exclude
+            nothing". Pass an explicit list (e.g. an ``include_secondary``-aware
+            set) to override the auto-resolution.
 
     Returns:
         List of GlucoseReading objects, ordered by timestamp descending
@@ -329,18 +331,11 @@ async def get_glucose_readings(
         cutoff = datetime.now(UTC) - timedelta(minutes=minutes)
         upper = None
 
-    conditions = [
-        GlucoseReading.user_id == user_id,
-        GlucoseReading.reading_timestamp >= cutoff,
-    ]
+    stmt = await glucose_readings_query(db, user_id, excluded_sources=excluded_sources)
+    stmt = stmt.where(GlucoseReading.reading_timestamp >= cutoff)
     if upper is not None:
-        conditions.append(GlucoseReading.reading_timestamp < upper)
-    conditions.extend(glucose_source_exclusion_clause(excluded_sources))
+        stmt = stmt.where(GlucoseReading.reading_timestamp < upper)
+    stmt = stmt.order_by(GlucoseReading.reading_timestamp.desc()).limit(limit)
 
-    result = await db.execute(
-        select(GlucoseReading)
-        .where(*conditions)
-        .order_by(GlucoseReading.reading_timestamp.desc())
-        .limit(limit)
-    )
+    result = await db.execute(stmt)
     return list(result.scalars().all())
