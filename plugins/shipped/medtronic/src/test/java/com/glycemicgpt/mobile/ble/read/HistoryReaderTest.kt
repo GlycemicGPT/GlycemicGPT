@@ -47,7 +47,8 @@ class HistoryReaderTest {
         link.reads[features] = two.pumpEncrypt(featuresPlain)
         link.onWrite = { characteristic, value ->
             if (characteristic == racp && value.contentEquals(HistoryReader.REQUEST_REPORT_LAST_RECORD)) {
-                PduFramer.fragment(two.pumpEncrypt(basalRecord)).forEach { emit(data, it) }
+                // Each plaintext fragment is individually SAKE-encrypted (per-PDU encryption model).
+                PduFramer.fragment(basalRecord).forEach { emit(data, two.pumpEncrypt(it)) }
                 emit(racp, HistoryReader.EXPECTED_REPORT_SUCCESS)
             }
         }
@@ -74,10 +75,11 @@ class HistoryReaderTest {
             if (characteristic == racp && value.size > 3 &&
                 value[0] == HistoryReader.REQUEST_REPORT_WITHIN_RANGE_PREFIX[0]
             ) {
-                PduFramer.fragment(two.pumpEncrypt(rec1)).forEach { emit(data, it) }
+                // Each plaintext fragment is individually SAKE-encrypted (per-PDU encryption model).
+                PduFramer.fragment(rec1).forEach { emit(data, two.pumpEncrypt(it)) }
                 // Emit rec1 again (same sequence 118) so dedup is actually exercised end to end.
-                PduFramer.fragment(two.pumpEncrypt(rec1)).forEach { emit(data, it) }
-                PduFramer.fragment(two.pumpEncrypt(rec2)).forEach { emit(data, it) }
+                PduFramer.fragment(rec1).forEach { emit(data, two.pumpEncrypt(it)) }
+                PduFramer.fragment(rec2).forEach { emit(data, two.pumpEncrypt(it)) }
                 emit(racp, HistoryReader.EXPECTED_REPORT_SUCCESS)
             }
         }
@@ -97,7 +99,8 @@ class HistoryReaderTest {
         link.reads[features] = two.pumpEncrypt(featuresPlain)
         link.onWrite = { characteristic, value ->
             if (characteristic == racp && value.contentEquals(HistoryReader.REQUEST_REPORT_LAST_RECORD)) {
-                PduFramer.fragment(two.pumpEncrypt(basalRecord)).forEach { emit(data, it) } // seq 120
+                // Each plaintext fragment is individually SAKE-encrypted (per-PDU encryption model).
+                PduFramer.fragment(basalRecord).forEach { emit(data, two.pumpEncrypt(it)) } // seq 120
                 emit(racp, HistoryReader.EXPECTED_REPORT_SUCCESS)
             }
         }

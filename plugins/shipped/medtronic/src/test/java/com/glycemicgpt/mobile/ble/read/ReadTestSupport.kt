@@ -50,6 +50,11 @@ internal class FakeGattLink : MedtronicGattLink {
         handlers.remove(characteristic)
     }
 
+    override fun cancelAllSubscriptions() {
+        handlers.clear()
+        retained.clear()
+    }
+
     /** Deliver one inbound PDU to whatever handler is currently subscribed on [characteristic]. */
     fun emit(characteristic: UUID, pdu: ByteArray) {
         handlers[characteristic]?.invoke(pdu)

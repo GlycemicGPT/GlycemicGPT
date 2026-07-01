@@ -17,6 +17,7 @@ import com.glycemicgpt.mobile.ble.messages.MedtronicHistoryParser
 import com.glycemicgpt.mobile.ble.protocol.MedtronicProtocol
 import com.glycemicgpt.mobile.ble.sake.MedtronicSakeSession
 import com.glycemicgpt.mobile.domain.model.HistoryLogRecord
+import kotlin.math.min
 
 /**
  * Reads the pump's IDD event-log (bolus / basal / sensor / alarm / cartridge-battery events) over the
@@ -78,8 +79,36 @@ class HistoryReader(
             when {
                 last == null -> onResult(Result.success(emptyList()))
                 last.sequenceNumber <= sinceSequence -> onResult(Result.success(emptyList()))
-                else -> fetchRecords(rangeRequest(sinceSequence + 1, last.sequenceNumber), e2e, onResult)
+                else -> fetchRecordsPaged(sinceSequence + 1, last.sequenceNumber, e2e, emptyList(), onResult)
             }
+        }
+    }
+
+    /**
+     * Fetch history records in [BATCH_SIZE]-sized pages so each individual RACP exchange completes
+     * well within the 30 s operation timeout. The [accumulated] list collects results across pages;
+     * when [nextSeq] passes [lastSeq] the combined result is delivered.
+     */
+    private fun fetchRecordsPaged(
+        nextSeq: Int,
+        lastSeq: Int,
+        useE2e: Boolean,
+        accumulated: List<HistoryLogRecord>,
+        onResult: (Result<List<HistoryLogRecord>>) -> Unit,
+    ) {
+        val pageEnd = min(nextSeq + BATCH_SIZE - 1, lastSeq)
+        fetchRecords(rangeRequest(nextSeq, pageEnd), useE2e) { result ->
+            result.fold(
+                onSuccess = { records ->
+                    val all = accumulated + records
+                    if (pageEnd >= lastSeq) {
+                        onResult(Result.success(all))
+                    } else {
+                        fetchRecordsPaged(pageEnd + 1, lastSeq, useE2e, all, onResult)
+                    }
+                },
+                onFailure = { onResult(Result.failure(it)) },
+            )
         }
     }
 
@@ -143,6 +172,9 @@ class HistoryReader(
         private const val OPERATOR_LAST_RECORD = 105 // 0x69
         private const val FILTER_SEQUENCE_NUMBER = 15 // 0x0F
         private const val RESPONSE_SUCCESS = 240 // 0xF0
+
+        /** Maximum number of records fetched in a single RACP exchange. */
+        private const val BATCH_SIZE = 200
 
         /** RACP: report stored records, last record, by sequence number. */
         val REQUEST_REPORT_LAST_RECORD =

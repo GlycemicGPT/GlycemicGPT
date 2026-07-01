@@ -56,4 +56,11 @@ interface MedtronicGattLink {
 
     /** Disable notifications and drop the handler for [characteristic]. */
     fun unsubscribe(characteristic: UUID)
+
+    /**
+     * Release every outstanding subscription on this link, clearing all handlers and disabling
+     * CCCD notifications. Called when the driving coroutine is cancelled (e.g. operation timeout)
+     * and the readers' normal [unsubscribe] path was not reached.
+     */
+    fun cancelAllSubscriptions()
 }

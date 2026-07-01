@@ -48,10 +48,10 @@ class MedtronicSessionReaderTest {
     fun `reportLastRecord reassembles a fragmented measurement before decrypting`() {
         val two = TwoSidedSession()
         val link = FakeGattLink()
-        // A record large enough that its encrypted form exceeds one 20-byte PDU and must reassemble.
+        // A record large enough that its plaintext exceeds one 20-byte PDU and must reassemble.
         val record = ByteArray(25) { it.toByte() }
-        val encrypted = two.pumpEncrypt(record)
-        val pdus = PduFramer.fragment(encrypted)
+        // Each plaintext fragment is individually SAKE-encrypted (per-PDU encryption model).
+        val pdus = PduFramer.fragment(record).map { two.pumpEncrypt(it) }
         assertTrue("expected fragmentation", pdus.size > 1)
         link.onWrite = { characteristic, _ ->
             if (characteristic == racp) {

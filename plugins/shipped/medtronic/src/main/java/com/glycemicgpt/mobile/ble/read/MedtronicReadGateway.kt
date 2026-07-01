@@ -148,6 +148,9 @@ class MedtronicReadGateway(
                 // to [ioDispatcher] (as [blockingRead] does); the callback resume is dispatcher-agnostic.
                 withContext(ioDispatcher) {
                     suspendCancellableCoroutine { cont ->
+                        cont.invokeOnCancellation {
+                            link.cancelAllSubscriptions()
+                        }
                         start(link, session) { result -> if (cont.isActive) cont.resume(result) }
                     }
                 }

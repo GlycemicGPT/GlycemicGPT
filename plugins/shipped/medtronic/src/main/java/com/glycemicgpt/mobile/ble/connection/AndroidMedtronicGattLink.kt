@@ -243,6 +243,14 @@ class AndroidMedtronicGattLink(
         watchdog.execute { disableNotifications("unsubscribe", sub) }
     }
 
+    override fun cancelAllSubscriptions() {
+        if (handlers.isEmpty()) return
+        val orphaned = handlers.values.toList()
+        handlers.clear()
+        cancelWatchdog()
+        for (sub in orphaned) disableNotifications("cancel", sub)
+    }
+
     // -- Connection / discovery ---------------------------------------------
 
     private fun ensureConnected(): BluetoothGatt {

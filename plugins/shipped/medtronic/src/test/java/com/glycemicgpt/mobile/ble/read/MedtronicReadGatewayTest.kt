@@ -126,6 +126,7 @@ class MedtronicReadGatewayTest {
             override fun write(characteristic: UUID, value: ByteArray) = error("unused")
             override fun subscribe(characteristic: UUID, onPdu: (ByteArray) -> Unit) = error("unused")
             override fun unsubscribe(characteristic: UUID) = error("unused")
+            override fun cancelAllSubscriptions() = error("unused")
         }
         val gateway = MedtronicReadGateway(
             sessionProvider = { TwoSidedSession().server },
@@ -212,6 +213,11 @@ class MedtronicReadGatewayTest {
 
         override fun unsubscribe(characteristic: UUID) {
             handlers.remove(characteristic)
+        }
+
+        override fun cancelAllSubscriptions() {
+            handlers.clear()
+            pendingResponses.clear()
         }
 
         /** Deliver the next deferred pump response, completing the oldest in-flight exchange. */
