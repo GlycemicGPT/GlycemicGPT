@@ -9,6 +9,7 @@
 package com.glycemicgpt.mobile.ble.connection
 
 import com.glycemicgpt.mobile.ble.protocol.PduFramer
+import com.glycemicgpt.mobile.ble.read.MedtronicCodec
 import com.glycemicgpt.mobile.ble.sake.MedtronicSakeSession
 import timber.log.Timber
 
@@ -55,7 +56,7 @@ class SakeHandshakeDriver(
         failed = false
     }
 
-    private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
+    private fun ByteArray.toHex(): String = MedtronicCodec.toHex(this)
 
     /**
      * The pump disabled SAKE notifications. Clearing the subscribed flag lets a later [onSubscribed]
