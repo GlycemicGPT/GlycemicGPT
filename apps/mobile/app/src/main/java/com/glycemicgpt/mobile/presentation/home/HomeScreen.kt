@@ -27,10 +27,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -45,12 +43,10 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import com.glycemicgpt.mobile.presentation.meal.DraggableMealFab
 import com.glycemicgpt.mobile.presentation.meal.RecentMealCard
+import com.glycemicgpt.mobile.data.network.NetworkStatus
 import com.glycemicgpt.mobile.domain.model.ConnectionState
 import com.glycemicgpt.mobile.presentation.plugin.PluginDashboardCardRenderer
-import com.glycemicgpt.mobile.presentation.theme.GlucoseColors
 import com.glycemicgpt.mobile.service.SyncStatus
-import kotlinx.coroutines.delay
-import java.time.Instant
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -85,6 +81,8 @@ fun HomeScreen(
     val battery by viewModel.battery.collectAsState()
     val reservoir by viewModel.reservoir.collectAsState()
     val syncStatus by viewModel.syncStatus.collectAsState()
+    val networkStatus by viewModel.networkStatus.collectAsState()
+    val cgmFreshnessThresholds by viewModel.cgmFreshnessThresholds.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val selectedPeriod by viewModel.selectedPeriod.collectAsState()
     val cgmHistory by viewModel.cgmHistory.collectAsState()
@@ -125,8 +123,8 @@ fun HomeScreen(
                 .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 88.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // Compact connection + sync status row
-            ConnectionSyncRow(connectionState, syncStatus)
+            // Compact connection + sync status row (BLE pump + outbound sync + backend reachability)
+            ConnectionSyncRow(connectionState, syncStatus, networkStatus)
 
             Spacer(modifier = Modifier.height(12.dp))
 
@@ -139,6 +137,7 @@ fun HomeScreen(
                 reservoir = reservoir,
                 thresholds = thresholds,
                 glucoseUnit = glucoseUnit,
+                cgmThresholds = cgmFreshnessThresholds,
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -265,7 +264,11 @@ fun HomeScreen(
 }
 
 @Composable
-private fun ConnectionSyncRow(state: ConnectionState, syncStatus: SyncStatus) {
+private fun ConnectionSyncRow(
+    state: ConnectionState,
+    syncStatus: SyncStatus,
+    networkStatus: NetworkStatus,
+) {
     val (bleIcon, bleA11y, bleColor, bleText) = when (state) {
         ConnectionState.CONNECTED -> Quad(
             Icons.Default.BluetoothConnected,
@@ -356,38 +359,57 @@ private fun ConnectionSyncRow(state: ConnectionState, syncStatus: SyncStatus) {
             tint = syncColor,
             modifier = Modifier.size(16.dp),
         )
+        Spacer(modifier = Modifier.width(12.dp))
+        BackendStatusIndicator(networkStatus)
+    }
+}
+
+/**
+ * Backend/device reachability chip, distinct from the BLE and sync indicators. Always
+ * present so it can be asserted in tests via the `backend_status` tag; only shows text when there's
+ * something to warn about, keeping the reachable golden path visually quiet.
+ */
+@Composable
+private fun BackendStatusIndicator(networkStatus: NetworkStatus) {
+    val (icon, a11y, color, text) = when (networkStatus) {
+        NetworkStatus.REACHABLE -> Quad(
+            Icons.Default.CloudDone,
+            "Backend reachable",
+            MaterialTheme.colorScheme.primary,
+            null,
+        )
+        NetworkStatus.BACKEND_UNREACHABLE -> Quad(
+            Icons.Default.CloudOff,
+            "Backend unreachable",
+            MaterialTheme.colorScheme.error,
+            "Backend unreachable",
+        )
+        NetworkStatus.OFFLINE -> Quad(
+            Icons.Default.CloudOff,
+            "Device offline",
+            MaterialTheme.colorScheme.error,
+            "Offline",
+        )
+    }
+    Row(
+        modifier = Modifier.testTag("backend_status"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = a11y,
+            tint = color,
+            modifier = Modifier.size(16.dp),
+        )
+        if (text != null) {
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelSmall,
+                color = color,
+            )
+        }
     }
 }
 
 private data class Quad<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
-
-@Composable
-internal fun FreshnessLabel(timestamp: Instant) {
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(30_000)
-            now = System.currentTimeMillis()
-        }
-    }
-
-    val ageSeconds = (now - timestamp.toEpochMilli()) / 1000
-    val label = when {
-        ageSeconds < 60 -> "just now"
-        ageSeconds < 3600 -> "${ageSeconds / 60}m ago"
-        ageSeconds < 86400 -> "${ageSeconds / 3600}h ago"
-        else -> "stale"
-    }
-
-    val color = when {
-        ageSeconds < 120 -> GlucoseColors.InRange
-        ageSeconds < 600 -> GlucoseColors.High
-        else -> GlucoseColors.UrgentHigh
-    }
-
-    Text(
-        text = label,
-        style = MaterialTheme.typography.labelSmall,
-        color = color,
-    )
-}

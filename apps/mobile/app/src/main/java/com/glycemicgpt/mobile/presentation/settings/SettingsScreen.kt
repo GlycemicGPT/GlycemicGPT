@@ -330,6 +330,56 @@ fun SettingsScreen(
                     onCheckedChange = { settingsViewModel.setShowPumpLabels(it) },
                 )
             }
+            Spacer(modifier = Modifier.height(8.dp))
+            // Debug harness: reproduce the offline/staleness
+            // states on an emulator (which has no live pump feed) without real network chaos.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("simulate_backend_unreachable_toggle"),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Simulate Backend Unreachable",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        text = "Fail all backend requests so the app shows \"backend unreachable\" while cached data stays on screen",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = state.simulateBackendUnreachable,
+                    onCheckedChange = { settingsViewModel.setSimulateBackendUnreachable(it) },
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("fast_staleness_toggle"),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Fast Staleness",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        text = "Compress CGM staleness to seconds so the fresh/stale/too-old transitions are observable",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = state.debugFastStaleness,
+                    onCheckedChange = { settingsViewModel.setDebugFastStaleness(it) },
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(16.dp))

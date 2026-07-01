@@ -23,6 +23,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.glycemicgpt.mobile.domain.format.GlucoseFormat
+import com.glycemicgpt.mobile.domain.freshness.Freshness
+import com.glycemicgpt.mobile.domain.freshness.FreshnessPolicy
+import com.glycemicgpt.mobile.domain.freshness.FreshnessThresholds
 import com.glycemicgpt.mobile.domain.model.BasalReading
 import com.glycemicgpt.mobile.domain.model.BatteryStatus
 import com.glycemicgpt.mobile.domain.model.CgmReading
@@ -32,6 +35,7 @@ import com.glycemicgpt.mobile.domain.model.PumpActivityMode
 import com.glycemicgpt.mobile.domain.model.IoBReading
 import com.glycemicgpt.mobile.domain.model.ReservoirReading
 import com.glycemicgpt.mobile.presentation.theme.GlucoseColors
+import java.time.Instant
 
 /**
  * Glucose threshold container. Defaults match the backend's default settings.
@@ -82,8 +86,21 @@ fun GlucoseHero(
     reservoir: ReservoirReading?,
     thresholds: GlucoseThresholds = GlucoseThresholds(),
     glucoseUnit: GlucoseUnit = GlucoseUnit.MGDL,
+    // Staleness policy for the primary glucose value. Overridable so the debug "fast staleness"
+    // affordance (and tests) can drive the FRESH → STALE → TOO_STALE transitions deterministically.
+    cgmThresholds: FreshnessThresholds = FreshnessPolicy.CGM,
     modifier: Modifier = Modifier,
 ) {
+    // Always computed (a safe EPOCH stand-in when there's no reading) so the ticking effect keeps a
+    // stable composition slot; only consumed when the corresponding value is present. Kept
+    // unconditional (never called inside the per-metric `if` blocks below) so the composition
+    // structure is stable regardless of which metrics are present.
+    val cgmFreshness = rememberFreshness(cgm?.timestamp ?: Instant.EPOCH, cgmThresholds)
+    val iobFreshness = rememberFreshness(iob?.timestamp ?: Instant.EPOCH, FreshnessPolicy.PUMP).freshness
+    val basalFreshness = rememberFreshness(basalRate?.timestamp ?: Instant.EPOCH, FreshnessPolicy.PUMP).freshness
+    val batteryFreshness = rememberFreshness(battery?.timestamp ?: Instant.EPOCH, FreshnessPolicy.PUMP).freshness
+    val reservoirFreshness = rememberFreshness(reservoir?.timestamp ?: Instant.EPOCH, FreshnessPolicy.PUMP).freshness
+
     val a11yDescription = if (cgm != null) {
         buildString {
             append(
@@ -91,6 +108,11 @@ fun GlucoseHero(
                     "${GlucoseFormat.spokenUnit(glucoseUnit)}, ",
             )
             append(cgm.trendArrow.name.lowercase().replace('_', ' '))
+            // Safety: when the value is too old to be trusted as current, say so up front so a
+            // TalkBack user is never read a stale number as if it were live.
+            if (cgmFreshness.freshness == Freshness.TOO_STALE) {
+                append(", reading is stale, last updated ${cgmFreshness.label}")
+            }
             if (iob != null) append(", insulin on board %.2f units".format(iob.iob))
             if (basalRate != null) append(", basal rate %.2f units per hour".format(basalRate.rate))
             if (battery != null) append(", battery ${battery.percentage} percent")
@@ -115,7 +137,14 @@ fun GlucoseHero(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             if (cgm != null) {
-                val color = glucoseColor(cgm.glucoseMgDl, thresholds)
+                val tooStale = cgmFreshness.freshness == Freshness.TOO_STALE
+                // Past TOO_STALE the value is no longer a confident live reading: drop the glucose
+                // color and render it de-emphasised so it can't be mistaken for current.
+                val color = if (tooStale) {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                } else {
+                    glucoseColor(cgm.glucoseMgDl, thresholds)
+                }
 
                 // Primary: large glucose value + trend arrow
                 Row(
@@ -147,7 +176,19 @@ fun GlucoseHero(
                 )
 
                 Spacer(modifier = Modifier.height(4.dp))
-                FreshnessLabel(cgm.timestamp)
+                // "Xm ago" caption + a Stale/Too-old badge that only appears once the reading is
+                // past FRESH. On the golden path this is a fresh green caption with no badge.
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = cgmFreshness.label,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = freshnessColor(cgmFreshness.freshness),
+                    )
+                    if (cgmFreshness.freshness != Freshness.FRESH) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        StalenessBadge(cgmFreshness.freshness)
+                    }
+                }
 
                 // Secondary metrics: IoB + Basal + Battery + Reservoir
                 if (iob != null || basalRate != null || battery != null || reservoir != null) {
@@ -160,6 +201,7 @@ fun GlucoseHero(
                             SecondaryMetric(
                                 label = "IoB",
                                 value = "%.2fu".format(iob.iob),
+                                freshness = iobFreshness,
                                 modifier = Modifier.testTag("hero_iob"),
                             )
                         }
@@ -173,6 +215,7 @@ fun GlucoseHero(
                             SecondaryMetric(
                                 label = "Basal",
                                 value = basalText + modeLabel,
+                                freshness = basalFreshness,
                                 modifier = Modifier.testTag("hero_basal"),
                             )
                         }
@@ -180,6 +223,7 @@ fun GlucoseHero(
                             SecondaryMetric(
                                 label = "Battery",
                                 value = "${battery.percentage}%",
+                                freshness = batteryFreshness,
                                 modifier = Modifier.testTag("hero_battery"),
                             )
                         }
@@ -187,6 +231,7 @@ fun GlucoseHero(
                             SecondaryMetric(
                                 label = "Reservoir",
                                 value = "%.0fu".format(reservoir.unitsRemaining),
+                                freshness = reservoirFreshness,
                                 modifier = Modifier.testTag("hero_reservoir"),
                             )
                         }
@@ -214,6 +259,7 @@ private fun SecondaryMetric(
     label: String,
     value: String,
     modifier: Modifier = Modifier,
+    freshness: Freshness = Freshness.FRESH,
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -228,7 +274,16 @@ private fun SecondaryMetric(
             text = value,
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface,
+            // A stale pump metric is de-emphasised so it doesn't read as a live value.
+            color = if (freshness == Freshness.FRESH) {
+                MaterialTheme.colorScheme.onSurface
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
         )
+        if (freshness != Freshness.FRESH) {
+            Spacer(modifier = Modifier.height(2.dp))
+            StalenessBadge(freshness)
+        }
     }
 }

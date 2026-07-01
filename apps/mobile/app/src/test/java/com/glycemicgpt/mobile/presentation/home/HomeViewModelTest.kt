@@ -5,11 +5,15 @@ import com.glycemicgpt.mobile.data.local.AppSettingsStore
 import com.glycemicgpt.mobile.data.local.GlucoseRangeStore
 import com.glycemicgpt.mobile.data.local.PumpProfileStore
 import com.glycemicgpt.mobile.data.local.SafetyLimitsStore
+import com.glycemicgpt.mobile.data.network.NetworkMonitor
+import com.glycemicgpt.mobile.data.network.NetworkStatus
 import com.glycemicgpt.mobile.data.remote.GlycemicGptApi
 import com.glycemicgpt.mobile.data.remote.dto.PluginDeclarationRequest
 import com.glycemicgpt.mobile.data.repository.AuthRepository
 import com.glycemicgpt.mobile.data.remote.dto.GlucoseRangeResponse
 import com.glycemicgpt.mobile.data.repository.PumpDataRepository
+import com.glycemicgpt.mobile.domain.freshness.FreshnessPolicy
+import com.glycemicgpt.mobile.domain.freshness.FreshnessThresholds
 import com.glycemicgpt.mobile.domain.model.BasalReading
 import com.glycemicgpt.mobile.domain.model.BatteryStatus
 import com.glycemicgpt.mobile.domain.model.CgmReading
@@ -132,6 +136,7 @@ class HomeViewModelTest {
         every { dataRetentionDays } returns 7
         every { glucoseUnit } returns GlucoseUnit.MGDL
         every { glucoseUnitFlow() } returns flowOf(GlucoseUnit.MGDL)
+        every { debugFastStalenessFlow() } returns flowOf(false)
     }
 
     private val authRepository = mockk<AuthRepository>(relaxed = true)
@@ -140,6 +145,11 @@ class HomeViewModelTest {
     private val pluginRegistry = mockk<PluginRegistry>(relaxed = true) {
         every { allActivePlugins } returns MutableStateFlow<List<Plugin>>(emptyList())
         every { activePumpPlugin } returns MutableStateFlow(null)
+    }
+
+    private val networkStatusFlow = MutableStateFlow(NetworkStatus.REACHABLE)
+    private val networkMonitor = mockk<NetworkMonitor>(relaxed = true) {
+        every { status } returns networkStatusFlow
     }
 
     @Before
@@ -152,7 +162,7 @@ class HomeViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun createViewModel() = HomeViewModel(pumpDriver, repository, backendSyncManager, glucoseRangeStore, safetyLimitsStore, analyticsSettingsStore, pumpProfileStore, appSettingsStore, authRepository, api, pluginRegistry)
+    private fun createViewModel() = HomeViewModel(pumpDriver, repository, backendSyncManager, glucoseRangeStore, safetyLimitsStore, analyticsSettingsStore, pumpProfileStore, appSettingsStore, authRepository, api, pluginRegistry, networkMonitor)
 
     @Test
     fun `initial state has null readings and not refreshing`() = runTest {
@@ -165,6 +175,49 @@ class HomeViewModelTest {
         assertNull(vm.cgm.value)
         assertFalse(vm.isRefreshing.value)
         assertEquals(ConnectionState.DISCONNECTED, vm.connectionState.value)
+    }
+
+    @Test
+    fun `networkStatus reflects the network monitor`() = runTest {
+        val vm = createViewModel()
+        assertEquals(NetworkStatus.REACHABLE, vm.networkStatus.value)
+
+        networkStatusFlow.value = NetworkStatus.BACKEND_UNREACHABLE
+        assertEquals(NetworkStatus.BACKEND_UNREACHABLE, vm.networkStatus.value)
+    }
+
+    @Test
+    fun `cgmFreshnessThresholds defaults to the CGM policy`() = runTest {
+        val vm = createViewModel()
+
+        // Subscribe so the WhileSubscribed mapping actually runs (debugFastStalenessFlow = false),
+        // rather than asserting the pre-collection seed value.
+        val collected = mutableListOf<FreshnessThresholds>()
+        val job = backgroundScope.launch(testDispatcher) {
+            vm.cgmFreshnessThresholds.collect { collected.add(it) }
+        }
+        runCurrent()
+
+        assertEquals(FreshnessPolicy.CGM, collected.last())
+        assertEquals(FreshnessPolicy.CGM, vm.cgmFreshnessThresholds.value)
+        job.cancel()
+    }
+
+    @Test
+    fun `cgmFreshnessThresholds switches to the fast debug policy when enabled`() = runTest {
+        every { appSettingsStore.debugFastStalenessFlow() } returns flowOf(true)
+        val vm = createViewModel()
+
+        // Collecting activates the WhileSubscribed stateIn so the mapping actually runs.
+        val collected = mutableListOf<FreshnessThresholds>()
+        val job = backgroundScope.launch(testDispatcher) {
+            vm.cgmFreshnessThresholds.collect { collected.add(it) }
+        }
+        runCurrent()
+
+        assertEquals(FreshnessPolicy.CGM_DEBUG_FAST, collected.last())
+        assertEquals(FreshnessPolicy.CGM_DEBUG_FAST, vm.cgmFreshnessThresholds.value)
+        job.cancel()
     }
 
     @Test

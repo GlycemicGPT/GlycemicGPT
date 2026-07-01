@@ -204,6 +204,9 @@ data class SettingsUiState(
     val overrideSilentForLow: Boolean = true,
     // Debug-only
     val showPumpLabels: Boolean = false,
+    // Debug-only fault injection (reusable debug harness)
+    val simulateBackendUnreachable: Boolean = false,
+    val debugFastStaleness: Boolean = false,
     // Appearance
     val themeMode: com.glycemicgpt.mobile.presentation.theme.ThemeMode =
         com.glycemicgpt.mobile.presentation.theme.ThemeMode.System,
@@ -335,6 +338,8 @@ class SettingsViewModel @Inject constructor(
             activePluginIds = pluginRegistry.allActivePlugins.value.map { it.metadata.id }.toSet(),
             runtimePlugins = pluginRegistry.runtimePlugins.value,
             showPumpLabels = appSettingsStore.showPumpLabels,
+            simulateBackendUnreachable = appSettingsStore.simulateBackendUnreachable,
+            debugFastStaleness = appSettingsStore.debugFastStaleness,
             themeMode = appSettingsStore.themeMode,
             glucoseUnit = appSettingsStore.glucoseUnit,
             seedNeedsConfirm = appSettingsStore.glucoseUnitSeedPending,
@@ -1234,6 +1239,25 @@ class SettingsViewModel @Inject constructor(
     fun setShowPumpLabels(enabled: Boolean) {
         appSettingsStore.showPumpLabels = enabled
         _uiState.value = _uiState.value.copy(showPumpLabels = enabled)
+    }
+
+    /**
+     * Debug-only (reusable debug harness): black-hole every backend request
+     * so the "backend unreachable" state can be exercised on an emulator. No-op in release
+     * ([AppSettingsStore.simulateBackendUnreachable] ignores writes there).
+     */
+    fun setSimulateBackendUnreachable(enabled: Boolean) {
+        appSettingsStore.simulateBackendUnreachable = enabled
+        _uiState.value = _uiState.value.copy(simulateBackendUnreachable = enabled)
+    }
+
+    /**
+     * Debug-only (reusable debug harness): compress the CGM staleness thresholds so the
+     * FRESH → STALE → TOO_STALE hero transitions can be watched in seconds instead of ~15 minutes.
+     */
+    fun setDebugFastStaleness(enabled: Boolean) {
+        appSettingsStore.debugFastStaleness = enabled
+        _uiState.value = _uiState.value.copy(debugFastStaleness = enabled)
     }
 
     fun setThemeMode(mode: com.glycemicgpt.mobile.presentation.theme.ThemeMode) {
