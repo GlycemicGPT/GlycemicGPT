@@ -227,6 +227,9 @@ class AuthRepositoryTest {
     fun `isValidUrl rejects malformed URL`() {
         assertFalse(repository.isValidUrl("not-a-url"))
     }
+    // isValidUrl/isBlockedPendingLanHttpOptIn delegate to UrlSecurityPolicy; the full
+    // scheme x debug x toggle x host matrix (including the release BuildConfig.DEBUG == false
+    // path, which a testDebug run cannot express) is covered in UrlSecurityPolicyTest.
 
     @Test
     fun `updateGlucoseUnit PATCHes the account and caches the server value`() = runTest {

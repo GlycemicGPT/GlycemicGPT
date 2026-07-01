@@ -1,6 +1,7 @@
 package com.glycemicgpt.mobile.presentation.onboarding
 
 import com.glycemicgpt.mobile.data.local.AppSettingsStore
+import com.glycemicgpt.mobile.data.remote.UrlSecurityPolicy
 import com.glycemicgpt.mobile.data.repository.AuthRepository
 import com.glycemicgpt.mobile.data.repository.LoginResult
 import io.mockk.coEvery
@@ -143,13 +144,65 @@ class OnboardingViewModelTest {
     @Test
     fun `testConnection rejects invalid URL`() {
         every { authRepository.isValidUrl("not-a-url") } returns false
+        every { authRepository.isBlockedPendingLanHttpOptIn("not-a-url") } returns false
         val vm = createViewModel()
         vm.updateBaseUrl("not-a-url")
 
         vm.testConnection()
 
-        assertEquals("Invalid URL. HTTPS required.", vm.uiState.value.connectionTestResult)
+        assertEquals(UrlSecurityPolicy.INVALID_URL_MESSAGE, vm.uiState.value.connectionTestResult)
         assertFalse(vm.uiState.value.connectionTestSuccess)
+        assertFalse(vm.uiState.value.showInsecureHttpOptIn)
+    }
+
+    @Test
+    fun `testConnection offers the insecure-HTTP opt-in for a blocked private http URL`() {
+        every { authRepository.isValidUrl("http://10.20.66.40:3000") } returns false
+        every { authRepository.isBlockedPendingLanHttpOptIn("http://10.20.66.40:3000") } returns true
+        val vm = createViewModel()
+        vm.updateBaseUrl("http://10.20.66.40:3000")
+
+        vm.testConnection()
+
+        assertEquals(UrlSecurityPolicy.INVALID_URL_MESSAGE, vm.uiState.value.connectionTestResult)
+        assertTrue(vm.uiState.value.showInsecureHttpOptIn)
+    }
+
+    @Test
+    fun `requestEnableInsecureHttp shows the acknowledgement without enabling`() {
+        val vm = createViewModel()
+
+        vm.requestEnableInsecureHttp()
+
+        assertTrue(vm.uiState.value.showInsecureHttpConfirm)
+        verify(exactly = 0) { appSettingsStore.allowInsecureLanHttp = any() }
+    }
+
+    @Test
+    fun `confirmEnableInsecureHttp enables the setting and re-runs the connection test`() = runTest {
+        every { authRepository.isValidUrl("http://10.20.66.40:3000") } returns true
+        coEvery { authRepository.testConnection() } returns Result.success("Connected successfully")
+        val vm = createViewModel()
+        vm.updateBaseUrl("http://10.20.66.40:3000")
+        vm.requestEnableInsecureHttp()
+
+        vm.confirmEnableInsecureHttp()
+
+        verify { appSettingsStore.allowInsecureLanHttp = true }
+        assertFalse(vm.uiState.value.showInsecureHttpConfirm)
+        assertFalse(vm.uiState.value.showInsecureHttpOptIn)
+        assertTrue(vm.uiState.value.connectionTestSuccess)
+    }
+
+    @Test
+    fun `dismissInsecureHttpConfirm hides the dialog and leaves the setting off`() {
+        val vm = createViewModel()
+        vm.requestEnableInsecureHttp()
+
+        vm.dismissInsecureHttpConfirm()
+
+        assertFalse(vm.uiState.value.showInsecureHttpConfirm)
+        verify(exactly = 0) { appSettingsStore.allowInsecureLanHttp = any() }
     }
 
     @Test

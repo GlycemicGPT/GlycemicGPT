@@ -11,6 +11,7 @@ import com.glycemicgpt.mobile.data.local.GlucoseRangeStore
 import com.glycemicgpt.mobile.data.local.PumpCredentialStore
 import com.glycemicgpt.mobile.data.local.SafetyLimitsStore
 import com.glycemicgpt.mobile.service.AlertNotificationManager
+import com.glycemicgpt.mobile.data.remote.UrlSecurityPolicy
 import com.glycemicgpt.mobile.data.repository.AuthRepository
 import com.glycemicgpt.mobile.data.repository.LoginResult
 import com.glycemicgpt.mobile.data.update.AppUpdateChecker
@@ -348,8 +349,53 @@ class SettingsViewModelTest {
         every { authRepository.isValidUrl("not-a-url") } returns false
         val vm = createViewModel()
         vm.saveBaseUrl("not-a-url")
-        assertEquals("Invalid URL. HTTPS required.", vm.uiState.value.connectionTestResult)
+        assertEquals(UrlSecurityPolicy.INVALID_URL_MESSAGE, vm.uiState.value.connectionTestResult)
         verify(exactly = 0) { authRepository.saveBaseUrl(any()) }
+    }
+
+    @Test
+    fun `onInsecureLanHttpToggle enable shows the acknowledgement without persisting`() {
+        val vm = createViewModel()
+
+        vm.onInsecureLanHttpToggle(true)
+
+        assertTrue(vm.uiState.value.showInsecureHttpConfirm)
+        assertFalse(vm.uiState.value.allowInsecureLanHttp)
+        verify(exactly = 0) { appSettingsStore.allowInsecureLanHttp = any() }
+    }
+
+    @Test
+    fun `onInsecureLanHttpToggle disable persists immediately`() {
+        val vm = createViewModel()
+
+        vm.onInsecureLanHttpToggle(false)
+
+        verify { appSettingsStore.allowInsecureLanHttp = false }
+        assertFalse(vm.uiState.value.allowInsecureLanHttp)
+        assertFalse(vm.uiState.value.showInsecureHttpConfirm)
+    }
+
+    @Test
+    fun `confirmEnableInsecureLanHttp persists and closes the dialog`() {
+        val vm = createViewModel()
+        vm.onInsecureLanHttpToggle(true)
+
+        vm.confirmEnableInsecureLanHttp()
+
+        verify { appSettingsStore.allowInsecureLanHttp = true }
+        assertTrue(vm.uiState.value.allowInsecureLanHttp)
+        assertFalse(vm.uiState.value.showInsecureHttpConfirm)
+    }
+
+    @Test
+    fun `dismissInsecureHttpConfirm cancels without persisting`() {
+        val vm = createViewModel()
+        vm.onInsecureLanHttpToggle(true)
+
+        vm.dismissInsecureHttpConfirm()
+
+        assertFalse(vm.uiState.value.showInsecureHttpConfirm)
+        verify(exactly = 0) { appSettingsStore.allowInsecureLanHttp = any() }
     }
 
     @Test

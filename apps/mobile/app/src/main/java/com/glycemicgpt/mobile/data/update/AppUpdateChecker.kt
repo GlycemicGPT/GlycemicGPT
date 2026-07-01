@@ -147,6 +147,12 @@ class AppUpdateChecker @Inject constructor(
     suspend fun downloadApk(url: String, fileName: String, expectedSize: Long): DownloadResult =
         withContext(Dispatchers.IO) {
             try {
+                // An APK download is a code-execution path: enforce https:// in code rather than
+                // relying solely on the network_security_config pin (the base config now permits
+                // cleartext globally for the LAN opt-in).
+                if (!isHttpsUrl(url)) {
+                    return@withContext DownloadResult.Error("Download blocked: insecure URL")
+                }
                 if (!isAllowedDownloadHost(url)) {
                     return@withContext DownloadResult.Error("Download blocked: untrusted host")
                 }
@@ -226,6 +232,20 @@ class AppUpdateChecker @Inject constructor(
             } ?: return false
             return ALLOWED_DOWNLOAD_HOSTS.any { allowed ->
                 host == allowed || host.endsWith(".$allowed")
+            }
+        }
+
+        /**
+         * True only for a hierarchical `https://` URL with a host; fail-closed on a malformed URL,
+         * any other scheme, or an opaque `https:` URI (e.g. `https:payload`, which has scheme
+         * `https` but no host).
+         */
+        fun isHttpsUrl(url: String): Boolean {
+            return try {
+                val uri = java.net.URI(url)
+                uri.scheme?.lowercase() == "https" && !uri.host.isNullOrEmpty()
+            } catch (_: Exception) {
+                false
             }
         }
 

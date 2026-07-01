@@ -3,6 +3,7 @@ package com.glycemicgpt.mobile.presentation.onboarding
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.glycemicgpt.mobile.data.local.AppSettingsStore
+import com.glycemicgpt.mobile.data.remote.UrlSecurityPolicy
 import com.glycemicgpt.mobile.data.repository.AuthRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,6 +24,12 @@ data class OnboardingUiState(
     val loginError: String? = null,
     val onboardingComplete: Boolean = false,
     val requestNotificationPermission: Boolean = false,
+    // Shown when the entered URL is http:// to a private/LAN host but insecure LAN HTTP is off,
+    // so onboarding can offer a one-tap opt-in instead of a dead end (a fresh install cannot reach
+    // Settings before signing in).
+    val showInsecureHttpOptIn: Boolean = false,
+    // Gates the "I understand the risk" acknowledgement dialog for enabling insecure LAN HTTP.
+    val showInsecureHttpConfirm: Boolean = false,
 )
 
 @HiltViewModel
@@ -51,11 +58,12 @@ class OnboardingViewModel @Inject constructor(
                 baseUrl = url,
                 connectionTestResult = null,
                 connectionTestSuccess = false,
+                showInsecureHttpOptIn = false,
             )
         }
     }
 
-    fun testConnection() {
+    fun testConnection(force: Boolean = false) {
         if (_uiState.value.isTestingConnection) return
 
         val url = _uiState.value.baseUrl.trim()
@@ -71,16 +79,19 @@ class OnboardingViewModel @Inject constructor(
         if (!authRepository.isValidUrl(url)) {
             _uiState.update {
                 it.copy(
-                    connectionTestResult = "Invalid URL. HTTPS required.",
+                    connectionTestResult = UrlSecurityPolicy.INVALID_URL_MESSAGE,
                     connectionTestSuccess = false,
+                    showInsecureHttpOptIn = authRepository.isBlockedPendingLanHttpOptIn(url),
                 )
             }
             return
         }
 
-        // Debounce: minimum 1 second between connection tests (after validation)
+        // Debounce: minimum 1 second between connection tests (after validation). The opt-in
+        // confirm retry passes force=true so enabling insecure LAN HTTP always re-tests, even if a
+        // prior test ran within the window.
         val now = System.currentTimeMillis()
-        if (now - lastConnectionTestMs < 1_000L) return
+        if (!force && now - lastConnectionTestMs < 1_000L) return
         lastConnectionTestMs = now
 
         viewModelScope.launch {
@@ -119,6 +130,28 @@ class OnboardingViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    /** User tapped the opt-in affordance: show the risk acknowledgement before enabling. */
+    fun requestEnableInsecureHttp() {
+        _uiState.update { it.copy(showInsecureHttpConfirm = true) }
+    }
+
+    /** Cancel the acknowledgement without enabling insecure LAN HTTP. */
+    fun dismissInsecureHttpConfirm() {
+        _uiState.update { it.copy(showInsecureHttpConfirm = false) }
+    }
+
+    /**
+     * The user acknowledged the risk: enable insecure LAN HTTP (per-device) and immediately re-run
+     * the connection test so the flow proceeds without a second tap.
+     */
+    fun confirmEnableInsecureHttp() {
+        appSettingsStore.allowInsecureLanHttp = true
+        _uiState.update {
+            it.copy(showInsecureHttpConfirm = false, showInsecureHttpOptIn = false)
+        }
+        testConnection(force = true)
     }
 
     fun updateEmail(email: String) {

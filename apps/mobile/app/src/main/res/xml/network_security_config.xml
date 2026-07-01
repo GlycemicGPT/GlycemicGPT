@@ -1,11 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- Block all cleartext (HTTP) traffic - HTTPS only -->
-    <base-config cleartextTrafficPermitted="false">
+    <!-- Cleartext (HTTP) is permitted at the platform layer so a self-hoster can reach a server on
+         a private/LAN address over http:// after an explicit, default-off opt-in (Story 57.1).
+         The platform cannot express the private-vs-public rule (network-security-config matches
+         exact hosts, not CIDR ranges), so that decision lives in app code
+         (UrlSecurityPolicy / AuthRepository.isValidUrl): http:// is accepted ONLY to a
+         private/loopback/link-local/.local host, and a public host over http:// is always rejected. -->
+    <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>
     </base-config>
+
+    <!-- App-originated external traffic must never downgrade to cleartext, regardless of the LAN
+         opt-in. Pin the GitHub self-update hosts (api.github.com is covered by github.com via
+         includeSubdomains; release assets download from objects.githubusercontent.com) and the
+         Sentry ingest host (*.ingest.*.sentry.io) to HTTPS-only. -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">github.com</domain>
+        <domain includeSubdomains="true">githubusercontent.com</domain>
+        <domain includeSubdomains="true">sentry.io</domain>
+    </domain-config>
 
     <!-- Trust user-installed CAs in debug builds (for proxy debugging) -->
     <debug-overrides>
