@@ -224,6 +224,26 @@ class AndroidMedtronicGattLinkTest {
         verify(exactly = 0) { gatt.writeCharacteristic(cgmRacp) }
     }
 
+    @Test
+    fun `a stale IDD subscription does not hijack the RACP scope of a CGM exchange`() {
+        val link = newLink()
+
+        // Regression: a dangling IDD History subscription from a prior exchange (e.g. one whose
+        // control-point write failed before the watchdog released it) leaves the IDD service in the
+        // active-subscription set. The current CGM exchange then resolves its own context -- reading a
+        // CGM-service characteristic sets the most-recently-resolved RACP service to CGM -- so the RACP
+        // write must bind to CGM, not the stale IDD subscription. The previous active-subscriptions-first
+        // ordering picked IDD here, making the pump answer a CGM read in IDD format.
+        link.subscribe(MedtronicProtocol.IDD_HISTORY_DATA_UUID) {}
+        link.read(MedtronicProtocol.CGM_FEATURE_UUID)
+        link.write(MedtronicProtocol.RACP_UUID, byteArrayOf(0x01, 0x06))
+
+        @Suppress("DEPRECATION")
+        verify { gatt.writeCharacteristic(cgmRacp) }
+        @Suppress("DEPRECATION")
+        verify(exactly = 0) { gatt.writeCharacteristic(iddRacp) }
+    }
+
     // -- READ-ONLY: writes are confined to the report/control points ---------
 
     @Test
