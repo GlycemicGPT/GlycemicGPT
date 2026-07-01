@@ -70,10 +70,12 @@ import kotlin.concurrent.withLock
  * is spun up for delivery.
  *
  * **RACP service-scoping (AC2).** The shared SIG `0x2A52` RACP characteristic lives under both the CGM
- * and IDD services. It is resolved to the service whose data characteristic the current exchange is
- * actively streaming (the reader subscribes the data char immediately before touching the control
- * point), falling back to the most recently resolved RACP-bearing service -- never the bare UUID, and
- * never poisoned by an unrelated Battery/Device-Info read.
+ * and IDD services. It is resolved to the most recently resolved RACP-bearing service -- the reader
+ * resolves that exchange's data characteristic (CGM Measurement / IDD History Data) immediately before
+ * touching the control point, so this tracks the current exchange -- falling back to a service with a
+ * live subscription only if that context is somehow unset. Preferring the resolved context over live
+ * subscriptions keeps a dangling handler from a failed prior exchange from hijacking the scope; it is
+ * never the bare UUID, and never poisoned by an unrelated Battery/Device-Info read.
  *
  * **Cancellation/cleanup (AC4).** A reader only [unsubscribe]s on a pump *response*; if the gateway's
  * per-operation timeout cancels the driving coroutine first, the subscriptions would dangle. A
@@ -120,8 +122,9 @@ class AndroidMedtronicGattLink(
     @Volatile
     private var racpServiceUuids: Set<UUID> = emptySet()
 
-    // The service of the most recently resolved RACP-bearing characteristic -- the fallback context for
-    // scoping the shared RACP UUID when no data subscription is active.
+    // The service of the most recently resolved RACP-bearing characteristic -- the primary context for
+    // scoping the shared RACP UUID. An active data subscription resolves this immediately before the
+    // RACP write, so it tracks the current exchange rather than any stale handler still in the map.
     @Volatile
     private var lastResolvedServiceUuid: UUID? = null
 
@@ -327,18 +330,20 @@ class AndroidMedtronicGattLink(
     /**
      * Record the service context used to scope the shared RACP characteristic, but only for services
      * that actually expose RACP (CGM + IDD). A Battery / Device-Info read must not move the CGM-vs-IDD
-     * fallback context.
+     * scoping context.
      */
     private fun rememberServiceContext(serviceUuid: UUID) {
         if (serviceUuid in racpServiceUuids) lastResolvedServiceUuid = serviceUuid
     }
 
     /**
-     * Scope a characteristic exposed by more than one service (the shared `0x2A52` RACP). Bind it to
-     * the service whose data characteristic this exchange is actively streaming -- the reader subscribes
-     * that data char (CGM Measurement / IDD History Data) immediately before the RACP write -- and fall
-     * back to the most recently resolved RACP-bearing service. Guessing here silently reads the wrong
-     * log, so an unresolvable case fails loudly rather than picking the first candidate.
+     * Scope a characteristic exposed by more than one service (the shared `0x2A52` RACP). Bind it to the
+     * most recently resolved RACP-bearing service ([lastResolvedServiceUuid]) -- the reader resolves this
+     * exchange's data char (CGM Measurement / IDD History Data) immediately before the RACP write, so it
+     * is the current exchange's service -- and fall back to a service with a live subscription only if
+     * that context is unset. Checking the resolved context before active subscriptions keeps a dangling
+     * handler from a failed prior exchange from hijacking the scope. Guessing here silently reads the
+     * wrong log, so an unresolvable case fails loudly rather than picking the first candidate.
      */
     private fun resolveAmbiguous(candidates: List<ResolvedChar>): ResolvedChar {
         val activeServices = handlers.values.mapTo(HashSet()) { it.resolved.serviceUuid }
