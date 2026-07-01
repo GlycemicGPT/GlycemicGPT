@@ -165,7 +165,11 @@ class MedtronicSessionReader(
         }
 
         Timber.d("CGM RACP report-last-record request (%d bytes) %s", RACP_REPORT_LAST_RECORD.size, RACP_REPORT_LAST_RECORD.toHex())
-        link.write(controlPoint, RACP_REPORT_LAST_RECORD)
+        try {
+            link.write(controlPoint, RACP_REPORT_LAST_RECORD)
+        } catch (e: Exception) {
+            finish(Result.failure(asReadException(e, "CGM RACP write failed")))
+        }
     }
 
     /**
@@ -285,7 +289,11 @@ class MedtronicSessionReader(
         }
 
         Timber.d("IDD RACP report-records request (%d bytes) %s", request.size, request.toHex())
-        link.write(controlPoint, request)
+        try {
+            link.write(controlPoint, request)
+        } catch (e: Exception) {
+            finish(Result.failure(asReadException(e, "IDD RACP write failed")))
+        }
     }
 
     /**
@@ -310,7 +318,11 @@ class MedtronicSessionReader(
         }
 
         Timber.d("IDD RACP control-point query (%d bytes) %s", request.size, request.toHex())
-        link.write(controlPoint, request)
+        try {
+            link.write(controlPoint, request)
+        } catch (e: Exception) {
+            finish(Result.failure(asReadException(e, "IDD RACP write failed")))
+        }
     }
 
     /**
@@ -345,7 +357,11 @@ class MedtronicSessionReader(
             }
         }
 
-        link.write(char, encryptedRequest)
+        try {
+            link.write(char, encryptedRequest)
+        } catch (e: Exception) {
+            finish(Result.failure(asReadException(e, failMessage)))
+        }
     }
 
     /** Map any decrypt/parse failure to a [MedtronicReadException], preserving an already-typed one. */

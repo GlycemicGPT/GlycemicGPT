@@ -179,6 +179,7 @@ class AndroidMedtronicGattLink(
                 val outcome = awaitGatt("write", characteristic) { writeCharacteristic(link, resolved.characteristic, value) }
                 if (outcome.status != BluetoothGatt.GATT_SUCCESS) {
                     logGattWarning("write", characteristic, outcome.status)
+                    handlers.remove(characteristic)
                 }
             }
         } catch (e: MedtronicReadException) {
@@ -337,8 +338,8 @@ class AndroidMedtronicGattLink(
      */
     private fun resolveAmbiguous(candidates: List<ResolvedChar>): ResolvedChar {
         val activeServices = handlers.values.mapTo(HashSet()) { it.resolved.serviceUuid }
-        return candidates.firstOrNull { it.serviceUuid in activeServices }
-            ?: candidates.firstOrNull { it.serviceUuid == lastResolvedServiceUuid }
+        return candidates.firstOrNull { it.serviceUuid == lastResolvedServiceUuid }
+            ?: candidates.firstOrNull { it.serviceUuid in activeServices }
             ?: throw MedtronicReadException("Medtronic GATT could not scope a shared characteristic to a service")
     }
 
