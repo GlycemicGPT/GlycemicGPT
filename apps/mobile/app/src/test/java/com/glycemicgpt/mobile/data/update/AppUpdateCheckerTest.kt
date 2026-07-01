@@ -101,6 +101,13 @@ class AppUpdateCheckerTest {
     }
 
     @Test
+    fun `isHttpsUrl rejects an opaque https URI without a host`() {
+        // "https:payload" is an opaque URI: scheme is https but there is no host.
+        assertFalse(AppUpdateChecker.isHttpsUrl("https:payload"))
+        assertFalse(AppUpdateChecker.isHttpsUrl("https:///no-host"))
+    }
+
+    @Test
     fun `an https URL to an allowed host passes both download guards`() {
         val url = "https://github.com/GlycemicGPT/GlycemicGPT/releases/download/v1.0/app.apk"
         assertTrue(AppUpdateChecker.isHttpsUrl(url))

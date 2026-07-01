@@ -235,14 +235,18 @@ class AppUpdateChecker @Inject constructor(
             }
         }
 
-        /** True only for an https:// URL; fail-closed on a malformed URL or any other scheme. */
+        /**
+         * True only for a hierarchical `https://` URL with a host; fail-closed on a malformed URL,
+         * any other scheme, or an opaque `https:` URI (e.g. `https:payload`, which has scheme
+         * `https` but no host).
+         */
         fun isHttpsUrl(url: String): Boolean {
-            val scheme = try {
-                java.net.URI(url).scheme?.lowercase()
+            return try {
+                val uri = java.net.URI(url)
+                uri.scheme?.lowercase() == "https" && !uri.host.isNullOrEmpty()
             } catch (_: Exception) {
-                null
+                false
             }
-            return scheme == "https"
         }
 
         fun sanitizeFileName(name: String): String {
