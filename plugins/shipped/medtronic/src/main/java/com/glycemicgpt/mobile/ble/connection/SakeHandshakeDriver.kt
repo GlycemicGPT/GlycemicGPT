@@ -9,6 +9,7 @@
 package com.glycemicgpt.mobile.ble.connection
 
 import com.glycemicgpt.mobile.ble.protocol.PduFramer
+import com.glycemicgpt.mobile.ble.read.MedtronicCodec
 import com.glycemicgpt.mobile.ble.sake.MedtronicSakeSession
 import timber.log.Timber
 
@@ -55,6 +56,8 @@ class SakeHandshakeDriver(
         failed = false
     }
 
+    private fun ByteArray.toHex(): String = MedtronicCodec.toHex(this)
+
     /**
      * The pump disabled SAKE notifications. Clearing the subscribed flag lets a later [onSubscribed]
      * restart an unfinished handshake from a fresh wake-up (the pump resubscribes when it retries).
@@ -74,8 +77,9 @@ class SakeHandshakeDriver(
             session = sessionFactory()
         }
         pumpSubscribed = true
-        Timber.d("Pump subscribed to SAKE; sending wake-up")
-        notify(session.newWakeUpFrame())
+        val wakeUp = session.newWakeUpFrame()
+        Timber.d("SAKE handshake: TX wake-up frame!")
+        notify(wakeUp)
     }
 
     /**
@@ -90,12 +94,14 @@ class SakeHandshakeDriver(
                 return@post
             }
             try {
+                val stage = session.stage
                 val response = session.onPumpWrite(copy)
+                Timber.d("SAKE handshake: RX[stage=%d] %s -> TX %s", stage, copy.toHex(), response?.toHex() ?: "null (complete)")
                 if (response != null) {
                     notify(response)
                 } else {
                     complete = true
-                    Timber.i("SAKE handshake complete")
+                    Timber.d("SAKE handshake complete")
                     listener.onAuthenticated(session)
                 }
             } catch (e: Exception) {
