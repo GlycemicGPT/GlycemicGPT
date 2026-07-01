@@ -150,20 +150,20 @@ class MedtronicSessionReader(
                 response.contentEquals(RACP_REPORT_SUCCESS) -> {
                     val r = record
                     if (r == null) {
-                        finish(Result.failure(MedtronicReadException("RACP reported success but no record arrived")))
+                        finish(Result.failure(MedtronicReadException("CGM RACP reported success but no record arrived")))
                     } else {
                         finish(Result.success(r))
                     }
                 }
                 else -> finish(
                     Result.failure(
-                        MedtronicReadException("Unexpected RACP response: ${response.toHex()}"),
+                        MedtronicReadException("Unexpected CGM RACP response: ${response.toHex()}"),
                     ),
                 )
             }
         }
 
-        Timber.d("RACP report-last-record request")
+        Timber.d("CGM RACP report-last-record request")
         link.write(controlPoint, RACP_REPORT_LAST_RECORD)
     }
 
@@ -178,7 +178,7 @@ class MedtronicSessionReader(
      */
     fun socpGet(socp: UUID, requestOpcode: ByteArray, onResult: (Result<ByteArray>) -> Unit) {
         val request = appendE2eCrc(requestOpcode)
-        Timber.d("SOCP GET request (%d bytes)", request.size)
+        Timber.d("CGM SOCP GET request (%d bytes)", request.size)
         encryptedGet(socp, session.encryptForPump(request), "SOCP response could not be decrypted", onResult)
     }
 
@@ -278,12 +278,12 @@ class MedtronicSessionReader(
                 finish(Result.success(records.toList()))
             } else {
                 finish(
-                    Result.failure(MedtronicReadException("Unexpected/failed RACP response: ${response.toHex()}")),
+                    Result.failure(MedtronicReadException("Unexpected/failed IDD RACP response: ${response.toHex()}")),
                 )
             }
         }
 
-        Timber.d("RACP report-records request (%d bytes)", request.size)
+        Timber.d("IDD RACP report-records request (%d bytes)", request.size)
         link.write(controlPoint, request)
     }
 
@@ -308,7 +308,7 @@ class MedtronicSessionReader(
             finish(Result.success(response.copyOf()))
         }
 
-        Timber.d("RACP control-point query (%d bytes)", request.size)
+        Timber.d("IDD RACP control-point query (%d bytes)", request.size)
         link.write(controlPoint, request)
     }
 
