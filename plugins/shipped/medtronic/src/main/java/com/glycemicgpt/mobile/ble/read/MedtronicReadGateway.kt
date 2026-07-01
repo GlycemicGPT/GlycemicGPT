@@ -104,10 +104,29 @@ class MedtronicReadGateway(
         }
 
     /** Incremental history fetch: every record newer than [sinceSequence] (raw, preserved for dedup). */
-    suspend fun getHistoryLogs(sinceSequence: Int): Result<List<HistoryLogRecord>> =
-        sessionRead("history") { link, session, onResult ->
-            HistoryReader(link, session).readSinceSequence(sinceSequence, onResult)
+    suspend fun getHistoryLogs(sinceSequence: Int): Result<List<HistoryLogRecord>> {
+        val lastResult = sessionRead("history-last") { link, session, onResult ->
+            HistoryReader(link, session).readLastRecord { onResult(it) }
         }
+        val lastRecord = lastResult.getOrElse { return Result.failure(it) }
+        if (lastRecord == null || lastRecord.sequenceNumber <= sinceSequence) {
+            return Result.success(emptyList())
+        }
+        var highSeq = lastRecord.sequenceNumber
+        val all = mutableListOf<HistoryLogRecord>()
+        while (highSeq > sinceSequence) {
+            val lowSeq = maxOf(sinceSequence + 1, highSeq - HISTORY_BATCH_SIZE + 1)
+            val batchResult = sessionRead("history-page") { link, session, onResult ->
+                HistoryReader(link, session).readRecordsInRange(lowSeq, highSeq) { onResult(it) }
+            }
+            val records = batchResult.getOrElse { return Result.failure(it) }
+            all.addAll(records)
+            val minInBatch = records.minOfOrNull { it.sequenceNumber } ?: break
+            highSeq = minInBatch - 1
+            if (records.size < HISTORY_BATCH_SIZE) break
+        }
+        return Result.success(all.reversed())
+    }
 
     /** Battery percentage (plain SIG Battery Level read; no session required). */
     suspend fun getBatteryStatus(): Result<BatteryStatus> =
@@ -223,5 +242,8 @@ class MedtronicReadGateway(
          * 30s connect timeout the [com.glycemicgpt.mobile.domain.plugin.DevicePlugin] contract documents.
          */
         const val DEFAULT_OPERATION_TIMEOUT_MS = 30_000L
+
+        /** Maximum number of history records fetched in a single RACP exchange (one page). */
+        private const val HISTORY_BATCH_SIZE = 200
     }
 }

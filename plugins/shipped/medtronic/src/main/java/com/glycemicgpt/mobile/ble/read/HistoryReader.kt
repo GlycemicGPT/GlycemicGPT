@@ -17,8 +17,6 @@ import com.glycemicgpt.mobile.ble.messages.MedtronicHistoryParser
 import com.glycemicgpt.mobile.ble.protocol.MedtronicProtocol
 import com.glycemicgpt.mobile.ble.sake.MedtronicSakeSession
 import com.glycemicgpt.mobile.domain.model.HistoryLogRecord
-import kotlin.math.max
-import kotlin.math.min
 
 /**
  * Reads the pump's IDD event-log (bolus / basal / sensor / alarm / cartridge-battery events) over the
@@ -65,52 +63,34 @@ class HistoryReader(
     /** All records with sequence number in [firstSeq]..[lastSeq] inclusive. */
     fun readRecordsInRange(firstSeq: Int, lastSeq: Int, onResult: (Result<List<HistoryLogRecord>>) -> Unit) {
         val e2e = e2eFlagOr(onResult) ?: return
-        fetchRecords(rangeRequest(firstSeq, lastSeq), e2e, onResult)
+        readRecordsInRange(firstSeq, lastSeq, e2e, onResult)
+    }
+
+    /** Same as [readRecordsInRange] but with an already-resolved [useE2e] flag (avoids re-reading IDD Features). */
+    fun readRecordsInRange(
+        firstSeq: Int,
+        lastSeq: Int,
+        useE2e: Boolean,
+        onResult: (Result<List<HistoryLogRecord>>) -> Unit,
+    ) {
+        fetchRecords(rangeRequest(firstSeq, lastSeq), useE2e, onResult)
     }
 
     /**
      * Incremental backfill: every record newer than [sinceSequence]. Reads the last record to learn
-     * the newest sequence, then ranges from `sinceSequence + 1` to it. Empty when the log is already
-     * caught up. Matches the `getHistoryLogs(sinceSequence)` contract the C3 PumpStatus capability uses.
+     * the newest sequence. The caller (the gateway) is responsible for paging the actual range
+     * with per-batch timeouts. Empty when the log is already caught up.
+     *
+     * Matches the `getHistoryLogs(sinceSequence)` contract the C3 PumpStatus capability uses.
      */
     fun readSinceSequence(sinceSequence: Int, onResult: (Result<List<HistoryLogRecord>>) -> Unit) {
-        val e2e = e2eFlagOr(onResult) ?: return
-        fetchRecords(REQUEST_REPORT_LAST_RECORD, e2e) { lastResult ->
-            val last = lastResult.getOrElse { onResult(Result.failure(it)); return@fetchRecords }.firstOrNull()
+        readLastRecord { lastResult ->
+            val last = lastResult.getOrElse { onResult(Result.failure(it)); return@readLastRecord }
             when {
                 last == null -> onResult(Result.success(emptyList()))
                 last.sequenceNumber <= sinceSequence -> onResult(Result.success(emptyList()))
-                else -> fetchRecordsPaged(last.sequenceNumber, sinceSequence, e2e, emptyList(), onResult)
+                else -> onResult(Result.success(listOf(last)))
             }
-        }
-    }
-
-    /**
-     * Fetch history records in [BATCH_SIZE]-sized pages, working **backwards** from [highSeq]
-     * (the newest record's sequence) down to [sinceSeq] (the last known sequence). Each page
-     * requests a narrow range anchored near the upper bound, so the pump always finds matching
-     * records. Accumulated pages are delivered newest-first; the caller receives the full list
-     * reversed into chronological order once [highSeq] passes [sinceSeq].
-     */
-    private fun fetchRecordsPaged(
-        highSeq: Int,
-        sinceSeq: Int,
-        useE2e: Boolean,
-        accumulated: List<HistoryLogRecord>,
-        onResult: (Result<List<HistoryLogRecord>>) -> Unit,
-    ) {
-        if (highSeq <= sinceSeq) {
-            onResult(Result.success(accumulated.reversed()))
-            return
-        }
-        val lowSeq = max(sinceSeq + 1, highSeq - BATCH_SIZE + 1)
-        fetchRecords(rangeRequest(lowSeq, highSeq), useE2e) { result ->
-            result.fold(
-                onSuccess = { records ->
-                    fetchRecordsPaged(lowSeq - 1, sinceSeq, useE2e, accumulated + records, onResult)
-                },
-                onFailure = { onResult(Result.failure(it)) },
-            )
         }
     }
 
@@ -174,9 +154,6 @@ class HistoryReader(
         private const val OPERATOR_LAST_RECORD = 105 // 0x69
         private const val FILTER_SEQUENCE_NUMBER = 15 // 0x0F
         private const val RESPONSE_SUCCESS = 240 // 0xF0
-
-        /** Maximum number of records fetched in a single RACP exchange. */
-        private const val BATCH_SIZE = 50
 
         /** RACP: report stored records, last record, by sequence number. */
         val REQUEST_REPORT_LAST_RECORD =
