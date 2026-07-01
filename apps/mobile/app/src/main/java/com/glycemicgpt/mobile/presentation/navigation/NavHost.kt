@@ -53,6 +53,7 @@ import com.glycemicgpt.mobile.data.local.AuthTokenStore
 import com.glycemicgpt.mobile.data.local.AppSettingsStore
 import com.glycemicgpt.mobile.presentation.alerts.AlertsScreen
 import com.glycemicgpt.mobile.presentation.chat.AiChatScreen
+import com.glycemicgpt.mobile.data.remote.UrlSecurityPolicy
 import com.glycemicgpt.mobile.presentation.common.InsecureHttpBanner
 import com.glycemicgpt.mobile.presentation.home.HomeScreen
 import com.glycemicgpt.mobile.presentation.meal.CommonFoodsScreen
@@ -139,8 +140,11 @@ fun GlycemicGptNavHost(appSettingsStore: AppSettingsStore, authTokenStore: AuthT
     )
     val baseUrlFlow = remember { authTokenStore.baseUrlFlow() }
     val baseUrl by baseUrlFlow.collectAsState(initial = authTokenStore.getBaseUrl())
-    val showInsecureHttpBanner = insecureHttpEnabled &&
-        baseUrl?.startsWith("http://", ignoreCase = true) == true
+    // Derive from the policy (single source of truth) so the banner shows only when the app would
+    // actually send cleartext -- never for a public http:// URL the request layer rejects.
+    val showInsecureHttpBanner = baseUrl?.let {
+        UrlSecurityPolicy.isActiveInsecureHttp(it, BuildConfig.DEBUG, insecureHttpEnabled)
+    } == true
 
     // Observe logout -> onboarding navigation event
     LaunchedEffect(Unit) {

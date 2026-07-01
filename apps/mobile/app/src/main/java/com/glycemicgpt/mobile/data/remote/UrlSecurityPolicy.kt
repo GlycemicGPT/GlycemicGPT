@@ -56,6 +56,17 @@ object UrlSecurityPolicy {
     }
 
     /**
+     * True when [url] would actually be sent as cleartext -- the scheme is `http` AND [isAllowed]
+     * permits it. Drives the insecure-mode indicator so it reflects real cleartext traffic rather
+     * than a bare `http://` prefix (a public `http://` URL the request layer rejects must not light
+     * the banner).
+     */
+    fun isActiveInsecureHttp(url: String, isDebug: Boolean, allowInsecureLanHttp: Boolean): Boolean {
+        val parsed = url.toHttpUrlOrNull() ?: return false
+        return parsed.scheme == "http" && isAllowed(url, isDebug, allowInsecureLanHttp)
+    }
+
+    /**
      * Classify [host] (an OkHttp-canonicalized URL host: no brackets, no port, lowercased) as a
      * private/LAN destination. Accepts, by literal-IP inspection only:
      * - loopback `127.0.0.0/8`, `::1`

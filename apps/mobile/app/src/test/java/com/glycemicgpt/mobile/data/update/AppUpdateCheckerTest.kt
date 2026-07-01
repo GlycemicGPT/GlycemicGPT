@@ -1,10 +1,15 @@
 package com.glycemicgpt.mobile.data.update
 
+import com.squareup.moshi.Moshi
+import io.mockk.mockk
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class AppUpdateCheckerTest {
 
     @Test
@@ -76,6 +81,39 @@ class AppUpdateCheckerTest {
     @Test
     fun `isAllowedDownloadHost rejects malformed URL`() {
         assertFalse(AppUpdateChecker.isAllowedDownloadHost("not-a-url"))
+    }
+
+    // isHttpsUrl tests (APK downloads must be https:// -- a code-execution path)
+
+    @Test
+    fun `isHttpsUrl accepts https`() {
+        assertTrue(AppUpdateChecker.isHttpsUrl("https://github.com/releases/download/v1.0/app.apk"))
+    }
+
+    @Test
+    fun `isHttpsUrl rejects http`() {
+        assertFalse(AppUpdateChecker.isHttpsUrl("http://github.com/releases/download/v1.0/app.apk"))
+    }
+
+    @Test
+    fun `isHttpsUrl rejects malformed URL`() {
+        assertFalse(AppUpdateChecker.isHttpsUrl("not-a-url"))
+    }
+
+    @Test
+    fun `an https URL to an allowed host passes both download guards`() {
+        val url = "https://github.com/GlycemicGPT/GlycemicGPT/releases/download/v1.0/app.apk"
+        assertTrue(AppUpdateChecker.isHttpsUrl(url))
+        assertTrue(AppUpdateChecker.isAllowedDownloadHost(url))
+    }
+
+    @Test
+    fun `downloadApk rejects an insecure http URL even to an allowed host`() = runTest {
+        val checker = AppUpdateChecker(mockk(relaxed = true), Moshi.Builder().build())
+        // http:// fails the scheme guard before any host check or network access.
+        val result = checker.downloadApk("http://github.com/x/app.apk", "app.apk", 0L)
+        assertTrue(result is DownloadResult.Error)
+        assertEquals("Download blocked: insecure URL", (result as DownloadResult.Error).message)
     }
 
     // sanitizeFileName tests

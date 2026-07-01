@@ -212,6 +212,22 @@ class UrlSecurityPolicyTest {
         assertFalse(UrlSecurityPolicy.isBlockedPendingLanOptIn("http://10.0.0.1", isDebug = true))
     }
 
+    // ---- isActiveInsecureHttp (drives the insecure-mode indicator) --------------------------
+
+    @Test
+    fun `isActiveInsecureHttp is true only for cleartext the policy actually permits`() {
+        // Private http + toggle on (release) -> cleartext is really sent.
+        assertTrue(UrlSecurityPolicy.isActiveInsecureHttp("http://192.168.1.5", isDebug = false, allowInsecureLanHttp = true))
+        // Public http + toggle on -> request layer rejects it, so it is NOT active cleartext.
+        assertFalse(UrlSecurityPolicy.isActiveInsecureHttp("http://example.com", isDebug = false, allowInsecureLanHttp = true))
+        // Private http + toggle off -> rejected, no cleartext.
+        assertFalse(UrlSecurityPolicy.isActiveInsecureHttp("http://192.168.1.5", isDebug = false, allowInsecureLanHttp = false))
+        // https is never cleartext.
+        assertFalse(UrlSecurityPolicy.isActiveInsecureHttp("https://192.168.1.5", isDebug = false, allowInsecureLanHttp = true))
+        // Malformed.
+        assertFalse(UrlSecurityPolicy.isActiveInsecureHttp("not-a-url", isDebug = false, allowInsecureLanHttp = true))
+    }
+
     @Test
     fun `INVALID_URL_MESSAGE names the LAN exception`() {
         assertTrue(UrlSecurityPolicy.INVALID_URL_MESSAGE.contains("https://"))
