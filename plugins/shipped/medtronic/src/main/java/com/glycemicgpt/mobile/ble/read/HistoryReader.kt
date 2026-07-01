@@ -17,6 +17,7 @@ import com.glycemicgpt.mobile.ble.messages.MedtronicHistoryParser
 import com.glycemicgpt.mobile.ble.protocol.MedtronicProtocol
 import com.glycemicgpt.mobile.ble.sake.MedtronicSakeSession
 import com.glycemicgpt.mobile.domain.model.HistoryLogRecord
+import kotlin.math.max
 import kotlin.math.min
 
 /**
@@ -79,33 +80,34 @@ class HistoryReader(
             when {
                 last == null -> onResult(Result.success(emptyList()))
                 last.sequenceNumber <= sinceSequence -> onResult(Result.success(emptyList()))
-                else -> fetchRecordsPaged(sinceSequence + 1, last.sequenceNumber, e2e, emptyList(), onResult)
+                else -> fetchRecordsPaged(last.sequenceNumber, sinceSequence, e2e, emptyList(), onResult)
             }
         }
     }
 
     /**
-     * Fetch history records in [BATCH_SIZE]-sized pages so each individual RACP exchange completes
-     * well within the 30 s operation timeout. The [accumulated] list collects results across pages;
-     * when [nextSeq] passes [lastSeq] the combined result is delivered.
+     * Fetch history records in [BATCH_SIZE]-sized pages, working **backwards** from [highSeq]
+     * (the newest record's sequence) down to [sinceSeq] (the last known sequence). Each page
+     * requests a narrow range anchored near the upper bound, so the pump always finds matching
+     * records. Accumulated pages are delivered newest-first; the caller receives the full list
+     * reversed into chronological order once [highSeq] passes [sinceSeq].
      */
     private fun fetchRecordsPaged(
-        nextSeq: Int,
-        lastSeq: Int,
+        highSeq: Int,
+        sinceSeq: Int,
         useE2e: Boolean,
         accumulated: List<HistoryLogRecord>,
         onResult: (Result<List<HistoryLogRecord>>) -> Unit,
     ) {
-        val pageEnd = min(nextSeq + BATCH_SIZE - 1, lastSeq)
-        fetchRecords(rangeRequest(nextSeq, pageEnd), useE2e) { result ->
+        if (highSeq <= sinceSeq) {
+            onResult(Result.success(accumulated.reversed()))
+            return
+        }
+        val lowSeq = max(sinceSeq + 1, highSeq - BATCH_SIZE + 1)
+        fetchRecords(rangeRequest(lowSeq, highSeq), useE2e) { result ->
             result.fold(
                 onSuccess = { records ->
-                    val all = accumulated + records
-                    if (pageEnd >= lastSeq) {
-                        onResult(Result.success(all))
-                    } else {
-                        fetchRecordsPaged(pageEnd + 1, lastSeq, useE2e, all, onResult)
-                    }
+                    fetchRecordsPaged(lowSeq - 1, sinceSeq, useE2e, accumulated + records, onResult)
                 },
                 onFailure = { onResult(Result.failure(it)) },
             )
@@ -174,7 +176,7 @@ class HistoryReader(
         private const val RESPONSE_SUCCESS = 240 // 0xF0
 
         /** Maximum number of records fetched in a single RACP exchange. */
-        private const val BATCH_SIZE = 200
+        private const val BATCH_SIZE = 50
 
         /** RACP: report stored records, last record, by sequence number. */
         val REQUEST_REPORT_LAST_RECORD =
