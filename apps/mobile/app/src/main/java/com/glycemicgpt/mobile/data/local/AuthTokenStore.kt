@@ -5,6 +5,9 @@ import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKeys
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -52,6 +55,22 @@ class AuthTokenStore @Inject constructor(
     }
 
     fun getBaseUrl(): String? = prefs.getString(KEY_BASE_URL, null)
+
+    /**
+     * Emits the current base URL and re-emits whenever it changes, so surfaces that must track the
+     * live server address (e.g. the insecure-HTTP indicator) update the moment the URL is saved
+     * rather than only on the next recomposition.
+     */
+    fun baseUrlFlow(): Flow<String?> = callbackFlow {
+        trySend(getBaseUrl())
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == KEY_BASE_URL || key == null) {
+                trySend(getBaseUrl())
+            }
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        awaitClose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
 
     fun getUserEmail(): String? = prefs.getString(KEY_USER_EMAIL, null)
 

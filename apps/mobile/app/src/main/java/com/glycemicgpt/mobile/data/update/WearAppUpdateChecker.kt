@@ -125,6 +125,12 @@ class WearAppUpdateChecker @Inject constructor(
         expectedSize: Long,
     ): DownloadResult = withContext(Dispatchers.IO) {
         try {
+            // An APK download is a code-execution path: enforce https:// in code rather than
+            // relying solely on the network_security_config pin (the base config now permits
+            // cleartext globally for the LAN opt-in).
+            if (!AppUpdateChecker.isHttpsUrl(url)) {
+                return@withContext DownloadResult.Error("Download blocked: insecure URL")
+            }
             if (!AppUpdateChecker.isAllowedDownloadHost(url)) {
                 return@withContext DownloadResult.Error("Download blocked: untrusted host")
             }

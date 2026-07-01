@@ -283,6 +283,35 @@ class AppSettingsStore @Inject constructor(
         get() = prefs.getBoolean(KEY_WATCHFACE_SHOW_MODES, true)
         set(value) { prefs.edit().putBoolean(KEY_WATCHFACE_SHOW_MODES, value).apply() }
 
+    /**
+     * Whether the app may connect to a self-hosted server over plaintext `http://` when the host is
+     * a private/LAN address (Story 57.1). Default OFF -- enabling it is an explicit, acknowledged
+     * choice. A *per-device* connection preference (the LAN box is the same across sign-ins), so it
+     * is intentionally NOT reset on logout. Public hosts are always refused over http regardless of
+     * this flag; enforcement lives in [com.glycemicgpt.mobile.data.remote.UrlSecurityPolicy].
+     */
+    var allowInsecureLanHttp: Boolean
+        get() = prefs.getBoolean(KEY_ALLOW_INSECURE_LAN_HTTP, false)
+        set(value) {
+            prefs.edit().putBoolean(KEY_ALLOW_INSECURE_LAN_HTTP, value).apply()
+        }
+
+    /**
+     * Emits the current [allowInsecureLanHttp] and re-emits whenever it changes, so the app-wide
+     * insecure-HTTP indicator appears/disappears live when the user toggles the setting. Uses the
+     * same change-listener mechanism as [glucoseUnitFlow].
+     */
+    fun allowInsecureLanHttpFlow(): Flow<Boolean> = callbackFlow {
+        trySend(allowInsecureLanHttp)
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == KEY_ALLOW_INSECURE_LAN_HTTP || key == null) {
+                trySend(allowInsecureLanHttp)
+            }
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        awaitClose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+
     /** Whether AI chat responses should be spoken aloud via TTS. */
     var aiTtsEnabled: Boolean
         get() = prefs.getBoolean(KEY_AI_TTS_ENABLED, false)
@@ -335,5 +364,6 @@ class AppSettingsStore @Inject constructor(
         private const val KEY_WATCHFACE_SHOW_MODES = "watchface_show_modes"
         private const val KEY_AI_TTS_ENABLED = "ai_tts_enabled"
         private const val KEY_AI_TTS_VOICE = "ai_tts_voice"
+        private const val KEY_ALLOW_INSECURE_LAN_HTTP = "allow_insecure_lan_http"
     }
 }

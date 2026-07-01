@@ -1,9 +1,14 @@
 package com.glycemicgpt.mobile.data.update
 
+import com.squareup.moshi.Moshi
+import io.mockk.mockk
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class WearAppUpdateCheckerTest {
 
     @Test
@@ -44,6 +49,21 @@ class WearAppUpdateCheckerTest {
         assertTrue(
             !AppUpdateChecker.isAllowedDownloadHost("https://evil.com/malware.apk"),
         )
+    }
+
+    @Test
+    fun `an https URL to an allowed host passes both wear download guards`() {
+        val url = "https://github.com/GlycemicGPT/GlycemicGPT/releases/download/v1.0/wear.apk"
+        assertTrue(AppUpdateChecker.isHttpsUrl(url))
+        assertTrue(AppUpdateChecker.isAllowedDownloadHost(url))
+    }
+
+    @Test
+    fun `downloadWearApk rejects an insecure http URL even to an allowed host`() = runTest {
+        val checker = WearAppUpdateChecker(mockk(relaxed = true), Moshi.Builder().build())
+        val result = checker.downloadWearApk("http://github.com/x/wear.apk", "wear.apk", 0L)
+        assertTrue(result is DownloadResult.Error)
+        assertEquals("Download blocked: insecure URL", (result as DownloadResult.Error).message)
     }
 
     @Test

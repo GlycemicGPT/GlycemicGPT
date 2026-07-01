@@ -22,6 +22,7 @@ import com.glycemicgpt.mobile.plugin.RuntimePluginInfo
 import com.glycemicgpt.mobile.data.local.GlucoseRangeStore
 import com.glycemicgpt.mobile.data.local.PumpCredentialStore
 import com.glycemicgpt.mobile.data.local.SafetyLimitsStore
+import com.glycemicgpt.mobile.data.remote.UrlSecurityPolicy
 import com.glycemicgpt.mobile.data.repository.AuthRepository
 import com.glycemicgpt.mobile.data.update.AppUpdateChecker
 import com.glycemicgpt.mobile.domain.model.GlucoseUnit
@@ -141,6 +142,10 @@ data class SettingsUiState(
     val baseUrl: String = "",
     val isLoggedIn: Boolean = false,
     val userEmail: String? = null,
+    // Network: opt-in to plaintext http:// for private/LAN hosts (Story 57.1). Default off.
+    val allowInsecureLanHttp: Boolean = false,
+    // Gates the "I understand the risk" acknowledgement dialog for enabling insecure LAN HTTP.
+    val showInsecureHttpConfirm: Boolean = false,
     // Pump
     val isPumpPaired: Boolean = false,
     val pairedPumpAddress: String? = null,
@@ -315,6 +320,7 @@ class SettingsViewModel @Inject constructor(
             isPumpPaired = pumpCredentialStore.isPaired(),
             pairedPumpAddress = pumpCredentialStore.getPairedAddress(),
             backendSyncEnabled = appSettingsStore.backendSyncEnabled,
+            allowInsecureLanHttp = appSettingsStore.allowInsecureLanHttp,
             dataRetentionDays = appSettingsStore.dataRetentionDays,
             appVersion = BuildConfig.VERSION_NAME,
             buildType = BuildConfig.BUILD_TYPE,
@@ -381,7 +387,7 @@ class SettingsViewModel @Inject constructor(
         }
         if (!authRepository.isValidUrl(trimmed)) {
             _uiState.value = _uiState.value.copy(
-                connectionTestResult = "Invalid URL. HTTPS required.",
+                connectionTestResult = UrlSecurityPolicy.INVALID_URL_MESSAGE,
             )
             return
         }
@@ -592,6 +598,33 @@ class SettingsViewModel @Inject constructor(
     fun setBackendSyncEnabled(enabled: Boolean) {
         appSettingsStore.backendSyncEnabled = enabled
         _uiState.value = _uiState.value.copy(backendSyncEnabled = enabled)
+    }
+
+    /**
+     * Handle the insecure-LAN-HTTP switch. Enabling requires an explicit acknowledgement (the
+     * switch defers to a confirmation dialog and only flips on confirm); disabling is immediate.
+     */
+    fun onInsecureLanHttpToggle(enabled: Boolean) {
+        if (enabled) {
+            _uiState.value = _uiState.value.copy(showInsecureHttpConfirm = true)
+        } else {
+            appSettingsStore.allowInsecureLanHttp = false
+            _uiState.value = _uiState.value.copy(allowInsecureLanHttp = false)
+        }
+    }
+
+    /** Cancel the acknowledgement without enabling insecure LAN HTTP. */
+    fun dismissInsecureHttpConfirm() {
+        _uiState.value = _uiState.value.copy(showInsecureHttpConfirm = false)
+    }
+
+    /** The user acknowledged the risk: enable insecure LAN HTTP (per-device) and close the dialog. */
+    fun confirmEnableInsecureLanHttp() {
+        appSettingsStore.allowInsecureLanHttp = true
+        _uiState.value = _uiState.value.copy(
+            allowInsecureLanHttp = true,
+            showInsecureHttpConfirm = false,
+        )
     }
 
     fun setDataRetentionDays(days: Int) {

@@ -10,6 +10,7 @@ import com.glycemicgpt.mobile.data.local.GlucoseRangeStore
 import com.glycemicgpt.mobile.data.local.PumpProfileStore
 import com.glycemicgpt.mobile.data.local.SafetyLimitsStore
 import com.glycemicgpt.mobile.data.remote.GlycemicGptApi
+import com.glycemicgpt.mobile.data.remote.UrlSecurityPolicy
 import com.glycemicgpt.mobile.data.remote.dto.GlucoseUnitUpdateRequest
 import com.glycemicgpt.mobile.data.remote.dto.LoginRequest
 import com.glycemicgpt.mobile.data.remote.dto.MealIntelligenceUpdateRequest
@@ -20,7 +21,6 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
-import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -79,7 +79,7 @@ class AuthRepository @Inject constructor(
             return LoginResult(success = false, error = "Configure server URL first")
         }
         if (!isValidUrl(baseUrl)) {
-            return LoginResult(success = false, error = "Invalid server URL. HTTPS required.")
+            return LoginResult(success = false, error = UrlSecurityPolicy.INVALID_URL_MESSAGE)
         }
         if (email.isBlank() || password.isBlank()) {
             return LoginResult(success = false, error = "Email and password are required")
@@ -146,11 +146,25 @@ class AuthRepository @Inject constructor(
         }
     }
 
-    fun isValidUrl(url: String): Boolean {
-        val parsed = url.toHttpUrlOrNull() ?: return false
-        if (BuildConfig.DEBUG && parsed.scheme == "http") return true
-        return parsed.scheme == "https"
-    }
+    /**
+     * The single chokepoint for server-URL transport policy: `https` always, `http` only in a
+     * debug build or when the user has opted into insecure LAN HTTP AND the host is a private/LAN
+     * literal. All three entry points (onboarding test, settings save, login) route through here.
+     */
+    fun isValidUrl(url: String): Boolean =
+        UrlSecurityPolicy.isAllowed(
+            url = url,
+            isDebug = BuildConfig.DEBUG,
+            allowInsecureLanHttp = appSettingsStore.allowInsecureLanHttp,
+        )
+
+    /**
+     * True when [url] is rejected today only because insecure LAN HTTP is off -- i.e. `http://` to
+     * a private host on a non-debug build. The UI uses this to offer a one-tap opt-in rather than a
+     * dead-end error.
+     */
+    fun isBlockedPendingLanHttpOptIn(url: String): Boolean =
+        !isValidUrl(url) && UrlSecurityPolicy.isBlockedPendingLanOptIn(url, BuildConfig.DEBUG)
 
     fun saveBaseUrl(url: String) {
         authTokenStore.saveBaseUrl(url)
