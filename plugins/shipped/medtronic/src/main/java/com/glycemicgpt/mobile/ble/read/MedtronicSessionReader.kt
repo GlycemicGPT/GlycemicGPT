@@ -132,10 +132,11 @@ class MedtronicSessionReader(
         link.subscribe(dataChar) { pdu ->
             if (finished) return@subscribe
             try {
-                val frame = assembler.offer(pdu) ?: return@subscribe
-                // Decrypting advances the session's inbound sequence counter, so only do it while the
-                // exchange is live; a late notification after finish() would desync the next read.
-                record = session.decryptFromPump(frame)
+                // Each notification PDU is individually SAKE-encrypted with its own 3-byte trailer.
+                // Decrypt first, then reassemble plaintext fragments into the complete record.
+                val plaintext = session.decryptFromPump(pdu)
+                val frame = assembler.offer(plaintext) ?: return@subscribe
+                record = frame
             } catch (e: Exception) {
                 // Any decrypt/auth failure (MacFailureException) or session-state/length error
                 // (IllegalState/IllegalArgument from SeqCrypt) must fail the read cleanly rather than
@@ -256,8 +257,11 @@ class MedtronicSessionReader(
         link.subscribe(dataChar) { pdu ->
             if (finished) return@subscribe
             try {
-                val frame = assembler.offer(pdu) ?: return@subscribe
-                records.add(session.decryptFromPump(frame))
+                // Each notification PDU is individually SAKE-encrypted with its own 3-byte trailer.
+                // Decrypt first, then reassemble plaintext fragments into the complete record.
+                val plaintext = session.decryptFromPump(pdu)
+                val frame = assembler.offer(plaintext) ?: return@subscribe
+                records.add(frame)
                 // Defense-in-depth: a misbehaving (but authenticated) pump that streams records but
                 // never sends the terminating RACP indication must not grow memory without bound. The
                 // ceiling is far above any realistic single-fetch window; the operation timeout the C3
@@ -350,8 +354,11 @@ class MedtronicSessionReader(
         link.subscribe(char) { pdu ->
             if (finished) return@subscribe
             try {
-                val frame = assembler.offer(pdu) ?: return@subscribe
-                finish(Result.success(session.decryptFromPump(frame)))
+                // Each notification PDU is individually SAKE-encrypted with its own 3-byte trailer.
+                // Decrypt first, then reassemble plaintext fragments into the complete response.
+                val plaintext = session.decryptFromPump(pdu)
+                val frame = assembler.offer(plaintext) ?: return@subscribe
+                finish(Result.success(frame))
             } catch (e: Exception) {
                 finish(Result.failure(asReadException(e, failMessage)))
             }
