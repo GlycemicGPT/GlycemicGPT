@@ -178,7 +178,7 @@ class MedtronicSessionReader(
      */
     fun socpGet(socp: UUID, requestOpcode: ByteArray, onResult: (Result<ByteArray>) -> Unit) {
         val request = appendE2eCrc(requestOpcode)
-        Timber.d("CGM SOCP GET request (%d bytes)", request.size)
+        Timber.d("CGM SOCP GET request (%d bytes) %s", request.size, request.toHex())
         encryptedGet(socp, session.encryptForPump(request), "SOCP response could not be decrypted", onResult)
     }
 
@@ -195,7 +195,7 @@ class MedtronicSessionReader(
      * with the other exchanges the caller must impose the operation timeout.
      */
     fun srcpGet(srcp: UUID, requestOpcode: ByteArray, onResult: (Result<ByteArray>) -> Unit) {
-        Timber.d("IDD SRCP GET request (%d bytes)", requestOpcode.size)
+        Timber.d("IDD SRCP GET request (%d bytes) %s", requestOpcode.size, requestOpcode.toHex())
         encryptedGet(srcp, session.encryptForPump(requestOpcode), "IDD SRCP response could not be decrypted", onResult)
     }
 
@@ -283,7 +283,7 @@ class MedtronicSessionReader(
             }
         }
 
-        Timber.d("IDD RACP report-records request (%d bytes)", request.size)
+        Timber.d("IDD RACP report-records request (%d bytes) %s", request.size, request.toHex())
         link.write(controlPoint, request)
     }
 
@@ -308,7 +308,7 @@ class MedtronicSessionReader(
             finish(Result.success(response.copyOf()))
         }
 
-        Timber.d("IDD RACP control-point query (%d bytes)", request.size)
+        Timber.d("IDD RACP control-point query (%d bytes) %s", request.size, request.toHex())
         link.write(controlPoint, request)
     }
 
