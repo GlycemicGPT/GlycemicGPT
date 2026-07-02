@@ -12,9 +12,11 @@
  *
  * READ-ONLY: only static reads and report/control-point writes (RACP / CGM SOCP / IDD SRCP, plus the
  * CCCD descriptor) are issued; [write] refuses any characteristic outside that allow-list, so no
- * therapeutic write opcode can be sent. MTU stays at 23 -- we never call `requestMtu()`; outbound
- * payloads arrive pre-fragmented to <= 20-byte PDUs via
- * [com.glycemicgpt.mobile.ble.protocol.PduFramer] and inbound reassembly stays above the seam.
+ * therapeutic write opcode can be sent. We never call `requestMtu()`; outbound payloads arrive
+ * pre-fragmented to <= 20-byte PDUs via [com.glycemicgpt.mobile.ble.protocol.PduFramer]. Inbound
+ * notification size is the pump's choice (the ATT MTU is per-bearer and the pump raises it from its
+ * side -- live multi-PDU history reads prove notifications above 20 bytes; see [PduFramer]); inbound
+ * reassembly stays above the seam.
  *
  * Over-the-air validation against a real pump rides with 48.A2 / Milestone F -- in particular that a
  * second (client) GATT connection attaches to the existing link rather than opening a new one. Nothing
@@ -212,7 +214,8 @@ class AndroidMedtronicGattLink(
                 // Register the handler before enabling notifications so a PDU delivered the instant the
                 // CCCD takes effect is not lost. Re-subscribing replaces the handler (seam contract).
                 // Record the owning client so a deferred unsubscribe can't disable a later connection.
-                handlers[characteristic] = ActiveSubscription(resolved, onPdu, link)
+                val sub = ActiveSubscription(resolved, onPdu, link)
+                handlers[characteristic] = sub
                 val isIndication = isIndication(char)
                 val enable = if (isIndication) CCCD_ENABLE_INDICATION else CCCD_ENABLE_NOTIFICATION
                 Timber.v("GATT subscribe %s (%s)", characteristic, if (isIndication) "indication" else "notification")
@@ -221,11 +224,16 @@ class AndroidMedtronicGattLink(
                 val outcome = awaitGatt("subscribe", characteristic) { writeDescriptor(link, cccd, enable) }
                 if (outcome.status != BluetoothGatt.GATT_SUCCESS) {
                     logGattWarning("subscribe", characteristic, outcome.status)
-                    // The CCCD never took effect; drop the handler so it isn't a phantom subscription.
-                    handlers.remove(characteristic)
+                    // The CCCD never took effect; drop the handler so it isn't a phantom subscription
+                    // (identity-checked -- a cancel + re-subscribe may already own the slot).
+                    handlers.remove(characteristic, sub)
                     return
                 }
-                armWatchdog()
+                // [cancelAllSubscriptions] runs lock-free from the cancellation handler, so it can
+                // clear this registration while the CCCD ack above is still in flight. Arming the
+                // watchdog then would leave a stale timer that later fires against an unrelated live
+                // exchange and drops its handlers. Arm only if this registration is still current.
+                if (handlers[characteristic] === sub) armWatchdog()
             }
         } catch (e: MedtronicReadException) {
             // On a timeout [awaitGatt] already tore the connection down, clearing handlers; nothing to undo.
@@ -241,6 +249,19 @@ class AndroidMedtronicGattLink(
         val sub = handlers.remove(characteristic) ?: return
         if (handlers.isEmpty()) cancelWatchdog()
         watchdog.execute { disableNotifications("unsubscribe", sub) }
+    }
+
+    override fun cancelAllSubscriptions() {
+        // Drop the handlers first, lock-free: no notification reaches the cancelled exchange. The CCCD
+        // disables are blocking GATT round trips (opLock + a completion wait each), and this is called
+        // from a coroutine's cancellation handler -- which on a timeout runs on kotlinx's process-global
+        // scheduler thread, where blocking would stall every delay/withTimeout in the app. Defer them to
+        // the cleanup thread, the same discipline as [unsubscribe].
+        if (handlers.isEmpty()) return
+        val orphaned = handlers.values.toList()
+        handlers.clear()
+        cancelWatchdog()
+        watchdog.execute { for (sub in orphaned) disableNotifications("cancel", sub) }
     }
 
     // -- Connection / discovery ---------------------------------------------
@@ -419,6 +440,14 @@ class AndroidMedtronicGattLink(
                 // have been replaced by a reconnect meanwhile. The old connection's subscriptions died
                 // with it, so skip rather than disable a characteristic on the new connection.
                 if (link !== sub.ownerGatt) return
+                // A new exchange may have re-subscribed this characteristic before the deferred disable
+                // ran (subscribe also serializes on [opLock], so this check cannot race it). The CCCD
+                // belongs to the new exchange now -- disabling it would silently starve that read. The
+                // check must be the *resolved* characteristic, not the bare UUID: RACP is exposed by
+                // both the CGM and IDD services, and a new subscription on the other service's RACP
+                // must not shield this one's CCCD from being disabled.
+                val current = handlers[sub.resolved.characteristic.uuid]
+                if (current != null && current.resolved.characteristic === sub.resolved.characteristic) return
                 val char = sub.resolved.characteristic
                 if (!link.setCharacteristicNotification(char, false)) {
                     Timber.w("Medtronic GATT %s: setCharacteristicNotification(false) was rejected", op)
@@ -479,8 +508,9 @@ class AndroidMedtronicGattLink(
                         connectPending?.offer(GattOutcome(status, null))
                         return
                     }
-                    // Never requestMtu(): the pump only honors 23-byte PDUs (AC5). Go straight to
-                    // discovery.
+                    // Never requestMtu(): our writes stay within the default MTU's 20-byte payloads
+                    // (AC5); the pump raises the MTU from its own side when it wants larger
+                    // notifications. Go straight to discovery.
                     val started =
                         try {
                             g.discoverServices()

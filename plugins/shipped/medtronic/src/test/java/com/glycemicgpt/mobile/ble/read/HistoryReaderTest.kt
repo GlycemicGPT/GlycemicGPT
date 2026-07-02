@@ -1,8 +1,9 @@
 /*
  * AC2: the history reader drives the IDD RACP over the C1 framework -- the plaintext count query, and
  * the multi-record report that collects SAKE-encrypted records on the IDD History Data characteristic
- * and terminates on the RACP success indication. Records are encrypted by a genuine two-sided SAKE
- * session and fragmented through PduFramer (MTU 23 discipline), in decrypt order.
+ * and terminates on the RACP success indication. Records are fragmented through PduFramer and each
+ * fragment individually SAKE-encrypted by a genuine two-sided session (the per-PDU encryption
+ * model), in decrypt order.
  */
 package com.glycemicgpt.mobile.ble.read
 
@@ -47,7 +48,8 @@ class HistoryReaderTest {
         link.reads[features] = two.pumpEncrypt(featuresPlain)
         link.onWrite = { characteristic, value ->
             if (characteristic == racp && value.contentEquals(HistoryReader.REQUEST_REPORT_LAST_RECORD)) {
-                PduFramer.fragment(two.pumpEncrypt(basalRecord)).forEach { emit(data, it) }
+                // Each plaintext fragment is individually SAKE-encrypted (per-PDU encryption model).
+                PduFramer.fragment(basalRecord).forEach { emit(data, two.pumpEncrypt(it)) }
                 emit(racp, HistoryReader.EXPECTED_REPORT_SUCCESS)
             }
         }
@@ -74,10 +76,11 @@ class HistoryReaderTest {
             if (characteristic == racp && value.size > 3 &&
                 value[0] == HistoryReader.REQUEST_REPORT_WITHIN_RANGE_PREFIX[0]
             ) {
-                PduFramer.fragment(two.pumpEncrypt(rec1)).forEach { emit(data, it) }
+                // Each plaintext fragment is individually SAKE-encrypted (per-PDU encryption model).
+                PduFramer.fragment(rec1).forEach { emit(data, two.pumpEncrypt(it)) }
                 // Emit rec1 again (same sequence 118) so dedup is actually exercised end to end.
-                PduFramer.fragment(two.pumpEncrypt(rec1)).forEach { emit(data, it) }
-                PduFramer.fragment(two.pumpEncrypt(rec2)).forEach { emit(data, it) }
+                PduFramer.fragment(rec1).forEach { emit(data, two.pumpEncrypt(it)) }
+                PduFramer.fragment(rec2).forEach { emit(data, two.pumpEncrypt(it)) }
                 emit(racp, HistoryReader.EXPECTED_REPORT_SUCCESS)
             }
         }
@@ -91,21 +94,158 @@ class HistoryReaderTest {
     }
 
     @Test
-    fun `readSinceSequence returns empty when already caught up`() {
+    fun `readRecordsInRange treats a no-records-found window as a successful empty page`() {
+        // The gateway's paging walk crosses the oldest retained record on deep backfills; the pump
+        // answers the empty window with NO_RECORDS_FOUND, which must be an empty page -- not a failure
+        // that discards every newer page already collected.
+        val two = TwoSidedSession()
+        val link = FakeGattLink()
+        link.reads[features] = two.pumpEncrypt(featuresPlain)
+        link.onWrite = { characteristic, value ->
+            if (characteristic == racp && value.size > 3 &&
+                value[0] == HistoryReader.REQUEST_REPORT_WITHIN_RANGE_PREFIX[0]
+            ) {
+                emit(racp, HistoryReader.REPORT_NO_RECORDS_FOUND)
+            }
+        }
+
+        var result: Result<List<com.glycemicgpt.mobile.domain.model.HistoryLogRecord>>? = null
+        HistoryReader(link, two.server).readRecordsInRange(1, 20) { result = it }
+
+        assertTrue(result!!.getOrThrow().isEmpty())
+    }
+
+    @Test
+    fun `readRecordsInRange fails when the pump reports no records after streaming frames`() {
+        // A contradictory pump: frames arrived but the terminal says the window was empty. Trusting
+        // either side risks returning stale data or silently dropping records -- the page must fail.
+        val two = TwoSidedSession()
+        val link = FakeGattLink()
+        link.reads[features] = two.pumpEncrypt(featuresPlain)
+        link.onWrite = { characteristic, value ->
+            if (characteristic == racp && value.size > 3 &&
+                value[0] == HistoryReader.REQUEST_REPORT_WITHIN_RANGE_PREFIX[0]
+            ) {
+                PduFramer.fragment(basalRecord).forEach { emit(data, two.pumpEncrypt(it)) }
+                emit(racp, HistoryReader.REPORT_NO_RECORDS_FOUND)
+            }
+        }
+
+        var result: Result<List<com.glycemicgpt.mobile.domain.model.HistoryLogRecord>>? = null
+        HistoryReader(link, two.server).readRecordsInRange(100, 130) { result = it }
+
+        assertTrue(result!!.isFailure)
+    }
+
+    @Test
+    fun `readRecordsInRange rejects a terminal indication with trailing bytes`() {
+        // Terminals are matched exactly (as upstream does); a prefix match would accept a malformed
+        // or truncated-then-padded indication as a clean success.
+        val two = TwoSidedSession()
+        val link = FakeGattLink()
+        link.reads[features] = two.pumpEncrypt(featuresPlain)
+        link.onWrite = { characteristic, value ->
+            if (characteristic == racp && value.size > 3 &&
+                value[0] == HistoryReader.REQUEST_REPORT_WITHIN_RANGE_PREFIX[0]
+            ) {
+                PduFramer.fragment(basalRecord).forEach { emit(data, two.pumpEncrypt(it)) }
+                emit(racp, HistoryReader.EXPECTED_REPORT_SUCCESS + byteArrayOf(0x00))
+            }
+        }
+
+        var result: Result<List<com.glycemicgpt.mobile.domain.model.HistoryLogRecord>>? = null
+        HistoryReader(link, two.server).readRecordsInRange(100, 130) { result = it }
+
+        assertTrue(result!!.isFailure)
+    }
+
+    @Test
+    fun `readLastRecord returns null when the log is empty (no-records-found)`() {
         val two = TwoSidedSession()
         val link = FakeGattLink()
         link.reads[features] = two.pumpEncrypt(featuresPlain)
         link.onWrite = { characteristic, value ->
             if (characteristic == racp && value.contentEquals(HistoryReader.REQUEST_REPORT_LAST_RECORD)) {
-                PduFramer.fragment(two.pumpEncrypt(basalRecord)).forEach { emit(data, it) } // seq 120
+                emit(racp, HistoryReader.REPORT_NO_RECORDS_FOUND)
+            }
+        }
+
+        var result: Result<com.glycemicgpt.mobile.domain.model.HistoryLogRecord?>? = null
+        HistoryReader(link, two.server).readLastRecord { result = it }
+
+        assertNull(result!!.getOrThrow())
+    }
+
+    @Test
+    fun `readRecordsInRange fails when any frame in the page is undecodable`() {
+        // A partially-undecodable page must not return just the survivors: the gateway's walk moves
+        // past the window and the callers' cursors advance to the max sequence seen, so the dropped
+        // record would be skipped permanently. The whole page fails so the cursor stays put.
+        val two = TwoSidedSession()
+        val link = FakeGattLink()
+        link.reads[features] = two.pumpEncrypt(featuresPlain)
+        link.onWrite = { characteristic, value ->
+            if (characteristic == racp && value.size > 3 &&
+                value[0] == HistoryReader.REQUEST_REPORT_WITHIN_RANGE_PREFIX[0]
+            ) {
+                PduFramer.fragment(basalRecord).forEach { emit(data, two.pumpEncrypt(it)) } // decodes fine
+                emit(data, two.pumpEncrypt(hex("01020304"))) // shorter than the 8-byte record header
                 emit(racp, HistoryReader.EXPECTED_REPORT_SUCCESS)
             }
         }
 
         var result: Result<List<com.glycemicgpt.mobile.domain.model.HistoryLogRecord>>? = null
-        HistoryReader(link, two.server).readSinceSequence(sinceSequence = 200) { result = it }
+        HistoryReader(link, two.server).readRecordsInRange(100, 120) { result = it }
 
-        assertTrue(result!!.getOrThrow().isEmpty())
+        assertTrue(result!!.isFailure)
+    }
+
+    @Test
+    fun `readRecordsInRange fails when a record is still unterminated at the success indication`() {
+        // A record whose plaintext is an exact PDU multiple has no short terminator (the documented
+        // reassembler ambiguity). Dropping it silently would let the cursors advance past a record
+        // the pump sent; the page must fail so the read is retried with nothing skipped.
+        val two = TwoSidedSession()
+        val link = FakeGattLink()
+        link.reads[features] = two.pumpEncrypt(featuresPlain)
+        // 20-byte record: header (8) + 12-byte body -- exactly one full fragment, never terminated.
+        val exactMultiple = le16(0x0099) + le32(121) + le16(0) + ByteArray(12) { it.toByte() }
+        link.onWrite = { characteristic, value ->
+            if (characteristic == racp && value.size > 3 &&
+                value[0] == HistoryReader.REQUEST_REPORT_WITHIN_RANGE_PREFIX[0]
+            ) {
+                PduFramer.fragment(exactMultiple).forEach { emit(data, two.pumpEncrypt(it)) }
+                emit(racp, HistoryReader.EXPECTED_REPORT_SUCCESS)
+            }
+        }
+
+        var result: Result<List<com.glycemicgpt.mobile.domain.model.HistoryLogRecord>>? = null
+        HistoryReader(link, two.server).readRecordsInRange(100, 130) { result = it }
+
+        assertTrue(result!!.isFailure)
+    }
+
+    @Test
+    fun `readRecordsInRange fails when every frame in the page is undecodable`() {
+        // Frames arrived but none survived parsing: reporting an empty page here would end the
+        // gateway's walk and let the callers' cursors skip these records permanently. It must fail.
+        val two = TwoSidedSession()
+        val link = FakeGattLink()
+        link.reads[features] = two.pumpEncrypt(featuresPlain)
+        link.onWrite = { characteristic, value ->
+            if (characteristic == racp && value.size > 3 &&
+                value[0] == HistoryReader.REQUEST_REPORT_WITHIN_RANGE_PREFIX[0]
+            ) {
+                // A frame shorter than the 8-byte record header is dropped by the parser.
+                emit(data, two.pumpEncrypt(hex("01020304")))
+                emit(racp, HistoryReader.EXPECTED_REPORT_SUCCESS)
+            }
+        }
+
+        var result: Result<List<com.glycemicgpt.mobile.domain.model.HistoryLogRecord>>? = null
+        HistoryReader(link, two.server).readRecordsInRange(100, 120) { result = it }
+
+        assertTrue(result!!.isFailure)
     }
 
     @Test

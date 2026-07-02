@@ -56,4 +56,14 @@ interface MedtronicGattLink {
 
     /** Disable notifications and drop the handler for [characteristic]. */
     fun unsubscribe(characteristic: UUID)
+
+    /**
+     * Release every outstanding subscription on this link, clearing all handlers and disabling
+     * CCCD notifications. Called when the driving coroutine is cancelled (e.g. operation timeout)
+     * and the readers' normal [unsubscribe] path was not reached. Must not block the caller: on a
+     * timeout the cancellation handler runs on kotlinx's process-global scheduler thread, where a
+     * blocking GATT round trip would stall every `delay`/`withTimeout` in the app -- implementations
+     * drop the handlers immediately and defer any blocking CCCD teardown off the calling thread.
+     */
+    fun cancelAllSubscriptions()
 }

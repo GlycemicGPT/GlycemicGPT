@@ -33,8 +33,17 @@ internal class FakeGattLink : MedtronicGattLink {
     /** Invoked on every [write]; the receiver scripts notifications via [emit]. */
     var onWrite: (FakeGattLink.(characteristic: UUID, value: ByteArray) -> Unit)? = null
 
+    /**
+     * Optional dynamic read stub, tried before [reads]. Needed when a test's session decrypts the
+     * same characteristic more than once (e.g. the per-page IDD Features read): SAKE sequence
+     * counters step per frame, so each read must be freshly encrypted at delivery time.
+     */
+    var onRead: ((UUID) -> ByteArray?)? = null
+
     override fun read(characteristic: UUID): ByteArray =
-        reads[characteristic] ?: throw MedtronicReadException("no read stub for $characteristic")
+        onRead?.invoke(characteristic)
+            ?: reads[characteristic]
+            ?: throw MedtronicReadException("no read stub for $characteristic")
 
     override fun write(characteristic: UUID, value: ByteArray) {
         writes.add(characteristic to value)
@@ -48,6 +57,11 @@ internal class FakeGattLink : MedtronicGattLink {
 
     override fun unsubscribe(characteristic: UUID) {
         handlers.remove(characteristic)
+    }
+
+    override fun cancelAllSubscriptions() {
+        handlers.clear()
+        retained.clear()
     }
 
     /** Deliver one inbound PDU to whatever handler is currently subscribed on [characteristic]. */

@@ -31,12 +31,14 @@ import com.glycemicgpt.mobile.domain.model.HistoryLogRecord
  * wiring must address [MedtronicProtocol.RACP_UUID] under the IDD service for these reads
  * (`TODO(48.C3)` for the on-device service scoping).
  *
- * **Record framing caveat.** Records are delimited by the short-PDU rule of the C1 reassembler
- * (multi-byte records fragment at the 23-byte MTU and the trailing short PDU ends each one). Upstream's
- * Linux client negotiated a larger MTU and so received one record per notification; on Android we hold
- * MTU 23 (never `requestMtu()`) and must reassemble. A record whose encrypted length is an exact
- * multiple of the PDU size has no short terminator -- the documented [NotificationReassembler]
- * ambiguity. The exact on-wire delimiting is unconfirmed offline; `TODO(48.A2)` to verify against a
+ * **Record framing.** Each notification PDU is individually SAKE-encrypted (its own 3-byte trailer);
+ * the C1 reassembler delimits records on the decrypted *plaintext* fragments by its short-PDU rule (a
+ * fragment shorter than 20 bytes ends the record). Live 780G reads through this path MAC-pass on
+ * multi-PDU records (PR #852), which is cryptographic proof of the per-PDU model -- and implies the
+ * pump's notifications exceed the 20-byte payload of a default MTU-23 link (we never `requestMtu()`,
+ * but the ATT MTU is per-bearer and the pump raises it from its side; see [PduFramer]). A record whose
+ * plaintext is an exact multiple of the fragment size has no short terminator -- the documented
+ * [NotificationReassembler] ambiguity; `TODO(48.A2)` to pin the exact on-wire fragment sizes from a
  * live capture. As with the other readers the caller (C3) imposes the per-operation timeout.
  */
 class HistoryReader(
@@ -60,27 +62,14 @@ class HistoryReader(
         }
     }
 
-    /** All records with sequence number in [firstSeq]..[lastSeq] inclusive. */
+    /**
+     * All records with sequence number in [firstSeq]..[lastSeq] inclusive. A window the pump holds no
+     * records for (the RACP "no records found" indication) is a successful empty list, not a failure
+     * -- the gateway's paging walk relies on that to detect the oldest retained record.
+     */
     fun readRecordsInRange(firstSeq: Int, lastSeq: Int, onResult: (Result<List<HistoryLogRecord>>) -> Unit) {
         val e2e = e2eFlagOr(onResult) ?: return
         fetchRecords(rangeRequest(firstSeq, lastSeq), e2e, onResult)
-    }
-
-    /**
-     * Incremental backfill: every record newer than [sinceSequence]. Reads the last record to learn
-     * the newest sequence, then ranges from `sinceSequence + 1` to it. Empty when the log is already
-     * caught up. Matches the `getHistoryLogs(sinceSequence)` contract the C3 PumpStatus capability uses.
-     */
-    fun readSinceSequence(sinceSequence: Int, onResult: (Result<List<HistoryLogRecord>>) -> Unit) {
-        val e2e = e2eFlagOr(onResult) ?: return
-        fetchRecords(REQUEST_REPORT_LAST_RECORD, e2e) { lastResult ->
-            val last = lastResult.getOrElse { onResult(Result.failure(it)); return@fetchRecords }.firstOrNull()
-            when {
-                last == null -> onResult(Result.success(emptyList()))
-                last.sequenceNumber <= sinceSequence -> onResult(Result.success(emptyList()))
-                else -> fetchRecords(rangeRequest(sinceSequence + 1, last.sequenceNumber), e2e, onResult)
-            }
-        }
     }
 
     /** Read the IDD Features E2E flag, routing a read/parse failure to [onResult]; null = abort. */
@@ -93,17 +82,46 @@ class HistoryReader(
         }
 
     private fun fetchRecords(request: ByteArray, useE2e: Boolean, onResult: (Result<List<HistoryLogRecord>>) -> Unit) {
+        // Which terminal ended the exchange; set on the link's single delivery thread before the
+        // completion callback below runs on that same thread (the C1 threading contract).
+        var noRecordsTerminal = false
         sessionReader.reportRecords(
             dataChar = MedtronicProtocol.IDD_HISTORY_DATA_UUID,
             controlPoint = MedtronicProtocol.RACP_UUID,
             request = request,
-            isSuccess = ::isReportSuccess,
+            isSuccess = { response ->
+                when {
+                    response.contentEquals(EXPECTED_REPORT_SUCCESS) -> true
+                    response.contentEquals(REPORT_NO_RECORDS_FOUND) -> {
+                        noRecordsTerminal = true
+                        true
+                    }
+                    else -> false
+                }
+            },
         ) { result ->
             onResult(
                 result.mapCatching { frames ->
-                    MedtronicHistoryParser.dedupBySequence(
-                        frames.mapNotNull { MedtronicHistoryParser.toHistoryLogRecord(it, useE2e) },
-                    )
+                    // A pump that says "no records found" after streaming frames is contradicting
+                    // itself; trusting either side risks returning stale/misordered data or silently
+                    // dropping records. Fail so the read is retried with the cursors unchanged.
+                    if (noRecordsTerminal && frames.isNotEmpty()) {
+                        throw MedtronicReadException(
+                            "IDD RACP reported no records but ${frames.size} frames arrived",
+                        )
+                    }
+                    val parsed = frames.mapNotNull { MedtronicHistoryParser.toHistoryLogRecord(it, useE2e) }
+                    // Any undecodable frame must fail the read, not silently shrink the page: the
+                    // gateway's walk advances past this window and the callers advance their cursor to
+                    // the max sequence seen, so a dropped record would be skipped for good (this is
+                    // bolus history feeding IOB). Failing leaves the cursor put and the read retried.
+                    // Checked before dedup -- duplicate frames legitimately shrink the list.
+                    if (parsed.size < frames.size) {
+                        throw MedtronicReadException(
+                            "${frames.size - parsed.size} of ${frames.size} history frames in the page were undecodable",
+                        )
+                    }
+                    MedtronicHistoryParser.dedupBySequence(parsed)
                 },
             )
         }
@@ -120,11 +138,6 @@ class HistoryReader(
         }
         return MedtronicCodec.readUIntLe(response, 2, 2)
     }
-
-    /** True when the terminating RACP indication is the IDD "report records: success" response code. */
-    private fun isReportSuccess(response: ByteArray): Boolean =
-        response.size >= EXPECTED_REPORT_SUCCESS.size &&
-            EXPECTED_REPORT_SUCCESS.indices.all { response[it] == EXPECTED_REPORT_SUCCESS[it] }
 
     private fun rangeRequest(firstSeq: Int, lastSeq: Int): ByteArray =
         REQUEST_REPORT_WITHIN_RANGE_PREFIX + MedtronicCodec.u32Le(firstSeq) + MedtronicCodec.u32Le(lastSeq)
@@ -143,6 +156,7 @@ class HistoryReader(
         private const val OPERATOR_LAST_RECORD = 105 // 0x69
         private const val FILTER_SEQUENCE_NUMBER = 15 // 0x0F
         private const val RESPONSE_SUCCESS = 240 // 0xF0
+        private const val RESPONSE_NO_RECORDS_FOUND = 6 // 0x06
 
         /** RACP: report stored records, last record, by sequence number. */
         val REQUEST_REPORT_LAST_RECORD =
@@ -159,5 +173,9 @@ class HistoryReader(
         /** Terminating success indication: response-code / null / report-records / success. */
         val EXPECTED_REPORT_SUCCESS =
             byteArrayOf(RESPONSE_CODE.toByte(), OPERATOR_NULL.toByte(), OP_REPORT_RECORDS.toByte(), RESPONSE_SUCCESS.toByte())
+
+        /** Terminating "no records found" indication: a successful exchange over an empty window. */
+        val REPORT_NO_RECORDS_FOUND =
+            byteArrayOf(RESPONSE_CODE.toByte(), OPERATOR_NULL.toByte(), OP_REPORT_RECORDS.toByte(), RESPONSE_NO_RECORDS_FOUND.toByte())
     }
 }
