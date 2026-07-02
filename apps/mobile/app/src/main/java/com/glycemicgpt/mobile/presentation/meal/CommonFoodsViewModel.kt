@@ -49,7 +49,9 @@ class CommonFoodsViewModel @Inject constructor(
         // Cancel any in-flight load so a slow failing request can't resolve after a newer one
         // succeeded and clobber the screen with a stale full-screen error.
         loadJob?.cancel()
-        _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+        // Reset disabled too: after a prior FeatureDisabled response, an offline retry must show
+        // the honest offline state, not a stale "feature disabled" one. FeatureDisabled re-sets it.
+        _uiState.update { it.copy(isLoading = true, errorMessage = null, disabled = false) }
         loadJob = viewModelScope.launch {
             val result = repository.listCommonFoods()
             // A repository that wraps errors in Result can swallow the CancellationException,

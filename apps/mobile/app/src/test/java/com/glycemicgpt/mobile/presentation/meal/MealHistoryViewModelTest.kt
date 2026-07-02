@@ -69,7 +69,7 @@ class MealHistoryViewModelTest {
     @Test
     fun `offline load failure reaches a terminal state with honest copy`() = runTest(testDispatcher) {
         coEvery { repository.listFoodRecords(any(), any()) } returns
-            Result.failure(java.io.IOException("failed to connect to /192.168.1.10:8000"))
+            Result.failure(java.io.IOException("failed to connect to backend host"))
         val vm = MealHistoryViewModel(repository)
         advanceUntilIdle()
 
@@ -90,6 +90,27 @@ class MealHistoryViewModelTest {
 
         assertFalse(vm.uiState.value.isLoading)
         assertEquals("Couldn't load your meal history.", vm.uiState.value.errorMessage)
+    }
+
+    @Test
+    fun `offline retry after a disabled response shows the honest offline state, not disabled`() = runTest(testDispatcher) {
+        coEvery { repository.listFoodRecords(any(), any()) } returns
+            Result.failure(MealException.FeatureDisabled())
+        val vm = MealHistoryViewModel(repository)
+        advanceUntilIdle()
+        assertTrue(vm.uiState.value.disabled)
+
+        coEvery { repository.listFoodRecords(any(), any()) } returns
+            Result.failure(java.io.IOException("unreachable"))
+        vm.load()
+        advanceUntilIdle()
+
+        // The stale disabled flag must not mask the offline Retry state (AC3 honesty).
+        assertFalse(vm.uiState.value.disabled)
+        assertEquals(
+            "Can't reach your server — your meal history isn't available right now.",
+            vm.uiState.value.errorMessage,
+        )
     }
 
     @Test

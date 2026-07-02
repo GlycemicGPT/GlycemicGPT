@@ -62,7 +62,17 @@ class AlertStreamService : Service() {
     @Inject lateinit var moshi: Moshi
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    // Written on the main thread (connectToStream/onDestroy) but the surrounding lifecycle races
+    // OkHttp-thread callbacks; without @Volatile a stale null read could leak a live connection
+    // or open a duplicate one. Mutation is additionally confined to the @Synchronized
+    // connectToStream/shutDownStream pair so only one connection transition runs at a time.
+    @Volatile
     private var eventSource: EventSource? = null
+
+    /** Set once in [shutDownStream]; blocks any late reconnect from resurrecting the stream. */
+    @Volatile
+    private var destroyed = false
     private val reconnectAttempt = AtomicInteger(0)
     private val reconnectScheduled = AtomicBoolean(false)
     private var reconnectJob: Job? = null
@@ -109,12 +119,7 @@ class AlertStreamService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
-        // Invalidate the live connection's callbacks BEFORE cancelling it: cancel() delivers an
-        // async onFailure on an OkHttp thread, and without the bump its generation would still
-        // match, letting it clobber the DISCONNECTED written below back to RECONNECTING.
-        connectionGeneration.incrementAndGet()
-        eventSource?.cancel()
-        alertStreamStateHolder.onStreamStopped()
+        shutDownStream()
         reconnectJob?.cancel()
         sseClient.dispatcher.executorService.shutdownNow()
         try {
@@ -128,7 +133,37 @@ class AlertStreamService : Service() {
         super.onDestroy()
     }
 
+    /**
+     * Tear down the stream for good. Synchronized against [connectToStream] so a reconnect
+     * coroutine that already resumed from its backoff delay (cooperative cancellation can be too
+     * late) cannot open a new connection after this ran — [destroyed] makes it bail instead.
+     */
+    @Synchronized
+    private fun shutDownStream() {
+        destroyed = true
+        // Invalidate the live connection's callbacks BEFORE cancelling it: cancel() delivers an
+        // async onFailure on an OkHttp thread, and without the bump its generation would still
+        // match, letting it clobber the DISCONNECTED written below back to RECONNECTING.
+        connectionGeneration.incrementAndGet()
+        eventSource?.cancel()
+        eventSource = null
+        alertStreamStateHolder.onStreamStopped()
+    }
+
+    /**
+     * Synchronized: callable from the main thread ([onStartCommand]) and the reconnect coroutine
+     * (IO dispatcher). Without mutual exclusion two overlapping calls each cancel-and-rebuild, and
+     * the losing call's freshly opened EventSource is overwritten in [eventSource] with no
+     * remaining reference — an orphaned live connection (the generation guard only silences its
+     * callbacks, it does not close the socket). The body never blocks (newEventSource connects
+     * asynchronously), so holding the monitor is cheap.
+     */
+    @Synchronized
     private fun connectToStream() {
+        if (destroyed) {
+            Timber.d("connectToStream skipped; service is shut down")
+            return
+        }
         // Invalidate the previous connection's callbacks before cancelling it, so its async
         // onFailure can't flip the state holder after we've already decided what comes next
         // (including the early-return DISCONNECTED paths below).
