@@ -50,6 +50,49 @@ class CommonFoodsViewModelTest {
     }
 
     @Test
+    fun `offline load failure reaches a terminal state with honest copy`() = runTest(testDispatcher) {
+        coEvery { repository.listCommonFoods(any(), any()) } returns
+            Result.failure(java.io.IOException("failed to connect to /192.168.1.10:8000"))
+        val vm = CommonFoodsViewModel(repository)
+        advanceUntilIdle()
+
+        // Terminal: not loading, honest offline copy, never the raw exception message.
+        assertEquals(false, vm.uiState.value.isLoading)
+        assertEquals(
+            "Can't reach your server — your common foods aren't available right now.",
+            vm.uiState.value.errorMessage,
+        )
+    }
+
+    @Test
+    fun `unexpected load failure never surfaces the raw exception message`() = runTest(testDispatcher) {
+        coEvery { repository.listCommonFoods(any(), any()) } returns
+            Result.failure(IllegalStateException("moshi: expected BEGIN_OBJECT at path $.data"))
+        val vm = CommonFoodsViewModel(repository)
+        advanceUntilIdle()
+
+        assertEquals(false, vm.uiState.value.isLoading)
+        assertEquals("Couldn't load your common foods.", vm.uiState.value.errorMessage)
+    }
+
+    @Test
+    fun `retry after reconnect clears the error and loads foods`() = runTest(testDispatcher) {
+        coEvery { repository.listCommonFoods(any(), any()) } returns
+            Result.failure(java.io.IOException("unreachable"))
+        val vm = CommonFoodsViewModel(repository)
+        advanceUntilIdle()
+        assertTrue(vm.uiState.value.errorMessage != null)
+
+        coEvery { repository.listCommonFoods(any(), any()) } returns
+            Result.success(listOf(food("a", "pasta")))
+        vm.load()
+        advanceUntilIdle()
+
+        assertNull(vm.uiState.value.errorMessage)
+        assertEquals(1, vm.uiState.value.items.size)
+    }
+
+    @Test
     fun `edit validates carbs before calling the API`() = runTest(testDispatcher) {
         coEvery { repository.listCommonFoods(any(), any()) } returns
             Result.success(listOf(food("a", "pasta")))

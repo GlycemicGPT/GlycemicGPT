@@ -156,8 +156,10 @@ private fun NoProviderContent(modifier: Modifier = Modifier) {
     }
 }
 
+/** Terminal offline state for chat: a clear message + Retry, never a stuck spinner. Internal so
+ *  UI tests can assert the degraded rendering directly. */
 @Composable
-private fun OfflineContent(onRetry: () -> Unit) {
+internal fun OfflineContent(onRetry: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()

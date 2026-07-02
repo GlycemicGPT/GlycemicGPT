@@ -58,6 +58,7 @@ class AlertStreamService : Service() {
     @Inject lateinit var authTokenStore: AuthTokenStore
     @Inject lateinit var alertRepository: AlertRepository
     @Inject lateinit var alertNotificationManager: AlertNotificationManager
+    @Inject lateinit var alertStreamStateHolder: AlertStreamStateHolder
     @Inject lateinit var moshi: Moshi
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -94,6 +95,7 @@ class AlertStreamService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        alertStreamStateHolder.onStreamStopped()
         eventSource?.cancel()
         reconnectJob?.cancel()
         sseClient.dispatcher.executorService.shutdownNow()
@@ -115,10 +117,12 @@ class AlertStreamService : Service() {
 
         val baseUrl = authTokenStore.getBaseUrl() ?: run {
             Timber.w("No base URL configured, cannot connect alert stream")
+            alertStreamStateHolder.onStreamStopped()
             return
         }
         val token = authTokenStore.getRawToken() ?: run {
             Timber.w("No auth token available, cannot connect alert stream")
+            alertStreamStateHolder.onStreamStopped()
             return
         }
 
@@ -140,6 +144,7 @@ class AlertStreamService : Service() {
             object : EventSourceListener() {
                 override fun onOpen(eventSource: EventSource, response: Response) {
                     Timber.d("Alert SSE stream connected (status=%d)", response.code)
+                    alertStreamStateHolder.onStreamOpened()
                     connectionOpenedAtMs = System.currentTimeMillis()
                     // Don't reset reconnectAttempt here -- only reset after
                     // STABLE_CONNECTION_MS to prevent rapid connect/fail cycles
@@ -180,12 +185,14 @@ class AlertStreamService : Service() {
                         reconnectAttempt.set(5.coerceAtLeast(attempt))
                     }
 
+                    alertStreamStateHolder.onStreamRetrying()
                     scheduleReconnect()
                 }
 
                 override fun onClosed(eventSource: EventSource) {
                     if (connectionGeneration.get() != gen) return
                     Timber.d("Alert SSE stream closed by server")
+                    alertStreamStateHolder.onStreamRetrying()
                     scheduleReconnect()
                 }
             },
@@ -274,6 +281,7 @@ class AlertStreamService : Service() {
                     connectToStream()
                 } else {
                     Timber.d("No active session, stopping alert stream service")
+                    alertStreamStateHolder.onStreamStopped()
                     stopSelf()
                 }
             } finally {

@@ -121,14 +121,19 @@ class CommonFoodsViewModel @Inject constructor(
 
     private fun CommonFoodsUiState.withError(e: Throwable): CommonFoodsUiState = when (e) {
         is MealException.FeatureDisabled -> copy(disabled = true, errorMessage = null)
-        is IOException -> copy(errorMessage = "Check your connection and try again.")
-        else -> copy(errorMessage = e.message ?: "Couldn't load your common foods.")
+        is IOException -> copy(
+            errorMessage = "Can't reach your server — your common foods aren't available right now.",
+        )
+        is MealException -> copy(errorMessage = e.message ?: "Couldn't load your common foods.")
+        // Never surface a raw exception message for unexpected failures.
+        else -> copy(errorMessage = "Couldn't load your common foods.")
     }
 
     private fun editMessageFor(e: Throwable): String = when (e) {
         is MealException.NameConflict -> e.message ?: "A common food with that name already exists."
         is MealException -> e.message ?: "Couldn't save your changes."
         is IOException -> "Check your connection and try again."
-        else -> e.message ?: "Couldn't save your changes."
+        // Never surface a raw exception message for unexpected failures.
+        else -> "Couldn't save your changes."
     }
 }

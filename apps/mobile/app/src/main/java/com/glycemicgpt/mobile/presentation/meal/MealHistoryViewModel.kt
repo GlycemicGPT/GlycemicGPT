@@ -73,7 +73,11 @@ class MealHistoryViewModel @Inject constructor(
 
     private fun MealHistoryUiState.withError(e: Throwable): MealHistoryUiState = when (e) {
         is MealException.FeatureDisabled -> copy(disabled = true, errorMessage = null)
-        is IOException -> copy(errorMessage = "Check your connection and try again.")
-        else -> copy(errorMessage = e.message ?: "Couldn't load your meal history.")
+        is IOException -> copy(
+            errorMessage = "Can't reach your server — your meal history isn't available right now.",
+        )
+        is MealException -> copy(errorMessage = e.message ?: "Couldn't load your meal history.")
+        // Never surface a raw exception message for unexpected failures.
+        else -> copy(errorMessage = "Couldn't load your meal history.")
     }
 }
