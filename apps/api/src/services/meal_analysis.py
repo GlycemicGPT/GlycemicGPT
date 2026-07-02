@@ -24,6 +24,7 @@ from src.models.user import User
 from src.schemas.ai_response import AIMessage
 from src.schemas.meal_analysis import MealPeriodData
 from src.services.ai_client import get_ai_client
+from src.services.cgm_source import glucose_readings_query
 from src.services.diabetes_context import (
     PumpProfileSummary,
     build_allowed_glucose,
@@ -202,17 +203,24 @@ async def analyze_post_meal_patterns(
     boluses = list(bolus_result.scalars().all())
 
     # Fetch all glucose readings for the full period plus 2hr buffer in one query
-    # to avoid N+1 queries (one per bolus)
+    # to avoid N+1 queries (one per bolus). Primary CGM source only (GLY-123) so
+    # post-meal peaks aren't skewed by a non-primary source reposting the sensor.
     extended_end = period_end + timedelta(hours=POST_MEAL_WINDOW_HOURS)
-    all_readings_result = await db.execute(
-        select(GlucoseReading.reading_timestamp, GlucoseReading.value)
+    readings_stmt = (
+        (
+            await glucose_readings_query(
+                db,
+                user_id,
+                entities=(GlucoseReading.reading_timestamp, GlucoseReading.value),
+            )
+        )
         .where(
-            GlucoseReading.user_id == user_id,
             GlucoseReading.reading_timestamp >= period_start,
             GlucoseReading.reading_timestamp <= extended_end,
         )
         .order_by(GlucoseReading.reading_timestamp)
     )
+    all_readings_result = await db.execute(readings_stmt)
     all_readings = [(row[0], row[1]) for row in all_readings_result.all()]
 
     # Group boluses by meal period and analyze post-meal glucose

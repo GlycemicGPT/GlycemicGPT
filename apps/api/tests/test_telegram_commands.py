@@ -178,6 +178,18 @@ class TestHandleStatus:
     """Tests for _handle_status."""
 
     @pytest.fixture(autouse=True)
+    def _stub_empty_cgm_exclusion(self):
+        # _handle_status now reads the latest reading through the shared
+        # primary-source funnel (GLY-123). These tests mock the DB and set no
+        # CGM sources, so stub the exclusion to empty to avoid the funnel's
+        # list_cgm_sources queries against the single-result execute mock.
+        with patch(
+            "src.services.cgm_source.get_excluded_cgm_sources",
+            new=AsyncMock(return_value=[]),
+        ):
+            yield
+
+    @pytest.fixture(autouse=True)
     def _mgdl_unit(self):
         # _handle_status resolves the patient's unit before rendering; default it
         # to mg/dL so the existing assertions check a real resolved unit rather

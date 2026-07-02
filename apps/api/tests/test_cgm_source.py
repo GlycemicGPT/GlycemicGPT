@@ -27,12 +27,14 @@ from src.models.nightscout_connection import (
     NightscoutConnection,
     NightscoutSyncStatus,
 )
+from src.models.pump_data import PumpEvent, PumpEventType
 from src.services.cgm_source import (
     CGM_ROLE_OFF,
     CGM_ROLE_PRIMARY,
     CGM_ROLE_SECONDARY,
     default_cgm_role_for_new_source,
     get_excluded_cgm_sources,
+    glucose_readings_query,
     list_cgm_sources,
     set_primary_cgm_source,
 )
@@ -469,3 +471,424 @@ class TestGlucoseFilteringByPrimary:
                 cookies={settings.jwt_cookie_name: cookie},
             )
             assert agp.status_code == 200
+
+
+async def _seed_one(
+    db: AsyncSession,
+    uid: uuid.UUID,
+    source: str,
+    value: int,
+    ts: datetime,
+) -> None:
+    """Seed a single glucose reading with an explicit value + timestamp."""
+    db.add(
+        GlucoseReading(
+            user_id=uid,
+            value=value,
+            reading_timestamp=ts,
+            trend=TrendDirection.FLAT,
+            trend_rate=0.0,
+            received_at=ts,
+            source=source,
+        )
+    )
+    await db.commit()
+
+
+async def _add_bolus(
+    db: AsyncSession,
+    uid: uuid.UUID,
+    ts: datetime,
+    units: float,
+    *,
+    bg_at_event: int | None = None,
+) -> None:
+    """Seed a manual (non-automated) bolus event."""
+    db.add(
+        PumpEvent(
+            user_id=uid,
+            event_type=PumpEventType.BOLUS,
+            event_timestamp=ts,
+            units=units,
+            is_automated=False,
+            bg_at_event=bg_at_event,
+            received_at=ts,
+            source="tandem",
+        )
+    )
+    await db.commit()
+
+
+@pytest.mark.asyncio
+class TestGlucoseReadingsQueryFunnel:
+    """The shared ``glucose_readings_query`` funnel (GLY-123) -- the single
+    place every glucose-read consumer builds on so the primary-source filter
+    can't be forgotten."""
+
+    async def test_funnel_returns_primary_only(self):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            _, uid = await _register(client)
+            async for db in get_db():
+                await _add_dexcom(db, uid, CGM_ROLE_PRIMARY)
+                ns_id = await _add_ns(db, uid, CGM_ROLE_SECONDARY, "Loop NS")
+                await _seed_glucose(db, uid, "dexcom", 8)
+                await _seed_glucose(db, uid, f"nightscout:{ns_id}", 8)
+
+                rows = (
+                    (await db.execute(await glucose_readings_query(db, uid)))
+                    .scalars()
+                    .all()
+                )
+                assert len(rows) == 8
+                assert {r.source for r in rows} == {"dexcom"}
+                break
+
+    async def test_funnel_entities_projection(self):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            _, uid = await _register(client)
+            async for db in get_db():
+                await _add_dexcom(db, uid, CGM_ROLE_PRIMARY)
+                ns_id = await _add_ns(db, uid, CGM_ROLE_SECONDARY, "Loop NS")
+                await _seed_glucose(db, uid, "dexcom", 5)
+                await _seed_glucose(db, uid, f"nightscout:{ns_id}", 5)
+
+                stmt = await glucose_readings_query(
+                    db,
+                    uid,
+                    entities=(GlucoseReading.value, GlucoseReading.source),
+                )
+                rows = (await db.execute(stmt)).all()
+                assert len(rows) == 5
+                assert all(source == "dexcom" for _value, source in rows)
+                break
+
+    async def test_funnel_include_secondary(self):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            _, uid = await _register(client)
+            async for db in get_db():
+                await _add_dexcom(db, uid, CGM_ROLE_PRIMARY)
+                ns_id = await _add_ns(db, uid, CGM_ROLE_SECONDARY, "Loop NS")
+                await _seed_glucose(db, uid, "dexcom", 6)
+                await _seed_glucose(db, uid, f"nightscout:{ns_id}", 6)
+
+                stmt = await glucose_readings_query(db, uid, include_secondary=True)
+                rows = (await db.execute(stmt)).scalars().all()
+                assert len(rows) == 12
+                assert {r.source for r in rows} == {"dexcom", f"nightscout:{ns_id}"}
+                break
+
+    async def test_funnel_no_primary_failsafe(self):
+        # No primary source -> exclude nothing, so a lone secondary still shows.
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            _, uid = await _register(client)
+            async for db in get_db():
+                ns_id = await _add_ns(db, uid, CGM_ROLE_SECONDARY, "Survivor NS")
+                await _seed_glucose(db, uid, f"nightscout:{ns_id}", 7)
+
+                rows = (
+                    (await db.execute(await glucose_readings_query(db, uid)))
+                    .scalars()
+                    .all()
+                )
+                assert len(rows) == 7
+                break
+
+    async def test_funnel_excluded_override_wins(self):
+        # An explicit excluded_sources list is used verbatim -- here [] forces
+        # "all sources" even though a primary exists.
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            _, uid = await _register(client)
+            async for db in get_db():
+                await _add_dexcom(db, uid, CGM_ROLE_PRIMARY)
+                ns_id = await _add_ns(db, uid, CGM_ROLE_SECONDARY, "Loop NS")
+                await _seed_glucose(db, uid, "dexcom", 4)
+                await _seed_glucose(db, uid, f"nightscout:{ns_id}", 4)
+
+                stmt = await glucose_readings_query(db, uid, excluded_sources=[])
+                rows = (await db.execute(stmt)).scalars().all()
+                assert len(rows) == 8
+                break
+
+
+@pytest.mark.asyncio
+class TestDexcomSyncHelpersAutoFilter:
+    """``get_latest_glucose_reading`` / ``get_glucose_readings`` auto-resolve the
+    primary-source exclusion when no explicit list is passed (GLY-123) -- this is
+    what closes the caregiver + sync-status call sites that never passed one."""
+
+    async def test_get_latest_auto_filters_primary(self):
+        from src.services.dexcom_sync import get_latest_glucose_reading
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            _, uid = await _register(client)
+            now = datetime.now(UTC)
+            async for db in get_db():
+                await _add_dexcom(db, uid, CGM_ROLE_PRIMARY)
+                ns_id = await _add_ns(db, uid, CGM_ROLE_SECONDARY, "Loop NS")
+                # Secondary posts the NEWEST row; primary is older.
+                await _seed_one(db, uid, "dexcom", 99, now - timedelta(minutes=5))
+                await _seed_one(db, uid, f"nightscout:{ns_id}", 222, now)
+
+                latest = await get_latest_glucose_reading(db, uid)
+                assert latest is not None
+                assert latest.value == 99  # primary, not the newer secondary 222
+                break
+
+    async def test_get_readings_auto_filters_primary(self):
+        from src.services.dexcom_sync import get_glucose_readings
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            _, uid = await _register(client)
+            async for db in get_db():
+                await _add_dexcom(db, uid, CGM_ROLE_PRIMARY)
+                ns_id = await _add_ns(db, uid, CGM_ROLE_SECONDARY, "Loop NS")
+                await _seed_glucose(db, uid, "dexcom", 10)
+                await _seed_glucose(db, uid, f"nightscout:{ns_id}", 10)
+
+                readings = await get_glucose_readings(db, uid, minutes=1440, limit=100)
+                assert len(readings) == 10
+                assert {r.source for r in readings} == {"dexcom"}
+                break
+
+    async def test_get_latest_no_primary_failsafe(self):
+        from src.services.dexcom_sync import get_latest_glucose_reading
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            _, uid = await _register(client)
+            now = datetime.now(UTC)
+            async for db in get_db():
+                # Lone secondary, no primary -> nothing excluded, the row shows.
+                ns_id = await _add_ns(db, uid, CGM_ROLE_SECONDARY, "Survivor NS")
+                await _seed_one(db, uid, f"nightscout:{ns_id}", 140, now)
+
+                latest = await get_latest_glucose_reading(db, uid)
+                assert latest is not None
+                assert latest.value == 140
+                break
+
+
+@pytest.mark.asyncio
+class TestConsumersHonorPrimary:
+    """The five previously-unfiltered consumers now act on primary readings
+    only (GLY-123 acceptance)."""
+
+    async def test_predictive_alerts_evaluate_uses_primary_reading(self):
+        # A NEWER in-range secondary would suppress the low alert if it leaked;
+        # the OLDER primary is an urgent low and must drive the alert.
+        from src.models.alert import AlertType
+        from src.services.predictive_alerts import evaluate_alerts_for_user
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            _, uid = await _register(client)
+            now = datetime.now(UTC)
+            async for db in get_db():
+                await _add_dexcom(db, uid, CGM_ROLE_PRIMARY)
+                ns_id = await _add_ns(db, uid, CGM_ROLE_SECONDARY, "Loop NS")
+                await _seed_one(db, uid, "dexcom", 45, now - timedelta(minutes=2))
+                await _seed_one(db, uid, f"nightscout:{ns_id}", 120, now)
+
+                alerts = await evaluate_alerts_for_user(db, uid)
+                assert alerts, "expected the primary urgent-low to raise an alert"
+                assert all(a.current_value == 45 for a in alerts)
+                assert any(a.alert_type == AlertType.LOW_URGENT for a in alerts)
+                break
+
+    async def test_predictive_alerts_no_primary_not_suppressed(self):
+        # Fail-safe: with no primary, a lone secondary low must STILL alert --
+        # the filter must never silently suppress a safety alert.
+        from src.services.predictive_alerts import evaluate_alerts_for_user
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            _, uid = await _register(client)
+            now = datetime.now(UTC)
+            async for db in get_db():
+                ns_id = await _add_ns(db, uid, CGM_ROLE_SECONDARY, "Survivor NS")
+                await _seed_one(db, uid, f"nightscout:{ns_id}", 45, now)
+
+                alerts = await evaluate_alerts_for_user(db, uid)
+                assert alerts, "no-primary low must not be suppressed"
+                assert all(a.current_value == 45 for a in alerts)
+                break
+
+    async def test_predictive_alerts_stale_primary_ignores_fresh_secondary(self):
+        # Intended GLY-123 posture (documented, not a regression): alerting is
+        # driven by the designated PRIMARY only. If the connected primary is
+        # stale, the existing staleness gate suppresses alerts even when a
+        # non-primary secondary is fresh -- a demoted source must not drive a
+        # safety alert. (The no-primary fail-safe path is covered above.)
+        from src.services.predictive_alerts import (
+            GLUCOSE_STALE_MINUTES,
+            evaluate_alerts_for_user,
+        )
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            _, uid = await _register(client)
+            now = datetime.now(UTC)
+            async for db in get_db():
+                await _add_dexcom(db, uid, CGM_ROLE_PRIMARY)
+                ns_id = await _add_ns(db, uid, CGM_ROLE_SECONDARY, "Loop NS")
+                # Primary is stale; secondary is fresh and low.
+                await _seed_one(
+                    db,
+                    uid,
+                    "dexcom",
+                    120,
+                    now - timedelta(minutes=GLUCOSE_STALE_MINUTES + 10),
+                )
+                await _seed_one(db, uid, f"nightscout:{ns_id}", 45, now)
+
+                alerts = await evaluate_alerts_for_user(db, uid)
+                assert alerts == []  # stale primary -> no alert; secondary ignored
+                break
+
+    async def test_meal_analysis_primary_only(self):
+        from src.services.meal_analysis import analyze_post_meal_patterns
+
+        base = datetime(2025, 6, 1, 12, 0, tzinfo=UTC)
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            _, uid = await _register(client)
+            async for db in get_db():
+                await _add_dexcom(db, uid, CGM_ROLE_PRIMARY)
+                ns_id = await _add_ns(db, uid, CGM_ROLE_SECONDARY, "Loop NS")
+                await _add_bolus(db, uid, base, 5.0)
+                # Both in the 2hr post-bolus window; the secondary peaks higher.
+                await _seed_one(db, uid, "dexcom", 250, base + timedelta(minutes=30))
+                await _seed_one(
+                    db, uid, f"nightscout:{ns_id}", 400, base + timedelta(minutes=60)
+                )
+
+                periods = await analyze_post_meal_patterns(
+                    uid, db, base, base + timedelta(minutes=1)
+                )
+                active = [p for p in periods if p.bolus_count > 0]
+                assert len(active) == 1
+                assert active[0].avg_peak_glucose == 250.0  # primary, not 400
+                assert all(p.avg_peak_glucose != 400.0 for p in periods)
+                break
+
+    async def test_meal_analysis_no_primary_failsafe(self):
+        from src.services.meal_analysis import analyze_post_meal_patterns
+
+        base = datetime(2025, 6, 1, 12, 0, tzinfo=UTC)
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            _, uid = await _register(client)
+            async for db in get_db():
+                # Lone secondary, no primary -> readings unfiltered.
+                ns_id = await _add_ns(db, uid, CGM_ROLE_SECONDARY, "Survivor NS")
+                await _add_bolus(db, uid, base, 5.0)
+                await _seed_one(
+                    db, uid, f"nightscout:{ns_id}", 400, base + timedelta(minutes=30)
+                )
+
+                periods = await analyze_post_meal_patterns(
+                    uid, db, base, base + timedelta(minutes=1)
+                )
+                active = [p for p in periods if p.bolus_count > 0]
+                assert len(active) == 1
+                assert active[0].avg_peak_glucose == 400.0  # unfiltered fail-safe
+                break
+
+    async def test_correction_analysis_primary_only(self):
+        from src.services.correction_analysis import analyze_correction_outcomes
+
+        base = datetime(2025, 6, 1, 12, 0, tzinfo=UTC)
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            _, uid = await _register(client)
+            async for db in get_db():
+                await _add_dexcom(db, uid, CGM_ROLE_PRIMARY)
+                ns_id = await _add_ns(db, uid, CGM_ROLE_SECONDARY, "Loop NS")
+                await _add_bolus(db, uid, base, 2.0, bg_at_event=250)
+                # Post-correction window (3h). final_glucose = last reading.
+                # Primary settles at 150; a later secondary at 100 would change
+                # the computed drop if it leaked in.
+                await _seed_one(db, uid, "dexcom", 150, base + timedelta(hours=2))
+                await _seed_one(
+                    db,
+                    uid,
+                    f"nightscout:{ns_id}",
+                    100,
+                    base + timedelta(hours=2, minutes=30),
+                )
+
+                periods = await analyze_correction_outcomes(
+                    uid, db, base, base + timedelta(minutes=1)
+                )
+                active = [p for p in periods if p.correction_count > 0]
+                assert len(active) == 1
+                # drop = 250 (bg_at_event) - 150 (primary final) = 100
+                assert active[0].avg_glucose_drop == 100.0
+                assert all(p.avg_glucose_drop != 150.0 for p in periods)
+                break
+
+    async def test_telegram_status_primary_only(self):
+        from src.services.telegram_commands import _handle_status
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            _, uid = await _register(client)
+            now = datetime.now(UTC)
+            async for db in get_db():
+                await _add_dexcom(db, uid, CGM_ROLE_PRIMARY)
+                ns_id = await _add_ns(db, uid, CGM_ROLE_SECONDARY, "Loop NS")
+                await _seed_one(db, uid, "dexcom", 99, now - timedelta(minutes=2))
+                await _seed_one(db, uid, f"nightscout:{ns_id}", 222, now)
+
+                status = await _handle_status(db, uid)
+                assert "99" in status  # primary reading
+                assert "222" not in status  # newer secondary excluded
+                break
+
+    async def test_settings_export_includes_all_sources(self):
+        # The portability/backup "all data" export is intentionally NOT
+        # primary-filtered (GLY-123): a multi-source user's export must be
+        # complete and include the secondary source's readings too. Each row
+        # still carries its own ``source`` for consumer-side dedupe.
+        from src.services.settings_export import _export_all_data
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            _, uid = await _register(client)
+            async for db in get_db():
+                await _add_dexcom(db, uid, CGM_ROLE_PRIMARY)
+                ns_id = await _add_ns(db, uid, CGM_ROLE_SECONDARY, "Loop NS")
+                await _seed_glucose(db, uid, "dexcom", 6)
+                await _seed_glucose(db, uid, f"nightscout:{ns_id}", 6)
+
+                data = await _export_all_data(uid, db)
+                exported = data["glucose_readings"]
+                assert len(exported) == 12
+                assert {r["source"] for r in exported} == {
+                    "dexcom",
+                    f"nightscout:{ns_id}",
+                }
+                break

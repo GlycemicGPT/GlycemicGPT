@@ -109,6 +109,7 @@ async def _handle_caregiver_status(
             )
             continue
 
+        # The patient's primary CGM source only (GLY-123).
         reading = await get_latest_glucose_reading(db, link.patient_id)
 
         if reading is None:
