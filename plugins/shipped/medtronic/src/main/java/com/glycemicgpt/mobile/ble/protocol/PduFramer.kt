@@ -2,11 +2,13 @@
  * Application-layer PDU fragmentation for the Medtronic MiniMed 700-series read-only driver.
  *
  * Honors the 23-byte ATT MTU / 20-byte PDU constraint documented in
- * `medtronic-ble-reverse-engineering.md` Sec. 6 (carried from OpenMinimed's Linux client, GPL-3.0):
- * the pump advertises MTU 184 but only honors 23-byte PDUs, and the official Android app never
- * negotiates the MTU up. We never call requestMtu(); every notification/write payload must stay
+ * `medtronic-ble-reverse-engineering.md` Sec. 6 (carried from OpenMinimed's Linux client, GPL-3.0)
+ * for the *outbound* direction: we never call requestMtu(), and every payload we write must stay
  * <= 20 bytes (23 - 3-byte ATT header). SAKE handshake messages are already exactly 20 bytes and
- * pass through unfragmented.
+ * pass through unfragmented. Inbound is looser: the ATT MTU is per-bearer and the pump raises it
+ * from its own side (it advertises MTU 184), so pump-to-phone notifications can exceed 20 bytes --
+ * live multi-PDU history reads (PR #852) arrive as per-PDU SAKE ciphertext whose 20-byte plaintext
+ * fragments imply 23-byte on-wire notifications.
  */
 package com.glycemicgpt.mobile.ble.protocol
 

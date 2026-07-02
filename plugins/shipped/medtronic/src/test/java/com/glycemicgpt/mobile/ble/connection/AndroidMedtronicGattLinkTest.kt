@@ -346,6 +346,47 @@ class AndroidMedtronicGattLinkTest {
     }
 
     @Test
+    fun `cancelAllSubscriptions drops handlers immediately and defers the CCCD disables`() {
+        val deferring = DeferringWatchdog()
+        val link = AndroidMedtronicGattLink(context, deviceProvider = { device }, worker = DirectSerialWorker(), watchdog = deferring)
+        val received = mutableListOf<ByteArray>()
+        link.subscribe(MedtronicProtocol.CGM_MEASUREMENT_UUID) { received.add(it) } // CCCD enable #1
+        link.subscribe(MedtronicProtocol.RACP_UUID) { received.add(it) } // CCCD enable #2
+
+        link.cancelAllSubscriptions()
+
+        // The caller -- a coroutine cancellation handler, on a timeout kotlinx's process-global
+        // scheduler thread -- is released immediately: the handlers are gone but no blocking CCCD
+        // round trip has run on its thread.
+        assertEquals(0, link.activeSubscriptionCount())
+        assertEquals(2, events.count { it == "write-cccd" })
+        callback.onCharacteristicChanged(gatt, cgmMeasurement, byteArrayOf(0x0e))
+        assertTrue("a cancelled subscription must not deliver notifications", received.isEmpty())
+
+        deferring.runDeferred() // the disables run on the cleanup thread
+
+        assertEquals(4, events.count { it == "write-cccd" })
+    }
+
+    @Test
+    fun `a deferred cancel does not disable a characteristic that was re-subscribed meanwhile`() {
+        val deferring = DeferringWatchdog()
+        val link = AndroidMedtronicGattLink(context, deviceProvider = { device }, worker = DirectSerialWorker(), watchdog = deferring)
+        val received = mutableListOf<ByteArray>()
+        link.subscribe(MedtronicProtocol.CGM_MEASUREMENT_UUID) {} // CCCD enable #1
+        link.cancelAllSubscriptions() // queues the disable, deferred
+        link.subscribe(MedtronicProtocol.CGM_MEASUREMENT_UUID) { received.add(it) } // CCCD enable #2: the next exchange
+
+        deferring.runDeferred()
+
+        // Two enables, zero disables: the deferred cleanup must not strip the CCCD the new exchange
+        // just enabled, and the new subscription must keep delivering.
+        assertEquals(2, events.count { it == "write-cccd" })
+        callback.onCharacteristicChanged(gatt, cgmMeasurement, byteArrayOf(0x0e))
+        assertEquals(1, received.size)
+    }
+
+    @Test
     fun `a deferred unsubscribe does not disable a characteristic on a reconnected client`() {
         val gattB = mockk<BluetoothGatt>(relaxed = true)
         stubGattClient(gattB)

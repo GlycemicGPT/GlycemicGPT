@@ -103,10 +103,28 @@ class MedtronicReadGateway(
             IddStatusReader(link, session).readReservoir(onResult)
         }
 
-    /** Incremental history fetch: every record newer than [sinceSequence] (raw, preserved for dedup). */
+    /**
+     * Incremental history fetch: every record newer than [sinceSequence] (raw, preserved for dedup).
+     *
+     * Paged newest-first in [HISTORY_BATCH_SIZE]-sequence windows, each page its own [sessionRead]
+     * with its own operation timeout (one unbounded range read overran the 30s budget and orphaned
+     * the session). [readMutex] is released between pages so a CGM/keep-alive read can interleave
+     * with a long backfill; each individual RACP exchange stays single-flight.
+     *
+     * The walk is driven by the *requested window* (`highSeq = lowSeq - 1`), never by page content:
+     * a page routinely parses smaller than its window (duplicate frames dedup away; the window can
+     * straddle the oldest retained record), and ending the walk on page content would let the
+     * cursor-advancing callers (the insulin source's bolus cursor, the orchestrator's persisted
+     * sequence cursor) advance to the max sequence seen and permanently skip the older records. A
+     * page with any undecodable frame fails outright in [HistoryReader] for the same reason. A page
+     * that comes back *empty* (the pump's "no records found") does end the walk: the
+     * pump purges oldest-first, so its retained sequences are contiguous and nothing older remains.
+     * A failed page fails the whole call -- returning the newer pages collected so far would advance
+     * the callers' cursors past the un-fetched older window (the same permanent skip).
+     */
     suspend fun getHistoryLogs(sinceSequence: Int): Result<List<HistoryLogRecord>> {
         val lastResult = sessionRead("history-last") { link, session, onResult ->
-            HistoryReader(link, session).readLastRecord { onResult(it) }
+            HistoryReader(link, session).readLastRecord(onResult)
         }
         val lastRecord = lastResult.getOrElse { return Result.failure(it) }
         if (lastRecord == null || lastRecord.sequenceNumber <= sinceSequence) {
@@ -117,15 +135,14 @@ class MedtronicReadGateway(
         while (highSeq > sinceSequence) {
             val lowSeq = maxOf(sinceSequence + 1, highSeq - HISTORY_BATCH_SIZE + 1)
             val batchResult = sessionRead("history-page") { link, session, onResult ->
-                HistoryReader(link, session).readRecordsInRange(lowSeq, highSeq) { onResult(it) }
+                HistoryReader(link, session).readRecordsInRange(lowSeq, highSeq, onResult)
             }
             val records = batchResult.getOrElse { return Result.failure(it) }
             all.addAll(records)
-            val minInBatch = records.minOfOrNull { it.sequenceNumber } ?: break
-            highSeq = minInBatch - 1
-            if (records.size < HISTORY_BATCH_SIZE) break
+            if (records.isEmpty()) break
+            highSeq = lowSeq - 1
         }
-        return Result.success(all.reversed())
+        return Result.success(all.sortedBy { it.sequenceNumber })
     }
 
     /** Battery percentage (plain SIG Battery Level read; no session required). */
@@ -146,10 +163,11 @@ class MedtronicReadGateway(
      *
      * **Cancellation/cleanup contract.** On a timeout this coroutine is cancelled while the reader may
      * still hold notification subscriptions on the link (the reader only unsubscribes when the pump
-     * responds). The gateway cannot drop them here -- it does not know which characteristics the reader
-     * subscribed. The on-device `AndroidMedtronicGattLink` satisfies this: a subscription watchdog
-     * releases all outstanding subscriptions when an operation can no longer complete, so a timed-out
-     * read leaves no dangling notifications that would desync the next exchange.
+     * responds). The gateway does not know which characteristics the reader subscribed, so it releases
+     * them all: [MedtronicGattLink.cancelAllSubscriptions] drops every handler immediately (no PDU can
+     * reach the finished exchange) and defers the CCCD disables off this thread -- the cancellation
+     * callback may run on kotlinx's process-global timeout thread, which must never block on GATT. The
+     * on-device link's subscription watchdog remains the backstop for any path that misses this hook.
      */
     private suspend fun <T> sessionRead(
         op: String,
@@ -243,7 +261,7 @@ class MedtronicReadGateway(
          */
         const val DEFAULT_OPERATION_TIMEOUT_MS = 30_000L
 
-        /** Maximum number of history records fetched in a single RACP exchange (one page). */
+        /** Sequence-window width of a single history RACP exchange (one page). */
         private const val HISTORY_BATCH_SIZE = 200
     }
 }

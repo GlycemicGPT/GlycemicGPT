@@ -178,6 +178,140 @@ class MedtronicReadGatewayTest {
         assertEquals(249, second.await().getOrThrow().glucoseMgDl)
     }
 
+    // -- History paging (getHistoryLogs) -------------------------------------
+
+    @Test
+    fun `getHistoryLogs pages by requested window so a sparse page cannot skip older records`() = runTest {
+        val two = TwoSidedSession()
+        val pump = ScriptedHistoryPump(two, retainedSequences = listOf(150, 400))
+
+        val records = gateway(link = pump.link, session = two.server).getHistoryLogs(sinceSequence = 0).getOrThrow()
+
+        assertEquals(listOf(150, 400), records.map { it.sequenceNumber })
+        // Window-driven walk: the first page parses sparse (1 record in a 200-sequence window) yet the
+        // walk continues into the next window. Content-driven paging would stop after the first page
+        // and -- because the callers advance their cursor to the max sequence seen -- skip record 150
+        // permanently.
+        assertEquals(listOf(201..400, 1..200), pump.rangeRequests)
+    }
+
+    @Test
+    fun `getHistoryLogs stops paging at the pump's oldest retained record`() = runTest {
+        val two = TwoSidedSession()
+        val pump = ScriptedHistoryPump(two, retainedSequences = (950..1000).toList())
+
+        val records = gateway(link = pump.link, session = two.server).getHistoryLogs(sinceSequence = 0).getOrThrow()
+
+        assertEquals((950..1000).toList(), records.map { it.sequenceNumber })
+        // The pump purges oldest-first, so the window below the retained tail answers "no records
+        // found" (an empty page) and the walk ends there -- no futile scan down to sequence 1.
+        assertEquals(listOf(801..1000, 601..800), pump.rangeRequests)
+    }
+
+    @Test
+    fun `getHistoryLogs returns multi-page results in ascending sequence order`() = runTest {
+        val two = TwoSidedSession()
+        val pump = ScriptedHistoryPump(two, retainedSequences = (1..450).toList())
+
+        val records = gateway(link = pump.link, session = two.server).getHistoryLogs(sinceSequence = 50).getOrThrow()
+
+        assertEquals((51..450).toList(), records.map { it.sequenceNumber })
+    }
+
+    @Test
+    fun `getHistoryLogs is empty when already caught up`() = runTest {
+        val two = TwoSidedSession()
+        val pump = ScriptedHistoryPump(two, retainedSequences = listOf(100))
+
+        val records = gateway(link = pump.link, session = two.server).getHistoryLogs(sinceSequence = 100).getOrThrow()
+
+        assertTrue(records.isEmpty())
+        assertTrue(pump.rangeRequests.isEmpty())
+    }
+
+    @Test
+    fun `getHistoryLogs fails the whole fetch when a page fails`() = runTest {
+        // Older pages are still un-fetched when a page fails; returning the newer pages collected so
+        // far would let the callers advance their cursor past the gap and skip those records for good.
+        val two = TwoSidedSession()
+        val pump = ScriptedHistoryPump(two, retainedSequences = (1..450).toList())
+        pump.failWindowsBelow = 251 // the first page succeeds, the second page errors
+
+        val result = gateway(link = pump.link, session = two.server).getHistoryLogs(sinceSequence = 50)
+
+        assertTrue(result.isFailure)
+    }
+
+    /**
+     * Scripts a pump's IDD history service on a [FakeGattLink]: answers the last-record request with
+     * the newest retained record and each within-range request with the retained records in that
+     * window -- or the "no records found" indication when the window is empty, as a real pump does
+     * once a walk crosses its oldest retained record. Every frame is freshly SAKE-encrypted at
+     * delivery time so the two-sided session's sequence counters stay aligned across pages.
+     */
+    private class ScriptedHistoryPump(
+        private val two: TwoSidedSession,
+        retainedSequences: List<Int>,
+    ) {
+        val link = FakeGattLink()
+        val rangeRequests = mutableListOf<IntRange>()
+
+        /** Windows whose first sequence is below this fail with an RACP error (for failure tests). */
+        var failWindowsBelow = Int.MIN_VALUE
+
+        private val retained = retainedSequences.toSortedSet()
+        private val racp = MedtronicProtocol.RACP_UUID
+        private val data = MedtronicProtocol.IDD_HISTORY_DATA_UUID
+
+        init {
+            link.onRead = { characteristic ->
+                if (characteristic == MedtronicProtocol.IDD_FEATURES_UUID) two.pumpEncrypt(hex(IDD_FEATURES_E2E_DISABLED_HEX)) else null
+            }
+            link.onWrite = { characteristic, value ->
+                if (characteristic == racp) respond(value)
+            }
+        }
+
+        private fun respond(request: ByteArray) {
+            when {
+                request.contentEquals(HistoryReader.REQUEST_REPORT_LAST_RECORD) -> {
+                    val newest = retained.last()
+                    emitRecord(newest)
+                    link.emit(racp, HistoryReader.EXPECTED_REPORT_SUCCESS)
+                }
+                request.size == 11 && request[0] == HistoryReader.REQUEST_REPORT_WITHIN_RANGE_PREFIX[0] -> {
+                    val first = MedtronicCodec.readULongLe(request, 3, 4).toInt()
+                    val last = MedtronicCodec.readULongLe(request, 7, 4).toInt()
+                    rangeRequests.add(first..last)
+                    if (first < failWindowsBelow) {
+                        link.emit(racp, byteArrayOf(0x0F, 0x0F, 0x33, 0x02)) // op-code-not-supported
+                        return
+                    }
+                    val inWindow = retained.subSet(first, last + 1)
+                    if (inWindow.isEmpty()) {
+                        link.emit(racp, HistoryReader.REPORT_NO_RECORDS_FOUND)
+                    } else {
+                        inWindow.forEach { emitRecord(it) }
+                        link.emit(racp, HistoryReader.EXPECTED_REPORT_SUCCESS)
+                    }
+                }
+            }
+        }
+
+        private fun emitRecord(seq: Int) {
+            link.emit(data, two.pumpEncrypt(historyRecord(seq)))
+        }
+
+        /** An 18-byte basal-rate-changed record (single PDU): type 0x0099, [seq], offset 0. */
+        private fun historyRecord(seq: Int): ByteArray =
+            byteArrayOf(0x99.toByte(), 0x00) + MedtronicCodec.u32Le(seq) + byteArrayOf(0, 0) + hex("010a0000ff050000ff55")
+
+        companion object {
+            /** IDD Features characteristic value with E2E protection disabled. */
+            private const val IDD_FEATURES_E2E_DISABLED_HEX = "ffff006400fede801f"
+        }
+    }
+
     /**
      * A [MedtronicGattLink] that defers each RACP exchange's response until [releaseNext], so a read
      * stays in flight (holding the single-flight lock) until the test chooses to complete it. Counts

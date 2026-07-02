@@ -15,17 +15,18 @@ import java.util.UUID
 import timber.log.Timber
 
 /**
- * Accumulates inbound notification PDUs into a complete application frame.
+ * Accumulates inbound notification fragments into a complete application frame.
  *
- * Application frames are fragmented into <= 20-byte PDUs ([PduFramer.fragment]); the standard BLE
- * convention used here is "full PDUs until a short one ends the frame", so a frame is complete when
- * a PDU smaller than [maxPduSize] arrives (a single short PDU completes immediately). This is the
- * incremental inverse of [PduFramer.fragment] for any payload whose length is not an exact multiple
- * of [maxPduSize].
+ * Each notification PDU is individually SAKE-encrypted, so what is offered here is the decrypted
+ * *plaintext* fragment. Frames fragment at 20 bytes ([PduFramer.MAX_PDU_SIZE]); the standard BLE
+ * convention used here is "full fragments until a short one ends the frame", so a frame is complete
+ * when a fragment smaller than [maxPduSize] arrives (a single short fragment completes immediately).
+ * This is the incremental inverse of [PduFramer.fragment] for any payload whose length is not an
+ * exact multiple of [maxPduSize].
  *
- * The exact-multiple ambiguity (a frame that fragments into all-full PDUs has no short terminator)
- * does not arise for the small SAKE-encrypted CGM records this story handles; record-level,
- * length-prefixed paging for the larger history reads lands with the history reader in 48.C2.
+ * The exact-multiple ambiguity (a frame that fragments into all-full fragments has no short
+ * terminator) has not bitten on live multi-PDU history reads (PR #852); pinning the exact on-wire
+ * fragment sizes rides with the 48.A2 capture work.
  */
 internal class NotificationReassembler(
     private val maxPduSize: Int = PduFramer.MAX_PDU_SIZE,
@@ -176,8 +177,8 @@ class MedtronicSessionReader(
     /**
      * SOCP read-only GET (e.g. sensor details): take a [requestOpcode] (a GET-class opcode, optionally
      * followed by operands), append the E2E-CRC and SAKE-encrypt it for the pump exactly as
-     * `socp.py._trigger_opcode` does, write it to the [socp] characteristic, then reassemble + decrypt
-     * the SAKE-encrypted response and deliver the plaintext (its first byte is the response opcode; any
+     * `socp.py._trigger_opcode` does, write it to the [socp] characteristic, then decrypt each
+     * SAKE-encrypted response PDU and reassemble the plaintext, delivering it (its first byte is the response opcode; any
      * E2E-CRC trailer is validated by the response parser in 48.C2). Only GET-class opcodes belong here
      * -- no calibration or control opcode is ever issued. As with [reportLastRecord], the caller must
      * impose the operation timeout (see the class-level timeout contract).
@@ -190,8 +191,8 @@ class MedtronicSessionReader(
 
     /**
      * IDD Status Reader Control Point (SRCP) read-only GET: SAKE-encrypt the (little-endian)
-     * [requestOpcode], write it to the [srcp] characteristic, then reassemble + decrypt the
-     * SAKE-encrypted indication and deliver the plaintext, exactly as `idd/status/reader.py`'s
+     * [requestOpcode], write it to the [srcp] characteristic, then decrypt each SAKE-encrypted
+     * indication PDU and reassemble + deliver the plaintext, exactly as `idd/status/reader.py`'s
      * `_send_and_receive_opcode` does. Only GET-class opcodes (IOB, active basal, therapy state, ...)
      * belong here -- no reset or control opcode is ever issued.
      *
@@ -232,7 +233,7 @@ class MedtronicSessionReader(
      * Mirrors `history_reader.py` (`get_records_between` / `get_last_record`): the RACP itself is not
      * encrypted, only the IDD History Data records it triggers are, and the RACP indication follows
      * after all records. Records are delimited by the same short-PDU rule [NotificationReassembler]
-     * uses; see the record-framing caveat on [HistoryReader]. The caller imposes the operation
+     * uses; see the record-framing notes on [HistoryReader]. The caller imposes the operation
      * timeout (class-level contract).
      */
     fun reportRecords(
@@ -331,8 +332,8 @@ class MedtronicSessionReader(
 
     /**
      * Shared body for the encrypted request -> single encrypted response exchanges ([socpGet],
-     * [srcpGet]): subscribe to [char], reassemble + decrypt the first complete response frame, and
-     * finish. Decrypting only while the exchange is live keeps a late/duplicate notification after
+     * [srcpGet]): subscribe to [char], decrypt each PDU and reassemble the first complete response
+     * frame, and finish. Decrypting only while the exchange is live keeps a late/duplicate notification after
      * finish() from consuming the next operation's sequence slot and desyncing the session.
      */
     private fun encryptedGet(
