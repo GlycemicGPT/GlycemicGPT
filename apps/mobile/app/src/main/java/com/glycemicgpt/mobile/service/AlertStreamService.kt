@@ -303,6 +303,13 @@ class AlertStreamService : Service() {
                 Timber.d("Reconnecting alert stream in %d ms (attempt %d)", backoffMs, attempt)
                 delay(backoffMs)
 
+                // Another path (a service restart, an earlier retry) may have already restored a
+                // healthy stream while this retry was sleeping — don't tear it down again.
+                if (alertStreamStateHolder.state.value == AlertStreamState.CONNECTED) {
+                    Timber.d("Reconnect skipped; stream already connected")
+                    return@launch
+                }
+
                 if (authTokenStore.hasActiveSession()) {
                     connectToStream()
                 } else {
