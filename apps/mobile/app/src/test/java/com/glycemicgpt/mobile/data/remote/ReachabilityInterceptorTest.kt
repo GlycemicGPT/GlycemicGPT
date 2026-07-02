@@ -1,7 +1,5 @@
 package com.glycemicgpt.mobile.data.remote
 
-import com.glycemicgpt.mobile.BuildConfig
-import com.glycemicgpt.mobile.data.local.AppSettingsStore
 import com.glycemicgpt.mobile.data.network.NetworkMonitor
 import io.mockk.every
 import io.mockk.mockk
@@ -13,15 +11,13 @@ import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
-import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.IOException
 
 class ReachabilityInterceptorTest {
 
     private val networkMonitor = mockk<NetworkMonitor>(relaxed = true)
-    private val appSettingsStore = mockk<AppSettingsStore>(relaxed = true)
-    private val interceptor = ReachabilityInterceptor(networkMonitor, appSettingsStore)
+    private val interceptor = ReachabilityInterceptor(networkMonitor)
 
     private val request = Request.Builder().url("http://localhost/api/health").build()
 
@@ -46,7 +42,6 @@ class ReachabilityInterceptorTest {
 
     @Test
     fun `a successful response records backend reachable and passes it through`() {
-        every { appSettingsStore.simulateBackendUnreachable } returns false
         val response = okResponse()
 
         val result = interceptor.intercept(chainReturning(response))
@@ -58,8 +53,6 @@ class ReachabilityInterceptorTest {
 
     @Test
     fun `a server error still counts as reachable - the server answered`() {
-        every { appSettingsStore.simulateBackendUnreachable } returns false
-
         interceptor.intercept(chainReturning(okResponse(code = 503)))
 
         verify(exactly = 1) { networkMonitor.recordBackendSuccess() }
@@ -68,7 +61,6 @@ class ReachabilityInterceptorTest {
 
     @Test
     fun `a transport failure records a backend failure and rethrows`() {
-        every { appSettingsStore.simulateBackendUnreachable } returns false
         val boom = IOException("connect timed out")
 
         val thrown = assertThrows(IOException::class.java) {
@@ -82,7 +74,6 @@ class ReachabilityInterceptorTest {
 
     @Test
     fun `a canceled call is not counted as a backend failure`() {
-        every { appSettingsStore.simulateBackendUnreachable } returns false
         val canceled = IOException("Canceled")
 
         assertThrows(IOException::class.java) {
@@ -94,18 +85,15 @@ class ReachabilityInterceptorTest {
     }
 
     @Test
-    fun `debug fault injection short-circuits before the network and records a failure`() {
-        // Guarded by BuildConfig.DEBUG, which is true for the debug unit-test variant.
-        assertTrue("expected the debug variant for this test", BuildConfig.DEBUG)
-        every { appSettingsStore.simulateBackendUnreachable } returns true
-        val chain = mockk<Interceptor.Chain> {
-            every { request() } returns request
+    fun `a simulated fault from the interceptor below is recorded like a real transport failure`() {
+        // On the main client SimulateUnreachableInterceptor sits below this one, so its injected
+        // IOException must propagate up through the reachability accounting.
+        val injected = IOException("Simulated backend unreachable (debug fault injection)")
+
+        assertThrows(IOException::class.java) {
+            interceptor.intercept(chainThrowing(injected))
         }
 
-        assertThrows(IOException::class.java) { interceptor.intercept(chain) }
-
         verify(exactly = 1) { networkMonitor.recordBackendFailure() }
-        // proceed() must never be reached when the fault is injected.
-        verify(exactly = 0) { chain.proceed(any()) }
     }
 }

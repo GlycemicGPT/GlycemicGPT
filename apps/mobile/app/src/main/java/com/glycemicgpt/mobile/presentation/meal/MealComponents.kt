@@ -15,12 +15,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -605,5 +608,47 @@ fun MealCenteredMessage(message: String, modifier: Modifier = Modifier) {
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(32.dp),
         )
+    }
+}
+
+/**
+ * Full-screen centered load-failure state with a Retry action, shared across the meal screens.
+ * The terminal state for a backend-only screen that couldn't load (offline, server down): a clear
+ * message instead of an endless spinner, a misleading empty state, or a raw exception string.
+ */
+@Composable
+fun MealCenteredError(message: String, onRetry: () -> Unit, modifier: Modifier = Modifier) {
+    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(32.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Default.CloudOff,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(48.dp),
+            )
+            Spacer(Modifier.height(12.dp))
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(8.dp))
+            TextButton(
+                onClick = onRetry,
+                modifier = Modifier.testTag("meal_error_retry"),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(4.dp))
+                Text("Retry")
+            }
+        }
     }
 }

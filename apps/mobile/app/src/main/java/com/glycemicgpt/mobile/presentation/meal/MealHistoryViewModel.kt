@@ -6,10 +6,12 @@ import com.glycemicgpt.mobile.data.meal.FoodRecord
 import com.glycemicgpt.mobile.data.meal.MealException
 import com.glycemicgpt.mobile.data.repository.MealRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.IOException
 import javax.inject.Inject
@@ -32,14 +34,25 @@ class MealHistoryViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(MealHistoryUiState())
     val uiState: StateFlow<MealHistoryUiState> = _uiState.asStateFlow()
 
+    private var loadJob: Job? = null
+
     init {
         load()
     }
 
     fun load() {
-        _uiState.update { it.copy(isLoading = true, errorMessage = null) }
-        viewModelScope.launch {
-            repository.listFoodRecords()
+        // Cancel any in-flight load so a slow failing request can't resolve after a newer one
+        // succeeded and clobber the screen with a stale full-screen error.
+        loadJob?.cancel()
+        // Reset disabled too: after a prior FeatureDisabled response, an offline retry must show
+        // the honest offline state, not a stale "feature disabled" one. FeatureDisabled re-sets it.
+        _uiState.update { it.copy(isLoading = true, errorMessage = null, disabled = false) }
+        loadJob = viewModelScope.launch {
+            val result = repository.listFoodRecords()
+            // A repository that wraps errors in Result can swallow the CancellationException,
+            // so a superseded load could still reach here — never let it write state.
+            if (!isActive) return@launch
+            result
                 .onSuccess { records ->
                     _uiState.update {
                         it.copy(isLoading = false, records = records, disabled = false)
@@ -73,7 +86,11 @@ class MealHistoryViewModel @Inject constructor(
 
     private fun MealHistoryUiState.withError(e: Throwable): MealHistoryUiState = when (e) {
         is MealException.FeatureDisabled -> copy(disabled = true, errorMessage = null)
-        is IOException -> copy(errorMessage = "Check your connection and try again.")
-        else -> copy(errorMessage = e.message ?: "Couldn't load your meal history.")
+        is IOException -> copy(
+            errorMessage = "Can't reach your server — your meal history isn't available right now.",
+        )
+        is MealException -> copy(errorMessage = e.message ?: "Couldn't load your meal history.")
+        // Never surface a raw exception message for unexpected failures.
+        else -> copy(errorMessage = "Couldn't load your meal history.")
     }
 }

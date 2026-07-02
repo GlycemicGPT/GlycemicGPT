@@ -8,10 +8,12 @@ import com.glycemicgpt.mobile.data.meal.CommonFood
 import com.glycemicgpt.mobile.data.meal.MealException
 import com.glycemicgpt.mobile.data.repository.MealRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.IOException
 import javax.inject.Inject
@@ -37,14 +39,25 @@ class CommonFoodsViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(CommonFoodsUiState())
     val uiState: StateFlow<CommonFoodsUiState> = _uiState.asStateFlow()
 
+    private var loadJob: Job? = null
+
     init {
         load()
     }
 
     fun load() {
-        _uiState.update { it.copy(isLoading = true, errorMessage = null) }
-        viewModelScope.launch {
-            repository.listCommonFoods()
+        // Cancel any in-flight load so a slow failing request can't resolve after a newer one
+        // succeeded and clobber the screen with a stale full-screen error.
+        loadJob?.cancel()
+        // Reset disabled too: after a prior FeatureDisabled response, an offline retry must show
+        // the honest offline state, not a stale "feature disabled" one. FeatureDisabled re-sets it.
+        _uiState.update { it.copy(isLoading = true, errorMessage = null, disabled = false) }
+        loadJob = viewModelScope.launch {
+            val result = repository.listCommonFoods()
+            // A repository that wraps errors in Result can swallow the CancellationException,
+            // so a superseded load could still reach here — never let it write state.
+            if (!isActive) return@launch
+            result
                 .onSuccess { items ->
                     _uiState.update { it.copy(isLoading = false, items = items, disabled = false) }
                 }
@@ -121,14 +134,19 @@ class CommonFoodsViewModel @Inject constructor(
 
     private fun CommonFoodsUiState.withError(e: Throwable): CommonFoodsUiState = when (e) {
         is MealException.FeatureDisabled -> copy(disabled = true, errorMessage = null)
-        is IOException -> copy(errorMessage = "Check your connection and try again.")
-        else -> copy(errorMessage = e.message ?: "Couldn't load your common foods.")
+        is IOException -> copy(
+            errorMessage = "Can't reach your server — your common foods aren't available right now.",
+        )
+        is MealException -> copy(errorMessage = e.message ?: "Couldn't load your common foods.")
+        // Never surface a raw exception message for unexpected failures.
+        else -> copy(errorMessage = "Couldn't load your common foods.")
     }
 
     private fun editMessageFor(e: Throwable): String = when (e) {
         is MealException.NameConflict -> e.message ?: "A common food with that name already exists."
         is MealException -> e.message ?: "Couldn't save your changes."
         is IOException -> "Check your connection and try again."
-        else -> e.message ?: "Couldn't save your changes."
+        // Never surface a raw exception message for unexpected failures.
+        else -> "Couldn't save your changes."
     }
 }

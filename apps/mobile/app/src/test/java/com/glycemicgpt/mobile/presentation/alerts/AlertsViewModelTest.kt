@@ -2,9 +2,12 @@ package com.glycemicgpt.mobile.presentation.alerts
 
 import com.glycemicgpt.mobile.data.local.AppSettingsStore
 import com.glycemicgpt.mobile.data.local.entity.AlertEntity
+import com.glycemicgpt.mobile.data.network.NetworkMonitor
+import com.glycemicgpt.mobile.data.network.NetworkStatus
 import com.glycemicgpt.mobile.data.repository.AlertRepository
 import com.glycemicgpt.mobile.domain.model.GlucoseUnit
 import com.glycemicgpt.mobile.service.AlertNotificationManager
+import com.glycemicgpt.mobile.service.AlertStreamStateHolder
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -33,9 +36,12 @@ class AlertsViewModelTest {
 
     private val testDispatcher = UnconfinedTestDispatcher()
     private val alertsFlow = MutableStateFlow<List<AlertEntity>>(emptyList())
+    private val networkStatusFlow = MutableStateFlow(NetworkStatus.REACHABLE)
     private lateinit var repository: AlertRepository
     private lateinit var notificationManager: AlertNotificationManager
     private lateinit var appSettingsStore: AppSettingsStore
+    private lateinit var networkMonitor: NetworkMonitor
+    private lateinit var alertStreamStateHolder: AlertStreamStateHolder
 
     @Before
     fun setUp() {
@@ -49,6 +55,10 @@ class AlertsViewModelTest {
             every { glucoseUnit } returns GlucoseUnit.MGDL
             every { glucoseUnitFlow() } returns flowOf(GlucoseUnit.MGDL)
         }
+        networkMonitor = mockk(relaxed = true) {
+            every { status } returns networkStatusFlow
+        }
+        alertStreamStateHolder = AlertStreamStateHolder()
     }
 
     @After
@@ -56,7 +66,13 @@ class AlertsViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun createViewModel() = AlertsViewModel(repository, notificationManager, appSettingsStore)
+    private fun createViewModel() = AlertsViewModel(
+        repository,
+        notificationManager,
+        appSettingsStore,
+        networkMonitor,
+        alertStreamStateHolder,
+    )
 
     private fun makeAlert(
         serverId: String = "alert-1",
@@ -134,15 +150,28 @@ class AlertsViewModelTest {
     }
 
     @Test
-    fun `refreshAlerts sets error on failure`() = runTest {
+    fun `refreshAlerts sets user-facing error on failure, never the raw exception message`() = runTest {
         coEvery { repository.fetchPendingAlerts() } returns
-            Result.failure(RuntimeException("Network error"))
+            Result.failure(RuntimeException("java.net.SocketException: raw internals"))
 
         val vm = createViewModel()
         advanceUntilIdle()
 
-        assertEquals("Network error", vm.uiState.value.error)
+        assertEquals("Couldn't refresh alerts. Try again.", vm.uiState.value.error)
         assertFalse(vm.uiState.value.isLoading)
+    }
+
+    @Test
+    fun `refreshAlerts offline failure reaches a terminal state with connection copy`() = runTest {
+        coEvery { repository.fetchPendingAlerts() } returns
+            Result.failure(java.io.IOException("connect timed out"))
+
+        val vm = createViewModel()
+        advanceUntilIdle()
+
+        // Terminal: not loading, honest copy, no raw exception text.
+        assertFalse(vm.uiState.value.isLoading)
+        assertEquals("Can't reach your server — alerts may be out of date.", vm.uiState.value.error)
     }
 
     @Test
@@ -186,9 +215,9 @@ class AlertsViewModelTest {
     }
 
     @Test
-    fun `acknowledgeAlert sets error on failure`() = runTest {
+    fun `acknowledgeAlert sets user-facing error on failure, never the raw exception message`() = runTest {
         coEvery { repository.acknowledgeAlert("alert-1") } returns
-            Result.failure(RuntimeException("Forbidden"))
+            Result.failure(RuntimeException("Acknowledge failed: HTTP 403"))
 
         val vm = createViewModel()
         advanceUntilIdle()
@@ -196,7 +225,7 @@ class AlertsViewModelTest {
         vm.acknowledgeAlert("alert-1")
         advanceUntilIdle()
 
-        assertEquals("Forbidden", vm.uiState.value.error)
+        assertEquals("Couldn't acknowledge the alert. Try again.", vm.uiState.value.error)
     }
 
     @Test
@@ -207,9 +236,79 @@ class AlertsViewModelTest {
         val vm = createViewModel()
         advanceUntilIdle()
 
-        assertEquals("fail", vm.uiState.value.error)
+        assertEquals("Couldn't refresh alerts. Try again.", vm.uiState.value.error)
 
         vm.clearError()
         assertNull(vm.uiState.value.error)
+    }
+
+    // -- alertingDegraded (AC4 banner input) -----------------------------------
+
+    @Test
+    fun `alerting is not degraded when backend reachable and stream connected`() = runTest {
+        alertStreamStateHolder.onStreamOpened()
+        val vm = createViewModel()
+
+        val job = backgroundScope.launch(testDispatcher) { vm.alertingDegraded.collect { } }
+        advanceUntilIdle()
+
+        assertFalse(vm.alertingDegraded.value)
+        job.cancel()
+    }
+
+    @Test
+    fun `alerting degrades when the backend becomes unreachable`() = runTest {
+        alertStreamStateHolder.onStreamOpened()
+        val vm = createViewModel()
+
+        val job = backgroundScope.launch(testDispatcher) { vm.alertingDegraded.collect { } }
+        advanceUntilIdle()
+        assertFalse(vm.alertingDegraded.value)
+
+        networkStatusFlow.value = NetworkStatus.BACKEND_UNREACHABLE
+        advanceUntilIdle()
+
+        assertTrue(vm.alertingDegraded.value)
+        job.cancel()
+    }
+
+    @Test
+    fun `alerting degrades when the stream drops and recovers on reconnect`() = runTest {
+        alertStreamStateHolder.onStreamOpened()
+        val vm = createViewModel()
+
+        val job = backgroundScope.launch(testDispatcher) { vm.alertingDegraded.collect { } }
+        advanceUntilIdle()
+        assertFalse(vm.alertingDegraded.value)
+
+        alertStreamStateHolder.onStreamRetrying()
+        advanceUntilIdle()
+        assertTrue(vm.alertingDegraded.value)
+
+        alertStreamStateHolder.onStreamOpened()
+        advanceUntilIdle()
+        assertFalse(vm.alertingDegraded.value)
+
+        job.cancel()
+    }
+
+    @Test
+    fun `cached alerts still display while alerting is degraded`() = runTest {
+        networkStatusFlow.value = NetworkStatus.BACKEND_UNREACHABLE
+        coEvery { repository.fetchPendingAlerts() } returns
+            Result.failure(java.io.IOException("unreachable"))
+        alertsFlow.value = listOf(makeAlert())
+
+        val vm = createViewModel()
+        val degradedJob = backgroundScope.launch(testDispatcher) { vm.alertingDegraded.collect { } }
+        val alertsJob = backgroundScope.launch(testDispatcher) { vm.alerts.collect { } }
+        advanceUntilIdle()
+
+        assertTrue(vm.alertingDegraded.value)
+        assertEquals(1, vm.alerts.value.size)
+        assertFalse(vm.uiState.value.isLoading)
+
+        degradedJob.cancel()
+        alertsJob.cancel()
     }
 }

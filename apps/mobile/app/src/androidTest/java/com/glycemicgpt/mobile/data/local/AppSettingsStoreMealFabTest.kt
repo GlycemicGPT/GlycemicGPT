@@ -23,13 +23,13 @@ class AppSettingsStoreMealFabTest {
 
     @Before
     fun setUp() {
-        clearEncryptedPrefs()
         store = AppSettingsStore(context)
+        clearFabState()
     }
 
     @After
     fun tearDown() {
-        clearEncryptedPrefs()
+        clearFabState()
     }
 
     @Test
@@ -72,8 +72,14 @@ class AppSettingsStoreMealFabTest {
         assertEquals(AppSettingsStore.UNSET_FAB_OFFSET, reread.mealFabOffsetYPx)
     }
 
-    /** Resets the encrypted settings file so default/round-trip assertions are deterministic. */
-    private fun clearEncryptedPrefs() {
-        context.deleteSharedPreferences(AppSettingsStore.ENCRYPTED_PREFS_NAME)
+    /**
+     * Resets the FAB keys THROUGH the store so the reset reaches the process-cached
+     * SharedPreferences instance. Deleting the prefs file (the previous approach) is not enough
+     * once any earlier test in the instrumentation run has warmed that cache — e.g. an activity
+     * test creating the Hilt singleton — because the cached instance keeps its in-memory values
+     * after the file is gone and re-persists them, leaking state across tests.
+     */
+    private fun clearFabState() {
+        store.clearMealFabOffset()
     }
 }

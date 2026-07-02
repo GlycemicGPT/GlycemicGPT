@@ -58,10 +58,21 @@ class AlertStreamService : Service() {
     @Inject lateinit var authTokenStore: AuthTokenStore
     @Inject lateinit var alertRepository: AlertRepository
     @Inject lateinit var alertNotificationManager: AlertNotificationManager
+    @Inject lateinit var alertStreamStateHolder: AlertStreamStateHolder
     @Inject lateinit var moshi: Moshi
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    // Written on the main thread (connectToStream/onDestroy) but the surrounding lifecycle races
+    // OkHttp-thread callbacks; without @Volatile a stale null read could leak a live connection
+    // or open a duplicate one. Mutation is additionally confined to the @Synchronized
+    // connectToStream/shutDownStream pair so only one connection transition runs at a time.
+    @Volatile
     private var eventSource: EventSource? = null
+
+    /** Set once in [shutDownStream]; blocks any late reconnect from resurrecting the stream. */
+    @Volatile
+    private var destroyed = false
     private val reconnectAttempt = AtomicInteger(0)
     private val reconnectScheduled = AtomicBoolean(false)
     private var reconnectJob: Job? = null
@@ -74,7 +85,11 @@ class AlertStreamService : Service() {
     private val sseClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(2, TimeUnit.MINUTES)
+            // The server heartbeats every 30s; 75s (2.5 intervals) tolerates one fully missed
+            // heartbeat + jitter while bounding how long a silently dead stream can look
+            // CONNECTED — this is the worst-case delay before the alerting-degraded banner
+            // appears when the backend dies without closing the socket.
+            .readTimeout(75, TimeUnit.SECONDS)
             .build()
     }
 
@@ -86,15 +101,25 @@ class AlertStreamService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForeground(NOTIFICATION_ID, buildNotification())
-        connectToStream()
-        Timber.d("AlertStreamService started")
+        // A redundant start() (Settings opening, a re-login refresh) must not tear down a healthy
+        // stream: the silent cancel-and-reconnect was invisible before the alerting-degraded
+        // banner existed, but now it would flash "server alerts paused" for the seconds the
+        // reconnect takes. A broken stream is never CONNECTED, so real recovery still proceeds.
+        if (eventSource == null ||
+            alertStreamStateHolder.state.value != AlertStreamState.CONNECTED
+        ) {
+            connectToStream()
+            Timber.d("AlertStreamService started")
+        } else {
+            Timber.d("AlertStreamService start ignored; stream already connected")
+        }
         return START_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
-        eventSource?.cancel()
+        shutDownStream()
         reconnectJob?.cancel()
         sseClient.dispatcher.executorService.shutdownNow()
         try {
@@ -108,17 +133,53 @@ class AlertStreamService : Service() {
         super.onDestroy()
     }
 
+    /**
+     * Tear down the stream for good. Synchronized against [connectToStream] so a reconnect
+     * coroutine that already resumed from its backoff delay (cooperative cancellation can be too
+     * late) cannot open a new connection after this ran — [destroyed] makes it bail instead.
+     */
+    @Synchronized
+    private fun shutDownStream() {
+        destroyed = true
+        // Invalidate the live connection's callbacks BEFORE cancelling it: cancel() delivers an
+        // async onFailure on an OkHttp thread, and without the bump its generation would still
+        // match, letting it clobber the DISCONNECTED written below back to RECONNECTING.
+        connectionGeneration.incrementAndGet()
+        eventSource?.cancel()
+        eventSource = null
+        alertStreamStateHolder.onStreamStopped()
+    }
+
+    /**
+     * Synchronized: callable from the main thread ([onStartCommand]) and the reconnect coroutine
+     * (IO dispatcher). Without mutual exclusion two overlapping calls each cancel-and-rebuild, and
+     * the losing call's freshly opened EventSource is overwritten in [eventSource] with no
+     * remaining reference — an orphaned live connection (the generation guard only silences its
+     * callbacks, it does not close the socket). The body never blocks (newEventSource connects
+     * asynchronously), so holding the monitor is cheap.
+     */
+    @Synchronized
     private fun connectToStream() {
+        if (destroyed) {
+            Timber.d("connectToStream skipped; service is shut down")
+            return
+        }
+        // Invalidate the previous connection's callbacks before cancelling it, so its async
+        // onFailure can't flip the state holder after we've already decided what comes next
+        // (including the early-return DISCONNECTED paths below).
+        connectionGeneration.incrementAndGet()
         // Cancel any existing connection without triggering another reconnect
         eventSource?.cancel()
         eventSource = null
 
         val baseUrl = authTokenStore.getBaseUrl() ?: run {
             Timber.w("No base URL configured, cannot connect alert stream")
+            alertStreamStateHolder.onStreamStopped()
             return
         }
         val token = authTokenStore.getRawToken() ?: run {
             Timber.w("No auth token available, cannot connect alert stream")
+            alertStreamStateHolder.onStreamStopped()
             return
         }
 
@@ -139,7 +200,12 @@ class AlertStreamService : Service() {
             request,
             object : EventSourceListener() {
                 override fun onOpen(eventSource: EventSource, response: Response) {
+                    // Same stale-generation guard as onFailure/onClosed — this is the one callback
+                    // that could flip the holder to a false CONNECTED (banner hidden), so it gets
+                    // the guard even though a cancelled EventSource shouldn't emit onOpen.
+                    if (connectionGeneration.get() != gen) return
                     Timber.d("Alert SSE stream connected (status=%d)", response.code)
+                    alertStreamStateHolder.onStreamOpened()
                     connectionOpenedAtMs = System.currentTimeMillis()
                     // Don't reset reconnectAttempt here -- only reset after
                     // STABLE_CONNECTION_MS to prevent rapid connect/fail cycles
@@ -180,12 +246,14 @@ class AlertStreamService : Service() {
                         reconnectAttempt.set(5.coerceAtLeast(attempt))
                     }
 
+                    alertStreamStateHolder.onStreamRetrying()
                     scheduleReconnect()
                 }
 
                 override fun onClosed(eventSource: EventSource) {
                     if (connectionGeneration.get() != gen) return
                     Timber.d("Alert SSE stream closed by server")
+                    alertStreamStateHolder.onStreamRetrying()
                     scheduleReconnect()
                 }
             },
@@ -270,10 +338,18 @@ class AlertStreamService : Service() {
                 Timber.d("Reconnecting alert stream in %d ms (attempt %d)", backoffMs, attempt)
                 delay(backoffMs)
 
+                // Another path (a service restart, an earlier retry) may have already restored a
+                // healthy stream while this retry was sleeping — don't tear it down again.
+                if (alertStreamStateHolder.state.value == AlertStreamState.CONNECTED) {
+                    Timber.d("Reconnect skipped; stream already connected")
+                    return@launch
+                }
+
                 if (authTokenStore.hasActiveSession()) {
                     connectToStream()
                 } else {
                     Timber.d("No active session, stopping alert stream service")
+                    alertStreamStateHolder.onStreamStopped()
                     stopSelf()
                 }
             } finally {

@@ -154,6 +154,23 @@ class AiChatViewModelTest {
     }
 
     @Test
+    fun `sendMessage never surfaces a raw exception message on unexpected failures`() = runTest {
+        coEvery { repository.checkProviderConfigured() } returns Result.success(Unit)
+        coEvery { repository.sendMessage(any()) } returns
+            Result.failure(IllegalStateException("moshi: expected BEGIN_OBJECT at path $.data"))
+
+        val vm = createViewModel()
+        advanceUntilIdle()
+
+        vm.onInputChanged("test")
+        vm.sendMessage()
+        advanceUntilIdle()
+
+        assertEquals("Couldn't get a response. Please try again", vm.uiState.value.error)
+        assertFalse(vm.uiState.value.isSending)
+    }
+
+    @Test
     fun `sendMessage ignores blank input`() = runTest {
         coEvery { repository.checkProviderConfigured() } returns Result.success(Unit)
 
@@ -286,7 +303,7 @@ class AiChatViewModelTest {
         vm.onInputChanged("test")
         vm.sendMessage()
         advanceUntilIdle()
-        assertEquals("fail", vm.uiState.value.error)
+        assertEquals("Couldn't get a response. Please try again", vm.uiState.value.error)
 
         vm.clearError()
         assertNull(vm.uiState.value.error)

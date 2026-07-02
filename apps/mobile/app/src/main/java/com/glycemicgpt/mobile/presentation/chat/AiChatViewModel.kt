@@ -310,7 +310,8 @@ class AiChatViewModel @Inject constructor(
             e.message?.contains("401") == true -> "Session expired. Please sign in again"
             e.message?.let { Regex("HTTP 5\\d{2}").containsMatchIn(it) } == true ->
                 "Server error. Please try again later"
-            else -> e.message ?: "Failed to get response"
+            // Never surface a raw exception message for unexpected failures.
+            else -> "Couldn't get a response. Please try again"
         }
     }
 }

@@ -49,54 +49,75 @@ fun MealHistoryScreen(
 
     DetailScaffold(title = "Meal History", onBack = onBack) { padding ->
       Box(modifier = Modifier.padding(padding).fillMaxSize()) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .testTag("meal_history_screen"),
-        ) {
-            when {
-                uiState.disabled -> MealCenteredMessage(
-                    "Meal intelligence is turned off for this server.",
-                    modifier = Modifier.testTag("meal_history_disabled"),
-                )
-                uiState.isLoading -> MealCenteredSpinner()
-                else -> {
-                    // Persistent safety qualifier above the (scrolling) list.
-                    VerifyBeforeDosingQualifier(modifier = Modifier.padding(16.dp))
-                    uiState.errorMessage?.let { error ->
-                        Text(
-                            text = error,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.padding(horizontal = 16.dp),
-                        )
-                    }
-                    if (uiState.records.isEmpty()) {
-                        MealCenteredMessage(
-                            "No meals logged yet.",
-                            modifier = Modifier.testTag("meal_history_empty"),
-                        )
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .testTag("meal_history_list"),
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            items(uiState.records, key = { it.id }) { record ->
-                                MealHistoryItem(record = record, onDelete = { viewModel.delete(record.id) })
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        MealHistoryBody(
+            uiState = uiState,
+            onRetry = viewModel::load,
+            onDelete = viewModel::delete,
+        )
         SnackbarHost(
             hostState = snackbarHostState,
             modifier = Modifier.align(Alignment.BottomCenter),
         )
       }
+    }
+}
+
+/** Stateless body, split from [MealHistoryScreen] so UI tests can drive offline/degraded states. */
+@Composable
+internal fun MealHistoryBody(
+    uiState: MealHistoryUiState,
+    onRetry: () -> Unit,
+    onDelete: (recordId: String) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .testTag("meal_history_screen"),
+    ) {
+        when {
+            uiState.disabled -> MealCenteredMessage(
+                "Meal intelligence is turned off for this server.",
+                modifier = Modifier.testTag("meal_history_disabled"),
+            )
+            uiState.isLoading -> MealCenteredSpinner()
+            // Nothing cached to show: a clear terminal failure state with Retry, never a
+            // misleading "No meals logged yet." while the backend is unreachable.
+            uiState.errorMessage != null && uiState.records.isEmpty() -> MealCenteredError(
+                message = uiState.errorMessage,
+                onRetry = onRetry,
+                modifier = Modifier.testTag("meal_history_error"),
+            )
+            else -> {
+                // Persistent safety qualifier above the (scrolling) list.
+                VerifyBeforeDosingQualifier(modifier = Modifier.padding(16.dp))
+                uiState.errorMessage?.let { error ->
+                    Text(
+                        text = error,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                    )
+                }
+                if (uiState.records.isEmpty()) {
+                    MealCenteredMessage(
+                        "No meals logged yet.",
+                        modifier = Modifier.testTag("meal_history_empty"),
+                    )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .testTag("meal_history_list"),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        items(uiState.records, key = { it.id }) { record ->
+                            MealHistoryItem(record = record, onDelete = { onDelete(record.id) })
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
