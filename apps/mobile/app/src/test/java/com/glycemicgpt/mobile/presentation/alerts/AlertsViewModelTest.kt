@@ -171,7 +171,7 @@ class AlertsViewModelTest {
 
         // Terminal: not loading, honest copy, no raw exception text.
         assertFalse(vm.uiState.value.isLoading)
-        assertEquals("Can't reach your server — showing saved alerts.", vm.uiState.value.error)
+        assertEquals("Can't reach your server — alerts may be out of date.", vm.uiState.value.error)
     }
 
     @Test

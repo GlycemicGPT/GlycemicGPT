@@ -56,7 +56,13 @@ class AlertsViewModel @Inject constructor(
         networkMonitor.status,
         alertStreamStateHolder.state,
     ) { network, stream -> isAlertingDegraded(network, stream) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            // Seed from the real current state, not an optimistic false — a safety banner must
+            // never default to "healthy" while the combine spins up.
+            isAlertingDegraded(networkMonitor.status.value, alertStreamStateHolder.state.value),
+        )
 
     init {
         viewModelScope.launch { alertRepository.cleanupOldAlerts() }
@@ -98,7 +104,8 @@ class AlertsViewModel @Inject constructor(
     }
 
     private fun refreshErrorMessage(e: Throwable): String = when (e) {
-        is IOException -> "Can't reach your server — showing saved alerts."
+        // Neutral about cache contents — the list below may be empty.
+        is IOException -> "Can't reach your server — alerts may be out of date."
         else -> "Couldn't refresh alerts. Try again."
     }
 

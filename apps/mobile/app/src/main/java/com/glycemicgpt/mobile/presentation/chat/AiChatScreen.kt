@@ -102,8 +102,9 @@ fun AiChatScreen(
     }
 }
 
+/** Internal so the offline UI test can use it as the positive control for the spinner matcher. */
 @Composable
-private fun LoadingContent() {
+internal fun LoadingContent() {
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center,

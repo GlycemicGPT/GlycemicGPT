@@ -1,8 +1,5 @@
 package com.glycemicgpt.mobile.presentation.chat
 
-import androidx.compose.ui.semantics.ProgressBarRangeInfo
-import androidx.compose.ui.semantics.SemanticsProperties
-import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -11,6 +8,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.glycemicgpt.mobile.presentation.theme.GlycemicGptTheme
+import com.glycemicgpt.mobile.testutil.indeterminateSpinner
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -26,11 +24,6 @@ class AiChatOfflineUiTest {
     @get:Rule
     val compose = createComposeRule()
 
-    private val indeterminateSpinner = SemanticsMatcher.expectValue(
-        SemanticsProperties.ProgressBarRangeInfo,
-        ProgressBarRangeInfo.Indeterminate,
-    )
-
     @Test
     fun offlineState_showsClearMessageWithRetry_andNoSpinner() {
         compose.setContent {
@@ -43,6 +36,19 @@ class AiChatOfflineUiTest {
         compose.onNodeWithText("Unable to Connect").assertIsDisplayed()
         compose.onNodeWithText("Retry").assertIsDisplayed()
         compose.onAllNodes(indeterminateSpinner).assertCountEquals(0)
+    }
+
+    @Test
+    fun loadingState_isTheOnlyStateWithASpinner() {
+        // Positive control: proves the spinner matcher matches this surface's spinner, so the
+        // zero-spinner assertion above cannot pass vacuously.
+        compose.setContent {
+            GlycemicGptTheme {
+                LoadingContent()
+            }
+        }
+
+        compose.onAllNodes(indeterminateSpinner).assertCountEquals(1)
     }
 
     @Test

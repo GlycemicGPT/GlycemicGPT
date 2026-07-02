@@ -75,7 +75,11 @@ class AlertStreamService : Service() {
     private val sseClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(2, TimeUnit.MINUTES)
+            // The server heartbeats every 30s; 75s (2.5 intervals) tolerates one fully missed
+            // heartbeat + jitter while bounding how long a silently dead stream can look
+            // CONNECTED — this is the worst-case delay before the alerting-degraded banner
+            // appears when the backend dies without closing the socket.
+            .readTimeout(75, TimeUnit.SECONDS)
             .build()
     }
 
@@ -87,16 +91,30 @@ class AlertStreamService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForeground(NOTIFICATION_ID, buildNotification())
-        connectToStream()
-        Timber.d("AlertStreamService started")
+        // A redundant start() (Settings opening, a re-login refresh) must not tear down a healthy
+        // stream: the silent cancel-and-reconnect was invisible before the alerting-degraded
+        // banner existed, but now it would flash "server alerts paused" for the seconds the
+        // reconnect takes. A broken stream is never CONNECTED, so real recovery still proceeds.
+        if (eventSource == null ||
+            alertStreamStateHolder.state.value != AlertStreamState.CONNECTED
+        ) {
+            connectToStream()
+            Timber.d("AlertStreamService started")
+        } else {
+            Timber.d("AlertStreamService start ignored; stream already connected")
+        }
         return START_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
-        alertStreamStateHolder.onStreamStopped()
+        // Invalidate the live connection's callbacks BEFORE cancelling it: cancel() delivers an
+        // async onFailure on an OkHttp thread, and without the bump its generation would still
+        // match, letting it clobber the DISCONNECTED written below back to RECONNECTING.
+        connectionGeneration.incrementAndGet()
         eventSource?.cancel()
+        alertStreamStateHolder.onStreamStopped()
         reconnectJob?.cancel()
         sseClient.dispatcher.executorService.shutdownNow()
         try {
@@ -111,6 +129,10 @@ class AlertStreamService : Service() {
     }
 
     private fun connectToStream() {
+        // Invalidate the previous connection's callbacks before cancelling it, so its async
+        // onFailure can't flip the state holder after we've already decided what comes next
+        // (including the early-return DISCONNECTED paths below).
+        connectionGeneration.incrementAndGet()
         // Cancel any existing connection without triggering another reconnect
         eventSource?.cancel()
         eventSource = null
@@ -143,6 +165,10 @@ class AlertStreamService : Service() {
             request,
             object : EventSourceListener() {
                 override fun onOpen(eventSource: EventSource, response: Response) {
+                    // Same stale-generation guard as onFailure/onClosed — this is the one callback
+                    // that could flip the holder to a false CONNECTED (banner hidden), so it gets
+                    // the guard even though a cancelled EventSource shouldn't emit onOpen.
+                    if (connectionGeneration.get() != gen) return
                     Timber.d("Alert SSE stream connected (status=%d)", response.code)
                     alertStreamStateHolder.onStreamOpened()
                     connectionOpenedAtMs = System.currentTimeMillis()

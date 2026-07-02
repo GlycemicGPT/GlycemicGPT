@@ -1,9 +1,6 @@
 package com.glycemicgpt.mobile.presentation.alerts
 
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.ui.semantics.ProgressBarRangeInfo
-import androidx.compose.ui.semantics.SemanticsProperties
-import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -14,6 +11,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.glycemicgpt.mobile.data.local.entity.AlertEntity
 import com.glycemicgpt.mobile.domain.model.GlucoseUnit
 import com.glycemicgpt.mobile.presentation.theme.GlycemicGptTheme
+import com.glycemicgpt.mobile.testutil.indeterminateSpinner
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -28,11 +26,6 @@ class AlertsDegradedUiTest {
 
     @get:Rule
     val compose = createComposeRule()
-
-    private val indeterminateSpinner = SemanticsMatcher.expectValue(
-        SemanticsProperties.ProgressBarRangeInfo,
-        ProgressBarRangeInfo.Indeterminate,
-    )
 
     private fun cachedAlert(id: String = "alert-1") = AlertEntity(
         serverId = id,

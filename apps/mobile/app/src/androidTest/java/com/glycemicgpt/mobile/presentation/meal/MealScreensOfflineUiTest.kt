@@ -1,8 +1,5 @@
 package com.glycemicgpt.mobile.presentation.meal
 
-import androidx.compose.ui.semantics.ProgressBarRangeInfo
-import androidx.compose.ui.semantics.SemanticsProperties
-import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -12,6 +9,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.glycemicgpt.mobile.presentation.theme.GlycemicGptTheme
+import com.glycemicgpt.mobile.testutil.indeterminateSpinner
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -27,11 +25,6 @@ class MealScreensOfflineUiTest {
 
     @get:Rule
     val compose = createComposeRule()
-
-    private val indeterminateSpinner = SemanticsMatcher.expectValue(
-        SemanticsProperties.ProgressBarRangeInfo,
-        ProgressBarRangeInfo.Indeterminate,
-    )
 
     // -- Meal history -----------------------------------------------------------
 

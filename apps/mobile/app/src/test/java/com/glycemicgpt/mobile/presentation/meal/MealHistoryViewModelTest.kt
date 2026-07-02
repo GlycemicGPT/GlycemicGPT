@@ -93,6 +93,26 @@ class MealHistoryViewModelTest {
     }
 
     @Test
+    fun `stale slow failing load cannot clobber a newer successful load`() = runTest(testDispatcher) {
+        // First load hangs (offline, long timeout)...
+        coEvery { repository.listFoodRecords(any(), any()) } coAnswers {
+            kotlinx.coroutines.delay(30_000)
+            Result.failure(java.io.IOException("timeout"))
+        }
+        val vm = MealHistoryViewModel(repository)
+        testScheduler.advanceTimeBy(1_000)
+
+        // ...then the user retries after reconnecting and the retry succeeds (empty list).
+        coEvery { repository.listFoodRecords(any(), any()) } returns Result.success(emptyList())
+        vm.load()
+        advanceUntilIdle()
+
+        // The superseded failure must not take over the loaded screen as a full-screen error.
+        assertEquals(null, vm.uiState.value.errorMessage)
+        assertFalse(vm.uiState.value.isLoading)
+    }
+
+    @Test
     fun `retry after reconnect clears the error and loads records`() = runTest(testDispatcher) {
         coEvery { repository.listFoodRecords(any(), any()) } returns
             Result.failure(java.io.IOException("unreachable"))

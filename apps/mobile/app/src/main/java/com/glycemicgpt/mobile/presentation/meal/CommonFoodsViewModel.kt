@@ -8,10 +8,12 @@ import com.glycemicgpt.mobile.data.meal.CommonFood
 import com.glycemicgpt.mobile.data.meal.MealException
 import com.glycemicgpt.mobile.data.repository.MealRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.IOException
 import javax.inject.Inject
@@ -37,14 +39,23 @@ class CommonFoodsViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(CommonFoodsUiState())
     val uiState: StateFlow<CommonFoodsUiState> = _uiState.asStateFlow()
 
+    private var loadJob: Job? = null
+
     init {
         load()
     }
 
     fun load() {
+        // Cancel any in-flight load so a slow failing request can't resolve after a newer one
+        // succeeded and clobber the screen with a stale full-screen error.
+        loadJob?.cancel()
         _uiState.update { it.copy(isLoading = true, errorMessage = null) }
-        viewModelScope.launch {
-            repository.listCommonFoods()
+        loadJob = viewModelScope.launch {
+            val result = repository.listCommonFoods()
+            // A repository that wraps errors in Result can swallow the CancellationException,
+            // so a superseded load could still reach here — never let it write state.
+            if (!isActive) return@launch
+            result
                 .onSuccess { items ->
                     _uiState.update { it.copy(isLoading = false, items = items, disabled = false) }
                 }
