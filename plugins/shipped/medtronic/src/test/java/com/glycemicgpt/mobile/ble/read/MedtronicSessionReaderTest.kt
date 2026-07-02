@@ -67,6 +67,29 @@ class MedtronicSessionReaderTest {
     }
 
     @Test
+    fun `reportLastRecord fails when the record is still unterminated at the RACP success response`() {
+        // The exact-multiple ambiguity: a record whose plaintext is an exact multiple of the PDU size
+        // has no short terminator, so the reassembler is still holding fragments when the terminal
+        // indication arrives. Reporting "no record" here would silently misreport what the pump sent.
+        val two = TwoSidedSession()
+        val link = FakeGattLink()
+        val record = ByteArray(PduFramer.MAX_PDU_SIZE * 2) { it.toByte() } // 40 bytes: two full fragments
+        val pdus = PduFramer.fragment(record).map { two.pumpEncrypt(it) }
+        link.onWrite = { characteristic, _ ->
+            if (characteristic == racp) {
+                pdus.forEach { emit(dataChar, it) }
+                emit(racp, MedtronicSessionReader.RACP_REPORT_SUCCESS)
+            }
+        }
+
+        var result: Result<ByteArray>? = null
+        MedtronicSessionReader(link, two.server).reportLastRecord(dataChar, racp) { result = it }
+
+        assertTrue(result!!.isFailure)
+        assertTrue(result!!.exceptionOrNull()!!.message!!.contains("unterminated"))
+    }
+
+    @Test
     fun `reportLastRecord fails on an unsuccessful RACP response`() {
         val two = TwoSidedSession()
         val link = FakeGattLink()

@@ -214,7 +214,8 @@ class AndroidMedtronicGattLink(
                 // Register the handler before enabling notifications so a PDU delivered the instant the
                 // CCCD takes effect is not lost. Re-subscribing replaces the handler (seam contract).
                 // Record the owning client so a deferred unsubscribe can't disable a later connection.
-                handlers[characteristic] = ActiveSubscription(resolved, onPdu, link)
+                val sub = ActiveSubscription(resolved, onPdu, link)
+                handlers[characteristic] = sub
                 val isIndication = isIndication(char)
                 val enable = if (isIndication) CCCD_ENABLE_INDICATION else CCCD_ENABLE_NOTIFICATION
                 Timber.v("GATT subscribe %s (%s)", characteristic, if (isIndication) "indication" else "notification")
@@ -223,11 +224,16 @@ class AndroidMedtronicGattLink(
                 val outcome = awaitGatt("subscribe", characteristic) { writeDescriptor(link, cccd, enable) }
                 if (outcome.status != BluetoothGatt.GATT_SUCCESS) {
                     logGattWarning("subscribe", characteristic, outcome.status)
-                    // The CCCD never took effect; drop the handler so it isn't a phantom subscription.
-                    handlers.remove(characteristic)
+                    // The CCCD never took effect; drop the handler so it isn't a phantom subscription
+                    // (identity-checked -- a cancel + re-subscribe may already own the slot).
+                    handlers.remove(characteristic, sub)
                     return
                 }
-                armWatchdog()
+                // [cancelAllSubscriptions] runs lock-free from the cancellation handler, so it can
+                // clear this registration while the CCCD ack above is still in flight. Arming the
+                // watchdog then would leave a stale timer that later fires against an unrelated live
+                // exchange and drops its handlers. Arm only if this registration is still current.
+                if (handlers[characteristic] === sub) armWatchdog()
             }
         } catch (e: MedtronicReadException) {
             // On a timeout [awaitGatt] already tore the connection down, clearing handlers; nothing to undo.

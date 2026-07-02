@@ -157,6 +157,31 @@ class HistoryReaderTest {
     }
 
     @Test
+    fun `readRecordsInRange fails when a record is still unterminated at the success indication`() {
+        // A record whose plaintext is an exact PDU multiple has no short terminator (the documented
+        // reassembler ambiguity). Dropping it silently would let the cursors advance past a record
+        // the pump sent; the page must fail so the read is retried with nothing skipped.
+        val two = TwoSidedSession()
+        val link = FakeGattLink()
+        link.reads[features] = two.pumpEncrypt(featuresPlain)
+        // 20-byte record: header (8) + 12-byte body -- exactly one full fragment, never terminated.
+        val exactMultiple = le16(0x0099) + le32(121) + le16(0) + ByteArray(12) { it.toByte() }
+        link.onWrite = { characteristic, value ->
+            if (characteristic == racp && value.size > 3 &&
+                value[0] == HistoryReader.REQUEST_REPORT_WITHIN_RANGE_PREFIX[0]
+            ) {
+                PduFramer.fragment(exactMultiple).forEach { emit(data, two.pumpEncrypt(it)) }
+                emit(racp, HistoryReader.EXPECTED_REPORT_SUCCESS)
+            }
+        }
+
+        var result: Result<List<com.glycemicgpt.mobile.domain.model.HistoryLogRecord>>? = null
+        HistoryReader(link, two.server).readRecordsInRange(100, 130) { result = it }
+
+        assertTrue(result!!.isFailure)
+    }
+
+    @Test
     fun `readRecordsInRange fails when every frame in the page is undecodable`() {
         // Frames arrived but none survived parsing: reporting an empty page here would end the
         // gateway's walk and let the callers' cursors skip these records permanently. It must fail.

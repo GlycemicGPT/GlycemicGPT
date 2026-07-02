@@ -346,6 +346,28 @@ class AndroidMedtronicGattLinkTest {
     }
 
     @Test
+    fun `subscribe does not arm the watchdog when cancelled while awaiting the CCCD ack`() {
+        // cancelAllSubscriptions runs lock-free from the coroutine cancellation handler, so it can
+        // clear the registration while subscribe() is still blocked on the CCCD enable ack. Arming
+        // the watchdog on that ack would leave a stale timer ticking against whatever exchange runs
+        // next -- when it fires, onWatchdogFire drops that live exchange's handlers.
+        val deferring = DeferringWatchdog()
+        val link = AndroidMedtronicGattLink(context, deviceProvider = { device }, worker = DirectSerialWorker(), watchdog = deferring)
+        @Suppress("DEPRECATION")
+        every { gatt.writeDescriptor(any<BluetoothGattDescriptor>()) } answers {
+            // The gateway timeout cancels the driving coroutine while this CCCD ack is in flight.
+            link.cancelAllSubscriptions()
+            callback.onDescriptorWrite(gatt, firstArg(), descriptorStatus)
+            true
+        }
+
+        link.subscribe(MedtronicProtocol.CGM_MEASUREMENT_UUID) {}
+
+        assertEquals(0, link.activeSubscriptionCount())
+        assertFalse("a cancelled subscribe must not arm a stale watchdog", deferring.armed)
+    }
+
+    @Test
     fun `cancelAllSubscriptions drops handlers immediately and defers the CCCD disables`() {
         val deferring = DeferringWatchdog()
         val link = AndroidMedtronicGattLink(context, deviceProvider = { device }, worker = DirectSerialWorker(), watchdog = deferring)
@@ -510,6 +532,9 @@ class AndroidMedtronicGattLinkTest {
     private class DeferringWatchdog : SubscriptionWatchdog {
         private var timerTask: (() -> Unit)? = null
         private val deferred = ArrayDeque<() -> Unit>()
+
+        /** True while a scheduled (un-cancelled) watchdog timer is armed. */
+        val armed: Boolean get() = timerTask != null
 
         override fun schedule(delayMs: Long, task: () -> Unit): SubscriptionWatchdog.Handle {
             timerTask = task

@@ -61,6 +61,13 @@ internal class NotificationReassembler(
         return null
     }
 
+    /**
+     * True while fragments are accumulated but no short terminator has arrived. Lets an exchange's
+     * terminal indication distinguish "all records delivered" from "a record is still unterminated"
+     * (the exact-multiple ambiguity) and fail loudly instead of silently dropping the partial frame.
+     */
+    fun hasPartialFrame(): Boolean = fragments.isNotEmpty()
+
     /** Discard any partially-accumulated frame. */
     fun reset() {
         fragments.clear()
@@ -152,7 +159,11 @@ class MedtronicSessionReader(
             when {
                 response.contentEquals(RACP_REPORT_SUCCESS) -> {
                     val r = record
-                    if (r == null) {
+                    if (assembler.hasPartialFrame()) {
+                        // The record never got its short terminator (the exact-multiple ambiguity):
+                        // returning r (or null) would silently misreport what the pump sent.
+                        finish(Result.failure(MedtronicReadException("CGM RACP reported success with an unterminated record pending")))
+                    } else if (r == null) {
                         finish(Result.failure(MedtronicReadException("CGM RACP reported success but no record arrived")))
                     } else {
                         finish(Result.success(r))
@@ -285,7 +296,18 @@ class MedtronicSessionReader(
         link.subscribe(controlPoint) { response ->
             if (finished) return@subscribe
             if (isSuccess(response)) {
-                finish(Result.success(records.toList()))
+                if (assembler.hasPartialFrame()) {
+                    // A record is still unterminated at the terminal indication (the exact-multiple
+                    // ambiguity). Dropping it silently would let the history cursors advance past a
+                    // record the pump sent -- fail instead so the read is retried with nothing skipped.
+                    finish(
+                        Result.failure(
+                            MedtronicReadException("IDD RACP reported success with an unterminated record pending"),
+                        ),
+                    )
+                } else {
+                    finish(Result.success(records.toList()))
+                }
             } else {
                 finish(
                     Result.failure(MedtronicReadException("Unexpected/failed IDD RACP response: ${response.toHex()}")),
