@@ -16,9 +16,9 @@ from src.core.units import GlucoseUnit, format_glucose, format_glucose_value
 from src.logging_config import get_logger
 from src.models.alert import Alert, AlertSeverity, AlertType
 from src.models.alert_threshold import AlertThreshold
-from src.models.glucose import GlucoseReading
 from src.services.alert_notifier import notify_user_of_alerts
 from src.services.alert_threshold import get_or_create_thresholds
+from src.services.dexcom_sync import get_latest_glucose_reading
 from src.services.glucose_unit import resolve_glucose_unit
 from src.services.iob_projection import get_iob_projection, get_user_dia
 
@@ -564,14 +564,11 @@ async def evaluate_alerts_for_user(
     Returns:
         List of newly created Alert records.
     """
-    # Get latest glucose reading
-    result = await db.execute(
-        select(GlucoseReading)
-        .where(GlucoseReading.user_id == user_id)
-        .order_by(desc(GlucoseReading.reading_timestamp))
-        .limit(1)
-    )
-    latest_reading = result.scalar_one_or_none()
+    # Latest glucose reading from the PRIMARY CGM source only (GLY-123): a
+    # non-primary (e.g. lagging secondary) reading must never drive or suppress
+    # a safety alert. get_latest_glucose_reading resolves the primary-source
+    # exclusion itself, with the fail-safe "no primary => reading unfiltered".
+    latest_reading = await get_latest_glucose_reading(db, user_id)
 
     if latest_reading is None:
         logger.debug("No glucose readings for user", user_id=str(user_id))

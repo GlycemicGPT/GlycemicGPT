@@ -472,6 +472,8 @@ async def get_caregiver_patient_status(
     if permissions.can_view_glucose:
         from src.services.dexcom_sync import get_latest_glucose_reading
 
+        # The patient's primary CGM source only (GLY-123) -- the caregiver sees
+        # what the patient sees, never a lagging non-primary source.
         reading = await get_latest_glucose_reading(db, patient_id)
         if reading is not None:
             from src.services.glucose_unit import resolve_glucose_unit
@@ -545,6 +547,7 @@ async def get_caregiver_glucose_history(
 
     from src.services.dexcom_sync import get_glucose_readings
 
+    # The patient's primary CGM source only (GLY-123).
     readings = await get_glucose_readings(db, patient_id, minutes=minutes, limit=limit)
 
     return CaregiverGlucoseHistoryResponse(

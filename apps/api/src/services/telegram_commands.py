@@ -24,12 +24,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.units import format_glucose
 from src.logging_config import get_logger
-from src.models.glucose import GlucoseReading
 from src.models.telegram_link import TelegramLink
 from src.models.user import User, UserRole
 from src.services.alert_notifier import trend_description
 from src.services.brief_notifier import format_brief_message
 from src.services.daily_brief import list_briefs
+from src.services.dexcom_sync import get_latest_glucose_reading
 from src.services.glucose_unit import resolve_glucose_unit
 from src.services.iob_projection import get_iob_projection, get_user_dia
 from src.services.predictive_alerts import acknowledge_alert, get_active_alerts
@@ -101,14 +101,8 @@ async def _handle_status(db: AsyncSession, user_id: uuid.UUID) -> str:
 
     Includes current glucose, trend, IoB, and reading age.
     """
-    # Latest glucose reading
-    result = await db.execute(
-        select(GlucoseReading)
-        .where(GlucoseReading.user_id == user_id)
-        .order_by(GlucoseReading.reading_timestamp.desc())
-        .limit(1)
-    )
-    reading = result.scalar_one_or_none()
+    # Latest glucose reading from the PRIMARY CGM source only (GLY-123).
+    reading = await get_latest_glucose_reading(db, user_id)
 
     if reading is None:
         return "\u2139\ufe0f No glucose data available yet."

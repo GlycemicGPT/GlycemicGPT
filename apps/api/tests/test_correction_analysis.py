@@ -230,6 +230,18 @@ class TestBuildCorrectionPrompt:
 class TestAnalyzeCorrectionOutcomes:
     """Tests for analyze_correction_outcomes."""
 
+    @pytest.fixture(autouse=True)
+    def _stub_empty_cgm_exclusion(self):
+        # These unit tests mock the DB and configure no CGM sources, so the
+        # user's primary-source exclusion is empty. Stub it (GLY-123) so the
+        # shared glucose-read funnel doesn't issue its list_cgm_sources queries
+        # against the rigid execute mocks.
+        with patch(
+            "src.services.cgm_source.get_excluded_cgm_sources",
+            new=AsyncMock(return_value=[]),
+        ):
+            yield
+
     async def test_no_corrections_returns_empty_periods(self):
         """Test that no corrections returns zeroed time periods."""
         mock_db = AsyncMock()

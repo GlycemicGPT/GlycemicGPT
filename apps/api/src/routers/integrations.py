@@ -901,7 +901,7 @@ async def get_sync_status(
     )
     readings_count = count_result.scalar() or 0
 
-    # Get latest reading
+    # Get latest reading (primary CGM source only by default -- GLY-123)
     latest = await get_latest_glucose_reading(db, current_user.id)
     latest_response = None
     if latest:
