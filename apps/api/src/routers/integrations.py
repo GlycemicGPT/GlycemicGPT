@@ -11,7 +11,7 @@ import uuid
 import zoneinfo
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 import sentry_sdk
 from fastapi import (
@@ -1856,8 +1856,41 @@ async def import_tandem_range(
 # ---------------------------------------------------------------------------
 
 
-def _build_carelink_client(region: str, token: str) -> CareLinkClient:
-    """Cookie-less CareLink client authed by the captured bearer only.
+def _parse_carelink_credential(credential: str) -> tuple[str, dict[str, str]]:
+    """Resolve the captured CareLink credential into ``(bearer, cookies)``.
+
+    New captures send the full ``document.cookie`` bundle (``name=value; ...``)
+    so the EU ``generateReport`` POST receives every cookie the browser sends,
+    not just ``auth_tmp_token`` -- reads accept the bearer header alone but the
+    report POST does not (#811). Legacy captures (older bookmarklet) send the
+    bare ``auth_tmp_token``; still supported.
+
+    Cookie values are kept raw (as the browser echoes them); the bearer header
+    is the url-decoded ``auth_tmp_token`` (its decoded form is what the read
+    endpoints accept). ``m2m_enabled=true`` -- the flag marking an API caller as
+    permitted to generate reports -- is ensured present.
+    """
+    if "auth_tmp_token=" in credential:
+        cookies: dict[str, str] = {}
+        for part in credential.split(";"):
+            name, sep, value = part.strip().partition("=")
+            if sep and name:
+                cookies[name] = value
+        bearer = unquote(cookies.get("auth_tmp_token", ""))
+    else:
+        bearer = credential
+        cookies = {"auth_tmp_token": credential}
+    cookies.setdefault("m2m_enabled", "true")
+    return bearer, cookies
+
+
+def _build_carelink_client(region: str, credential: str) -> CareLinkClient:
+    """CareLink client authed by the captured credential.
+
+    ``credential`` is the captured CareLink session: the full ``document.cookie``
+    bundle (new bookmarklet) or a bare ``auth_tmp_token`` (legacy). It is sent as
+    both the bearer header and the session cookies the EU ``generateReport`` POST
+    requires (#811); see :func:`_parse_carelink_credential`.
 
     Region is normally validated by the request schema (-> 422); this guards the
     helper directly too so a bad region can never surface as an uncaught 500.
@@ -1869,10 +1902,16 @@ def _build_carelink_client(region: str, token: str) -> CareLinkClient:
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
 
-    async def _bearer() -> str:
-        return token
+    bearer_value, cookies = _parse_carelink_credential(credential)
 
-    return CareLinkClient(bearer_provider=_bearer, base_url=base_url)
+    async def _bearer() -> str:
+        return bearer_value
+
+    return CareLinkClient(
+        bearer_provider=_bearer,
+        base_url=base_url,
+        cookies=cookies,
+    )
 
 
 def _carelink_token_or_422(token: str | None) -> str:
@@ -1992,6 +2031,13 @@ async def import_medtronic_range(
             tz=zoneinfo.ZoneInfo(body.tz),
         )
     except CareLinkAuthError as e:
+        # 401 (expired) and 403 (forbidden action on a live session) both arrive
+        # here; log the upstream reason so the two can be told apart (#811).
+        logger.warning(
+            "CareLink import rejected - auth/permission",
+            user_id=str(current_user.id),
+            error=str(e),
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="CareLink session is invalid or expired. Reconnect and try again.",

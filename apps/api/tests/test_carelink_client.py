@@ -1,7 +1,7 @@
 """Tests for the CareLink HTTP client data methods (mocked, no network)."""
 
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 
 import httpx
 import pytest
@@ -13,7 +13,36 @@ from src.services.integrations.medtronic.client import (
     CareLinkError,
     CareLinkReportTimeoutError,
     CareLinkTransportError,
+    _redacted_request_headers,
 )
+
+
+def test_redacted_request_headers_masks_credentials():
+    """Origin/Referer/Accept are shown verbatim (so we can confirm what we sent
+    on a 403); Authorization is masked; Cookie is reduced to its names (so we can
+    confirm the full bundle was sent); cookie/bearer values never leak (#811)."""
+    req = httpx.Request(
+        "POST",
+        "https://carelink.minimed.eu/patient/reports/generateReport",
+        headers={
+            "Authorization": "Bearer super-secret",
+            "Accept": "application/json",
+            "Origin": "https://carelink.minimed.eu",
+            "Referer": "https://carelink.minimed.eu/app/reports",
+            "Cookie": "auth_tmp_token=secret; m2m_enabled=true; application_country=it",
+            "X-Internal": "drop-me",
+        },
+    )
+    # httpx lowercases header names on iteration; the logged dict follows suit.
+    out = _redacted_request_headers(req)
+    assert out["origin"] == "https://carelink.minimed.eu"
+    assert out["referer"] == "https://carelink.minimed.eu/app/reports"
+    assert out["authorization"] == "<redacted>"
+    # Cookie shows names only, sorted, with no values.
+    assert out["cookie"] == "names: application_country, auth_tmp_token, m2m_enabled"
+    assert "secret" not in str(out)
+    assert "super-secret" not in str(out)
+    assert "x-internal" not in out
 
 
 async def _bearer() -> str:
@@ -58,6 +87,22 @@ async def test_get_patient_id_tolerant_field():
         assert await client.get_patient_id() == "50497203"
 
 
+async def test_get_patient_id_eu_accountid_fallback():
+    """EU/OUS /users/me has no patientId; the id lives in accountId (role
+    PATIENT_OUS). _first must resolve accountId -- not the unrelated 'id' -- as
+    the generateReport patientId (#811)."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/patient/users/me"
+        return httpx.Response(
+            200,
+            json={"id": "auth0|abc", "accountId": "52266805", "role": "PATIENT_OUS"},
+        )
+
+    async with _make_client(handler) as client:
+        assert await client.get_patient_id() == "52266805"
+
+
 async def test_export_csv_full_job_flow():
     """generateReport -> reportStatus (pending then ready) -> reportCsv."""
     captured = {}
@@ -99,6 +144,41 @@ async def test_export_csv_full_job_flow():
     assert body["startDate"] == "2025-01-18"
     assert body["endDate"] == "2025-01-31"
     assert body["reportShowLogbook"] is False
+    # clientTime must be seconds-precision: the EU host 400s ("Malformed JSON in
+    # request body") on a fractional-second clientTime (#811).
+    assert "." not in body["clientTime"]
+    # No PeriodB comparison window: the EU CSV-export endpoint rejects it with
+    # 400 {"field":"startDatePeriodB","message":"not.required"} (#811).
+    assert "startDatePeriodB" not in body
+    assert "endDatePeriodB" not in body
+
+
+def test_generate_report_body_omits_period_b():
+    """The body must not carry the ``*PeriodB`` comparison window: the EU
+    CSV-export endpoint rejects it with ``message: not.required`` (#811). It was
+    added from a PDF-comparison-report capture that doesn't apply to CSV export."""
+    body = CareLinkClient._build_generate_report_body(
+        patient_id="1", start_date=date(2025, 3, 1), end_date=date(2025, 3, 1)
+    )
+    assert body["startDate"] == "2025-03-01"
+    assert body["endDate"] == "2025-03-01"
+    assert "startDatePeriodB" not in body
+    assert "endDatePeriodB" not in body
+
+
+def test_generate_report_body_client_time_drops_microseconds():
+    """clientTime is serialized at seconds precision, preserving the local
+    offset. The EU report host 400s on fractional seconds (#811); the working
+    browser request sends ``...:ss+02:00`` with no microseconds."""
+    local = timezone(timedelta(hours=2))
+    client_time = datetime(2025, 3, 1, 8, 12, 54, 21383, tzinfo=local)
+    body = CareLinkClient._build_generate_report_body(
+        patient_id="1",
+        start_date=date(2025, 3, 1),
+        end_date=date(2025, 3, 1),
+        client_time=client_time,
+    )
+    assert body["clientTime"] == "2025-03-01T08:12:54+02:00"
 
 
 async def test_export_csv_times_out_if_never_ready():
@@ -123,6 +203,23 @@ async def test_auth_error_on_401():
     async with _make_client(handler) as client:
         with pytest.raises(CareLinkAuthError):
             await client.get_availability()
+
+
+async def test_403_surfaces_response_body_snippet():
+    """A 403 (authenticated but forbidden, e.g. generateReport refusing an
+    action/format on a live session) raises CareLinkAuthError carrying the
+    upstream body, so the reason is visible and a forbidden-action 403 can be
+    told apart from an expired-token 401 (#811)."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, json={"message": "operation not permitted"})
+
+    async with _make_client(handler) as client:
+        with pytest.raises(CareLinkAuthError) as exc_info:
+            await client.get_patient_id()
+    msg = str(exc_info.value)
+    assert "403" in msg
+    assert "operation not permitted" in msg
 
 
 async def test_transport_error_is_typed():
@@ -174,6 +271,38 @@ async def test_reachable_4xx_is_base_error_not_transport():
     assert exc_info.type is CareLinkError
 
 
+async def test_4xx_error_surfaces_response_body_snippet():
+    """A reachable 4xx must carry the upstream body in the error message so the
+    actual rejection reason (e.g. which generateReport field CareLink rejected)
+    reaches the router WARNING log instead of being hidden behind a bare status.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400, json={"message": "Validation failed", "field": "clientTime"}
+        )
+
+    async with _make_client(handler) as client:
+        with pytest.raises(CareLinkError) as exc_info:
+            await client.get_patient_id()
+    msg = str(exc_info.value)
+    assert "400" in msg
+    assert "clientTime" in msg
+
+
+async def test_4xx_error_body_snippet_is_truncated():
+    """An oversized error body is length-capped so the surfaced message and log
+    line stay bounded."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, text="x" * 5000)
+
+    async with _make_client(handler) as client:
+        with pytest.raises(CareLinkError) as exc_info:
+            await client.get_patient_id()
+    assert "[truncated]" in str(exc_info.value)
+
+
 async def test_status_204_is_treated_ready():
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/patient/reports/generateReport":
@@ -204,6 +333,68 @@ async def test_eu_host_is_allowed():
     # Should not raise (regional EU host under minimed.eu).
     c = CareLinkClient(bearer_provider=_bearer, base_url="https://carelink.minimed.eu")
     await c.aclose()
+
+
+async def test_sends_same_origin_headers_for_report_host():
+    """Origin/Referer match the configured host and are sent on requests. The EU
+    generateReport POST is 403'd without them (#811); they are host-derived so US
+    and EU each carry their own."""
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["origin"] = request.headers.get("origin")
+        captured["referer"] = request.headers.get("referer")
+        return httpx.Response(200, json={"patientId": "1"})
+
+    async with _make_client(handler, base_url="https://carelink.minimed.eu") as client:
+        await client.get_patient_id()
+    assert captured["origin"] == "https://carelink.minimed.eu"
+    assert captured["referer"] == "https://carelink.minimed.eu/app/reports"
+
+
+async def test_post_sends_browser_ua_and_charset_content_type():
+    """The generateReport POST carries a browser User-Agent and the
+    charset-qualified Content-Type the browser sends -- the last observable
+    header gaps vs the working browser request (#811). Verifies httpx does not
+    override our explicit Content-Type for a json body."""
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/patient/reports/generateReport":
+            captured["ua"] = request.headers.get("user-agent")
+            captured["content_type"] = request.headers.get("content-type")
+            return httpx.Response(200, json={"uuid": "u1"})
+        if request.url.path == "/patient/reports/reportStatus":
+            return httpx.Response(204)
+        return httpx.Response(200, text="Index,Date\n")
+
+    async with _make_client(handler) as client:
+        await client.export_csv(
+            patient_id="1", start_date=date(2025, 1, 1), end_date=date(2025, 1, 1)
+        )
+    assert captured["ua"].startswith("Mozilla/5.0")
+    assert "python-httpx" not in (captured["ua"] or "")
+    assert captured["content_type"] == "application/json; charset=utf-8"
+
+
+async def test_configured_cookies_ride_along_on_requests():
+    """Session cookies (e.g. auth_tmp_token) are sent on requests to the report
+    host. The EU generateReport POST 403s with the bearer header alone -- it
+    needs the cookie too (#811)."""
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["cookie"] = request.headers.get("cookie")
+        return httpx.Response(200, json={"patientId": "1"})
+
+    async with _make_client(
+        handler,
+        base_url="https://carelink.minimed.eu",
+        cookies={"auth_tmp_token": "tok-123"},
+    ) as client:
+        await client.get_patient_id()
+    assert captured["cookie"] is not None
+    assert "auth_tmp_token=tok-123" in captured["cookie"]
 
 
 async def test_retries_on_429_then_succeeds():
