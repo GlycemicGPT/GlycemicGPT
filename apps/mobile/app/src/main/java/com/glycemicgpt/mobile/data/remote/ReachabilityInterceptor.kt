@@ -1,7 +1,5 @@
 package com.glycemicgpt.mobile.data.remote
 
-import com.glycemicgpt.mobile.BuildConfig
-import com.glycemicgpt.mobile.data.local.AppSettingsStore
 import com.glycemicgpt.mobile.data.network.NetworkMonitor
 import okhttp3.Interceptor
 import okhttp3.Response
@@ -19,23 +17,15 @@ import javax.inject.Singleton
  * [IOException] (transport failure) counts against reachability. See [NetworkMonitor] for how the
  * consecutive-failure threshold turns that into the "backend unreachable" state.
  *
- * In debug builds it also honours the "simulate backend unreachable" fault-injection toggle so the
- * unreachable state is reproducible on an emulator without real network chaos (the seed for the
- * reusable debug harness). The toggle is compiled to a no-op in release
- * ([AppSettingsStore.simulateBackendUnreachable] is always false there).
+ * The debug "simulate backend unreachable" fault lives in [SimulateUnreachableInterceptor], which
+ * sits below this one so an injected fault is recorded exactly like a real transport failure.
  */
 @Singleton
 class ReachabilityInterceptor @Inject constructor(
     private val networkMonitor: NetworkMonitor,
-    private val appSettingsStore: AppSettingsStore,
 ) : Interceptor {
 
     override fun intercept(chain: Interceptor.Chain): Response {
-        if (BuildConfig.DEBUG && appSettingsStore.simulateBackendUnreachable) {
-            networkMonitor.recordBackendFailure()
-            throw IOException("Simulated backend unreachable (debug fault injection)")
-        }
-
         return try {
             val response = chain.proceed(chain.request())
             networkMonitor.recordBackendSuccess()

@@ -26,11 +26,15 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -46,7 +50,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AlertsScreen(
     viewModel: AlertsViewModel = hiltViewModel(),
@@ -54,32 +57,79 @@ fun AlertsScreen(
     val uiState by viewModel.uiState.collectAsState()
     val alerts by viewModel.alerts.collectAsState()
     val glucoseUnit by viewModel.glucoseUnit.collectAsState()
+    val alertingDegraded by viewModel.alertingDegraded.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
 
-    PullToRefreshBox(
-        isRefreshing = uiState.isLoading,
+    LaunchedEffect(uiState.error) {
+        uiState.error?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.clearError()
+        }
+    }
+
+    AlertsContent(
+        uiState = uiState,
+        alerts = alerts,
+        glucoseUnit = glucoseUnit,
+        alertingDegraded = alertingDegraded,
+        snackbarHostState = snackbarHostState,
         onRefresh = viewModel::refreshAlerts,
-        modifier = Modifier.fillMaxSize(),
-    ) {
-        if (alerts.isEmpty() && !uiState.isLoading) {
-            EmptyAlertsState()
-        } else {
-            LazyColumn(
+        onAcknowledge = viewModel::acknowledgeAlert,
+    )
+}
+
+/** Stateless alerts surface, split from [AlertsScreen] so UI tests can drive degraded states. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun AlertsContent(
+    uiState: AlertsUiState,
+    alerts: List<AlertEntity>,
+    glucoseUnit: GlucoseUnit,
+    alertingDegraded: Boolean,
+    snackbarHostState: SnackbarHostState,
+    onRefresh: () -> Unit,
+    onAcknowledge: (serverId: String) -> Unit,
+) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            if (alertingDegraded) {
+                AlertingDegradedBanner(
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
+                )
+            }
+            PullToRefreshBox(
+                isRefreshing = uiState.isLoading,
+                onRefresh = onRefresh,
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                    .fillMaxWidth()
+                    .weight(1f),
             ) {
-                item { Spacer(Modifier.height(8.dp)) }
-                items(alerts, key = { it.serverId }) { alert ->
-                    AlertCard(
-                        alert = alert,
-                        glucoseUnit = glucoseUnit,
-                        onAcknowledge = { viewModel.acknowledgeAlert(alert.serverId) },
-                    )
+                if (alerts.isEmpty() && !uiState.isLoading) {
+                    EmptyAlertsState()
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        item { Spacer(Modifier.height(8.dp)) }
+                        items(alerts, key = { it.serverId }) { alert ->
+                            AlertCard(
+                                alert = alert,
+                                glucoseUnit = glucoseUnit,
+                                onAcknowledge = { onAcknowledge(alert.serverId) },
+                            )
+                        }
+                        item { Spacer(Modifier.height(8.dp)) }
+                    }
                 }
-                item { Spacer(Modifier.height(8.dp)) }
             }
         }
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
     }
 }
 

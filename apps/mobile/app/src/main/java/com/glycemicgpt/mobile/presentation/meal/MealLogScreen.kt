@@ -899,26 +899,13 @@ private fun MealUnavailableMessage(title: String, body: String, tag: String) {
 
 @Composable
 private fun OfflineRetry(onRetry: () -> Unit) {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(
-            modifier = Modifier.padding(32.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Icon(
-                imageVector = Icons.Default.Warning,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.error,
-                modifier = Modifier.size(48.dp),
-            )
-            Text(
-                text = "Couldn't reach the server",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Button(onClick = onRetry) { Text("Retry") }
-        }
-    }
+    // One offline look across the whole meal feature: the same terminal-state composable the
+    // history and common-foods screens use.
+    MealCenteredError(
+        message = "Can't reach your server — meal logging isn't available right now.",
+        onRetry = onRetry,
+        modifier = Modifier.testTag("meal_log_offline"),
+    )
 }
 
 @Composable

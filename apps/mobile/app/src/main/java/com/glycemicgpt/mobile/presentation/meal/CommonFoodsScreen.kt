@@ -71,53 +71,13 @@ fun CommonFoodsScreen(
         onBack = onBack,
     ) { padding ->
       Box(modifier = Modifier.padding(padding).fillMaxSize()) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .testTag("common_foods_screen"),
-        ) {
-            when {
-                uiState.disabled -> MealCenteredMessage(
-                    "Meal intelligence is turned off for this server.",
-                    modifier = Modifier.testTag("common_foods_disabled"),
-                )
-                uiState.isLoading -> MealCenteredSpinner()
-                else -> {
-                    VerifyBeforeDosingQualifier(modifier = Modifier.padding(16.dp))
-                    uiState.errorMessage?.let { error ->
-                        Text(
-                            text = error,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.padding(horizontal = 16.dp),
-                        )
-                    }
-                    if (uiState.items.isEmpty()) {
-                        MealCenteredMessage(
-                            "No common foods yet. Save a meal as a common food to build your list.",
-                            modifier = Modifier.testTag("common_foods_empty"),
-                        )
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .testTag("common_foods_list"),
-                            contentPadding = PaddingValues(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            items(uiState.items, key = { it.id }) { food ->
-                                CommonFoodItem(
-                                    food = food,
-                                    onReLog = { reLogging = food },
-                                    onEdit = { viewModel.startEdit(food) },
-                                    onDelete = { viewModel.delete(food.id) },
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        CommonFoodsBody(
+            uiState = uiState,
+            onRetry = viewModel::load,
+            onReLog = { reLogging = it },
+            onEdit = viewModel::startEdit,
+            onDelete = viewModel::delete,
+        )
         SnackbarHost(
             hostState = snackbarHostState,
             modifier = Modifier.align(Alignment.BottomCenter),
@@ -137,6 +97,71 @@ fun CommonFoodsScreen(
 
     reLogging?.let { food ->
         ReLogDialog(food = food, onDismiss = { reLogging = null })
+    }
+}
+
+/** Stateless body, split from [CommonFoodsScreen] so UI tests can drive offline/degraded states. */
+@Composable
+internal fun CommonFoodsBody(
+    uiState: CommonFoodsUiState,
+    onRetry: () -> Unit,
+    onReLog: (CommonFood) -> Unit,
+    onEdit: (CommonFood) -> Unit,
+    onDelete: (commonFoodId: String) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .testTag("common_foods_screen"),
+    ) {
+        when {
+            uiState.disabled -> MealCenteredMessage(
+                "Meal intelligence is turned off for this server.",
+                modifier = Modifier.testTag("common_foods_disabled"),
+            )
+            uiState.isLoading -> MealCenteredSpinner()
+            // Nothing cached to show: a clear terminal failure state with Retry, never a
+            // misleading "No common foods yet." while the backend is unreachable.
+            uiState.errorMessage != null && uiState.items.isEmpty() -> MealCenteredError(
+                message = uiState.errorMessage,
+                onRetry = onRetry,
+                modifier = Modifier.testTag("common_foods_error"),
+            )
+            else -> {
+                VerifyBeforeDosingQualifier(modifier = Modifier.padding(16.dp))
+                uiState.errorMessage?.let { error ->
+                    Text(
+                        text = error,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                    )
+                }
+                if (uiState.items.isEmpty()) {
+                    MealCenteredMessage(
+                        "No common foods yet. Save a meal as a common food to build your list.",
+                        modifier = Modifier.testTag("common_foods_empty"),
+                    )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .testTag("common_foods_list"),
+                        contentPadding = PaddingValues(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        items(uiState.items, key = { it.id }) { food ->
+                            CommonFoodItem(
+                                food = food,
+                                onReLog = { onReLog(food) },
+                                onEdit = { onEdit(food) },
+                                onDelete = { onDelete(food.id) },
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

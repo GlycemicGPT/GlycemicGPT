@@ -4,6 +4,7 @@ import com.glycemicgpt.mobile.data.remote.AuthInterceptor
 import com.glycemicgpt.mobile.data.remote.BaseUrlInterceptor
 import com.glycemicgpt.mobile.data.remote.GlycemicGptApi
 import com.glycemicgpt.mobile.data.remote.ReachabilityInterceptor
+import com.glycemicgpt.mobile.data.remote.SimulateUnreachableInterceptor
 import com.glycemicgpt.mobile.data.remote.TokenRefreshInterceptor
 import com.glycemicgpt.mobile.data.remote.InstantAdapter
 import com.squareup.moshi.Moshi
@@ -40,6 +41,7 @@ object NetworkModule {
         baseUrlInterceptor: BaseUrlInterceptor,
         tokenRefreshInterceptor: TokenRefreshInterceptor,
         reachabilityInterceptor: ReachabilityInterceptor,
+        simulateUnreachableInterceptor: SimulateUnreachableInterceptor,
     ): OkHttpClient {
         val logging = HttpLoggingInterceptor().apply {
             level = if (BuildConfig.DEBUG) {
@@ -55,6 +57,9 @@ object NetworkModule {
             // Below auth/token so a config-time throw from BaseUrlInterceptor is not counted as a
             // backend outage; wraps the real network call so connect/timeout failures are.
             .addInterceptor(reachabilityInterceptor)
+            // Below reachability so an injected debug fault is recorded like a real transport
+            // failure; kept separate so the chat client (which drops reachability) still gets it.
+            .addInterceptor(simulateUnreachableInterceptor)
             .addInterceptor(logging)
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS)
@@ -86,6 +91,8 @@ object NetworkModule {
         val chatClient = client.newBuilder()
             // Drop reachability tracking too: a 90s LLM inference that times out is not a signal the
             // backend is unreachable, so it must not count toward NetworkMonitor's failure threshold.
+            // SimulateUnreachableInterceptor deliberately stays, so the debug fault-injection
+            // toggle also exercises chat requests.
             .apply { interceptors().removeAll { it is HttpLoggingInterceptor || it is ReachabilityInterceptor } }
             .readTimeout(90, TimeUnit.SECONDS)
             .dispatcher(Dispatcher())

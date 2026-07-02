@@ -67,6 +67,90 @@ class MealHistoryViewModelTest {
     }
 
     @Test
+    fun `offline load failure reaches a terminal state with honest copy`() = runTest(testDispatcher) {
+        coEvery { repository.listFoodRecords(any(), any()) } returns
+            Result.failure(java.io.IOException("failed to connect to backend host"))
+        val vm = MealHistoryViewModel(repository)
+        advanceUntilIdle()
+
+        // Terminal: not loading, honest offline copy, never the raw exception message.
+        assertFalse(vm.uiState.value.isLoading)
+        assertEquals(
+            "Can't reach your server — your meal history isn't available right now.",
+            vm.uiState.value.errorMessage,
+        )
+    }
+
+    @Test
+    fun `unexpected load failure never surfaces the raw exception message`() = runTest(testDispatcher) {
+        coEvery { repository.listFoodRecords(any(), any()) } returns
+            Result.failure(IllegalStateException("moshi: expected BEGIN_OBJECT at path $.data"))
+        val vm = MealHistoryViewModel(repository)
+        advanceUntilIdle()
+
+        assertFalse(vm.uiState.value.isLoading)
+        assertEquals("Couldn't load your meal history.", vm.uiState.value.errorMessage)
+    }
+
+    @Test
+    fun `offline retry after a disabled response shows the honest offline state, not disabled`() = runTest(testDispatcher) {
+        coEvery { repository.listFoodRecords(any(), any()) } returns
+            Result.failure(MealException.FeatureDisabled())
+        val vm = MealHistoryViewModel(repository)
+        advanceUntilIdle()
+        assertTrue(vm.uiState.value.disabled)
+
+        coEvery { repository.listFoodRecords(any(), any()) } returns
+            Result.failure(java.io.IOException("unreachable"))
+        vm.load()
+        advanceUntilIdle()
+
+        // The stale disabled flag must not mask the offline Retry state (AC3 honesty).
+        assertFalse(vm.uiState.value.disabled)
+        assertEquals(
+            "Can't reach your server — your meal history isn't available right now.",
+            vm.uiState.value.errorMessage,
+        )
+    }
+
+    @Test
+    fun `stale slow failing load cannot clobber a newer successful load`() = runTest(testDispatcher) {
+        // First load hangs (offline, long timeout)...
+        coEvery { repository.listFoodRecords(any(), any()) } coAnswers {
+            kotlinx.coroutines.delay(30_000)
+            Result.failure(java.io.IOException("timeout"))
+        }
+        val vm = MealHistoryViewModel(repository)
+        testScheduler.advanceTimeBy(1_000)
+
+        // ...then the user retries after reconnecting and the retry succeeds (empty list).
+        coEvery { repository.listFoodRecords(any(), any()) } returns Result.success(emptyList())
+        vm.load()
+        advanceUntilIdle()
+
+        // The superseded failure must not take over the loaded screen as a full-screen error.
+        assertEquals(null, vm.uiState.value.errorMessage)
+        assertFalse(vm.uiState.value.isLoading)
+    }
+
+    @Test
+    fun `retry after reconnect clears the error and loads records`() = runTest(testDispatcher) {
+        coEvery { repository.listFoodRecords(any(), any()) } returns
+            Result.failure(java.io.IOException("unreachable"))
+        val vm = MealHistoryViewModel(repository)
+        advanceUntilIdle()
+        assertTrue(vm.uiState.value.errorMessage != null)
+
+        coEvery { repository.listFoodRecords(any(), any()) } returns
+            Result.success(listOf(record("a")))
+        vm.load()
+        advanceUntilIdle()
+
+        assertEquals(null, vm.uiState.value.errorMessage)
+        assertEquals(1, vm.uiState.value.records.size)
+    }
+
+    @Test
     fun `delete removes the record from the list`() = runTest(testDispatcher) {
         coEvery { repository.listFoodRecords(any(), any()) } returns
             Result.success(listOf(record("a"), record("b")))
