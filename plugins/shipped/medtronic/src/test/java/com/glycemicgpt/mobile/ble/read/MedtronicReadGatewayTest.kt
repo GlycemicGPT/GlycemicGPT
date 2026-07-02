@@ -230,6 +230,26 @@ class MedtronicReadGatewayTest {
     }
 
     @Test
+    fun `getHistoryLogs fails once the walk accumulates past the total-record ceiling`() = runTest {
+        // The cross-page analog of MAX_RECORDS_PER_REPORT: a malfunctioning (but authenticated) pump
+        // reporting a bogus huge last-sequence and answering every window must not grow memory
+        // without bound. Failing leaves the cursors put, so nothing is silently skipped.
+        val two = TwoSidedSession()
+        val pump = ScriptedHistoryPump(two, retainedSequences = (1..450).toList())
+        val gw = MedtronicReadGateway(
+            sessionProvider = { two.server },
+            linkProvider = { pump.link },
+            ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+            maxTotalHistoryRecords = 300,
+        )
+
+        val result = gw.getHistoryLogs(sinceSequence = 0)
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull()!!.message!!.contains("exceeded 300 records"))
+    }
+
+    @Test
     fun `getHistoryLogs fails the whole fetch when a page fails`() = runTest {
         // Older pages are still un-fetched when a page fails; returning the newer pages collected so
         // far would let the callers advance their cursor past the gap and skip those records for good.

@@ -56,12 +56,17 @@ import timber.log.Timber
  *     is connected (see the class header).
  * @param ioDispatcher dispatcher for the blocking SIG reads (Device Info / Battery).
  * @param operationTimeoutMs hard upper bound on every read; expiry surfaces as a failed [Result].
+ * @param maxTotalHistoryRecords ceiling on one [getHistoryLogs] walk's total accumulation, across
+ *     all pages -- the cross-page analog of the per-exchange [MedtronicSessionReader.MAX_RECORDS_PER_REPORT]
+ *     bound, so a malfunctioning (but authenticated) pump reporting a bogus huge last-sequence and
+ *     answering every window cannot grow memory without limit.
  */
 class MedtronicReadGateway(
     private val sessionProvider: () -> MedtronicSakeSession?,
     private val linkProvider: () -> MedtronicGattLink?,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val operationTimeoutMs: Long = DEFAULT_OPERATION_TIMEOUT_MS,
+    private val maxTotalHistoryRecords: Int = MedtronicSessionReader.MAX_RECORDS_PER_REPORT,
 ) {
 
     /**
@@ -139,6 +144,13 @@ class MedtronicReadGateway(
             }
             val records = batchResult.getOrElse { return Result.failure(it) }
             all.addAll(records)
+            if (all.size > maxTotalHistoryRecords) {
+                // Defense-in-depth (see the constructor KDoc): fail loudly rather than accumulate
+                // without bound; the cursors stay put, so nothing is silently skipped.
+                return Result.failure(
+                    MedtronicReadException("Medtronic history fetch exceeded $maxTotalHistoryRecords records; aborting"),
+                )
+            }
             if (records.isEmpty()) break
             highSeq = lowSeq - 1
         }
