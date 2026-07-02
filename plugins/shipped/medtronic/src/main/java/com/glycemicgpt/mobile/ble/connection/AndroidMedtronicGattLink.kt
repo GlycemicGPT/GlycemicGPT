@@ -442,8 +442,12 @@ class AndroidMedtronicGattLink(
                 if (link !== sub.ownerGatt) return
                 // A new exchange may have re-subscribed this characteristic before the deferred disable
                 // ran (subscribe also serializes on [opLock], so this check cannot race it). The CCCD
-                // belongs to the new exchange now -- disabling it would silently starve that read.
-                if (handlers.containsKey(sub.resolved.characteristic.uuid)) return
+                // belongs to the new exchange now -- disabling it would silently starve that read. The
+                // check must be the *resolved* characteristic, not the bare UUID: RACP is exposed by
+                // both the CGM and IDD services, and a new subscription on the other service's RACP
+                // must not shield this one's CCCD from being disabled.
+                val current = handlers[sub.resolved.characteristic.uuid]
+                if (current != null && current.resolved.characteristic === sub.resolved.characteristic) return
                 val char = sub.resolved.characteristic
                 if (!link.setCharacteristicNotification(char, false)) {
                     Timber.w("Medtronic GATT %s: setCharacteristicNotification(false) was rejected", op)

@@ -116,6 +116,50 @@ class HistoryReaderTest {
     }
 
     @Test
+    fun `readRecordsInRange fails when the pump reports no records after streaming frames`() {
+        // A contradictory pump: frames arrived but the terminal says the window was empty. Trusting
+        // either side risks returning stale data or silently dropping records -- the page must fail.
+        val two = TwoSidedSession()
+        val link = FakeGattLink()
+        link.reads[features] = two.pumpEncrypt(featuresPlain)
+        link.onWrite = { characteristic, value ->
+            if (characteristic == racp && value.size > 3 &&
+                value[0] == HistoryReader.REQUEST_REPORT_WITHIN_RANGE_PREFIX[0]
+            ) {
+                PduFramer.fragment(basalRecord).forEach { emit(data, two.pumpEncrypt(it)) }
+                emit(racp, HistoryReader.REPORT_NO_RECORDS_FOUND)
+            }
+        }
+
+        var result: Result<List<com.glycemicgpt.mobile.domain.model.HistoryLogRecord>>? = null
+        HistoryReader(link, two.server).readRecordsInRange(100, 130) { result = it }
+
+        assertTrue(result!!.isFailure)
+    }
+
+    @Test
+    fun `readRecordsInRange rejects a terminal indication with trailing bytes`() {
+        // Terminals are matched exactly (as upstream does); a prefix match would accept a malformed
+        // or truncated-then-padded indication as a clean success.
+        val two = TwoSidedSession()
+        val link = FakeGattLink()
+        link.reads[features] = two.pumpEncrypt(featuresPlain)
+        link.onWrite = { characteristic, value ->
+            if (characteristic == racp && value.size > 3 &&
+                value[0] == HistoryReader.REQUEST_REPORT_WITHIN_RANGE_PREFIX[0]
+            ) {
+                PduFramer.fragment(basalRecord).forEach { emit(data, two.pumpEncrypt(it)) }
+                emit(racp, HistoryReader.EXPECTED_REPORT_SUCCESS + byteArrayOf(0x00))
+            }
+        }
+
+        var result: Result<List<com.glycemicgpt.mobile.domain.model.HistoryLogRecord>>? = null
+        HistoryReader(link, two.server).readRecordsInRange(100, 130) { result = it }
+
+        assertTrue(result!!.isFailure)
+    }
+
+    @Test
     fun `readLastRecord returns null when the log is empty (no-records-found)`() {
         val two = TwoSidedSession()
         val link = FakeGattLink()

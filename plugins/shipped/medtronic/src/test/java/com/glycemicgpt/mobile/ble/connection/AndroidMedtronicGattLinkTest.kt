@@ -409,6 +409,26 @@ class AndroidMedtronicGattLinkTest {
     }
 
     @Test
+    fun `a deferred cancel still disables a shared-UUID characteristic re-subscribed on the other service`() {
+        // RACP is exposed by both the CGM and IDD services under one UUID. A cancelled CGM RACP
+        // cleanup must not be shielded by a newer IDD RACP subscription: the guard compares the
+        // resolved characteristic, not the bare UUID, so the old CGM CCCD is still disabled.
+        val deferring = DeferringWatchdog()
+        val link = AndroidMedtronicGattLink(context, deviceProvider = { device }, worker = DirectSerialWorker(), watchdog = deferring)
+        link.subscribe(MedtronicProtocol.CGM_MEASUREMENT_UUID) {} // CGM service context
+        link.subscribe(MedtronicProtocol.RACP_UUID) {} // resolves to the CGM RACP
+        link.cancelAllSubscriptions() // queues the CGM disables, deferred
+        link.subscribe(MedtronicProtocol.IDD_HISTORY_DATA_UUID) {} // IDD service context
+        link.subscribe(MedtronicProtocol.RACP_UUID) {} // resolves to the IDD RACP
+
+        deferring.runDeferred()
+
+        // The cancelled CGM RACP subscription is released even though the bare UUID is live again.
+        verify(exactly = 1) { gatt.setCharacteristicNotification(cgmRacp, false) }
+        verify(exactly = 0) { gatt.setCharacteristicNotification(iddRacp, false) }
+    }
+
+    @Test
     fun `a deferred unsubscribe does not disable a characteristic on a reconnected client`() {
         val gattB = mockk<BluetoothGatt>(relaxed = true)
         stubGattClient(gattB)

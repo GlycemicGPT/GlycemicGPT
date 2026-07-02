@@ -82,14 +82,34 @@ class HistoryReader(
         }
 
     private fun fetchRecords(request: ByteArray, useE2e: Boolean, onResult: (Result<List<HistoryLogRecord>>) -> Unit) {
+        // Which terminal ended the exchange; set on the link's single delivery thread before the
+        // completion callback below runs on that same thread (the C1 threading contract).
+        var noRecordsTerminal = false
         sessionReader.reportRecords(
             dataChar = MedtronicProtocol.IDD_HISTORY_DATA_UUID,
             controlPoint = MedtronicProtocol.RACP_UUID,
             request = request,
-            isSuccess = ::isReportSuccess,
+            isSuccess = { response ->
+                when {
+                    response.contentEquals(EXPECTED_REPORT_SUCCESS) -> true
+                    response.contentEquals(REPORT_NO_RECORDS_FOUND) -> {
+                        noRecordsTerminal = true
+                        true
+                    }
+                    else -> false
+                }
+            },
         ) { result ->
             onResult(
                 result.mapCatching { frames ->
+                    // A pump that says "no records found" after streaming frames is contradicting
+                    // itself; trusting either side risks returning stale/misordered data or silently
+                    // dropping records. Fail so the read is retried with the cursors unchanged.
+                    if (noRecordsTerminal && frames.isNotEmpty()) {
+                        throw MedtronicReadException(
+                            "IDD RACP reported no records but ${frames.size} frames arrived",
+                        )
+                    }
                     val parsed = frames.mapNotNull { MedtronicHistoryParser.toHistoryLogRecord(it, useE2e) }
                     // Any undecodable frame must fail the read, not silently shrink the page: the
                     // gateway's walk advances past this window and the callers advance their cursor to
@@ -118,18 +138,6 @@ class HistoryReader(
         }
         return MedtronicCodec.readUIntLe(response, 2, 2)
     }
-
-    /**
-     * True when the terminating RACP indication completes the exchange successfully: the IDD "report
-     * records: success" response, or "no records found" -- a successful exchange over a window the
-     * pump simply holds nothing in (`history_reader.py` IddRacpResponseCode.NO_RECORDS_FOUND), which
-     * must yield an empty list rather than fail the read.
-     */
-    private fun isReportSuccess(response: ByteArray): Boolean =
-        matchesResponse(response, EXPECTED_REPORT_SUCCESS) || matchesResponse(response, REPORT_NO_RECORDS_FOUND)
-
-    private fun matchesResponse(response: ByteArray, expected: ByteArray): Boolean =
-        response.size >= expected.size && expected.indices.all { response[it] == expected[it] }
 
     private fun rangeRequest(firstSeq: Int, lastSeq: Int): ByteArray =
         REQUEST_REPORT_WITHIN_RANGE_PREFIX + MedtronicCodec.u32Le(firstSeq) + MedtronicCodec.u32Le(lastSeq)
