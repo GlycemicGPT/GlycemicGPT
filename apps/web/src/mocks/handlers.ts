@@ -613,6 +613,7 @@ export const handlers = [
   http.get(`${API}/telegram/bot-config`, () => {
     return ok({
       configured: true,
+      can_manage: true,
       bot_username: "mock_glycemicgpt_bot",
       configured_at: nowIso(),
     });

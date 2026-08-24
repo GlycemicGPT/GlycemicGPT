@@ -14,18 +14,17 @@ import { Checkbox } from "@/components/Checkbox";
 import { icons, type IconName } from "@/base/Icon/iconConfig";
 import { HighlightButton } from "@/components/HighlightButton";
 import { LumoseLoadingLogo } from "@/components/LumoseLoadingLogo";
+import { LumoseLogoIcon } from "@/components/LumoseLogoIcon";
+import { LumoseLogoTextIcon } from "@/components/LumoseLogoTextIcon";
 import { PrimaryButton } from "@/components/PrimaryButton";
 import { SecondaryButton } from "@/components/SecondaryButton";
+import { TelegramLogo } from "@/components/TelegramLogo";
 import { TextInput } from "@/components/TextInput";
 import { ThemeSwitcher } from "@/components/ThemeSwitcher";
 import { twMerge } from "@/lib/ui/twMerge";
 
 type DesignSystemSection =
-  | "colors"
-  | "components"
-  | "icons"
-  | "assets"
-  | "fonts";
+  "colors" | "components" | "icons" | "assets" | "fonts";
 
 type ColorToken = {
   name: string;
@@ -1150,10 +1149,7 @@ function ComponentPreview() {
         >
           <div className="space-y-3 pt-4">
             {Array.from({ length: 8 }, (_, index) => (
-              <p
-                className="font_body_3 text-foreground-secondary"
-                key={index}
-              >
+              <p className="font_body_3 text-foreground-secondary" key={index}>
                 Content row {index + 1} verifies that long panels animate
                 without clipping.
               </p>
@@ -1450,6 +1446,51 @@ function IconGrid() {
   );
 }
 
+function GradientLogoGrid() {
+  const logos = [
+    {
+      component: "TelegramLogo",
+      preview: <TelegramLogo className="h-12 w-12" />,
+    },
+    {
+      component: "LumoseLogoIcon",
+      preview: <LumoseLogoIcon className="h-12 w-12" />,
+    },
+    {
+      component: "LumoseLogoTextIcon",
+      preview: <LumoseLogoTextIcon className="h-auto w-48 max-w-full" />,
+    },
+  ];
+
+  return (
+    <div className="mb-8">
+      <h3 className="font_header_3 text-foreground-primary">
+        Custom gradient logos
+      </h3>
+      <p className="font_body_2 mt-2 max-w-3xl text-foreground-secondary">
+        Gradient assets own their SVG geometry and paint definitions inside a
+        dedicated component. They are intentionally excluded from the sprite and
+        base Icon primitive.
+      </p>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {logos.map((logo) => (
+          <article
+            className="flex min-h-32 flex-col items-center justify-center gap-4 rounded-panel border border-border-default bg-surface-primary p-4 text-center"
+            key={logo.component}
+          >
+            <div className="grid min-h-14 w-full place-items-center text-foreground-primary">
+              {logo.preview}
+            </div>
+            <code className="font_metric_caption text-foreground-secondary">
+              {logo.component}
+            </code>
+          </article>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function AssetGrid() {
   const { copiedValue: copiedAssetPath, copyValue: copyAssetPath } =
     useCopiedValue();
@@ -1490,9 +1531,7 @@ function AssetGrid() {
             />
           </div>
           <div className="mt-4">
-            <p className="font_body_3 text-foreground-primary">
-              {asset.label}
-            </p>
+            <p className="font_body_3 text-foreground-primary">{asset.label}</p>
             <p className="font_metric_caption mt-1 break-all text-foreground-secondary">
               {asset.path}
             </p>
@@ -1658,7 +1697,7 @@ export function DesignSystemPage() {
             subtitle={
               <>
                 <p>
-                  The shared sprite lives in{" "}
+                  Flat, theme-aware icons use the shared sprite in{" "}
                   <PathText>
                     apps/web/public/static_assets/iconSprite.svg
                   </PathText>
@@ -1721,6 +1760,7 @@ export function DesignSystemPage() {
             }
             title="Icons"
           >
+            <GradientLogoGrid />
             <IconGrid />
           </Section>
         ) : null}
@@ -1730,8 +1770,8 @@ export function DesignSystemPage() {
             subtitle={
               <p>
                 PNG and JPG assets served from the web public directory. The
-                inventory includes app icons, favicons, and exported Lumose
-                logo variants.
+                inventory includes app icons, favicons, and exported Lumose logo
+                variants.
               </p>
             }
             title="Assets"

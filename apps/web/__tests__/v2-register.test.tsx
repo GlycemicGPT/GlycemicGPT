@@ -37,19 +37,13 @@ describe("V2 Registration Page", () => {
 
   it("uses the branded loading logo while checking the session", () => {
     mockGetCurrentUser.mockReturnValue(new Promise(() => {}));
-    const { container } = render(<RegisterPage />);
+    render(<RegisterPage />);
 
-    expect(
-      screen.getByRole("status", { name: "Loading registration" }),
-    ).toHaveClass("h-12", "w-12", "mx-auto", "mb-3");
-    expect(
-      container.querySelectorAll(
-        `use[href="${STATIC_ASSET_ICON_SPRITE_PATH}#lumose-logo-icon-shape"]`,
-      ),
-    ).toHaveLength(2);
-    expect(
-      container.querySelector(".lumose-loading-logo-flow"),
-    ).toBeInTheDocument();
+    const loadingLogo = screen.getByRole("status", {
+      name: "Loading registration",
+    });
+    expect(loadingLogo).toHaveClass("h-12", "w-12", "mx-auto", "mb-3");
+    expect(loadingLogo).toHaveAttribute("aria-live", "polite");
   });
 
   async function renderRegistrationForm() {
@@ -101,11 +95,6 @@ describe("V2 Registration Page", () => {
     expect(logo).toHaveClass("h-auto", "w-full");
     expect(logo.parentElement).toHaveClass("py-12");
     expect(logo.parentElement).not.toHaveClass("my-8");
-    expect(
-      container.querySelector(
-        `use[href="${STATIC_ASSET_ICON_SPRITE_PATH}#logo-lumose-text-icon"]`,
-      ),
-    ).toBeInTheDocument();
     expect(submitButton).toHaveClass(
       "font_poppins",
       "font_body_2",

@@ -32,11 +32,12 @@ describe("LumoseLogo", () => {
       "focus-visible:ring-2",
       "focus-visible:ring-border-active",
     );
-    expect(link.querySelectorAll("use")[0]).toHaveAttribute(
-      "href",
-      `${STATIC_ASSET_ICON_SPRITE_PATH}#lumose-logo-icon-shape`,
-    );
-    expect(link.querySelectorAll("use")[1]).toHaveAttribute(
+    expect(link.querySelector("linearGradient")).toBeInTheDocument();
+    expect(
+      link.querySelectorAll("svg")[0].querySelectorAll("path"),
+    ).toHaveLength(3);
+    expect(link.querySelectorAll("use")).toHaveLength(1);
+    expect(link.querySelector("use")).toHaveAttribute(
       "href",
       `${STATIC_ASSET_ICON_SPRITE_PATH}#logo-text`,
     );

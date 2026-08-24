@@ -277,7 +277,14 @@ Useful component accessibility references:
 
 ## Icons
 
-Shared icons use the SVG sprite at `apps/web/public/static_assets/iconSprite.svg`.
+Flat, single-color shared icons use the SVG sprite at
+`apps/web/public/static_assets/iconSprite.svg`.
+
+Icons and logos that require gradients use dedicated components with inline SVG
+geometry and paint definitions. Do not add gradient conditions to the base
+`Icon` primitive or gradient symbols to the shared sprite. Current examples are
+`TelegramLogo`, `LumoseLogoIcon`, `LumoseLogoTextIcon`, and
+`LumoseLoadingLogo`.
 
 Use `Icon` from `apps/web/src/base/Icon` when a symbol exists in the sprite. Register every symbol in `apps/web/src/base/Icon/iconConfig.ts` with a default title and size. `IconName` is derived from that config.
 
@@ -289,7 +296,7 @@ Icon rules:
 4. Let the configured `title` and `size` be the default for shared icons.
 5. Use the `title` prop only when visible context needs a more specific accessible name.
 6. Use `decorative` when an icon is purely visual and should be hidden from assistive technology.
-7. Do not duplicate inline SVG markup in components when a shared sprite symbol exists.
+7. Do not duplicate inline SVG markup in components when a shared sprite symbol exists. Gradient assets are the explicit exception and must use dedicated components instead of sprite symbols.
 
 Current icon sources:
 

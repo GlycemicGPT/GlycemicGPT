@@ -6,6 +6,8 @@
   --color-base-off-white: #f7f9fb;
   --color-base-transparent: transparent;
   --color-base-white: #ffffff;
+  --color-base-telegram-gradient-start: #37bbfe;
+  --color-base-telegram-gradient-end: #007dbb;
 }
 
 /* Light theme palette */

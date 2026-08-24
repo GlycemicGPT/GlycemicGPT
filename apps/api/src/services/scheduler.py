@@ -789,10 +789,16 @@ async def poll_telegram_updates() -> None:
     This job runs every N seconds when telegram_bot_token is configured.
     It processes incoming /start messages to link user accounts.
     """
-    from src.services.telegram_bot import TelegramBotError, poll_for_verifications
+    from src.services.telegram_bot import (
+        TelegramBotError,
+        get_telegram_bot_token,
+        poll_for_verifications,
+    )
 
     async with get_session_maker()() as db:
         try:
+            if not await get_telegram_bot_token(db):
+                return
             processed = await poll_for_verifications(db)
             if processed > 0:
                 logger.info(
@@ -1036,8 +1042,9 @@ def start_scheduler() -> AsyncIOScheduler:
     )
     logger.info("Scheduled stale device cleanup job (daily)")
 
-    # Add Telegram polling job if enabled and token configured (Story 7.1)
-    if settings.telegram_polling_enabled and settings.telegram_bot_token:
+    # The token may be configured from the web after startup, so keep the
+    # lightweight polling job registered and let it no-op while unconfigured.
+    if settings.telegram_polling_enabled:
         scheduler.add_job(
             poll_telegram_updates,
             trigger=IntervalTrigger(seconds=settings.telegram_polling_interval_seconds),

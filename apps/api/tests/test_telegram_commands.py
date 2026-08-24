@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
@@ -738,11 +738,21 @@ class TestPollAndHandleMessages:
     @pytest.mark.asyncio
     @patch("src.services.telegram_bot.send_message", new_callable=AsyncMock)
     @patch("src.services.telegram_bot.get_updates", new_callable=AsyncMock)
-    async def test_routes_non_start_command(self, mock_updates, mock_send):
+    @patch(
+        "src.services.telegram_bot.get_telegram_bot_token",
+        new_callable=AsyncMock,
+    )
+    async def test_routes_non_start_command(
+        self,
+        mock_token,
+        mock_updates,
+        mock_send,
+    ):
         """Non-/start messages are routed through handle_command."""
         from src.services.telegram_bot import poll_and_handle_messages, reset_bot_cache
 
         reset_bot_cache()
+        mock_token.return_value = "bot-token"
 
         mock_updates.return_value = [
             {
@@ -771,7 +781,16 @@ class TestPollAndHandleMessages:
     @pytest.mark.asyncio
     @patch("src.services.telegram_bot.send_message", new_callable=AsyncMock)
     @patch("src.services.telegram_bot.get_updates", new_callable=AsyncMock)
-    async def test_send_failure_does_not_crash(self, mock_updates, mock_send):
+    @patch(
+        "src.services.telegram_bot.get_telegram_bot_token",
+        new_callable=AsyncMock,
+    )
+    async def test_send_failure_does_not_crash(
+        self,
+        mock_token,
+        mock_updates,
+        mock_send,
+    ):
         """TelegramBotError on send_message is caught gracefully."""
         from src.services.telegram_bot import (
             TelegramBotError,
@@ -780,6 +799,7 @@ class TestPollAndHandleMessages:
         )
 
         reset_bot_cache()
+        mock_token.return_value = "bot-token"
 
         mock_updates.return_value = [
             {
@@ -807,6 +827,69 @@ class TestPollAndHandleMessages:
 
         # Should not crash, but processed count stays 0
         assert result == 0
+
+    @pytest.mark.asyncio
+    @patch("src.services.telegram_bot.get_updates", new_callable=AsyncMock)
+    @patch(
+        "src.services.telegram_bot.get_telegram_bot_token",
+        new_callable=AsyncMock,
+    )
+    async def test_resets_update_offset_when_bot_token_changes(
+        self,
+        mock_token,
+        mock_updates,
+    ):
+        """Offsets from one bot must never be sent to another bot."""
+        from src.services.telegram_bot import poll_and_handle_messages, reset_bot_cache
+
+        db = AsyncMock()
+        reset_bot_cache()
+        mock_token.side_effect = ["bot-a", "bot-a", "bot-b"]
+        mock_updates.side_effect = [
+            [{"update_id": 100}],
+            [],
+            [],
+        ]
+
+        await poll_and_handle_messages(db)
+        await poll_and_handle_messages(db)
+        await poll_and_handle_messages(db)
+
+        assert mock_updates.call_args_list == [
+            call(None, db, token="bot-a"),
+            call(101, db, token="bot-a"),
+            call(None, db, token="bot-b"),
+        ]
+
+    @pytest.mark.asyncio
+    @patch("src.services.telegram_bot.get_updates", new_callable=AsyncMock)
+    @patch(
+        "src.services.telegram_bot.get_telegram_bot_token",
+        new_callable=AsyncMock,
+    )
+    async def test_missing_token_stops_before_polling(
+        self,
+        mock_token,
+        mock_updates,
+    ):
+        """A missing initial token cannot be replaced during the same poll."""
+        from src.services.telegram_bot import (
+            TelegramBotError,
+            poll_and_handle_messages,
+            reset_bot_cache,
+        )
+
+        reset_bot_cache()
+        mock_token.return_value = None
+
+        with pytest.raises(
+            TelegramBotError,
+            match="Telegram bot token is not configured",
+        ):
+            await poll_and_handle_messages(AsyncMock())
+
+        mock_token.assert_awaited_once()
+        mock_updates.assert_not_awaited()
 
     @pytest.mark.asyncio
     @patch("src.services.telegram_bot.send_message", new_callable=AsyncMock)

@@ -53,6 +53,7 @@ const mockUnlinkTelegram = jest.fn();
 
 jest.mock("../../src/lib/api", () => ({
   __esModule: true,
+  ApiError: jest.requireActual("../../src/lib/api").ApiError,
   getTelegramBotConfig: (...args: unknown[]) =>
     mockGetTelegramBotConfig(...args),
   getTelegramStatus: (...args: unknown[]) => mockGetTelegramStatus(...args),
@@ -67,6 +68,7 @@ jest.mock("../../src/lib/api", () => ({
   unlinkTelegram: (...args: unknown[]) => mockUnlinkTelegram(...args),
 }));
 
+import { ApiError } from "../../src/lib/api";
 import TelegramSettingsPage from "../../src/app/dashboard/settings/telegram/page";
 
 describe("Story 12.3: Telegram Bot Token Configuration", () => {
@@ -84,11 +86,12 @@ describe("Story 12.3: Telegram Bot Token Configuration", () => {
     beforeEach(() => {
       mockGetTelegramBotConfig.mockResolvedValue({
         configured: false,
+        can_manage: true,
         bot_username: null,
         configured_at: null,
       });
       mockGetTelegramStatus.mockRejectedValue(
-        new Error("Telegram bot is not configured: 503")
+        new ApiError(503, "Telegram bot is not configured")
       );
     });
 
@@ -102,7 +105,7 @@ describe("Story 12.3: Telegram Bot Token Configuration", () => {
       });
 
       expect(
-        screen.getByText(/a telegram bot token is required/i)
+        await screen.findByText(/a telegram bot token is required/i)
       ).toBeInTheDocument();
       // @BotFather appears in both description and instructions
       const botFatherRefs = screen.getAllByText(/@BotFather/);
@@ -184,6 +187,25 @@ describe("Story 12.3: Telegram Bot Token Configuration", () => {
       ).toBeEnabled();
     });
 
+    it("does not disable token setup when the bot is simply unconfigured", async () => {
+      mockGetTelegramStatus.mockRejectedValue(
+        new ApiError(503, "Telegram bot is not configured")
+      );
+
+      render(<TelegramSettingsPage />);
+
+      const input = await screen.findByPlaceholderText(
+        /ABCdefGhIJKlmNoPQRsTUVwxyz/i
+      );
+
+      expect(input).toBeEnabled();
+      expect(
+        screen.queryByText(
+          "Unable to connect to server. Telegram settings are unavailable."
+        )
+      ).not.toBeInTheDocument();
+    });
+
     it("shows bot not configured warning", async () => {
       render(<TelegramSettingsPage />);
 
@@ -211,10 +233,66 @@ describe("Story 12.3: Telegram Bot Token Configuration", () => {
     });
   });
 
+  describe("when user cannot manage the bot", () => {
+    it("hides bot setup when the bot is unconfigured", async () => {
+      mockGetTelegramBotConfig.mockResolvedValue({
+        configured: false,
+        can_manage: false,
+        bot_username: null,
+        configured_at: null,
+      });
+      mockGetTelegramStatus.mockRejectedValue(
+        new ApiError(503, "Telegram bot is not configured")
+      );
+
+      render(<TelegramSettingsPage />);
+
+      await screen.findByRole("heading", {
+        name: /connect your telegram account/i,
+      });
+      expect(
+        screen.queryByRole("heading", { name: /bot setup/i })
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByPlaceholderText(/ABCdefGhIJKlmNoPQRsTUVwxyz/i)
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: /validate bot token/i })
+      ).not.toBeInTheDocument();
+    });
+
+    it("hides configured bot metadata", async () => {
+      mockGetTelegramBotConfig.mockResolvedValue({
+        configured: true,
+        can_manage: false,
+        bot_username: "GlycemicGPTBot",
+        configured_at: "2026-01-15T12:00:00Z",
+      });
+      mockGetTelegramStatus.mockResolvedValue({
+        linked: false,
+        bot_username: "GlycemicGPTBot",
+      });
+
+      render(<TelegramSettingsPage />);
+
+      await screen.findByRole("heading", {
+        name: /connect your telegram account/i,
+      });
+      expect(screen.queryByText("Configured")).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("heading", { name: /bot setup/i })
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: /remove bot token/i })
+      ).not.toBeInTheDocument();
+    });
+  });
+
   describe("when bot IS configured", () => {
     beforeEach(() => {
       mockGetTelegramBotConfig.mockResolvedValue({
         configured: true,
+        can_manage: true,
         bot_username: "GlycemicGPTBot",
         configured_at: "2026-01-15T12:00:00Z",
       });
@@ -261,6 +339,26 @@ describe("Story 12.3: Telegram Bot Token Configuration", () => {
       });
     });
 
+    it("hides bot removal when the bot is managed by the server environment", async () => {
+      mockGetTelegramBotConfig.mockResolvedValue({
+        configured: true,
+        can_manage: true,
+        bot_username: "EnvironmentBot",
+        configured_at: null,
+      });
+      mockGetTelegramStatus.mockResolvedValue({
+        linked: false,
+        bot_username: "EnvironmentBot",
+      });
+
+      render(<TelegramSettingsPage />);
+
+      expect(await screen.findAllByText("@EnvironmentBot")).not.toHaveLength(0);
+      expect(
+        screen.queryByRole("button", { name: /remove bot token/i })
+      ).not.toBeInTheDocument();
+    });
+
     it("does NOT show bot not configured warning", async () => {
       render(<TelegramSettingsPage />);
 
@@ -290,11 +388,12 @@ describe("Story 12.3: Telegram Bot Token Configuration", () => {
     beforeEach(() => {
       mockGetTelegramBotConfig.mockResolvedValue({
         configured: false,
+        can_manage: true,
         bot_username: null,
         configured_at: null,
       });
       mockGetTelegramStatus.mockRejectedValue(
-        new Error("Telegram bot is not configured: 503")
+        new ApiError(503, "Telegram bot is not configured")
       );
     });
 
@@ -337,7 +436,9 @@ describe("Story 12.3: Telegram Bot Token Configuration", () => {
       });
       // After validation, re-fetch status
       mockGetTelegramStatus
-        .mockRejectedValueOnce(new Error("503"))
+        .mockRejectedValueOnce(
+          new ApiError(503, "Telegram bot is not configured")
+        )
         .mockResolvedValue({
           linked: false,
           bot_username: "MyTestBot",
@@ -407,6 +508,7 @@ describe("Story 12.3: Telegram Bot Token Configuration", () => {
     beforeEach(() => {
       mockGetTelegramBotConfig.mockResolvedValue({
         configured: true,
+        can_manage: true,
         bot_username: "GlycemicGPTBot",
         configured_at: "2026-01-15T12:00:00Z",
       });
@@ -490,8 +592,21 @@ describe("Story 12.3: Telegram Bot Token Configuration", () => {
     it("transitions back to unconfigured state after successful removal", async () => {
       mockRemoveTelegramBotToken.mockResolvedValue(undefined);
       // After removal, bot config re-check returns not configured
+      mockGetTelegramBotConfig
+        .mockResolvedValueOnce({
+          configured: true,
+          can_manage: true,
+          bot_username: "GlycemicGPTBot",
+          configured_at: "2026-01-15T12:00:00Z",
+        })
+        .mockResolvedValueOnce({
+          configured: false,
+          can_manage: true,
+          bot_username: null,
+          configured_at: null,
+        });
       mockGetTelegramStatus.mockRejectedValue(
-        new Error("Telegram bot is not configured: 503")
+        new ApiError(503, "Telegram bot is not configured")
       );
 
       render(<TelegramSettingsPage />);
@@ -576,34 +691,55 @@ describe("Story 12.3: Telegram Bot Token Configuration", () => {
           screen.getByText(/unable to connect to server/i)
         ).toBeInTheDocument();
       });
+      expect(
+        screen.queryByText(/telegram bot not configured/i)
+      ).not.toBeInTheDocument();
     });
 
-    it("disables Validate Token button when offline", async () => {
+    it("retries a failed bot configuration request", async () => {
+      mockGetTelegramBotConfig
+        .mockRejectedValueOnce(new Error("NetworkError: Failed to fetch"))
+        .mockResolvedValue({
+          configured: false,
+          can_manage: true,
+          bot_username: null,
+          configured_at: null,
+        });
+
+      render(<TelegramSettingsPage />);
+
+      expect(
+        await screen.findByText("Unable to load Telegram bot configuration.")
+      ).toBeInTheDocument();
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+      });
+
+      expect(
+        await screen.findByPlaceholderText(/ABCdefGhIJKlmNoPQRsTUVwxyz/i)
+      ).toBeInTheDocument();
+      expect(mockGetTelegramBotConfig).toHaveBeenCalledTimes(2);
+    });
+
+    it("hides Validate Token button when permissions cannot be loaded", async () => {
       render(<TelegramSettingsPage />);
 
       await waitFor(() => {
         expect(
-          screen.getByRole("button", { name: /validate bot token/i })
-        ).toBeInTheDocument();
+          screen.queryByRole("button", { name: /validate bot token/i })
+        ).not.toBeInTheDocument();
       });
-
-      expect(
-        screen.getByRole("button", { name: /validate bot token/i })
-      ).toBeDisabled();
     });
 
-    it("disables token input field when offline", async () => {
+    it("hides token input when permissions cannot be loaded", async () => {
       render(<TelegramSettingsPage />);
 
       await waitFor(() => {
         expect(
-          screen.getByPlaceholderText(/ABCdefGhIJKlmNoPQRsTUVwxyz/i)
-        ).toBeInTheDocument();
+          screen.queryByPlaceholderText(/ABCdefGhIJKlmNoPQRsTUVwxyz/i)
+        ).not.toBeInTheDocument();
       });
-
-      expect(
-        screen.getByPlaceholderText(/ABCdefGhIJKlmNoPQRsTUVwxyz/i)
-      ).toBeDisabled();
     });
   });
 
@@ -611,11 +747,12 @@ describe("Story 12.3: Telegram Bot Token Configuration", () => {
     beforeEach(() => {
       mockGetTelegramBotConfig.mockResolvedValue({
         configured: false,
+        can_manage: true,
         bot_username: null,
         configured_at: null,
       });
       mockGetTelegramStatus.mockRejectedValue(
-        new Error("Telegram bot is not configured: 503")
+        new ApiError(503, "Telegram bot is not configured")
       );
     });
 

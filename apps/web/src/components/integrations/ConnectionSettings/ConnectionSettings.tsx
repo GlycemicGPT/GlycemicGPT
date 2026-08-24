@@ -146,6 +146,7 @@ export function ConnectionInfoCallout({
   children,
   className,
   icon = "lightbulb",
+  iconSlot,
   title,
   ...props
 }: ConnectionInfoCalloutProps) {
@@ -158,11 +159,13 @@ export function ConnectionInfoCallout({
       )}
     >
       <div className="flex items-center gap-2">
-        <Icon
-          className="h-5 w-5 shrink-0 text-signal-info-text"
-          decorative
-          icon={icon}
-        />
+        {iconSlot ?? (
+          <Icon
+            className="h-5 w-5 shrink-0 text-signal-info-text"
+            decorative
+            icon={icon}
+          />
+        )}
         <p className="font_body_2 text-foreground-primary">{title}</p>
       </div>
       <div className="font_body_3 mt-2 text-foreground-primary">{children}</div>

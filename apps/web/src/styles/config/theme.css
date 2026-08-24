@@ -25,6 +25,9 @@
   --color-brand-gradient-middle: var(--color-base-accent-blue);
   --color-brand-gradient-end: var(--color-base-deep-blue);
   --color-brand-highlight: var(--color-base-frost-blue);
+  --color-brand-telegram-gradient-start: var(--color-base-telegram-gradient-start);
+  --color-brand-telegram-gradient-end: var(--color-base-telegram-gradient-end);
+  --color-brand-telegram-foreground: var(--color-base-white);
 
   --color-overlay-primary: var(--color-base-opacity-dark-50);
   --color-overlay-subtle: var(--color-base-opacity-dark-25);
@@ -80,6 +83,9 @@
   --color-brand-gradient-middle: var(--color-base-accent-blue);
   --color-brand-gradient-end: var(--color-base-deep-blue);
   --color-brand-highlight: var(--color-base-frost-blue);
+  --color-brand-telegram-gradient-start: var(--color-base-telegram-gradient-start);
+  --color-brand-telegram-gradient-end: var(--color-base-telegram-gradient-end);
+  --color-brand-telegram-foreground: var(--color-base-white);
 
   --color-overlay-primary: var(--color-base-opacity-dark-50);
   --color-overlay-subtle: var(--color-base-opacity-dark-25);
@@ -134,6 +140,9 @@
   --color-brand-gradient-middle: var(--color-base-accent-blue);
   --color-brand-gradient-end: var(--color-base-deep-blue);
   --color-brand-highlight: var(--color-base-glacial-blue);
+  --color-brand-telegram-gradient-start: var(--color-base-telegram-gradient-start);
+  --color-brand-telegram-gradient-end: var(--color-base-telegram-gradient-end);
+  --color-brand-telegram-foreground: var(--color-base-white);
 
   --color-overlay-primary: var(--color-base-opacity-dark-30);
   --color-overlay-subtle: var(--color-base-opacity-dark-25);
@@ -188,6 +197,9 @@
   --color-brand-gradient-middle: var(--color-base-depth-accent);
   --color-brand-gradient-end: var(--color-base-depth-accent-dark);
   --color-brand-highlight: var(--color-base-depth-highlight);
+  --color-brand-telegram-gradient-start: var(--color-base-telegram-gradient-start);
+  --color-brand-telegram-gradient-end: var(--color-base-telegram-gradient-end);
+  --color-brand-telegram-foreground: var(--color-base-white);
 
   --color-overlay-primary: var(--color-base-opacity-dark-30);
   --color-overlay-subtle: var(--color-base-opacity-dark-25);
@@ -244,6 +256,9 @@
   --color-brand-gradient-middle: var(--color-base-shadow-accent);
   --color-brand-gradient-end: var(--color-base-shadow-accent-dark);
   --color-brand-highlight: var(--color-base-shadow-accent-light);
+  --color-brand-telegram-gradient-start: var(--color-base-telegram-gradient-start);
+  --color-brand-telegram-gradient-end: var(--color-base-telegram-gradient-end);
+  --color-brand-telegram-foreground: var(--color-base-white);
 
   --color-overlay-primary: var(--color-base-opacity-dark-30);
   --color-overlay-subtle: var(--color-base-opacity-dark-25);

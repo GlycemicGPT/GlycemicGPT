@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 
 import { Icon } from "@/base";
+import { LumoseLogoTextIcon } from "@/components/LumoseLogoTextIcon";
 import { ActionLink } from "@/components/ActionLink";
 import { PublicDisclaimerModal } from "@/components/PublicDisclaimerModal";
 import { getCurrentUser } from "@/lib/api";
@@ -46,11 +47,7 @@ export function PublicHome() {
               className="rounded-button text-foreground-primary outline-none focus-visible:ring-2 focus-visible:ring-border-active"
               href="/"
             >
-              <Icon
-                className="h-8 w-52"
-                decorative
-                icon="logo-lumose-text-icon"
-              />
+              <LumoseLogoTextIcon className="h-8 w-52" decorative />
             </Link>
           </header>
 

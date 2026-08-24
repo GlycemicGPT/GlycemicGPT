@@ -332,14 +332,15 @@ class TestDispatchNotification:
 
         user_id = uuid.uuid4()
         contacts = [make_contact(user_id)]
+        db = AsyncMock()
         status = await dispatch_notification(
-            AsyncMock(),
+            db,
             EscalationTier.PRIMARY_CONTACT,
             "test msg",
             contacts,
         )
         assert status == NotificationStatus.SENT
-        mock_send.assert_called_once_with(12345, "test msg")
+        mock_send.assert_called_once_with(12345, "test msg", db)
 
     @pytest.mark.asyncio
     @patch(

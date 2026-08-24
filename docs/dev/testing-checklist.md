@@ -36,6 +36,10 @@ docker compose up --build
 
 ### Backend Unit Tests (pytest)
 
+Use a dedicated database whose name ends in `_test`. The test bootstrap refuses
+to run against any other database because API endpoint tests commit through
+application owned sessions and cannot be isolated by a fixture rollback.
+
 ```bash
 cd apps/api
 DATABASE_URL="postgresql+asyncpg://glycemicgpt:glycemicgpt@localhost:5432/glycemicgpt_test" \
@@ -220,6 +224,7 @@ For each settings page with a Save button:
 
 ### Tests fail with database errors
 - Ensure a test database exists
+- Ensure its database name ends in `_test`; pytest refuses the development database
 - Set TESTING=true environment variable
 - Run migrations on the test database first
 

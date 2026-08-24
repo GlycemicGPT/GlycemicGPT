@@ -8,16 +8,18 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 
 from src.database import get_session_maker
+from src.models.telegram_bot_config import TelegramBotConfig
 from src.models.telegram_link import TelegramLink
 from src.models.telegram_verification import TelegramVerificationCode
-from src.models.user import User
+from src.models.user import User, UserRole
 from src.services.telegram_bot import (
     CODE_ALPHABET,
     CODE_LENGTH,
     TelegramBotError,
+    TelegramBotIdentity,
     _generate_code,
     generate_verification_code,
     get_bot_info,
@@ -45,6 +47,32 @@ async def register_and_login(client, email="tg@example.com", password="Test1234!
         json={"email": email, "password": password},
     )
     cookie_value = resp.cookies.get(app_settings.jwt_cookie_name)
+    return {app_settings.jwt_cookie_name: cookie_value}
+
+
+async def register_admin_and_login(
+    client,
+    email="tg-admin@example.com",
+    password="SecurePass123",
+):
+    """Register an administrator and return auth cookies as a dict."""
+    await client.post(
+        "/api/auth/register",
+        json={"email": email, "password": password},
+    )
+    async with get_session_maker()() as db:
+        await db.execute(
+            update(User).where(User.email == email).values(role=UserRole.ADMIN)
+        )
+        await db.commit()
+
+    from src.config import settings as app_settings
+
+    response = await client.post(
+        "/api/auth/login",
+        json={"email": email, "password": password},
+    )
+    cookie_value = response.cookies.get(app_settings.jwt_cookie_name)
     return {app_settings.jwt_cookie_name: cookie_value}
 
 
@@ -78,6 +106,15 @@ async def cleanup_user(user_id: uuid.UUID) -> None:
         )
         await db.execute(delete(User).where(User.id == user_id))
         await db.commit()
+
+
+async def cleanup_bot_config_test_data(user_id: uuid.UUID) -> None:
+    """Remove the shared bot config and user-owned Telegram test data."""
+    async with get_session_maker()() as db:
+        await db.execute(delete(TelegramBotConfig))
+        await db.commit()
+
+    await cleanup_user(user_id)
 
 
 # ---------------------------------------------------------------------------
@@ -361,7 +398,7 @@ class TestBotApiCalls:
         mock_response.status_code = 200
         mock_response.json.return_value = {
             "ok": True,
-            "result": {"username": "GlycemicGPT_bot"},
+            "result": {"id": 123456789, "username": "GlycemicGPT_bot"},
         }
 
         with (
@@ -438,6 +475,340 @@ class TestBotApiCalls:
 # ---------------------------------------------------------------------------
 class TestTelegramEndpoints:
     """Tests for the Telegram API endpoints."""
+
+    @pytest.mark.asyncio
+    @patch("src.routers.telegram.get_bot_identity", new_callable=AsyncMock)
+    async def test_bot_config_can_be_saved_read_and_removed(
+        self, mock_bot_identity, client
+    ):
+        """The web token setup flow must have a persistent API contract."""
+        mock_bot_identity.return_value = TelegramBotIdentity(
+            bot_id=123456789,
+            username="ConfiguredBot",
+        )
+        cookies = await register_admin_and_login(client, "tg_config_admin@example.com")
+
+        save_resp = await client.post(
+            "/api/telegram/bot-config",
+            json={"token": "123456789:test-token"},
+            cookies=cookies,
+        )
+        assert save_resp.status_code == 200
+        assert save_resp.json() == {
+            "valid": True,
+            "bot_username": "ConfiguredBot",
+        }
+
+        get_resp = await client.get("/api/telegram/bot-config", cookies=cookies)
+        assert get_resp.status_code == 200
+        assert get_resp.json()["configured"] is True
+        assert get_resp.json()["can_manage"] is True
+        assert get_resp.json()["bot_username"] == "ConfiguredBot"
+        assert get_resp.json()["configured_at"] is not None
+
+        async with get_session_maker()() as db:
+            stored_config = await db.get(TelegramBotConfig, 1)
+            assert stored_config is not None
+            assert stored_config.encrypted_token != "123456789:test-token"
+            assert "test-token" not in stored_config.encrypted_token
+            assert stored_config.bot_id == "123456789"
+
+            primary_user = (
+                await db.execute(
+                    select(User).where(User.email == "tg_config_admin@example.com")
+                )
+            ).scalar_one()
+            primary_user_id = primary_user.id
+            db.add(
+                TelegramLink(
+                    user_id=primary_user.id,
+                    chat_id=987654321,
+                    username="configured_user",
+                    is_verified=True,
+                )
+            )
+            db.add(
+                TelegramVerificationCode(
+                    user_id=primary_user.id,
+                    code="FRESH2",
+                    expires_at=datetime.now(UTC) + timedelta(minutes=10),
+                )
+            )
+            await db.commit()
+
+        delete_resp = await client.delete("/api/telegram/bot-config", cookies=cookies)
+        assert delete_resp.status_code == 204
+
+        get_after_delete = await client.get("/api/telegram/bot-config", cookies=cookies)
+        assert get_after_delete.status_code == 200
+        assert get_after_delete.json() == {
+            "configured": False,
+            "can_manage": True,
+            "bot_username": None,
+            "configured_at": None,
+        }
+
+        async with get_session_maker()() as db:
+            remaining_links = await db.scalar(
+                select(func.count()).select_from(TelegramLink)
+            )
+            remaining_codes = await db.scalar(
+                select(func.count()).select_from(TelegramVerificationCode)
+            )
+            assert remaining_links == 0
+            assert remaining_codes == 0
+
+        await cleanup_bot_config_test_data(primary_user_id)
+
+    @pytest.mark.asyncio
+    @patch("src.routers.telegram.get_bot_identity", new_callable=AsyncMock)
+    async def test_replacing_bot_clears_existing_link_state(
+        self,
+        mock_bot_identity,
+        client,
+    ):
+        """Links and pending codes cannot carry over to another Telegram bot."""
+        mock_bot_identity.side_effect = [
+            TelegramBotIdentity(bot_id=111, username="FirstBot"),
+            TelegramBotIdentity(bot_id=222, username="SecondBot"),
+        ]
+        cookies = await register_admin_and_login(
+            client,
+            "tg_replace_bot@example.com",
+        )
+
+        first_response = await client.post(
+            "/api/telegram/bot-config",
+            json={"token": "111:first-token"},
+            cookies=cookies,
+        )
+        assert first_response.status_code == 200
+
+        async with get_session_maker()() as db:
+            user = (
+                await db.execute(
+                    select(User).where(User.email == "tg_replace_bot@example.com")
+                )
+            ).scalar_one()
+            user_id = user.id
+            db.add(
+                TelegramLink(
+                    user_id=user.id,
+                    chat_id=111111,
+                    username="linked_user",
+                    is_verified=True,
+                )
+            )
+            db.add(
+                TelegramVerificationCode(
+                    user_id=user.id,
+                    code="OLD123",
+                    expires_at=datetime.now(UTC) + timedelta(minutes=10),
+                )
+            )
+            await db.commit()
+
+        second_response = await client.post(
+            "/api/telegram/bot-config",
+            json={"token": "222:second-token"},
+            cookies=cookies,
+        )
+        assert second_response.status_code == 200
+
+        async with get_session_maker()() as db:
+            config = await db.get(TelegramBotConfig, 1)
+            assert config is not None
+            assert config.bot_id == "222"
+            assert await db.scalar(select(func.count()).select_from(TelegramLink)) == 0
+            assert (
+                await db.scalar(
+                    select(func.count()).select_from(TelegramVerificationCode)
+                )
+                == 0
+            )
+
+        await cleanup_bot_config_test_data(user_id)
+
+    @pytest.mark.asyncio
+    @patch("src.routers.telegram.get_bot_identity", new_callable=AsyncMock)
+    async def test_refreshing_same_bot_preserves_existing_link_state(
+        self,
+        mock_bot_identity,
+        client,
+    ):
+        """Refreshing credentials for the same bot keeps user connections."""
+        mock_bot_identity.side_effect = [
+            TelegramBotIdentity(bot_id=333, username="StableBot"),
+            TelegramBotIdentity(bot_id=333, username="RenamedStableBot"),
+        ]
+        cookies = await register_admin_and_login(
+            client,
+            "tg_same_bot@example.com",
+        )
+
+        first_response = await client.post(
+            "/api/telegram/bot-config",
+            json={"token": "333:first-token"},
+            cookies=cookies,
+        )
+        assert first_response.status_code == 200
+
+        async with get_session_maker()() as db:
+            user = (
+                await db.execute(
+                    select(User).where(User.email == "tg_same_bot@example.com")
+                )
+            ).scalar_one()
+            user_id = user.id
+            db.add(
+                TelegramLink(
+                    user_id=user.id,
+                    chat_id=333333,
+                    username="linked_user",
+                    is_verified=True,
+                )
+            )
+            db.add(
+                TelegramVerificationCode(
+                    user_id=user.id,
+                    code="KEEP33",
+                    expires_at=datetime.now(UTC) + timedelta(minutes=10),
+                )
+            )
+            await db.commit()
+
+        second_response = await client.post(
+            "/api/telegram/bot-config",
+            json={"token": "333:refreshed-token"},
+            cookies=cookies,
+        )
+        assert second_response.status_code == 200
+
+        async with get_session_maker()() as db:
+            config = await db.get(TelegramBotConfig, 1)
+            assert config is not None
+            assert config.bot_id == "333"
+            assert config.bot_username == "RenamedStableBot"
+            assert (
+                await db.scalar(
+                    select(func.count())
+                    .select_from(TelegramLink)
+                    .where(TelegramLink.user_id == user_id)
+                )
+                == 1
+            )
+            assert (
+                await db.scalar(
+                    select(func.count())
+                    .select_from(TelegramVerificationCode)
+                    .where(TelegramVerificationCode.user_id == user_id)
+                )
+                == 1
+            )
+
+        await cleanup_bot_config_test_data(user_id)
+
+    @pytest.mark.asyncio
+    async def test_bot_config_mutations_reject_caregivers(self, client):
+        """Caregivers cannot change deployment-wide bot credentials."""
+        email = "tg_caregiver@example.com"
+        cookies = await register_and_login(client, email)
+        async with get_session_maker()() as db:
+            await db.execute(
+                update(User).where(User.email == email).values(role=UserRole.CAREGIVER)
+            )
+            await db.commit()
+
+        get_response = await client.get("/api/telegram/bot-config", cookies=cookies)
+        save_response = await client.post(
+            "/api/telegram/bot-config",
+            json={"token": "123456789:test-token"},
+            cookies=cookies,
+        )
+        delete_response = await client.delete(
+            "/api/telegram/bot-config",
+            cookies=cookies,
+        )
+
+        assert get_response.status_code == 200
+        assert get_response.json()["can_manage"] is False
+        assert save_response.status_code == 403
+        assert delete_response.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_bot_config_mutations_reject_diabetics(self, client):
+        """Regular diabetic users cannot change deployment credentials."""
+        cookies = await register_and_login(client, "tg_diabetic@example.com")
+
+        get_response = await client.get("/api/telegram/bot-config", cookies=cookies)
+        save_response = await client.post(
+            "/api/telegram/bot-config",
+            json={"token": "123456789:test-token"},
+            cookies=cookies,
+        )
+        delete_response = await client.delete(
+            "/api/telegram/bot-config",
+            cookies=cookies,
+        )
+
+        assert get_response.status_code == 200
+        assert get_response.json()["can_manage"] is False
+        assert save_response.status_code == 403
+        assert delete_response.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_bot_config_mutations_require_authentication(self, client):
+        """Anonymous callers cannot change deployment credentials."""
+        save_response = await client.post(
+            "/api/telegram/bot-config",
+            json={"token": "123456789:test-token"},
+        )
+        delete_response = await client.delete("/api/telegram/bot-config")
+
+        assert save_response.status_code == 401
+        assert delete_response.status_code == 401
+
+    @pytest.mark.asyncio
+    @patch("src.routers.telegram.reset_bot_cache")
+    @patch("src.routers.telegram.get_bot_identity", new_callable=AsyncMock)
+    async def test_rejected_bot_token_preserves_active_polling_state(
+        self,
+        mock_bot_identity,
+        mock_reset_bot_cache,
+        client,
+    ):
+        """Rejected candidate tokens must not reset the active bot poller."""
+        mock_bot_identity.side_effect = TelegramBotError("invalid token")
+        cookies = await register_admin_and_login(
+            client,
+            "tg_invalid_config_admin@example.com",
+        )
+
+        response = await client.post(
+            "/api/telegram/bot-config",
+            json={"token": "invalid-token"},
+            cookies=cookies,
+        )
+
+        assert response.status_code == 400
+        mock_reset_bot_cache.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_blank_bot_token_returns_declared_bad_request(self, client):
+        """Whitespace-only credentials use the documented invalid-token response."""
+        cookies = await register_admin_and_login(
+            client,
+            "tg_blank_config_admin@example.com",
+        )
+
+        response = await client.post(
+            "/api/telegram/bot-config",
+            json={"token": "   "},
+            cookies=cookies,
+        )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Telegram bot token is required"
 
     @pytest.mark.asyncio
     async def test_status_unauthenticated_returns_401(self, client):

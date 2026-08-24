@@ -140,7 +140,7 @@ jest.mock("@/lib/api", () => ({
   updateCaregiverPermissions: jest.fn().mockResolvedValue({}),
   // Telegram & Communications
   getTelegramStatus: jest.fn().mockResolvedValue({ linked: false }),
-  getTelegramBotConfig: jest.fn().mockResolvedValue({ configured: false }),
+  getTelegramBotConfig: jest.fn().mockResolvedValue({ configured: false, can_manage: false }),
   saveTelegramBotToken: jest.fn().mockResolvedValue({}),
   removeTelegramBotToken: jest.fn().mockResolvedValue(undefined),
   generateTelegramCode: jest.fn().mockResolvedValue({ code: "TEST123" }),

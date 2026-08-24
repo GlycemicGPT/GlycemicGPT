@@ -1,4 +1,4 @@
-import { Icon } from "@/base";
+import { LumoseLogoIcon } from "@/components/LumoseLogoIcon";
 import { twMerge } from "@/lib/ui/twMerge";
 import {
   SYSTEM_THEME,
@@ -36,10 +36,9 @@ function PreviewCanvas({
     >
       <span className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-panel border border-border-default bg-surface-elevated">
         <span className="flex h-7 shrink-0 items-center gap-1.5 border-b border-border-default bg-surface-secondary px-2 sm:h-12 sm:gap-3 sm:px-4">
-          <Icon
+          <LumoseLogoIcon
             className="h-4 w-4 text-accent sm:h-7 sm:w-7"
             decorative
-            icon="lumose-logo-icon"
           />
           <PreviewLine className="w-1/3 bg-foreground-secondary" />
         </span>

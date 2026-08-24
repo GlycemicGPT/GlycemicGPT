@@ -100,12 +100,30 @@ jest.mock("./brief-delivery/page", () => ({
 }));
 
 jest.mock("./communications/CommunicationsSettings", () => ({
-  CommunicationsSettings: () => <div>Delivery channel settings</div>,
+  CommunicationsSettings: ({
+    telegramStatusRefreshKey,
+  }: {
+    telegramStatusRefreshKey?: number;
+  }) => (
+    <div>
+      Delivery channel settings
+      <span>Telegram status refresh {telegramStatusRefreshKey}</span>
+    </div>
+  ),
 }));
 
-jest.mock("./telegram/page", () => ({
+jest.mock("./telegram/TelegramSettings", () => ({
   __esModule: true,
-  default: () => <div>Telegram settings</div>,
+  TelegramSettings: ({
+    onLinkStatusChange,
+  }: {
+    onLinkStatusChange?: () => void;
+  }) => (
+    <div>
+      Telegram settings
+      <button onClick={onLinkStatusChange}>Report Telegram link change</button>
+    </div>
+  ),
 }));
 
 const mockUseUserContext = useUserContext as jest.MockedFunction<
@@ -192,6 +210,18 @@ describe("consolidated settings pages", () => {
     expect(screen.getByText("Daily brief settings")).toBeInTheDocument();
     expect(screen.getByText("Delivery channel settings")).toBeInTheDocument();
     expect(screen.getByText("Telegram settings")).toBeInTheDocument();
+  });
+
+  it("refreshes delivery channel status when the Telegram link changes", () => {
+    render(<AlarmsNotificationSettingsPage />);
+
+    expect(screen.getByText("Telegram status refresh 0")).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Report Telegram link change" }),
+    );
+
+    expect(screen.getByText("Telegram status refresh 1")).toBeInTheDocument();
   });
 
   it("limits caregiver notifications to delivery channels", () => {

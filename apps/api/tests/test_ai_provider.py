@@ -32,10 +32,18 @@ async def register_and_login(client: AsyncClient) -> str:
     Returns:
         JWT session cookie string for authenticating subsequent requests.
     """
+    session_cookie, _user_id = await register_and_login_with_user_id(client)
+    return session_cookie
+
+
+async def register_and_login_with_user_id(
+    client: AsyncClient,
+) -> tuple[str, uuid.UUID]:
+    """Register a user and return its session cookie and database ID."""
     email = unique_email("ai_provider")
     password = "SecurePass123"
 
-    await client.post(
+    register_response = await client.post(
         "/api/auth/register",
         json={"email": email, "password": password},
     )
@@ -45,7 +53,10 @@ async def register_and_login(client: AsyncClient) -> str:
         json={"email": email, "password": password},
     )
 
-    return login_response.cookies.get(settings.jwt_cookie_name)
+    return (
+        login_response.cookies.get(settings.jwt_cookie_name),
+        uuid.UUID(register_response.json()["id"]),
+    )
 
 
 class TestAIProviderConfiguration:
@@ -60,7 +71,7 @@ class TestAIProviderConfiguration:
             transport=ASGITransport(app=app),
             base_url="http://test",
         ) as client:
-            session_cookie = await register_and_login(client)
+            session_cookie, user_id = await register_and_login_with_user_id(client)
 
             response = await client.post(
                 "/api/ai/provider",
@@ -71,12 +82,31 @@ class TestAIProviderConfiguration:
                 cookies={settings.jwt_cookie_name: session_cookie},
             )
 
+        from sqlalchemy import select
+
+        from src.database import get_session_maker
+        from src.models.ai_provider import AIProviderConfig
+
+        session_maker = get_session_maker()
+        async with session_maker() as db:
+            stored_config = (
+                await db.execute(
+                    select(AIProviderConfig).where(AIProviderConfig.user_id == user_id)
+                )
+            ).scalar_one()
+
         assert response.status_code == 201
         data = response.json()
         assert data["provider_type"] == "claude_api"
         assert data["status"] == "connected"
         assert "...1234" in data["masked_api_key"]
         assert data["last_validated_at"] is not None
+        assert stored_config.encrypted_api_key is not None
+        assert stored_config.encrypted_api_key != "sk-ant-test-valid-key-1234"
+        assert (
+            decrypt_credential(stored_config.encrypted_api_key)
+            == "sk-ant-test-valid-key-1234"
+        )
 
     @patch("src.routers.ai.validate_ai_api_key")
     async def test_configure_openai_provider(self, mock_validate):
@@ -755,7 +785,7 @@ class TestSidecarNullSafety:
             transport=ASGITransport(app=app),
             base_url="http://test",
         ) as client:
-            session_cookie = await register_and_login(client)
+            session_cookie, user_id = await register_and_login_with_user_id(client)
 
             # Configure a subscription provider (this sets encrypted_api_key)
             await client.post(
@@ -776,7 +806,9 @@ class TestSidecarNullSafety:
                 from sqlalchemy import update
 
                 await db.execute(
-                    update(AIProviderConfig).values(encrypted_api_key=None)
+                    update(AIProviderConfig)
+                    .where(AIProviderConfig.user_id == user_id)
+                    .values(encrypted_api_key=None, sidecar_provider="claude")
                 )
                 await db.commit()
 
@@ -801,7 +833,7 @@ class TestSidecarNullSafety:
             transport=ASGITransport(app=app),
             base_url="http://test",
         ) as client:
-            session_cookie = await register_and_login(client)
+            session_cookie, user_id = await register_and_login_with_user_id(client)
 
             # Configure a subscription provider
             await client.post(
@@ -822,7 +854,9 @@ class TestSidecarNullSafety:
                 from sqlalchemy import update
 
                 await db.execute(
-                    update(AIProviderConfig).values(encrypted_api_key=None)
+                    update(AIProviderConfig)
+                    .where(AIProviderConfig.user_id == user_id)
+                    .values(encrypted_api_key=None)
                 )
                 await db.commit()
 
@@ -837,6 +871,58 @@ class TestSidecarNullSafety:
         assert data["success"] is False
         assert "reconfigure" in data["message"].lower()
 
+    @patch("src.routers.ai.validate_sidecar_connection")
+    @patch("src.routers.ai.validate_ai_api_key")
+    async def test_direct_provider_with_missing_key_never_uses_stale_sidecar(
+        self, mock_api_validate, mock_sidecar_validate
+    ):
+        """A direct provider cannot fall back to sidecar authentication."""
+        mock_api_validate.return_value = (True, None)
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            session_cookie, user_id = await register_and_login_with_user_id(client)
+            await client.post(
+                "/api/ai/provider",
+                json={
+                    "provider_type": "claude_api",
+                    "api_key": "sk-ant-test-direct-provider-1234",
+                },
+                cookies={settings.jwt_cookie_name: session_cookie},
+            )
+
+            from sqlalchemy import update
+
+            from src.database import get_session_maker
+            from src.models.ai_provider import AIProviderConfig
+
+            session_maker = get_session_maker()
+            async with session_maker() as db:
+                await db.execute(
+                    update(AIProviderConfig)
+                    .where(AIProviderConfig.user_id == user_id)
+                    .values(encrypted_api_key=None, sidecar_provider="claude")
+                )
+                await db.commit()
+
+            get_response = await client.get(
+                "/api/ai/provider",
+                cookies={settings.jwt_cookie_name: session_cookie},
+            )
+            test_response = await client.post(
+                "/api/ai/provider/test",
+                cookies={settings.jwt_cookie_name: session_cookie},
+            )
+
+        assert get_response.status_code == 200
+        assert get_response.json()["masked_api_key"] == "missing"
+        assert test_response.status_code == 200
+        assert test_response.json()["success"] is False
+        assert "reconfigure" in test_response.json()["message"].lower()
+        mock_sidecar_validate.assert_not_awaited()
+
     @patch("src.routers.ai.validate_ai_api_key")
     async def test_update_provider_clears_sidecar_provider(self, mock_validate):
         """Test that reconfiguring a provider clears stale sidecar_provider."""
@@ -846,7 +932,7 @@ class TestSidecarNullSafety:
             transport=ASGITransport(app=app),
             base_url="http://test",
         ) as client:
-            session_cookie = await register_and_login(client)
+            session_cookie, user_id = await register_and_login_with_user_id(client)
 
             # Configure a subscription provider
             await client.post(
@@ -867,7 +953,9 @@ class TestSidecarNullSafety:
                 from sqlalchemy import update
 
                 await db.execute(
-                    update(AIProviderConfig).values(sidecar_provider="claude")
+                    update(AIProviderConfig)
+                    .where(AIProviderConfig.user_id == user_id)
+                    .values(sidecar_provider="claude")
                 )
                 await db.commit()
 

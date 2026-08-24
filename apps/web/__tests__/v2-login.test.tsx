@@ -48,14 +48,18 @@ describe("V2 Login Page", () => {
     mockGetCurrentUser.mockReturnValue(new Promise(() => {}));
     const { container } = render(<LoginPage />);
 
+    expect(screen.getByRole("status", { name: "Loading sign in" })).toHaveClass(
+      "h-12",
+      "w-12",
+      "mx-auto",
+      "mb-3",
+    );
+    expect(container.querySelectorAll("[role='status'] svg path")).toHaveLength(
+      6,
+    );
     expect(
-      screen.getByRole("status", { name: "Loading sign in" }),
-    ).toHaveClass("h-12", "w-12", "mx-auto", "mb-3");
-    expect(
-      container.querySelectorAll(
-        `use[href="${STATIC_ASSET_ICON_SPRITE_PATH}#lumose-logo-icon-shape"]`,
-      ),
-    ).toHaveLength(2);
+      container.querySelector("[role='status'] use"),
+    ).not.toBeInTheDocument();
     expect(
       container.querySelector(".lumose-loading-logo-flow"),
     ).toBeInTheDocument();
@@ -143,11 +147,8 @@ describe("V2 Login Page", () => {
     expect(
       screen.queryByText("Welcome back to GlycemicGPT"),
     ).not.toBeInTheDocument();
-    expect(
-      container.querySelector(
-        `use[href="${STATIC_ASSET_ICON_SPRITE_PATH}#logo-lumose-text-icon"]`,
-      ),
-    ).toBeInTheDocument();
+    expect(logo.querySelector("linearGradient")).toBeInTheDocument();
+    expect(logo.querySelector("use")).not.toBeInTheDocument();
     expect(logo).toHaveClass("h-auto", "w-full");
     expect(logo.parentElement).toHaveClass("py-12");
     expect(logo.parentElement).not.toHaveClass("my-8");
@@ -388,7 +389,10 @@ describe("V2 Login Page", () => {
     });
 
     render(<LoginPage />);
-    await userEvent.type(await screen.findByLabelText("Email"), "test@test.com");
+    await userEvent.type(
+      await screen.findByLabelText("Email"),
+      "test@test.com",
+    );
     await userEvent.type(screen.getByLabelText("Password"), "TestPass123");
     fireEvent.click(screen.getByRole("button", { name: "Sign In" }));
 

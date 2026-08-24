@@ -112,9 +112,14 @@ async def get_ai_provider(
     if config.encrypted_api_key:
         decrypted_key = decrypt_credential(config.encrypted_api_key)
         masked = mask_api_key(decrypted_key)
-    else:
+    elif (
+        config.provider_type in SIDECAR_PROVIDER_MAP.values()
+        and config.sidecar_provider
+    ):
         # Subscription types using sidecar OAuth have no stored API key
         masked = "sidecar-managed"
+    else:
+        masked = "missing"
 
     return _build_response(config, masked)
 
@@ -293,7 +298,10 @@ async def test_ai_provider(
     # Subscription types using sidecar OAuth have no stored API key;
     # validate by checking sidecar health + auth status instead.
     if not config.encrypted_api_key:
-        if config.sidecar_provider:
+        if (
+            config.provider_type in SIDECAR_PROVIDER_MAP.values()
+            and config.sidecar_provider
+        ):
             is_valid, error_message = await validate_sidecar_connection(
                 config.sidecar_provider
             )

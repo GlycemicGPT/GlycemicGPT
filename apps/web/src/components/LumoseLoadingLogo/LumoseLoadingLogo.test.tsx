@@ -1,4 +1,3 @@
-import { STATIC_ASSET_ICON_SPRITE_PATH } from "@/lib/staticAssets";
 import { render, screen } from "@testing-library/react";
 import { LumoseLoadingLogo } from "./LumoseLoadingLogo";
 
@@ -15,19 +14,14 @@ describe("LumoseLoadingLogo", () => {
 
   it("uses the shared logo geometry for its base and animated paint", () => {
     const { container } = render(<LumoseLoadingLogo />);
-    const uses = container.querySelectorAll("use");
+    const paths = container.querySelectorAll("svg path");
     const animatedGradients = container.querySelectorAll(
       ".lumose-loading-logo-flow",
     );
     const filteredGroup = container.querySelector("g[filter]");
 
-    expect(uses).toHaveLength(2);
-    for (const use of uses) {
-      expect(use).toHaveAttribute(
-        "href",
-        `${STATIC_ASSET_ICON_SPRITE_PATH}#lumose-logo-icon-shape`,
-      );
-    }
+    expect(container.querySelector("use")).not.toBeInTheDocument();
+    expect(paths).toHaveLength(6);
     expect(animatedGradients).toHaveLength(1);
     expect(animatedGradients[0]).toHaveAttribute(
       "gradientUnits",
@@ -39,7 +33,10 @@ describe("LumoseLoadingLogo", () => {
         "var(--color-brand-highlight)",
       );
     }
-    expect(uses[0]).toHaveAttribute("fill-opacity", "0.42");
+    expect(container.querySelector('g[fill="currentColor"]')).toHaveAttribute(
+      "fill-opacity",
+      "0.42",
+    );
     expect(filteredGroup).toHaveAttribute(
       "filter",
       `url(#${container.querySelector("filter")?.id})`,

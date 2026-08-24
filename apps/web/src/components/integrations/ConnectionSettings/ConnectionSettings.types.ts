@@ -21,6 +21,7 @@ export type ConnectionSettingsAccordionProps = {
 export type ConnectionInfoCalloutProps = HTMLAttributes<HTMLDivElement> & {
   children: ReactNode;
   icon?: IconName;
+  iconSlot?: ReactNode;
   title: ReactNode;
 };
 

@@ -169,12 +169,10 @@ describe("Sidebar", () => {
     expect(screen.queryByText("Lumose")).not.toBeInTheDocument();
     expect(screen.queryByText("Glucose Monitoring")).not.toBeInTheDocument();
     expect(logoIcon).toHaveClass("w-[33px]", "h-auto");
-    expect(logoIcon).toHaveClass("text-brand-gradient-middle");
     expect(logoIcon).not.toHaveClass("text-accent");
-    expect(logoIcon?.querySelector("use")).toHaveAttribute(
-      "href",
-      `${STATIC_ASSET_ICON_SPRITE_PATH}#lumose-logo-icon-shape`,
-    );
+    expect(logoIcon.querySelector("use")).not.toBeInTheDocument();
+    expect(logoIcon.querySelectorAll("path")).toHaveLength(3);
+    expect(logoIcon.querySelector("linearGradient")).toBeInTheDocument();
     expect(activeLink).toHaveClass("gap-0", "pl-[22px]", "pr-0");
     expect(activeLink).not.toHaveClass("justify-center");
     expect(activeLinkText).toHaveClass("max-w-0", "opacity-0");

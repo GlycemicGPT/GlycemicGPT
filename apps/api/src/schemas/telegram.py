@@ -3,7 +3,29 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+
+class TelegramBotConfigRequest(BaseModel):
+    """Token submitted for validation and encrypted persistence."""
+
+    token: str = Field(min_length=1, max_length=512)
+
+
+class TelegramBotConfigResponse(BaseModel):
+    """Safe Telegram bot configuration metadata."""
+
+    configured: bool
+    can_manage: bool
+    bot_username: str | None = None
+    configured_at: datetime | None = None
+
+
+class TelegramBotValidateResponse(BaseModel):
+    """Successful Telegram token validation response."""
+
+    valid: bool
+    bot_username: str
 
 
 class TelegramLinkResponse(BaseModel):

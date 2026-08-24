@@ -131,7 +131,7 @@ async def notify_user_of_brief(
 
     try:
         message = format_brief_message(brief, unit)
-        await send_message(link.chat_id, message)
+        await send_message(link.chat_id, message, db)
         logger.info(
             "Telegram daily brief sent",
             user_id=str(user_id),

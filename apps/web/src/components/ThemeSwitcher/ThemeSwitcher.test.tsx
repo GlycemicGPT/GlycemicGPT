@@ -1,4 +1,3 @@
-import { STATIC_ASSET_ICON_SPRITE_PATH } from "@/lib/staticAssets";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { ThemeProvider } from "@/providers/theme-provider";
 import { ThemeSwitcher } from "./ThemeSwitcher";
@@ -211,16 +210,10 @@ describe("ThemeSwitcher", () => {
     expect(lightTheme).toHaveAttribute("aria-checked", "false");
     expect(systemPreview?.querySelector(".theme-light")).toBeInTheDocument();
     expect(systemPreview?.querySelector(".theme-dark")).toBeInTheDocument();
-    expect(
-      systemPreview?.querySelectorAll(
-        `use[href="${STATIC_ASSET_ICON_SPRITE_PATH}#lumose-logo-icon"]`,
-      ),
-    ).toHaveLength(2);
-    expect(
-      lightTheme.querySelectorAll(
-        `use[href="${STATIC_ASSET_ICON_SPRITE_PATH}#lumose-logo-icon"]`,
-      ),
-    ).toHaveLength(1);
+    expect(systemPreview?.querySelectorAll("linearGradient")).toHaveLength(2);
+    expect(systemPreview?.querySelector("use")).not.toBeInTheDocument();
+    expect(lightTheme.querySelectorAll("linearGradient")).toHaveLength(1);
+    expect(lightTheme.querySelector("use")).not.toBeInTheDocument();
     expect(
       lightTheme.querySelector('[data-theme-preview-panel="light"]'),
     ).toBeInTheDocument();

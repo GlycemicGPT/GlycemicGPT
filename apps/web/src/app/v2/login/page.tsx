@@ -8,6 +8,7 @@ import { HighlightButton } from "@/components/HighlightButton";
 import { LumoseLoadingLogo } from "@/components/LumoseLoadingLogo";
 import { TextInput } from "@/components/TextInput";
 import { AnimatedCard } from "@/components/AnimatedCard";
+import { LumoseLogoTextIcon } from "@/components/LumoseLogoTextIcon";
 
 import { loginUser, getCurrentUser, verifySessionCookie } from "@/lib/api";
 import {
@@ -188,10 +189,7 @@ function LoginForm() {
             01
           </span>
           <div className="flex justify-center py-12">
-            <Icon
-              className="h-auto w-full text-foreground-primary"
-              icon="logo-lumose-text-icon"
-            />
+            <LumoseLogoTextIcon className="h-auto w-full text-foreground-primary" />
           </div>
 
           {/* Expired session banner */}

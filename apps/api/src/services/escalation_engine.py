@@ -359,7 +359,7 @@ async def dispatch_notification(
             continue
 
         try:
-            await send_message(chat_id, message)
+            await send_message(chat_id, message, db)
             success_count += 1
             logger.info(
                 "Escalation notification sent to contact",

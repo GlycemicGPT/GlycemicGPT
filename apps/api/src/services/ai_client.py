@@ -169,12 +169,24 @@ async def get_ai_client(
             detail="No AI provider configured. Please configure an AI provider first.",
         )
 
-    # Subscription types using sidecar OAuth may have no stored API key;
-    # they use a placeholder key since the sidecar handles authentication.
+    # Only subscription providers may omit a stored key. Treat a direct
+    # provider without one as corrupt configuration instead of sending the
+    # internal sidecar placeholder to an external API.
     if config.encrypted_api_key:
         api_key = decrypt_credential(config.encrypted_api_key)
-    else:
+    elif (
+        config.provider_type in _SUBSCRIPTION_TYPES
+        and config.sidecar_provider is not None
+    ):
         api_key = settings.ai_sidecar_api_key or "sidecar-managed"
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "The configured AI provider is missing its API key. "
+                "Please save the provider configuration again."
+            ),
+        )
     model = config.model_name or DEFAULT_MODELS.get(config.provider_type, "")
 
     # For subscription types, auto-route through the managed sidecar

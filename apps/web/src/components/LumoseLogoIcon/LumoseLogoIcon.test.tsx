@@ -1,4 +1,3 @@
-import { STATIC_ASSET_ICON_SPRITE_PATH } from "@/lib/staticAssets";
 import { render, screen } from "@testing-library/react";
 import { LumoseLogoIcon } from "./LumoseLogoIcon";
 
@@ -8,9 +7,9 @@ describe("LumoseLogoIcon", () => {
     const logo = screen.getByRole("img", { name: "Lumose logo" });
     const gradient = container.querySelector("linearGradient");
     const stops = container.querySelectorAll("stop");
-    const use = container.querySelector("use");
+    const paths = container.querySelectorAll("svg > path");
 
-    expect(logo).toHaveClass("text-brand-gradient-middle");
+    expect(logo).toHaveAttribute("viewBox", "0 0 268.88 243.31");
     expect(gradient).toHaveAttribute("gradientUnits", "userSpaceOnUse");
     expect(gradient).toHaveAttribute("x1", "268.88");
     expect(gradient).toHaveAttribute("y1", "0");
@@ -21,7 +20,10 @@ describe("LumoseLogoIcon", () => {
       "stop-color",
       "var(--color-brand-gradient-start)",
     );
-    expect(stops[1]).toHaveAttribute("stop-color", "currentColor");
+    expect(stops[1]).toHaveAttribute(
+      "stop-color",
+      "var(--color-brand-gradient-middle)",
+    );
     expect(stops[2]).toHaveAttribute(
       "stop-color",
       "var(--color-brand-gradient-end)",
@@ -29,13 +31,11 @@ describe("LumoseLogoIcon", () => {
     expect(stops[0]).not.toHaveAttribute("stop-opacity");
     expect(stops[1]).not.toHaveAttribute("stop-opacity");
     expect(stops[2]).not.toHaveAttribute("stop-opacity");
-    expect(use).toHaveAttribute(
-      "href",
-      `${STATIC_ASSET_ICON_SPRITE_PATH}#lumose-logo-icon-shape`,
-    );
-    expect(use?.getAttribute("fill")).toBe(
-      `url(#${gradient?.getAttribute("id")})`,
-    );
+    expect(container.querySelector("use")).not.toBeInTheDocument();
+    expect(paths).toHaveLength(3);
+    paths.forEach((path) => {
+      expect(path).toHaveAttribute("fill", `url(#${gradient?.id})`);
+    });
   });
 
   it("creates unique gradient references for multiple logos", () => {
@@ -46,11 +46,17 @@ describe("LumoseLogoIcon", () => {
       </>,
     );
     const gradients = container.querySelectorAll("linearGradient");
-    const uses = container.querySelectorAll("use");
+    const logos = container.querySelectorAll("svg");
 
     expect(gradients[0].id).not.toBe(gradients[1].id);
-    expect(uses[0]).toHaveAttribute("fill", `url(#${gradients[0].id})`);
-    expect(uses[1]).toHaveAttribute("fill", `url(#${gradients[1].id})`);
+    expect(logos[0].querySelector("path")).toHaveAttribute(
+      "fill",
+      `url(#${gradients[0].id})`,
+    );
+    expect(logos[1].querySelector("path")).toHaveAttribute(
+      "fill",
+      `url(#${gradients[1].id})`,
+    );
   });
 
   it("supports decorative rendering and class overrides", () => {
@@ -62,7 +68,7 @@ describe("LumoseLogoIcon", () => {
     expect(logo).toHaveAttribute("aria-hidden", "true");
     expect(logo).not.toHaveAttribute("aria-label");
     expect(logo).not.toHaveAttribute("role");
-    expect(logo).toHaveClass("h-8", "w-8", "text-brand-gradient-middle");
+    expect(logo).toHaveClass("h-8", "w-8");
     expect(logo).not.toHaveClass("h-10", "w-10");
   });
 });

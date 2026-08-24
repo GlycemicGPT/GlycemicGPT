@@ -46,6 +46,7 @@ from src.models.security_audit_log import SecurityAuditLog
 from src.models.suggestion_response import SuggestionResponse
 from src.models.tandem_sync_state import TandemSyncState
 from src.models.target_glucose_range import TargetGlucoseRange
+from src.models.telegram_bot_config import TelegramBotConfig
 from src.models.telegram_link import TelegramLink
 from src.models.telegram_verification import TelegramVerificationCode
 from src.models.user import User, UserRole
@@ -103,6 +104,7 @@ __all__ = [
     "SuggestionResponse",
     "TandemSyncState",
     "TargetGlucoseRange",
+    "TelegramBotConfig",
     "TelegramLink",
     "TelegramVerificationCode",
     "TimestampMixin",

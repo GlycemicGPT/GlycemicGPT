@@ -6,21 +6,32 @@ import { usePathname, useRouter } from "next/navigation";
 
 import { Icon } from "@/base";
 
-import { getTelegramStatus, type TelegramStatusResponse } from "@/lib/api";
+import {
+  ApiError,
+  getTelegramStatus,
+  type TelegramStatusResponse,
+} from "@/lib/api";
 import { SettingsOfflineNotice } from "@/components/settings/SettingsOfflineNotice";
 import { LoadingState } from "@/components/LoadingState";
+import { TelegramLogo } from "@/components/TelegramLogo";
 
 export interface CommunicationsPageProps {
   telegramHref?: string;
+  telegramStatusRefreshKey?: number;
 }
+
+type TelegramChannelState = "ready" | "not_configured" | "unavailable";
 
 export function CommunicationsSettings({
   telegramHref = "/settings/alarms-notification#telegram",
+  telegramStatusRefreshKey = 0,
 }: CommunicationsPageProps = {}) {
   const pathname = usePathname();
   const router = useRouter();
   const [telegramStatus, setTelegramStatus] =
     useState<TelegramStatusResponse | null>(null);
+  const [telegramChannelState, setTelegramChannelState] =
+    useState<TelegramChannelState>("unavailable");
   const [isLoading, setIsLoading] = useState(true);
   const [isOffline, setIsOffline] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
@@ -29,15 +40,30 @@ export function CommunicationsSettings({
     try {
       const data = await getTelegramStatus();
       setTelegramStatus(data);
+      setTelegramChannelState("ready");
       setIsOffline(false);
     } catch (err) {
-      if (err instanceof Error && err.message.includes("401")) {
+      if (err instanceof ApiError && err.status === 401) {
         router.replace(
           `/login?expired=true&redirect=${encodeURIComponent(pathname)}`,
         );
         return;
       }
-      setIsOffline(true);
+
+      const expectedUnavailableStatus =
+        err instanceof ApiError && err.status === 503;
+
+      setTelegramStatus(null);
+      setTelegramChannelState(
+        err instanceof Error &&
+          err.message.includes("Telegram bot is not configured")
+          ? "not_configured"
+          : "unavailable",
+      );
+
+      if (!expectedUnavailableStatus) {
+        setIsOffline(true);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -45,9 +71,12 @@ export function CommunicationsSettings({
 
   useEffect(() => {
     fetchStatus();
-  }, [fetchStatus]);
+  }, [fetchStatus, telegramStatusRefreshKey]);
 
   const telegramLinked = telegramStatus?.linked === true;
+  const telegramBotAvailable =
+    telegramChannelState === "ready" &&
+    Boolean(telegramStatus?.bot_username?.trim());
 
   return (
     <div className="space-y-6">
@@ -91,11 +120,7 @@ export function CommunicationsSettings({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
                 <div className="p-3 bg-accent/10 rounded-panel group-hover:bg-accent/20 transition-colors">
-                  <Icon
-                    decorative
-                    icon="chat-bubbles"
-                    className="h-6 w-6 text-accent"
-                  />
+                  <TelegramLogo decorative className="h-6 w-6" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
@@ -107,6 +132,11 @@ export function CommunicationsSettings({
                         <Icon decorative icon="check" className="h-3 w-3" />
                         Connected
                       </span>
+                    ) : telegramBotAvailable ? (
+                      <span className="inline-flex items-center gap-1 bg-signal-check-fill/10 text-signal-check-text font_ui_caption px-2 py-0.5 rounded-pill">
+                        <Icon decorative icon="check" className="h-3 w-3" />
+                        Bot Available
+                      </span>
                     ) : (
                       <span className="inline-flex items-center gap-1 bg-surface-secondary text-foreground-primary font_ui_caption px-2 py-0.5 rounded-pill">
                         <Icon
@@ -114,14 +144,18 @@ export function CommunicationsSettings({
                           icon="circle-slash"
                           className="h-3 w-3"
                         />
-                        Not Connected
+                        {telegramChannelState === "not_configured"
+                          ? "Not Configured"
+                          : "Status Unavailable"}
                       </span>
                     )}
                   </div>
                   <p className="font_body_2 text-foreground-secondary mt-1">
                     {telegramLinked && telegramStatus?.link?.username
                       ? `Linked as @${telegramStatus.link.username}`
-                      : "Receive alerts and daily briefs via Telegram bot"}
+                      : telegramBotAvailable && telegramStatus?.bot_username
+                        ? `@${telegramStatus.bot_username} is ready. Link your Telegram account to receive notifications.`
+                        : "Receive alerts and daily briefs via Telegram bot"}
                   </p>
                 </div>
               </div>

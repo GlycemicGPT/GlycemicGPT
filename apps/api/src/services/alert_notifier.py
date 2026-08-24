@@ -193,7 +193,7 @@ async def notify_user_of_alerts(
     for alert in alerts:
         try:
             message = format_alert_message(alert, unit)
-            await send_message(link.chat_id, message)
+            await send_message(link.chat_id, message, db)
             sent_count += 1
             logger.info(
                 "Telegram alert sent to user",

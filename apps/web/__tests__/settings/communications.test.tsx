@@ -40,9 +40,11 @@ const mockGetTelegramStatus = jest.fn();
 
 jest.mock("../../src/lib/api", () => ({
   __esModule: true,
+  ApiError: jest.requireActual("../../src/lib/api").ApiError,
   getTelegramStatus: (...args: unknown[]) => mockGetTelegramStatus(...args),
 }));
 
+import { ApiError } from "../../src/lib/api";
 import CommunicationsPage from "../../src/app/dashboard/settings/communications/page";
 
 describe("Story 12.2: Communications Settings Hub", () => {
@@ -273,12 +275,34 @@ describe("Story 12.2: Communications Settings Hub", () => {
   describe("401 error handling", () => {
     it("does not show offline banner on 401 errors", async () => {
       mockGetTelegramStatus.mockRejectedValue(
-        new Error("Failed to fetch Telegram status: 401")
+        new ApiError(401, "Session expired")
       );
 
       render(<CommunicationsPage />);
 
       // Wait for loading to complete
+      await waitFor(() => {
+        expect(
+          screen.queryByRole("status", {
+            name: /loading communication channels/i,
+          })
+        ).not.toBeInTheDocument();
+      });
+
+      expect(
+        screen.queryByText(/unable to connect to server/i)
+      ).not.toBeInTheDocument();
+    });
+  });
+
+  describe("unconfigured bot handling", () => {
+    it("does not show the offline banner when the server reports that the bot is not configured", async () => {
+      mockGetTelegramStatus.mockRejectedValue(
+        new ApiError(503, "Telegram bot is not configured")
+      );
+
+      render(<CommunicationsPage />);
+
       await waitFor(() => {
         expect(
           screen.queryByRole("status", {

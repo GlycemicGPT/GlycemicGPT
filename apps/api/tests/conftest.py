@@ -11,12 +11,23 @@ from collections.abc import AsyncGenerator
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # Set testing mode BEFORE importing app to use NullPool
 os.environ["TESTING"] = "true"
 
 from src.config import settings
+
+# The API tests commit through application-owned sessions. A rollback on the
+# fixture session cannot undo those writes, so pointing pytest at the normal
+# development database can corrupt real local accounts and credentials.
+_test_database_name = make_url(settings.database_url).database or ""
+if not _test_database_name.endswith("_test"):
+    raise RuntimeError(
+        "Refusing to run API tests against a non-test database. "
+        "Set DATABASE_URL to a dedicated database whose name ends in '_test'."
+    )
 
 # Override settings for testing
 settings.testing = True

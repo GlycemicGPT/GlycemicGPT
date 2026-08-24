@@ -1,9 +1,11 @@
 "use client";
 
+import { useCallback, useState } from "react";
+
 import AlertSettingsPage from "../alerts/page";
 import BriefDeliveryPage from "../brief-delivery/page";
 import { CommunicationsSettings } from "../communications/CommunicationsSettings";
-import TelegramSettingsPage from "../telegram/page";
+import { TelegramSettings } from "../telegram/TelegramSettings";
 import { SettingsEmbeddedContent } from "@/components/settings/SettingsEmbeddedContent";
 import { SettingsPage } from "@/components/settings/SettingsPage";
 import { PageHeader } from "@/components/PageHeader";
@@ -16,6 +18,10 @@ import { useUserContext } from "@/providers/user-provider";
 export default function AlarmsNotificationSettingsPage() {
   const { isLoading, user } = useUserContext();
   const isCaregiver = user?.role === "caregiver";
+  const [telegramStatusRefreshKey, setTelegramStatusRefreshKey] = useState(0);
+  const handleTelegramLinkStatusChange = useCallback(() => {
+    setTelegramStatusRefreshKey((current) => current + 1);
+  }, []);
 
   return (
     <SettingsPage>
@@ -62,7 +68,10 @@ export default function AlarmsNotificationSettingsPage() {
           title="Delivery Channels"
         >
           <SettingsEmbeddedContent>
-            <CommunicationsSettings telegramHref="#telegram" />
+            <CommunicationsSettings
+              telegramHref="#telegram"
+              telegramStatusRefreshKey={telegramStatusRefreshKey}
+            />
           </SettingsEmbeddedContent>
         </SettingsSection>
       ) : null}
@@ -75,7 +84,9 @@ export default function AlarmsNotificationSettingsPage() {
           title="Telegram"
         >
           <SettingsEmbeddedContent>
-            <TelegramSettingsPage />
+            <TelegramSettings
+              onLinkStatusChange={handleTelegramLinkStatusChange}
+            />
           </SettingsEmbeddedContent>
         </SettingsSection>
       ) : null}
