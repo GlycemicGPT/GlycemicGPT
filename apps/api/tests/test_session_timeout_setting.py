@@ -206,7 +206,9 @@ async def test_changed_timeout_shortens_next_login_token_and_cookie(client):
     assert 898 <= (payload["exp"] - payload["iat"]) <= 900
 
 
-@pytest.mark.parametrize("low,high", [(15, 10080), (15, 60), (60, 60)])
+@pytest.mark.parametrize(
+    "low,high", [(15, 10080), (60, 1440), (1440, 1440), (1440, 10080)]
+)
 def test_config_accepts_ordered_session_timeout_bounds(low, high):
     """Deployment bounds allow both ranges and a single permitted duration."""
     config = Settings(
@@ -226,3 +228,40 @@ def test_config_rejects_inverted_session_timeout_bounds():
             session_timeout_min_minutes=61,
             session_timeout_max_minutes=60,
         )
+
+
+@pytest.mark.parametrize(
+    "field", ["session_timeout_min_minutes", "session_timeout_max_minutes"]
+)
+@pytest.mark.parametrize("value", [-1, 0, 14, 10081])
+def test_config_rejects_session_timeout_outside_absolute_bounds(field, value):
+    """Neither deployment bound may escape the absolute 15-minute to 7-day range."""
+    with pytest.raises(ValidationError) as exc:
+        Settings(_env_file=None, **{field: value})
+    assert exc.value.errors()[0]["loc"] == (field,)
+
+
+@pytest.mark.parametrize("low,high", [(15, 60), (60, 60), (1441, 10080)])
+def test_config_rejects_bounds_excluding_new_account_default(low, high):
+    """Reject max=60 at startup before accounts can receive an invalid default."""
+    with pytest.raises(ValidationError, match="1440-minute new-account default"):
+        Settings(
+            _env_file=None,
+            session_timeout_min_minutes=low,
+            session_timeout_max_minutes=high,
+        )
+
+
+async def test_new_account_default_with_narrowed_deployment_bounds(client, monkeypatch):
+    """Registration and login retain a valid default at the narrowest allowed range."""
+    monkeypatch.setattr(settings, "session_timeout_min_minutes", 1440)
+    monkeypatch.setattr(settings, "session_timeout_max_minutes", 1440)
+    cookies = await register_and_login(client)
+    response = await client.get("/api/settings/session-timeout", cookies=cookies)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["minutes"] == 1440
+    assert body["min_minutes"] == body["max_minutes"] == 1440
+    payload = decode_access_token(cookies[settings.jwt_cookie_name])
+    assert payload is not None
+    assert 86398 <= payload["exp"] - payload["iat"] <= 86400

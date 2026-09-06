@@ -46,16 +46,25 @@ class Settings(BaseSettings):
     # Bounds for the per-user web-session timeout (User.session_timeout_minutes).
     # These bound the value users may choose in Settings; the default itself is
     # the column server_default (1440 = 24h, matching session_expire_hours).
-    session_timeout_min_minutes: int = 15  # 15 minutes
-    session_timeout_max_minutes: int = 10080  # 7 days
+    # Deployment bounds must include that default and stay within 15m .. 7d.
+    session_timeout_min_minutes: int = Field(default=15, ge=15, le=10080)
+    session_timeout_max_minutes: int = Field(default=10080, ge=15, le=10080)
 
     @model_validator(mode="after")
     def validate_session_timeout_bounds(self) -> "Settings":
-        """Reject inverted session timeout bounds at configuration load time."""
+        """Reject bounds that are inverted or exclude the new-account default."""
         if self.session_timeout_min_minutes > self.session_timeout_max_minutes:
             raise ValueError(
                 "session_timeout_min_minutes must not exceed "
                 "session_timeout_max_minutes"
+            )
+        if (
+            not self.session_timeout_min_minutes
+            <= 1440
+            <= self.session_timeout_max_minutes
+        ):
+            raise ValueError(
+                "session timeout bounds must include the 1440-minute new-account default"
             )
         return self
 
