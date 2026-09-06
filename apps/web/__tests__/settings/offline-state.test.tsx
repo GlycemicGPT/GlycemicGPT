@@ -42,6 +42,8 @@ jest.mock("../../src/lib/api", () => {
 
   return {
     __esModule: true,
+    getSessionTimeout: jest.fn().mockRejectedValue(new Error("NetworkError")),
+    updateSessionTimeout: jest.fn(),
     // Glucose range
     getTargetGlucoseRange: jest.fn().mockRejectedValue(networkError),
     updateTargetGlucoseRange: jest.fn().mockRejectedValue(networkError),

@@ -1349,7 +1349,7 @@ export interface SessionTimeoutResponse {
  * range and preset ladder alongside the current value.
  */
 export async function getSessionTimeout(): Promise<SessionTimeoutResponse> {
-  const response = await fetch(`${API_BASE_URL}/api/settings/session-timeout`, {
+  const response = await apiFetch(`${API_BASE_URL}/api/settings/session-timeout`, {
     credentials: "include",
   });
 

@@ -47,6 +47,7 @@ class SessionTimeoutUpdate(BaseModel):
     @field_validator("minutes")
     @classmethod
     def _within_bounds(cls, value: int) -> int:
+        """Enforce the deployment bounds for a user preference update."""
         low = settings.session_timeout_min_minutes
         high = settings.session_timeout_max_minutes
         if value < low or value > high:

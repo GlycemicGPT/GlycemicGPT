@@ -778,4 +778,24 @@ describe("ProfilePage", () => {
       "Session length set to 15 minutes",
     );
   });
+  it("uses deployment presets and preserves a non-preset saved duration", async () => {
+    mockGetSessionTimeout.mockResolvedValue({
+      minutes: 45, min_minutes: 15, max_minutes: 60, presets: [15, 60],
+    });
+    render(<ProfileSettings sections={["account"]} />);
+    expect(await screen.findByRole("combobox", { name: "Session length" })).toHaveValue("45");
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "15 minutes", "45 minutes", "1 hour",
+    ]);
+  });
+
+  it("offers a valid choice when custom bounds exclude every preset", async () => {
+    mockGetSessionTimeout.mockResolvedValue({
+      minutes: 1440, min_minutes: 20, max_minutes: 30, presets: [],
+    });
+    render(<ProfileSettings sections={["account"]} />);
+    expect(await screen.findByRole("combobox", { name: "Session length" })).toHaveValue("1440");
+    expect(screen.getByRole("option", { name: "20 minutes" })).toHaveValue("20");
+  });
+
 });

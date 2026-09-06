@@ -12,11 +12,15 @@ and cookie.
 
 import uuid
 
-from src.config import settings
+import pytest
+from pydantic import ValidationError
+
+from src.config import Settings, settings
 from src.core.security import decode_access_token
 
 
 def unique_email(prefix: str = "session_to") -> str:
+    """Generate an isolated account address for each test."""
     return f"{prefix}_{uuid.uuid4().hex[:8]}@example.com"
 
 
@@ -36,6 +40,7 @@ async def register_and_login(client, prefix: str = "session_to") -> dict:
 
 
 async def test_get_session_timeout_defaults_to_24h(client):
+    """New accounts retain the historical 24-hour session and default presets."""
     cookies = await register_and_login(client)
 
     response = await client.get("/api/settings/session-timeout", cookies=cookies)
@@ -49,6 +54,7 @@ async def test_get_session_timeout_defaults_to_24h(client):
 
 
 async def test_patch_session_timeout_round_trips(client):
+    """A saved session duration is returned by subsequent preference reads."""
     cookies = await register_and_login(client)
 
     update = await client.patch(
@@ -62,6 +68,7 @@ async def test_patch_session_timeout_round_trips(client):
 
 
 async def test_patch_below_minimum_is_rejected(client):
+    """Reject durations shorter than the configured deployment minimum."""
     cookies = await register_and_login(client)
 
     response = await client.patch(
@@ -74,6 +81,7 @@ async def test_patch_below_minimum_is_rejected(client):
 
 
 async def test_patch_above_maximum_is_rejected(client):
+    """Reject durations longer than the configured deployment maximum."""
     cookies = await register_and_login(client)
 
     response = await client.patch(
@@ -86,6 +94,7 @@ async def test_patch_above_maximum_is_rejected(client):
 
 
 async def test_patch_requires_minutes_field(client):
+    """Reject incomplete updates instead of silently retaining a preference."""
     cookies = await register_and_login(client)
 
     response = await client.patch(
@@ -112,6 +121,7 @@ async def test_session_timeout_is_owner_scoped(client):
 
 
 async def test_session_timeout_requires_authentication(client):
+    """Anonymous clients cannot read or change session preferences."""
     get_response = await client.get("/api/settings/session-timeout")
     patch_response = await client.patch(
         "/api/settings/session-timeout", json={"minutes": 60}
@@ -194,3 +204,25 @@ async def test_changed_timeout_shortens_next_login_token_and_cookie(client):
     payload = decode_access_token(token)
     assert payload is not None
     assert 898 <= (payload["exp"] - payload["iat"]) <= 900
+
+
+@pytest.mark.parametrize("low,high", [(15, 10080), (15, 60), (60, 60)])
+def test_config_accepts_ordered_session_timeout_bounds(low, high):
+    """Deployment bounds allow both ranges and a single permitted duration."""
+    config = Settings(
+        _env_file=None,
+        session_timeout_min_minutes=low,
+        session_timeout_max_minutes=high,
+    )
+    assert config.session_timeout_min_minutes == low
+    assert config.session_timeout_max_minutes == high
+
+
+def test_config_rejects_inverted_session_timeout_bounds():
+    """Fail at startup instead of rejecting every user's timeout update."""
+    with pytest.raises(ValidationError, match="must not exceed"):
+        Settings(
+            _env_file=None,
+            session_timeout_min_minutes=61,
+            session_timeout_max_minutes=60,
+        )

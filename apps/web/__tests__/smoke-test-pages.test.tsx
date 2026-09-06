@@ -56,6 +56,8 @@ jest.mock("@/providers", () => ({
 
 // Mock all API functions used by page components
 jest.mock("@/lib/api", () => ({
+    getSessionTimeout: jest.fn().mockRejectedValue(new Error("NetworkError")),
+    updateSessionTimeout: jest.fn(),
   // Sidebar
   getUnreadInsightsCount: jest.fn().mockResolvedValue(0),
   // Briefs

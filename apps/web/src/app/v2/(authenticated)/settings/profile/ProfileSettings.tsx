@@ -11,7 +11,9 @@ import {
   updateSessionTimeout,
   changePassword,
   type CurrentUserResponse,
+  type SessionTimeoutResponse,
 } from "@/lib/api";
+import { sessionTimeoutOptions, formatSessionTimeout } from "@/lib/session-timeout";
 import { unitLabel, type GlucoseUnit } from "@/lib/glucose-units";
 import { useUserContext } from "@/providers/user-provider";
 import { FeedbackMessage } from "@/components/FeedbackMessage";
@@ -55,18 +57,6 @@ const ROLE_LABELS: Record<string, string> = {
   caregiver: "Caregiver",
   admin: "Administrator",
 };
-
-// Web-session length presets (minutes). Mirrors the backend preset ladder
-// (15m .. 7d) surfaced by GET /api/settings/session-timeout; the value is an
-// absolute lifetime applied at the next sign-in.
-const SESSION_LENGTH_OPTIONS: { value: number; label: string }[] = [
-  { value: 15, label: "15 minutes" },
-  { value: 60, label: "1 hour" },
-  { value: 360, label: "6 hours" },
-  { value: 720, label: "12 hours" },
-  { value: 1440, label: "24 hours" },
-  { value: 10080, label: "7 days" },
-];
 
 export type ProfileSettingsSection = "account" | "glucose" | "meal";
 
@@ -124,7 +114,10 @@ export function ProfileSettings({
   // Web-session length. Absolute lifetime (minutes) fetched from its dedicated
   // endpoint; a change applies at the user's next sign-in, so no context
   // refresh is needed. `null` until loaded (only fetched for the account view).
-  const [sessionMinutes, setSessionMinutes] = useState<number | null>(null);
+  const [sessionTimeout, setSessionTimeout] =
+    useState<SessionTimeoutResponse | null>(null);
+  const sessionMinutes = sessionTimeout?.minutes ?? null;
+  const sessionLengthOptions = sessionTimeoutOptions(sessionTimeout);
   const [isSavingSession, setIsSavingSession] = useState(false);
 
   // Password form
@@ -184,7 +177,7 @@ export function ProfileSettings({
     let cancelled = false;
     getSessionTimeout()
       .then((data) => {
-        if (!cancelled) setSessionMinutes(data.minutes);
+        if (!cancelled) setSessionTimeout(data);
       })
       .catch(() => {
         // Non-fatal — the control simply doesn't appear.
@@ -391,10 +384,8 @@ export function ProfileSettings({
       const updated = await updateSessionTimeout(minutes);
       // Persisted. It applies at the next sign-in, so there's no context to
       // refresh -- just reflect the saved value and confirm.
-      setSessionMinutes(updated.minutes);
-      const label =
-        SESSION_LENGTH_OPTIONS.find((option) => option.value === updated.minutes)
-          ?.label ?? `${updated.minutes} minutes`;
+      setSessionTimeout(updated);
+      const label = formatSessionTimeout(updated.minutes);
       notifySuccess(`Session length set to ${label}`);
     } catch (err) {
       setError(
@@ -698,7 +689,7 @@ export function ProfileSettings({
                 onChange={(event) =>
                   void handleSelectSessionLength(Number(event.target.value))
                 }
-                options={SESSION_LENGTH_OPTIONS.map((option) => ({
+                options={sessionLengthOptions.map((option) => ({
                   label: option.label,
                   value: String(option.value),
                 }))}
