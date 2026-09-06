@@ -43,6 +43,11 @@ class Settings(BaseSettings):
 
     # Session
     session_expire_hours: int = 24
+    # Bounds for the per-user web-session timeout (User.session_timeout_minutes).
+    # These bound the value users may choose in Settings; the default itself is
+    # the column server_default (1440 = 24h, matching session_expire_hours).
+    session_timeout_min_minutes: int = 15  # 15 minutes
+    session_timeout_max_minutes: int = 10080  # 7 days
     # Mobile token lifetimes (Story 16.12)
     access_token_expire_minutes: int = 60  # 1 hour for mobile access tokens
     refresh_token_expire_days: int = 30  # 30 days for mobile refresh tokens

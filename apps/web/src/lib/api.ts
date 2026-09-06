@@ -1330,6 +1330,70 @@ export async function updateMealIntelligence(
 }
 
 /**
+ * The current user's web-session timeout preference plus the allowed range.
+ * `minutes` is the absolute session lifetime; `presets` is the suggested ladder
+ * the UI renders. The bounds let the control validate without hard-coding them.
+ */
+export interface SessionTimeoutResponse {
+  minutes: number;
+  min_minutes: number;
+  max_minutes: number;
+  presets: number[];
+}
+
+/**
+ * Get the current user's web-session timeout preference.
+ *
+ * Reads the dedicated GET /api/settings/session-timeout endpoint (owner-scoped;
+ * the user is resolved from the session). The response carries the allowed
+ * range and preset ladder alongside the current value.
+ */
+export async function getSessionTimeout(): Promise<SessionTimeoutResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/settings/session-timeout`, {
+    credentials: "include",
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to fetch session timeout: ${response.status}`
+    );
+  }
+
+  return response.json();
+}
+
+/**
+ * Update the current user's web-session timeout preference.
+ *
+ * Persists via the dedicated PATCH /api/settings/session-timeout endpoint
+ * (owner-scoped; the user is resolved from the session). This is an absolute
+ * timeout baked into the token at login, so a change takes effect at the user's
+ * next sign-in, not on the current session.
+ */
+export async function updateSessionTimeout(
+  minutes: number
+): Promise<SessionTimeoutResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/settings/session-timeout`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ minutes }),
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail || `Failed to update session timeout: ${response.status}`
+    );
+  }
+
+  return response.json();
+}
+
+/**
  * Acknowledge the smart-default glucose-unit notice without changing the unit.
  * Stamps the preference `source=user` server-side so the notice
  * never recurs and a later seed never re-fires. Used when the user dismisses

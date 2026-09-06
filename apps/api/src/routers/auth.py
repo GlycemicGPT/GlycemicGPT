@@ -270,11 +270,16 @@ async def login(
             detail="Invalid email or password",
         )
 
-    # Create JWT token
+    # Create JWT token. The session lifetime is the user's own preference
+    # (absolute, chosen in Settings), baked into both the JWT ``exp`` and the
+    # cookie ``max-age`` here so the two never drift. A changed preference takes
+    # effect at the next login, which is this mint.
+    session_lifetime = timedelta(minutes=user.session_timeout_minutes)
     token = create_access_token(
         user_id=user.id,
         email=user.email,
         role=user.role.value,
+        expires_delta=session_lifetime,
     )
 
     # Set httpOnly cookie with the token
@@ -284,7 +289,7 @@ async def login(
         httponly=True,
         secure=settings.cookie_secure,
         samesite="lax",
-        max_age=settings.session_expire_hours * 3600,
+        max_age=int(session_lifetime.total_seconds()),
         path="/",
     )
 

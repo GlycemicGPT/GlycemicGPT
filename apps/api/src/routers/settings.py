@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.config import settings
 from src.core.auth import get_current_user, require_diabetic_or_admin
 from src.core.units import GlucoseUnitSource
 from src.database import get_db
@@ -68,6 +69,11 @@ from src.schemas.safety_limits import (
     SafetyLimitsDefaults,
     SafetyLimitsResponse,
     SafetyLimitsUpdate,
+)
+from src.schemas.session_timeout import (
+    SESSION_TIMEOUT_PRESET_MINUTES,
+    SessionTimeoutResponse,
+    SessionTimeoutUpdate,
 )
 from src.schemas.settings_export import (
     ExportType,
@@ -229,6 +235,57 @@ async def patch_meal_intelligence(
     await db.commit()
     await db.refresh(user)
     return MealIntelligenceResponse(enabled=user.meal_intelligence_enabled)
+
+
+def _session_timeout_response(minutes: int) -> SessionTimeoutResponse:
+    """Build the session-timeout payload with the current allowed bounds."""
+    return SessionTimeoutResponse(
+        minutes=minutes,
+        min_minutes=settings.session_timeout_min_minutes,
+        max_minutes=settings.session_timeout_max_minutes,
+        presets=SESSION_TIMEOUT_PRESET_MINUTES,
+    )
+
+
+@router.get(
+    "/session-timeout",
+    response_model=SessionTimeoutResponse,
+)
+async def get_session_timeout(
+    user: User = Depends(get_current_user),
+) -> SessionTimeoutResponse:
+    """Get the current user's web-session timeout preference.
+
+    The value is the absolute lifetime (in minutes) applied to the browser
+    session when the cookie is minted at login. The response also carries the
+    allowed range and preset ladder so clients render the control without
+    hard-coding bounds. Available to every authenticated role -- caregivers
+    manage their own session length too.
+    """
+    return _session_timeout_response(user.session_timeout_minutes)
+
+
+@router.patch(
+    "/session-timeout",
+    response_model=SessionTimeoutResponse,
+)
+async def patch_session_timeout(
+    body: SessionTimeoutUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> SessionTimeoutResponse:
+    """Update the current user's web-session timeout preference.
+
+    Owner-scoped: the user is resolved from the session, never from a request
+    parameter, so a caller can only change their own preference. The bound check
+    lives in ``SessionTimeoutUpdate`` (a 422 on out-of-range input). This is an
+    absolute timeout baked into the token at login, so the new value takes
+    effect at the user's next login, not on the current session.
+    """
+    user.session_timeout_minutes = body.minutes
+    await db.commit()
+    await db.refresh(user)
+    return _session_timeout_response(user.session_timeout_minutes)
 
 
 @router.get(

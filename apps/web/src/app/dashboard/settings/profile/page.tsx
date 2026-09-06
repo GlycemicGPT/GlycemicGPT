@@ -26,6 +26,8 @@ import {
   updateProfile,
   updateGlucoseUnit,
   updateMealIntelligence,
+  getSessionTimeout,
+  updateSessionTimeout,
   changePassword,
   type CurrentUserResponse,
 } from "@/lib/api";
@@ -44,6 +46,18 @@ const ROLE_LABELS: Record<string, string> = {
   caregiver: "Caregiver",
   admin: "Administrator",
 };
+
+// Web-session length presets (minutes). Mirrors the backend preset ladder
+// (15m .. 7d) from GET /api/settings/session-timeout; the value is an absolute
+// lifetime applied at the next sign-in.
+const SESSION_LENGTH_OPTIONS: { value: number; label: string }[] = [
+  { value: 15, label: "15 minutes" },
+  { value: 60, label: "1 hour" },
+  { value: 360, label: "6 hours" },
+  { value: 720, label: "12 hours" },
+  { value: 1440, label: "24 hours" },
+  { value: 10080, label: "7 days" },
+];
 
 export default function ProfilePage() {
   const [profile, setProfile] = useState<CurrentUserResponse | null>(null);
@@ -64,6 +78,12 @@ export default function ProfilePage() {
   // Meal-intelligence feature toggle. Persists via the dedicated endpoint and
   // refreshes the user context so the "Meals" nav appears/disappears.
   const [isSavingMeal, setIsSavingMeal] = useState(false);
+
+  // Web-session length. Absolute lifetime (minutes) fetched from its dedicated
+  // endpoint; a change applies at the next sign-in, so no context refresh is
+  // needed. `null` until loaded (a fetch failure just hides the control).
+  const [sessionMinutes, setSessionMinutes] = useState<number | null>(null);
+  const [isSavingSession, setIsSavingSession] = useState(false);
 
   // Password form
   const [showPasswordForm, setShowPasswordForm] = useState(false);
@@ -98,6 +118,22 @@ export default function ProfilePage() {
   useEffect(() => {
     fetchProfile();
   }, [fetchProfile]);
+
+  // Load the session-length preference alongside the profile. Best-effort: a
+  // failure just leaves the control unrendered rather than blocking the page.
+  useEffect(() => {
+    let cancelled = false;
+    getSessionTimeout()
+      .then((data) => {
+        if (!cancelled) setSessionMinutes(data.minutes);
+      })
+      .catch(() => {
+        // Non-fatal — the control simply doesn't appear.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleUpdateName = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -216,6 +252,31 @@ export default function ProfilePage() {
       );
     } finally {
       setIsSavingMeal(false);
+    }
+  };
+
+  const handleSelectSessionLength = async (minutes: number) => {
+    if (sessionMinutes === null || sessionMinutes === minutes || isSavingSession)
+      return;
+    setIsSavingSession(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const updated = await updateSessionTimeout(minutes);
+      // Persisted. It applies at the next sign-in, so there's no context to
+      // refresh -- just reflect the saved value and confirm.
+      setSessionMinutes(updated.minutes);
+      const label =
+        SESSION_LENGTH_OPTIONS.find(
+          (option) => option.value === updated.minutes
+        )?.label ?? `${updated.minutes} minutes`;
+      setSuccess(`Session length set to ${label}`);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to update session length"
+      );
+    } finally {
+      setIsSavingSession(false);
     }
   };
 
@@ -554,6 +615,68 @@ export default function ProfilePage() {
               Saving...
             </p>
           )}
+        </div>
+      )}
+
+      {/* Session Length */}
+      {!isLoading && profile && sessionMinutes !== null && (
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="p-2 bg-indigo-500/10 rounded-lg">
+              <Shield className="h-5 w-5 text-indigo-400" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold">Session Length</h2>
+              <p className="text-xs text-slate-500">
+                How long you stay signed in before you have to sign in again
+              </p>
+            </div>
+          </div>
+
+          <div
+            role="radiogroup"
+            aria-label="Session length"
+            className="grid grid-cols-2 gap-3 max-w-md sm:grid-cols-3"
+          >
+            {SESSION_LENGTH_OPTIONS.map((option) => {
+              const isActive = sessionMinutes === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={isActive}
+                  onClick={() => handleSelectSessionLength(option.value)}
+                  disabled={isSavingSession || isOffline}
+                  title={
+                    isOffline
+                      ? "Cannot change session length while disconnected"
+                      : undefined
+                  }
+                  className={clsx(
+                    "flex items-center gap-1.5 rounded-lg border px-4 py-3 text-left text-sm font-medium",
+                    "transition-colors focus:outline-hidden focus-visible:ring-2 focus-visible:ring-indigo-500",
+                    "disabled:cursor-not-allowed disabled:opacity-60",
+                    isActive
+                      ? "border-indigo-500 bg-indigo-500/10 text-slate-800 dark:text-slate-100"
+                      : "border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-100 hover:bg-slate-200 dark:hover:bg-slate-700"
+                  )}
+                >
+                  {isActive && (
+                    <Check className="h-4 w-4 text-indigo-500" aria-hidden="true" />
+                  )}
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <p className="text-xs text-slate-500 mt-3 flex items-center gap-1.5">
+            {isSavingSession && (
+              <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+            )}
+            {isSavingSession ? "Saving..." : "Applies the next time you sign in."}
+          </p>
         </div>
       )}
 
