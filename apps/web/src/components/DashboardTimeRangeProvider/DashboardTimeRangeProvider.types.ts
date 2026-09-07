@@ -11,6 +11,8 @@ export interface DashboardTimeRangeContextValue {
   label: string;
   timeZone: string;
   setSelection: (selection: HistorySelection) => void;
+  /** Advance a rolling preset to now without changing a historical selection. */
+  refreshWindow: () => void;
 }
 
 export interface DashboardTimeRangeProviderProps {

@@ -38,6 +38,7 @@ import {
 import { useDashboardTimeRange } from "@/components/DashboardTimeRangeProvider";
 
 import { useGlucoseStreamContext } from "@/providers/glucose-stream-provider";
+import { useDashboardLiveRefresh } from "@/hooks/use-dashboard-live-refresh";
 import { useUserContext } from "@/providers/user-provider";
 import { useGlucoseUnit } from "@/hooks/use-glucose-unit";
 import { useTimeInRangeDetailStats } from "@/hooks/use-time-in-range-stats";
@@ -75,18 +76,7 @@ function DashboardPageContent() {
   // All hooks must be called before any early return
   const { glucose, isLive, isReconnecting, error, reconnect } =
     useGlucoseStreamContext();
-  // Chart refresh: throttle to once per 5 minutes when new SSE data arrives
-  const [chartRefreshKey, setChartRefreshKey] = useState(0);
-  const lastRefreshRef = useRef(0);
-  useEffect(() => {
-    if (glucose?.reading_timestamp) {
-      const now = Date.now();
-      if (now - lastRefreshRef.current > 5 * 60 * 1000) {
-        lastRefreshRef.current = now;
-        setChartRefreshKey((k) => k + 1);
-      }
-    }
-  }, [glucose?.reading_timestamp]);
+  const chartRefreshKey = useDashboardLiveRefresh(glucose?.reading_timestamp);
   // Fetch user's configured glucose range thresholds (always mg/dL; display
   // converts to the active unit).
   const glucoseThresholds = useGlucoseRange();

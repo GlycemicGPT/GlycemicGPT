@@ -2,6 +2,7 @@
 
 import {
   createContext,
+  useCallback,
   useContext,
   useMemo,
   useState,
@@ -46,31 +47,41 @@ export function getSelectionLabel(selection: HistorySelection, timeZone: string)
   return selection.label ?? formatTimeRangeLabel(selection.window, timeZone);
 }
 
-function resolveSelectionWindow(selection: HistorySelection, timeZone: string): HistoryWindow | null {
+function resolveSelectionWindow(selection: HistorySelection, timeZone: string, now: Date): HistoryWindow | null {
   if (selection.kind === "custom") {
     return selection.window;
   }
 
-  return resolveRawTimeRange(getPresetRawTimeRange(selection.range), { timeZone })?.window ?? null;
+  return resolveRawTimeRange(getPresetRawTimeRange(selection.range), { timeZone, now })?.window ?? null;
 }
 
 export function DashboardTimeRangeProvider({
   children,
   defaultRange = "24h",
 }: DashboardTimeRangeProviderProps) {
-  const [selection, setSelection] = useState<HistorySelection>({
-    kind: "preset",
-    range: defaultRange,
-  });
+  const [{ selection, now }, setRange] = useState<{ selection: HistorySelection; now: Date }>(() => ({
+    selection: { kind: "preset", range: defaultRange },
+    now: new Date(),
+  }));
   const [timeZone] = useState(getTimeZone);
+  const setSelection = useCallback((selection: HistorySelection) => {
+    setRange({ selection, now: new Date() });
+  }, []);
+  const refreshWindow = useCallback(() => {
+    // Re-resolve rolling presets against now; historical selections stay fixed.
+    setRange((current) => current.selection.kind === "preset"
+      ? { ...current, now: new Date() }
+      : current);
+  }, []);
 
   const value = useMemo<DashboardTimeRangeContextValue>(() => ({
     selection,
-    currentWindow: resolveSelectionWindow(selection, timeZone),
+    currentWindow: resolveSelectionWindow(selection, timeZone, now),
     label: getSelectionLabel(selection, timeZone),
     timeZone,
     setSelection,
-  }), [selection, timeZone]);
+    refreshWindow,
+  }), [selection, timeZone, now, setSelection, refreshWindow]);
 
   return (
     <DashboardTimeRangeContext.Provider value={value}>

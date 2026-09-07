@@ -9,6 +9,8 @@ import {
   listNightscoutConnections,
 } from "@/lib/api";
 
+const mockRefreshWindow = jest.fn();
+
 jest.mock("next/navigation", () => ({
   useRouter: () => ({
     replace: jest.fn(),
@@ -174,6 +176,7 @@ jest.mock("@/components/DashboardTimeRangeProvider", () => ({
     label: "Last 24 hours",
     selection: { kind: "preset", range: "24h" },
     setSelection: jest.fn(),
+    refreshWindow: mockRefreshWindow,
     timeZone: "UTC",
   }),
 }));

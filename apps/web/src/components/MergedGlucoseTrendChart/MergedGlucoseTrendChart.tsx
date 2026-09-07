@@ -64,8 +64,12 @@ export function MergedGlucoseTrendChart({
   const refetchInsulin = insulin.refetch;
   const refetchPump = pump.refetch;
   const previousRefreshKey = useRef(refreshKey);
+  const currentWindow = dashboardTimeRange?.currentWindow;
+  const previousWindow = useRef(currentWindow);
 
   useEffect(() => {
+    const windowChanged = currentWindow !== previousWindow.current;
+    previousWindow.current = currentWindow;
     if (
       refreshKey === undefined ||
       refreshKey <= 0 ||
@@ -75,10 +79,12 @@ export function MergedGlucoseTrendChart({
     }
 
     previousRefreshKey.current = refreshKey;
+    // History hooks already fetch when their window changes.
+    if (windowChanged) return;
     refetchGlucose();
     refetchInsulin();
     refetchPump();
-  }, [refetchGlucose, refetchInsulin, refetchPump, refreshKey]);
+  }, [currentWindow, refetchGlucose, refetchInsulin, refetchPump, refreshKey]);
 
   const points = useMemo(
     () => transformMergedGlucoseReadings(glucose.readings),
