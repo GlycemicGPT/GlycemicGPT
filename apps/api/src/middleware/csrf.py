@@ -114,5 +114,10 @@ class CSRFMiddleware(BaseHTTPMiddleware):
             secure=settings.cookie_secure,
             samesite="lax",
             path="/",
-            max_age=settings.session_expire_hours * 3600,
+            # Pin to the longest session a user can choose, not the global
+            # default: users may pick a session longer than session_expire_hours
+            # (up to session_timeout_max_minutes), and a CSRF cookie that expired
+            # first would 403 their state-changing requests until a GET reissued
+            # it. The CSRF cookie safely outliving the session costs nothing.
+            max_age=settings.session_timeout_max_minutes * 60,
         )

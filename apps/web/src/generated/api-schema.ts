@@ -3655,6 +3655,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings/session-timeout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Session Timeout
+         * @description Get the current user's web-session timeout preference.
+         *
+         *     The value is the absolute lifetime (in minutes) applied to the browser
+         *     session when the cookie is minted at login. The response also carries the
+         *     allowed range and preset ladder so clients render the control without
+         *     hard-coding bounds. Available to every authenticated role -- caregivers
+         *     manage their own session length too.
+         */
+        get: operations["get_session_timeout_api_settings_session_timeout_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Patch Session Timeout
+         * @description Update the current user's web-session timeout preference.
+         *
+         *     Owner-scoped: the user is resolved from the session, never from a request
+         *     parameter, so a caller can only change their own preference. The bound check
+         *     lives in ``SessionTimeoutUpdate`` (a 422 on out-of-range input). This is an
+         *     absolute timeout baked into the token at login, so the new value takes
+         *     effect at the user's next login, not on the current session.
+         */
+        patch: operations["patch_session_timeout_api_settings_session_timeout_patch"];
+        trace?: never;
+    };
     "/api/settings/target-glucose-range": {
         parameters: {
             query?: never;
@@ -9157,6 +9193,43 @@ export interface components {
         SaveAsCommonFoodRequest: {
             /** Name */
             name: string;
+        };
+        /**
+         * SessionTimeoutResponse
+         * @description Current user's web-session timeout preference and the allowed range.
+         */
+        SessionTimeoutResponse: {
+            /**
+             * Max Minutes
+             * @description Largest session length the user may choose
+             */
+            max_minutes: number;
+            /**
+             * Min Minutes
+             * @description Smallest session length the user may choose
+             */
+            min_minutes: number;
+            /**
+             * Minutes
+             * @description Absolute web-session lifetime in minutes, applied at next login
+             */
+            minutes: number;
+            /**
+             * Presets
+             * @description Suggested session-length presets (minutes) for the UI
+             */
+            presets: number[];
+        };
+        /**
+         * SessionTimeoutUpdate
+         * @description Request to update the current user's web-session timeout preference.
+         */
+        SessionTimeoutUpdate: {
+            /**
+             * Minutes
+             * @description Absolute web-session lifetime in minutes, applied at next login
+             */
+            minutes: number;
         };
         /**
          * SettingsExportRequest
@@ -18579,6 +18652,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SafetyLimitsDefaults"];
+                };
+            };
+        };
+    };
+    get_session_timeout_api_settings_session_timeout_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                glycemicgpt_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionTimeoutResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    patch_session_timeout_api_settings_session_timeout_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                glycemicgpt_session?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SessionTimeoutUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionTimeoutResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

@@ -9,10 +9,13 @@ import {
 import {
   changePassword,
   getCurrentUser,
+  getSessionTimeout,
   updateGlucoseUnit,
   updateMealIntelligence,
   updateProfile,
+  updateSessionTimeout,
   type CurrentUserResponse,
+  type SessionTimeoutResponse,
 } from "@/lib/api";
 import { useNotifications } from "@/compositions/NotificationsProvider";
 import { useUserContext } from "@/providers/user-provider";
@@ -31,9 +34,11 @@ jest.mock("next/navigation", () => ({
 jest.mock("@/lib/api", () => ({
   changePassword: jest.fn(),
   getCurrentUser: jest.fn(),
+  getSessionTimeout: jest.fn(),
   updateGlucoseUnit: jest.fn(),
   updateMealIntelligence: jest.fn(),
   updateProfile: jest.fn(),
+  updateSessionTimeout: jest.fn(),
 }));
 
 jest.mock("@/providers/user-provider", () => ({
@@ -55,6 +60,11 @@ const mockUpdateGlucoseUnit = updateGlucoseUnit as jest.MockedFunction<
 >;
 const mockUpdateMealIntelligence =
   updateMealIntelligence as jest.MockedFunction<typeof updateMealIntelligence>;
+const mockGetSessionTimeout = getSessionTimeout as jest.MockedFunction<
+  typeof getSessionTimeout
+>;
+const mockUpdateSessionTimeout =
+  updateSessionTimeout as jest.MockedFunction<typeof updateSessionTimeout>;
 const mockUpdateProfile = updateProfile as jest.MockedFunction<
   typeof updateProfile
 >;
@@ -79,6 +89,13 @@ const PROFILE: CurrentUserResponse = {
   role: "diabetic",
 };
 
+const SESSION_TIMEOUT: SessionTimeoutResponse = {
+  max_minutes: 10080,
+  min_minutes: 15,
+  minutes: 1440,
+  presets: [15, 60, 360, 720, 1440, 10080],
+};
+
 const refreshUser = jest.fn();
 const notifySuccess = jest.fn();
 
@@ -101,6 +118,14 @@ beforeEach(() => {
   mockGetCurrentUser.mockResolvedValue(PROFILE);
   mockUpdateGlucoseUnit.mockResolvedValue({ glucose_unit: "mmol" });
   mockUpdateMealIntelligence.mockResolvedValue({ enabled: false });
+  // Pending by default so account-view tests that don't exercise the session
+  // control never trigger its async state update (act warnings); the session
+  // tests below resolve it explicitly.
+  mockGetSessionTimeout.mockReturnValue(new Promise(() => undefined));
+  mockUpdateSessionTimeout.mockResolvedValue({
+    ...SESSION_TIMEOUT,
+    minutes: 15,
+  });
   mockChangePassword.mockResolvedValue({ message: "Password changed" });
   mockUseUserContext.mockReturnValue({
     error: null,
@@ -719,4 +744,58 @@ describe("ProfilePage", () => {
     expect(await screen.findByText(PROFILE.email)).toBeInTheDocument();
     expect(mockGetCurrentUser).toHaveBeenCalledTimes(2);
   });
+
+  it("renders the session length control with the current value on the account view", async () => {
+    mockGetSessionTimeout.mockResolvedValue(SESSION_TIMEOUT);
+    render(<ProfileSettings sections={["account"]} />);
+
+    const select = await screen.findByRole("combobox", {
+      name: "Session length",
+    });
+    expect(mockGetSessionTimeout).toHaveBeenCalledTimes(1);
+    // 1440 minutes from the mocked preference -> the "24 hours" preset.
+    expect(select).toHaveValue("1440");
+  });
+
+  it("saves a new session length and reflects it, applying at next sign-in", async () => {
+    mockGetSessionTimeout.mockResolvedValue(SESSION_TIMEOUT);
+    render(<ProfileSettings sections={["account"]} />);
+
+    fireEvent.change(
+      await screen.findByRole("combobox", { name: "Session length" }),
+      { target: { value: "15" } },
+    );
+
+    await waitFor(() => {
+      expect(mockUpdateSessionTimeout).toHaveBeenCalledWith(15);
+    });
+    // Applies at next login, so the shared user context is never refreshed.
+    expect(refreshUser).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("combobox", { name: "Session length" }),
+    ).toHaveValue("15");
+    expect(notifySuccess).toHaveBeenCalledWith(
+      "Session length set to 15 minutes",
+    );
+  });
+  it("uses deployment presets and preserves a non-preset saved duration", async () => {
+    mockGetSessionTimeout.mockResolvedValue({
+      minutes: 45, min_minutes: 15, max_minutes: 60, presets: [15, 60],
+    });
+    render(<ProfileSettings sections={["account"]} />);
+    expect(await screen.findByRole("combobox", { name: "Session length" })).toHaveValue("45");
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "15 minutes", "45 minutes", "1 hour",
+    ]);
+  });
+
+  it("offers a valid choice when custom bounds exclude every preset", async () => {
+    mockGetSessionTimeout.mockResolvedValue({
+      minutes: 1440, min_minutes: 20, max_minutes: 30, presets: [],
+    });
+    render(<ProfileSettings sections={["account"]} />);
+    expect(await screen.findByRole("combobox", { name: "Session length" })).toHaveValue("1440");
+    expect(screen.getByRole("option", { name: "20 minutes" })).toHaveValue("20");
+  });
+
 });

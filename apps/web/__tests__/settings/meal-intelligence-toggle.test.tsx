@@ -6,7 +6,7 @@
 
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import ProfilePage from "@/app/dashboard/settings/profile/page";
-import { getCurrentUser, updateMealIntelligence } from "@/lib/api";
+import { getCurrentUser, getSessionTimeout, updateMealIntelligence } from "@/lib/api";
 
 jest.mock("@/lib/api");
 
@@ -40,6 +40,7 @@ function userWith(mealEnabled: boolean) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  (getSessionTimeout as jest.Mock).mockRejectedValue(new Error("NetworkError"));
   mockRefreshUser.mockResolvedValue(undefined);
 });
 
@@ -77,4 +78,22 @@ it("renders the toggle off for a disabled user and enables it via the endpoint",
   // The sidebar "Meals" nav reads from shared user context, so re-enabling must
   // refresh it too -- a regression that skipped this would hide the nav.
   expect(mockRefreshUser).toHaveBeenCalled();
+});
+
+
+it("renders deployment-specific session choices and the saved custom value", async () => {
+  mockGetCurrentUser.mockResolvedValue(userWith(true));
+  (getSessionTimeout as jest.Mock).mockResolvedValue({
+    minutes: 45,
+    min_minutes: 15,
+    max_minutes: 60,
+    presets: [15, 60],
+  });
+  render(<ProfilePage />);
+  expect(await screen.findByRole("radio", { name: "45 minutes" })).toHaveAttribute(
+    "aria-checked", "true",
+  );
+  expect(screen.getByRole("radio", { name: "15 minutes" })).toBeInTheDocument();
+  expect(screen.getByRole("radio", { name: "1 hour" })).toBeInTheDocument();
+  expect(screen.queryByRole("radio", { name: "7 days" })).not.toBeInTheDocument();
 });

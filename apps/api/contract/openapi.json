@@ -9612,6 +9612,57 @@
         "title": "SaveAsCommonFoodRequest",
         "type": "object"
       },
+      "SessionTimeoutResponse": {
+        "description": "Current user's web-session timeout preference and the allowed range.",
+        "properties": {
+          "max_minutes": {
+            "description": "Largest session length the user may choose",
+            "title": "Max Minutes",
+            "type": "integer"
+          },
+          "min_minutes": {
+            "description": "Smallest session length the user may choose",
+            "title": "Min Minutes",
+            "type": "integer"
+          },
+          "minutes": {
+            "description": "Absolute web-session lifetime in minutes, applied at next login",
+            "title": "Minutes",
+            "type": "integer"
+          },
+          "presets": {
+            "description": "Suggested session-length presets (minutes) for the UI",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Presets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "minutes",
+          "min_minutes",
+          "max_minutes",
+          "presets"
+        ],
+        "title": "SessionTimeoutResponse",
+        "type": "object"
+      },
+      "SessionTimeoutUpdate": {
+        "description": "Request to update the current user's web-session timeout preference.",
+        "properties": {
+          "minutes": {
+            "description": "Absolute web-session lifetime in minutes, applied at next login",
+            "title": "Minutes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "minutes"
+        ],
+        "title": "SessionTimeoutUpdate",
+        "type": "object"
+      },
       "SettingsExportRequest": {
         "description": "Request schema for settings export.",
         "properties": {
@@ -11796,7 +11847,7 @@
     "description": "AI-powered diabetes management API",
     "title": "GlycemicGPT API",
     "version": "0.1.0",
-    "x-contract-version": "4"
+    "x-contract-version": "5"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -24699,6 +24750,114 @@
           }
         },
         "summary": "Get Safety Limits Defaults",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/api/settings/session-timeout": {
+      "get": {
+        "description": "Get the current user's web-session timeout preference.\n\nThe value is the absolute lifetime (in minutes) applied to the browser\nsession when the cookie is minted at login. The response also carries the\nallowed range and preset ladder so clients render the control without\nhard-coding bounds. Available to every authenticated role -- caregivers\nmanage their own session length too.",
+        "operationId": "get_session_timeout_api_settings_session_timeout_get",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "glycemicgpt_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Glycemicgpt Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionTimeoutResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Session Timeout",
+        "tags": [
+          "settings"
+        ]
+      },
+      "patch": {
+        "description": "Update the current user's web-session timeout preference.\n\nOwner-scoped: the user is resolved from the session, never from a request\nparameter, so a caller can only change their own preference. The bound check\nlives in ``SessionTimeoutUpdate`` (a 422 on out-of-range input). This is an\nabsolute timeout baked into the token at login, so the new value takes\neffect at the user's next login, not on the current session.",
+        "operationId": "patch_session_timeout_api_settings_session_timeout_patch",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "glycemicgpt_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Glycemicgpt Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionTimeoutUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionTimeoutResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Patch Session Timeout",
         "tags": [
           "settings"
         ]

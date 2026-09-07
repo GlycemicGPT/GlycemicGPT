@@ -2,7 +2,7 @@
 
 import sys
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _INSECURE_DEFAULT_SECRET = "change-me-in-production"
@@ -43,6 +43,31 @@ class Settings(BaseSettings):
 
     # Session
     session_expire_hours: int = 24
+    # Bounds for the per-user web-session timeout (User.session_timeout_minutes).
+    # These bound the value users may choose in Settings; the default itself is
+    # the column server_default (1440 = 24h, matching session_expire_hours).
+    # Deployment bounds must include that default and stay within 15m .. 7d.
+    session_timeout_min_minutes: int = Field(default=15, ge=15, le=10080)
+    session_timeout_max_minutes: int = Field(default=10080, ge=15, le=10080)
+
+    @model_validator(mode="after")
+    def validate_session_timeout_bounds(self) -> "Settings":
+        """Reject bounds that are inverted or exclude the new-account default."""
+        if self.session_timeout_min_minutes > self.session_timeout_max_minutes:
+            raise ValueError(
+                "session_timeout_min_minutes must not exceed "
+                "session_timeout_max_minutes"
+            )
+        if (
+            not self.session_timeout_min_minutes
+            <= 1440
+            <= self.session_timeout_max_minutes
+        ):
+            raise ValueError(
+                "session timeout bounds must include the 1440-minute new-account default"
+            )
+        return self
+
     # Mobile token lifetimes (Story 16.12)
     access_token_expire_minutes: int = 60  # 1 hour for mobile access tokens
     refresh_token_expire_days: int = 30  # 30 days for mobile refresh tokens

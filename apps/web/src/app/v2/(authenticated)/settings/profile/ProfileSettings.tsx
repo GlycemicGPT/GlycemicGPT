@@ -7,9 +7,13 @@ import {
   updateProfile,
   updateGlucoseUnit,
   updateMealIntelligence,
+  getSessionTimeout,
+  updateSessionTimeout,
   changePassword,
   type CurrentUserResponse,
+  type SessionTimeoutResponse,
 } from "@/lib/api";
+import { sessionTimeoutOptions, formatSessionTimeout } from "@/lib/session-timeout";
 import { unitLabel, type GlucoseUnit } from "@/lib/glucose-units";
 import { useUserContext } from "@/providers/user-provider";
 import { FeedbackMessage } from "@/components/FeedbackMessage";
@@ -107,6 +111,15 @@ export function ProfileSettings({
   // refreshes the user context so the "Meals" nav appears/disappears.
   const [isSavingMeal, setIsSavingMeal] = useState(false);
 
+  // Web-session length. Absolute lifetime (minutes) fetched from its dedicated
+  // endpoint; a change applies at the user's next sign-in, so no context
+  // refresh is needed. `null` until loaded (only fetched for the account view).
+  const [sessionTimeout, setSessionTimeout] =
+    useState<SessionTimeoutResponse | null>(null);
+  const sessionMinutes = sessionTimeout?.minutes ?? null;
+  const sessionLengthOptions = sessionTimeoutOptions(sessionTimeout);
+  const [isSavingSession, setIsSavingSession] = useState(false);
+
   // Password form
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -154,6 +167,25 @@ export function ProfileSettings({
   useEffect(() => {
     fetchProfile();
   }, [fetchProfile]);
+
+  // Session length only renders in the account view; fetch it there so other
+  // embeds (glucose/meal) don't make a needless request. Best-effort: a failure
+  // just leaves the control unrendered rather than blocking the page.
+  const showsSessionLength = sections.includes("account");
+  useEffect(() => {
+    if (!showsSessionLength) return;
+    let cancelled = false;
+    getSessionTimeout()
+      .then((data) => {
+        if (!cancelled) setSessionTimeout(data);
+      })
+      .catch(() => {
+        // Non-fatal — the control simply doesn't appear.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showsSessionLength]);
 
   const handleUpdateName = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -339,6 +371,28 @@ export function ProfileSettings({
       );
     } finally {
       setIsSavingMeal(false);
+    }
+  };
+
+  const handleSelectSessionLength = async (minutes: number) => {
+    if (sessionMinutes === null || sessionMinutes === minutes || isSavingSession)
+      return;
+    setIsSavingSession(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const updated = await updateSessionTimeout(minutes);
+      // Persisted. It applies at the next sign-in, so there's no context to
+      // refresh -- just reflect the saved value and confirm.
+      setSessionTimeout(updated);
+      const label = formatSessionTimeout(updated.minutes);
+      notifySuccess(`Session length set to ${label}`);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to update session length",
+      );
+    } finally {
+      setIsSavingSession(false);
     }
   };
 
@@ -612,6 +666,46 @@ export function ProfileSettings({
               state={passwordSaveState}
             />
           </form>
+        </SettingsSection>
+      )}
+
+      {showsSessionLength && !isLoading && profile && sessionMinutes !== null && (
+        <SettingsSection
+          className={spaciousSections ? "before:-top-16" : undefined}
+          separated
+          title="Session"
+        >
+          <SettingsRow
+            control={
+              <SelectField
+                disabled={isSavingSession || isOffline}
+                helperText={
+                  isSavingSession
+                    ? "Saving..."
+                    : "Applies the next time you sign in."
+                }
+                id="session-length"
+                label="Session length"
+                onChange={(event) =>
+                  void handleSelectSessionLength(Number(event.target.value))
+                }
+                options={sessionLengthOptions.map((option) => ({
+                  label: option.label,
+                  value: String(option.value),
+                }))}
+                title={
+                  isOffline
+                    ? "Cannot change session length while disconnected"
+                    : undefined
+                }
+                value={String(sessionMinutes)}
+                visuallyHideLabel
+              />
+            }
+            description="How long you stay signed in on this device before you have to sign in again."
+            label="Session length"
+            labelAs={preferenceLabelAs}
+          />
         </SettingsSection>
       )}
     </>

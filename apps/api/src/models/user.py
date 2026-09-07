@@ -7,7 +7,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, String
+from sqlalchemy import DateTime, Enum, Integer, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -51,6 +51,13 @@ class User(Base, TimestampMixin):
             estimation) feature is on for this user. Defaults ON so the shipped
             feature is discoverable; the user can disable it from Settings. This
             is the sole gate -- it replaced the former global env flag.
+        session_timeout_minutes: How long a web session stays valid after login,
+            in minutes. Baked into the JWT ``exp`` and the session cookie
+            ``max-age`` when the browser cookie is minted at login, so it is an
+            absolute lifetime (not idle-based) and a change only takes effect at
+            the next login. Defaults to 1440 (24h), matching the historical
+            ``SESSION_EXPIRE_HOURS`` behaviour. Bounded to
+            [session_timeout_min_minutes, session_timeout_max_minutes] on write.
         last_login_at: Timestamp of last successful login
     """
 
@@ -131,6 +138,17 @@ class User(Base, TimestampMixin):
         nullable=False,
         default=True,
         server_default="true",
+    )
+    # Absolute web-session lifetime in minutes, applied when the session cookie
+    # is minted at login. The literal 1440 (24h) matches the historical
+    # SESSION_EXPIRE_HOURS default and the 081 migration's server_default; the
+    # write path (PATCH /api/settings/session-timeout) enforces the
+    # [min, max] bounds from Settings.
+    session_timeout_minutes: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1440,
+        server_default="1440",
     )
     display_name: Mapped[str | None] = mapped_column(
         String(100),

@@ -173,3 +173,15 @@ describe("apiFetch integration - 401 through higher-level function", () => {
     expect(result).toBe("pending");
   });
 });
+
+
+it("redirects an expired session when loading the session timeout preference", async () => {
+  global.fetch = jest.fn().mockResolvedValue({ status: 401, ok: false });
+  const { getSessionTimeout } = await import("@/lib/api");
+  const result = await Promise.race([
+    getSessionTimeout(),
+    new Promise((resolve) => setTimeout(() => resolve("pending"), 50)),
+  ]);
+  expect(window.location.href).toBe("/login?expired=true");
+  expect(result).toBe("pending");
+});
