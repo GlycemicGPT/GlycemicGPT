@@ -971,6 +971,7 @@ export function isMultiDayChartDomain(
   return xDomain[1] - xDomain[0] >= MULTI_DAY_MIN_DURATION_MS;
 }
 
+/** Render glucose and insulin history with synchronized time bounds and persistent live zoom. */
 export function GlucoseTrendChart({
   refreshKey,
   className,

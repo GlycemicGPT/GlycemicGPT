@@ -68,6 +68,7 @@ function mapLoopStatus(
   };
 }
 
+/** Coordinate live readings, throttled history refreshes, and dashboard summaries. */
 function DashboardPageContent() {
   const router = useRouter();
   const dashboardTimeRange = useDashboardTimeRange();

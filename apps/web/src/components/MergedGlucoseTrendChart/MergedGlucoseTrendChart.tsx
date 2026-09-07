@@ -38,6 +38,7 @@ function isMultiDay(domain: [number, number]): boolean {
   return domain[1] - domain[0] >= 3 * 24 * 60 * 60 * 1000;
 }
 
+/** Load shared history once per range update for the mobile and desktop merged charts. */
 export function MergedGlucoseTrendChart({
   className,
   forecast,

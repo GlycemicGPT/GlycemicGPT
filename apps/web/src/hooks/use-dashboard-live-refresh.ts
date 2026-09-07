@@ -10,16 +10,36 @@ export function useDashboardLiveRefresh(readingTimestamp?: string): number {
   const { refreshWindow } = useDashboardTimeRange();
   const [refreshKey, setRefreshKey] = useState(0);
   const lastRefreshAt = useRef<number | null>(null);
-  const lastRefreshedReading = useRef<string | undefined>(undefined);
+  const lastRefreshedReading = useRef<number | null>(null);
+  const pendingReading = useRef<number | null>(null);
+  const pendingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (pendingTimer.current !== null) clearTimeout(pendingTimer.current);
+    pendingTimer.current = null;
+    pendingReading.current = null;
+  }, []);
 
   useEffect(() => {
-    if (!readingTimestamp || readingTimestamp === lastRefreshedReading.current) {
+    const readingTime = readingTimestamp ? Date.parse(readingTimestamp) : NaN;
+    if (
+      !Number.isFinite(readingTime) ||
+      readingTime <= (lastRefreshedReading.current ?? -Infinity) ||
+      readingTime <= (pendingReading.current ?? -Infinity)
+    ) {
       return;
     }
 
+    pendingReading.current = readingTime;
+    // Newer readings join the queued refresh without postponing its deadline.
+    // Older or duplicate events cannot cancel work that is already pending.
+    if (pendingTimer.current !== null) return;
+
     const refresh = () => {
       lastRefreshAt.current = Date.now();
-      lastRefreshedReading.current = readingTimestamp;
+      lastRefreshedReading.current = pendingReading.current;
+      pendingReading.current = null;
+      pendingTimer.current = null;
       // React batches the window and refresh key so all requests use the new range.
       refreshWindow();
       setRefreshKey((key) => key + 1);
@@ -33,8 +53,7 @@ export function useDashboardLiveRefresh(readingTimestamp?: string): number {
       return;
     }
 
-    const timeout = setTimeout(refresh, delay);
-    return () => clearTimeout(timeout);
+    pendingTimer.current = setTimeout(refresh, delay);
   }, [readingTimestamp, refreshWindow]);
 
   return refreshKey;

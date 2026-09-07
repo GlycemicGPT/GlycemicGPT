@@ -47,6 +47,7 @@ export function getSelectionLabel(selection: HistorySelection, timeZone: string)
   return selection.label ?? formatTimeRangeLabel(selection.window, timeZone);
 }
 
+/** Resolve rolling presets against one instant, preserving fixed historical bounds. */
 function resolveSelectionWindow(selection: HistorySelection, timeZone: string, now: Date): HistoryWindow | null {
   if (selection.kind === "custom") {
     return selection.window;
@@ -55,6 +56,7 @@ function resolveSelectionWindow(selection: HistorySelection, timeZone: string, n
   return resolveRawTimeRange(getPresetRawTimeRange(selection.range), { timeZone, now })?.window ?? null;
 }
 
+/** Share a time selection and advance its rolling window without replacing the selection. */
 export function DashboardTimeRangeProvider({
   children,
   defaultRange = "24h",

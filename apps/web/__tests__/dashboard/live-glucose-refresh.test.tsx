@@ -27,6 +27,7 @@ const getHistory = jest.mocked(getGlucoseHistoryByDateRange);
 const START = new Date("2026-09-06T10:00:00.000Z");
 const FIVE_MINUTES = 5 * 60_000;
 
+/** Exercise refresh effects with the real time-range provider and Strict Mode replay. */
 function Wrapper({ children }: { children: ReactNode }) {
   return (
     <StrictMode>
@@ -35,6 +36,7 @@ function Wrapper({ children }: { children: ReactNode }) {
   );
 }
 
+/** Connect incoming reading timestamps to the real history query for integration assertions. */
 function useLiveHistory(readingTimestamp?: string) {
   const range = useDashboardTimeRange();
   const refreshKey = useDashboardLiveRefresh(readingTimestamp);
@@ -42,6 +44,7 @@ function useLiveHistory(readingTimestamp?: string) {
   return { range, refreshKey, history };
 }
 
+/** Advance the simulated clock and flush timer-driven React updates and API promises. */
 async function advance(ms: number) {
   await act(async () => { jest.advanceTimersByTime(ms); });
 }
@@ -121,6 +124,29 @@ it("refreshes immediately for a new reading exactly at the throttle boundary", a
   expect(result.current.refreshKey).toBe(2);
 });
 
+it("retains the newest queued reading when an older duplicate arrives", async () => {
+  const { result, rerender } = renderHook(
+    ({ timestamp }) => useLiveHistory(timestamp),
+    { wrapper: Wrapper, initialProps: { timestamp: START.toISOString() } },
+  );
+  await advance(4 * 60_000);
+  const newestTimestamp = "2026-09-06T10:04:00.000Z";
+  rerender({ timestamp: newestTimestamp });
+  await advance(30_000);
+  // A -> B -> A must not cancel the work queued for B.
+  rerender({ timestamp: START.toISOString() });
+  await advance(30_000);
+  expect(result.current.refreshKey).toBe(2);
+  expect(result.current.range.currentWindow?.to).toBe("2026-09-06T10:05:00.000Z");
+
+  const calls = getHistory.mock.calls.length;
+  await advance(FIVE_MINUTES);
+  rerender({ timestamp: newestTimestamp });
+  await advance(FIVE_MINUTES);
+  expect(result.current.refreshKey).toBe(2);
+  expect(getHistory).toHaveBeenCalledTimes(calls);
+});
+
 it("keeps a custom historical window fixed across live updates", async () => {
   const { result, rerender } = renderHook(
     ({ timestamp }) => useLiveHistory(timestamp),
@@ -187,6 +213,7 @@ describe("chart refresh integration", () => {
     "%p plots fresh history with one request per refresh and keeps fixed-range refreshes working",
     async (Chart) => {
       let range: ReturnType<typeof useDashboardTimeRange>;
+      /** Drive either chart with the same refresh signal used by the dashboard page. */
       function LiveChart({ timestamp }: { timestamp: string }) {
         range = useDashboardTimeRange();
         const refreshKey = useDashboardLiveRefresh(timestamp);
@@ -219,6 +246,7 @@ describe("chart refresh integration", () => {
 
   it("preserves desktop zoom on live refresh and resets it when the selection changes", async () => {
     let range: ReturnType<typeof useDashboardTimeRange>;
+    /** Keep the desktop chart mounted while live timestamps and the selection change. */
     function LiveChart({ timestamp }: { timestamp: string }) {
       range = useDashboardTimeRange();
       const refreshKey = useDashboardLiveRefresh(timestamp);
