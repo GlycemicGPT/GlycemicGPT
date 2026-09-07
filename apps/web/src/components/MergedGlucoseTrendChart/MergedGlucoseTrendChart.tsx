@@ -38,6 +38,7 @@ function isMultiDay(domain: [number, number]): boolean {
   return domain[1] - domain[0] >= 3 * 24 * 60 * 60 * 1000;
 }
 
+/** Load shared history once per range update for the mobile and desktop merged charts. */
 export function MergedGlucoseTrendChart({
   className,
   forecast,
@@ -64,8 +65,12 @@ export function MergedGlucoseTrendChart({
   const refetchInsulin = insulin.refetch;
   const refetchPump = pump.refetch;
   const previousRefreshKey = useRef(refreshKey);
+  const currentWindow = dashboardTimeRange?.currentWindow;
+  const previousWindow = useRef(currentWindow);
 
   useEffect(() => {
+    const windowChanged = currentWindow !== previousWindow.current;
+    previousWindow.current = currentWindow;
     if (
       refreshKey === undefined ||
       refreshKey <= 0 ||
@@ -75,10 +80,12 @@ export function MergedGlucoseTrendChart({
     }
 
     previousRefreshKey.current = refreshKey;
+    // History hooks already fetch when their window changes.
+    if (windowChanged) return;
     refetchGlucose();
     refetchInsulin();
     refetchPump();
-  }, [refetchGlucose, refetchInsulin, refetchPump, refreshKey]);
+  }, [currentWindow, refetchGlucose, refetchInsulin, refetchPump, refreshKey]);
 
   const points = useMemo(
     () => transformMergedGlucoseReadings(glucose.readings),

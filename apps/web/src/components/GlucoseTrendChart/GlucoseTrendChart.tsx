@@ -14,6 +14,7 @@ import { Icon } from "@/base/Icon";
 import type { GlucoseHistoryReading } from "@/lib/api";
 import { type ChartTimePeriod, PERIOD_TO_MS } from "@/lib/chart-periods";
 import { serializeTimeRangeClipboardValue } from "@/lib/glucose/time-range-clipboard";
+import { getSelectionKey } from "@/lib/glucose/history-selection";
 import {
   formatGlucose,
   mgdlToMmol,
@@ -970,6 +971,7 @@ export function isMultiDayChartDomain(
   return xDomain[1] - xDomain[0] >= MULTI_DAY_MIN_DURATION_MS;
 }
 
+/** Render glucose and insulin history with synchronized time bounds and persistent live zoom. */
 export function GlucoseTrendChart({
   refreshKey,
   className,
@@ -1007,25 +1009,34 @@ export function GlucoseTrendChart({
   const [timelineHover, setTimelineHover] =
     useState<CombinedTimelineHover | null>(null);
   const prevRefreshKeyRef = useRef(refreshKey);
+  const currentWindow = dashboardTimeRange?.currentWindow;
+  const previousWindowRef = useRef(currentWindow);
 
   useEffect(() => {
+    const windowChanged = currentWindow !== previousWindowRef.current;
+    previousWindowRef.current = currentWindow;
     if (
       refreshKey !== undefined &&
       refreshKey > 0 &&
       refreshKey !== prevRefreshKeyRef.current
     ) {
       prevRefreshKeyRef.current = refreshKey;
+      // History hooks already fetch when their window changes.
+      if (windowChanged) return;
       refetch();
       refetchInsulin();
       refetchPump();
     }
-  }, [refreshKey, refetch, refetchInsulin, refetchPump]);
+  }, [refreshKey, currentWindow, refetch, refetchInsulin, refetchPump]);
 
+  const rangeSelectionKey = dashboardTimeRange
+    ? getSelectionKey(dashboardTimeRange.selection)
+    : `period:${period}`;
   useEffect(() => {
     setZoomDomain(null);
     setCopyError(null);
     setTimelineHover(null);
-  }, [dashboardTimeRange?.currentWindow]);
+  }, [rangeSelectionKey]);
 
   const data = useMemo(() => transformReadings(readings), [readings]);
   const doseTimelineData = useMemo(
