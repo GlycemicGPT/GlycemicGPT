@@ -34,6 +34,10 @@ from urllib.parse import urlparse
 
 import httpx
 
+from src.logging_config import get_logger
+
+logger = get_logger(__name__)
+
 #: Max retries on HTTP 429 (rate limit) before giving up.
 _MAX_RETRIES_429 = 3
 
@@ -52,6 +56,14 @@ US_BASE_URL = "https://carelink.minimed.com"
 _ALLOWED_HOST_SUFFIXES = ("minimed.com", "minimed.eu")
 
 BearerProvider = Callable[[], Awaitable[str]]
+
+#: A browser User-Agent for CareLink requests. The web app is fronted by
+#: CloudFront, whose bot rules can 403 a non-browser UA (httpx's default) on the
+#: report POST while leaving GETs alone (#811). Mirrors session.py's UA.
+_BROWSER_UA = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/145.0.0.0 Safari/537.36"
+)
 
 # reportStatus "ready" signals. We observed the generateReport ->
 # reportStatus -> reportCsv sequence but not the status response body, so we
@@ -107,6 +119,57 @@ def _first(d: dict, *keys: str) -> object | None:
     return None
 
 
+#: Request headers safe to log verbatim when a CareLink call fails. Used to
+#: confirm what we actually put on the wire (e.g. Origin/Referer presence on the
+#: generateReport POST, #811). Credential-bearing headers are never logged.
+_LOGGABLE_REQUEST_HEADERS = ("origin", "referer", "accept", "content-type")
+
+
+def _cookie_names(value: str) -> str:
+    """The cookie NAMES from a Cookie header, values dropped. Lets us confirm
+    which cookies were sent (e.g. the full EU bundle vs a bare token, #811)
+    without ever logging a credential value."""
+    names = [c.split("=", 1)[0].strip() for c in value.split(";") if c.strip()]
+    return ", ".join(sorted(names))
+
+
+def _redacted_request_headers(request: httpx.Request) -> dict[str, str]:
+    """The outbound request headers, safe to log.
+
+    A fixed allow-list is shown verbatim; ``Cookie`` is reduced to its cookie
+    NAMES (values dropped); ``Authorization`` is masked to ``<redacted>``. Never
+    returns a bearer or cookie value.
+    """
+    out: dict[str, str] = {}
+    for name, value in request.headers.items():
+        lowered = name.lower()
+        if lowered in _LOGGABLE_REQUEST_HEADERS:
+            out[name] = value
+        elif lowered == "cookie":
+            out[name] = f"names: {_cookie_names(value)}"
+        elif lowered == "authorization":
+            out[name] = "<redacted>"
+    return out
+
+
+def _error_body_snippet(resp: httpx.Response, limit: int = 500) -> str:
+    """A short, single-line snippet of an error response body for diagnostics.
+
+    CareLink's 4xx bodies name the offending field (e.g. a generateReport
+    validation error identifying a bad date/format/id), which the status code
+    alone hides. Whitespace-collapsed and length-capped so the surfaced error
+    message and log line stay bounded and never dump an oversized or multi-line
+    payload. These endpoints return job/validation metadata, not patient data.
+    """
+    try:
+        text = " ".join(resp.text.split())
+    except (ValueError, UnicodeDecodeError):
+        return ""
+    if len(text) > limit:
+        return text[:limit] + " [truncated]"
+    return text
+
+
 class CareLinkClient:
     def __init__(
         self,
@@ -114,6 +177,7 @@ class CareLinkClient:
         bearer_provider: BearerProvider,
         base_url: str = US_BASE_URL,
         client: httpx.AsyncClient | None = None,
+        cookies: dict[str, str] | None = None,
         timeout_seconds: float = 30.0,
         poll_interval_seconds: float = 2.0,
         poll_max_attempts: int = 30,
@@ -126,6 +190,13 @@ class CareLinkClient:
             )
         self._bearer_provider = bearer_provider
         self._base_url = base_url.rstrip("/")
+        # Same-origin Origin/Referer for the report host. The EU generateReport
+        # POST is rejected with 403 without them (reads are exempt, the POST is
+        # not -- the classic Origin/Referer CSRF check); the browser sends both
+        # (#811). Derived from base_url so US and EU each get their own host.
+        parsed = urlparse(self._base_url)
+        self._origin = f"{parsed.scheme}://{parsed.netloc}"
+        self._referer = f"{self._origin}/app/reports"
         self._poll_interval = poll_interval_seconds
         self._poll_max_attempts = poll_max_attempts
         self._owns_client = client is None
@@ -137,6 +208,13 @@ class CareLinkClient:
                 pool=min(2.0, timeout_seconds),
             )
         )
+        # Host-scoped session cookies. The EU generateReport POST needs the
+        # auth_tmp_token cookie (the bearer header alone is accepted by the read
+        # endpoints but not the report POST, #811); the captured token IS that
+        # cookie's value (see session.py). Scoped to the report host so the
+        # credential never rides to another origin on a redirect.
+        for name, value in (cookies or {}).items():
+            self._client.cookies.set(name, value, domain=host, path="/")
 
     async def aclose(self) -> None:
         if self._owns_client:
@@ -153,17 +231,47 @@ class CareLinkClient:
         return {
             "Authorization": f"Bearer {bearer}",
             "Accept": "application/json, text/plain, */*",
+            # Same-origin markers the EU report host requires on the
+            # generateReport POST (#811); sent on every request to mirror the
+            # browser and stay consistent across reads and the POST.
+            "Origin": self._origin,
+            "Referer": self._referer,
+            # Last observable gaps vs the browser's working request (#811): a
+            # browser User-Agent (CloudFront/WAF bot rules commonly 403 a
+            # non-browser UA on the report POST while letting GETs through) and
+            # the charset the browser sends on the JSON body.
+            "User-Agent": _BROWSER_UA,
+            "Content-Type": "application/json; charset=utf-8",
         }
 
     def _check(self, resp: httpx.Response) -> None:
+        snippet = _error_body_snippet(resp)
+        body = f" - {snippet}" if snippet else ""
+        if resp.status_code >= 400:
+            # Log what we actually sent (credentials masked) so an EU 403 on the
+            # generateReport POST can be checked for the same-origin headers the
+            # host requires -- the outbound request never shows in the app log
+            # otherwise (#811).
+            logger.warning(
+                "CareLink request failed",
+                method=resp.request.method,
+                path=resp.request.url.path,
+                status=resp.status_code,
+                sent_headers=_redacted_request_headers(resp.request),
+            )
         if resp.status_code in (401, 403):
+            # 401 (expired token) and 403 (authenticated but not permitted, e.g.
+            # a forbidden action/format on an otherwise-valid session) both land
+            # here. Carry the upstream body so the reason is visible -- the two
+            # are indistinguishable by status alone (#811).
             raise CareLinkAuthError(
-                f"CareLink auth failed ({resp.status_code}); session invalid/expired"
+                f"CareLink auth/permission denied on {resp.request.url.path} "
+                f"({resp.status_code}){body}"
             )
         if resp.status_code >= 400:
             raise CareLinkError(
                 f"CareLink request to {resp.request.url.path} failed: "
-                f"{resp.status_code}"
+                f"{resp.status_code}{body}"
             )
 
     async def _request(
@@ -215,7 +323,9 @@ class CareLinkClient:
     async def get_patient_id(self) -> str:
         """Fetch the patient/account id required by generateReport."""
         data = self._json(await self._get("/patient/users/me"))
-        # Response field name unconfirmed live -- accept the likely candidates.
+        # US returns `patientId`; EU/OUS returns `accountId` (no patientId, role
+        # PATIENT_OUS) -- both confirmed live (#811). The ordered fallback covers
+        # both regions; loginId/id are extra tolerance for unconfirmed variants.
         pid = _first(data, "patientId", "accountId", "loginId", "id")
         if pid is None:
             raise CareLinkError("Could not find patient id in /patient/users/me")
@@ -302,9 +412,24 @@ class CareLinkClient:
         client_time: datetime | None = None,
     ) -> dict:
         """Mirror the observed generateReport body: CSV only, all PDF report
-        sections off, aggregated CSV enabled."""
+        sections off, aggregated CSV enabled.
+
+        Deliberately omits the ``*PeriodB`` comparison window. It was tried
+        (#811) because a captured EU UI request carried it, but that capture was
+        a *PDF comparison report*; the EU CSV-export endpoint rejects the field
+        with ``400 {"field":"startDatePeriodB","message":"not.required"}``
+        (confirmed live). The earlier 400 was actually a fractional-second
+        ``clientTime`` (see below), which masked this until the body parsed.
+        Assumes start_date <= end_date (enforced upstream by MedtronicImportRequest).
+        """
         return {
-            "clientTime": (client_time or datetime.now(UTC)).isoformat(),
+            # Seconds precision (no microseconds): the EU report host rejects a
+            # fractional-second clientTime with a 400 "Malformed JSON in request
+            # body" (confirmed live, #811). The browser sends seconds + a
+            # colon-bearing offset, which isoformat(timespec="seconds") matches.
+            "clientTime": (client_time or datetime.now(UTC)).isoformat(
+                timespec="seconds"
+            ),
             "dailyDetailReportDays": [],
             "patientId": patient_id,
             "reportFileFormat": "CSV",
