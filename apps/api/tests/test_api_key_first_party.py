@@ -65,6 +65,21 @@ class TestRequireFirstPartyUnit:
         )
         assert await require_first_party(request) is None
 
+    @pytest.mark.asyncio
+    async def test_denies_api_key_with_empty_bearer(self):
+        """An empty 'Bearer ' credential is not first-party.
+
+        get_current_user discards an empty Bearer token and falls through to
+        API-key auth, so the guard must reject rather than treat it as a
+        first-party Bearer request.
+        """
+        request = _request(
+            headers={"X-API-Key": "ggpt_readonlykey", "Authorization": "Bearer "}
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await require_first_party(request)
+        assert exc_info.value.status_code == 403
+
 
 async def _register(client, email: str, password: str = "TestPass1") -> uuid.UUID:
     """Register a diabetic user and return their id."""
@@ -95,6 +110,27 @@ class TestReadOnlyApiKeyOnSettings:
             "/api/settings/safety-limits",
             json={"min_glucose_mgdl": 40},
             headers={"X-API-Key": raw_key},
+        )
+        assert resp.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_read_only_key_with_empty_bearer_denied(self, client, db_session):
+        """A read-only key + empty 'Bearer ' header cannot bypass the guard.
+
+        Regression for the bypass where 'Bearer ' (no token) looked first-party
+        to the guard but fell through to API-key auth in get_current_user.
+        """
+        email = f"cr01_emptybearer_{uuid.uuid4().hex[:8]}@test.com"
+        user_id = await _register(client, email)
+        _, raw_key = await create_api_key(
+            db_session, user_id, "read-only", ["read:glucose"]
+        )
+        await db_session.commit()
+
+        resp = await client.patch(
+            "/api/settings/safety-limits",
+            json={"min_glucose_mgdl": 40},
+            headers={"X-API-Key": raw_key, "Authorization": "Bearer "},
         )
         assert resp.status_code == 403
 

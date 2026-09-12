@@ -734,9 +734,13 @@ async def change_password(
     current_user.hashed_password = hash_password(body.new_password)
     # Bump the session generation so every token issued before now -- other
     # sessions and refresh tokens, not just this request's token -- is rejected
-    # on its next use (CR-04 / CWE-613). Written atomically with the new hash;
-    # password_changed_at is kept as an audit timestamp.
-    current_user.token_version += 1
+    # on its next use (CR-04 / CWE-613). Use a DB-side increment
+    # (``token_version = token_version + 1``) rather than a read-modify-write on
+    # the ORM snapshot: two concurrent password changes that both read version N
+    # would otherwise both write N+1 (a lost update), letting a session minted
+    # between them survive the second change. password_changed_at is kept as an
+    # audit timestamp.
+    current_user.token_version = User.token_version + 1
     current_user.password_changed_at = datetime.now(UTC)
     await db.commit()
 

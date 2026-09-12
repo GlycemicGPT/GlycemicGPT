@@ -54,10 +54,16 @@ async def require_first_party(request: Request) -> None:
     if not request.headers.get("X-API-Key"):
         return
     # A first-party credential wins in get_current_user's auth-path ordering.
+    # Mirror that selection exactly: a non-empty cookie, else a Bearer header
+    # with a non-empty token. get_current_user extracts ``auth_header[7:]`` and
+    # ignores it when empty (falling through to API-key auth), so an empty
+    # ``Bearer `` must NOT be treated as first-party here -- otherwise an API
+    # key rides through behind it.
     if request.cookies.get(settings.jwt_cookie_name):
         return
     auth_header = request.headers.get("Authorization", "")
-    if auth_header.startswith("Bearer "):
+    bearer_prefix = "Bearer "
+    if auth_header.startswith(bearer_prefix) and auth_header[len(bearer_prefix) :]:
         return
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,

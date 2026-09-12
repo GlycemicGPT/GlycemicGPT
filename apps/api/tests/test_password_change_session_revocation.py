@@ -288,6 +288,87 @@ class TestPasswordChangeRevokesOtherSessions:
         assert me.status_code == 401
 
     @pytest.mark.asyncio
+    async def test_concurrent_change_does_not_lose_version_increment(
+        self, client, monkeypatch
+    ):
+        """Two overlapping password changes each advance the generation.
+
+        A read-modify-write on the ORM snapshot lets two changes that both read
+        version 1 both write 2, so a session minted between them survives the
+        second change. The increment must be DB-side (atomic). We commit a
+        second change from a separate connection while the first is mid-flight
+        (just before its own commit) and assert the version ends at 3, not 2.
+        """
+        import asyncio
+        import threading
+
+        from sqlalchemy import update
+        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+        from sqlalchemy.pool import NullPool
+
+        from src.routers import auth as auth_router
+
+        email = f"cr04_concurrent_{uuid.uuid4().hex[:8]}@test.com"
+        user_id = await _register(client, email)
+        login = await client.post(
+            "/api/auth/login", json={"email": email, "password": "TestPass1"}
+        )
+        cookie = login.cookies.get(settings.jwt_cookie_name)
+
+        real_hash_password = auth_router.hash_password
+        state = {"done": False}
+
+        def _commit_concurrent_change_then_hash(*args, **kwargs):
+            # Runs inside change_password, after it has read the user's version
+            # and before its own commit. Land a second change (separate
+            # connection, atomic increment) here to model the concurrent change.
+            if not state["done"]:
+                state["done"] = True
+
+                def _commit_bump() -> None:
+                    async def _run() -> None:
+                        engine = create_async_engine(
+                            settings.database_url, poolclass=NullPool
+                        )
+                        try:
+                            maker = async_sessionmaker(engine, expire_on_commit=False)
+                            async with maker() as session:
+                                await session.execute(
+                                    update(User)
+                                    .where(User.id == user_id)
+                                    .values(token_version=User.token_version + 1)
+                                )
+                                await session.commit()
+                        finally:
+                            await engine.dispose()
+
+                    asyncio.run(_run())
+
+                thread = threading.Thread(target=_commit_bump)
+                thread.start()
+                thread.join()
+            return real_hash_password(*args, **kwargs)
+
+        monkeypatch.setattr(
+            auth_router, "hash_password", _commit_concurrent_change_then_hash
+        )
+
+        changed = await client.post(
+            "/api/auth/change-password",
+            json={"current_password": "TestPass1", "new_password": "TestPass2"},
+            cookies={settings.jwt_cookie_name: cookie},
+        )
+        assert changed.status_code == 200
+
+        async with get_session_maker()() as session:
+            user = (
+                await session.execute(select(User).where(User.id == user_id))
+            ).scalar_one()
+        # Both changes advanced the generation: 1 -> 2 (concurrent) -> 3 (this
+        # request's atomic increment). A lost update would leave it at 2.
+        assert user.token_version == 3
+
+    @pytest.mark.asyncio
     async def test_token_issued_after_change_still_works(self, client):
         """A session started after the change is unaffected (no over-rejection)."""
         email = f"cr04_control_{uuid.uuid4().hex[:8]}@test.com"
