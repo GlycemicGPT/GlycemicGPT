@@ -597,9 +597,7 @@ export function ProfileSettings({
 
       {showsAccount && !isLoading && profile && (
         <SettingsSection
-          className={
-            spaciousSections ? "pb-[40vh] before:-top-16" : "pb-[40vh]"
-          }
+          className={spaciousSections ? "before:-top-16" : undefined}
           description="Use a strong password that you do not reuse elsewhere."
           separated
           title="Password"
@@ -671,7 +669,12 @@ export function ProfileSettings({
 
       {showsSessionLength && !isLoading && profile && sessionMinutes !== null && (
         <SettingsSection
-          className={spaciousSections ? "before:-top-16" : undefined}
+          // Last section on the account page: carries the bottom scroll-spacer
+          // so the page has breathing room below it (previously on Password,
+          // which is no longer last now that Session follows it).
+          className={
+            spaciousSections ? "pb-[40vh] before:-top-16" : "pb-[40vh]"
+          }
           separated
           title="Session"
         >
