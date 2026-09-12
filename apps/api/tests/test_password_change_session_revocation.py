@@ -208,6 +208,86 @@ class TestPasswordChangeRevokesOtherSessions:
         assert after.status_code == 401
 
     @pytest.mark.asyncio
+    async def test_change_committed_mid_refresh_revokes_minted_token(
+        self, client, monkeypatch
+    ):
+        """A change committing between the refresh's version read and its mint
+        still yields a revoked token -- the interleaving made explicit.
+
+        mobile_refresh mints with the token_version it read at handler entry, so
+        we inject the password-change commit (from a separate connection, to
+        model a concurrent transaction) at the mint boundary and assert the
+        access token the refresh returns is rejected on use. This exercises the
+        exact ordering row locking would otherwise be needed to prevent.
+        """
+        import asyncio
+        import threading
+
+        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+        from sqlalchemy.pool import NullPool
+
+        from src.routers import auth as auth_router
+
+        email = f"cr04_interleave_{uuid.uuid4().hex[:8]}@test.com"
+        user_id = await _register(client, email)
+        mobile_login = await client.post(
+            "/api/auth/mobile/login",
+            json={"email": email, "password": "TestPass1"},
+        )
+        refresh_token = mobile_login.json()["refresh_token"]
+
+        real_create_access_token = auth_router.create_access_token
+        state = {"bumped": False}
+
+        def _bump_version_then_mint(*args, **kwargs):
+            # The refresh handler has already read user.token_version by the time
+            # it mints; commit the change here (separate connection) to land it
+            # between that read and the mint.
+            if not state["bumped"]:
+                state["bumped"] = True
+
+                def _commit_bump() -> None:
+                    async def _run() -> None:
+                        engine = create_async_engine(
+                            settings.database_url, poolclass=NullPool
+                        )
+                        try:
+                            maker = async_sessionmaker(engine, expire_on_commit=False)
+                            async with maker() as session:
+                                user = (
+                                    await session.execute(
+                                        select(User).where(User.id == user_id)
+                                    )
+                                ).scalar_one()
+                                user.token_version += 1
+                                await session.commit()
+                        finally:
+                            await engine.dispose()
+
+                    asyncio.run(_run())
+
+                thread = threading.Thread(target=_commit_bump)
+                thread.start()
+                thread.join()
+            return real_create_access_token(*args, **kwargs)
+
+        monkeypatch.setattr(auth_router, "create_access_token", _bump_version_then_mint)
+
+        # The refresh succeeds -- it read the pre-change generation.
+        refreshed = await client.post(
+            "/api/auth/mobile/refresh", json={"refresh_token": refresh_token}
+        )
+        assert refreshed.status_code == 200
+        minted_access = refreshed.json()["access_token"]
+
+        # But the token it minted carries the pre-change generation, so it is
+        # rejected once the committed change is observed on the next use.
+        me = await client.get(
+            "/api/auth/me", headers={"Authorization": f"Bearer {minted_access}"}
+        )
+        assert me.status_code == 401
+
+    @pytest.mark.asyncio
     async def test_token_issued_after_change_still_works(self, client):
         """A session started after the change is unaffected (no over-rejection)."""
         email = f"cr04_control_{uuid.uuid4().hex[:8]}@test.com"
