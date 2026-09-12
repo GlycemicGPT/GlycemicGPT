@@ -187,6 +187,16 @@ export function ProfileSettings({
     };
   }, [showsSessionLength]);
 
+  // The Session section renders only once its preference has loaded; while it is
+  // absent (still loading, or a failed best-effort fetch) the Password section
+  // is the last one on the account page and must keep the bottom scroll-spacer
+  // itself, so it is never obscured at the bottom of the viewport.
+  const sessionSectionVisible =
+    showsSessionLength &&
+    !isLoading &&
+    profile !== null &&
+    sessionMinutes !== null;
+
   const handleUpdateName = async (e: React.FormEvent) => {
     e.preventDefault();
     setHasAttemptedDisplayNameSave(true);
@@ -597,7 +607,18 @@ export function ProfileSettings({
 
       {showsAccount && !isLoading && profile && (
         <SettingsSection
-          className={spaciousSections ? "before:-top-16" : undefined}
+          // Owns the bottom scroll-spacer only when Session (which follows it)
+          // isn't rendered — otherwise Password would be the last section with
+          // no breathing room below it.
+          className={
+            sessionSectionVisible
+              ? spaciousSections
+                ? "before:-top-16"
+                : undefined
+              : spaciousSections
+                ? "pb-[40vh] before:-top-16"
+                : "pb-[40vh]"
+          }
           description="Use a strong password that you do not reuse elsewhere."
           separated
           title="Password"
@@ -667,11 +688,11 @@ export function ProfileSettings({
         </SettingsSection>
       )}
 
-      {showsSessionLength && !isLoading && profile && sessionMinutes !== null && (
+      {sessionSectionVisible && (
         <SettingsSection
-          // Last section on the account page: carries the bottom scroll-spacer
-          // so the page has breathing room below it (previously on Password,
-          // which is no longer last now that Session follows it).
+          // Last section on the account page when it renders: carries the bottom
+          // scroll-spacer so the page has breathing room below it. When it is
+          // absent, the Password section above takes the spacer instead.
           className={
             spaciousSections ? "pb-[40vh] before:-top-16" : "pb-[40vh]"
           }
