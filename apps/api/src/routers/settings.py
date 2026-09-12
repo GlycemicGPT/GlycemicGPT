@@ -11,7 +11,11 @@ from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
-from src.core.auth import get_current_user, require_diabetic_or_admin
+from src.core.auth import (
+    get_current_user,
+    require_diabetic_or_admin,
+    require_first_party,
+)
 from src.core.units import GlucoseUnitSource
 from src.database import get_db
 from src.logging_config import get_logger
@@ -124,7 +128,16 @@ from src.services.target_glucose_range import get_or_create_range, update_range
 
 logger = get_logger(__name__)
 
-router = APIRouter(prefix="/api/settings", tags=["settings"])
+# First-party only: API keys (scoped third-party credentials) are denied on the
+# whole settings surface -- there is no settings-write scope, so a read-only key
+# must not reach a mutation or the data purge (CR-01). The guard is a no-op for
+# requests without an X-API-Key header, so the public ``/defaults`` routes below
+# stay reachable without authentication.
+router = APIRouter(
+    prefix="/api/settings",
+    tags=["settings"],
+    dependencies=[Depends(require_first_party)],
+)
 
 
 @router.get(

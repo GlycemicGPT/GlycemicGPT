@@ -59,6 +59,13 @@ class User(Base, TimestampMixin):
             ``SESSION_EXPIRE_HOURS`` behaviour. Bounded to
             [session_timeout_min_minutes, session_timeout_max_minutes] on write.
         last_login_at: Timestamp of last successful login
+        token_version: Session generation embedded in every token's ``ver``
+            claim; incremented on password change so a change revokes every
+            outstanding session and refresh token. Tokens with a lower ``ver``
+            are rejected. Defaults to 1.
+        password_changed_at: When the password was last changed
+            (audit/informational; revocation is driven by token_version).
+            NULL until the first password change.
     """
 
     __tablename__ = "users"
@@ -155,6 +162,27 @@ class User(Base, TimestampMixin):
         nullable=True,
     )
     last_login_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    # Session generation. Every access/refresh token embeds this value as its
+    # ``ver`` claim at mint time; the auth paths reject any token whose ``ver``
+    # is below the user's current value (see
+    # src.core.security.is_token_version_stale). A password change increments it,
+    # so the change evicts every outstanding session and refresh token -- with no
+    # sub-second boundary and no laundering via a concurrent refresh. Defaults to
+    # 1; tokens minted before this field existed carry no ``ver`` and are treated
+    # as version 1, so existing sessions survive the migration until the next
+    # revocation.
+    token_version: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+        server_default="1",
+    )
+    # When the password was last changed (audit/informational; revocation is
+    # driven by token_version). NULL until the first password change.
+    password_changed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )

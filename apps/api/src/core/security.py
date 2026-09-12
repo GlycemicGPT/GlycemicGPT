@@ -100,6 +100,7 @@ def create_access_token(
     email: str,
     role: str,
     expires_delta: timedelta | None = None,
+    token_version: int = 1,
 ) -> str:
     """Create a JWT access token.
 
@@ -108,6 +109,11 @@ def create_access_token(
         email: User's email address
         role: User's role (diabetic, caregiver, admin)
         expires_delta: Optional custom expiration time
+        token_version: The user's current session generation
+            (``users.token_version``), embedded as the ``ver`` claim. A
+            password change (or any session-wide revocation) increments it, so
+            tokens minted with an older value are rejected. Callers must pass
+            the user's live value; the default of 1 matches the column default.
 
     Returns:
         Encoded JWT token string
@@ -125,6 +131,7 @@ def create_access_token(
         "iat": datetime.now(UTC),
         "type": "access",
         "jti": str(uuid.uuid4()),
+        "ver": token_version,
     }
 
     return jwt.encode(
@@ -165,6 +172,7 @@ def create_refresh_token(
     email: str,
     role: str,
     expires_delta: timedelta | None = None,
+    token_version: int = 1,
 ) -> str:
     """Create a JWT refresh token (longer-lived, for mobile token renewal).
 
@@ -173,6 +181,11 @@ def create_refresh_token(
         email: User's email address
         role: User's role
         expires_delta: Optional custom expiration time
+        token_version: The user's current session generation
+            (``users.token_version``), embedded as the ``ver`` claim so a
+            password change revokes outstanding refresh tokens. Callers must
+            pass the user's live value; the default of 1 matches the column
+            default.
 
     Returns:
         Encoded JWT refresh token string
@@ -190,6 +203,7 @@ def create_refresh_token(
         "iat": datetime.now(UTC),
         "type": "refresh",
         "jti": str(uuid.uuid4()),
+        "ver": token_version,
     }
 
     return jwt.encode(
@@ -224,6 +238,30 @@ def decode_refresh_token(token: str) -> dict | None:
         return None
 
 
+def is_token_version_stale(token_version: int | None, current_version: int) -> bool:
+    """Return True if a token's session generation predates the user's current one.
+
+    Every token carries a ``ver`` claim equal to ``users.token_version`` at mint
+    time. A password change (or any session-wide revocation) increments the
+    user's ``token_version``, so any token minted before then carries a lower
+    value and must be rejected. Unlike an ``iat``-vs-timestamp comparison this
+    has no sub-second boundary: a token minted concurrently with a change still
+    carries the pre-change version and is rejected on its next use.
+
+    A token with no ``ver`` claim (minted before this field existed) is treated
+    as version 1 -- the column default -- so existing sessions are grandfathered
+    until the next revocation rather than dropped on deploy.
+
+    Args:
+        token_version: The token's ``ver`` claim (or None for a legacy token).
+        current_version: The user's current ``token_version``.
+
+    Returns:
+        True if the token must be rejected, False otherwise.
+    """
+    return (token_version if token_version is not None else 1) < current_version
+
+
 class TokenData:
     """Parsed token data for type safety."""
 
@@ -232,4 +270,5 @@ class TokenData:
         self.email: str = payload["email"]
         self.role: str = payload["role"]
         self.exp: datetime = datetime.fromtimestamp(payload["exp"], tz=UTC)
+        self.ver: int | None = payload.get("ver")
         self.jti: str | None = payload.get("jti")
