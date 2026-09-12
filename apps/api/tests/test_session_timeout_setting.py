@@ -50,7 +50,7 @@ async def test_get_session_timeout_defaults_to_24h(client):
     assert body["minutes"] == 1440  # 24h, matching the historical default
     assert body["min_minutes"] == settings.session_timeout_min_minutes
     assert body["max_minutes"] == settings.session_timeout_max_minutes
-    assert body["presets"] == [15, 60, 360, 720, 1440, 10080]
+    assert body["presets"] == [15, 60, 360, 720, 1440, 10080, 20160, 43200]
 
 
 async def test_patch_session_timeout_round_trips(client):
@@ -65,6 +65,20 @@ async def test_patch_session_timeout_round_trips(client):
     assert update.status_code == 200
     assert update.json()["minutes"] == 360
     assert settings_get.json()["minutes"] == 360
+
+
+async def test_patch_accepts_thirty_day_session(client):
+    """The extended preset ladder (up to 30 days) is accepted, not clamped."""
+    cookies = await register_and_login(client)
+
+    update = await client.patch(
+        "/api/settings/session-timeout", json={"minutes": 43200}, cookies=cookies
+    )
+    settings_get = await client.get("/api/settings/session-timeout", cookies=cookies)
+
+    assert update.status_code == 200
+    assert update.json()["minutes"] == 43200  # 30 days
+    assert settings_get.json()["minutes"] == 43200
 
 
 async def test_patch_below_minimum_is_rejected(client):
@@ -207,7 +221,8 @@ async def test_changed_timeout_shortens_next_login_token_and_cookie(client):
 
 
 @pytest.mark.parametrize(
-    "low,high", [(15, 10080), (60, 1440), (1440, 1440), (1440, 10080)]
+    "low,high",
+    [(15, 10080), (60, 1440), (1440, 1440), (1440, 10080), (15, 43200)],
 )
 def test_config_accepts_ordered_session_timeout_bounds(low, high):
     """Deployment bounds allow both ranges and a single permitted duration."""
@@ -233,9 +248,9 @@ def test_config_rejects_inverted_session_timeout_bounds():
 @pytest.mark.parametrize(
     "field", ["session_timeout_min_minutes", "session_timeout_max_minutes"]
 )
-@pytest.mark.parametrize("value", [-1, 0, 14, 10081])
+@pytest.mark.parametrize("value", [-1, 0, 14, 43201])
 def test_config_rejects_session_timeout_outside_absolute_bounds(field, value):
-    """Neither deployment bound may escape the absolute 15-minute to 7-day range."""
+    """Neither deployment bound may escape the absolute 15-minute to 30-day range."""
     with pytest.raises(ValidationError) as exc:
         Settings(_env_file=None, **{field: value})
     assert exc.value.errors()[0]["loc"] == (field,)

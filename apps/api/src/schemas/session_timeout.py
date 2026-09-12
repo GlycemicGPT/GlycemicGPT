@@ -10,9 +10,10 @@ from pydantic import BaseModel, Field, field_validator
 
 from src.config import settings
 
-# Preset ladder surfaced by clients (minutes): 15m, 1h, 6h, 12h, 24h, 7d. This
-# is advisory for the UI only -- the API accepts any value within the bounds.
-SESSION_TIMEOUT_PRESET_MINUTES = [15, 60, 360, 720, 1440, 10080]
+# Preset ladder surfaced by clients (minutes): 15m, 1h, 6h, 12h, 24h, 7d, 14d,
+# 30d. This is advisory for the UI only -- the API accepts any value within the
+# bounds, and clients hide presets that fall outside the deployment range.
+SESSION_TIMEOUT_PRESET_MINUTES = [15, 60, 360, 720, 1440, 10080, 20160, 43200]
 
 
 class SessionTimeoutResponse(BaseModel):

@@ -46,9 +46,9 @@ class Settings(BaseSettings):
     # Bounds for the per-user web-session timeout (User.session_timeout_minutes).
     # These bound the value users may choose in Settings; the default itself is
     # the column server_default (1440 = 24h, matching session_expire_hours).
-    # Deployment bounds must include that default and stay within 15m .. 7d.
-    session_timeout_min_minutes: int = Field(default=15, ge=15, le=10080)
-    session_timeout_max_minutes: int = Field(default=10080, ge=15, le=10080)
+    # Deployment bounds must include that default and stay within 15m .. 30d.
+    session_timeout_min_minutes: int = Field(default=15, ge=15, le=43200)
+    session_timeout_max_minutes: int = Field(default=43200, ge=15, le=43200)
 
     @model_validator(mode="after")
     def validate_session_timeout_bounds(self) -> "Settings":

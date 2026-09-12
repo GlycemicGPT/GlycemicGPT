@@ -90,10 +90,10 @@ const PROFILE: CurrentUserResponse = {
 };
 
 const SESSION_TIMEOUT: SessionTimeoutResponse = {
-  max_minutes: 10080,
+  max_minutes: 43200,
   min_minutes: 15,
   minutes: 1440,
-  presets: [15, 60, 360, 720, 1440, 10080],
+  presets: [15, 60, 360, 720, 1440, 10080, 20160, 43200],
 };
 
 const refreshUser = jest.fn();
@@ -207,6 +207,8 @@ describe("ProfilePage", () => {
     expect(screen.getByLabelText("Current Password")).toBeInTheDocument();
     expect(screen.getByLabelText("New Password")).toBeInTheDocument();
     expect(screen.getByLabelText("Confirm New Password")).toBeInTheDocument();
+    // Session length hasn't loaded here, so Password is the last section and
+    // keeps the bottom scroll-spacer (so it is never obscured at the bottom).
     expect(
       screen.getByLabelText("Current Password").closest("section"),
     ).toHaveClass("pb-[40vh]");
@@ -755,6 +757,30 @@ describe("ProfilePage", () => {
     expect(mockGetSessionTimeout).toHaveBeenCalledTimes(1);
     // 1440 minutes from the mocked preference -> the "24 hours" preset.
     expect(select).toHaveValue("1440");
+    // Session is the last account section, so it carries the bottom scroll-spacer,
+    // and the Password section above no longer does.
+    expect(select.closest("section")).toHaveClass("pb-[40vh]");
+    expect(
+      screen.getByLabelText("Current Password").closest("section"),
+    ).not.toHaveClass("pb-[40vh]");
+  });
+
+  it("keeps the bottom spacer on Password when the session preference fails to load", async () => {
+    // If getSessionTimeout() rejects, the Session section never renders, so the
+    // Password section is last and must retain the scroll-spacer itself rather
+    // than leaving the final section obscured at the bottom of the viewport.
+    mockGetSessionTimeout.mockRejectedValue(new Error("network"));
+    render(<ProfileSettings sections={["account"]} />);
+
+    await screen.findByLabelText("Current Password");
+    await waitFor(() => expect(mockGetSessionTimeout).toHaveBeenCalled());
+
+    expect(
+      screen.queryByRole("combobox", { name: "Session length" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByLabelText("Current Password").closest("section"),
+    ).toHaveClass("pb-[40vh]");
   });
 
   it("saves a new session length and reflects it, applying at next sign-in", async () => {
