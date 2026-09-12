@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
-from src.core.security import TokenData, decode_access_token, is_token_issued_before
+from src.core.security import TokenData, decode_access_token, is_token_version_stale
 from src.core.token_blacklist import is_token_blacklisted
 from src.database import get_db
 from src.logging_config import get_logger
@@ -117,10 +117,10 @@ async def get_current_user(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="User account is disabled",
             )
-        # Reject tokens minted before the user's last password change so a
-        # password change evicts every outstanding session, not just the token
-        # that made the change request (CR-04 / CWE-613).
-        if is_token_issued_before(token_data.iat, user.password_changed_at):
+        # Reject tokens from an older session generation so a password change
+        # (which bumps users.token_version) evicts every outstanding session,
+        # not just the token that made the change request (CR-04 / CWE-613).
+        if is_token_version_stale(token_data.ver, user.token_version):
             raise credentials_exception
         return user
 
