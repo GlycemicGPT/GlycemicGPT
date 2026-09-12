@@ -21,6 +21,7 @@ from src.core.security import (
     decode_access_token,
     decode_refresh_token,
     hash_password,
+    is_token_issued_before,
     verify_password,
 )
 from src.core.token_blacklist import (
@@ -518,6 +519,20 @@ async def mobile_refresh(
             detail="Invalid or expired refresh token",
         )
 
+    # A refresh token minted before the user's last password change is dead --
+    # a password change revokes outstanding refresh tokens, not just access
+    # tokens and the request's own token (CR-04 / CWE-613).
+    if is_token_issued_before(payload.get("iat"), user.password_changed_at):
+        logger.warning(
+            "Refresh token predates password change; rejected",
+            user_id=str(user.id),
+            client_ip=client_ip,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+        )
+
     # Note: old refresh token already consumed atomically above via consume_token_once
 
     # Issue new token pair (rotation)
@@ -710,6 +725,10 @@ async def change_password(
         )
 
     current_user.hashed_password = hash_password(body.new_password)
+    # Stamp the change time so every token issued before now -- other sessions
+    # and refresh tokens, not just this request's token -- is rejected on its
+    # next use (CR-04 / CWE-613). Written atomically with the new hash.
+    current_user.password_changed_at = datetime.now(UTC)
     await db.commit()
 
     # Blacklist the current token to force re-authentication (Story 28.3)

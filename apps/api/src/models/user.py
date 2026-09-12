@@ -59,6 +59,10 @@ class User(Base, TimestampMixin):
             ``SESSION_EXPIRE_HOURS`` behaviour. Bounded to
             [session_timeout_min_minutes, session_timeout_max_minutes] on write.
         last_login_at: Timestamp of last successful login
+        password_changed_at: When the password was last changed. Access and
+            refresh tokens issued before this instant are rejected, so a
+            password change revokes every outstanding session and refresh token.
+            NULL until the first password change (no restriction).
     """
 
     __tablename__ = "users"
@@ -155,6 +159,16 @@ class User(Base, TimestampMixin):
         nullable=True,
     )
     last_login_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    # When the password was last changed. Any access or refresh token issued
+    # before this instant is rejected (see src.core.security.is_token_issued_before
+    # and the auth verification paths), so a password change evicts every
+    # outstanding session and refresh token, not just the request's own token.
+    # NULL means the password has never been changed -- no restriction, so
+    # existing tokens keep working after the migration with no forced re-login.
+    password_changed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )

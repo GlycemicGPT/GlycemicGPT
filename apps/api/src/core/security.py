@@ -224,6 +224,33 @@ def decode_refresh_token(token: str) -> dict | None:
         return None
 
 
+def is_token_issued_before(iat: int | None, cutoff: datetime | None) -> bool:
+    """Return True if a token's ``iat`` predates ``cutoff`` (e.g. a password change).
+
+    Used to invalidate every outstanding token when a user changes their
+    password: any token issued before ``users.password_changed_at`` is rejected.
+
+    Comparison is at whole-second granularity because JWT ``iat`` is epoch
+    seconds, so a token minted in the same second as the cutoff is NOT treated
+    as stale (a login immediately after the change stays valid). A NULL
+    ``cutoff`` means no restriction (the user never changed their password); a
+    token with no ``iat`` cannot be proven fresh and is treated as stale
+    (fail-closed).
+
+    Args:
+        iat: The token's issued-at claim, in epoch seconds (or None).
+        cutoff: The revocation boundary (or None for no restriction).
+
+    Returns:
+        True if the token must be rejected, False otherwise.
+    """
+    if cutoff is None:
+        return False
+    if iat is None:
+        return True
+    return int(iat) < int(cutoff.timestamp())
+
+
 class TokenData:
     """Parsed token data for type safety."""
 
@@ -232,4 +259,5 @@ class TokenData:
         self.email: str = payload["email"]
         self.role: str = payload["role"]
         self.exp: datetime = datetime.fromtimestamp(payload["exp"], tz=UTC)
+        self.iat: int | None = payload.get("iat")
         self.jti: str | None = payload.get("jti")

@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
-from src.core.security import TokenData, decode_access_token
+from src.core.security import TokenData, decode_access_token, is_token_issued_before
 from src.core.token_blacklist import is_token_blacklisted
 from src.database import get_db
 from src.logging_config import get_logger
@@ -28,6 +28,41 @@ _API_KEY_SCOPES_ATTR = "_api_key_scopes"
 def is_api_key_auth(request: Request) -> bool:
     """Return True if the current request was authenticated via an API key."""
     return hasattr(request.state, _API_KEY_SCOPES_ATTR)
+
+
+async def require_first_party(request: Request) -> None:
+    """Reject API-key authentication on first-party account/settings routes.
+
+    Settings and account routes are first-party: the account owner acts through
+    the web or mobile app (a session cookie or a Bearer JWT). API keys are
+    scoped third-party credentials, and there is deliberately no settings-write
+    scope (see ``src.core.scopes``), so a key -- even a read-only one -- must
+    never reach a settings read, mutation, or the data purge.
+
+    Applied as a router-level dependency. It inspects the request directly
+    rather than depending on ``get_current_user`` so it does not force
+    authentication on the public ``/defaults`` routes: a request with no
+    ``X-API-Key`` header simply passes through to the route's own auth (or lack
+    of it). A first-party credential takes precedence in ``get_current_user``,
+    so a request carrying a cookie or Bearer token is allowed even if it also
+    sends a stray ``X-API-Key`` header; only a request that would authenticate
+    purely as an API key is rejected.
+
+    Raises:
+        HTTPException 403: If the request would authenticate via an API key.
+    """
+    if not request.headers.get("X-API-Key"):
+        return
+    # A first-party credential wins in get_current_user's auth-path ordering.
+    if request.cookies.get(settings.jwt_cookie_name):
+        return
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="API keys cannot access first-party account routes.",
+    )
 
 
 async def get_current_user(
@@ -82,6 +117,11 @@ async def get_current_user(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="User account is disabled",
             )
+        # Reject tokens minted before the user's last password change so a
+        # password change evicts every outstanding session, not just the token
+        # that made the change request (CR-04 / CWE-613).
+        if is_token_issued_before(token_data.iat, user.password_changed_at):
+            raise credentials_exception
         return user
 
     # --- Path 3: X-API-Key header ---

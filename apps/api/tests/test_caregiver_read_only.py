@@ -114,6 +114,18 @@ class TestRouterDependenciesIncludeRoleCheck:
                     return route.dependencies
         return []
 
+    def _get_role_checker(self, router, path: str, method: str) -> RoleChecker | None:
+        """Return the RoleChecker among a route's dependencies, or None.
+
+        Position-independent: a route may carry other dependencies before its
+        role check (e.g. the settings router's router-level ``require_first_party``
+        guard), so search by type rather than assuming index 0.
+        """
+        for dep in self._get_route_dependencies(router, path, method):
+            if isinstance(dep.dependency, RoleChecker):
+                return dep.dependency
+        return None
+
     # ── Alerts ──
 
     def test_alerts_active_has_require_diabetic(self):
@@ -212,10 +224,10 @@ class TestRouterDependenciesIncludeRoleCheck:
         """Target glucose range role check blocks CAREGIVER."""
         from src.routers.settings import router
 
-        deps = self._get_route_dependencies(
+        role_checker = self._get_role_checker(
             router, "/api/settings/target-glucose-range", "GET"
         )
-        role_checker = deps[0].dependency
+        assert role_checker is not None
         assert UserRole.CAREGIVER not in role_checker.allowed_roles
 
     # ── Brief Delivery (Story 9.2) ──
@@ -254,10 +266,10 @@ class TestRouterDependenciesIncludeRoleCheck:
         """Brief delivery role check blocks CAREGIVER."""
         from src.routers.settings import router
 
-        deps = self._get_route_dependencies(
+        role_checker = self._get_role_checker(
             router, "/api/settings/brief-delivery", "GET"
         )
-        role_checker = deps[0].dependency
+        assert role_checker is not None
         assert UserRole.CAREGIVER not in role_checker.allowed_roles
 
     # ── Emergency Contacts ──
@@ -384,10 +396,10 @@ class TestRouterDependenciesIncludeRoleCheck:
         """Settings role check blocks CAREGIVER."""
         from src.routers.settings import router
 
-        deps = self._get_route_dependencies(
+        role_checker = self._get_role_checker(
             router, "/api/settings/alert-thresholds", "GET"
         )
-        role_checker = deps[0].dependency
+        assert role_checker is not None
         assert UserRole.CAREGIVER not in role_checker.allowed_roles
 
     def test_emergency_contacts_role_blocks_caregiver(self):
@@ -464,10 +476,10 @@ class TestRouterDependenciesIncludeRoleCheck:
         """Data retention role check blocks CAREGIVER."""
         from src.routers.settings import router
 
-        deps = self._get_route_dependencies(
+        role_checker = self._get_role_checker(
             router, "/api/settings/data-retention", "GET"
         )
-        role_checker = deps[0].dependency
+        assert role_checker is not None
         assert UserRole.CAREGIVER not in role_checker.allowed_roles
 
     # ── Story 9.4: Data Purge ──
@@ -486,10 +498,10 @@ class TestRouterDependenciesIncludeRoleCheck:
         """Data purge role check blocks CAREGIVER."""
         from src.routers.settings import router
 
-        deps = self._get_route_dependencies(
+        role_checker = self._get_role_checker(
             router, "/api/settings/data-retention/purge", "POST"
         )
-        role_checker = deps[0].dependency
+        assert role_checker is not None
         assert UserRole.CAREGIVER not in role_checker.allowed_roles
 
     # ── Story 9.5: Settings export ──
@@ -506,6 +518,6 @@ class TestRouterDependenciesIncludeRoleCheck:
         """Settings export role check blocks CAREGIVER."""
         from src.routers.settings import router
 
-        deps = self._get_route_dependencies(router, "/api/settings/export", "POST")
-        role_checker = deps[0].dependency
+        role_checker = self._get_role_checker(router, "/api/settings/export", "POST")
+        assert role_checker is not None
         assert UserRole.CAREGIVER not in role_checker.allowed_roles
